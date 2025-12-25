@@ -1,0 +1,17 @@
+# Rust Build Artifacts
+/target/
+
+# My stuff
+/todo/
+
+# The Extracted Game Data
+src/game/
+
+# IDE Settings
+.vscode/
+.idea/
+*.swp
+
+# OS Junk
+.DS_Store
+Thumbs.db
