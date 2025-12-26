@@ -6,12 +6,14 @@ A high-performance tool written in Rust to decrypt, extract, and animate assets 
 Currently implemented:
 * **Decrypt Game Files:** Multi-threaded extraction of `.pack` and `.list` files (Supports JP, EN, TW, KR).
 * **Automatic Detection:** Automatically detects region and encryption type (standard or server-style).
+* **Extracts All Languages:**  Supports all in-game languages from the Global version that other programs opt to skip.
+* **Sorts Game Data:** Game data is stored in a simple, human-readable file structure for easy user access.
 
 ## Roadmap
 I plan to implement these features soon:
 * [ ] Read & Sort Cat Data
 * [ ] Read & Sort Enemy Data
-* [ ] Asset Region Priority
+* [ ] Data Language Priority
 * [ ] Animation Player
 * [ ] Animation to AVIF Export
 * [ ] Read & Sort Stage Data
@@ -28,12 +30,12 @@ Download your desired region of *The Battle Cats*. You can use the Play Store or
 * **KR:** [Play Store](https://play.google.com/store/apps/details?id=jp.co.ponos.battlecatskr) | [QooApp](https://m-apps.qoo-app.com/app/6817)
 
 Your `[PACKAGE_NAME]` will vary depending on which region you downloaded:
-* JP: `jp.co.ponos.battlecats`
-* EN: `jp.co.ponos.battlecatsen`
-* TW: `jp.co.ponos.battlecatstw`
-* KR: `jp.co.ponos.battlecatskr`
+* **JP:** `jp.co.ponos.battlecats`
+* **EN:** `jp.co.ponos.battlecatsen`
+* **TW:** `jp.co.ponos.battlecatstw`
+* **KR:** `jp.co.ponos.battlecatskr`
 
-*Open the game at least once to let it download the latest update data.*
+*Open the game to download game data. Keep the app around to download future updates.*
 
 ### 2. Locate the Files
 1. Download and open [MT Manager](https://mt-manager.en.softonic.com/android). Grant it **Root (Superuser)** permissions.
@@ -52,8 +54,11 @@ Navigate to `/data/app/`. Look for a folder containing `[PACKAGE_NAME]`.
 
 ### 5. Decrypt
 1. Open **Battle Cats Complete**.
+2. Navigate to the "Import Data" window
 2. Click "Select Game Folder".
-3. Choose the folder where you saved the files. The tool will automatically decrypt and extract everything to the `/game` folder.
+3. Choose the folder where you saved the files. The tool will automatically decrypt, extract, and sort everything into a file structure inside the `/game` folder.
+
+*This process will have to be repeated every time the game updates to obtain new content.*
 
 ## Disclaimer
 This project is for educational purposes only. Assets are copyright PONOS Corp. Please support the official release.

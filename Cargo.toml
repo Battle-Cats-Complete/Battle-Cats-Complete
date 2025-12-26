@@ -23,3 +23,7 @@ image = { version = "0.25", features = ["png", "ico"] }
 rfd = "0.15"
 # Handles file archives
 zip = "0.6"
+# Handles sorting
+regex = "1"
+# Handles multi-threading
+rayon = "1.10"
