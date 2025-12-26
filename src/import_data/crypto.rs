@@ -45,37 +45,34 @@ pub fn decrypt_ecb_with_key(data: &[u8], key: &[u8; 16]) -> Result<Vec<u8>, Stri
 }
 
 // The Main Function
-pub fn decrypt_pack_chunk(data: &[u8], pack_filename: &str) -> Result<Vec<u8>, String> {
-    let lower_name = pack_filename.to_lowercase();
-
-    if lower_name.contains("imagedatalocal") {
-         return Ok(data.to_vec());
+pub fn decrypt_pack_chunk(data: &[u8], _pack_filename: &str) -> Result<(Vec<u8>, String), String> {
+    
+    // Try to decrypt .pack as server files
+    let server_key = get_md5_key("battlecats");
+    if let Ok(result) = decrypt_ecb_with_key(data, &server_key) {
+        return Ok((result, "Server".to_string()));
     }
 
-    // CASE A: Server Packs
-    if lower_name.contains("server") {
-        let key = get_md5_key("battlecats");
-        return decrypt_ecb_with_key(data, &key);
+    // Try to decrypt .pack as game files
+    // Priority JP -> EN -> TW -> KR
+    let keys = [
+        ("", "", "JP"), // Japan
+        ("", "", "EN"), // Global
+        ("", "", "TW"), // Taiwan
+        ("", "", "KR"), // Korean
+    ];
+
+    for (k_hex, iv_hex, region) in keys.iter() {
+        let key_bytes = hex::decode(k_hex).unwrap();
+        let iv_bytes = hex::decode(iv_hex).unwrap();
+
+        let key_arr: [u8; 16] = key_bytes.try_into().unwrap();
+        let iv_arr: [u8; 16] = iv_bytes.try_into().unwrap();
+
+        if let Ok(result) = decrypt_cbc_with_key(data, &key_arr, &iv_arr) {
+            return Ok((result, region.to_string()));
+        }
     }
 
-    // CASE B: Normal Packs (Global then JP)
-    let global_key = hex::decode("").unwrap();
-    let global_iv = hex::decode("").unwrap();
-    let g_key_arr: [u8; 16] = global_key.try_into().unwrap();
-    let g_iv_arr: [u8; 16] = global_iv.try_into().unwrap();
-
-    if let Ok(result) = decrypt_cbc_with_key(data, &g_key_arr, &g_iv_arr) {
-        return Ok(result);
-    }
-
-    let jp_key = hex::decode("").unwrap();
-    let jp_iv = hex::decode("").unwrap();
-    let j_key_arr: [u8; 16] = jp_key.try_into().unwrap();
-    let j_iv_arr: [u8; 16] = jp_iv.try_into().unwrap();
-
-    if let Ok(result) = decrypt_cbc_with_key(data, &j_key_arr, &j_iv_arr) {
-        return Ok(result);
-    }
-
-    Err("Failed to decrypt: Key rejected or data corrupt".to_string())
+    Ok((data.to_vec(), "None".to_string()))
 }

@@ -37,8 +37,9 @@ fn extract_pack_contents(
         .map_err(|e| format!("Failed to open pack: {}", e))?;
 
     let pack_filename = pack_path.file_name().unwrap().to_string_lossy().to_string();
-
     let _ = tx.send(format!("Extracting: {}", pack_filename));
+
+    let mut detected_region: Option<String> = None;
 
     for line in list_content.lines() {
         let parts: Vec<&str> = line.split(',').collect();
@@ -59,7 +60,14 @@ fn extract_pack_contents(
         if pack_file.read_exact(&mut buffer).is_err() { continue; }
 
         match crypto::decrypt_pack_chunk(&buffer, &pack_filename) {
-            Ok(decrypted_chunk) => {
+            Ok((decrypted_chunk, region)) => {
+
+                if detected_region.is_none() {
+                    detected_region = Some(region.clone());
+                    let msg = format!("Region Detected: {}", region);
+                    let _ = tx.send(msg);
+                }
+
                 let final_len = std::cmp::min(size, decrypted_chunk.len());
                 let final_data = &decrypted_chunk[..final_len];
 
