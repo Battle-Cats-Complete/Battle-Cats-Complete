@@ -3,6 +3,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 pub mod game_data;
 pub mod crypto;
+pub mod sort;
 
 // We need a struct to hold the state SPECIFIC to this page
 pub struct ImportState {
@@ -84,10 +85,17 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
 
                     // Spawn the thread
                     thread::spawn(move || {
-                        // We pass 'tx' (the microphone) to the heavy function
+                        // Run decryption/extraction
                         match game_data::import_all_from_folder(&folder, tx.clone()) {
-                            Ok(_) => { let _ = tx.send("Success! All done".to_string()); },
-                            Err(e) => { let _ = tx.send(format!("Error: {}", e)); }
+                            Ok(_) => {
+                                let _ = tx.send("Starting Sort".to_string());
+
+                                match sort::sort_game_files(tx.clone()) {
+                                    Ok(_) => { let _ = tx.send("Success! Files extracted and storted".to_string()); },
+                                    Err(e) => { let _ = tx.send(format!("Error Sorting: {}", e)); }
+                                }
+                            },
+                            Err(e) => { let _ = tx.send(format!("Error Extracting: {}", e)); }
                         }
                     });
                 }

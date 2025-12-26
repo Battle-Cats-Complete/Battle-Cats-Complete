@@ -3,7 +3,7 @@
 mod app;
 mod main_menu;
 mod import_data;
-
+pub mod patterns;
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
