@@ -28,10 +28,10 @@ Download your desired region of *The Battle Cats*. You can use the Play Store or
 * **KR:** [Play Store](https://play.google.com/store/apps/details?id=jp.co.ponos.battlecatskr) | [QooApp](https://m-apps.qoo-app.com/app/6817)
 
 Your `[PACKAGE_NAME]` will vary depending on which region you downloaded:
-    * JP: `jp.co.ponos.battlecats`
-    * EN: `jp.co.ponos.battlecatsen`
-    * TW: `jp.co.ponos.battlecatstw`
-    * KR: `jp.co.ponos.battlecatskr`
+* JP: `jp.co.ponos.battlecats`
+* EN: `jp.co.ponos.battlecatsen`
+* TW: `jp.co.ponos.battlecatstw`
+* KR: `jp.co.ponos.battlecatskr`
 
 *Open the game at least once to let it download the latest update data.*
 
