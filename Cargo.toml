@@ -19,7 +19,7 @@ hex = "0.4"
 eframe = "0.29"
 # Handles icon/images
 image = { version = "0.25", features = ["png", "ico"] }
-# hadnles file dialogs
+# Handles file dialogs
 rfd = "0.15"
 # Handles file archives
 zip = "0.6"
