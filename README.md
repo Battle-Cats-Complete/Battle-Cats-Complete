@@ -27,6 +27,12 @@ Download your desired region of *The Battle Cats*. You can use the Play Store or
 * **TW:** [Play Store](https://play.google.com/store/apps/details?id=jp.co.ponos.battlecatstw) | [QooApp](https://m-apps.qoo-app.com/app/6598)
 * **KR:** [Play Store](https://play.google.com/store/apps/details?id=jp.co.ponos.battlecatskr) | [QooApp](https://m-apps.qoo-app.com/app/6817)
 
+Your `[PACKAGE_NAME]` will vary depending on which region you downloaded:
+    * JP: `jp.co.ponos.battlecats`
+    * EN: `jp.co.ponos.battlecatsen`
+    * TW: `jp.co.ponos.battlecatstw`
+    * KR: `jp.co.ponos.battlecatskr`
+
 *Open the game at least once to let it download the latest update data.*
 
 ### 2. Locate the Files
@@ -37,18 +43,12 @@ Download your desired region of *The Battle Cats*. You can use the Play Store or
 ### 3. Copy the Data
 Navigate to the data folder for your specific region:
 * **Path:** `/data/data/[PACKAGE_NAME]/files/`
-    * JP: `jp.co.ponos.battlecats`
-    * EN: `jp.co.ponos.battlecatsen`
-    * TW: `jp.co.ponos.battlecatstw`
-    * KR: `jp.co.ponos.battlecatskr`
 * Copy the entire `files` folder to your shared folder.
 
 ### 4. Copy the APK
-Navigate to `/data/app/`. Look for a folder containing `[PACKAGE_NAME]..`.
+Navigate to `/data/app/`. Look for a folder containing `[PACKAGE_NAME]`.
 * Inside, find `split_InstallPack.apk`.
 * Copy this file to your shared folder.
-
-> **Note:** `split_InstallPack.apk` often contains the assets for the 3 most recent updates. If you update frequently, you can often just grab this file instead of re-copying the whole `files` folder.
 
 ### 5. Decrypt
 1. Open **Battle Cats Complete**.
