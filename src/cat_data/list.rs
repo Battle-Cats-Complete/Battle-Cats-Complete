@@ -6,16 +6,23 @@ use image::{imageops};
 
 pub struct CatList {
     texture_cache: HashMap<u32, egui::TextureHandle>,
-    // REMOVED: auto_scroll: bool, 
-    bg_cache: Option<image::RgbaImage>, 
+    bg_cache: Option<image::RgbaImage>,
+    
+    hovered_id: Option<egui::Id>, 
+    hover_start_time: f64,
+    
+
+    hover_lost_time: Option<f64>,
 }
 
 impl Default for CatList {
     fn default() -> Self {
         Self {
             texture_cache: HashMap::new(),
-            // REMOVED: auto_scroll: false,
             bg_cache: None,
+            hovered_id: None,
+            hover_start_time: 0.0,
+            hover_lost_time: None,
         }
     }
 }
@@ -24,6 +31,8 @@ impl CatList {
     pub fn clear_cache(&mut self) {
         self.texture_cache.clear();
         self.bg_cache = None;
+        self.hovered_id = None;
+        self.hover_lost_time = None;
     }
 
     pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, units: &[CatEntry], selected_id: &mut Option<u32>, search_query: &str) {
@@ -36,18 +45,13 @@ impl CatList {
         }
 
         let query_lower = search_query.to_lowercase();
-
         let filtered_units: Vec<&CatEntry> = units.iter()
             .filter(|unit| {
                 if search_query.is_empty() { return true; }
-                
                 let id_str = format!("{:03}", unit.id);
                 if id_str.contains(search_query) { return true; }
-
                 for name in &unit.names {
-                    if name.to_lowercase().contains(&query_lower) {
-                        return true;
-                    }
+                    if name.to_lowercase().contains(&query_lower) { return true; }
                 }
                 false
             })
@@ -58,12 +62,14 @@ impl CatList {
         let row_height = target_height + padding;
         let total_rows = filtered_units.len() + 1; 
 
-        // --- FIX: NO AUTO SCROLL ---
-        egui::ScrollArea::vertical()
+        let now = ui.input(|i| i.time);
+
+        let scroll_output = egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            // REMOVED: .stick_to_bottom(...)
             .show_rows(ui, row_height, total_rows, |ui, row_range| {
                 
+                let mut hovered_this_frame = None;
+
                 for index in row_range {
                     if let Some(&unit) = filtered_units.get(index) {
                         
@@ -79,34 +85,81 @@ impl CatList {
                             let btn = egui::ImageButton::new((tex.id(), btn_size))
                                 .selected(is_selected);
                             
-                            let response = ui.add(btn)
-                                .on_hover_ui(|ui| {
-                                    ui.strong(format!("ID: {:03}", unit.id));
-                                    if unit.names.is_empty() {
-                                        ui.label(format!("(No Name Data)"));
-                                    } else {
-                                        for name in &unit.names {
-                                            ui.label(name);
+                            let mut response = ui.add(btn);
+
+                            if response.hovered() {
+                                hovered_this_frame = Some(response.id);
+
+                                if self.hovered_id != Some(response.id) {
+                                    self.hovered_id = Some(response.id);
+                                    self.hover_start_time = now;
+                                }
+
+                                if now - self.hover_start_time > 1.0 {
+                                    response = response.on_hover_ui(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(egui::RichText::new("[ID]").weak());
+                                            ui.label(format!("{:03}", unit.id));
+                                        });
+
+                                        let labels = ["Normal", "Evolved", "True", "Ultra"];
+                                        let mut previous_name = "";
+
+                                        for i in 0..4 {
+                                            if unit.forms[i] {
+                                                let raw_name = &unit.names[i];
+                                                let display_name = if raw_name.is_empty() {
+                                                    format!("{:03}-{}", unit.id, i + 1)
+                                                } else {
+                                                    raw_name.clone()
+                                                };
+
+                                                if i > 0 && raw_name == previous_name && !raw_name.is_empty() {
+                                                    continue; 
+                                                }
+
+                                                if !raw_name.is_empty() {
+                                                    previous_name = raw_name;
+                                                }
+
+                                                ui.horizontal(|ui| {
+                                                    ui.label(egui::RichText::new(format!("[{}]", labels[i])).weak());
+                                                    ui.label(display_name);
+                                                });
+                                            }
                                         }
-                                    }
-                                });
+                                    });
+                                }
+                            }
 
                             if response.clicked() {
                                 *selected_id = Some(unit.id);
                             }
+
                         } else {
                             ui.allocate_space(egui::vec2(100.0, target_height));
                         }
                     }
                 }
+                
+                hovered_this_frame
             });
-            
-            // REMOVED: The entire block that calculated max_scroll and set auto_scroll
+
+        if scroll_output.inner.is_some() {
+            self.hover_lost_time = None;
+        } else {
+            if self.hover_lost_time.is_none() {
+                self.hover_lost_time = Some(now);
+            }
+
+            if let Some(lost_start) = self.hover_lost_time {
+                if now - lost_start > 0.1 {
+                    self.hovered_id = None;
+                }
+            }
+        }
     }
 
-    // ... (get_or_load_texture and autocrop functions remain unchanged) ...
-    // Make sure to paste the existing texture functions here!
-    
     fn get_or_load_texture(&mut self, ctx: &egui::Context, id: u32, path: &PathBuf) -> Option<&egui::TextureHandle> {
         if self.texture_cache.contains_key(&id) {
             return self.texture_cache.get(&id);

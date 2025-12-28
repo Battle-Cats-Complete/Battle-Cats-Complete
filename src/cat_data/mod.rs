@@ -1,8 +1,10 @@
 use eframe::egui;
 use std::sync::mpsc::Receiver;
 
-mod scanner;
-mod list; 
+pub mod scanner;
+pub mod list;
+pub mod cat; 
+
 use scanner::CatEntry;
 use list::CatList;
 
@@ -12,6 +14,10 @@ pub struct CatListState {
     pub cat_list: CatList,
     pub scan_receiver: Option<Receiver<CatEntry>>,
     pub search_query: String,
+    pub selected_form: usize,
+    
+    pub detail_texture: Option<egui::TextureHandle>,
+    pub detail_key: String, 
 }
 
 impl Default for CatListState {
@@ -22,39 +28,42 @@ impl Default for CatListState {
             cat_list: CatList::default(),
             scan_receiver: Some(scanner::start_scan()),
             search_query: String::new(),
+            selected_form: 0,
+            
+            detail_texture: None,
+            detail_key: String::new(),
         }
     }
 }
 
 impl CatListState {
+    pub fn refresh(&mut self) {
+        self.cats.clear();
+        self.cat_list.clear_cache();
+        self.selected_cat = None;
+        self.selected_form = 0; 
+        
+        self.detail_texture = None;
+        self.detail_key.clear();
+        
+        self.scan_receiver = Some(scanner::start_scan());
+    }
+
     pub fn update_data(&mut self) {
         if let Some(rx) = &self.scan_receiver {
-            let mut found_new = false;
-            let mut count = 0;
-            while count < 5 { 
-                if let Ok(cat) = rx.try_recv() {
-                    self.cats.push(cat);
-                    found_new = true;
-                    count += 1;
-                } else {
-                    break;
+            let mut new_data = false;
+            while let Ok(entry) = rx.try_recv() {
+                self.cats.push(entry);
+                new_data = true;
+            }
+            
+            if new_data {
+                self.cats.sort_by_key(|c| c.id);
+                if self.selected_cat.is_none() && !self.cats.is_empty() {
+                    self.selected_cat = Some(self.cats[0].id);
                 }
             }
-
-            if found_new {
-                self.cats.sort_by_key(|u| u.id);
-            }
         }
-    }
-    pub fn refresh(&mut self) {
-        // 1. Clear the data list
-        self.cats.clear();
-        
-        // 2. Clear the texture cache 
-        self.cat_list.clear_cache(); 
-        
-        // 3. Restart the background scanner
-        self.scan_receiver = Some(scanner::start_scan());
     }
 }
 
@@ -63,30 +72,44 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState) {
         .resizable(false)
         .default_width(160.0)
         .show(ctx, |ui| {
-            
-            ui.add_space(5.0);
-
-            ui.horizontal(|ui| {
+            ui.add_space(12.0); 
+            ui.vertical_centered(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut state.search_query)
                     .hint_text("Search ID...")
                     .desired_width(140.0));
             });
-
+            ui.add_space(6.0); 
             ui.separator();
 
+            let old_selection = state.selected_cat;
             state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query);
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical(|ui| {
-                if let Some(id) = state.selected_cat {
-                    ui.heading(format!("Selected Cat: {:03}", id));
-                    ui.label("Selection logic to be implemented later.");
-                } else {
-                    ui.centered_and_justified(|ui| {
-                        ui.label("Select a cat from the left list.");
-                });
+            
+            if state.selected_cat != old_selection {
+                state.selected_form = 0; 
+                // Clear texture so the new cat loads instantly next frame
+                state.detail_texture = None; 
+                state.detail_key.clear();
             }
         });
+
+    egui::CentralPanel::default().show(ctx, |ui| {
+        if let Some(selected_id) = state.selected_cat {
+            if let Some(cat) = state.cats.iter().find(|c| c.id == selected_id) {
+                
+                // --- PASS CACHE TO THE UI FUNCTION ---
+                cat::show(
+                    ctx, 
+                    ui, 
+                    cat, 
+                    &mut state.selected_form, 
+                    &mut state.detail_texture, 
+                    &mut state.detail_key
+                );
+            }
+        } else {
+            ui.centered_and_justified(|ui| {
+                ui.label("Loading...");
+            });
+        }
     });
 }
