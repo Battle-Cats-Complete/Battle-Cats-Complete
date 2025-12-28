@@ -13,7 +13,6 @@ pub fn show(
 ) {
     ui.vertical(|ui| {
         
-        // --- 1. Form Tabs ---
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 
             ui.horizontal(|ui| {
@@ -38,9 +37,7 @@ pub fn show(
         ui.separator(); 
         ui.add_space(5.0);
 
-        // --- 2. HEADER: Icon + Name + ID ---
         ui.horizontal(|ui| {
-            // A. CONSTRUCT PATH
             let form_char = match *current_form {
                 0 => "f",
                 1 => "c",
@@ -53,17 +50,26 @@ pub fn show(
                 cat.id, form_char, cat.id, form_char
             );
 
-            // B. LAZY LOAD TEXTURE (+ AUTO CROP)
             if *current_key != expected_path_str {
                 *current_key = expected_path_str.clone(); 
                 *texture_cache = None; 
 
-                let path = Path::new(&expected_path_str);
-                if path.exists() {
+                let specific_path = Path::new(&expected_path_str);
+                let fallback_path = Path::new("game/cats/uni.png");
+
+                let image_to_load = if specific_path.exists() {
+                    Some(specific_path)
+                } else if fallback_path.exists() {
+                    Some(fallback_path)
+                } else {
+                    None
+                };
+
+                if let Some(path) = image_to_load {
                     if let Ok(img) = image::open(path) {
                         
                         let mut rgba = img.to_rgba8();
-                        rgba = autocrop(rgba);
+                        rgba = autocrop(rgba); // Crop whatever we found
 
                         let size = [rgba.width() as usize, rgba.height() as usize];
                         let pixels = rgba.as_flat_samples();
@@ -83,11 +89,11 @@ pub fn show(
             } else {
                 ui.allocate_space(egui::vec2(64.0, 64.0));
             }
-            // Horizontal pading
-            ui.add_space(1.0); 
+
+            ui.add_space(10.0); // Horizontal spacer
+
             ui.vertical(|ui| {
-                // Vertical padding
-                ui.add_space(9.0); 
+                ui.add_space(8.0); // Vertical alignment
 
                 let form_number = *current_form + 1;
                 let raw_name = cat.names.get(*current_form).cloned().unwrap_or_default();

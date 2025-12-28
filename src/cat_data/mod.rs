@@ -75,7 +75,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState) {
             ui.add_space(12.0); 
             ui.vertical_centered(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut state.search_query)
-                    .hint_text("Search ID...")
+                    .hint_text("Search Cat...")
                     .desired_width(140.0));
             });
             ui.add_space(6.0); 
@@ -86,7 +86,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState) {
             
             if state.selected_cat != old_selection {
                 state.selected_form = 0; 
-                // Clear texture so the new cat loads instantly next frame
                 state.detail_texture = None; 
                 state.detail_key.clear();
             }
@@ -96,7 +95,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState) {
         if let Some(selected_id) = state.selected_cat {
             if let Some(cat) = state.cats.iter().find(|c| c.id == selected_id) {
                 
-                // --- PASS CACHE TO THE UI FUNCTION ---
                 cat::show(
                     ctx, 
                     ui, 
