@@ -5,7 +5,6 @@ pub mod game_data;
 pub mod crypto;
 pub mod sort;
 
-// We need a struct to hold the state SPECIFIC to this page
 pub struct ImportState {
     selected_folder: String,
     status_message: String,
@@ -14,7 +13,6 @@ pub struct ImportState {
     reset_trigger: Option<f64>,
 }
 
-// Default values for this page
 impl Default for ImportState {
     fn default() -> Self {
         Self {
@@ -27,43 +25,45 @@ impl Default for ImportState {
     }
 }
 
-pub fn show(ctx: &egui::Context, state: &mut ImportState) -> bool {
-    let mut import_just_finished = false;
+impl ImportState {
+    pub fn update(&mut self, ctx: &egui::Context) -> bool {
+        let mut finished_just_now = false;
 
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.heading("Import Game Data");
-        ui.add_space(20.0);
-
-        // If we have a receiver (rx), check for new messages
-        if let Some(rx) = &state.rx {
+        if let Some(rx) = &self.rx {
             while let Ok(msg) = rx.try_recv() {
-                state.status_message = msg.clone();
+                self.status_message = msg.clone();
+                self.log_content.push_str(&format!("{}\n", msg));
 
-                state.log_content.push_str(&format!("{}\n", msg));
-
-                // If we receive "Done!", we can kill the connection
-                if state.status_message.contains("Success") || state.status_message.contains("Error") {
+                if self.status_message.contains("Success") || self.status_message.contains("Error") {
                     let current_time = ctx.input(|i| i.time);
-                    state.reset_trigger = Some(current_time + 5.0);
-                    import_just_finished = true;
+                    self.reset_trigger = Some(current_time + 5.0);
+                    finished_just_now = true;
                 }
             }
-            // Force the screen to redraw so we see the text update instantly
+            
             ctx.request_repaint();
         }
 
-        if let Some(trigger_time) = state.reset_trigger {
+        if let Some(trigger_time) = self.reset_trigger {
             let current_time = ctx.input(|i| i.time);
-
             if current_time >= trigger_time {
-                state.status_message = "Ready".to_string();
-                state.rx = None;
-                state.reset_trigger = None;
-                state.selected_folder = "No folder selected".to_string();
+                self.status_message = "Ready".to_string();
+                self.rx = None;
+                self.reset_trigger = None;
+                self.selected_folder = "No folder selected".to_string();
             } else {
                 ctx.request_repaint();
             }
         }
+
+        finished_just_now
+    }
+}
+
+pub fn show(ctx: &egui::Context, state: &mut ImportState) {
+    egui::CentralPanel::default().show(ctx, |ui| {
+        ui.heading("Import Game Data");
+        ui.add_space(20.0);
 
         ui.horizontal(|ui| {
             let btn_enabled = state.rx.is_none();
@@ -77,20 +77,16 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) -> bool {
                     state.log_content.push_str("Starting import process\n");
 
                     let (tx, rx) = mpsc::channel();
-                    
                     state.rx = Some(rx);
 
                     let folder = state.selected_folder.clone();
 
-                    // Spawn the thread
                     thread::spawn(move || {
-                        // Run decryption/extraction
                         match game_data::import_all_from_folder(&folder, tx.clone()) {
                             Ok(_) => {
                                 let _ = tx.send("Starting Sort".to_string());
-
                                 match sort::sort_game_files(tx.clone()) {
-                                    Ok(_) => { let _ = tx.send("Success! Files extracted and storted".to_string()); },
+                                    Ok(_) => { let _ = tx.send("Success! Files extracted and sorted".to_string()); },
                                     Err(e) => { let _ = tx.send(format!("Error Sorting: {}", e)); }
                                 }
                             },
@@ -121,6 +117,5 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) -> bool {
             .show(ui, |ui| {
                 ui.monospace(&state.log_content);
             })
-        });
-        import_just_finished
-    }
+    });
+}
