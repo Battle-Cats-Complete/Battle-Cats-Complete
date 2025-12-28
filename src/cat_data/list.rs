@@ -6,7 +6,7 @@ use image::{imageops};
 
 pub struct CatList {
     texture_cache: HashMap<u32, egui::TextureHandle>,
-    auto_scroll: bool,
+    // REMOVED: auto_scroll: bool, 
     bg_cache: Option<image::RgbaImage>, 
 }
 
@@ -14,7 +14,7 @@ impl Default for CatList {
     fn default() -> Self {
         Self {
             texture_cache: HashMap::new(),
-            auto_scroll: false,
+            // REMOVED: auto_scroll: false,
             bg_cache: None,
         }
     }
@@ -26,7 +26,7 @@ impl CatList {
         self.bg_cache = None;
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, units: &[CatEntry], selected_id: &mut Option<u32>) {
+    pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, units: &[CatEntry], selected_id: &mut Option<u32>, search_query: &str) {
         
         if self.bg_cache.is_none() {
             const BG_BYTES: &[u8] = include_bytes!("../../assets/udi_bg.png");
@@ -35,20 +35,37 @@ impl CatList {
             }
         }
 
-        // This number is what sizes the buttons
+        let query_lower = search_query.to_lowercase();
+
+        let filtered_units: Vec<&CatEntry> = units.iter()
+            .filter(|unit| {
+                if search_query.is_empty() { return true; }
+                
+                let id_str = format!("{:03}", unit.id);
+                if id_str.contains(search_query) { return true; }
+
+                for name in &unit.names {
+                    if name.to_lowercase().contains(&query_lower) {
+                        return true;
+                    }
+                }
+                false
+            })
+            .collect();
+
         let target_height = 50.0; 
         let padding = 5.0;
-        
         let row_height = target_height + padding;
-        let total_rows = units.len();
+        let total_rows = filtered_units.len() + 1; 
 
-        let output = egui::ScrollArea::vertical()
+        // --- FIX: NO AUTO SCROLL ---
+        egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .stick_to_bottom(self.auto_scroll)
+            // REMOVED: .stick_to_bottom(...)
             .show_rows(ui, row_height, total_rows, |ui, row_range| {
                 
                 for index in row_range {
-                    if let Some(unit) = units.get(index) {
+                    if let Some(&unit) = filtered_units.get(index) {
                         
                         let texture = self.get_or_load_texture(ctx, unit.id, &unit.image_path);
 
@@ -61,29 +78,35 @@ impl CatList {
                             
                             let btn = egui::ImageButton::new((tex.id(), btn_size))
                                 .selected(is_selected);
+                            
+                            let response = ui.add(btn)
+                                .on_hover_ui(|ui| {
+                                    ui.strong(format!("ID: {:03}", unit.id));
+                                    if unit.names.is_empty() {
+                                        ui.label(format!("(No Name Data)"));
+                                    } else {
+                                        for name in &unit.names {
+                                            ui.label(name);
+                                        }
+                                    }
+                                });
 
-                            if ui.add(btn).clicked() {
+                            if response.clicked() {
                                 *selected_id = Some(unit.id);
                             }
                         } else {
-                            // Fallback size
                             ui.allocate_space(egui::vec2(100.0, target_height));
                         }
                     }
                 }
             });
-
-        let scroll_y = output.state.offset.y;
-        let content_height = output.content_size.y;
-        let view_height = output.inner_rect.height();
-        let max_scroll = content_height - view_height;
-
-        if max_scroll > 0.0 {
-            let is_at_bottom = scroll_y >= (max_scroll - 10.0);
-            self.auto_scroll = is_at_bottom;
-        }
+            
+            // REMOVED: The entire block that calculated max_scroll and set auto_scroll
     }
 
+    // ... (get_or_load_texture and autocrop functions remain unchanged) ...
+    // Make sure to paste the existing texture functions here!
+    
     fn get_or_load_texture(&mut self, ctx: &egui::Context, id: u32, path: &PathBuf) -> Option<&egui::TextureHandle> {
         if self.texture_cache.contains_key(&id) {
             return self.texture_cache.get(&id);
@@ -105,7 +128,6 @@ impl CatList {
                 let bg_h = final_image.height() as i64;
 
                 let (x, y) = if id <= 25 {
-                    // Units 0-25 dont have bg and are centered differently
                     let fixed_x: i64 = -2; 
                     let fixed_y: i64 = 9;  
                     (fixed_x, fixed_y)
