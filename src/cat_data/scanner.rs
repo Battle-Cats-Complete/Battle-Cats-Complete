@@ -8,8 +8,8 @@ use image::GenericImageView;
 pub struct CatEntry {
     pub id: u32,
     pub image_path: PathBuf,
-    #[allow(dead_code)]
     pub names: Vec<String>, 
+    pub forms: [bool; 4], 
 }
 
 pub fn start_scan() -> Receiver<CatEntry> {
@@ -25,37 +25,38 @@ pub fn start_scan() -> Receiver<CatEntry> {
                 if path.is_dir() {
                     if let Some(stem) = path.file_name().and_then(|s| s.to_str()) {
                         if let Ok(id) = stem.parse::<u32>() {
+                            
+                            let has_f = path.join("f").exists(); // Should exist if we are here
+                            let has_c = path.join("c").exists();
+                            let has_s = path.join("s").exists();
+                            let has_u = path.join("u").exists();
+                            let forms = [has_f, has_c, has_s, has_u];
+
+                            // We still use 'f' for the preview icon
                             let filename = format!("udi{:03}_f.png", id);
                             let img_path = path.join("f").join(&filename);
 
                             if img_path.exists() {
                                 if let Ok(img) = image::open(&img_path) {
                                     
-                                    // 1. Safety Dimensions Check
+                                    // Safety & Content Checks (Standard)
                                     let (w, h) = img.dimensions();
                                     if w <= 14 || h <= 2 { continue; }
-
-                                    // 2. Imposter Check (Units > 25)
                                     if id > 25 {
                                         let p = img.get_pixel(14, 2);
                                         if p[3] == 0 { continue; }
                                     }
-
-                                    // 3. Content Check
                                     let has_content = img.pixels().any(|(_, _, pixel)| pixel[3] > 0);
 
                                     if has_content {
-                                        let mut names = Vec::new();
-
-                                        // --- SMART FILE FINDER ---
-                                        // Checks for ID+1 (due to sort logic) and ID, both padded and unpadded.
+                                        // --- NAME PARSING (STRICT INDICES) ---
+                                        let mut names = vec![String::new(); 4];
+                                        
                                         let file_id = id + 1;
-
+                                        // (Path finding logic from before)
                                         let p1 = path.join(format!("Unit_Explanation{}_en.csv", file_id));
                                         let p2 = path.join(format!("Unit_Explanation{:03}_en.csv", file_id));
                                         let p3 = path.join(format!("Unit_Explanation{}_en.csv", id));
-
-                                        // Fallback to resLocal
                                         let res_local = path.parent().unwrap().parent().unwrap().join("resLocal");
                                         let p4 = res_local.join(format!("Unit_Explanation{}_en.csv", file_id));
 
@@ -69,23 +70,20 @@ pub fn start_scan() -> Receiver<CatEntry> {
                                             if let Ok(bytes) = fs::read(&csv_path) {
                                                 let content = String::from_utf8_lossy(&bytes);
                                                 
-                                                for line in content.lines().take(4) {
+                                                for (i, line) in content.lines().enumerate().take(4) {
                                                     if let Some(name_part) = line.split('|').next() {
                                                         let trimmed = name_part.trim();
-                                                        if !trimmed.is_empty() {
-                                                            names.push(trimmed.to_string());
-                                                        }
+                                                        names[i] = trimmed.to_string();
                                                     }
                                                 }
-                                                names.sort();
-                                                names.dedup();
                                             }
                                         }
 
                                         let entry = CatEntry { 
                                             id, 
-                                            image_path: img_path,
-                                            names 
+                                            image_path: img_path, 
+                                            names,
+                                            forms
                                         };
                                         let _ = tx.send(entry);
                                     }

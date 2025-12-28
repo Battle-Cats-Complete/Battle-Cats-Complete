@@ -140,7 +140,7 @@ impl eframe::App for BattleCatsApp {
 
         // --- RENDER TOGGLE BUTTON ---
         egui::Area::new("toggle_btn".into())
-            .fixed_pos(egui::pos2(button_x, 10.0))
+            .fixed_pos(egui::pos2(button_x, 2.5))
             .order(egui::Order::Tooltip)
             .show(ctx, |ui| {
                 let arrow = if self.sidebar_open { ">" } else { "<" };
