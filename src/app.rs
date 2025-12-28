@@ -1,17 +1,17 @@
 use eframe::egui;
-use crate::{main_menu, import_data, unit_data};
+use crate::{main_menu, import_data, cat_data};
 
 #[derive(PartialEq, Clone, Copy)]
 enum Page{
     MainMenu,
     ImportData,
-    UnitData,
+    CatData,
 }
 
 const PAGES: &[(Page, &str)] = &[
     (Page::MainMenu, "Main Menu"),
     (Page::ImportData, "Import Data"),
-    (Page::UnitData, "Unit Data"),
+    (Page::CatData, "Cat Data"),
 ];
 
 pub struct BattleCatsApp {
@@ -19,7 +19,7 @@ pub struct BattleCatsApp {
     sidebar_open: bool,
     import_state: import_data::ImportState,
     
-    unit_list_state: unit_data::UnitListState,
+    cat_list_state: cat_data::CatListState,
 }
 
 impl Default for BattleCatsApp {
@@ -29,7 +29,7 @@ impl Default for BattleCatsApp {
             sidebar_open: false,
             import_state: import_data::ImportState::default(),
             // This starts the scan immediately on launch
-            unit_list_state: unit_data::UnitListState::default()
+            cat_list_state: cat_data::CatListState::default()
         }
     }
 }
@@ -38,11 +38,11 @@ impl eframe::App for BattleCatsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         
 
-        self.unit_list_state.update_data();
+        self.cat_list_state.update_data();
 
         // If the scanner is active, force a repaint so the list loads 
         // even if the user isn't moving the mouse.
-        if self.unit_list_state.scan_receiver.is_some() {
+        if self.cat_list_state.scan_receiver.is_some() {
             ctx.request_repaint();
         }
 
@@ -69,10 +69,10 @@ impl eframe::App for BattleCatsApp {
             Page::ImportData => {
                 let success = import_data::show(ctx, &mut self.import_state);
                 if success {
-                    self.unit_list_state.refresh();
+                    self.cat_list_state.refresh();
                 }
             },
-            Page::UnitData => unit_data::show(ctx, &mut self.unit_list_state),
+            Page::CatData => cat_data::show(ctx, &mut self.cat_list_state),
         }
 
         let sidebar_inner_width = 150.0; 

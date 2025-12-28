@@ -5,12 +5,12 @@ use std::sync::mpsc::{self, Receiver};
 use image::GenericImageView; 
 
 #[derive(Clone, Debug)]
-pub struct UnitEntry {
+pub struct CatEntry {
     pub id: u32,
     pub image_path: PathBuf,
 }
 
-pub fn start_scan() -> Receiver<UnitEntry> {
+pub fn start_scan() -> Receiver<CatEntry> {
     let (tx, rx) = mpsc::channel();
 
     thread::spawn(move || {
@@ -49,7 +49,7 @@ pub fn start_scan() -> Receiver<UnitEntry> {
                                     let has_content = img.pixels().any(|(_, _, pixel)| pixel[3] > 0);
 
                                     if has_content {
-                                        let entry = UnitEntry { id, image_path: img_path };
+                                        let entry = CatEntry { id, image_path: img_path };
                                         let _ = tx.send(entry);
                                     }
                                 }
