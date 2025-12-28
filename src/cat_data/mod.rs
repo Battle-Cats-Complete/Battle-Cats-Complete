@@ -11,6 +11,7 @@ pub struct CatListState {
     pub selected_cat: Option<u32>,
     pub cat_list: CatList,
     pub scan_receiver: Option<Receiver<CatEntry>>,
+    pub search_query: String,
 }
 
 impl Default for CatListState {
@@ -20,6 +21,7 @@ impl Default for CatListState {
             selected_cat: None,
             cat_list: CatList::default(),
             scan_receiver: Some(scanner::start_scan()),
+            search_query: String::new(),
         }
     }
 }
@@ -61,19 +63,28 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState) {
         .resizable(false)
         .default_width(160.0)
         .show(ctx, |ui| {
-            ui.heading("Cat Data Repository");
+            
+            ui.add_space(5.0);
+
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut state.search_query)
+                    .hint_text("Search ID...")
+                    .desired_width(140.0));
+            });
+
             ui.separator();
-            state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat);
+
+            state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query);
         });
 
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.vertical(|ui| {
-            if let Some(id) = state.selected_cat {
-                ui.heading(format!("Selected Cat: {:03}", id));
-                ui.label("Selection logic to be implemented later.");
-            } else {
-                ui.centered_and_justified(|ui| {
-                    ui.label("Select a cat from the left list.");
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical(|ui| {
+                if let Some(id) = state.selected_cat {
+                    ui.heading(format!("Selected Cat: {:03}", id));
+                    ui.label("Selection logic to be implemented later.");
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Select a cat from the left list.");
                 });
             }
         });
