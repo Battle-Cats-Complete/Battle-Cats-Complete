@@ -1,26 +1,25 @@
 use eframe::egui;
-use crate::{main_menu, import_data};
+use crate::{main_menu, import_data, unit_data};
 
-// To add a new page:
-//   1. Add it to this Enum
-//   2. Add it to the PAGES list below
-//   3. Add it to the match statement in update()
 #[derive(PartialEq, Clone, Copy)]
 enum Page{
     MainMenu,
     ImportData,
+    UnitData,
 }
 
 const PAGES: &[(Page, &str)] = &[
     (Page::MainMenu, "Main Menu"),
     (Page::ImportData, "Import Data"),
+    (Page::UnitData, "Unit Data"),
 ];
 
 pub struct BattleCatsApp {
     current_page: Page,
     sidebar_open: bool,
-    // hold state for subpages so it persists between tabs
     import_state: import_data::ImportState,
+    
+    unit_list_state: unit_data::UnitListState,
 }
 
 impl Default for BattleCatsApp {
@@ -28,27 +27,35 @@ impl Default for BattleCatsApp {
         Self {
             current_page: Page::MainMenu,
             sidebar_open: false,
-            import_state: import_data::ImportState::default()
+            import_state: import_data::ImportState::default(),
+            // This starts the scan immediately on launch
+            unit_list_state: unit_data::UnitListState::default()
         }
     }
 }
 
 impl eframe::App for BattleCatsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // --- 1. CUSTOMTKINTER THEME SETUP ---
+        
+
+        self.unit_list_state.update_data();
+
+        // If the scanner is active, force a repaint so the list loads 
+        // even if the user isn't moving the mouse.
+        if self.unit_list_state.scan_receiver.is_some() {
+            ctx.request_repaint();
+        }
+
         let mut style = (*ctx.style()).clone();
         
-        // Rounding = 10.0 (Modern look)
         style.visuals.window_rounding = egui::Rounding::same(10.0);
         style.visuals.widgets.noninteractive.rounding = egui::Rounding::same(10.0);
         style.visuals.widgets.inactive.rounding = egui::Rounding::same(10.0);
         style.visuals.widgets.hovered.rounding = egui::Rounding::same(10.0);
         style.visuals.widgets.active.rounding = egui::Rounding::same(10.0);
 
-        // Spacing
         style.spacing.item_spacing = egui::vec2(10.0, 10.0);
         
-        // Colors (Dark Backgrounds)
         style.visuals.window_fill = egui::Color32::from_rgb(33, 33, 33);
         style.visuals.panel_fill = egui::Color32::from_rgb(33, 33, 33);
 
@@ -57,16 +64,20 @@ impl eframe::App for BattleCatsApp {
         ctx.set_style(style);
 
 
-        // --- 2. RENDER PAGE ---
         match self.current_page {
             Page::MainMenu => main_menu::show(ctx),
-            Page::ImportData => import_data::show(ctx, &mut self.import_state),
+            Page::ImportData => {
+                let success = import_data::show(ctx, &mut self.import_state);
+                if success {
+                    self.unit_list_state.refresh();
+                }
+            },
+            Page::UnitData => unit_data::show(ctx, &mut self.unit_list_state),
         }
 
-        // --- 3. SIDEBAR ANIMATION ---
         let sidebar_inner_width = 150.0; 
         let sidebar_margin = 15.0;       
-        let total_sidebar_width = sidebar_inner_width + (sidebar_margin * 2.0); // ~205px
+        let total_sidebar_width = sidebar_inner_width + (sidebar_margin * 2.0);
 
         let screen_rect = ctx.screen_rect();
         
@@ -77,19 +88,13 @@ impl eframe::App for BattleCatsApp {
             ctx.request_repaint();
         }
 
-        // 1. Sidebar Position
         let sidebar_x = screen_rect.width() - (total_sidebar_width * open_factor);
         
-        // 2. Button Position (LOCKED)
-        // We set a fixed gap. The button will ALWAYS be this far from the sidebar.
-        // This guarantees they move at the exact same speed.
-        let button_gap = 10.0; // Distance between button and sidebar
+        let button_gap = 10.0;
         let button_size = 40.0;
-        
-        // Math: Sidebar Edge - Gap - Button Itself
         let button_x = sidebar_x - button_gap - button_size;
 
-        // --- 4. RENDER SIDEBAR ---
+        // --- RENDER SIDEBAR ---
         if open_factor > 0.0 {
             egui::Area::new("sidebar_area".into())
                 .constrain(false)
@@ -133,16 +138,15 @@ impl eframe::App for BattleCatsApp {
                 });
         }
 
-        // --- 5. RENDER TOGGLE BUTTON ---
+        // --- RENDER TOGGLE BUTTON ---
         egui::Area::new("toggle_btn".into())
             .fixed_pos(egui::pos2(button_x, 10.0))
             .order(egui::Order::Tooltip)
             .show(ctx, |ui| {
                 let arrow = if self.sidebar_open { ">" } else { "<" };
                 
-                // Make the toggle button Blue too!
                 let btn = egui::Button::new(egui::RichText::new(arrow).size(20.0).strong())
-                    .fill(egui::Color32::from_rgb(31, 106, 165)); // Blue Accent
+                    .fill(egui::Color32::from_rgb(31, 106, 165));
 
                 if ui.add_sized([40.0, 40.0], btn).clicked() {
                     self.sidebar_open = !self.sidebar_open;
