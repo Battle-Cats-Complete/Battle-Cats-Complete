@@ -27,7 +27,9 @@ impl Default for ImportState {
     }
 }
 
-pub fn show(ctx: &egui::Context, state: &mut ImportState) {
+pub fn show(ctx: &egui::Context, state: &mut ImportState) -> bool {
+    let mut import_just_finished = false;
+
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.heading("Import Game Data");
         ui.add_space(20.0);
@@ -43,6 +45,7 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
                 if state.status_message.contains("Success") || state.status_message.contains("Error") {
                     let current_time = ctx.input(|i| i.time);
                     state.reset_trigger = Some(current_time + 5.0);
+                    import_just_finished = true;
                 }
             }
             // Force the screen to redraw so we see the text update instantly
@@ -123,4 +126,5 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
                 ui.monospace(&state.log_content);
             })
         });
+        import_just_finished
     }
