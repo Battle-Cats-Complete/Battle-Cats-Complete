@@ -66,7 +66,6 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) -> bool {
         }
 
         ui.horizontal(|ui| {
-            // Disable button if worker is running (rx is Some)
             let btn_enabled = state.rx.is_none();
             
             if ui.add_enabled(btn_enabled, egui::Button::new("Select Game Folder")).clicked() {
@@ -77,11 +76,8 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) -> bool {
                     state.log_content.clear();
                     state.log_content.push_str("Starting import process\n");
 
-                    // SETUP THE WORKER (THREADING)
-                    // Create the walkie-talkie (tx = sender, rx = receiver)
                     let (tx, rx) = mpsc::channel();
                     
-                    // Store the receiver in our state so we can listen next frame
                     state.rx = Some(rx);
 
                     let folder = state.selected_folder.clone();

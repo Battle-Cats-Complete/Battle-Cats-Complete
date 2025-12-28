@@ -3,7 +3,7 @@
 mod app;
 mod main_menu;
 mod import_data;
-mod unit_data;
+mod cat_data;
 pub mod patterns;
 use eframe::egui;
 
