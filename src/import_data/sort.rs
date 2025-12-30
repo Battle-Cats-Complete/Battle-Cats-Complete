@@ -7,6 +7,7 @@ use crate::patterns;
 pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
     let raw_dir = Path::new("game/raw");
     let cats_dir = Path::new("game/cats");
+    let assets_dir = Path::new("game/assets");
 
     if !raw_dir.exists() {
         return Err("Raw directory not found. Did extraction fail?".to_string());
@@ -14,7 +15,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
 
     let _ = tx.send("Sorting files...".to_string());
 
-    // --- Compile Regexes ---
     let universal_pattern = Regex::new(patterns::CAT_UNIVERSAL_PATTERN).unwrap();
     let re_stats = Regex::new(patterns::CAT_STATS_PATTERN).unwrap();
     let re_icon = Regex::new(patterns::CAT_ICON_PATTERN).unwrap();
@@ -23,6 +23,10 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
     let re_anim = Regex::new(patterns::CAT_ANIM_PATTERN).unwrap();
     let re_maanim = Regex::new(patterns::CAT_MAANIM_PATTERN).unwrap();
     let re_explain = Regex::new(patterns::CAT_EXPLAIN_PATTERN).unwrap();
+    
+    // Assets
+    let re_img015 = Regex::new(patterns::ASSET_IMG015_PATTERN).unwrap();
+    let re_imgcut = Regex::new(patterns::ASSET_015CUT_PATTERN).unwrap();
 
     let mut moved_count = 0;
     
@@ -37,14 +41,21 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             None => continue,
         };
 
+        // --- NEW: Delete duplicate img015.png ---
+        // This file is the "raw" version without a country code. 
+        // Since we've already extracted the coded versions (e.g. img015_th.png), this is trash.
+        if filename == "img015.png" {
+            let _ = fs::remove_file(&path);
+            continue;
+        }
+        // ----------------------------------------
+
         let mut dest_folder = None;
 
         if patterns::CAT_UNIVERSAL_FILES.contains(&filename) || universal_pattern.is_match(filename) {
             dest_folder = Some(cats_dir.to_path_buf());
         }
-        // Unit Stats
         else if let Some(caps) = re_stats.captures(filename) {
-            // parse the file ID (e.g. "001")
             if let Ok(file_id) = caps[1].parse::<u32>() {
                 if file_id > 0 {
                     let unit_id = file_id - 1;
@@ -53,35 +64,28 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
                 }
             }
         }
-        // Icons
         else if let Some(caps) = re_icon.captures(filename) {
             let (id, form) = (&caps[1], &caps[2]);
             dest_folder = Some(cats_dir.join(id).join(form));
         }
-        // Upgrade Icons
         else if let Some(caps) = re_upgrade.captures(filename) {
             let (id, form) = (&caps[1], &caps[2]);
             dest_folder = Some(cats_dir.join(id).join(form));
         }
-        // Gacha Thumbnails
         else if let Some(caps) = re_gacha.captures(filename) {
             let id = &caps[1];
             dest_folder = Some(cats_dir.join(id));
         }
-        // Anim Base
         else if let Some(caps) = re_anim.captures(filename) {
             let (id, form) = (&caps[1], &caps[2]);
             dest_folder = Some(cats_dir.join(id).join(form).join("anim"));
         }
-        // Motion Data
         else if let Some(caps) = re_maanim.captures(filename) {
             let (id, form) = (&caps[1], &caps[2]);
             dest_folder = Some(cats_dir.join(id).join(form).join("anim"));
         }
-        // Explanations
         else if let Some(caps) = re_explain.captures(filename) {
             let raw_id = &caps[1];
-            
             if let Ok(file_id) = raw_id.parse::<u32>() {
                 if file_id > 0 {
                     let unit_id = file_id - 1;
@@ -90,8 +94,13 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
                 }
             }
         }
+        else if re_img015.is_match(filename) {
+            dest_folder = Some(assets_dir.to_path_buf());
+        }
+        else if re_imgcut.is_match(filename) {
+            dest_folder = Some(assets_dir.to_path_buf());
+        }
 
-        // Move Files
         if let Some(folder) = dest_folder {
             if !folder.exists() {
                 fs::create_dir_all(&folder).map_err(|e| e.to_string())?;

@@ -2,15 +2,13 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc; 
-use std::collections::HashMap; // Needed for the Index
+use std::collections::HashMap; 
 use rayon::prelude::*; 
 use super::crypto;
 use zip::ZipArchive;
 
-// --- HELPER: Build File Index (The "Map") ---
-// Scans the existing game folder so we know where files are (even if sorted)
 fn build_file_index(root_dir: &Path) -> HashMap<String, PathBuf> {
     let mut index = HashMap::new();
     let _ = scan_for_index(root_dir, &mut index);
@@ -46,16 +44,20 @@ fn decrypt_list_file(data: &[u8]) -> Result<String, String> {
     Err("Failed to decrypt list file: Unknown key.".to_string())
 }
 
-// --- HELPER: Extract Loose Pack (With Smart Merging) ---
 fn extract_pack_contents(
     list_content: &str, 
     pack_path: &Path, 
     output_dir: &Path,
     count: &AtomicI32,
     tx: Sender<String>,
-    file_index: &Arc<HashMap<String, PathBuf>>
+    file_index: &Arc<HashMap<String, PathBuf>>,
+    region_found: &AtomicBool 
 ) -> Result<(), String> {
     
+    // List of codes. 'th' is definitely here!
+    let mut unused_global_codes = vec!["de", "en", "es", "fr", "it", "th"];
+    let mut pending_global_img015: Option<Vec<u8>> = None;
+
     let mut pack_file = fs::File::open(pack_path)
         .map_err(|e| format!("Failed to open pack: {}", e))?;
 
@@ -69,14 +71,8 @@ fn extract_pack_contents(
         let offset: u64 = parts[1].parse().unwrap_or(0);
         let size: usize = parts[2].parse().unwrap_or(0);
 
-        // --- WARNING FIX 1: removed 'mut' (not needed) ---
         let existing_path_opt = file_index.get(filename);
-        
-        // --- WARNING FIX 2: We now USE this variable! ---
-        // This is the path where the file MIGHT be if another thread just wrote it.
         let raw_dest_path = output_dir.join(filename);
-        
-        // --- WARNING FIX 3: Removed unused 'should_extract' ---
         
         let aligned_size = if size % 16 == 0 { size } else { ((size / 16) + 1) * 16 };
         if pack_file.seek(SeekFrom::Start(offset)).is_err() { continue; }
@@ -85,17 +81,53 @@ fn extract_pack_contents(
         if pack_file.read_exact(&mut buffer).is_err() { continue; }
 
         match crypto::decrypt_pack_chunk(&buffer, &pack_filename) {
-            Ok((decrypted_chunk, _)) => {
+            Ok((decrypted_chunk, region_code)) => {
+                
+                // --- NEW: Detect Region and notify UI ---
+                // Only send this once per import process to avoid spamming the logs
+                if !region_found.load(Ordering::Relaxed) && region_code != "None" && region_code != "Server" {
+                    region_found.store(true, Ordering::Relaxed);
+                    let display_name = match region_code.as_str() {
+                        "EN" => "Global",
+                        "JP" => "Japan",
+                        "TW" => "Taiwan",
+                        "KR" => "Korean",
+                        _ => "Unknown",
+                    };
+                    // Send special message for UI
+                    let _ = tx.send(format!("REGION:{}", display_name));
+                }
+                // ----------------------------------------
+
                 let final_len = std::cmp::min(size, decrypted_chunk.len());
                 let final_data = &decrypted_chunk[..final_len];
                 let new_size = final_data.len();
 
-                // --- SMART OVERWRITE LOGIC ---
-                let mut perform_write = true;
+                if filename.ends_with("img015.png") {
+                    match region_code.as_str() {
+                        "JP" => { let _ = fs::write(output_dir.join("img015_ja.png"), final_data); },
+                        "TW" => { let _ = fs::write(output_dir.join("img015_tw.png"), final_data); },
+                        "KR" => { let _ = fs::write(output_dir.join("img015_ko.png"), final_data); },
+                        "EN" => { pending_global_img015 = Some(final_data.to_vec()); },
+                        _ => {}
+                    }
+                }
 
-                // Step 1: Identify "Old Data" Source
-                // Priority A: The Sorted Index (Historical data)
-                // Priority B: The Raw Folder (Live data from this run)
+                if let Some(data) = &pending_global_img015 {
+                    let current_codes = unused_global_codes.clone();
+                    for code in current_codes {
+                        let marker = format!("_{}.", code); 
+                        if filename.contains(&marker) {
+                            let save_name = format!("img015_{}.png", code);
+                            let _ = fs::write(output_dir.join(save_name), data);
+                            pending_global_img015 = None;
+                            unused_global_codes.retain(|x| x != &code);
+                            break;
+                        }
+                    }
+                }
+
+                let mut perform_write = true;
                 let mut comparison_target: Option<PathBuf> = None;
 
                 if let Some(p) = existing_path_opt {
@@ -104,40 +136,25 @@ fn extract_pack_contents(
                     comparison_target = Some(raw_dest_path.clone());
                 }
 
-                // Step 2: Perform the Comparison
                 if let Some(target_path) = comparison_target {
-                    // Check METADATA first (Super fast)
                     if let Ok(meta) = fs::metadata(&target_path) {
                         let old_size = meta.len() as usize;
-
-                        // Rule A: Placeholder Protection (Size Heuristic)
-                        // If Old is Big (>2KB) and New is Tiny (<2KB), assume New is junk.
-                        // We skip WITHOUT even reading the file bytes. Fast!
-                        if old_size > 2048 && new_size < 2048 {
-                            perform_write = false;
-                        }
-                        // Rule B: Identity Check (Only if sizes match-ish)
-                        // We only pay the cost of reading the disk if we are unsure.
+                        if old_size > 2048 && new_size < 2048 { perform_write = false; }
                         else {
                             if let Ok(old_data) = fs::read(&target_path) {
-                                if old_data == final_data {
-                                    perform_write = false; // Exact duplicate
-                                }
+                                if old_data == final_data { perform_write = false; }
                             }
                         }
                     }
                 }
 
                 if perform_write {
-                    // Note: We use raw_dest_path here, effectively using the variable we defined earlier
                     if let Some(parent) = raw_dest_path.parent() {
                         let _ = fs::create_dir_all(parent);
                     }
-
                     if let Err(e) = fs::write(&raw_dest_path, final_data) {
                         println!("Error writing {}: {}", filename, e);
                     } else {
-                        // LOGGING UPDATE: Batch log + Filename sample
                         let current = count.fetch_add(1, Ordering::Relaxed);
                         if current % 50 == 0 {
                             let _ = tx.send(format!("Extracted {} files | Current: {}", filename, current));
@@ -148,6 +165,7 @@ fn extract_pack_contents(
             Err(_) => {}
         }
     }
+    // --- REMOVED FALLBACK LOGIC HERE ---
     Ok(())
 }
 
@@ -156,7 +174,8 @@ fn process_apk(
     output_dir: &Path, 
     count: &AtomicI32, 
     tx: Sender<String>,
-    file_index: &Arc<HashMap<String, PathBuf>>
+    file_index: &Arc<HashMap<String, PathBuf>>,
+    region_found: &AtomicBool
 ) -> Result<(), String> {
     let _ = tx.send("Processing APK found in folder...".to_string());
     
@@ -180,9 +199,11 @@ fn process_apk(
             
             if let Ok(list_str) = decrypt_list_file(&list_buf) {
                 let pack_name = filename_string.replace(".list", ".pack");
-                
                 let mut pack_found = false;
-                let temp_pack_name = format!("temp_{}_{}", count.load(Ordering::Relaxed), Path::new(&pack_name).file_name().unwrap().to_string_lossy());
+                
+                // Sanitize temp filename
+                let safe_pack_name = Path::new(&pack_name).file_name().unwrap_or_default().to_string_lossy();
+                let temp_pack_name = format!("temp_{}_{}", count.load(Ordering::Relaxed), safe_pack_name);
                 let temp_pack_path = output_dir.join(&temp_pack_name);
                 
                 {
@@ -195,7 +216,15 @@ fn process_apk(
                 } 
 
                 if pack_found {
-                    let _ = extract_pack_contents(&list_str, &temp_pack_path, output_dir, count, tx.clone(), file_index);
+                    let _ = extract_pack_contents(
+                        &list_str, 
+                        &temp_pack_path, 
+                        output_dir, 
+                        count, 
+                        tx.clone(), 
+                        file_index,
+                        region_found
+                    );
                     let _ = fs::remove_file(temp_pack_path);
                 }
             }
@@ -225,7 +254,7 @@ fn find_game_files(current_dir: &Path, task_list: &mut Vec<PathBuf>) -> std::io:
 pub fn import_all_from_folder(folder_path: &str, tx: Sender<String>) -> Result<String, String> {
     let input_path = Path::new(folder_path);
     let output_dir = Path::new("game/raw");
-    let game_root = Path::new("game"); // The root to check for duplicates
+    let game_root = Path::new("game"); 
     
     if !output_dir.exists() {
         fs::create_dir_all(output_dir).map_err(|e| format!("Could not create 'game/raw': {}", e))?;
@@ -233,13 +262,11 @@ pub fn import_all_from_folder(folder_path: &str, tx: Sender<String>) -> Result<S
 
     let _ = tx.send("Building file index (Checking existing files)...".to_string());
     
-    // 1. Build Index (The Smart Part)
     let index_map = build_file_index(game_root);
-    let index_arc = Arc::new(index_map); // Share it across threads
+    let index_arc = Arc::new(index_map); 
     
     let _ = tx.send("Scanning for game packs...".to_string());
 
-    // 2. Gather Work
     let mut tasks = Vec::new();
     find_game_files(input_path, &mut tasks).map_err(|e| e.to_string())?;
     
@@ -247,16 +274,20 @@ pub fn import_all_from_folder(folder_path: &str, tx: Sender<String>) -> Result<S
     let _ = tx.send(format!("Found {} tasks. Starting Smart Extract...", total_tasks));
 
     let count = AtomicI32::new(0);
+    // NEW: Atomic Flag to ensure we only send "REGION:..." once
+    let region_found = Arc::new(AtomicBool::new(false));
 
-    // 3. Execute Parallel
     tasks.par_iter().for_each(|file_path| {
         let ext = file_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
-        // Clone the Index Reference for each thread
         let index_ref = Arc::clone(&index_arc);
+        let region_ref = Arc::clone(&region_found);
+
+        // --- CENSOR PATHS IN LOGS ---
+        let safe_filename = file_path.file_name().unwrap_or_default().to_string_lossy();
 
         if ext == "apk" {
-            if let Err(e) = process_apk(file_path, output_dir, &count, tx.clone(), &index_ref) {
-                let _ = tx.send(format!("Error processing APK: {}", e));
+            if let Err(e) = process_apk(file_path, output_dir, &count, tx.clone(), &index_ref, &region_ref) {
+                let _ = tx.send(format!("Error processing APK {}: {}", safe_filename, e));
             }
         } else if ext == "list" {
             let pack_path = file_path.with_extension("pack");
@@ -269,9 +300,10 @@ pub fn import_all_from_folder(folder_path: &str, tx: Sender<String>) -> Result<S
                             output_dir, 
                             &count, 
                             tx.clone(),
-                            &index_ref
+                            &index_ref,
+                            &region_ref
                         ) {
-                            let _ = tx.send(format!("Error in {:?}: {}", pack_path, e));
+                            let _ = tx.send(format!("Error in pack {}: {}", safe_filename, e));
                         }
                     }
                 }
