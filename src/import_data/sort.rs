@@ -41,14 +41,10 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             None => continue,
         };
 
-        // --- NEW: Delete duplicate img015.png ---
-        // This file is the "raw" version without a country code. 
-        // Since we've already extracted the coded versions (e.g. img015_th.png), this is trash.
         if filename == "img015.png" {
             let _ = fs::remove_file(&path);
             continue;
         }
-        // ----------------------------------------
 
         let mut dest_folder = None;
 

@@ -4,9 +4,11 @@ use std::sync::mpsc::Receiver;
 pub mod scanner;
 pub mod list;
 pub mod cat; 
+pub mod sprites; // <--- ADD THIS
 
 use scanner::CatEntry;
 use list::CatList;
+use sprites::SpriteSheet;
 
 pub struct CatListState {
     pub cats: Vec<CatEntry>,
@@ -18,6 +20,8 @@ pub struct CatListState {
     
     pub detail_texture: Option<egui::TextureHandle>,
     pub detail_key: String, 
+    
+    pub sprite_sheet: SpriteSheet,
 }
 
 impl Default for CatListState {
@@ -32,6 +36,8 @@ impl Default for CatListState {
             
             detail_texture: None,
             detail_key: String::new(),
+            
+            sprite_sheet: SpriteSheet::default(),
         }
     }
 }
@@ -101,7 +107,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState) {
                     cat, 
                     &mut state.selected_form, 
                     &mut state.detail_texture, 
-                    &mut state.detail_key
+                    &mut state.detail_key,
+                    &mut state.sprite_sheet // <--- PASS THIS
                 );
             }
         } else {

@@ -11,7 +11,6 @@ pub struct ImportState {
     log_content: String,
     rx: Option<Receiver<String>>,
     reset_trigger: Option<f64>,
-    // --- NEW: Track the region for the UI ---
     detected_region: String, 
 }
 
@@ -35,17 +34,13 @@ impl ImportState {
         if let Some(rx) = &self.rx {
             while let Ok(msg) = rx.try_recv() {
                 
-                // --- NEW: Intercept the Region Signal ---
-                // game_data.rs sends "REGION:Global" (or JP, etc) immediately upon key detection.
                 if msg.starts_with("REGION:") {
                     let parts: Vec<&str> = msg.split(':').collect();
                     if parts.len() > 1 {
                         self.detected_region = parts[1].to_string();
                     }
-                    // We 'continue' here so this technical tag doesn't appear in the visible text log
                     continue; 
                 }
-                // ----------------------------------------
 
                 self.status_message = msg.clone();
                 self.log_content.push_str(&format!("{}\n", msg));
@@ -114,7 +109,6 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
                 }
             }
             
-            // --- UPDATED: Show Instant Region instead of File Path ---
             ui.label(
                 egui::RichText::new(format!("Region: {}", state.detected_region))
                     .monospace()
