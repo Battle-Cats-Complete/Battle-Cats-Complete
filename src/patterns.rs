@@ -18,6 +18,9 @@ pub const CAT_ANIM_PATTERN: &str = concat!(r"^", r"(\d{3})_", r"([fcsu])", r"\.(
 pub const CAT_MAANIM_PATTERN: &str = concat!(r"^", r"(\d{3})_", r"([fcsu])", r"(0[0-3])", r"\.maanim$");
 pub const CAT_EXPLAIN_PATTERN: &str = concat!(r"^Unit_Explanation", r"(\d{1,3})_", r"([a-z]{2})", r"\.csv$");
 
+pub const ASSET_IMG015_PATTERN: &str = r"^img015_([a-z]{2})\.png$";
+pub const ASSET_015CUT_PATTERN: &str = r"^img015\.imgcut$";
+
 // Constants list
 pub const CAT_UNIVERSAL_FILES: &[&str] = &[
     "unitbuy.csv", 

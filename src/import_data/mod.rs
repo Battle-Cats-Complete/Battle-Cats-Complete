@@ -11,6 +11,8 @@ pub struct ImportState {
     log_content: String,
     rx: Option<Receiver<String>>,
     reset_trigger: Option<f64>,
+    // --- NEW: Track the region for the UI ---
+    detected_region: String, 
 }
 
 impl Default for ImportState {
@@ -21,6 +23,7 @@ impl Default for ImportState {
             log_content: String::new(),
             rx: None,
             reset_trigger: None,
+            detected_region: "Unknown".to_owned(),
         }
     }
 }
@@ -31,6 +34,19 @@ impl ImportState {
 
         if let Some(rx) = &self.rx {
             while let Ok(msg) = rx.try_recv() {
+                
+                // --- NEW: Intercept the Region Signal ---
+                // game_data.rs sends "REGION:Global" (or JP, etc) immediately upon key detection.
+                if msg.starts_with("REGION:") {
+                    let parts: Vec<&str> = msg.split(':').collect();
+                    if parts.len() > 1 {
+                        self.detected_region = parts[1].to_string();
+                    }
+                    // We 'continue' here so this technical tag doesn't appear in the visible text log
+                    continue; 
+                }
+                // ----------------------------------------
+
                 self.status_message = msg.clone();
                 self.log_content.push_str(&format!("{}\n", msg));
 
@@ -51,6 +67,7 @@ impl ImportState {
                 self.rx = None;
                 self.reset_trigger = None;
                 self.selected_folder = "No folder selected".to_string();
+                self.detected_region = "Unknown".to_string();
             } else {
                 ctx.request_repaint();
             }
@@ -72,6 +89,7 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     state.selected_folder = path.display().to_string();
                     state.status_message = "Starting worker...".to_string();
+                    state.detected_region = "Scanning...".to_string(); // Temporary state
 
                     state.log_content.clear();
                     state.log_content.push_str("Starting import process\n");
@@ -95,7 +113,13 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
                     });
                 }
             }
-            ui.label(egui::RichText::new(&state.selected_folder).monospace());
+            
+            // --- UPDATED: Show Instant Region instead of File Path ---
+            ui.label(
+                egui::RichText::new(format!("Region: {}", state.detected_region))
+                    .monospace()
+                    .strong()
+            );
         });
 
         ui.add_space(10.0);
