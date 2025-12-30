@@ -54,7 +54,7 @@ fn extract_pack_contents(
     region_found: &AtomicBool 
 ) -> Result<(), String> {
     
-    // List of codes. 'th' is definitely here!
+    // EN (Global) language codes
     let mut unused_global_codes = vec!["de", "en", "es", "fr", "it", "th"];
     let mut pending_global_img015: Option<Vec<u8>> = None;
 
@@ -83,8 +83,6 @@ fn extract_pack_contents(
         match crypto::decrypt_pack_chunk(&buffer, &pack_filename) {
             Ok((decrypted_chunk, region_code)) => {
                 
-                // --- NEW: Detect Region and notify UI ---
-                // Only send this once per import process to avoid spamming the logs
                 if !region_found.load(Ordering::Relaxed) && region_code != "None" && region_code != "Server" {
                     region_found.store(true, Ordering::Relaxed);
                     let display_name = match region_code.as_str() {
@@ -94,10 +92,8 @@ fn extract_pack_contents(
                         "KR" => "Korean",
                         _ => "Unknown",
                     };
-                    // Send special message for UI
                     let _ = tx.send(format!("REGION:{}", display_name));
                 }
-                // ----------------------------------------
 
                 let final_len = std::cmp::min(size, decrypted_chunk.len());
                 let final_data = &decrypted_chunk[..final_len];
@@ -165,7 +161,6 @@ fn extract_pack_contents(
             Err(_) => {}
         }
     }
-    // --- REMOVED FALLBACK LOGIC HERE ---
     Ok(())
 }
 
@@ -201,7 +196,6 @@ fn process_apk(
                 let pack_name = filename_string.replace(".list", ".pack");
                 let mut pack_found = false;
                 
-                // Sanitize temp filename
                 let safe_pack_name = Path::new(&pack_name).file_name().unwrap_or_default().to_string_lossy();
                 let temp_pack_name = format!("temp_{}_{}", count.load(Ordering::Relaxed), safe_pack_name);
                 let temp_pack_path = output_dir.join(&temp_pack_name);
@@ -274,7 +268,6 @@ pub fn import_all_from_folder(folder_path: &str, tx: Sender<String>) -> Result<S
     let _ = tx.send(format!("Found {} tasks. Starting Smart Extract...", total_tasks));
 
     let count = AtomicI32::new(0);
-    // NEW: Atomic Flag to ensure we only send "REGION:..." once
     let region_found = Arc::new(AtomicBool::new(false));
 
     tasks.par_iter().for_each(|file_path| {
@@ -282,7 +275,6 @@ pub fn import_all_from_folder(folder_path: &str, tx: Sender<String>) -> Result<S
         let index_ref = Arc::clone(&index_arc);
         let region_ref = Arc::clone(&region_found);
 
-        // --- CENSOR PATHS IN LOGS ---
         let safe_filename = file_path.file_name().unwrap_or_default().to_string_lossy();
 
         if ext == "apk" {

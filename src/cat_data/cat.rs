@@ -2,6 +2,21 @@ use eframe::egui;
 use std::path::Path;
 use image::imageops; 
 use super::scanner::CatEntry;
+use super::sprites::SpriteSheet; 
+
+// Trait Icons
+const TRAIT_ICONS: &[usize] = &[
+    224, // Red
+    225, // Floating
+    226, // Black
+    227, // Metal
+    228, // Angel
+    229, // Alien
+    230, // Zombie
+    231, // Relic
+    299, // Aku
+    232  // Traitless
+];
 
 pub fn show(
     ctx: &egui::Context, 
@@ -9,10 +24,24 @@ pub fn show(
     cat: &CatEntry, 
     current_form: &mut usize,
     texture_cache: &mut Option<egui::TextureHandle>,
-    current_key: &mut String
+    current_key: &mut String,
+    sprite_sheet: &mut SpriteSheet 
 ) {
+    let base_dir = Path::new("game/assets");
+    let tex_en = base_dir.join("img015_en.png");
+    let tex_ja = base_dir.join("img015_ja.png");
+    let tex_raw = base_dir.join("img015.png");
+    
+    let texture_path = if tex_en.exists() { tex_en } 
+        else if tex_ja.exists() { tex_ja } 
+        else { tex_raw };
+
+    let cut_path = base_dir.join("img015.imgcut");
+
+    sprite_sheet.load(ctx, &texture_path, &cut_path);
+
     ui.vertical(|ui| {
-        
+        // --- Form Tabs ---
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 
             ui.horizontal(|ui| {
@@ -38,86 +67,57 @@ pub fn show(
         ui.add_space(5.0);
 
         ui.horizontal(|ui| {
-            let form_char = match *current_form {
-                0 => "f",
-                1 => "c",
-                2 => "s",
-                _ => "u", 
-            };
-            
-            let expected_path_str = format!(
-                "game/cats/{:03}/{}/uni{:03}_{}00.png", 
-                cat.id, form_char, cat.id, form_char
-            );
+            // Deploy Icon
+            let form_char = match *current_form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
+            let expected = format!("game/cats/{:03}/{}/uni{:03}_{}00.png", cat.id, form_char, cat.id, form_char);
 
-            if *current_key != expected_path_str {
-                *current_key = expected_path_str.clone(); 
+            if *current_key != expected {
+                *current_key = expected.clone(); 
                 *texture_cache = None; 
+                let p = Path::new(&expected);
+                let f = Path::new("game/cats/uni.png");
+                let load = if p.exists() { Some(p) } else if f.exists() { Some(f) } else { None };
 
-                let specific_path = Path::new(&expected_path_str);
-                let fallback_path = Path::new("game/cats/uni.png");
-
-                let image_to_load = if specific_path.exists() {
-                    Some(specific_path)
-                } else if fallback_path.exists() {
-                    Some(fallback_path)
-                } else {
-                    None
-                };
-
-                if let Some(path) = image_to_load {
+                if let Some(path) = load {
                     if let Ok(img) = image::open(path) {
-                        
                         let mut rgba = img.to_rgba8();
-                        rgba = autocrop(rgba); // Crop whatever we found
-
+                        rgba = autocrop(rgba);
                         let size = [rgba.width() as usize, rgba.height() as usize];
                         let pixels = rgba.as_flat_samples();
-                        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
-                        
-                        *texture_cache = Some(ctx.load_texture(
-                            "detail_icon",
-                            color_image,
-                            egui::TextureOptions::LINEAR
-                        ));
+                        *texture_cache = Some(ctx.load_texture("detail_icon", egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()), egui::TextureOptions::LINEAR));
                     }
                 }
             }
 
-            if let Some(tex) = texture_cache {
-                ui.image(&*tex);
-            } else {
-                ui.allocate_space(egui::vec2(64.0, 64.0));
-            }
+            if let Some(tex) = texture_cache { ui.image(&*tex); } 
+            else { ui.allocate_space(egui::vec2(64.0, 64.0)); }
 
-            ui.add_space(10.0); // Horizontal spacer
+            ui.add_space(2.0);
 
+            // Name & ID
             ui.vertical(|ui| {
-                ui.add_space(8.0); // Vertical alignment
-
-                let form_number = *current_form + 1;
+                ui.add_space(4.0);
+                
+                let form_num = *current_form + 1;
                 let raw_name = cat.names.get(*current_form).cloned().unwrap_or_default();
-                let mut use_fallback = raw_name.is_empty();
-                
-                if *current_form > 0 && !use_fallback {
-                    let prev_name = cat.names.get(*current_form - 1).cloned().unwrap_or_default();
-                    if raw_name == prev_name { use_fallback = true; }
-                }
-                
-                let display_name = if use_fallback {
-                    format!("{:03}-{}", cat.id, form_number)
-                } else {
-                    raw_name
-                };
+                let disp_name = if raw_name.is_empty() { format!("{:03}-{}", cat.id, form_num) } else { raw_name };
 
-                ui.heading(display_name);
-
-                ui.label(
-                    egui::RichText::new(format!("ID: {:03}-{}", cat.id, form_number))
-                        .color(egui::Color32::from_gray(100)) 
-                        .size(12.0) 
-                );
+                ui.heading(disp_name);
+                ui.label(egui::RichText::new(format!("ID: {:03}-{}", cat.id, form_num)).color(egui::Color32::from_gray(100)).size(12.0));
             });
+        });
+
+        ui.add_space(5.0); 
+
+        // Target Traits
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0; 
+            
+            for &line_num in TRAIT_ICONS {
+                if let Some(sprite) = sprite_sheet.get_sprite_by_line(line_num) {
+                    ui.add(sprite.tint(egui::Color32::from_gray(77)));
+                }
+            }
         });
     });
 }
@@ -129,7 +129,6 @@ fn autocrop(img: image::RgbaImage) -> image::RgbaImage {
     let mut max_x = 0;
     let mut max_y = 0;
     let mut found_pixel = false;
-
     for (x, y, pixel) in img.enumerate_pixels() {
         if pixel[3] > 0 { 
             if x < min_x { min_x = x; }
@@ -139,11 +138,8 @@ fn autocrop(img: image::RgbaImage) -> image::RgbaImage {
             found_pixel = true;
         }
     }
-
     if !found_pixel { return img; }
-
     let new_width = max_x - min_x + 1;
     let new_height = max_y - min_y + 1;
-
     imageops::crop_imm(&img, min_x, min_y, new_width, new_height).to_image()
 }
