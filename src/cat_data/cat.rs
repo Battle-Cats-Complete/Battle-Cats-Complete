@@ -10,6 +10,8 @@ pub fn show(
     ui: &mut egui::Ui, 
     cat: &CatEntry, 
     current_form: &mut usize,
+    level_input: &mut String,   
+    current_level: &mut i32,    
     texture_cache: &mut Option<egui::TextureHandle>,
     current_key: &mut String,
     sprite_sheet: &mut SpriteSheet 
@@ -27,7 +29,6 @@ pub fn show(
 
     sprite_sheet.load(ctx, &texture_path, &cut_path);
 
-    // Get stats for current form
     let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
 
     ui.vertical(|ui| {
@@ -56,7 +57,6 @@ pub fn show(
         ui.add_space(5.0);
 
         ui.horizontal(|ui| {
-            // Icon
             let form_char = match *current_form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
             let expected = format!("game/cats/{:03}/{}/uni{:03}_{}00.png", cat.id, form_char, cat.id, form_char);
 
@@ -83,28 +83,42 @@ pub fn show(
 
             ui.add_space(2.0);
 
-            // Name & ID
             ui.vertical(|ui| {
                 ui.add_space(4.0);
-                
                 let form_num = *current_form + 1;
                 let raw_name = cat.names.get(*current_form).cloned().unwrap_or_default();
                 let disp_name = if raw_name.is_empty() { format!("{:03}-{}", cat.id, form_num) } else { raw_name };
 
                 ui.heading(disp_name);
                 ui.label(egui::RichText::new(format!("ID: {:03}-{}", cat.id, form_num)).color(egui::Color32::from_gray(100)).size(12.0));
+                
+                ui.add_space(2.0);
+                
+                ui.horizontal(|ui| {
+                    ui.label("Level:");
+                    let response = ui.add(egui::TextEdit::singleline(level_input).desired_width(40.0));
+                    
+                    if response.changed() {
+                        let mut sum = 0;
+                        let parts = level_input.split('+');
+                        for part in parts {
+                            if let Ok(val) = part.trim().parse::<i32>() {
+                                sum += val;
+                            }
+                        }
+                        if sum <= 0 { *current_level = 1; } 
+                        else { *current_level = sum; }
+                    }
+                });
             });
         });
 
         ui.add_space(5.0); 
 
-        // Traits Logic
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0; 
-            
             for &line_num in definitions::UI_TRAIT_ORDER {
                 if let Some(sprite) = sprite_sheet.get_sprite_by_line(line_num) {
-                    
                     let is_active = if let Some(s) = current_stats {
                         match line_num {
                             definitions::ICON_TRAIT_RED       => s.target_red > 0,
@@ -119,16 +133,34 @@ pub fn show(
                             definitions::ICON_TRAIT_TRAITLESS => s.target_traitless > 0,
                             _ => false,
                         }
-                    } else {
-                        false
-                    };
+                    } else { false };
 
-                    if is_active {
-                        ui.add(sprite);
-                    }
+                    if is_active { ui.add(sprite); }
                 }
             }
         });
+
+        ui.add_space(5.0);
+        ui.separator();
+        ui.add_space(5.0);
+
+        // --- STATS DISPLAY ---
+        if let Some(s) = current_stats {
+            let mut hp_val = s.hitpoints;
+            let mut atk_val = s.attack_1;
+
+            if let Some(curve) = &cat.curve {
+                // Use the precise JS-ported logic
+                hp_val = curve.calculate_stat(s.hitpoints, *current_level);
+                atk_val = curve.calculate_stat(s.attack_1, *current_level);
+            }
+
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("HP: {}", hp_val)).strong());
+                ui.add_space(10.0);
+                ui.label(egui::RichText::new(format!("ATK: {}", atk_val)).strong());
+            });
+        }
     });
 }
 

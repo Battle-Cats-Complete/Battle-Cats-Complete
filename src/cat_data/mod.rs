@@ -5,8 +5,8 @@ pub mod scanner;
 pub mod list;
 pub mod cat; 
 pub mod sprites;
-pub mod definitions;
 pub mod stats;
+pub mod definitions; 
 
 use scanner::CatEntry;
 use list::CatList;
@@ -20,10 +20,14 @@ pub struct CatListState {
     pub search_query: String,
     pub selected_form: usize,
     
+    // --- LEVEL FIELDS ---
+    pub level_input: String,
+    pub current_level: i32,
+    
     pub detail_texture: Option<egui::TextureHandle>,
     pub detail_key: String, 
     
-    pub sprite_sheet: SpriteSheet,
+    pub sprite_sheet: SpriteSheet, 
 }
 
 impl Default for CatListState {
@@ -36,10 +40,13 @@ impl Default for CatListState {
             search_query: String::new(),
             selected_form: 0,
             
+            level_input: "50".to_string(),
+            current_level: 50,
+            
             detail_texture: None,
             detail_key: String::new(),
             
-            sprite_sheet: SpriteSheet::default(),
+            sprite_sheet: SpriteSheet::default(), 
         }
     }
 }
@@ -54,6 +61,9 @@ impl CatListState {
         self.detail_texture = None;
         self.detail_key.clear();
         
+        self.level_input = "50".to_string();
+        self.current_level = 50;
+
         self.scan_receiver = Some(scanner::start_scan());
     }
 
@@ -64,7 +74,6 @@ impl CatListState {
                 self.cats.push(entry);
                 new_data = true;
             }
-            
             if new_data {
                 self.cats.sort_by_key(|c| c.id);
                 if self.selected_cat.is_none() && !self.cats.is_empty() {
@@ -107,10 +116,12 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState) {
                     ctx, 
                     ui, 
                     cat, 
-                    &mut state.selected_form, 
+                    &mut state.selected_form,
+                    &mut state.level_input,   
+                    &mut state.current_level, 
                     &mut state.detail_texture, 
                     &mut state.detail_key,
-                    &mut state.sprite_sheet // <--- PASS THIS
+                    &mut state.sprite_sheet 
                 );
             }
         } else {

@@ -3,7 +3,7 @@ use std::fs;
 use std::thread;
 use std::sync::mpsc::{self, Receiver};
 use image::GenericImageView; 
-use super::stats::CatRaw; 
+use super::stats::{CatRaw, CatLevelCurve}; 
 
 #[derive(Clone, Debug)]
 pub struct CatEntry {
@@ -11,7 +11,8 @@ pub struct CatEntry {
     pub image_path: PathBuf,
     pub names: Vec<String>, 
     pub forms: [bool; 4],
-    pub stats: Vec<Option<CatRaw>>, 
+    pub stats: Vec<Option<CatRaw>>,
+    pub curve: Option<CatLevelCurve>,
 }
 
 pub fn start_scan() -> Receiver<CatEntry> {
@@ -19,6 +20,18 @@ pub fn start_scan() -> Receiver<CatEntry> {
 
     thread::spawn(move || {
         let cats_dir = Path::new("game/cats");
+        
+        // Preload level curves
+        let mut level_curves: Vec<CatLevelCurve> = Vec::new();
+        let level_file = cats_dir.join("unitlevel.csv");
+        
+        if level_file.exists() {
+            if let Ok(content) = fs::read_to_string(&level_file) {
+                for line in content.lines() {
+                    level_curves.push(CatLevelCurve::from_csv_line(line));
+                }
+            }
+        }
         
         if let Ok(entries) = fs::read_dir(cats_dir) {
             for entry in entries.flatten() {
@@ -34,13 +47,13 @@ pub fn start_scan() -> Receiver<CatEntry> {
                             let has_u = path.join("u").exists();
                             let forms = [has_f, has_c, has_s, has_u];
 
+                            // Banner logic
                             let filename = format!("udi{:03}_f.png", id);
                             let img_path = path.join("f").join(&filename);
 
                             if img_path.exists() {
                                 if let Ok(img) = image::open(&img_path) {
                                     
-                                    // Safety Checks
                                     let (w, h) = img.dimensions();
                                     if w <= 14 || h <= 2 { continue; }
                                     if id > 25 {
@@ -50,8 +63,9 @@ pub fn start_scan() -> Receiver<CatEntry> {
                                     let has_content = img.pixels().any(|(_, _, pixel)| pixel[3] > 0);
 
                                     if has_content {
+                                        // Name parsing
                                         let mut names = vec![String::new(); 4];
-                                        let file_id = id + 1;
+                                        let file_id = id + 1; 
                                         
                                         let p1 = path.join(format!("Unit_Explanation{}_en.csv", file_id));
                                         let p2 = path.join(format!("Unit_Explanation{:03}_en.csv", file_id));
@@ -76,6 +90,7 @@ pub fn start_scan() -> Receiver<CatEntry> {
                                             }
                                         }
 
+                                        // Stats parsing
                                         let mut stats = vec![None; 4];
                                         let stats_file_name = format!("unit{:03}.csv", file_id); 
                                         let stats_path = path.join(&stats_file_name);
@@ -88,12 +103,14 @@ pub fn start_scan() -> Receiver<CatEntry> {
                                             }
                                         }
 
+                                        let curve = level_curves.get(id as usize).cloned();
                                         let entry = CatEntry { 
                                             id, 
                                             image_path: img_path, 
                                             names,
                                             forms,
                                             stats, 
+                                            curve,
                                         };
                                         let _ = tx.send(entry);
                                     }
