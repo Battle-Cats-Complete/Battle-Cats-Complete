@@ -65,7 +65,7 @@ Many people/groups have helped and encouraged me to make this project:
 * TimTams, providing knowledge on most of the games csv logic
 * TheWWRNerdGuy, inadvertantly convincing me to learn Rust and providing some csv logic
 * SweetDonut0, providing a "source of truth" via working Javascript code to port/review from the [Miraheze Wiki](https://battlecats.miraheze.org/wiki/Battle_Cats_Wiki)
-* Battle Cats Ultimate, an unoptimized and poorly maintained app that I used as a "proof of concept"
+* [Battle Cats Ultimate](https://github.com/battlecatsultimate), an unoptimized and poorly maintained app that I used as a "proof of concept"
 
 ## Disclaimer
 This project is for educational purposes only. Assets are copyright PONOS Corp. Please support the official release.

@@ -19,6 +19,7 @@ pub struct BattleCatsApp {
     sidebar_open: bool,
     import_state: import_data::ImportState,
     cat_list_state: cat_data::CatListState,
+    high_banner_quality: bool,
 }
 
 impl Default for BattleCatsApp {
@@ -27,7 +28,8 @@ impl Default for BattleCatsApp {
             current_page: Page::MainMenu,
             sidebar_open: false,
             import_state: import_data::ImportState::default(),
-            cat_list_state: cat_data::CatListState::default()
+            cat_list_state: cat_data::CatListState::default(),
+            high_banner_quality: false, 
         }
     }
 }
@@ -57,13 +59,21 @@ impl eframe::App for BattleCatsApp {
         style.visuals.override_text_color = Some(egui::Color32::WHITE);
         ctx.set_style(style);
 
-
         match self.current_page {
-            Page::MainMenu => main_menu::show(ctx),
+            Page::MainMenu => {
+                let prev_quality = self.high_banner_quality;
+                main_menu::show(ctx, &mut self.high_banner_quality);
+                
+                if prev_quality != self.high_banner_quality {
+                    self.cat_list_state.cat_list.clear_cache();
+                }
+            },
             Page::ImportData => {
                 import_data::show(ctx, &mut self.import_state);
             },
-            Page::CatData => cat_data::show(ctx, &mut self.cat_list_state),
+            Page::CatData => {
+                cat_data::show(ctx, &mut self.cat_list_state, self.high_banner_quality);
+            },
         }
 
         let sidebar_inner_width = 150.0; 

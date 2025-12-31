@@ -19,10 +19,13 @@ pub struct CatListState {
     pub scan_receiver: Option<Receiver<CatEntry>>,
     pub search_query: String,
     pub selected_form: usize,
+    
     pub level_input: String,
     pub current_level: i32,
+    
     pub detail_texture: Option<egui::TextureHandle>,
     pub detail_key: String, 
+    
     pub sprite_sheet: SpriteSheet, 
     pub multihit_texture: Option<egui::TextureHandle>,
 }
@@ -82,7 +85,7 @@ impl CatListState {
     }
 }
 
-pub fn show(ctx: &egui::Context, state: &mut CatListState) {
+pub fn show(ctx: &egui::Context, state: &mut CatListState, high_banner_quality: bool) {
     egui::SidePanel::left("cat_list_panel")
         .resizable(false)
         .default_width(160.0)
@@ -97,7 +100,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState) {
             ui.separator();
 
             let old_selection = state.selected_cat;
-            state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query);
+            
+            state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, high_banner_quality);
             
             if state.selected_cat != old_selection {
                 state.selected_form = 0; 
@@ -120,12 +124,12 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState) {
                     &mut state.detail_texture, 
                     &mut state.detail_key,
                     &mut state.sprite_sheet,
-                    &mut state.multihit_texture
+                    &mut state.multihit_texture 
                 );
             }
         } else {
             ui.centered_and_justified(|ui| {
-                ui.label("Loading...");
+                ui.label("No Data Found");
             });
         }
     });
