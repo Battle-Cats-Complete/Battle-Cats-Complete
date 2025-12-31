@@ -134,10 +134,10 @@ impl CatRaw {
             knockbacks: get(1),
             speed: get(2),
             attack_1: get(3),
-            time_before_attack_1: get(4),
+            time_before_attack_1: get(4) * 2,
             standing_range: get(5),
             eoc1_cost: get(6),
-            cooldown: get(7) / 2,
+            cooldown: get(7) * 2,
             hitbox_position: get(8),
             hitbox_width: get(9),
             target_red: get(10),
@@ -249,6 +249,12 @@ impl CatRaw {
             explosion_immune: get(116),
         })
     }
+
+    // Calculation for attack cycle
+    pub fn attack_cycle(&self, anim_frames: i32) -> i32 {
+        let cooldown = self.time_before_attack_1.saturating_sub(1);
+        (self.pre_attack_animation + cooldown).max(anim_frames)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -293,7 +299,7 @@ impl CatLevelCurve {
             }
         }
 
-        // Apply Treasure
+        // Apply treasure
         let rounded_stat = stat.round();
         let final_val = (rounded_stat * 2.5).floor();
 
