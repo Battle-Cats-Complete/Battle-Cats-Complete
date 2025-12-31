@@ -2,21 +2,8 @@ use eframe::egui;
 use std::path::Path;
 use image::imageops; 
 use super::scanner::CatEntry;
-use super::sprites::SpriteSheet; 
-
-// Trait Icons
-const TRAIT_ICONS: &[usize] = &[
-    224, // Red
-    225, // Floating
-    226, // Black
-    227, // Metal
-    228, // Angel
-    229, // Alien
-    230, // Zombie
-    231, // Relic
-    299, // Aku
-    232  // Traitless
-];
+use super::sprites::SpriteSheet;
+use super::definitions; 
 
 pub fn show(
     ctx: &egui::Context, 
@@ -40,8 +27,10 @@ pub fn show(
 
     sprite_sheet.load(ctx, &texture_path, &cut_path);
 
+    // Get stats for current form
+    let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
+
     ui.vertical(|ui| {
-        // --- Form Tabs ---
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 
             ui.horizontal(|ui| {
@@ -67,7 +56,7 @@ pub fn show(
         ui.add_space(5.0);
 
         ui.horizontal(|ui| {
-            // Deploy Icon
+            // Icon
             let form_char = match *current_form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
             let expected = format!("game/cats/{:03}/{}/uni{:03}_{}00.png", cat.id, form_char, cat.id, form_char);
 
@@ -109,13 +98,34 @@ pub fn show(
 
         ui.add_space(5.0); 
 
-        // Target Traits
+        // Traits Logic
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0; 
             
-            for &line_num in TRAIT_ICONS {
+            for &line_num in definitions::UI_TRAIT_ORDER {
                 if let Some(sprite) = sprite_sheet.get_sprite_by_line(line_num) {
-                    ui.add(sprite.tint(egui::Color32::from_gray(77)));
+                    
+                    let is_active = if let Some(s) = current_stats {
+                        match line_num {
+                            definitions::ICON_TRAIT_RED       => s.target_red > 0,
+                            definitions::ICON_TRAIT_FLOATING  => s.target_floating > 0,
+                            definitions::ICON_TRAIT_BLACK     => s.target_black > 0,
+                            definitions::ICON_TRAIT_METAL     => s.target_metal > 0,
+                            definitions::ICON_TRAIT_ANGEL     => s.target_angel > 0,
+                            definitions::ICON_TRAIT_ALIEN     => s.target_alien > 0,
+                            definitions::ICON_TRAIT_ZOMBIE    => s.target_zombie > 0,
+                            definitions::ICON_TRAIT_RELIC     => s.target_relic > 0,
+                            definitions::ICON_TRAIT_AKU       => s.target_aku > 0,
+                            definitions::ICON_TRAIT_TRAITLESS => s.target_traitless > 0,
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    };
+
+                    if is_active {
+                        ui.add(sprite);
+                    }
                 }
             }
         });
