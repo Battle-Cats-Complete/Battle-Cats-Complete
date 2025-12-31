@@ -19,15 +19,12 @@ pub struct CatListState {
     pub scan_receiver: Option<Receiver<CatEntry>>,
     pub search_query: String,
     pub selected_form: usize,
-    
-    // --- LEVEL FIELDS ---
     pub level_input: String,
     pub current_level: i32,
-    
     pub detail_texture: Option<egui::TextureHandle>,
     pub detail_key: String, 
-    
     pub sprite_sheet: SpriteSheet, 
+    pub multihit_texture: Option<egui::TextureHandle>,
 }
 
 impl Default for CatListState {
@@ -47,6 +44,7 @@ impl Default for CatListState {
             detail_key: String::new(),
             
             sprite_sheet: SpriteSheet::default(), 
+            multihit_texture: None,
         }
     }
 }
@@ -121,7 +119,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState) {
                     &mut state.current_level, 
                     &mut state.detail_texture, 
                     &mut state.detail_key,
-                    &mut state.sprite_sheet 
+                    &mut state.sprite_sheet,
+                    &mut state.multihit_texture
                 );
             }
         } else {

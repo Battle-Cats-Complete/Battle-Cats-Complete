@@ -15,7 +15,8 @@ pub fn show(
     current_level: &mut i32,    
     texture_cache: &mut Option<egui::TextureHandle>,
     current_key: &mut String,
-    sprite_sheet: &mut SpriteSheet 
+    sprite_sheet: &mut SpriteSheet,
+    multihit_texture: &mut Option<egui::TextureHandle>,
 ) {
     let base_dir = Path::new("game/assets");
     let tex_en = base_dir.join("img015_en.png");
@@ -28,6 +29,21 @@ pub fn show(
 
     let cut_path = base_dir.join("img015.imgcut");
     sprite_sheet.load(ctx, &texture_path, &cut_path);
+
+    if multihit_texture.is_none() {
+        const MULTIHIT_BYTES: &[u8] = include_bytes!("../../assets/multihit.png");
+        if let Ok(img) = image::load_from_memory(MULTIHIT_BYTES) {
+            let rgba = img.to_rgba8();
+            *multihit_texture = Some(ctx.load_texture(
+                "multihit_icon",
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [rgba.width() as usize, rgba.height() as usize],
+                    rgba.as_flat_samples().as_slice()
+                ),
+                egui::TextureOptions::LINEAR
+            ));
+        }
+    }
 
     let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
 
@@ -115,12 +131,18 @@ pub fn show(
             // Stats grid
             if let Some(s) = current_stats {
                 let hp = cat.curve.as_ref().map_or(s.hitpoints, |c| c.calculate_stat(s.hitpoints, *current_level));
-                let atk = cat.curve.as_ref().map_or(s.attack_1, |c| c.calculate_stat(s.attack_1, *current_level));
+                
+                // Damage
+                let atk_1 = cat.curve.as_ref().map_or(s.attack_1, |c| c.calculate_stat(s.attack_1, *current_level));
+                let atk_2 = cat.curve.as_ref().map_or(s.attack_2, |c| c.calculate_stat(s.attack_2, *current_level));
+                let atk_3 = cat.curve.as_ref().map_or(s.attack_3, |c| c.calculate_stat(s.attack_3, *current_level));
+                
+                let total_atk = atk_1 + atk_2 + atk_3;
 
                 let total_atk_cycle = s.attack_cycle(cat.atk_anim_frames[*current_form]);
                 
                 let dps = if total_atk_cycle > 0 {
-                    (atk as f32 * 30.0 / total_atk_cycle as f32) as i32
+                    (total_atk as f32 * 30.0 / total_atk_cycle as f32) as i32
                 } else {
                     0
                 };
@@ -140,7 +162,7 @@ pub fn show(
                         ui.end_row();
 
                         // Values 
-                        grid_cell(ui, &format!("{}", atk), false);
+                        grid_cell(ui, &format!("{}", total_atk), false);
                         grid_cell(ui, &format!("{}", dps), false);
                         grid_cell(ui, &format!("{}", s.standing_range), false);
                         grid_cell_custom(ui, false, |ui| render_frames(ui, total_atk_cycle)); 
@@ -198,17 +220,17 @@ pub fn show(
 
             ui.add_space(5.0);
 
-            render_abilities(ui, s, sprite_sheet);
+            render_abilities(ui, s, sprite_sheet, multihit_texture);
         }
     });
 }
 
 // Abilities
-fn render_abilities(ui: &mut egui::Ui, s: &CatRaw, sprite_sheet: &SpriteSheet) {
-let mut is_omni = false;
+fn render_abilities(ui: &mut egui::Ui, s: &CatRaw, sprite_sheet: &SpriteSheet, multihit_tex: &Option<egui::TextureHandle>) {
+    let mut is_omni = false;
     let mut has_ld = false;
 
-    // Iterate through all 3 hits for ld/omni
+    // Check all 3 hits for LD/Omni
     let check_hits = [
         (s.long_distance_1_anchor, s.long_distance_1_span),
         (s.long_distance_2_anchor, if s.long_distance_2_flag == 1 { s.long_distance_2_span } else { 0 }),
@@ -218,7 +240,6 @@ let mut is_omni = false;
     for (anchor, span) in check_hits {
         if span != 0 {
             let start_range = std::cmp::min(anchor, anchor + span);
-            
             if start_range <= 0 { is_omni = true; }
             else { has_ld = true; }
         }
@@ -226,8 +247,12 @@ let mut is_omni = false;
 
     let show_omni = is_omni;
     let show_ld = !is_omni && has_ld;
+    
+    // Check Multi-Hit (If 2nd attack has damage > 0)
+    let is_multihit = s.attack_2 > 0;
 
-    let abilities = [
+    // 1. General Abilities
+    let abilities_main = [
         (s.strong_against > 0, definitions::ICON_STRONG_AGAINST),
         (s.resist > 0, definitions::ICON_RESIST),
         (s.insanely_tough > 0, definitions::ICON_INSANELY_TOUGH),
@@ -276,6 +301,10 @@ let mut is_omni = false;
         (s.explosion_immune > 0, definitions::ICON_IMMUNE_EXPLOSION),
         (s.wave_block > 0, definitions::ICON_WAVE_BLOCK),
         (s.counter_surge > 0, definitions::ICON_COUNTER_SURGE),
+    ];
+
+    // 2. Range Abilities (Omni/LD)
+    let abilities_range = [
         (show_omni, definitions::ICON_OMNI_STRIKE),
         (show_ld, definitions::ICON_LONG_DISTANCE),
     ];
@@ -284,7 +313,23 @@ let mut is_omni = false;
         ui.spacing_mut().item_spacing.x = 4.0;
         ui.spacing_mut().item_spacing.y = 4.0;
         
-        for (has, icon) in abilities {
+        // Render Main Abilities
+        for (has, icon) in abilities_main {
+            if has {
+                if let Some(sprite) = sprite_sheet.get_sprite_by_line(icon) {
+                    ui.add(sprite.fit_to_exact_size(egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE)));
+                } 
+            }
+        }
+
+        // Render Multi-Hit
+        if is_multihit {
+            if let Some(tex) = multihit_tex {
+                ui.add(egui::Image::new(tex).fit_to_exact_size(egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE)));
+            }
+        }
+
+        for (has, icon) in abilities_range {
             if has {
                 if let Some(sprite) = sprite_sheet.get_sprite_by_line(icon) {
                     ui.add(sprite.fit_to_exact_size(egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE)));
