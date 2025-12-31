@@ -1,5 +1,6 @@
 // This struct holds the Raw Data exactly as it appears in the CSV
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct CatRaw {
     pub hitpoints: i32,
     pub knockbacks: i32,
@@ -8,7 +9,7 @@ pub struct CatRaw {
     pub time_before_attack_1: i32,
     pub standing_range: i32,
     pub eoc1_cost: i32,
-    pub cooldown: i32, // Modified: / 2
+    pub cooldown: i32, 
     pub hitbox_position: i32,
     pub hitbox_width: i32,
     pub target_red: i32,
@@ -56,10 +57,10 @@ pub struct CatRaw {
     pub zombie_killer: i32,
     pub witch_killer: i32,
     pub target_witch: i32,
-    pub unknown_55: i32,        // Default -1
-    pub boss_wave_immune: i32,  // Default -1
-    pub unknown_57: i32,        // Default -1
-    pub kamikaze: i32,          // True = 2
+    pub unknown_55: i32,        
+    pub boss_wave_immune: i32,  
+    pub unknown_57: i32,        
+    pub kamikaze: i32,          
     pub attack_2: i32,
     pub attack_3: i32,
     pub time_before_attack_2: i32,
@@ -67,7 +68,7 @@ pub struct CatRaw {
     pub attack_1_abilities: i32,
     pub attack_2_abilities: i32,
     pub attack_3_abilities: i32,
-    pub unknown_66: i32,        // Default -1
+    pub unknown_66: i32,        
     pub soul_animation: i32,
     pub spawn_animation: i32,
     pub unknown_69: i32,
@@ -88,8 +89,8 @@ pub struct CatRaw {
     pub dodge_chance: i32,
     pub dodge_duration: i32,
     pub surge_chance: i32,
-    pub surge_spawn_minimum: i32, // Modified: / 4
-    pub surge_spawn_width: i32,   // Modified: / 4
+    pub surge_spawn_minimum: i32, 
+    pub surge_spawn_width: i32,   
     pub surge_level: i32,
     pub toxic_immune: i32,
     pub surge_immune: i32,
@@ -115,34 +116,18 @@ pub struct CatRaw {
     pub sage_slayer: i32,
     pub metal_killer_percent: i32,
     pub explosion_chance: i32,
-    pub explosion_spawn: i32,     // Modified: / 4
-    pub explosion_variation: i32, // Modified: / 4
+    pub explosion_spawn: i32,     
+    pub explosion_variation: i32, 
     pub explosion_immune: i32,
 }
 
 impl CatRaw {
     pub fn from_csv_line(line: &str) -> Option<Self> {
         let parts: Vec<&str> = line.split(',').collect();
-        
-        let get = |index: usize| -> i32 {
-            if let Some(val_str) = parts.get(index) {
-                val_str.trim().parse::<i32>().unwrap_or(0)
-            } else {
-                0
-            }
-        };
+        let get = |index: usize| parts.get(index).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0);
+        let get_neg = |index: usize| parts.get(index).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(-1);
 
-        let get_neg = |index: usize| -> i32 {
-            if let Some(val_str) = parts.get(index) {
-                val_str.trim().parse::<i32>().unwrap_or(-1)
-            } else {
-                -1
-            }
-        };
-
-        if parts.len() < 10 {
-            return None;
-        }
+        if parts.len() < 10 { return None; }
 
         Some(Self {
             hitpoints: get(0),
@@ -263,5 +248,55 @@ impl CatRaw {
             explosion_variation: get(115) / 4,
             explosion_immune: get(116),
         })
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CatLevelCurve {
+    pub increments: Vec<u16>, 
+}
+
+impl CatLevelCurve {
+    pub fn from_csv_line(line: &str) -> Self {
+        let parts: Vec<&str> = line.split(',').collect();
+        let mut increments = Vec::new();
+        for part in parts {
+            if let Ok(val) = part.trim().parse::<u16>() {
+                increments.push(val);
+            }
+        }
+        Self { increments }
+    }
+
+    // Ported from JS `calcStat` function provided by TheWWRNerdGuy
+    pub fn calculate_stat(&self, base: i32, level: i32) -> i32 {
+        let base_f = base as f64;
+        let mut stat = base_f;
+
+        let max_scaled_level = (self.increments.len() * 10) as i32;
+        let limit = std::cmp::min(level, max_scaled_level);
+
+        // Unit growth
+        for l in 2..=limit {
+            let index = ((l as f64 / 10.0).ceil() as usize).saturating_sub(1);
+            
+            if let Some(&scaling) = self.increments.get(index) {
+                stat += base_f * (scaling as f64) / 100.0;
+            }
+        }
+
+        // Fallback for levels exceeding the defined curve
+        if level > max_scaled_level {
+            let to_apply = level - max_scaled_level;
+            if let Some(&last_scaling) = self.increments.last() {
+                stat += base_f * (last_scaling as f64) * (to_apply as f64) / 100.0;
+            }
+        }
+
+        // Apply Treasure
+        let rounded_stat = stat.round();
+        let final_val = (rounded_stat * 2.5).floor();
+
+        final_val as i32
     }
 }
