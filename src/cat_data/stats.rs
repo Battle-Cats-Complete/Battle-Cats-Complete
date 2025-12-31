@@ -105,11 +105,13 @@ pub struct CatRaw {
     pub colossus_slayer: i32,
     pub soulstrike: i32,
     pub long_distance_2_flag: i32,
+    // --- REVERTED ---
     pub long_distance_2_anchor: i32,
     pub long_distance_2_span: i32,
     pub long_distance_3_flag: i32,
     pub long_distance_3_anchor: i32,
     pub long_distance_3_span: i32,
+    // ----------------
     pub behemoth_slayer: i32,
     pub behemoth_dodge_chance: i32,
     pub behemoth_dodge_duration: i32,
@@ -254,8 +256,18 @@ impl CatRaw {
     }
 
     pub fn attack_cycle(&self, anim_frames: i32) -> i32 {
+        let mut effective_foreswing = self.pre_attack_animation;
+        
+        if self.attack_3 > 0 && self.time_before_attack_3 > 0 {
+            effective_foreswing = self.time_before_attack_3;
+        } 
+        else if self.attack_2 > 0 && self.time_before_attack_2 > 0 {
+            effective_foreswing = self.time_before_attack_2;
+        }
+
         let cooldown = self.time_before_attack_1.saturating_sub(1);
-        (self.pre_attack_animation + cooldown).max(anim_frames)
+        
+        (effective_foreswing + cooldown).max(anim_frames)
     }
 }
 

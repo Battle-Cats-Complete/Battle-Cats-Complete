@@ -43,7 +43,7 @@ impl SpriteSheet {
                 [image.width() as usize, image.height() as usize],
                 image.as_flat_samples().as_slice()
             ),
-            egui::TextureOptions::NEAREST
+            egui::TextureOptions::LINEAR
         ));
 
         if let Ok(content) = fs::read_to_string(cut_path) {
