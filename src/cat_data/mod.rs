@@ -4,7 +4,9 @@ use std::sync::mpsc::Receiver;
 pub mod scanner;
 pub mod list;
 pub mod cat; 
-pub mod sprites; // <--- ADD THIS
+pub mod sprites;
+pub mod definitions;
+pub mod stats;
 
 use scanner::CatEntry;
 use list::CatList;
