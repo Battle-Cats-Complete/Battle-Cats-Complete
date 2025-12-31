@@ -4,6 +4,7 @@ use image::imageops;
 use super::scanner::CatEntry;
 use super::sprites::SpriteSheet;
 use super::definitions; 
+use super::stats::{self, CatRaw}; 
 
 pub fn show(
     ctx: &egui::Context, 
@@ -31,7 +32,6 @@ pub fn show(
     let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
 
     ui.vertical(|ui| {
-        // --- FORM TABS ---
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 
             ui.horizontal(|ui| {
@@ -136,10 +136,10 @@ pub fn show(
                         grid_cell(ui, "Dps", true);
                         grid_cell(ui, "Range", true);
                         grid_cell(ui, "Atk Cycle", true);
-                        grid_cell(ui, "Atk Type", true);
+                        grid_cell(ui, "Atk Type", true); 
                         ui.end_row();
 
-                        // Values
+                        // Values 
                         grid_cell(ui, &format!("{}", atk), false);
                         grid_cell(ui, &format!("{}", dps), false);
                         grid_cell(ui, &format!("{}", s.standing_range), false);
@@ -152,48 +152,145 @@ pub fn show(
                         grid_cell(ui, "Kb", true);
                         grid_cell(ui, "Speed", true);
                         grid_cell(ui, "Cooldown", true); 
-                        grid_cell(ui, "Cost", true);
+                        grid_cell(ui, "Cost", true);     
                         ui.end_row();
 
-                        // Values 
+                        // Values
                         grid_cell(ui, &format!("{}", hp), false);
                         grid_cell(ui, &format!("{}", s.knockbacks), false);
                         grid_cell(ui, &format!("{}", s.speed), false);
                         grid_cell_custom(ui, false, |ui| render_frames(ui, s.cooldown));
-                        grid_cell(ui, &format!("{}¢", s.eoc1_cost * 3 / 2), false); // Bottom Right Price Tag
+                        grid_cell(ui, &format!("{}¢", s.eoc1_cost * 3 / 2), false); 
                         ui.end_row();
                     });
             }
         });
 
-        ui.add_space(15.0);
-        ui.separator();
-        ui.add_space(10.0);
+        ui.add_space(3.0); 
+        ui.separator(); 
+        ui.add_space(3.0);
 
-        // Traits
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0; 
-            for &line_num in definitions::UI_TRAIT_ORDER {
-                if let Some(sprite) = sprite_sheet.get_sprite_by_line(line_num) {
-                    let is_active = if let Some(s) = current_stats {
-                        match line_num {
-                            definitions::ICON_TRAIT_RED       => s.target_red > 0,
-                            definitions::ICON_TRAIT_FLOATING  => s.target_floating > 0,
-                            definitions::ICON_TRAIT_BLACK     => s.target_black > 0,
-                            definitions::ICON_TRAIT_METAL     => s.target_metal > 0,
-                            definitions::ICON_TRAIT_ANGEL     => s.target_angel > 0,
-                            definitions::ICON_TRAIT_ALIEN     => s.target_alien > 0,
-                            definitions::ICON_TRAIT_ZOMBIE    => s.target_zombie > 0,
-                            definitions::ICON_TRAIT_RELIC     => s.target_relic > 0,
-                            definitions::ICON_TRAIT_AKU       => s.target_aku > 0,
-                            definitions::ICON_TRAIT_TRAITLESS => s.target_traitless > 0,
-                            _ => false,
+        if let Some(s) = current_stats {
+            // Traits
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                for &line_num in definitions::UI_TRAIT_ORDER {
+                    let has_trait = match line_num {
+                        definitions::ICON_TRAIT_RED       => s.target_red > 0,
+                        definitions::ICON_TRAIT_FLOATING  => s.target_floating > 0,
+                        definitions::ICON_TRAIT_BLACK     => s.target_black > 0,
+                        definitions::ICON_TRAIT_METAL     => s.target_metal > 0,
+                        definitions::ICON_TRAIT_ANGEL     => s.target_angel > 0,
+                        definitions::ICON_TRAIT_ALIEN     => s.target_alien > 0,
+                        definitions::ICON_TRAIT_ZOMBIE    => s.target_zombie > 0,
+                        definitions::ICON_TRAIT_RELIC     => s.target_relic > 0,
+                        definitions::ICON_TRAIT_AKU       => s.target_aku > 0,
+                        definitions::ICON_TRAIT_TRAITLESS => s.target_traitless > 0,
+                        _ => false,
+                    };
+                    if has_trait {
+                        if let Some(sprite) = sprite_sheet.get_sprite_by_line(line_num) {
+                            ui.add(sprite.fit_to_exact_size(egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE)));
                         }
-                    } else { false };
-                    if is_active { ui.add(sprite); }
+                    }
                 }
+            });
+
+            ui.add_space(5.0);
+
+            render_abilities(ui, s, sprite_sheet);
+        }
+    });
+}
+
+// Abilities
+fn render_abilities(ui: &mut egui::Ui, s: &CatRaw, sprite_sheet: &SpriteSheet) {
+let mut is_omni = false;
+    let mut has_ld = false;
+
+    // Iterate through all 3 hits for ld/omni
+    let check_hits = [
+        (s.long_distance_1_anchor, s.long_distance_1_span),
+        (s.long_distance_2_anchor, if s.long_distance_2_flag == 1 { s.long_distance_2_span } else { 0 }),
+        (s.long_distance_3_anchor, if s.long_distance_3_flag == 1 { s.long_distance_3_span } else { 0 }),
+    ];
+
+    for (anchor, span) in check_hits {
+        if span != 0 {
+            let start_range = std::cmp::min(anchor, anchor + span);
+            
+            if start_range <= 0 { is_omni = true; }
+            else { has_ld = true; }
+        }
+    }
+
+    let show_omni = is_omni;
+    let show_ld = !is_omni && has_ld;
+
+    let abilities = [
+        (s.strong_against > 0, definitions::ICON_STRONG_AGAINST),
+        (s.resist > 0, definitions::ICON_RESIST),
+        (s.insanely_tough > 0, definitions::ICON_INSANELY_TOUGH),
+        (s.massive_damage > 0, definitions::ICON_MASSIVE_DAMAGE),
+        (s.insane_damage > 0, definitions::ICON_INSANE_DAMAGE),
+        (s.attack_only > 0, definitions::ICON_ATTACK_ONLY),
+        (s.weaken_chance > 0, definitions::ICON_WEAKEN),
+        (s.freeze_chance > 0, definitions::ICON_FREEZE),
+        (s.slow_chance > 0, definitions::ICON_SLOW),
+        (s.knockback_chance > 0, definitions::ICON_KNOCKBACK),
+        (s.strengthen_threshold > 0, definitions::ICON_STRENGTHEN),
+        (s.survive > 0, definitions::ICON_SURVIVE),
+        (s.base_destroyer > 0, definitions::ICON_BASE_DESTROYER),
+        (s.critical_chance > 0, definitions::ICON_CRITICAL_HIT),
+        (s.double_bounty > 0, definitions::ICON_DOUBLE_BOUNTY),
+        (s.wave_chance > 0 && s.mini_wave_flag == 0, definitions::ICON_WAVE),
+        (s.wave_chance > 0 && s.mini_wave_flag > 0, definitions::ICON_MINI_WAVE),
+        (s.metal > 0, definitions::ICON_METAL),
+        (s.savage_blow_chance > 0, definitions::ICON_SAVAGE_BLOW),
+        (s.surge_chance > 0 && s.mini_surge_flag == 0, definitions::ICON_SURGE),
+        (s.surge_chance > 0 && s.mini_surge_flag > 0, definitions::ICON_MINI_SURGE),
+        (s.zombie_killer > 0, definitions::ICON_ZOMBIE_KILLER),
+        (s.barrier_breaker_chance > 0, definitions::ICON_BARRIER_BREAKER),
+        (s.shield_pierce_chance > 0, definitions::ICON_SHIELD_PEIRCER), 
+        (s.soulstrike > 0, definitions::ICON_SOULSTRIKE),
+        (s.conjure_unit_id > 0, definitions::ICON_CONJURE),
+        (s.metal_killer_percent > 0, definitions::ICON_METAL_KILLER),
+        (s.explosion_chance > 0, definitions::ICON_EXPLOSION),
+        (s.curse_chance > 0, definitions::ICON_CURSE),
+        (s.dodge_chance > 0, definitions::ICON_DODGE),
+        (s.warp_chance > 0, definitions::ICON_WARP),
+        (s.eva_killer > 0, definitions::ICON_EVA_KILLER),
+        (s.witch_killer > 0, definitions::ICON_WITCH_KILLER),
+        (s.colossus_slayer > 0, definitions::ICON_COLOSSUS_SLAYER),
+        (s.behemoth_slayer > 0, definitions::ICON_BEHEMOTH_SLAYER),
+        (s.sage_slayer > 0, definitions::ICON_SAGE_SLAYER),
+        (s.curse_immune > 0, definitions::ICON_IMMUNE_CURSE),
+        (s.wave_immune > 0, definitions::ICON_IMMUNE_WAVE),
+        (s.weaken_immune > 0, definitions::ICON_IMMUNE_WEAKEN),
+        (s.freeze_immune > 0, definitions::ICON_IMMUNE_FREEZE),
+        (s.slow_immune > 0, definitions::ICON_IMMUNE_SLOW),
+        (s.knockback_immune > 0, definitions::ICON_IMMUNE_KNOCKBACK),
+        (s.toxic_immune > 0, definitions::ICON_IMMUNE_TOXIC),
+        (s.surge_immune > 0, definitions::ICON_IMMUNE_SURGE),
+        (s.warp_immune > 0, definitions::ICON_IMMUNE_WARP),
+        (s.explosion_immune > 0, definitions::ICON_IMMUNE_EXPLOSION),
+        (s.wave_block > 0, definitions::ICON_WAVE_BLOCK),
+        (s.counter_surge > 0, definitions::ICON_COUNTER_SURGE),
+        (show_omni, definitions::ICON_OMNI_STRIKE),
+        (show_ld, definitions::ICON_LONG_DISTANCE),
+    ];
+
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.spacing_mut().item_spacing.y = 4.0;
+        
+        for (has, icon) in abilities {
+            if has {
+                if let Some(sprite) = sprite_sheet.get_sprite_by_line(icon) {
+                    ui.add(sprite.fit_to_exact_size(egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE)));
+                } 
             }
-        });
+        }
     });
 }
 

@@ -1,3 +1,6 @@
+// Global Constant for Icon Sizing
+pub const ICON_SIZE: f32 = 40.0;
+
 // This struct holds the Raw Data exactly as it appears in the CSV
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
@@ -46,8 +49,8 @@ pub struct CatRaw {
     pub strengthen_boost: i32,
     pub survive: i32,
     pub metal: i32,
-    pub long_distance_1_furthest: i32,
-    pub long_distance_1_width: i32,
+    pub long_distance_1_anchor: i32,
+    pub long_distance_1_span: i32,
     pub wave_immune: i32,
     pub wave_block: i32,
     pub knockback_immune: i32,
@@ -102,11 +105,11 @@ pub struct CatRaw {
     pub colossus_slayer: i32,
     pub soulstrike: i32,
     pub long_distance_2_flag: i32,
-    pub long_distance_2_furthest: i32,
-    pub long_distance_2_width: i32,
+    pub long_distance_2_anchor: i32,
+    pub long_distance_2_span: i32,
     pub long_distance_3_flag: i32,
-    pub long_distance_3_furthest: i32,
-    pub long_distance_3_width: i32,
+    pub long_distance_3_anchor: i32,
+    pub long_distance_3_span: i32,
     pub behemoth_slayer: i32,
     pub behemoth_dodge_chance: i32,
     pub behemoth_dodge_duration: i32,
@@ -174,8 +177,8 @@ impl CatRaw {
             strengthen_boost: get(41),
             survive: get(42),
             metal: get(43),
-            long_distance_1_furthest: get(44),
-            long_distance_1_width: get(45),
+            long_distance_1_anchor: get(44),
+            long_distance_1_span: get(45),
             wave_immune: get(46),
             wave_block: get(47),
             knockback_immune: get(48),
@@ -230,11 +233,11 @@ impl CatRaw {
             colossus_slayer: get(97),
             soulstrike: get(98),
             long_distance_2_flag: get(99),
-            long_distance_2_furthest: get(100),
-            long_distance_2_width: get(101),
+            long_distance_2_anchor: get(100),
+            long_distance_2_span: get(101),
             long_distance_3_flag: get(102),
-            long_distance_3_furthest: get(103),
-            long_distance_3_width: get(104),
+            long_distance_3_anchor: get(103),
+            long_distance_3_span: get(104),
             behemoth_slayer: get(105),
             behemoth_dodge_chance: get(106),
             behemoth_dodge_duration: get(107),
@@ -250,7 +253,6 @@ impl CatRaw {
         })
     }
 
-    // Calculation for attack cycle
     pub fn attack_cycle(&self, anim_frames: i32) -> i32 {
         let cooldown = self.time_before_attack_1.saturating_sub(1);
         (self.pre_attack_animation + cooldown).max(anim_frames)
@@ -274,7 +276,6 @@ impl CatLevelCurve {
         Self { increments }
     }
 
-    // Ported from JS `calcStat` function provided by TheWWRNerdGuy
     pub fn calculate_stat(&self, base: i32, level: i32) -> i32 {
         let base_f = base as f64;
         let mut stat = base_f;
@@ -282,16 +283,13 @@ impl CatLevelCurve {
         let max_scaled_level = (self.increments.len() * 10) as i32;
         let limit = std::cmp::min(level, max_scaled_level);
 
-        // Unit growth
         for l in 2..=limit {
             let index = ((l as f64 / 10.0).ceil() as usize).saturating_sub(1);
-            
             if let Some(&scaling) = self.increments.get(index) {
                 stat += base_f * (scaling as f64) / 100.0;
             }
         }
 
-        // Fallback for levels exceeding the defined curve
         if level > max_scaled_level {
             let to_apply = level - max_scaled_level;
             if let Some(&last_scaling) = self.increments.last() {
@@ -299,10 +297,8 @@ impl CatLevelCurve {
             }
         }
 
-        // Apply treasure
         let rounded_stat = stat.round();
         let final_val = (rounded_stat * 2.5).floor();
-
         final_val as i32
     }
 }
