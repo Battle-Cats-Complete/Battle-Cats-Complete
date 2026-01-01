@@ -6,12 +6,11 @@ pub mod list;
 pub mod cat; 
 pub mod sprites;
 pub mod stats;
-pub mod definitions; 
+pub mod abilities; 
 
 use scanner::CatEntry;
 use list::CatList;
 use sprites::SpriteSheet;
-
 pub struct CatListState {
     pub cats: Vec<CatEntry>,
     pub selected_cat: Option<u32>,
@@ -85,7 +84,7 @@ impl CatListState {
     }
 }
 
-pub fn show(ctx: &egui::Context, state: &mut CatListState, high_banner_quality: bool) {
+pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::settings::Settings) {
     egui::SidePanel::left("cat_list_panel")
         .resizable(false)
         .default_width(160.0)
@@ -101,7 +100,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, high_banner_quality: 
 
             let old_selection = state.selected_cat;
             
-            state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, high_banner_quality);
+            state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, settings.high_banner_quality);
             
             if state.selected_cat != old_selection {
                 state.selected_form = 0; 
@@ -124,7 +123,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, high_banner_quality: 
                     &mut state.detail_texture, 
                     &mut state.detail_key,
                     &mut state.sprite_sheet,
-                    &mut state.multihit_texture 
+                    &mut state.multihit_texture,
+                    settings.expand_spirit_details
                 );
             }
         } else {

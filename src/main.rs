@@ -5,6 +5,7 @@ mod main_menu;
 mod import_data;
 mod cat_data;
 mod settings; 
+pub mod definitions;
 pub mod patterns;
 use eframe::egui;
 
@@ -25,7 +26,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Battle Cats Complete",
         options,
-        // FIXED LINE: Use 'new(cc)' instead of 'default()' to enable loading!
         Box::new(|cc| Ok(Box::new(app::BattleCatsApp::new(cc)))),
     )
 }

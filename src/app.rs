@@ -6,7 +6,7 @@ enum Page {
     MainMenu,
     ImportData,
     CatData,
-    Settings, // New Page
+    Settings,
 }
 
 const PAGES: &[(Page, &str)] = &[
@@ -16,12 +16,9 @@ const PAGES: &[(Page, &str)] = &[
     (Page::Settings, "Settings"),
 ];
 
-// We derive Deserialize/Serialize here so the whole app state *could* be saved,
-// but we will only specifically save the 'settings' field in the 'save' fn.
 #[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)] // Use Default for fields not found in save file
+#[serde(default)] 
 pub struct BattleCatsApp {
-    // Skip saving these runtime fields
     #[serde(skip)]
     current_page: Page,
     #[serde(skip)]
@@ -31,7 +28,6 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     cat_list_state: cat_data::CatListState,
     
-    // SAVE this field
     pub settings: settings::Settings,
 }
 
@@ -48,20 +44,15 @@ impl Default for BattleCatsApp {
 }
 
 impl BattleCatsApp {
-    /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Load previous app state (if any).
         if let Some(storage) = cc.storage {
-            // eframe::get_value deserializes the data for us
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
-
         Default::default()
     }
 }
 
 impl eframe::App for BattleCatsApp {
-    /// Called by the framework to save state before shutdown
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
@@ -96,8 +87,7 @@ impl eframe::App for BattleCatsApp {
                 import_data::show(ctx, &mut self.import_state);
             },
             Page::CatData => {
-                // Use the setting from the struct
-                cat_data::show(ctx, &mut self.cat_list_state, self.settings.high_banner_quality);
+                cat_data::show(ctx, &mut self.cat_list_state, &self.settings);
             },
             Page::Settings => {
                 let refresh_needed = settings::show(ctx, &mut self.settings);
@@ -107,7 +97,6 @@ impl eframe::App for BattleCatsApp {
             }
         }
 
-        // --- Sidebar Logic ---
         let sidebar_inner_width = 150.0; 
         let sidebar_margin = 15.0;       
         let total_sidebar_width = sidebar_inner_width + (sidebar_margin * 2.0);
