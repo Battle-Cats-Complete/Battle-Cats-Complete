@@ -1,3 +1,20 @@
+use std::fs;
+use std::path::Path;
+
+pub fn load_from_id(id: i32) -> Option<CatRaw> {
+    let path = format!("game/cats/{:03}/unit{:03}.csv", id, id + 1);
+    let p = Path::new(&path);
+    
+    if p.exists() {
+        if let Ok(content) = fs::read_to_string(p) {
+            if let Some(first_line) = content.lines().next() {
+                return CatRaw::from_csv_line(first_line);
+            }
+        }
+    }
+    None
+}
+
 pub const ICON_SIZE: f32 = 40.0;
 
 #[derive(Debug, Clone, Default)]
@@ -90,7 +107,6 @@ pub struct CatRaw {
     pub dodge_chance: i32,
     pub dodge_duration: i32,
     pub surge_chance: i32,
-    // RENAMED FIELDS
     pub surge_spawn_anchor: i32, 
     pub surge_spawn_span: i32,   
     pub surge_level: i32,
@@ -118,7 +134,6 @@ pub struct CatRaw {
     pub sage_slayer: i32,
     pub metal_killer_percent: i32,
     pub explosion_chance: i32,
-    // RENAMED FIELDS
     pub explosion_spawn_anchor: i32,     
     pub explosion_spawn_span: i32, 
     pub explosion_immune: i32,
@@ -220,7 +235,6 @@ impl CatRaw {
             dodge_chance: get(84),
             dodge_duration: get(85),
             surge_chance: get(86),
-            // Updated mappings
             surge_spawn_anchor: get(87) / 4,
             surge_spawn_span: get(88) / 4,
             surge_level: get(89),
@@ -248,14 +262,12 @@ impl CatRaw {
             sage_slayer: get(111),
             metal_killer_percent: get(112),
             explosion_chance: get(113),
-            // Updated mappings
             explosion_spawn_anchor: get(114) / 4,
             explosion_spawn_span: get(115) / 4,
             explosion_immune: get(116),
         })
     }
     
-    // ... [Rest of file unchanged, attack_cycle function] ...
     pub fn attack_cycle(&self, anim_frames: i32) -> i32 {
         let mut effective_foreswing = self.pre_attack_animation;
         
@@ -270,9 +282,12 @@ impl CatRaw {
         
         (effective_foreswing + cooldown).max(anim_frames)
     }
+
+    pub fn effective_cooldown(&self) -> i32 {
+        (self.cooldown - 264).max(60)
+    }
 }
 
-// ... [CatLevelCurve impl unchanged] ...
 #[derive(Clone, Debug, Default)]
 pub struct CatLevelCurve {
     pub increments: Vec<u16>, 

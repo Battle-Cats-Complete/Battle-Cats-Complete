@@ -3,7 +3,9 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::Arc; 
+use std::sync::{Arc, RwLock};
+use std::thread;
+use std::time::Duration;
 use std::collections::HashMap; 
 use rayon::prelude::*; 
 use super::crypto;
@@ -51,10 +53,10 @@ fn extract_pack_contents(
     count: &AtomicI32,
     tx: Sender<String>,
     file_index: &Arc<HashMap<String, PathBuf>>,
-    region_found: &AtomicBool 
+    region_found: &AtomicBool,
+    shared_region: &Arc<RwLock<Option<String>>> 
 ) -> Result<(), String> {
     
-    // EN (Global) language codes
     let mut unused_global_codes = vec!["de", "en", "es", "fr", "it", "th"];
     let mut pending_global_img015: Option<Vec<u8>> = None;
 
@@ -83,16 +85,24 @@ fn extract_pack_contents(
         match crypto::decrypt_pack_chunk(&buffer, &pack_filename) {
             Ok((decrypted_chunk, region_code)) => {
                 
-                if !region_found.load(Ordering::Relaxed) && region_code != "None" && region_code != "Server" {
-                    region_found.store(true, Ordering::Relaxed);
-                    let display_name = match region_code.as_str() {
-                        "EN" => "Global",
-                        "JP" => "Japan",
-                        "TW" => "Taiwan",
-                        "KR" => "Korean",
-                        _ => "Unknown",
-                    };
-                    let _ = tx.send(format!("REGION:{}", display_name));
+                if region_code != "None" && region_code != "Server" {
+                    if let Ok(mut lock) = shared_region.write() {
+                        if lock.is_none() {
+                            *lock = Some(region_code.clone());
+                        }
+                    }
+
+                    if !region_found.load(Ordering::Relaxed) {
+                        region_found.store(true, Ordering::Relaxed);
+                        let display_name = match region_code.as_str() {
+                            "EN" => "Global",
+                            "JP" => "Japan",
+                            "TW" => "Taiwan",
+                            "KR" => "Korean",
+                            _ => "Unknown",
+                        };
+                        let _ = tx.send(format!("REGION:{}", display_name));
+                    }
                 }
 
                 let final_len = std::cmp::min(size, decrypted_chunk.len());
@@ -116,11 +126,36 @@ fn extract_pack_contents(
                         if filename.contains(&marker) {
                             let save_name = format!("img015_{}.png", code);
                             let _ = fs::write(output_dir.join(save_name), data);
-                            pending_global_img015 = None;
                             unused_global_codes.retain(|x| x != &code);
                             break;
                         }
                     }
+                }
+
+                if filename == "img015.imgcut" {
+                    let mut attempts = 0;
+                    let suffix = loop {
+                        if let Ok(lock) = shared_region.read() {
+                            if let Some(code) = &*lock {
+                                break match code.as_str() {
+                                    "JP" => "ja",
+                                    "TW" => "tw",
+                                    "KR" => "ko",
+                                    "EN" => "en",
+                                    _ => "en",
+                                };
+                            }
+                        }
+                        
+                        attempts += 1;
+                        if attempts > 30 { 
+                            break "en"; 
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                    };
+
+                    let new_name = format!("img015_{}.imgcut", suffix);
+                    let _ = fs::write(output_dir.join(new_name), final_data);
                 }
 
                 let mut perform_write = true;
@@ -153,7 +188,7 @@ fn extract_pack_contents(
                     } else {
                         let current = count.fetch_add(1, Ordering::Relaxed);
                         if current % 50 == 0 {
-                            let _ = tx.send(format!("Extracted {} files | Current: {}", filename, current));
+                            let _ = tx.send(format!("Extracted {} files | Current: {}", current, filename));
                         }
                     }
                 }
@@ -170,7 +205,8 @@ fn process_apk(
     count: &AtomicI32, 
     tx: Sender<String>,
     file_index: &Arc<HashMap<String, PathBuf>>,
-    region_found: &AtomicBool
+    region_found: &AtomicBool,
+    shared_region: &Arc<RwLock<Option<String>>>
 ) -> Result<(), String> {
     let _ = tx.send("Processing APK found in folder...".to_string());
     
@@ -217,7 +253,8 @@ fn process_apk(
                         count, 
                         tx.clone(), 
                         file_index,
-                        region_found
+                        region_found,
+                        shared_region
                     );
                     let _ = fs::remove_file(temp_pack_path);
                 }
@@ -269,16 +306,19 @@ pub fn import_all_from_folder(folder_path: &str, tx: Sender<String>) -> Result<S
 
     let count = AtomicI32::new(0);
     let region_found = Arc::new(AtomicBool::new(false));
+    
+    let shared_region = Arc::new(RwLock::new(None));
 
     tasks.par_iter().for_each(|file_path| {
         let ext = file_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
         let index_ref = Arc::clone(&index_arc);
         let region_ref = Arc::clone(&region_found);
+        let shared_region_ref = Arc::clone(&shared_region);
 
         let safe_filename = file_path.file_name().unwrap_or_default().to_string_lossy();
 
         if ext == "apk" {
-            if let Err(e) = process_apk(file_path, output_dir, &count, tx.clone(), &index_ref, &region_ref) {
+            if let Err(e) = process_apk(file_path, output_dir, &count, tx.clone(), &index_ref, &region_ref, &shared_region_ref) {
                 let _ = tx.send(format!("Error processing APK {}: {}", safe_filename, e));
             }
         } else if ext == "list" {
@@ -293,7 +333,8 @@ pub fn import_all_from_folder(folder_path: &str, tx: Sender<String>) -> Result<S
                             &count, 
                             tx.clone(),
                             &index_ref,
-                            &region_ref
+                            &region_ref,
+                            &shared_region_ref
                         ) {
                             let _ = tx.send(format!("Error in pack {}: {}", safe_filename, e));
                         }

@@ -46,6 +46,11 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             continue;
         }
 
+        if filename == "img015.imgcut" {
+            let _ = fs::remove_file(&path);
+            continue;
+        }
+
         let mut dest_folder = None;
 
         if patterns::CAT_UNIVERSAL_FILES.contains(&filename) || universal_pattern.is_match(filename) {
@@ -93,7 +98,7 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
         else if re_img015.is_match(filename) {
             dest_folder = Some(assets_dir.to_path_buf());
         }
-        else if re_imgcut.is_match(filename) {
+        else if re_imgcut.is_match(filename) || (filename.starts_with("img015_") && filename.ends_with(".imgcut")) {
             dest_folder = Some(assets_dir.to_path_buf());
         }
 

@@ -5,12 +5,14 @@ use serde::{Deserialize, Serialize};
 #[serde(default)] 
 pub struct Settings {
     pub high_banner_quality: bool,
+    pub expand_spirit_details: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             high_banner_quality: false,
+            expand_spirit_details: false,
         }
     }
 }
@@ -19,16 +21,21 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings) -> bool {
     let mut refresh_needed = false;
 
     egui::CentralPanel::default().show(ctx, |ui| {
-        // Standardized Heading
         ui.heading("Settings");
         ui.add_space(20.0);
 
-        // --- BANNERS SETTING ---
         ui.horizontal(|ui| {
             if toggle_ui(ui, &mut settings.high_banner_quality).changed() {
                 refresh_needed = true;
             }
             ui.label("High Quality Banners");
+        });
+        
+        ui.add_space(10.0);
+
+        ui.horizontal(|ui| {
+            toggle_ui(ui, &mut settings.expand_spirit_details);
+            ui.label("Expand Spirit Details by Default");
         });
         
         ui.add_space(30.0);
