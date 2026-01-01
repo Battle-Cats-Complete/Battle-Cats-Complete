@@ -1,7 +1,5 @@
-// Global Constant for Icon Sizing
 pub const ICON_SIZE: f32 = 40.0;
 
-// This struct holds the Raw Data exactly as it appears in the CSV
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
 pub struct CatRaw {
@@ -92,8 +90,9 @@ pub struct CatRaw {
     pub dodge_chance: i32,
     pub dodge_duration: i32,
     pub surge_chance: i32,
-    pub surge_spawn_minimum: i32, 
-    pub surge_spawn_width: i32,   
+    // RENAMED FIELDS
+    pub surge_spawn_anchor: i32, 
+    pub surge_spawn_span: i32,   
     pub surge_level: i32,
     pub toxic_immune: i32,
     pub surge_immune: i32,
@@ -105,13 +104,11 @@ pub struct CatRaw {
     pub colossus_slayer: i32,
     pub soulstrike: i32,
     pub long_distance_2_flag: i32,
-    // --- REVERTED ---
     pub long_distance_2_anchor: i32,
     pub long_distance_2_span: i32,
     pub long_distance_3_flag: i32,
     pub long_distance_3_anchor: i32,
     pub long_distance_3_span: i32,
-    // ----------------
     pub behemoth_slayer: i32,
     pub behemoth_dodge_chance: i32,
     pub behemoth_dodge_duration: i32,
@@ -121,8 +118,9 @@ pub struct CatRaw {
     pub sage_slayer: i32,
     pub metal_killer_percent: i32,
     pub explosion_chance: i32,
-    pub explosion_spawn: i32,     
-    pub explosion_variation: i32, 
+    // RENAMED FIELDS
+    pub explosion_spawn_anchor: i32,     
+    pub explosion_spawn_span: i32, 
     pub explosion_immune: i32,
 }
 
@@ -222,8 +220,9 @@ impl CatRaw {
             dodge_chance: get(84),
             dodge_duration: get(85),
             surge_chance: get(86),
-            surge_spawn_minimum: get(87) / 4,
-            surge_spawn_width: get(88) / 4,
+            // Updated mappings
+            surge_spawn_anchor: get(87) / 4,
+            surge_spawn_span: get(88) / 4,
             surge_level: get(89),
             toxic_immune: get(90),
             surge_immune: get(91),
@@ -249,12 +248,14 @@ impl CatRaw {
             sage_slayer: get(111),
             metal_killer_percent: get(112),
             explosion_chance: get(113),
-            explosion_spawn: get(114) / 4,
-            explosion_variation: get(115) / 4,
+            // Updated mappings
+            explosion_spawn_anchor: get(114) / 4,
+            explosion_spawn_span: get(115) / 4,
             explosion_immune: get(116),
         })
     }
-
+    
+    // ... [Rest of file unchanged, attack_cycle function] ...
     pub fn attack_cycle(&self, anim_frames: i32) -> i32 {
         let mut effective_foreswing = self.pre_attack_animation;
         
@@ -271,6 +272,7 @@ impl CatRaw {
     }
 }
 
+// ... [CatLevelCurve impl unchanged] ...
 #[derive(Clone, Debug, Default)]
 pub struct CatLevelCurve {
     pub increments: Vec<u16>, 
