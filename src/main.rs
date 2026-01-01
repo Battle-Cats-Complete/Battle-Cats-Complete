@@ -4,6 +4,7 @@ mod app;
 mod main_menu;
 mod import_data;
 mod cat_data;
+mod settings; 
 pub mod patterns;
 use eframe::egui;
 
@@ -16,14 +17,16 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([800.0, 600.0])
             .with_title("Battle Cats Complete")
             .with_drag_and_drop(true)
-            .with_icon(icon),
+            .with_icon(icon)
+            .with_app_id("battle_cats_complete"), 
         ..Default::default()
     };
 
     eframe::run_native(
         "Battle Cats Complete",
         options,
-        Box::new(|_cc| Ok(Box::new(app::BattleCatsApp::default()))),
+        // FIXED LINE: Use 'new(cc)' instead of 'default()' to enable loading!
+        Box::new(|cc| Ok(Box::new(app::BattleCatsApp::new(cc)))),
     )
 }
 
