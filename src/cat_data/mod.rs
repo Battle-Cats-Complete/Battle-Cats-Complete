@@ -11,6 +11,7 @@ pub mod abilities;
 use scanner::CatEntry;
 use list::CatList;
 use sprites::SpriteSheet;
+
 pub struct CatListState {
     pub cats: Vec<CatEntry>,
     pub selected_cat: Option<u32>,
@@ -76,8 +77,13 @@ impl CatListState {
             }
             if new_data {
                 self.cats.sort_by_key(|c| c.id);
+                
+                // If we just loaded data and nothing was selected, select the first one
                 if self.selected_cat.is_none() && !self.cats.is_empty() {
                     self.selected_cat = Some(self.cats[0].id);
+                    
+                    // FIX: Call the method here to silence the warning and enable the feature
+                    self.cat_list.reset_scroll();
                 }
             }
         }

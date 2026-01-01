@@ -5,18 +5,17 @@ A high-performance tool written in Rust to decrypt, extract, and animate assets 
 ## Features
 Currently implemented:
 * **Decrypt Game Files:** Multi-threaded extraction of `.pack` and `.list` files (Supports JP, EN, TW, KR).
-* **Automatic Detection:** Automatically detects region and encryption type (standard or server-style).
 * **Extracts All Languages:**  Supports all in-game languages from the Global version that other programs opt to skip.
 * **Sorts Game Data:** Game data is stored in a simple, human-readable file structure for easy user access.
 
 ## Roadmap
 I plan to implement these features soon:
-* [ ] Read & Sort Cat Data
-* [ ] Read & Sort Enemy Data
-* [ ] Data Language Priority
-* [ ] Animation Player
-* [ ] Animation to AVIF Export
-* [ ] Read & Sort Stage Data
+* Read & Sort Enemy Data
+* Data Language Priority
+* Animation Player
+* Animation to AVIF Export
+* Read & Sort Stage Data
+* App modding support
 
 ## Guide: Extracting Game Files
 
