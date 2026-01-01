@@ -14,7 +14,6 @@ struct LoadedImage {
 struct LoadRequest {
     id: u32,
     path: PathBuf,
-    // Renamed
     high_banner_quality: bool,
 }
 
@@ -26,6 +25,7 @@ pub struct CatList {
     hovered_id: Option<egui::Id>, 
     hover_start_time: f64,
     hover_lost_time: Option<f64>,
+    scroll_to_top_needed: bool,
 }
 
 impl Default for CatList {
@@ -54,6 +54,7 @@ impl Default for CatList {
             hovered_id: None,
             hover_start_time: 0.0,
             hover_lost_time: None,
+            scroll_to_top_needed: false,
         }
     }
 }
@@ -64,6 +65,10 @@ impl CatList {
         self.pending_requests.clear();
         self.hovered_id = None;
         self.hover_lost_time = None;
+    }
+
+    pub fn reset_scroll(&mut self) {
+        self.scroll_to_top_needed = true;
     }
 
     pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, units: &[CatEntry], selected_id: &mut Option<u32>, search_query: &str, high_banner_quality: bool) {
@@ -98,8 +103,15 @@ impl CatList {
 
         let now = ui.input(|i| i.time);
 
-        let scroll_output = egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
+        let mut scroll_area = egui::ScrollArea::vertical()
+            .auto_shrink([false, false]);
+
+        if self.scroll_to_top_needed {
+            scroll_area = scroll_area.vertical_scroll_offset(0.0);
+            self.scroll_to_top_needed = false;
+        }
+
+        let scroll_output = scroll_area
             .show_rows(ui, row_height, total_rows, |ui, row_range| {
                 
                 let mut hovered_this_frame = None;
@@ -114,7 +126,7 @@ impl CatList {
                             let _ = self.tx_request.send(LoadRequest {
                                 id: unit.id,
                                 path: unit.image_path.clone(),
-                                high_banner_quality, // Send setting
+                                high_banner_quality, 
                             });
                         }
 
@@ -241,12 +253,9 @@ fn process_image(id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaImage>, h
 
             imageops::overlay(&mut final_image, &unit_img, x, y);
 
-            // --- TOGGLE QUALITY LOGIC ---
             let (target_h, filter) = if high_banner_quality {
-                // High Quality: 2x Scale + Lanczos3 (Slower, Smooth)
                 (100, imageops::FilterType::Lanczos3)
             } else {
-                // Performance: 1x Scale + Nearest (Instant, Pixelated)
                 (50, imageops::FilterType::Nearest)
             };
 

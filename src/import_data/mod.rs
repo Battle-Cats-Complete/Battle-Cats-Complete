@@ -1,9 +1,30 @@
 use eframe::egui;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
+
 pub mod game_data;
 pub mod crypto;
 pub mod sort;
+pub mod global;
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum GameRegion {
+    Japan,
+    Taiwan,
+    Korean,
+    Global,
+}
+
+impl GameRegion {
+    fn code(&self) -> &'static str {
+        match self {
+            GameRegion::Japan => "ja",
+            GameRegion::Taiwan => "tw",
+            GameRegion::Korean => "ko",
+            GameRegion::Global => "en",
+        }
+    }
+}
 
 pub struct ImportState {
     selected_folder: String,
@@ -11,7 +32,7 @@ pub struct ImportState {
     log_content: String,
     rx: Option<Receiver<String>>,
     reset_trigger: Option<f64>,
-    detected_region: String, 
+    selected_region: GameRegion,
 }
 
 impl Default for ImportState {
@@ -22,7 +43,7 @@ impl Default for ImportState {
             log_content: String::new(),
             rx: None,
             reset_trigger: None,
-            detected_region: "Unknown".to_owned(),
+            selected_region: GameRegion::Global,
         }
     }
 }
@@ -33,15 +54,6 @@ impl ImportState {
 
         if let Some(rx) = &self.rx {
             while let Ok(msg) = rx.try_recv() {
-                
-                if msg.starts_with("REGION:") {
-                    let parts: Vec<&str> = msg.split(':').collect();
-                    if parts.len() > 1 {
-                        self.detected_region = parts[1].to_string();
-                    }
-                    continue; 
-                }
-
                 self.status_message = msg.clone();
                 self.log_content.push_str(&format!("{}\n", msg));
 
@@ -51,7 +63,6 @@ impl ImportState {
                     finished_just_now = true;
                 }
             }
-            
             ctx.request_repaint();
         }
 
@@ -62,7 +73,6 @@ impl ImportState {
                 self.rx = None;
                 self.reset_trigger = None;
                 self.selected_folder = "No folder selected".to_string();
-                self.detected_region = "Unknown".to_string();
             } else {
                 ctx.request_repaint();
             }
@@ -77,54 +87,79 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
         ui.heading("Import Game Data");
         ui.add_space(20.0);
 
+        // Select folder
         ui.horizontal(|ui| {
             let btn_enabled = state.rx.is_none();
             
             if ui.add_enabled(btn_enabled, egui::Button::new("Select Game Folder")).clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     state.selected_folder = path.display().to_string();
-                    state.status_message = "Starting worker...".to_string();
-                    state.detected_region = "Scanning...".to_string(); // Temporary state
-
+                    state.status_message = "Folder selected. Please confirm Region.".to_string();
                     state.log_content.clear();
-                    state.log_content.push_str("Starting import process\n");
-
-                    let (tx, rx) = mpsc::channel();
-                    state.rx = Some(rx);
-
-                    let folder = state.selected_folder.clone();
-
-                    thread::spawn(move || {
-                        match game_data::import_all_from_folder(&folder, tx.clone()) {
-                            Ok(_) => {
-                                let _ = tx.send("Starting Sort".to_string());
-                                match sort::sort_game_files(tx.clone()) {
-                                    Ok(_) => { let _ = tx.send("Success! Files extracted and sorted".to_string()); },
-                                    Err(e) => { let _ = tx.send(format!("Error Sorting: {}", e)); }
-                                }
-                            },
-                            Err(e) => { let _ = tx.send(format!("Error Extracting: {}", e)); }
-                        }
-                    });
                 }
             }
+            ui.monospace(&state.selected_folder);
+        });
+        
+        ui.add_space(10.0);
+
+        ui.horizontal(|ui| {
+            ui.label("Select Game Region:");
+            let enabled = state.rx.is_none();
             
-            ui.label(
-                egui::RichText::new(format!("Region: {}", state.detected_region))
-                    .monospace()
-                    .strong()
-            );
+            ui.add_enabled_ui(enabled, |ui| {
+                ui.radio_value(&mut state.selected_region, GameRegion::Global, "Global");
+                ui.radio_value(&mut state.selected_region, GameRegion::Japan, "Japan");
+                ui.radio_value(&mut state.selected_region, GameRegion::Taiwan, "Taiwan");
+                ui.radio_value(&mut state.selected_region, GameRegion::Korean, "Korea");
+            });
         });
 
         ui.add_space(10.0);
+
+        // Start import
+        let can_start = state.selected_folder != "No folder selected" && state.rx.is_none();
         
-        if state.rx.is_some() && !state.status_message.contains("Success") {
+        if ui.add_enabled(can_start, egui::Button::new("Start Import")).clicked() {
+            state.status_message = "Starting worker...".to_string();
+            state.log_content.clear();
+            state.log_content.push_str(&format!("Starting import for region: {:?}\n", state.selected_region));
+
+            let (tx, rx) = mpsc::channel();
+            state.rx = Some(rx);
+
+            let folder = state.selected_folder.clone();
+            let region_code = state.selected_region.code().to_string();
+
+            thread::spawn(move || {
+                match game_data::import_all_from_folder(&folder, &region_code, tx.clone()) {
+                    Ok(_) => {
+                        let _ = tx.send("Starting Sort...".to_string());
+                        match sort::sort_game_files(tx.clone()) {
+                            Ok(_) => { let _ = tx.send("Success! Files extracted and sorted.".to_string()); },
+                            Err(e) => { let _ = tx.send(format!("Error Sorting: {}", e)); }
+                        }
+                    },
+                    Err(e) => { let _ = tx.send(format!("Error Extracting: {}", e)); }
+                }
+            });
+        }
+
+        ui.separator();
+        
+        if state.rx.is_some() && !state.status_message.contains("Success") && !state.status_message.contains("Error") {
             ui.horizontal(|ui| {
                 ui.spinner();
                 ui.label(&state.status_message);
             });
         } else {
-            ui.colored_label(egui::Color32::LIGHT_BLUE, &state.status_message);
+            if state.status_message.contains("Error") {
+                ui.colored_label(egui::Color32::RED, &state.status_message);
+            } else if state.status_message.contains("Success") {
+                ui.colored_label(egui::Color32::GREEN, &state.status_message);
+            } else {
+                ui.colored_label(egui::Color32::LIGHT_BLUE, &state.status_message);
+            }
         }
 
         ui.separator();

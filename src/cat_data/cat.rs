@@ -6,7 +6,7 @@ use crate::definitions;
 use super::stats::{self, CatRaw}; 
 use super::abilities::{self, AbilityItem}; 
 
-// --- GLOBAL PADDING CONFIGURATION ---
+// Global padding
 const ABILITY_PADDING_X: f32 = 3.0; 
 const ABILITY_PADDING_Y: f32 = 0.0; 
 
@@ -24,15 +24,11 @@ pub fn show(
     expand_spirit_details: bool, 
 ) {
     let base_dir = std::path::Path::new("game/assets");
-    let tex_en = base_dir.join("img015_en.png");
-    let tex_ja = base_dir.join("img015_ja.png");
-    let tex_raw = base_dir.join("img015.png");
     
-    let texture_path = if tex_en.exists() { tex_en } 
-        else if tex_ja.exists() { tex_ja } 
-        else { tex_raw };
-
+    // EN Hardcode for now
+    let texture_path = base_dir.join("img015_en.png");
     let cut_path = base_dir.join("img015_en.imgcut");
+
     sprite_sheet.load(ctx, &texture_path, &cut_path);
 
     if multihit_texture.is_none() {
@@ -52,7 +48,7 @@ pub fn show(
 
     let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
 
-    // --- FIXED HEADER SECTION (No Scroll) ---
+    // Header section
     ui.vertical(|ui| {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 

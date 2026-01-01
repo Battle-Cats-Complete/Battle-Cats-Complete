@@ -24,7 +24,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
     let re_maanim = Regex::new(patterns::CAT_MAANIM_PATTERN).unwrap();
     let re_explain = Regex::new(patterns::CAT_EXPLAIN_PATTERN).unwrap();
     
-    // Assets
     let re_img015 = Regex::new(patterns::ASSET_IMG015_PATTERN).unwrap();
     let re_imgcut = Regex::new(patterns::ASSET_015CUT_PATTERN).unwrap();
 
@@ -40,16 +39,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             Some(name) => name,
             None => continue,
         };
-
-        if filename == "img015.png" {
-            let _ = fs::remove_file(&path);
-            continue;
-        }
-
-        if filename == "img015.imgcut" {
-            let _ = fs::remove_file(&path);
-            continue;
-        }
 
         let mut dest_folder = None;
 
@@ -95,7 +84,7 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
                 }
             }
         }
-        else if re_img015.is_match(filename) {
+        else if re_img015.is_match(filename) || filename.starts_with("img015_") {
             dest_folder = Some(assets_dir.to_path_buf());
         }
         else if re_imgcut.is_match(filename) || (filename.starts_with("img015_") && filename.ends_with(".imgcut")) {
@@ -107,6 +96,11 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
                 fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
             }
             let dest_path = folder.join(filename);
+            
+            if dest_path.exists() {
+                let _ = fs::remove_file(&dest_path);
+            }
+            
             fs::rename(&path, &dest_path).map_err(|e| e.to_string())?;
             moved_count += 1;
             
