@@ -6,7 +6,6 @@ use super::sprites::SpriteSheet;
 use super::definitions; 
 use super::stats::{self, CatRaw}; 
 
-// --- GLOBAL PADDING CONFIGURATION ---
 const ABILITY_PADDING_X: f32 = 3.0; // Spacing between icons horizontally
 const ABILITY_PADDING_Y: f32 = 0.0; // Spacing between rows/groups vertically
 
@@ -51,7 +50,6 @@ pub fn show(
 
     let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
 
-    // START DYNAMIC SCROLL AREA
     egui::ScrollArea::vertical()
         .auto_shrink([false, false]) 
         .show(ui, |ui| {
@@ -187,13 +185,10 @@ pub fn show(
 
                 ui.add_space(5.0); 
                 ui.separator(); 
-                // Global Padding applied between stats and traits
                 ui.add_space(ABILITY_PADDING_Y); 
 
                 if let Some(s) = current_stats {
-                    // Traits
                     ui.horizontal_wrapped(|ui| {
-                        // Apply Global X Padding between icons
                         ui.spacing_mut().item_spacing = egui::vec2(ABILITY_PADDING_X, ABILITY_PADDING_Y);
                         
                         for &line_num in definitions::UI_TRAIT_ORDER {
@@ -218,7 +213,6 @@ pub fn show(
                         }
                     });
 
-                    // Global Padding between Traits and Abilities
                     ui.add_space(ABILITY_PADDING_Y);
 
                     render_abilities(ui, s, sprite_sheet, multihit_texture, *current_level, cat.curve.as_ref());
@@ -226,10 +220,6 @@ pub fn show(
             });
         });
 }
-
-// -------------------------------------------------------------------------------------
-// ABILITY RENDERING LOGIC
-// -------------------------------------------------------------------------------------
 
 struct AbilityItem {
     icon_id: usize,
@@ -245,7 +235,6 @@ fn render_abilities(
     level: i32,
     curve: Option<&stats::CatLevelCurve>,
 ) {
-    // Collect Data
     let mut grp_headline_1 = Vec::new();
     let mut grp_headline_2 = Vec::new(); 
     let mut grp_headline_3 = Vec::new();
@@ -261,7 +250,6 @@ fn render_abilities(
         if cond { vec.push(AbilityItem { icon_id: icon, text: txt, custom_tex: None }); }
     };
 
-    // --- HEADLINE ---
     push_ab(&mut grp_headline_1, s.attack_only > 0, definitions::ICON_ATTACK_ONLY, "Only damages Target Traits".into());
     push_ab(&mut grp_headline_1, s.strong_against > 0, definitions::ICON_STRONG_AGAINST, "Deals 1.5×~1.8× Damage to and takes 0.5×~0.4× Damage from Target Traits".into());
     push_ab(&mut grp_headline_1, s.massive_damage > 0, definitions::ICON_MASSIVE_DAMAGE, "Deals 3×~4× Damage to Target Traits".into());
@@ -283,7 +271,6 @@ fn render_abilities(
     push_ab(&mut grp_headline_3, s.eva_killer > 0, definitions::ICON_EVA_KILLER, "Deal 5× Damage to and take 0.2× Damage from Eva Angels".into());
     push_ab(&mut grp_headline_3, s.witch_killer > 0, definitions::ICON_WITCH_KILLER, "Deal 5× Damage to and take 0.1× Damage from Witches".into());
 
-    // --- BODY ---
     if s.attack_2 > 0 {
         let a1 = curve.map_or(s.attack_1, |c| c.calculate_stat(s.attack_1, level));
         let a2 = curve.map_or(s.attack_2, |c| c.calculate_stat(s.attack_2, level));
@@ -313,11 +300,9 @@ fn render_abilities(
     let mut range_strs = Vec::new();
     for (anchor, span) in check_hits {
         if span != 0 {
-            // Calculate actual Start and End based on Anchor/Span
             let start = anchor;
             let end = anchor + span;
             
-            // SORT to ensure we display Lowest~Highest
             let (min, max) = if start < end { (start, end) } else { (end, start) };
 
             if min <= 0 { is_omni = true; } else { has_ld = true; }
@@ -339,14 +324,12 @@ fn render_abilities(
     let surge_icon = if s.mini_surge_flag > 0 { definitions::ICON_MINI_SURGE } else { definitions::ICON_SURGE };
     let s_start = s.surge_spawn_anchor;
     let s_end = s.surge_spawn_anchor + s.surge_spawn_span;
-    // Sort range for surge
     let (s_min, s_max) = if s_start < s_end { (s_start, s_end) } else { (s_end, s_start) };
     let s_pos = if s_min == s_max { format!("at {}", s_min) } else { format!("between {}~{}", s_min, s_max) };
     push_ab(&mut grp_body_2, s.surge_chance > 0, surge_icon, format!("{}% Chance to create a Level {} {} {} Range", s.surge_chance, s.surge_level, surge_type, s_pos));
 
     let e_start = s.explosion_spawn_anchor;
     let e_end = s.explosion_spawn_anchor + s.explosion_spawn_span;
-    // Sort range for explosion
     let (e_min, e_max) = if e_start < e_end { (e_start, e_end) } else { (e_end, e_start) };
     let e_pos = if e_min == e_max { format!("at {}", e_min) } else { format!("between {}~{}", e_min, e_max) };
     push_ab(&mut grp_body_2, s.explosion_chance > 0, definitions::ICON_EXPLOSION, format!("{}% Chance to create an Explosion {} Range", s.explosion_chance, e_pos));
@@ -391,9 +374,6 @@ fn render_abilities(
         push_ab(&mut grp_footer, has, icon, txt.into());
     }
 
-    // --- RENDER ---
-    
-    // Helper for Icon-Only Rows (Headline/Footer)
     let render_icon_row = |ui: &mut egui::Ui, items: &Vec<AbilityItem>| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(ABILITY_PADDING_X, ABILITY_PADDING_Y);
@@ -408,11 +388,9 @@ fn render_abilities(
         });
     };
 
-    // Helper for List View (Body)
     let render_detailed_list = |ui: &mut egui::Ui, items: &Vec<AbilityItem>| {
         for item in items {
             ui.horizontal(|ui| {
-                // Apply X Padding specifically between Icon and Text
                 ui.spacing_mut().item_spacing.x = ABILITY_PADDING_X;
                 
                  if let Some(tex_id) = item.custom_tex {
@@ -421,32 +399,25 @@ fn render_abilities(
                     ui.add(sprite.fit_to_exact_size(egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE)));
                 }
                 
-                // Use helper to render text with superscript parsing
                 text_with_superscript(ui, &item.text);
             });
-            // Apply Y Padding between list items
             ui.add_space(ABILITY_PADDING_Y);
         }
     };
 
-    // Headline: Rows
     if !grp_headline_1.is_empty() { render_icon_row(ui, &grp_headline_1); }
     if !grp_headline_2.is_empty() { ui.add_space(ABILITY_PADDING_Y); render_icon_row(ui, &grp_headline_2); }
     if !grp_headline_3.is_empty() { ui.add_space(ABILITY_PADDING_Y); render_icon_row(ui, &grp_headline_3); }
 
-    // Spacer between Headline and Body
     ui.add_space(ABILITY_PADDING_Y * 2.0);
 
-    // Body: Detailed List
     render_detailed_list(ui, &grp_body_1);
     render_detailed_list(ui, &grp_body_2);
     render_detailed_list(ui, &grp_body_3);
     render_detailed_list(ui, &grp_body_4);
 
-    // Spacer between Body and Footer
     ui.add_space(ABILITY_PADDING_Y);
 
-    // Footer: Row
     if !grp_footer.is_empty() { render_icon_row(ui, &grp_footer); }
 }
 
@@ -485,7 +456,7 @@ fn render_frames(ui: &mut egui::Ui, frames: i32) {
     ui.label(job);
 }
 
-// Parses "Normal Text^Small Text" and renders accordingly
+// "Seconds^Frames"
 fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
     if text.contains('^') {
         let parts: Vec<&str> = text.split('^').collect();
@@ -493,18 +464,18 @@ fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
             let body_font = ui.style().text_styles.get(&egui::TextStyle::Body).cloned().unwrap_or(egui::FontId::proportional(14.0));
             let mut job = egui::text::LayoutJob::default();
 
-            // Normal Part
+            // Seconds
             job.append(parts[0], 0.0, egui::TextFormat {
                 font_id: body_font.clone(),
                 color: ui.visuals().text_color(),
                 ..Default::default()
             });
 
-            // Superscript Part
+            // Frames
             job.append(parts[1], 0.0, egui::TextFormat {
-                font_id: egui::FontId::proportional(body_font.size * 0.70), // Smaller font
+                font_id: egui::FontId::proportional(body_font.size * 0.70),
                 color: ui.visuals().text_color(),
-                valign: egui::Align::Min, // Raise text slightly (or Center if preferred)
+                valign: egui::Align::Min,
                 ..Default::default()
             });
             ui.label(job);
