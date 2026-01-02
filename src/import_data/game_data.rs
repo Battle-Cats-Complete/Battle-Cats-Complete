@@ -10,7 +10,7 @@ use super::crypto;
 use zip::ZipArchive;
 
 const GLOBAL_CODES: &[&str] = &["de", "en", "es", "fr", "it", "th"];
-const REGION_SENSITIVE_FILES: &[&str] = &["img015.imgcut", "img015.png", "SkillDescriptions.csv"];
+pub const REGION_SENSITIVE_FILES: &[&str] = &["img015.imgcut", "img015.png", "SkillDescriptions.csv"];
 
 fn build_file_index(root_dir: &Path) -> HashMap<String, PathBuf> {
     let mut index = HashMap::new();
@@ -115,7 +115,7 @@ fn extract_pack_contents(
 
             if let Some(target) = target_to_check {
                 if let Ok(meta) = fs::metadata(target) {
-                    if meta.len() as usize == size { continue; } // SKIP!
+                    if meta.len() as usize == size { continue; } 
                 }
             }
         }

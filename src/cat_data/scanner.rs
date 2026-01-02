@@ -78,18 +78,23 @@ pub fn start_scan() -> Receiver<CatEntry> {
                                         let target_file_id = id + 1; 
                                         
                                         let mut name_file_path = None;
-                                        if let Ok(cat_files) = fs::read_dir(&path) {
-                                            for cf in cat_files.flatten() {
-                                                let name = cf.file_name().to_string_lossy().to_string();
-                                                if name.starts_with("Unit_Explanation") && name.ends_with("_en.csv") {
-                                                    let num_part = name
-                                                        .trim_start_matches("Unit_Explanation")
-                                                        .trim_end_matches("_en.csv");
+                                        
+                                        let lang_dir = path.join("lang");
+                                        if lang_dir.exists() {
+                                            if let Ok(cat_files) = fs::read_dir(&lang_dir) {
+                                                for cf in cat_files.flatten() {
+                                                    let name = cf.file_name().to_string_lossy().to_string();
                                                     
-                                                    if let Ok(num) = num_part.parse::<u32>() {
-                                                        if num == target_file_id {
-                                                            name_file_path = Some(cf.path());
-                                                            break;
+                                                    if name.starts_with("Unit_Explanation") && name.ends_with("_en.csv") {
+                                                        let num_part = name
+                                                            .trim_start_matches("Unit_Explanation")
+                                                            .trim_end_matches("_en.csv");
+                                                        
+                                                        if let Ok(num) = num_part.parse::<u32>() {
+                                                            if num == target_file_id {
+                                                                name_file_path = Some(cf.path());
+                                                                break;
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -147,6 +152,5 @@ fn parse_max_frame(content: &str) -> i32 {
             }
         }
     }
-    // +1 because frames are 0-indexed
     max_frame + 1
 }
