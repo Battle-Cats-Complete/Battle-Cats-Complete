@@ -7,9 +7,9 @@ use std::sync::{Arc};
 use std::collections::{HashMap}; 
 use rayon::prelude::*; 
 use super::crypto;
-use super::global; 
 use zip::ZipArchive;
 
+const GLOBAL_CODES: &[&str] = &["de", "en", "es", "fr", "it", "th"];
 const REGION_SENSITIVE_FILES: &[&str] = &["img015.imgcut", "img015.png", "SkillDescriptions.csv"];
 
 fn build_file_index(root_dir: &Path) -> HashMap<String, PathBuf> {
@@ -47,7 +47,6 @@ fn decrypt_list_file(data: &[u8]) -> Result<String, String> {
     Err("Failed to decrypt list file.".to_string())
 }
 
-// Returns TRUE if written, FALSE if skipped
 fn write_if_bigger(path: &Path, data: &[u8]) -> bool {
     let new_size = data.len() as u64;
     if path.exists() {
@@ -79,14 +78,11 @@ fn extract_pack_contents(
 
     let pack_filename = pack_path.file_name().unwrap().to_string_lossy().to_string();
 
-    // --- SIMPLIFIED LANGUAGE LOGIC ---
-    // If region is Global ("en"), we detect language from the pack filename (e.g. "_fr").
-    // If region is JP/TW/KR, we force the region code.
     let current_pack_code = if selected_region_code == "en" {
-        let mut found_code = "en".to_string(); // Default to 'en' (raw filename)
+        let mut found_code = "en".to_string(); 
         
-        for code in global::GLOBAL_CODES {
-            if *code == "en" { continue; } // English has no suffix in pack names
+        for code in GLOBAL_CODES {
+            if *code == "en" { continue; } 
             
             let marker = format!("_{}", code);
             if pack_filename.contains(&marker) {
@@ -98,7 +94,6 @@ fn extract_pack_contents(
     } else {
         selected_region_code.to_string()
     };
-    // ---------------------------------
 
     for line in list_content.lines() {
         let parts: Vec<&str> = line.split(',').collect();
@@ -110,6 +105,7 @@ fn extract_pack_contents(
 
         let existing_path_opt = file_index.get(filename);
         let raw_dest_path = output_dir.join(filename);
+        
         let is_sensitive = REGION_SENSITIVE_FILES.iter().any(|&f| filename.ends_with(f));
 
         if !is_sensitive {
@@ -126,7 +122,6 @@ fn extract_pack_contents(
 
         if filename.ends_with("img015_th.imgcut") { continue; }
 
-        // --- READ & DECRYPT ---
         let aligned_size = if size % 16 == 0 { size } else { ((size / 16) + 1) * 16 };
         if pack_file.seek(SeekFrom::Start(offset)).is_err() { continue; }
 
@@ -139,24 +134,17 @@ fn extract_pack_contents(
                 let final_data = &decrypted_chunk[..final_len];
 
                 if is_sensitive {
-                    // Directly construct the name using the detected pack code
-                    // e.g., "img015.png" -> "img015_fr.png"
-                    // e.g., "SkillDescriptions.csv" -> "SkillDescriptions_fr.csv"
+                    let path_obj = Path::new(filename);
+                    let stem = path_obj.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+                    let ext = path_obj.extension().map(|s| s.to_string_lossy()).unwrap_or_default();
                     
-                    let new_name = if filename == "SkillDescriptions.csv" {
-                        format!("SkillDescriptions_{}.csv", current_pack_code)
-                    } else {
-                        // Handle img015
-                        let ext = if filename.ends_with(".png") { "png" } else { "imgcut" };
-                        format!("img015_{}.{}", current_pack_code, ext)
-                    };
+                    let new_name = format!("{}_{}.{}", stem, current_pack_code, ext);
 
                     if write_if_bigger(&output_dir.join(new_name), final_data) {
                         count.fetch_add(1, Ordering::Relaxed);
                     }
                 } 
                 else {
-                    // Standard write for non-sensitive files
                     if write_if_bigger(&raw_dest_path, final_data) {
                         let filecount = count.fetch_add(1, Ordering::Relaxed);
                         if filecount % 50 == 0 {

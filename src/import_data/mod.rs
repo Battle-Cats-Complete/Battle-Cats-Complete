@@ -7,7 +7,6 @@ use std::env;
 pub mod game_data;
 pub mod crypto;
 pub mod sort;
-pub mod global;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum GameRegion {
