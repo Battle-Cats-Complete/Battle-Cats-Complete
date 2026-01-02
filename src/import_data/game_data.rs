@@ -10,7 +10,6 @@ use super::crypto;
 use super::global; 
 use zip::ZipArchive;
 
-const FILES_CHECK_LINES: &[&str] = &["unitlevel.csv"];
 const REGION_SENSITIVE_FILES: &[&str] = &["img015.imgcut", "img015.png"];
 
 fn build_file_index(root_dir: &Path) -> HashMap<String, PathBuf> {
@@ -46,10 +45,6 @@ fn decrypt_list_file(data: &[u8]) -> Result<String, String> {
         if let Ok(text) = String::from_utf8(bytes) { return Ok(text); }
     }
     Err("Failed to decrypt list file.".to_string())
-}
-
-fn count_lines(data: &[u8]) -> usize {
-    data.iter().filter(|&&b| b == b'\n').count()
 }
 
 // Returns TRUE if written, FALSE if skipped
@@ -103,9 +98,8 @@ fn extract_pack_contents(
         let existing_path_opt = file_index.get(filename);
         let raw_dest_path = output_dir.join(filename);
         let is_sensitive = REGION_SENSITIVE_FILES.iter().any(|&f| filename.ends_with(f));
-        let is_special_check = FILES_CHECK_LINES.contains(&filename);
 
-        if !is_special_check && !is_sensitive {
+        if !is_sensitive {
             let mut target_to_check = None;
             if let Some(p) = existing_path_opt { target_to_check = Some(p); } 
             else if raw_dest_path.exists() { target_to_check = Some(&raw_dest_path); }
@@ -177,25 +171,11 @@ fn extract_pack_contents(
                 }
 
                 if !is_sensitive {
-                    let mut perform_write = true;
-                    if is_special_check {
-                        let new_lines = count_lines(final_data);
-                        let mut max_existing_lines = 0;
-                        let db_path = Path::new("game/cats").join(filename);
-                        if db_path.exists() {
-                            if let Ok(content) = fs::read(&db_path) {
-                                max_existing_lines = count_lines(&content);
-                            }
-                        }
-                        if new_lines <= max_existing_lines { perform_write = false; }
-                    }
-
-                    if perform_write {
-                        if write_if_bigger(&raw_dest_path, final_data) {
-                            let filecount = count.fetch_add(1, Ordering::Relaxed);
-                            if filecount % 50 == 0 {
-                                let _ = tx.send(format!("Extracted {} files | Current: {}", filecount, filename));
-                            }
+                    // Standard write
+                    if write_if_bigger(&raw_dest_path, final_data) {
+                        let filecount = count.fetch_add(1, Ordering::Relaxed);
+                        if filecount % 50 == 0 {
+                            let _ = tx.send(format!("Extracted {} files | Current: {}", filecount, filename));
                         }
                     }
                 }
