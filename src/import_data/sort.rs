@@ -116,7 +116,7 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             continue;
         }
 
-        // Rule 3: Line Count Logic for specific files (including new Skill files)
+        // Rule 3: Line Count Logic for specific files
         if check_line_files.contains(&filename) {
             let dest_path = cats_dir.join(filename);
             if let Ok(was_moved) = move_if_bigger(&path, &dest_path) {
@@ -171,11 +171,13 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
                 }
             }
         }
+        // MODIFIED: img015 files go to assets/img015
         else if re_img015.is_match(filename) || filename.starts_with("img015_") {
-            dest_folder = Some(assets_dir.to_path_buf());
+            dest_folder = Some(assets_dir.join("img015"));
         }
+        // MODIFIED: img015cut files go to assets/img015
         else if re_imgcut.is_match(filename) || (filename.starts_with("img015_") && filename.ends_with(".imgcut")) {
-            dest_folder = Some(assets_dir.to_path_buf());
+            dest_folder = Some(assets_dir.join("img015"));
         }
 
         if let Some(folder) = dest_folder {

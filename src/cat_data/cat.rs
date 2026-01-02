@@ -26,8 +26,8 @@ pub fn show(
     let base_dir = std::path::Path::new("game/assets");
     
     // EN Hardcode for now
-    let texture_path = base_dir.join("img015_en.png");
-    let cut_path = base_dir.join("img015_en.imgcut");
+    let texture_path = base_dir.join("img015/img015_en.png");
+    let cut_path = base_dir.join("img015/img015_en.imgcut");
 
     sprite_sheet.load(ctx, &texture_path, &cut_path);
 
