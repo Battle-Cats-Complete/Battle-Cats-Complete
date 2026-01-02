@@ -12,25 +12,20 @@ fn count_lines(path: &Path) -> usize {
     }
 }
 
-// Moves source to dest if source has more lines than dest (or dest doesn't exist).
-// Otherwise, deletes source.
 fn move_if_bigger(src: &Path, dest: &Path) -> std::io::Result<bool> {
     if dest.exists() {
         let src_lines = count_lines(src);
         let dest_lines = count_lines(dest);
 
         if src_lines > dest_lines {
-            // Overwrite
             let _ = fs::remove_file(dest);
             fs::rename(src, dest)?;
             Ok(true)
         } else {
-            // Source is smaller or equal, discard it to avoid clutter
             fs::remove_file(src)?;
             Ok(false)
         }
     } else {
-        // Destination doesn't exist, just move
         if let Some(parent) = dest.parent() {
             if !parent.exists() {
                 let _ = fs::create_dir_all(parent);
@@ -86,9 +81,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             None => continue,
         };
 
-        // --- SPECIFIC SORTING RULES ---
-
-        // Rule 1: Unitevolve files to "game/cats/unitevolve"
         if filename.starts_with("unitevolve_") && filename.ends_with(".csv") {
             let dest_folder = cats_dir.join("unitevolve");
             if !dest_folder.exists() { let _ = fs::create_dir_all(&dest_folder); }
@@ -102,8 +94,7 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             continue;
         }
 
-        // Rule 2: SkillDescriptions to "game/cats/SkillDescriptions"
-        if filename == "SkillDescriptions.csv" {
+        if filename.starts_with("SkillDescriptions") && filename.ends_with(".csv") {
             let dest_folder = cats_dir.join("SkillDescriptions");
             if !dest_folder.exists() { let _ = fs::create_dir_all(&dest_folder); }
             
@@ -116,7 +107,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             continue;
         }
 
-        // Rule 3: Line Count Logic for specific files
         if check_line_files.contains(&filename) {
             let dest_path = cats_dir.join(filename);
             if let Ok(was_moved) = move_if_bigger(&path, &dest_path) {
@@ -124,8 +114,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             }
             continue;
         }
-
-        // --- EXISTING REGEX LOGIC ---
 
         let mut dest_folder = None;
 
@@ -171,11 +159,9 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
                 }
             }
         }
-        // MODIFIED: img015 files go to assets/img015
         else if re_img015.is_match(filename) || filename.starts_with("img015_") {
             dest_folder = Some(assets_dir.join("img015"));
         }
-        // MODIFIED: img015cut files go to assets/img015
         else if re_imgcut.is_match(filename) || (filename.starts_with("img015_") && filename.ends_with(".imgcut")) {
             dest_folder = Some(assets_dir.join("img015"));
         }

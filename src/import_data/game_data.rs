@@ -10,7 +10,7 @@ use super::crypto;
 use super::global; 
 use zip::ZipArchive;
 
-const REGION_SENSITIVE_FILES: &[&str] = &["img015.imgcut", "img015.png"];
+const REGION_SENSITIVE_FILES: &[&str] = &["img015.imgcut", "img015.png", "SkillDescriptions.csv"];
 
 fn build_file_index(root_dir: &Path) -> HashMap<String, PathBuf> {
     let mut index = HashMap::new();
@@ -47,7 +47,6 @@ fn decrypt_list_file(data: &[u8]) -> Result<String, String> {
     Err("Failed to decrypt list file.".to_string())
 }
 
-// Returns TRUE if written, FALSE if skipped
 fn write_if_bigger(path: &Path, data: &[u8]) -> bool {
     let new_size = data.len() as u64;
     if path.exists() {
@@ -79,13 +78,16 @@ fn extract_pack_contents(
 
     let pack_filename = pack_path.file_name().unwrap().to_string_lossy().to_string();
 
-    let mut unused_global_codes: Vec<String> = if selected_region_code == "en" {
+    let mut unused_img015_codes: Vec<String> = if selected_region_code == "en" {
         global::GLOBAL_CODES.iter().map(|&s| s.to_string()).collect()
-    } else {
-        Vec::new()
-    };
+    } else { Vec::new() };
+
+    let mut unused_skill_codes: Vec<String> = if selected_region_code == "en" {
+        global::GLOBAL_CODES.iter().map(|&s| s.to_string()).collect()
+    } else { Vec::new() };
     
     let mut pending_img015: Option<Vec<u8>> = None;
+    let mut pending_skill: Option<Vec<u8>> = None;
 
     for line in list_content.lines() {
         let parts: Vec<&str> = line.split(',').collect();
@@ -106,14 +108,13 @@ fn extract_pack_contents(
 
             if let Some(target) = target_to_check {
                 if let Ok(meta) = fs::metadata(target) {
-                    if meta.len() as usize == size { continue; } // SKIP!
+                    if meta.len() as usize == size { continue; }
                 }
             }
         }
 
         if filename.ends_with("img015_th.imgcut") { continue; }
 
-        // --- READ & DECRYPT ---
         let aligned_size = if size % 16 == 0 { size } else { ((size / 16) + 1) * 16 };
         if pack_file.seek(SeekFrom::Start(offset)).is_err() { continue; }
 
@@ -127,23 +128,33 @@ fn extract_pack_contents(
 
                 if is_sensitive {
                     let is_png = filename.ends_with(".png");
+                    let is_skill = filename.contains("SkillDescriptions");
 
                     if selected_region_code != "en" {
-                        let ext = if is_png { "png" } else { "imgcut" };
-                        let name = format!("img015_{}.{}", selected_region_code, ext);
-                        if write_if_bigger(&output_dir.join(name), final_data) {
-                            count.fetch_add(1, Ordering::Relaxed);
-                        }
-                    } 
-
-                    else {
-                        if !is_png {
-                            if write_if_bigger(&output_dir.join("img015_en.imgcut"), final_data) {
+                        if is_skill {
+                            let name = format!("SkillDescriptions_{}.csv", selected_region_code);
+                            if write_if_bigger(&output_dir.join(name), final_data) {
                                 count.fetch_add(1, Ordering::Relaxed);
                             }
                         } else {
-                            // PNG found! Buffer it.
-                            pending_img015 = Some(final_data.to_vec());
+                            let ext = if is_png { "png" } else { "imgcut" };
+                            let name = format!("img015_{}.{}", selected_region_code, ext);
+                            if write_if_bigger(&output_dir.join(name), final_data) {
+                                count.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                    } 
+                    else {
+                        if is_skill {
+                             pending_skill = Some(final_data.to_vec());
+                        } else {
+                            if !is_png {
+                                if write_if_bigger(&output_dir.join("img015_en.imgcut"), final_data) {
+                                    count.fetch_add(1, Ordering::Relaxed);
+                                }
+                            } else {
+                                pending_img015 = Some(final_data.to_vec());
+                            }
                         }
                     }
                 }
@@ -151,9 +162,7 @@ fn extract_pack_contents(
                 if selected_region_code == "en" {
                     if let Some(data) = &pending_img015 {
                         let mut found_code = None;
-                        
-                        // Check strict markers against unused codes
-                        for code in &unused_global_codes {
+                        for code in &unused_img015_codes {
                             if global::has_language_marker(filename, code) {
                                 let save_name = format!("img015_{}.png", code);
                                 if write_if_bigger(&output_dir.join(save_name), data) {
@@ -163,9 +172,26 @@ fn extract_pack_contents(
                                 break;
                             }
                         }
-
                         if let Some(code) = found_code {
-                            unused_global_codes.retain(|x| x != &code);
+                            unused_img015_codes.retain(|x| x != &code);
+                        }
+                    }
+
+                    // --- Resolve SkillDescriptions (Copied Exact Logic) ---
+                    if let Some(data) = &pending_skill {
+                        let mut found_code = None;
+                        for code in &unused_skill_codes {
+                            if global::has_language_marker(filename, code) {
+                                let save_name = format!("SkillDescriptions_{}.csv", code);
+                                if write_if_bigger(&output_dir.join(save_name), data) {
+                                    count.fetch_add(1, Ordering::Relaxed);
+                                }
+                                found_code = Some(code.clone());
+                                break;
+                            }
+                        }
+                        if let Some(code) = found_code {
+                            unused_skill_codes.retain(|x| x != &code);
                         }
                     }
                 }
