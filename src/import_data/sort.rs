@@ -4,6 +4,43 @@ use std::sync::mpsc::Sender;
 use regex::Regex;
 use crate::patterns;
 
+fn count_lines(path: &Path) -> usize {
+    if let Ok(data) = fs::read(path) {
+        data.iter().filter(|&&b| b == b'\n').count()
+    } else {
+        0
+    }
+}
+
+// Moves source to dest if source has more lines than dest (or dest doesn't exist).
+// Otherwise, deletes source.
+fn move_if_bigger(src: &Path, dest: &Path) -> std::io::Result<bool> {
+    if dest.exists() {
+        let src_lines = count_lines(src);
+        let dest_lines = count_lines(dest);
+
+        if src_lines > dest_lines {
+            // Overwrite
+            let _ = fs::remove_file(dest);
+            fs::rename(src, dest)?;
+            Ok(true)
+        } else {
+            // Source is smaller or equal, discard it to avoid clutter
+            fs::remove_file(src)?;
+            Ok(false)
+        }
+    } else {
+        // Destination doesn't exist, just move
+        if let Some(parent) = dest.parent() {
+            if !parent.exists() {
+                let _ = fs::create_dir_all(parent);
+            }
+        }
+        fs::rename(src, dest)?;
+        Ok(true)
+    }
+}
+
 pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
     let raw_dir = Path::new("game/raw");
     let cats_dir = Path::new("game/cats");
@@ -27,6 +64,15 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
     let re_img015 = Regex::new(patterns::ASSET_IMG015_PATTERN).unwrap();
     let re_imgcut = Regex::new(patterns::ASSET_015CUT_PATTERN).unwrap();
 
+    let check_line_files = [
+        "unitbuy.csv", 
+        "unitexp.csv", 
+        "unitlevel.csv", 
+        "unitlimit.csv",
+        "SkillAcquisition.csv", 
+        "SkillLevel.csv"
+    ];
+
     let mut moved_count = 0;
     
     for entry in fs::read_dir(raw_dir).map_err(|e| e.to_string())? {
@@ -39,6 +85,47 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             Some(name) => name,
             None => continue,
         };
+
+        // --- SPECIFIC SORTING RULES ---
+
+        // Rule 1: Unitevolve files to "game/cats/unitevolve"
+        if filename.starts_with("unitevolve_") && filename.ends_with(".csv") {
+            let dest_folder = cats_dir.join("unitevolve");
+            if !dest_folder.exists() { let _ = fs::create_dir_all(&dest_folder); }
+            
+            let dest_path = dest_folder.join(filename);
+            if dest_path.exists() { let _ = fs::remove_file(&dest_path); }
+            
+            if fs::rename(&path, &dest_path).is_ok() {
+                moved_count += 1;
+            }
+            continue;
+        }
+
+        // Rule 2: SkillDescriptions to "game/cats/SkillDescriptions"
+        if filename == "SkillDescriptions.csv" {
+            let dest_folder = cats_dir.join("SkillDescriptions");
+            if !dest_folder.exists() { let _ = fs::create_dir_all(&dest_folder); }
+            
+            let dest_path = dest_folder.join(filename);
+            if dest_path.exists() { let _ = fs::remove_file(&dest_path); }
+
+            if fs::rename(&path, &dest_path).is_ok() {
+                moved_count += 1;
+            }
+            continue;
+        }
+
+        // Rule 3: Line Count Logic for specific files (including new Skill files)
+        if check_line_files.contains(&filename) {
+            let dest_path = cats_dir.join(filename);
+            if let Ok(was_moved) = move_if_bigger(&path, &dest_path) {
+                if was_moved { moved_count += 1; }
+            }
+            continue;
+        }
+
+        // --- EXISTING REGEX LOGIC ---
 
         let mut dest_folder = None;
 
