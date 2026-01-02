@@ -1,6 +1,8 @@
 use eframe::egui;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
+use std::path::{Path, PathBuf};
+use std::env;
 
 pub mod game_data;
 pub mod crypto;
@@ -82,6 +84,35 @@ impl ImportState {
     }
 }
 
+// Helper to obfuscate sensitive user paths
+fn censor_path(path: &str) -> String {
+    if path == "No folder selected" {
+        return path.to_string();
+    }
+
+    let mut clean = path.to_string();
+
+    // Attempt to redact specific username
+    if let Ok(user) = env::var("USERNAME").or_else(|_| env::var("USER")) {
+        if !user.is_empty() {
+             clean = clean.replace(&user, "***");
+        }
+    }
+
+    // Truncate long paths to show only the last 3 segments
+    let path_obj = Path::new(&clean);
+    let components: Vec<_> = path_obj.components().collect();
+    
+    if components.len() > 3 {
+        let count = components.len();
+        // Take the last 3 components
+        let last_parts: PathBuf = components.iter().skip(count.saturating_sub(3)).collect();
+        return format!("...{}{}", std::path::MAIN_SEPARATOR, last_parts.display());
+    }
+
+    clean
+}
+
 pub fn show(ctx: &egui::Context, state: &mut ImportState) {
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.heading("Import Game Data");
@@ -98,7 +129,7 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
                     state.log_content.clear();
                 }
             }
-            ui.monospace(&state.selected_folder);
+            ui.monospace(censor_path(&state.selected_folder));
         });
         
         ui.add_space(10.0);
