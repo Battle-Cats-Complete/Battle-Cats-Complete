@@ -22,6 +22,8 @@ pub fn collect_ability_data(
     let mut grp_body_2 = Vec::new();
     let mut grp_footer = Vec::new();
 
+    let f_to_s = |f: i32| format!("{:.2}s^{}f", f as f32 / 30.0, f);
+
     let push_ab = |vec: &mut Vec<AbilityItem>, cond: bool, icon: usize, txt: String| {
         if cond {
             vec.push(AbilityItem {
@@ -38,7 +40,7 @@ pub fn collect_ability_data(
     push_ab(&mut grp_headline_1, s.attack_only > 0, definitions::ICON_ATTACK_ONLY, format!("Only damages {}", target_s));
     push_ab(&mut grp_headline_1, s.strong_against > 0, definitions::ICON_STRONG_AGAINST, format!("Deals 1.5×~1.8× Damage to and takes 0.5×~0.4× Damage from {}", target_s));
     push_ab(&mut grp_headline_1, s.massive_damage > 0, definitions::ICON_MASSIVE_DAMAGE, format!("Deals 3×~4× Damage to {}", target_s));
-    push_ab(&mut grp_headline_1, s.insane_damage > 0, definitions::ICON_INSANE_DAMAGE, format!("Deals 5x~6x Damage to {}", target_s));
+    push_ab(&mut grp_headline_1, s.insane_damage > 0, definitions::ICON_INSANE_DAMAGE, format!("Deals 5×~6× Damage to {}", target_s));
     push_ab(&mut grp_headline_1, s.resist > 0, definitions::ICON_RESIST, format!("Takes 1/4×~1/5× Damage from {}", target_s));
     push_ab(&mut grp_headline_1, s.insanely_tough > 0, definitions::ICON_INSANELY_TOUGH, format!("Takes 1/6×~1/7× Damage from {}", target_s));
 
@@ -50,7 +52,15 @@ pub fn collect_ability_data(
     push_ab(&mut grp_headline_2, s.wave_block > 0, definitions::ICON_WAVE_BLOCK, "When hit with a Wave Attack, nullifies its Damage and prevents its advancement".into());
     push_ab(&mut grp_headline_2, s.counter_surge > 0, definitions::ICON_COUNTER_SURGE, "When hit with a Surge Attack, create a surge of equal level and range".into());
     push_ab(&mut grp_headline_2, s.colossus_slayer > 0, definitions::ICON_COLOSSUS_SLAYER, "Deals 1.6× Damage to and takes 0.7× Damage from Colossus Enemies".into());
-    push_ab(&mut grp_headline_2, s.behemoth_slayer > 0, definitions::ICON_BEHEMOTH_SLAYER, "Deals 2.5× Damage to and takes 0.6× Damage from Behemoth Enemies".into());
+    
+    if s.behemoth_slayer > 0 {
+        let mut text = "Deals 2.5× Damage to and takes 0.6× Damage from Behemoth Enemies".to_string();
+        if s.behemoth_dodge_chance > 0 {
+            text.push_str(&format!("\n{}% Chance to Dodge Behemoth Enemies for {}", s.behemoth_dodge_chance, f_to_s(s.behemoth_dodge_duration)));
+        }
+        push_ab(&mut grp_headline_2, true, definitions::ICON_BEHEMOTH_SLAYER, text);
+    }
+
     push_ab(&mut grp_headline_2, s.sage_slayer > 0, definitions::ICON_SAGE_SLAYER, "Deals 1.2× Damage to and takes 0.5× Damage from Sage Enemies".into());
     push_ab(&mut grp_headline_2, s.eva_killer > 0, definitions::ICON_EVA_KILLER, "Deals 5× Damage to and takes 0.2× Damage from Eva Angels".into());
     push_ab(&mut grp_headline_2, s.witch_killer > 0, definitions::ICON_WITCH_KILLER, "Deals 5× Damage to and takes 0.1× Damage from Witches".into());
@@ -132,8 +142,6 @@ pub fn collect_ability_data(
     push_ab(&mut grp_body_1, s.shield_pierce_chance > 0, definitions::ICON_SHIELD_PEIRCER, format!("{}% Chance to pierce enemy Shields", s.shield_pierce_chance));
     push_ab(&mut grp_body_1, s.metal_killer_percent > 0, definitions::ICON_METAL_KILLER, format!("Deals {}% of a Metal Enemies current HP upon hit", s.metal_killer_percent));
 
-    let f_to_s = |f: i32| format!("{:.2}s^{}f", f as f32 / 30.0, f);
-    
     if !is_conjure {
         push_ab(&mut grp_body_2, s.dodge_chance > 0, definitions::ICON_DODGE, format!("{}% Chance to Dodge {} for {}", s.dodge_chance, target_s, f_to_s(s.dodge_duration)));
     }

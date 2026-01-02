@@ -261,7 +261,10 @@ fn render_icon_row(ui: &mut egui::Ui, items: &Vec<AbilityItem>, sheet: &SpriteSh
             } else if let Some(sprite) = sheet.get_sprite_by_line(item.icon_id) {
                 ui.add(sprite.fit_to_exact_size(egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE)))
             } else { continue; };
-            r.on_hover_ui(|ui| { ui.label(&item.text); });
+            
+            r.on_hover_ui(|ui| { 
+                text_with_superscript(ui, &item.text); 
+            });
         }
     });
 }
@@ -435,6 +438,7 @@ fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
         if parts.len() >= 2 {
             let body_font = ui.style().text_styles.get(&egui::TextStyle::Body).cloned().unwrap_or(egui::FontId::proportional(14.0));
             let mut job = egui::text::LayoutJob::default();
+            job.wrap.max_width = ui.spacing().tooltip_width;
 
             job.append(parts[0], 0.0, egui::TextFormat {
                 font_id: body_font.clone(),

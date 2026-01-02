@@ -3,6 +3,16 @@ use std::path::Path;
 use std::sync::mpsc::Sender;
 use regex::Regex;
 use crate::patterns;
+use super::game_data::REGION_SENSITIVE_FILES;
+
+const CHECK_LINE_FILES: &[&str] = &[
+    "unitbuy.csv", 
+    "unitexp.csv", 
+    "unitlevel.csv", 
+    "unitlimit.csv",
+    "SkillAcquisition.csv", 
+    "SkillLevel.csv"
+];
 
 fn count_lines(path: &Path) -> usize {
     if let Ok(data) = fs::read(path) {
@@ -47,6 +57,13 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
 
     let _ = tx.send("Sorting files...".to_string());
 
+    for &sensitive_file in REGION_SENSITIVE_FILES {
+        let target_path = raw_dir.join(sensitive_file);
+        if target_path.exists() {
+            let _ = fs::remove_file(target_path);
+        }
+    }
+
     let universal_pattern = Regex::new(patterns::CAT_UNIVERSAL_PATTERN).unwrap();
     let re_stats = Regex::new(patterns::CAT_STATS_PATTERN).unwrap();
     let re_icon = Regex::new(patterns::CAT_ICON_PATTERN).unwrap();
@@ -55,18 +72,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
     let re_anim = Regex::new(patterns::CAT_ANIM_PATTERN).unwrap();
     let re_maanim = Regex::new(patterns::CAT_MAANIM_PATTERN).unwrap();
     let re_explain = Regex::new(patterns::CAT_EXPLAIN_PATTERN).unwrap();
-    
-    let re_img015 = Regex::new(patterns::ASSET_IMG015_PATTERN).unwrap();
-    let re_imgcut = Regex::new(patterns::ASSET_015CUT_PATTERN).unwrap();
-
-    let check_line_files = [
-        "unitbuy.csv", 
-        "unitexp.csv", 
-        "unitlevel.csv", 
-        "unitlimit.csv",
-        "SkillAcquisition.csv", 
-        "SkillLevel.csv"
-    ];
 
     let mut moved_count = 0;
     
@@ -107,7 +112,7 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             continue;
         }
 
-        if check_line_files.contains(&filename) {
+        if CHECK_LINE_FILES.contains(&filename) {
             let dest_path = cats_dir.join(filename);
             if let Ok(was_moved) = move_if_bigger(&path, &dest_path) {
                 if was_moved { moved_count += 1; }
@@ -155,14 +160,11 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
                 if file_id > 0 {
                     let unit_id = file_id - 1;
                     let folder_id = format!("{:03}", unit_id);
-                    dest_folder = Some(cats_dir.join(folder_id));
+                    dest_folder = Some(cats_dir.join(folder_id).join("lang"));
                 }
             }
         }
-        else if re_img015.is_match(filename) || filename.starts_with("img015_") {
-            dest_folder = Some(assets_dir.join("img015"));
-        }
-        else if re_imgcut.is_match(filename) || (filename.starts_with("img015_") && filename.ends_with(".imgcut")) {
+        else if filename.starts_with("img015") {
             dest_folder = Some(assets_dir.join("img015"));
         }
 
