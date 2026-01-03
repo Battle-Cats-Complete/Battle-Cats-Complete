@@ -8,9 +8,7 @@ use std::collections::{HashMap};
 use rayon::prelude::*; 
 use super::crypto;
 use zip::ZipArchive;
-
-const GLOBAL_CODES: &[&str] = &["de", "en", "es", "fr", "it", "th"];
-pub const REGION_SENSITIVE_FILES: &[&str] = &["img015.imgcut", "img015.png", "SkillDescriptions.csv"];
+use crate::patterns;
 
 fn build_file_index(root_dir: &Path) -> HashMap<String, PathBuf> {
     let mut index = HashMap::new();
@@ -81,7 +79,7 @@ fn extract_pack_contents(
     let current_pack_code = if selected_region_code == "en" {
         let mut found_code = "en".to_string(); 
         
-        for code in GLOBAL_CODES {
+        for code in patterns::GLOBAL_CODES {
             if *code == "en" { continue; } 
             
             let marker = format!("_{}", code);
@@ -106,7 +104,8 @@ fn extract_pack_contents(
         let existing_path_opt = file_index.get(filename);
         let raw_dest_path = output_dir.join(filename);
         
-        let is_sensitive = REGION_SENSITIVE_FILES.iter().any(|&f| filename.ends_with(f));
+        // Updated: Referencing patterns::REGION_SENSITIVE_FILES
+        let is_sensitive = patterns::REGION_SENSITIVE_FILES.iter().any(|&f| filename.ends_with(f));
 
         if !is_sensitive {
             let mut target_to_check = None;
@@ -115,7 +114,7 @@ fn extract_pack_contents(
 
             if let Some(target) = target_to_check {
                 if let Ok(meta) = fs::metadata(target) {
-                    if meta.len() as usize == size { continue; } 
+                    if meta.len() as usize == size { continue; } // SKIP!
                 }
             }
         }

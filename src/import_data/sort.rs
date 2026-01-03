@@ -3,16 +3,6 @@ use std::path::Path;
 use std::sync::mpsc::Sender;
 use regex::Regex;
 use crate::patterns;
-use super::game_data::REGION_SENSITIVE_FILES;
-
-const CHECK_LINE_FILES: &[&str] = &[
-    "unitbuy.csv", 
-    "unitexp.csv", 
-    "unitlevel.csv", 
-    "unitlimit.csv",
-    "SkillAcquisition.csv", 
-    "SkillLevel.csv"
-];
 
 fn count_lines(path: &Path) -> usize {
     if let Ok(data) = fs::read(path) {
@@ -57,7 +47,7 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
 
     let _ = tx.send("Sorting files...".to_string());
 
-    for &sensitive_file in REGION_SENSITIVE_FILES {
+    for &sensitive_file in patterns::REGION_SENSITIVE_FILES {
         let target_path = raw_dir.join(sensitive_file);
         if target_path.exists() {
             let _ = fs::remove_file(target_path);
@@ -112,7 +102,8 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             continue;
         }
 
-        if CHECK_LINE_FILES.contains(&filename) {
+        // Updated: Referencing patterns::CHECK_LINE_FILES
+        if patterns::CHECK_LINE_FILES.contains(&filename) {
             let dest_path = cats_dir.join(filename);
             if let Ok(was_moved) = move_if_bigger(&path, &dest_path) {
                 if was_moved { moved_count += 1; }
