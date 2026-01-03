@@ -2,13 +2,10 @@
 /target/
 
 # My stuff
-/todo/
+/stuff/
 
 # The Extracted Game Data
 /game/
-
-# Debug tools
-/debug/
 
 # IDE Settings
 .vscode/

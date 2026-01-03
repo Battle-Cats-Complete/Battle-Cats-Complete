@@ -42,6 +42,13 @@ pub const GLOBAL_CODES: &[&str] = &[
     "th"
 ];
 
+pub const REGION_CODES: &[&str] = &[
+    "ja", 
+    "en", 
+    "tw", 
+    "ko", 
+];
+
 // Files that go by "if line count is higher" logic
 // instead of "if file size is larger" logic
 pub const CHECK_LINE_FILES: &[&str] = &[
@@ -51,6 +58,12 @@ pub const CHECK_LINE_FILES: &[&str] = &[
     "unitlimit.csv",
     "SkillAcquisition.csv", 
     "SkillLevel.csv"
+];
+
+// Files essential for app function
+// (Folder Path, Filename Prefix, [Required Extensions])
+pub const ESSENTIAL_FILES: &[(&str, &str, &[&str])] = &[
+    ("game/assets/img015", "img015", &["png", "imgcut"]),
 ];
 
 // Files that have regional variants but no
