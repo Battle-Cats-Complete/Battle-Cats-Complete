@@ -1,21 +1,10 @@
 # Battle Cats Complete
+An all-in-one tool for The Battle Cats that allows Users to sort, read, and modify files that they import into it.
 
-A high-performance tool written in Rust to decrypt, extract, and animate assets from *The Battle Cats*.
+This is the "source" repository of the app for developers' eyes only. This version has game Decryption logic (seen in "sanitized" folder) in place of sorting set-up and zip extraction.
 
-## Features
-Currently implemented:
-* **Decrypt Game Files:** Multi-threaded extraction of `.pack` and `.list` files (Supports JP, EN, TW, KR).
-* **Extracts All Languages:**  Supports all in-game languages from the Global version that other programs opt to skip.
-* **Sorts Game Data:** Game data is stored in a simple, human-readable file structure for easy user access.
-
-## Roadmap
-I plan to implement these features soon:
-* Read & Sort Enemy Data
-* Data Language Priority
-* Animation Player
-* Animation to AVIF Export
-* Read & Sort Stage Data
-* App modding support
+## Usage
+First, you must extract your game files using the Guide below, then select the folder containing them to sort them into the database to be read!
 
 ## Guide: Extracting Game Files
 
@@ -66,5 +55,6 @@ Many people/groups have helped and encouraged me to make this project:
 * SweetDonut0, providing a "source of truth" via working Javascript code to port/review from the [Miraheze Wiki](https://battlecats.miraheze.org/wiki/Battle_Cats_Wiki)
 * [Battle Cats Ultimate](https://github.com/battlecatsultimate), an unoptimized and poorly maintained app that I use as a "proof of concept"
 
-## Disclaimer
+## Legal
 This project is for educational purposes only. Assets are copyright PONOS Corp. Please support the official release.
+
