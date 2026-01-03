@@ -1,4 +1,7 @@
 # Battle Cats Complete
+
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/SNSE8HNhmP)
+
 An all-in-one tool for The Battle Cats that allows Users to sort, read, and modify files that they import into it.
 
 This is the "source" repository of the app for developers' eyes only. This version has game Decryption logic (seen in "sanitized" folder) in place of sorting set-up and zip extraction.
