@@ -10,13 +10,14 @@ jobs:
   sync_and_sanitize:
     runs-on: ubuntu-latest
     steps:
-      # Check battle-cats-custom-source
+      # 1. Check out Private (Source) Repo
       - name: Checkout Private Source
         uses: actions/checkout@v4
         with:
           path: source_repo
+          fetch-depth: 0
 
-      # Check Battle-Cats_Custom
+      # 2. Check out Public (Portfolio) Repo
       - name: Checkout Public Portfolio
         uses: actions/checkout@v4
         with:
@@ -24,37 +25,36 @@ jobs:
           token: ${{ secrets.PUBLIC_REPO_TOKEN }}
           path: public_repo
 
-      # Mirror Private files and sanitize them
+      # 3. Mirror Files & Sanitize
       - name: Sync and Overwrite
         run: |
           # A. Mirror source to public (excluding git folder and workflow file)
-          # This makes public_repo look exactly like source_repo initially
           rsync -av --delete --exclude '.git' --exclude '.github' source_repo/ public_repo/
 
           # B. Apply Sanitization
-          # We enter the public repo directory to run file operations
           cd public_repo
-
-          # Copy contents of 'sanitized/' over the root '.'
-          # This overwrites 'src/import_data/mod.rs' etc with the safe versions
-          # -r = recursive, -f = force
           cp -rf sanitized/* .
-
-          # C. Cleanup
-          # Remove the 'sanitized' folder so it doesn't appear in the public repo
           rm -rf sanitized
 
-      # Push changes to Public
+      # 4. Commit to Public
       - name: Commit and Push
-        working-directory: public_repo
         run: |
+          # 1. Get the last commit message from the PRIVATE repo
+          cd source_repo
+          LAST_MSG=$(git log -1 --pretty=%B)
+          echo "Using commit message: $LAST_MSG"
+          cd ..
+          
+          # 2. Configure Git for the PUBLIC repo
+          cd public_repo
           git config user.name "GitHub Action"
           git config user.email "action@github.com"
           
-          # Check if there are any changes to commit
+          # 3. Commit and Push
           if [[ -n $(git status -s) ]]; then
             git add .
-            git commit -m "Sync from private source (Sanitized)"
+            # Use the variable in quotes to preserve the message
+            git commit -m "$LAST_MSG"
             git push origin main
           else
             echo "No changes to sync."
