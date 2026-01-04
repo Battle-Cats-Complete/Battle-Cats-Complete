@@ -76,6 +76,10 @@ fn write_if_bigger(path: &Path, data: &[u8]) -> bool {
         if let Ok(_) = fs::rename(&temp_path, path) {
             return true;
         } else {
+            if fs::copy(&temp_path, path).is_ok() {
+                let _ = fs::remove_file(&temp_path);
+                return true;
+            }
             let _ = fs::remove_file(temp_path);
         }
     }
@@ -97,6 +101,7 @@ fn extract_pack_contents(
         .map_err(|e| format!("Failed to open pack: {}", e))?;
 
     let pack_filename = pack_path.file_name().unwrap().to_string_lossy().to_string();
+    let pack_len = pack_file.metadata().map(|m| m.len()).unwrap_or(0);
 
     let current_pack_code = if selected_region_code == "en" {
         let mut found_code = "en".to_string(); 
@@ -113,6 +118,8 @@ fn extract_pack_contents(
         selected_region_code.to_string()
     };
 
+    let mut warned_truncation = false;
+
     for line in list_content.lines() {
         let parts: Vec<&str> = line.split(',').collect();
         if parts.len() < 3 { continue; }
@@ -121,6 +128,17 @@ fn extract_pack_contents(
         let offset: u64 = parts[1].trim().parse().unwrap_or(0);
         let size: usize = parts[2].trim().parse().unwrap_or(0);
 
+        if size == 0 && parts[2].trim() != "0" { continue; }
+
+        // --- STUB DETECTION ---
+        if offset + (size as u64) > pack_len {
+            if !warned_truncation {
+                let _ = tx.send(format!("WARNING: Pack '{}' is a STUB (Size: {} MB). Files beyond this point are missing.", pack_filename, pack_len / 1_048_576));
+                warned_truncation = true;
+            }
+            continue;
+        }
+
         let lowercase_name = filename.to_lowercase();
         let existing_paths_opt = file_index.get(&lowercase_name);
         
@@ -128,7 +146,6 @@ fn extract_pack_contents(
 
         if !is_sensitive {
             let mut found_match = false;
-
             if let Some(paths) = existing_paths_opt {
                 for path in paths {
                     if let Ok(meta) = fs::metadata(path) {
@@ -139,7 +156,6 @@ fn extract_pack_contents(
                     }
                 }
             }
-            
             if !found_match {
                 let raw_path = output_dir.join(filename);
                 if raw_path.exists() {
@@ -150,13 +166,13 @@ fn extract_pack_contents(
                     }
                 }
             }
-
             if found_match { continue; }
         }
 
         if filename.ends_with("img015_th.imgcut") { continue; }
 
         let aligned_size = if size % 16 == 0 { size } else { ((size / 16) + 1) * 16 };
+        
         if pack_file.seek(SeekFrom::Start(offset)).is_err() { continue; }
 
         let mut buffer = vec![0u8; aligned_size];
@@ -222,6 +238,7 @@ fn process_apk(
                 file_reader.read_to_end(&mut list_buf).unwrap();
             } 
             
+            // CHANGED: Use local decrypt_list_file again
             if let Ok(list_str) = decrypt_list_file(&list_buf) {
                 let pack_name = filename_string.replace(".list", ".pack");
                 let mut pack_found = false;
@@ -233,7 +250,10 @@ fn process_apk(
                     if let Ok(mut pack_file) = archive.by_name(&pack_name) {
                         pack_found = true;
                         if let Ok(mut temp_f) = fs::File::create(&temp_pack_path) {
-                            let _ = std::io::copy(&mut pack_file, &mut temp_f);
+                            if let Err(e) = std::io::copy(&mut pack_file, &mut temp_f) {
+                                 let _ = tx.send(format!("Error extracting pack {}: {}", pack_name, e));
+                                 pack_found = false;
+                            }
                         } else { pack_found = false; }
                     }
                 } 
@@ -293,7 +313,7 @@ fn find_game_files(current_dir: &Path, task_list: &mut Vec<PathBuf>) -> std::io:
                 find_game_files(&path, task_list)?;
             } else if let Some(ext) = path.extension() {
                 let ext_str = ext.to_string_lossy().to_lowercase();
-                if ext_str == "list" || ext_str == "apk" || ext_str == "xapk" {
+                if ext_str == "list" || ext_str == "apk" || ext_str == "xapk" || ext_str == "pack" {
                     task_list.push(path);
                 }
             }

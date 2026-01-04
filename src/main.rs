@@ -7,7 +7,7 @@ mod cat_data;
 mod settings; 
 pub mod definitions;
 pub mod patterns;
-pub mod functions; // <--- Register the new module
+pub mod functions;
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {

@@ -67,7 +67,6 @@ impl eframe::App for BattleCatsApp {
 
         let import_finished = self.import_state.update(ctx);
         if import_finished {
-            // Apply the Soft Reset to all data states
             self.cat_list_state.reset();
         }
 
