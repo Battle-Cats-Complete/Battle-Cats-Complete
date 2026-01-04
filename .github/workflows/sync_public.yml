@@ -29,14 +29,21 @@ jobs:
       # 3. Mirror Files & Sanitize
       - name: Sync and Overwrite
         run: |
-          # A. Mirror source to public (excluding git folder and workflow file)
+          # A. Mirror source to public
+          # We exclude .github so we don't accidentally bring over private workflows
           rsync -av --delete --exclude '.git' --exclude '.github' source_repo/ public_repo/
 
-          # B. Apply Sanitization
-          cd public_repo
-          cp -rf sanitized/* .
-          rm -rf sanitized
+          # B. Apply Sanitization from the 'sanitized' folder
+          # Using '.' instead of '*' ensures hidden folders like .github are copied
+          cp -rf public_repo/sanitized/. public_repo/
+          
+          # C. Reset Cargo Features for Public View
+          # This must happen AFTER rsync and cp so the changes aren't overwritten
+          sed -i 's/default = \["dev"\]/default = \[\]/' public_repo/Cargo.toml
 
+          # D. Cleanup
+          rm -rf public_repo/sanitized
+          
       # 4. Commit to Public
       - name: Commit and Push
         run: |
