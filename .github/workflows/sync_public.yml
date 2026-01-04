@@ -29,17 +29,19 @@ jobs:
       # 3. Mirror Files & Sanitize
       - name: Sync and Overwrite
         run: |
+          # A. Mirror files
           rsync -av --delete --exclude '.git' --exclude '.github' source_repo/ public_repo/
 
-          # A. Reset Cargo Features in the public repo
+          # B. Sanitize Cargo.toml
           sed -i 's/default *=.*\["dev"\]/default = []/' public_repo/Cargo.toml
           
-          # B. IMPORTANT: Update the lockfile to reflect the removed features
-          # This forces Cargo to realize it no longer needs aes, md5, etc.
+          # C. FORCE the removal of optional crates from Cargo.lock
+          # We delete the lockfile and let Cargo regenerate a clean, sanitized one
           cd public_repo
-          cargo update --workspace
+          rm Cargo.lock
+          cargo generate-lockfile
           
-          # C. Apply other sanitization and cleanup
+          # D. Apply dummy files and cleanup
           cp -rf sanitized/. .
           rm -rf sanitized
 
