@@ -29,22 +29,19 @@ jobs:
       # 3. Mirror Files & Sanitize
       - name: Sync and Overwrite
         run: |
-          # A. Mirror source to public
-          # We use -v to see exactly what is moving
           rsync -av --delete --exclude '.git' --exclude '.github' source_repo/ public_repo/
 
-          # B. Apply Sanitization
-          # We copy FROM source_repo/sanitized TO the root of public_repo
-          if [ -d "source_repo/sanitized" ]; then
-            cp -rf source_repo/sanitized/* public_repo/
-          fi
-          
-          # C. Reset Cargo Features
-          # We use the full path starting from the workspace root
+          # A. Reset Cargo Features in the public repo
           sed -i 's/default *=.*\["dev"\]/default = []/' public_repo/Cargo.toml
           
-          # D. Cleanup
-          rm -rf public_repo/sanitized
+          # B. IMPORTANT: Update the lockfile to reflect the removed features
+          # This forces Cargo to realize it no longer needs aes, md5, etc.
+          cd public_repo
+          cargo update --workspace
+          
+          # C. Apply other sanitization and cleanup
+          cp -rf sanitized/. .
+          rm -rf sanitized
 
       # 4. Commit to Public
       - name: Commit and Push
