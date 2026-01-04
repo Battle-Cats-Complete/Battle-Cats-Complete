@@ -1,6 +1,6 @@
 use eframe::egui;
 use std::sync::mpsc::Receiver;
-use crate::functions::SoftReset; // <--- Updated import
+use crate::functions::SoftReset;
 
 pub mod scanner;
 pub mod list;
@@ -53,29 +53,23 @@ impl Default for CatListState {
     }
 }
 
-// Implement the SoftReset trait from functions.rs
 impl SoftReset for CatListState {
     fn reset(&mut self) {
-        // 1. Clear Data Vectors
         self.cats.clear();
         
-        // 2. Clear Texture Caches
         self.cat_list.clear_cache();
         self.detail_texture = None;
         self.detail_key.clear();
-        
-        // 3. Reset Selection & Inputs
+    
         self.selected_cat = None;
         self.selected_form = 0; 
         self.search_query.clear(); 
         self.level_input = "50".to_string();
         self.current_level = 50;
 
-        // 4. Force Asset Reloads (Important if import replaced images)
         self.sprite_sheet = SpriteSheet::default(); 
         self.multihit_texture = None; 
 
-        // 5. Restart Scanner
         self.scan_receiver = Some(scanner::start_scan());
     }
 }
