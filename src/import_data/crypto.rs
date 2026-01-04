@@ -1,3 +1,5 @@
+#![cfg(feature = "dev")]
+
 use aes::Aes128;
 use aes::cipher::{BlockDecryptMut, KeyIvInit, KeyInit};
 use block_padding::Pkcs7;

@@ -38,33 +38,18 @@ jobs:
           rm -rf sanitized
 
       # 4. Commit to Public
-      - name: Commit and Force Push
+      - name: Commit and Push
         run: |
-          # 1. Get the Author details from the PRIVATE repo (keep this so it looks like YOU)
-          cd source_repo
-          AUTHOR_NAME=$(git log -1 --pretty=%an)
-          AUTHOR_EMAIL=$(git log -1 --pretty=%ae)
-          echo "Syncing as: $AUTHOR_NAME <$AUTHOR_EMAIL>"
-          cd ..
-          
-          # 2. Configure Git for the PUBLIC repo
           cd public_repo
-          git config user.name "$AUTHOR_NAME"
-          git config user.email "$AUTHOR_EMAIL"
+          # Configure Git
+          git config user.name "Your Name"
+          git config user.email "your@email.com"
           
-          # 3. Create a fresh 'orphan' branch (This wipes history)
-          git checkout --orphan temp_clean
-          
-          # 4. Add all files
+          # Add and commit
           git add .
-          
-          # 5. Commit with a CLEAN, STATIC message
-          # This will make every single update look exactly the same on GitHub
-          git commit -m "Public Release"
-          
-          # 6. Replace 'main' branch
-          git branch -D main || true
-          git branch -m main
-          
-          # 7. Force push
-          git push -f origin main
+          if [[ -n $(git status -s) ]]; then
+            git commit -m "Update: $(date +'%Y-%m-%d')"
+            git push origin main
+          else
+            echo "No changes to sync."
+          fi
