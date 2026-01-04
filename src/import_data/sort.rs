@@ -102,7 +102,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             continue;
         }
 
-        // Updated: Referencing patterns::CHECK_LINE_FILES
         if patterns::CHECK_LINE_FILES.contains(&filename) {
             let dest_path = cats_dir.join(filename);
             if let Ok(was_moved) = move_if_bigger(&path, &dest_path) {

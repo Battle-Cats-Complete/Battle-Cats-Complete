@@ -4,7 +4,7 @@ use crate::cat_data::stats::{self, CatRaw};
 use crate::cat_data::abilities::{self, AbilityItem};
 use crate::cat_data::sprites::SpriteSheet;
 use super::utils::text_with_superscript;
-use crate::settings::Settings; // Import settings
+use crate::settings::Settings; 
 
 pub fn render_abilities(
     ui: &mut egui::Ui, 
@@ -14,24 +14,24 @@ pub fn render_abilities(
     level: i32,
     curve: Option<&stats::CatLevelCurve>,
     cat_id: u32,
-    settings: &Settings, // Accept Settings struct
+    settings: &Settings, 
 ) {
     ui.spacing_mut().item_spacing.y = 0.0;
 
     let (grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(s, level, curve, multihit_tex, false);
     
-    // DYNAMIC: Trait Padding
     ui.add_space(settings.trait_padding_y);
     
-    if !grp_hl1.is_empty() { render_icon_row(ui, &grp_hl1, sheet, settings); }
+    if !grp_hl1.is_empty() { 
+        render_icon_row(ui, &grp_hl1, sheet, settings); 
+    }
     
     if !grp_hl2.is_empty() { 
-        // DYNAMIC: Ability Padding
         ui.add_space(settings.ability_padding_y); 
         render_icon_row(ui, &grp_hl2, sheet, settings); 
     }
 
-    if !grp_hl1.is_empty() || !grp_hl2.is_empty() {
+    if (!grp_hl1.is_empty() || !grp_hl2.is_empty()) && (!grp_b1.is_empty() || !grp_b2.is_empty()) {
        ui.add_space(settings.ability_padding_y);
     }
 
@@ -39,15 +39,17 @@ pub fn render_abilities(
     render_list_view(ui, &grp_b2, sheet, multihit_tex, cat_id, level, curve, s, settings);
 
     if !grp_footer.is_empty() {
-        ui.add_space(settings.ability_padding_y);
+        if grp_b1.is_empty() && grp_b2.is_empty() {
+            ui.add_space(settings.ability_padding_y);
+        }
         render_icon_row(ui, &grp_footer, sheet, settings); 
     }
 }
 
 pub fn render_icon_row(ui: &mut egui::Ui, items: &Vec<AbilityItem>, sheet: &SpriteSheet, settings: &Settings) {
     ui.horizontal_wrapped(|ui| {
-        // DYNAMIC: Ability Padding X/Y
         ui.spacing_mut().item_spacing = egui::vec2(settings.ability_padding_x, settings.ability_padding_y);
+        
         for item in items {
             let r = if let Some(tex_id) = item.custom_tex {
                 ui.add(egui::Image::new((tex_id, egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE))))
@@ -71,7 +73,7 @@ pub fn render_list_view(
     current_level: i32,
     curve: Option<&stats::CatLevelCurve>,
     s: &CatRaw,
-    settings: &Settings, // Accept Settings
+    settings: &Settings, 
 ) {
     for item in items {
         let is_conjure_item = item.icon_id == definitions::ICON_CONJURE;
@@ -91,23 +93,25 @@ pub fn render_list_view(
             }
 
             if is_conjure_item {
-                expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.expand_spirit_details));
-                text_with_superscript(ui, &item.text);
-                
-                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
 
-                let btn_text = egui::RichText::new("Details").size(11.0);
-                let btn = if expanded {
-                    egui::Button::new(btn_text.color(egui::Color32::WHITE))
-                        .fill(egui::Color32::from_rgb(0, 100, 200))
-                } else {
-                    egui::Button::new(btn_text)
-                };
+                    expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.expand_spirit_details));
+                    text_with_superscript(ui, &item.text);
+                    
+                    let btn_text = egui::RichText::new("Details").size(11.0);
+                    let btn = if expanded {
+                        egui::Button::new(btn_text.color(egui::Color32::WHITE))
+                            .fill(egui::Color32::from_rgb(0, 100, 200))
+                    } else {
+                        egui::Button::new(btn_text)
+                    };
 
-                if ui.add(btn).clicked() {
-                    expanded = !expanded;
-                    ui.data_mut(|d| d.insert_temp(id, expanded));
-                }
+                    if ui.add(btn).clicked() {
+                        expanded = !expanded;
+                        ui.data_mut(|d| d.insert_temp(id, expanded));
+                    }
+                });
             } else {
                 text_with_superscript(ui, &item.text);
             }
@@ -123,7 +127,6 @@ pub fn render_list_view(
                 .show(ui, |ui| {
                     
                     if let Some(conjure_stats) = stats::load_from_id(s.conjure_unit_id) {
-                        
                         let dmg = curve.as_ref().map_or(
                             conjure_stats.attack_1, 
                             |c| c.calculate_stat(conjure_stats.attack_1, current_level)
@@ -132,7 +135,6 @@ pub fn render_list_view(
                         let range_txt = format!("Damage: {}\nRange: {}", dmg, conjure_stats.standing_range);
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = settings.ability_padding_x;
-                            
                             if let Some(sprite) = sheet.get_sprite_by_line(definitions::ICON_AREA_ATTACK) {
                                 ui.add(sprite.fit_to_exact_size(egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE)));
                             }
@@ -157,6 +159,7 @@ pub fn render_list_view(
                     }
                 });
         }
-        ui.add_space(0.0);
+        
+        ui.add_space(settings.ability_padding_y);
     }
 }

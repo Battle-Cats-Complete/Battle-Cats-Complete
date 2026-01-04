@@ -1,5 +1,5 @@
 use eframe::egui;
-// FIX: Use absolute paths to prevent "unresolved module" errors
+
 use crate::cat_data::scanner::CatEntry;
 use crate::cat_data::sprites::SpriteSheet;
 use crate::cat_data::stats; 
@@ -16,7 +16,6 @@ use grid::{grid_cell, grid_cell_custom, render_frames};
 use block::render_abilities; 
 use utils::autocrop;
 
-// Keeps fixed box sizes (structure), but removes padding constants (now in Settings)
 pub const NAME_BOX_WIDTH: f32 = 150.0;
 pub const NAME_BOX_HEIGHT: f32 = 15.0;
 
@@ -31,7 +30,7 @@ pub fn show(
     current_key: &mut String,
     sprite_sheet: &mut SpriteSheet,
     multihit_texture: &mut Option<egui::TextureHandle>,
-    settings: &Settings, // Accepting Settings struct
+    settings: &Settings,
 ) {
     let base_dir = std::path::Path::new("game/assets");
     
@@ -112,7 +111,7 @@ pub fn show(
                     ui.allocate_space(egui::vec2(64.0, 64.0)); 
                 }
 
-                ui.add_space(3.0); // RESTORED: 3.0 spacing between icon and name column
+                ui.add_space(3.0);
 
                 ui.vertical(|ui| {
                     ui.set_width(NAME_BOX_WIDTH);
@@ -121,7 +120,6 @@ pub fn show(
                     let raw_name = cat.names.get(*current_form).cloned().unwrap_or_default();
                     let disp_name = if raw_name.is_empty() { format!("{:03}-{}", cat.id, form_num) } else { raw_name };
 
-                    // *** RESTORED SPACING ***
                     ui.add_space(15.0); 
                     render_name_in_box(ui, &disp_name);
                     ui.spacing_mut().item_spacing.y = 0.0;
@@ -130,7 +128,6 @@ pub fn show(
                     ui.label(egui::RichText::new(format!("ID: {:03}-{}", cat.id, form_num)).color(egui::Color32::from_gray(100)).size(12.0));
                     
                     ui.add_space(3.0);
-                    // ************************
 
                     ui.horizontal(|ui| {
                         ui.label("Level:");
@@ -148,7 +145,7 @@ pub fn show(
                 });
             }); 
 
-            ui.add_space(2.0); // RESTORED: 2.0 spacing between header and stats
+            ui.add_space(2.0);
 
             if let Some(s) = current_stats {
                 let hp = cat.curve.as_ref().map_or(s.hitpoints, |c| c.calculate_stat(s.hitpoints, *current_level));
@@ -216,10 +213,8 @@ pub fn show(
                     s.target_traitless > 0;
 
                 if has_any_trait {
-                    // DYNAMIC: Use settings for Y padding
                     ui.add_space(settings.ability_padding_y); 
                     ui.horizontal_wrapped(|ui| {
-                        // DYNAMIC: Use settings for X/Y gap
                         ui.spacing_mut().item_spacing = egui::vec2(settings.ability_padding_x, settings.ability_padding_y);
                         for &line_num in definitions::UI_TRAIT_ORDER {
                             let has_trait = match line_num {
@@ -258,7 +253,6 @@ pub fn show(
                     });
                 }
 
-                // DYNAMIC: Use settings for Y padding
                 ui.add_space(settings.ability_padding_y);
                 render_abilities(ui, s, sprite_sheet, multihit_texture, *current_level, cat.curve.as_ref(), cat.id, settings); 
                 ui.add_space(20.0);
