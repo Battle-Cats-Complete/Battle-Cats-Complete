@@ -14,7 +14,6 @@ pub struct SpriteCut {
 pub struct SpriteSheet {
     pub texture: Option<egui::TextureHandle>,
     pub cuts: Vec<SpriteCut>, 
-    // Async state
     loading: bool,
     rx: Option<Receiver<(egui::ColorImage, Vec<SpriteCut>)>>,
 }
@@ -32,7 +31,6 @@ impl Default for SpriteSheet {
 
 impl SpriteSheet {
     pub fn load(&mut self, ctx: &egui::Context, image_path: &Path, cut_path: &Path) {
-        // 1. Check if background thread finished
         if let Some(rx) = &self.rx {
             if let Ok((img, cuts)) = rx.try_recv() {
                 self.texture = Some(ctx.load_texture(
@@ -46,10 +44,8 @@ impl SpriteSheet {
             }
         }
 
-        // 2. If already loaded or currently loading, stop here
         if self.texture.is_some() || self.loading { return; }
 
-        // 3. Start background thread
         self.loading = true;
         let (tx, rx) = mpsc::channel();
         self.rx = Some(rx);
@@ -99,7 +95,7 @@ impl SpriteSheet {
             }
             
             let _ = tx.send((egui_img, cuts));
-            ctx_clone.request_repaint(); // Wake up UI
+            ctx_clone.request_repaint();
         });
     }
 
