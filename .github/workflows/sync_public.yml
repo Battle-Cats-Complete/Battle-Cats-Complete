@@ -1,7 +1,7 @@
 name: Sync to Public Repo
 
 on:
-  # 0. Removed automatic Push logic
+  # 0. Removed automatic Push logic 
   #push:
     #branches:
       #- main 
@@ -43,7 +43,7 @@ jobs:
 
           # D. Cleanup
           rm -rf public_repo/sanitized
-          
+
       # 4. Commit to Public
       - name: Commit and Push
         run: |
