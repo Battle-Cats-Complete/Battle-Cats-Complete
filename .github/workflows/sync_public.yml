@@ -39,12 +39,11 @@ jobs:
       # 4. Commit to Public
       - name: Commit and Force Push
         run: |
-          # 1. Get the last commit details from the PRIVATE repo
+          # 1. Get the Author details from the PRIVATE repo (keep this so it looks like YOU)
           cd source_repo
-          LAST_MSG=$(git log -1 --pretty=%B)
           AUTHOR_NAME=$(git log -1 --pretty=%an)
           AUTHOR_EMAIL=$(git log -1 --pretty=%ae)
-          echo "Syncing commit from: $AUTHOR_NAME <$AUTHOR_EMAIL>"
+          echo "Syncing as: $AUTHOR_NAME <$AUTHOR_EMAIL>"
           cd ..
           
           # 2. Configure Git for the PUBLIC repo
@@ -52,17 +51,19 @@ jobs:
           git config user.name "$AUTHOR_NAME"
           git config user.email "$AUTHOR_EMAIL"
           
-          # 3. Create a fresh 'orphan' branch with no history
-          # This creates a new branch named 'temp_clean' unrelated to previous commits
+          # 3. Create a fresh 'orphan' branch (This wipes history)
           git checkout --orphan temp_clean
           
-          # 4. Add all files and commit
+          # 4. Add all files
           git add .
-          git commit -m "$LAST_MSG"
           
-          # 5. Delete the old 'main' branch locally and rename ours to 'main'
+          # 5. Commit with a CLEAN, STATIC message
+          # This will make every single update look exactly the same on GitHub
+          git commit -m "Public Release"
+          
+          # 6. Replace 'main' branch
           git branch -D main || true
           git branch -m main
           
-          # 6. Force push to overwrite the public repo completely
+          # 7. Force push
           git push -f origin main
