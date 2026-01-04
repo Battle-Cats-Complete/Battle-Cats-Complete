@@ -1,9 +1,10 @@
 name: Sync to Public Repo
 
 on:
-  push:
-    branches:
-      - main 
+  # 0. Removed automatic Push logic
+  #push:
+    #branches:
+      #- main 
   workflow_dispatch:
 
 jobs:
