@@ -43,6 +43,8 @@ Navigate to `/data/app/`. Look for a folder containing `[PACKAGE_NAME]`.
 * Inside, find `split_InstallPack.apk`.
 * Copy this file to your shared folder.
 
+*Note: If the `files` folder or `split_InstallPack.apk` file alredy exists and you are having trouble with updating them via overwriting, you can zip the files folder and copy it over, unzipping on your computer to guarantee you have new files*
+
 ### 5. Decrypt
 1. Open **Battle Cats Complete**.
 2. Navigate to the "Import Data" window
