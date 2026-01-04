@@ -139,7 +139,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::set
                     &mut state.detail_key,
                     &mut state.sprite_sheet,
                     &mut state.multihit_texture,
-                    settings.expand_spirit_details
+                    settings
                 );
             }
         } else {
