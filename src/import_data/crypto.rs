@@ -36,7 +36,28 @@ pub fn decrypt_ecb_with_key(data: &[u8], key: &[u8; 16]) -> Result<Vec<u8>, Stri
     Ok(buffer)
 }
 
-pub fn decrypt_pack_chunk(data: &[u8], _pack_filename: &str) -> Result<(Vec<u8>, String), String> {
+fn is_content_valid(data: &[u8], filename: &str) -> bool {
+    let lower_name = filename.to_lowercase();
+    
+    if lower_name.ends_with(".png") {
+        if data.len() < 4 { return false; }
+        return data.starts_with(&[0x89, 0x50, 0x4E, 0x47]);
+    }
+
+    if lower_name.ends_with(".csv") 
+        || lower_name.ends_with(".list") 
+        || lower_name.ends_with(".json")
+        || lower_name.ends_with(".maanim")   
+        || lower_name.ends_with(".mamodel")  
+        || lower_name.ends_with(".imgcut")   
+    {
+        return std::str::from_utf8(data).is_ok();
+    }
+
+    true
+}
+
+pub fn decrypt_pack_chunk(data: &[u8], internal_filename: &str) -> Result<(Vec<u8>, String), String> {
     let keys = [
         ("", "", "JP"),
         ("", "", "EN"),
@@ -51,13 +72,17 @@ pub fn decrypt_pack_chunk(data: &[u8], _pack_filename: &str) -> Result<(Vec<u8>,
         let iv_arr: [u8; 16] = iv_bytes.try_into().unwrap();
 
         if let Ok(result) = decrypt_cbc_with_key(data, &key_arr, &iv_arr) {
-            return Ok((result, region.to_string()));
+            if is_content_valid(&result, internal_filename) {
+                return Ok((result, region.to_string()));
+            }
         }
     }
 
     let server_key = get_md5_key("battlecats");
     if let Ok(result) = decrypt_ecb_with_key(data, &server_key) {
-        return Ok((result, "Server".to_string()));
+        if is_content_valid(&result, internal_filename) {
+            return Ok((result, "Server".to_string()));
+        }
     }
 
     Ok((data.to_vec(), "None".to_string()))

@@ -14,9 +14,22 @@ pub enum ImportMode {
     Zip,
 }
 
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum DataTab {
+    Import,
+    Export,
+}
+
 pub struct ImportState {
+    // Import Data
     selected_path: String,
     import_mode: ImportMode,
+    
+    // Export Data
+    compression_level: i32,
+
+    // Shared State
+    active_tab: DataTab,
     status_message: String,
     log_content: String,
     rx: Option<Receiver<String>>,
@@ -28,6 +41,8 @@ impl Default for ImportState {
         Self {
             selected_path: "No source selected".to_owned(),
             import_mode: ImportMode::None,
+            compression_level: 6,
+            active_tab: DataTab::Import,
             status_message: "Ready".to_owned(),
             log_content: String::new(),
             rx: None,
@@ -79,20 +94,17 @@ fn censor_path(path: &str) -> String {
 
     let mut clean = path.to_string();
 
-    // Attempt to redact specific username
     if let Ok(user) = env::var("USERNAME").or_else(|_| env::var("USER")) {
         if !user.is_empty() {
              clean = clean.replace(&user, "***");
         }
     }
 
-    // Truncate long paths to show only the last 3 segments
     let path_obj = Path::new(&clean);
     let components: Vec<_> = path_obj.components().collect();
     
     if components.len() > 3 {
         let count = components.len();
-        // Take the last 3 components
         let last_parts: PathBuf = components.iter().skip(count.saturating_sub(3)).collect();
         return format!("...{}{}", std::path::MAIN_SEPARATOR, last_parts.display());
     }
@@ -102,90 +114,53 @@ fn censor_path(path: &str) -> String {
 
 pub fn show(ctx: &egui::Context, state: &mut ImportState) {
     egui::CentralPanel::default().show(ctx, |ui| {
-        ui.heading("Import Game Data");
-        ui.add_space(7.5);
+        ui.heading("Game Data Management");
+        ui.add_space(10.0);
 
-        let btn_enabled = state.rx.is_none();
-
+        // --- TABS ---
         ui.horizontal(|ui| {
-            // Button 1: Select Raw Folder
-            let btn_folder = egui::Button::new("Select Raw Folder");
-            let resp_folder = ui.add_enabled(btn_enabled, btn_folder);
+            ui.spacing_mut().item_spacing.x = 5.0; 
+
+            let tabs = [(DataTab::Import, "Import"), (DataTab::Export, "Export")];
             
-            // Logic Split: Check click first...
-            if resp_folder.clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    state.selected_path = path.display().to_string();
-                    state.import_mode = ImportMode::Folder;
-                    state.status_message = "Raw Folder selected.".to_string();
-                    state.log_content.clear();
-                }
-            }
-            // ...Then apply hover text. This prevents the "Z-fighting" flicker.
-            resp_folder.on_hover_text("Select a folder containing raw decrypted game data so it can be sorted into the system!");
-
-            ui.add_space(0.0);
-
-            // Button 2: Select game.zip
-            let btn_zip = egui::Button::new("Select game.zip");
-            let resp_zip = ui.add_enabled(btn_enabled, btn_zip);
-
-            if resp_zip.clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Archive", &["zip"])
-                    .pick_file() 
-                {
-                    state.selected_path = path.display().to_string();
-                    state.import_mode = ImportMode::Zip;
-                    state.status_message = "Zip Archive selected.".to_string();
-                    state.log_content.clear();
-                }
-            }
-            resp_zip.on_hover_text("Select a 'game.zip' file provided by the community that contains only essential pre-sorted files!");
-        });
-
-        ui.add_space(5.0);
-        ui.monospace(censor_path(&state.selected_path));
-        
-        ui.add_space(5.0);
-
-        // Button 3: Start File Sort
-        let can_start = state.import_mode != ImportMode::None && state.rx.is_none();
-        
-        if ui.add_enabled(can_start, egui::Button::new("Start File Sort")).clicked() {
-            state.status_message = "Starting worker...".to_string();
-            state.log_content.clear();
-            
-            let (tx, rx) = mpsc::channel();
-            state.rx = Some(rx);
-
-            let path = state.selected_path.clone();
-            let mode = state.import_mode;
-
-            thread::spawn(move || {
-                let result = match mode {
-                    ImportMode::Folder => game_data::import_from_folder(&path, tx.clone()),
-                    ImportMode::Zip => game_data::import_from_zip(&path, tx.clone()),
-                    _ => Err("Invalid mode".to_string()),
+            for (tab, label) in tabs {
+                let is_selected = state.active_tab == tab;
+                
+                // Form Button Style
+                let (fill, stroke, text_color) = if is_selected {
+                    (
+                        egui::Color32::from_rgb(0, 100, 200), 
+                        egui::Stroke::new(2.0, egui::Color32::WHITE), 
+                        egui::Color32::WHITE
+                    )
+                } else {
+                    (
+                        egui::Color32::from_gray(40), 
+                        egui::Stroke::new(1.0, egui::Color32::from_gray(100)), 
+                        egui::Color32::from_gray(200)
+                    )
                 };
 
-                match result {
-                    Ok(_) => {
-                        if mode == ImportMode::Folder {
-                            let _ = tx.send("Starting Sort...".to_string());
-                            match sort::sort_game_files(tx.clone()) {
-                                Ok(_) => { let _ = tx.send("Success! Files imported and sorted.".to_string()); },
-                                Err(e) => { let _ = tx.send(format!("Error Sorting: {}", e)); }
-                            }
-                        } else {
-                            let _ = tx.send("Success! Archive extracted.".to_string());
-                        }
-                    },
-                    Err(e) => { let _ = tx.send(format!("Error: {}", e)); }
+                let btn = egui::Button::new(egui::RichText::new(label).color(text_color))
+                    .fill(fill)
+                    .stroke(stroke)
+                    .rounding(egui::Rounding::ZERO)
+                    .min_size(egui::vec2(80.0, 30.0));
+
+                if ui.add(btn).clicked() {
+                    state.active_tab = tab;
                 }
-            });
+            }
+        });
+
+        ui.add_space(15.0);
+
+        match state.active_tab {
+            DataTab::Import => show_import_ui(ui, state),
+            DataTab::Export => show_export_ui(ui, state),
         }
 
+        ui.add_space(5.0);
         ui.separator();
         
         if state.rx.is_some() && !state.status_message.contains("Success") && !state.status_message.contains("Error") && !state.status_message.contains("Aborted") {
@@ -209,7 +184,6 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
             .stick_to_bottom(true)
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // Eliminate vertical gaps between log lines
                 ui.spacing_mut().item_spacing.y = 0.0;
 
                 for line in state.log_content.lines() {
@@ -223,4 +197,115 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
                 }
             })
     });
+}
+
+fn show_import_ui(ui: &mut egui::Ui, state: &mut ImportState) {
+    ui.label(egui::RichText::new("Import files into the local system.").strong());
+    ui.add_space(10.0);
+
+    let btn_enabled = state.rx.is_none();
+
+    ui.horizontal(|ui| {
+        let btn_folder = egui::Button::new("Select Raw Folder");
+        let resp_folder = ui.add_enabled(btn_enabled, btn_folder);
+        
+        if resp_folder.clicked() {
+            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                state.selected_path = path.display().to_string();
+                state.import_mode = ImportMode::Folder;
+                state.status_message = "Raw Folder selected.".to_string();
+                state.log_content.clear();
+            }
+        }
+        resp_folder.on_hover_text("Select a folder containing raw decrypted game data so it can be sorted into the system!");
+
+        ui.add_space(0.0);
+
+        let btn_zip = egui::Button::new("Select game.zip");
+        let resp_zip = ui.add_enabled(btn_enabled, btn_zip);
+
+        if resp_zip.clicked() {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("Archive", &["zip"])
+                .pick_file() 
+            {
+                state.selected_path = path.display().to_string();
+                state.import_mode = ImportMode::Zip;
+                state.status_message = "Zip Archive selected.".to_string();
+                state.log_content.clear();
+            }
+        }
+        resp_zip.on_hover_text("Select a 'game.zip' file provided by the community that contains only essential pre-sorted files!");
+    });
+
+    ui.add_space(5.0);
+    ui.monospace(censor_path(&state.selected_path));
+    
+    ui.add_space(5.0);
+
+    let can_start = state.import_mode != ImportMode::None && state.rx.is_none();
+    
+    if ui.add_enabled(can_start, egui::Button::new("Start File Sort")).clicked() {
+        state.status_message = "Starting worker...".to_string();
+        state.log_content.clear();
+        
+        let (tx, rx) = mpsc::channel();
+        state.rx = Some(rx);
+
+        let path = state.selected_path.clone();
+        let mode = state.import_mode;
+
+        thread::spawn(move || {
+            let result = match mode {
+                ImportMode::Folder => game_data::import_from_folder(&path, tx.clone()),
+                ImportMode::Zip => game_data::import_from_zip(&path, tx.clone()),
+                _ => Err("Invalid mode".to_string()),
+            };
+
+            match result {
+                Ok(_) => {
+                    if mode == ImportMode::Folder {
+                        let _ = tx.send("Starting Sort...".to_string());
+                        match sort::sort_game_files(tx.clone()) {
+                            Ok(_) => { let _ = tx.send("Success! Files imported and sorted.".to_string()); },
+                            Err(e) => { let _ = tx.send(format!("Error Sorting: {}", e)); }
+                        }
+                    } else {
+                        let _ = tx.send("Success! Archive extracted.".to_string());
+                    }
+                },
+                Err(e) => { let _ = tx.send(format!("Error: {}", e)); }
+            }
+        });
+    }
+}
+
+fn show_export_ui(ui: &mut egui::Ui, state: &mut ImportState) {
+    ui.label(egui::RichText::new("Package sorted files into a ZIP archive.").strong());
+    ui.add_space(10.0);
+
+    ui.horizontal(|ui| {
+        ui.label("Compression Level:");
+        ui.add(egui::Slider::new(&mut state.compression_level, 0..=9));
+    });
+    
+    ui.add_space(15.0);
+
+    let can_zip = state.rx.is_none(); 
+    
+    if ui.add_enabled(can_zip, egui::Button::new("Create game.zip")).clicked() {
+        state.status_message = "Preparing to zip...".to_string();
+        state.log_content.clear();
+        
+        let (tx, rx) = mpsc::channel();
+        state.rx = Some(rx);
+        let level = state.compression_level;
+
+        thread::spawn(move || {
+            match game_data::create_game_zip(tx.clone(), level) {
+                Ok(_) => {}, 
+                Err(e) => { let _ = tx.send(format!("Error Zipping: {}", e)); }
+            }
+        });
+    }
 }

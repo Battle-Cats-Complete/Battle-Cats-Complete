@@ -4,7 +4,7 @@
 
 An all-in-one tool for The Battle Cats that allows Users to sort, read, and modify files that they import into it.
 
-This is the "source" repository of the app for developers' eyes only. This version has game Decryption logic (seen in "sanitized" folder) in place of sorting set-up and zip extraction.
+This is the source repository of the app—for developers' eyes only. This version has "Game Decryption" logic in place of "Sorting Set-up" and "Zip Extraction" logic. The public repos' sanitized logic is within the "sanitized" folder.
 
 ## Usage
 First, you must extract your game files using the Guide below, then select the folder containing them to sort them into the database to be read!
