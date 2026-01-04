@@ -13,7 +13,7 @@ enum Page {
 const PAGES: &[(Page, &str)] = &[
     (Page::MainMenu, "Main Menu"),
     (Page::CatData, "Cat Data"),
-    (Page::ImportData, "Import Data"),
+    (Page::ImportData, "Game Data"),
     (Page::Settings, "Settings"),
 ];
 
