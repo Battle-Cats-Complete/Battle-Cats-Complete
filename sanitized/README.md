@@ -5,7 +5,7 @@
 An all-in-one tool for The Battle Cats that allows Users to sort, read, and modify files that they import into it.
 
 ## In Development
-Battle Cats Complete is still far from its fully functional state, here are the features it has and the features I plan to add:
+Battle Cats Complete is still far from its fully functional state. This app is a hobby and passion project. Here are the features it has and the features I plan to add:
 
 ### Features
 * Reading Cat data
