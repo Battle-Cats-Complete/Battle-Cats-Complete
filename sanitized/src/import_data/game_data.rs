@@ -1,10 +1,11 @@
 use std::fs;
 use std::path::Path;
 use std::sync::mpsc::Sender;
+use std::io::{Read, Write};
 use zip::ZipArchive;
+use zip::write::FileOptions;
 use crate::patterns; 
 
-// --- FOLDER LOGIC ---
 pub fn import_from_folder(source_folder: &str, tx: Sender<String>) -> Result<(), String> {
     let input_path = Path::new(source_folder);
     let output_dir = Path::new("game/raw");
@@ -17,7 +18,6 @@ pub fn import_from_folder(source_folder: &str, tx: Sender<String>) -> Result<(),
 
     let mut file_count = 0;
 
-    // Recursive copy
     if input_path.is_dir() {
         let mut stack = vec![input_path.to_path_buf()];
         
@@ -34,11 +34,8 @@ pub fn import_from_folder(source_folder: &str, tx: Sender<String>) -> Result<(),
                     if let Some(name_os) = path.file_name() {
                         let name_str = name_os.to_string_lossy().to_string();
                         
-                        // Default destination is just the filename
                         let mut dest_filename = name_str.clone();
 
-                        // AUTOMATIC RENAMING LOGIC
-                        // If this file is sensitive (e.g. img015.png), append "_au"
                         if patterns::REGION_SENSITIVE_FILES.contains(&name_str.as_str()) {
                             let path_obj = Path::new(&name_str);
                             let stem = path_obj.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
@@ -48,10 +45,8 @@ pub fn import_from_folder(source_folder: &str, tx: Sender<String>) -> Result<(),
 
                         let dest_path = output_dir.join(&dest_filename);
                         
-                        // Simple copy, overwrite if exists
                         if fs::copy(&path, &dest_path).is_ok() {
                             file_count += 1;
-                            // Lively logging
                             if file_count % 50 == 0 {
                                 let _ = tx.send(format!("Copied {} files | Current: {}", file_count, dest_filename));
                             }
@@ -68,14 +63,12 @@ pub fn import_from_folder(source_folder: &str, tx: Sender<String>) -> Result<(),
     Ok(())
 }
 
-// --- ZIP LOGIC ---
 pub fn import_from_zip(zip_path_str: &str, tx: Sender<String>) -> Result<(), String> {
     let file = fs::File::open(zip_path_str).map_err(|e| format!("Failed to open zip: {}", e))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid zip archive: {}", e))?;
 
     let _ = tx.send("Validating Archive...".to_string());
 
-    // --- AUTOMATIC VALIDATION ---
     for (dir, prefix, extensions) in patterns::ESSENTIAL_FILES {
         let mut set_satisfied = false;
 
@@ -99,7 +92,6 @@ pub fn import_from_zip(zip_path_str: &str, tx: Sender<String>) -> Result<(), Str
 
             if all_extensions_found {
                 set_satisfied = true;
-                // LOG SUCCESS IN GREEN (via "was found!")
                 for f in found_files {
                     let _ = tx.send(format!("{} was found!", f));
                 }
@@ -114,7 +106,6 @@ pub fn import_from_zip(zip_path_str: &str, tx: Sender<String>) -> Result<(), Str
 
     let _ = tx.send("Validation Passed. Extracting...".to_string());
 
-    // 2. Extraction Step
     let len = archive.len();
     for i in 0..len {
         let mut file = archive.by_index(i).unwrap();
@@ -150,5 +141,74 @@ pub fn import_from_zip(zip_path_str: &str, tx: Sender<String>) -> Result<(), Str
         }
     }
 
+    Ok(())
+}
+
+pub fn create_game_zip(tx: Sender<String>, compression_level: i32) -> Result<(), String> {
+    let src_dir = Path::new("game");
+    let exports_dir = Path::new("exports");
+    let zip_path = exports_dir.join("game.zip");
+
+    if !src_dir.exists() {
+        return Err("No 'game' folder found to zip.".to_string());
+    }
+
+    if !exports_dir.exists() {
+        fs::create_dir_all(exports_dir).map_err(|e| e.to_string())?;
+    }
+
+    let _ = tx.send(format!("Creating game.zip with Compression Level {}...", compression_level));
+
+    let file = fs::File::create(&zip_path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    
+    let options = FileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .compression_level(Some(compression_level)) 
+        .unix_permissions(0o755);
+
+    let mut files_to_zip = Vec::new();
+    let mut folders_to_visit = vec![src_dir.to_path_buf()];
+
+    while let Some(current_dir) = folders_to_visit.pop() {
+        let entries = fs::read_dir(&current_dir).map_err(|e| e.to_string())?;
+        
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            
+            if path.to_string_lossy().contains(&format!("game{}raw", std::path::MAIN_SEPARATOR)) {
+                continue;
+            }
+
+            if path.is_dir() {
+                folders_to_visit.push(path);
+            } else {
+                files_to_zip.push(path);
+            }
+        }
+    }
+
+    let total_files = files_to_zip.len();
+    for (i, path) in files_to_zip.iter().enumerate() {
+        let name = path.to_string_lossy().replace("\\", "/");
+        
+        if i % 50 == 0 || i == total_files - 1 {
+            let _ = tx.send(format!("Zipped {} files | Current: {}", i + 1, name));
+        }
+
+        zip.start_file(name, options).map_err(|e| e.to_string())?;
+        
+        if let Ok(mut f) = fs::File::open(path) {
+            let mut buffer = Vec::new();
+            if f.read_to_end(&mut buffer).is_ok() {
+                zip.write_all(&buffer).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+
+    zip.finish().map_err(|e| e.to_string())?;
+    
+    let _ = tx.send(format!("Success! Saved to {}", zip_path.display()));
     Ok(())
 }

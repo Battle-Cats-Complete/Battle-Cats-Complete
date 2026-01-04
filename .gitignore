@@ -4,8 +4,10 @@
 # My stuff
 /stuff/
 
-# The Extracted Game Data
+# Extracted Game Data
 /game/
+/exports/
+/mods/
 
 # IDE Settings
 .vscode/
