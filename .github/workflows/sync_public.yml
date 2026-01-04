@@ -1,7 +1,7 @@
 name: Sync to Public Repo
 
 on:
-  # 0. Removed automatic Push logic 
+  # 0. Removed automatic Push logic
   #push:
     #branches:
       #- main 
@@ -29,29 +29,28 @@ jobs:
       # 3. Mirror Files & Sanitize
       - name: Sync and Overwrite
         run: |
-          # A. Mirror source to public (excluding private git/workflows)
+          # A. Mirror source to public (excluding git folder and workflow file)
           rsync -av --delete --exclude '.git' --exclude '.github' source_repo/ public_repo/
 
-          # B. Move sanitized files to their real locations
-          # This moves everything inside sanitized/ to the root of public_repo/
-          cp -rv public_repo/sanitized/. public_repo/
-          
-          # C. Reset Cargo Features (Fuzzy match to catch spacing)
+          # B. Apply Sanitization
+          cd public_repo
+          cp -rf sanitized/* .
           sed -i 's/default *=.*\["dev"\]/default = []/' public_repo/Cargo.toml
-
-          # D. CRITICAL: Remove the sanitized folder so it's not pushed
-          rm -rf public_repo/sanitized
+          rm -rf sanitized
 
       # 4. Commit to Public
       - name: Commit and Push
         run: |
           cd public_repo
-          git config user.name "GitHub Action"
-          git config user.email "action@github.com"
+          # Configure Git
+          git config user.name "Your Name"
+          git config user.email "your@email.com"
           
+          # Add and commit
           git add .
-          # Check if there are actually changes to avoid empty commit errors
           if [[ -n $(git status -s) ]]; then
             git commit -m "Update: $(date +'%Y-%m-%d')"
             git push origin main
+          else
+            echo "No changes to sync."
           fi
