@@ -29,21 +29,21 @@ jobs:
       # 3. Mirror Files & Sanitize
       - name: Sync and Overwrite
         run: |
-          # A. Mirror files
           rsync -av --delete --exclude '.git' --exclude '.github' source_repo/ public_repo/
 
-          # B. Sanitize Cargo.toml
+          # Set public repo to no features
           sed -i 's/default *=.*\["dev"\]/default = []/' public_repo/Cargo.toml
           
-          # C. FORCE the removal of optional crates from Cargo.lock
-          # We delete the lockfile and let Cargo regenerate a clean, sanitized one
+          # Force a fresh lockfile based on the gated dependencies
           cd public_repo
-          rm Cargo.lock
+          rm -f Cargo.lock
           cargo generate-lockfile
           
-          # D. Apply dummy files and cleanup
-          cp -rf sanitized/. .
-          rm -rf sanitized
+          # Apply dummy files and cleanup
+          if [ -d "sanitized" ]; then
+            cp -rf sanitized/. .
+            rm -rf sanitized
+          fi
 
       # 4. Commit to Public
       - name: Commit and Push
