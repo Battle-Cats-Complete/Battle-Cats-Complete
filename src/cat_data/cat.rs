@@ -9,6 +9,9 @@ use super::abilities::{self, AbilityItem};
 const ABILITY_PADDING_X: f32 = 3.0; 
 const ABILITY_PADDING_Y: f32 = 0.0; 
 
+const NAME_BOX_WIDTH: f32 = 150.0;
+const NAME_BOX_HEIGHT: f32 = 24.0;
+
 pub fn show(
     ctx: &egui::Context, 
     ui: &mut egui::Ui, 
@@ -20,16 +23,14 @@ pub fn show(
     current_key: &mut String,
     sprite_sheet: &mut SpriteSheet,
     multihit_texture: &mut Option<egui::TextureHandle>,
-    expand_spirit_details: bool, 
+    expand_spirit_details: bool,
 ) {
     let base_dir = std::path::Path::new("game/assets");
     
-    // 1. Sprite Sheet: Async (Fixes startup lag)
     let texture_path = base_dir.join("img015/img015_en.png");
     let cut_path = base_dir.join("img015/img015_en.imgcut");
     sprite_sheet.load(ctx, &texture_path, &cut_path);
 
-    // 2. Multihit icon
     if multihit_texture.is_none() {
         const MULTIHIT_BYTES: &[u8] = include_bytes!("../../assets/multihit.png");
         if let Ok(img) = image::load_from_memory(MULTIHIT_BYTES) {
@@ -73,7 +74,6 @@ pub fn show(
         ui.add_space(5.0);
 
         ui.horizontal_top(|ui| {
-            // 3. Unit Image: Synchronous (Fixes flickering)
             ui.horizontal_top(|ui| {
                 let form_char = match *current_form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
                 let expected = format!("game/cats/{:03}/{}/uni{:03}_{}00.png", cat.id, form_char, cat.id, form_char);
@@ -84,10 +84,10 @@ pub fn show(
                     
                     let p = std::path::Path::new(&expected);
                     let f = std::path::Path::new("game/cats/uni.png");
+                    
                     let path_to_load = if p.exists() { Some(p) } else if f.exists() { Some(f) } else { None };
 
                     if let Some(path) = path_to_load {
-                        // LOAD IMMEDIATELY (BLOCKING)
                         if let Ok(img) = image::open(path) {
                             let mut rgba = img.to_rgba8();
                             rgba = autocrop(rgba);
@@ -104,17 +104,23 @@ pub fn show(
                     ui.allocate_space(egui::vec2(64.0, 64.0)); 
                 }
 
-                ui.add_space(10.0);
+                ui.add_space(5.0);
 
                 ui.vertical(|ui| {
+                    ui.set_width(NAME_BOX_WIDTH);
+
                     let form_num = *current_form + 1;
                     let raw_name = cat.names.get(*current_form).cloned().unwrap_or_default();
                     let disp_name = if raw_name.is_empty() { format!("{:03}-{}", cat.id, form_num) } else { raw_name };
 
-                    ui.heading(disp_name);
+                    ui.add_space(6.0);
+                    render_name_in_box(ui, &disp_name);
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    
+                    ui.add_space(5.0);
                     ui.label(egui::RichText::new(format!("ID: {:03}-{}", cat.id, form_num)).color(egui::Color32::from_gray(100)).size(12.0));
                     
-                    ui.add_space(2.0);
+                    ui.add_space(5.0);
                     ui.horizontal(|ui| {
                         ui.label("Level:");
                         let response = ui.add(egui::TextEdit::singleline(level_input).desired_width(40.0));
@@ -131,52 +137,50 @@ pub fn show(
                 });
             }); 
 
-            ui.add_space(30.0);
+            ui.add_space(10.0);
 
-            // Stats grid
             if let Some(s) = current_stats {
                 let hp = cat.curve.as_ref().map_or(s.hitpoints, |c| c.calculate_stat(s.hitpoints, *current_level));
-                
                 let atk_1 = cat.curve.as_ref().map_or(s.attack_1, |c| c.calculate_stat(s.attack_1, *current_level));
                 let atk_2 = cat.curve.as_ref().map_or(s.attack_2, |c| c.calculate_stat(s.attack_2, *current_level));
                 let atk_3 = cat.curve.as_ref().map_or(s.attack_3, |c| c.calculate_stat(s.attack_3, *current_level));
                 let total_atk = atk_1 + atk_2 + atk_3;
-
                 let total_atk_cycle = s.attack_cycle(cat.atk_anim_frames[*current_form]);
-                
-                let dps = if total_atk_cycle > 0 {
-                    (total_atk as f32 * 30.0 / total_atk_cycle as f32) as i32
-                } else { 0 };
-
+                let dps = if total_atk_cycle > 0 { (total_atk as f32 * 30.0 / total_atk_cycle as f32) as i32 } else { 0 };
                 let atk_type = if s.area_attack == 0 { "Single" } else { "Area" };
 
-                egui::Grid::new("stats_grid_right").min_col_width(60.0).spacing([4.0, 4.0]).show(ui, |ui| {
-                        grid_cell(ui, "Atk", true);
-                        grid_cell(ui, "Dps", true);
-                        grid_cell(ui, "Range", true);
-                        grid_cell(ui, "Atk Cycle", true);
-                        grid_cell(ui, "Atk Type", true); 
-                        ui.end_row();
+                let cell_width = 60.0;
 
-                        grid_cell(ui, &format!("{}", total_atk), false);
-                        grid_cell(ui, &format!("{}", dps), false);
+                egui::Grid::new("stats_grid_right").min_col_width(cell_width).spacing([4.0, 4.0]).show(ui, |ui| {
+                        grid_cell(ui, "Atk", true); grid_cell(ui, "Dps", true); grid_cell(ui, "Range", true); grid_cell(ui, "Atk Cycle", true); grid_cell(ui, "Atk Type", true); ui.end_row();
+                        
+                        grid_cell(ui, &format!("{}", total_atk), false); 
+                        grid_cell(ui, &format!("{}", dps), false); 
                         grid_cell(ui, &format!("{}", s.standing_range), false);
-                        grid_cell_custom(ui, false, |ui| render_frames(ui, total_atk_cycle)); 
-                        grid_cell(ui, atk_type, false);
+                        
+                        grid_cell_custom(ui, false, 
+                            Some(Box::new(move |ui| {
+                                ui.vertical_centered(|ui| render_frames(ui, total_atk_cycle, f32::INFINITY));
+                            })), 
+                            |ui| render_frames(ui, total_atk_cycle, cell_width)
+                        ); 
+                        
+                        grid_cell(ui, atk_type, false); 
                         ui.end_row();
 
-                        grid_cell(ui, "Hp", true);
-                        grid_cell(ui, "Kb", true);
-                        grid_cell(ui, "Speed", true);
-                        grid_cell(ui, "Cooldown", true); 
-                        grid_cell(ui, "Cost", true);     
-                        ui.end_row();
-
-                        grid_cell(ui, &format!("{}", hp), false);
-                        grid_cell(ui, &format!("{}", s.knockbacks), false);
+                        grid_cell(ui, "Hp", true); grid_cell(ui, "Kb", true); grid_cell(ui, "Speed", true); grid_cell(ui, "Cooldown", true); grid_cell(ui, "Cost", true); ui.end_row();
+                        
+                        grid_cell(ui, &format!("{}", hp), false); 
+                        grid_cell(ui, &format!("{}", s.knockbacks), false); 
                         grid_cell(ui, &format!("{}", s.speed), false);
                         
-                        grid_cell_custom(ui, false, |ui| render_frames(ui, s.effective_cooldown()));
+                        let cd_val = s.effective_cooldown();
+                        grid_cell_custom(ui, false, 
+                            Some(Box::new(move |ui| {
+                                ui.vertical_centered(|ui| render_frames(ui, cd_val, f32::INFINITY));
+                            })), 
+                            |ui| render_frames(ui, cd_val, cell_width)
+                        ); 
                         
                         grid_cell(ui, &format!("{}¢", s.eoc1_cost * 3 / 2), false); 
                         ui.end_row();
@@ -201,10 +205,8 @@ pub fn show(
 
                 if has_any_trait {
                     ui.add_space(ABILITY_PADDING_Y); 
-
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(ABILITY_PADDING_X, ABILITY_PADDING_Y);
-                        
                         for &line_num in definitions::UI_TRAIT_ORDER {
                             let has_trait = match line_num {
                                 definitions::ICON_TRAIT_RED => s.target_red > 0,
@@ -222,7 +224,6 @@ pub fn show(
                             if has_trait {
                                 if let Some(sprite) = sprite_sheet.get_sprite_by_line(line_num) {
                                     let r = ui.add(sprite.fit_to_exact_size(egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE)));
-                                    
                                     let tooltip_text = match line_num {
                                         definitions::ICON_TRAIT_RED => "Targets Red Enemies",
                                         definitions::ICON_TRAIT_FLOATING => "Targets Floating Enemies",
@@ -236,10 +237,7 @@ pub fn show(
                                         definitions::ICON_TRAIT_TRAITLESS => "Targets Traitless Enemies",
                                         _ => "",
                                     };
-                                    
-                                    if !tooltip_text.is_empty() {
-                                        r.on_hover_text(tooltip_text);
-                                    }
+                                    if !tooltip_text.is_empty() { r.on_hover_text(tooltip_text); }
                                 }
                             }
                         }
@@ -248,10 +246,128 @@ pub fn show(
 
                 ui.add_space(ABILITY_PADDING_Y);
                 render_abilities(ui, s, sprite_sheet, multihit_texture, *current_level, cat.curve.as_ref(), cat.id, expand_spirit_details); 
-                
                 ui.add_space(20.0);
             }
         });
+}
+
+fn render_name_in_box(ui: &mut egui::Ui, name: &str) {
+    let mut font_size = 22.0; 
+    let text_color = ui.visuals().text_color();
+    
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(NAME_BOX_WIDTH, NAME_BOX_HEIGHT), egui::Sense::hover());
+
+    while font_size > 8.0 { 
+        let font_id = egui::FontId::proportional(font_size);
+        let job = egui::text::LayoutJob::simple(
+            name.to_owned(),
+            font_id,
+            text_color,
+            NAME_BOX_WIDTH 
+        );
+
+        let galley = ui.fonts(|f| f.layout_job(job));
+        
+        if galley.rows.len() <= 2 {
+            let y_offset = (NAME_BOX_HEIGHT - galley.rect.height()) / 2.0;
+            let pos = rect.min + egui::vec2(0.0, y_offset);
+            ui.painter().galley(pos, galley, text_color);
+            return;
+        }
+        
+        font_size -= 1.0;
+    }
+    
+    let font_id = egui::FontId::proportional(8.0);
+    let job = egui::text::LayoutJob::simple(name.to_owned(), font_id, text_color, NAME_BOX_WIDTH);
+    let galley = ui.fonts(|f| f.layout_job(job));
+    let y_offset = (NAME_BOX_HEIGHT - galley.rect.height()) / 2.0;
+    ui.painter().galley(rect.min + egui::vec2(0.0, y_offset), galley, text_color);
+}
+
+fn grid_cell_custom<F>(
+    ui: &mut egui::Ui, 
+    is_header: bool, 
+    tooltip_renderer: Option<Box<dyn Fn(&mut egui::Ui)>>, 
+    add_contents: F
+) where F: FnOnce(&mut egui::Ui) {
+    let bg = if is_header { egui::Color32::from_gray(20) } else { egui::Color32::from_gray(60) };
+    
+    let response = egui::Frame::none().fill(bg).rounding(4.0).inner_margin(1.5).show(ui, |ui| {
+        ui.set_min_width(60.0);
+        ui.vertical_centered(|ui| add_contents(ui));
+    }).response;
+
+    if let Some(renderer) = tooltip_renderer {
+        response.on_hover_ui(|ui| {
+            renderer(ui);
+        });
+    }
+}
+
+fn grid_cell(ui: &mut egui::Ui, text: &str, is_header: bool) {
+    let text_clone = text.to_string();
+    grid_cell_custom(ui, is_header, 
+        Some(Box::new(move |ui| { ui.label(&text_clone); })), 
+        |ui| {
+            let rt = if is_header { egui::RichText::new(text).strong() } else { egui::RichText::new(text) };
+            ui.label(rt);
+        }
+    );
+}
+
+fn render_frames(ui: &mut egui::Ui, frames: i32, max_width: f32) {
+    let seconds = frames as f32 / 30.0;
+    let body_font = ui.style().text_styles.get(&egui::TextStyle::Body).cloned().unwrap_or(egui::FontId::proportional(14.0));
+    
+    let mut job = egui::text::LayoutJob::default();
+    job.append(&format!("{:.2}s", seconds), 0.0, egui::TextFormat {
+        font_id: body_font.clone(),
+        color: ui.visuals().text_color(),
+        ..Default::default()
+    });
+    job.append(&format!(" {}f", frames), 0.0, egui::TextFormat {
+        font_id: egui::FontId::proportional(body_font.size * 0.65), 
+        color: egui::Color32::from_gray(200),
+        valign: egui::Align::Center, 
+        ..Default::default()
+    });
+
+    let galley = ui.fonts(|f| f.layout_job(job.clone()));
+    
+    if galley.rect.width() > max_width {
+        ui.label(format!("{:.2}s", seconds));
+    } else {
+        ui.label(job);
+    }
+}
+
+fn render_abilities(
+    ui: &mut egui::Ui, 
+    s: &CatRaw, 
+    sheet: &SpriteSheet, 
+    multihit_tex: &Option<egui::TextureHandle>, 
+    level: i32,
+    curve: Option<&stats::CatLevelCurve>,
+    cat_id: u32,
+    expand_spirit_details: bool, 
+) {
+    let (grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(s, level, curve, multihit_tex, false);
+
+    if !grp_hl1.is_empty() { render_icon_row(ui, &grp_hl1, sheet); }
+    if !grp_hl2.is_empty() { ui.add_space(ABILITY_PADDING_Y); render_icon_row(ui, &grp_hl2, sheet); }
+
+    if !grp_hl1.is_empty() || !grp_hl2.is_empty() {
+        ui.add_space(ABILITY_PADDING_Y * 2.0);
+    }
+
+    render_list_view(ui, &grp_b1, sheet, multihit_tex, cat_id, level, curve, s, expand_spirit_details);
+    render_list_view(ui, &grp_b2, sheet, multihit_tex, cat_id, level, curve, s, expand_spirit_details);
+
+    if !grp_footer.is_empty() {
+        ui.add_space(ABILITY_PADDING_Y);
+        render_icon_row(ui, &grp_footer, sheet); 
+    }
 }
 
 fn render_icon_row(ui: &mut egui::Ui, items: &Vec<AbilityItem>, sheet: &SpriteSheet) {
@@ -369,69 +485,6 @@ fn render_list_view(
         }
         ui.add_space(ABILITY_PADDING_Y);
     }
-}
-
-fn render_abilities(
-    ui: &mut egui::Ui, 
-    s: &CatRaw, 
-    sheet: &SpriteSheet, 
-    multihit_tex: &Option<egui::TextureHandle>, 
-    level: i32,
-    curve: Option<&stats::CatLevelCurve>,
-    cat_id: u32,
-    expand_spirit_details: bool, 
-) {
-    let (grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(s, level, curve, multihit_tex, false);
-
-    if !grp_hl1.is_empty() { render_icon_row(ui, &grp_hl1, sheet); }
-    if !grp_hl2.is_empty() { ui.add_space(ABILITY_PADDING_Y); render_icon_row(ui, &grp_hl2, sheet); }
-
-    if !grp_hl1.is_empty() || !grp_hl2.is_empty() {
-        ui.add_space(ABILITY_PADDING_Y * 2.0);
-    }
-
-    render_list_view(ui, &grp_b1, sheet, multihit_tex, cat_id, level, curve, s, expand_spirit_details);
-    render_list_view(ui, &grp_b2, sheet, multihit_tex, cat_id, level, curve, s, expand_spirit_details);
-
-    if !grp_footer.is_empty() {
-        ui.add_space(ABILITY_PADDING_Y);
-        render_icon_row(ui, &grp_footer, sheet); 
-    }
-}
-
-fn grid_cell(ui: &mut egui::Ui, text: &str, is_header: bool) {
-    grid_cell_custom(ui, is_header, |ui| {
-        let rt = if is_header { egui::RichText::new(text).strong() } else { egui::RichText::new(text) };
-        ui.label(rt);
-    });
-}
-
-fn grid_cell_custom<F>(ui: &mut egui::Ui, is_header: bool, add_contents: F) where F: FnOnce(&mut egui::Ui) {
-    let bg = if is_header { egui::Color32::from_gray(20) } else { egui::Color32::from_gray(60) };
-    egui::Frame::none().fill(bg).rounding(4.0).inner_margin(1.5).show(ui, |ui| {
-        ui.set_min_width(60.0);
-        ui.vertical_centered(|ui| add_contents(ui));
-    });
-}
-
-fn render_frames(ui: &mut egui::Ui, frames: i32) {
-    let seconds = frames as f32 / 30.0;
-    let body_font = ui.style().text_styles.get(&egui::TextStyle::Body).cloned().unwrap_or(egui::FontId::proportional(14.0));
-    let mut job = egui::text::LayoutJob::default();
-    
-    job.append(&format!("{:.2}s", seconds), 0.0, egui::TextFormat {
-        font_id: body_font.clone(),
-        color: ui.visuals().text_color(),
-        ..Default::default()
-    });
-
-    job.append(&format!(" {}f", frames), 0.0, egui::TextFormat {
-        font_id: egui::FontId::proportional(body_font.size * 0.65), 
-        color: egui::Color32::from_gray(200),
-        valign: egui::Align::Center, 
-        ..Default::default()
-    });
-    ui.label(job);
 }
 
 fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
