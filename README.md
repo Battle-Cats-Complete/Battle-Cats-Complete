@@ -6,6 +6,13 @@ An all-in-one tool for The Battle Cats that allows Users to sort, read, and modi
 
 This is the source repository of the app—for developers' eyes only. This version has "Game Decryption" logic in place of "Sorting Set-up" and "Zip Extraction" logic. The public repos' sanitized logic is within the "sanitized" folder.
 
+## Push to Public
+To push the project and its sanitized files to the [Public Repo](https://github.com/WonderMOMOCO/Battle-Cats-Complete):
+
+1. Click the Actions tab at the top
+2. On the left sidebar, click "Sync to Public Repo"
+3. Click the "Run workflow" button on the right, select branch (main), and click the green button
+
 ## Usage
 First, you must extract your game files using the Guide below, then select the folder containing them to sort them into the database to be read!
 
