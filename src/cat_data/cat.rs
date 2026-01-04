@@ -6,7 +6,6 @@ use crate::definitions;
 use super::stats::{self, CatRaw}; 
 use super::abilities::{self, AbilityItem}; 
 
-// Global padding
 const ABILITY_PADDING_X: f32 = 3.0; 
 const ABILITY_PADDING_Y: f32 = 0.0; 
 
@@ -25,12 +24,12 @@ pub fn show(
 ) {
     let base_dir = std::path::Path::new("game/assets");
     
-    // EN Hardcode for now
+    // 1. Sprite Sheet: Async (Fixes startup lag)
     let texture_path = base_dir.join("img015/img015_en.png");
     let cut_path = base_dir.join("img015/img015_en.imgcut");
-
     sprite_sheet.load(ctx, &texture_path, &cut_path);
 
+    // 2. Multihit icon
     if multihit_texture.is_none() {
         const MULTIHIT_BYTES: &[u8] = include_bytes!("../../assets/multihit.png");
         if let Ok(img) = image::load_from_memory(MULTIHIT_BYTES) {
@@ -48,7 +47,6 @@ pub fn show(
 
     let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
 
-    // Header section
     ui.vertical(|ui| {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 
@@ -75,7 +73,7 @@ pub fn show(
         ui.add_space(5.0);
 
         ui.horizontal_top(|ui| {
-            // Cat identity
+            // 3. Unit Image: Synchronous (Fixes flickering)
             ui.horizontal_top(|ui| {
                 let form_char = match *current_form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
                 let expected = format!("game/cats/{:03}/{}/uni{:03}_{}00.png", cat.id, form_char, cat.id, form_char);
@@ -83,11 +81,13 @@ pub fn show(
                 if *current_key != expected {
                     *current_key = expected.clone(); 
                     *texture_cache = None; 
+                    
                     let p = std::path::Path::new(&expected);
                     let f = std::path::Path::new("game/cats/uni.png");
-                    let load = if p.exists() { Some(p) } else if f.exists() { Some(f) } else { None };
+                    let path_to_load = if p.exists() { Some(p) } else if f.exists() { Some(f) } else { None };
 
-                    if let Some(path) = load {
+                    if let Some(path) = path_to_load {
+                        // LOAD IMMEDIATELY (BLOCKING)
                         if let Ok(img) = image::open(path) {
                             let mut rgba = img.to_rgba8();
                             rgba = autocrop(rgba);
@@ -98,8 +98,11 @@ pub fn show(
                     }
                 }
 
-                if let Some(tex) = texture_cache { ui.image(&*tex); } 
-                else { ui.allocate_space(egui::vec2(64.0, 64.0)); }
+                if let Some(tex) = texture_cache { 
+                    ui.image(&*tex); 
+                } else { 
+                    ui.allocate_space(egui::vec2(64.0, 64.0)); 
+                }
 
                 ui.add_space(10.0);
 
@@ -250,7 +253,6 @@ pub fn show(
             }
         });
 }
-
 
 fn render_icon_row(ui: &mut egui::Ui, items: &Vec<AbilityItem>, sheet: &SpriteSheet) {
     ui.horizontal_wrapped(|ui| {

@@ -1,5 +1,6 @@
 use eframe::egui;
 use std::sync::mpsc::Receiver;
+use crate::functions::SoftReset; // <--- Updated import
 
 pub mod scanner;
 pub mod list;
@@ -52,22 +53,34 @@ impl Default for CatListState {
     }
 }
 
-impl CatListState {
-    pub fn refresh(&mut self) {
+// Implement the SoftReset trait from functions.rs
+impl SoftReset for CatListState {
+    fn reset(&mut self) {
+        // 1. Clear Data Vectors
         self.cats.clear();
-        self.cat_list.clear_cache();
-        self.selected_cat = None;
-        self.selected_form = 0; 
         
+        // 2. Clear Texture Caches
+        self.cat_list.clear_cache();
         self.detail_texture = None;
         self.detail_key.clear();
         
+        // 3. Reset Selection & Inputs
+        self.selected_cat = None;
+        self.selected_form = 0; 
+        self.search_query.clear(); 
         self.level_input = "50".to_string();
         self.current_level = 50;
 
+        // 4. Force Asset Reloads (Important if import replaced images)
+        self.sprite_sheet = SpriteSheet::default(); 
+        self.multihit_texture = None; 
+
+        // 5. Restart Scanner
         self.scan_receiver = Some(scanner::start_scan());
     }
+}
 
+impl CatListState {
     pub fn update_data(&mut self) {
         if let Some(rx) = &self.scan_receiver {
             let mut new_data = false;
@@ -77,12 +90,8 @@ impl CatListState {
             }
             if new_data {
                 self.cats.sort_by_key(|c| c.id);
-                
-                // If we just loaded data and nothing was selected, select the first one
                 if self.selected_cat.is_none() && !self.cats.is_empty() {
                     self.selected_cat = Some(self.cats[0].id);
-                    
-                    // FIX: Call the method here to silence the warning and enable the feature
                     self.cat_list.reset_scroll();
                 }
             }

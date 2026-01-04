@@ -1,5 +1,6 @@
 use eframe::egui;
 use crate::{main_menu, import_data, cat_data, settings};
+use crate::functions::SoftReset; // <--- Updated import
 
 #[derive(PartialEq, Clone, Copy)]
 enum Page {
@@ -12,7 +13,7 @@ enum Page {
 const PAGES: &[(Page, &str)] = &[
     (Page::MainMenu, "Main Menu"),
     (Page::CatData, "Cat Data"),
-    (Page::ImportData, "Game Data"),
+    (Page::ImportData, "Import Data"),
     (Page::Settings, "Settings"),
 ];
 
@@ -66,7 +67,8 @@ impl eframe::App for BattleCatsApp {
 
         let import_finished = self.import_state.update(ctx);
         if import_finished {
-            self.cat_list_state.refresh();
+            // Apply the Soft Reset to all data states
+            self.cat_list_state.reset();
         }
 
         let mut style = (*ctx.style()).clone();
