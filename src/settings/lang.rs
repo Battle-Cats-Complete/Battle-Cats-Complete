@@ -7,7 +7,7 @@ pub const LANGUAGE_PRIORITY: &[(&str, &str)] = &[
     ("en", "English"),
     ("ja", "Japanese"),
     ("tw", "Taiwanese"),
-    ("kr", "Korean"),
+    ("ko", "Korean"),
     ("es", "Spanish"),
     ("de", "German"),
     ("fr", "French"),
