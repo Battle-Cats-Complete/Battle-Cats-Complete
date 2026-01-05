@@ -1,70 +1,101 @@
 use eframe::egui;
+use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::path::{Path, PathBuf};
 use std::env;
 
-pub mod game_data;
-pub mod sort;
+use super::game_data_dev as game_data;
+use super::sort;
 
-#[derive(PartialEq, Clone, Copy, Debug)]
-pub enum ImportMode {
-    None,
-    Folder,
-    Zip,
+#[derive(PartialEq, Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum GameRegion {
+    Japan,
+    Taiwan,
+    Korean,
+    Global,
 }
 
-#[derive(PartialEq, Clone, Copy, Debug)]
+impl GameRegion {
+    fn code(&self) -> &'static str {
+        match self {
+            GameRegion::Japan => "ja",
+            GameRegion::Taiwan => "tw",
+            GameRegion::Korean => "ko",
+            GameRegion::Global => "en",
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum DataTab {
     Import,
     Export,
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(default)]
 pub struct ImportState {
-    // Import Data
-    selected_path: String,
-    import_mode: ImportMode,
-    
-    // Export Data
-    compression_level: i32,
-
-    // Shared State
-    active_tab: DataTab,
+    selected_folder: String,
+    #[serde(skip)]
+    censored_folder: String,
+    #[serde(skip)]
     status_message: String,
+    #[serde(skip)]
     log_content: String,
+    #[serde(skip)]
     rx: Option<Receiver<String>>,
+    #[serde(skip)]
     reset_trigger: Option<f64>,
+    
+    selected_region: GameRegion,
+    compression_level: i32,
+    active_tab: DataTab,
 }
 
 impl Default for ImportState {
     fn default() -> Self {
         Self {
-            selected_path: "No source selected".to_owned(),
-            import_mode: ImportMode::None,
-            compression_level: 6,
-            active_tab: DataTab::Import,
+            selected_folder: "No folder selected".to_owned(),
+            censored_folder: "No folder selected".to_owned(),
             status_message: "Ready".to_owned(),
             log_content: String::new(),
             rx: None,
             reset_trigger: None,
+            selected_region: GameRegion::Global,
+            compression_level: 6,
+            active_tab: DataTab::Import,
         }
     }
 }
 
 impl ImportState {
+    pub fn set_folder(&mut self, path: String) {
+        self.selected_folder = path;
+        self.censored_folder = censor_path(&self.selected_folder);
+    }
+
     pub fn update(&mut self, ctx: &egui::Context) -> bool {
+        if self.censored_folder.is_empty() && !self.selected_folder.is_empty() {
+             self.censored_folder = censor_path(&self.selected_folder);
+        }
+
         let mut finished_just_now = false;
 
         if let Some(rx) = &self.rx {
+            let mut count = 0;
             while let Ok(msg) = rx.try_recv() {
                 self.status_message = msg.clone();
                 self.log_content.push_str(&format!("{}\n", msg));
 
-                if self.status_message.contains("Success") || self.status_message.contains("Aborted") || self.status_message.contains("Error") {
+                if self.status_message.contains("Success") || self.status_message.contains("Error") {
                     let current_time = ctx.input(|i| i.time);
                     self.reset_trigger = Some(current_time + 5.0);
                     finished_just_now = true;
                 }
+                
+                count += 1;
+                if count > 100 { break; }
             }
             ctx.request_repaint();
         }
@@ -75,8 +106,7 @@ impl ImportState {
                 self.status_message = "Ready".to_string();
                 self.rx = None;
                 self.reset_trigger = None;
-                self.selected_path = "No source selected".to_string();
-                self.import_mode = ImportMode::None;
+                self.set_folder("No folder selected".to_string());
             } else {
                 ctx.request_repaint();
             }
@@ -86,9 +116,8 @@ impl ImportState {
     }
 }
 
-// Helper to obfuscate sensitive user paths
 fn censor_path(path: &str) -> String {
-    if path == "No source selected" {
+    if path == "No folder selected" {
         return path.to_string();
     }
 
@@ -117,7 +146,6 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
         ui.heading("Game Data Management");
         ui.add_space(10.0);
 
-        // --- TABS ---
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 
 
@@ -125,8 +153,6 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
             
             for (tab, label) in tabs {
                 let is_selected = state.active_tab == tab;
-                
-                // Form Button Style
                 let (fill, stroke, text_color) = if is_selected {
                     (
                         egui::Color32::from_rgb(0, 100, 200), 
@@ -160,16 +186,16 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
             DataTab::Export => show_export_ui(ui, state),
         }
 
-        ui.add_space(5.0);
-        ui.separator();
-        
-        if state.rx.is_some() && !state.status_message.contains("Success") && !state.status_message.contains("Error") && !state.status_message.contains("Aborted") {
+        ui.add_space(15.0);
+        ui.separator(); 
+
+        if state.rx.is_some() && !state.status_message.contains("Success") && !state.status_message.contains("Error") {
             ui.horizontal(|ui| {
                 ui.spinner();
                 ui.label(&state.status_message);
             });
         } else {
-            if state.status_message.contains("Error") || state.status_message.contains("Aborted") {
+            if state.status_message.contains("Error") {
                 ui.colored_label(egui::Color32::RED, &state.status_message);
             } else if state.status_message.contains("Success") {
                 ui.colored_label(egui::Color32::GREEN, &state.status_message);
@@ -184,97 +210,68 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
             .stick_to_bottom(true)
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-
-                for line in state.log_content.lines() {
-                    if line.contains("was found!") {
-                        ui.label(egui::RichText::new(line).color(egui::Color32::GREEN).monospace());
-                    } else if line.contains("Error") || line.contains("Aborted") {
-                        ui.label(egui::RichText::new(line).color(egui::Color32::RED).monospace());
-                    } else {
-                        ui.label(egui::RichText::new(line).monospace());
-                    }
-                }
+                ui.monospace(&state.log_content);
             })
     });
 }
 
 fn show_import_ui(ui: &mut egui::Ui, state: &mut ImportState) {
-    ui.label(egui::RichText::new("Import files into the local system.").strong());
+    ui.label(egui::RichText::new("Extract game files from a local folder.").strong());
     ui.add_space(10.0);
 
-    let btn_enabled = state.rx.is_none();
+    ui.horizontal(|ui| {
+        let btn_enabled = state.rx.is_none();
+        
+        if ui.add_enabled(btn_enabled, egui::Button::new("Select Game Folder")).clicked() {
+            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                state.set_folder(path.display().to_string());
+                
+                state.status_message = "Folder selected. Please confirm Region.".to_string();
+                state.log_content.clear();
+            }
+        }
+        ui.monospace(&state.censored_folder);
+    });
+    
+    ui.add_space(5.0);
 
     ui.horizontal(|ui| {
-        let btn_folder = egui::Button::new("Select Raw Folder");
-        let resp_folder = ui.add_enabled(btn_enabled, btn_folder);
+        ui.label("Select Game Region:");
+        let enabled = state.rx.is_none();
         
-        if resp_folder.clicked() {
-            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                state.selected_path = path.display().to_string();
-                state.import_mode = ImportMode::Folder;
-                state.status_message = "Raw Folder selected.".to_string();
-                state.log_content.clear();
-            }
-        }
-        resp_folder.on_hover_text("Select a folder containing raw decrypted game data so it can be sorted into the system!");
-
-        ui.add_space(0.0);
-
-        let btn_zip = egui::Button::new("Select game.zip");
-        let resp_zip = ui.add_enabled(btn_enabled, btn_zip);
-
-        if resp_zip.clicked() {
-            if let Some(path) = rfd::FileDialog::new()
-                .add_filter("Archive", &["zip"])
-                .pick_file() 
-            {
-                state.selected_path = path.display().to_string();
-                state.import_mode = ImportMode::Zip;
-                state.status_message = "Zip Archive selected.".to_string();
-                state.log_content.clear();
-            }
-        }
-        resp_zip.on_hover_text("Select a 'game.zip' file provided by the community that contains only essential pre-sorted files!");
+        ui.add_enabled_ui(enabled, |ui| {
+            ui.radio_value(&mut state.selected_region, GameRegion::Global, "Global");
+            ui.radio_value(&mut state.selected_region, GameRegion::Japan, "Japan");
+            ui.radio_value(&mut state.selected_region, GameRegion::Taiwan, "Taiwan");
+            ui.radio_value(&mut state.selected_region, GameRegion::Korean, "Korea");
+        });
     });
 
-    ui.add_space(5.0);
-    ui.monospace(censor_path(&state.selected_path));
-    
-    ui.add_space(5.0);
+    ui.add_space(15.0);
 
-    let can_start = state.import_mode != ImportMode::None && state.rx.is_none();
+    let can_start = state.selected_folder != "No folder selected" && state.rx.is_none();
     
-    if ui.add_enabled(can_start, egui::Button::new("Start File Sort")).clicked() {
+    if ui.add_enabled(can_start, egui::Button::new("Start Import")).clicked() {
         state.status_message = "Starting worker...".to_string();
         state.log_content.clear();
-        
+        state.log_content.push_str(&format!("Starting import for region: {:?}\n", state.selected_region));
+
         let (tx, rx) = mpsc::channel();
         state.rx = Some(rx);
 
-        let path = state.selected_path.clone();
-        let mode = state.import_mode;
+        let folder = state.selected_folder.clone();
+        let region_code = state.selected_region.code().to_string();
 
         thread::spawn(move || {
-            let result = match mode {
-                ImportMode::Folder => game_data::import_from_folder(&path, tx.clone()),
-                ImportMode::Zip => game_data::import_from_zip(&path, tx.clone()),
-                _ => Err("Invalid mode".to_string()),
-            };
-
-            match result {
+            match game_data::import_all_from_folder(&folder, &region_code, tx.clone()) {
                 Ok(_) => {
-                    if mode == ImportMode::Folder {
-                        let _ = tx.send("Starting Sort...".to_string());
-                        match sort::sort_game_files(tx.clone()) {
-                            Ok(_) => { let _ = tx.send("Success! Files imported and sorted.".to_string()); },
-                            Err(e) => { let _ = tx.send(format!("Error Sorting: {}", e)); }
-                        }
-                    } else {
-                        let _ = tx.send("Success! Archive extracted.".to_string());
+                    let _ = tx.send("Starting Sort...".to_string());
+                    match sort::sort_game_files(tx.clone()) {
+                        Ok(_) => { let _ = tx.send("Success! Files extracted and sorted.".to_string()); },
+                        Err(e) => { let _ = tx.send(format!("Error Sorting: {}", e)); }
                     }
                 },
-                Err(e) => { let _ = tx.send(format!("Error: {}", e)); }
+                Err(e) => { let _ = tx.send(format!("Error Extracting: {}", e)); }
             }
         });
     }
