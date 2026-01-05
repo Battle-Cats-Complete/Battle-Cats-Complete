@@ -7,6 +7,7 @@ name = "Battle_Cats_Complete"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "bc_crypto",
  "block-padding",
  "cbc",
  "ecb",
@@ -593,6 +594,18 @@ name = "base64ct"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e050f626429857a27ddccb31e0aca21356bfa709c04041aefddac081a8f068a"
+
+[[package]]
+name = "bc_crypto"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "block-padding",
+ "cbc",
+ "ecb",
+ "hex",
+ "md5",
+]
 
 [[package]]
 name = "bit-set"

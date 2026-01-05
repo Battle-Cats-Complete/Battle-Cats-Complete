@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc; 
 use std::collections::HashMap; 
 use rayon::prelude::*; 
-use super::crypto;
+use bc_crypto as crypto;
 use zip::ZipArchive;
 use zip::write::FileOptions;
 use crate::patterns;
