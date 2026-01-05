@@ -34,7 +34,7 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings) -> bool {
             if toggle_ui(ui, &mut settings.high_banner_quality).changed() {
                 refresh_needed = true;
             }
-            ui.label("High Quality Banners");
+            ui.label("Smooth Banner Scaling");
         });
         
         ui.add_space(10.0);

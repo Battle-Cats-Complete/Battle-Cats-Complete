@@ -2,6 +2,7 @@ use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 use std::thread;
 use super::scanner::CatEntry;
 use image::imageops; 
@@ -26,6 +27,9 @@ pub struct CatList {
     hover_start_time: f64,
     hover_lost_time: Option<f64>,
     scroll_to_top_needed: bool,
+    last_search_query: String,
+    last_unit_count: usize,
+    cached_indices: Vec<usize>,
 }
 
 impl Default for CatList {
@@ -34,16 +38,22 @@ impl Default for CatList {
         let (tx_result, rx_result) = mpsc::channel::<LoadedImage>();
 
         thread::spawn(move || {
-            // Load background once
             let bg_cache = {
                 const BG_BYTES: &[u8] = include_bytes!("../../assets/udi_bg.png");
                 image::load_from_memory(BG_BYTES).ok().map(|img| img.to_rgba8())
             };
+            
+            let bg_cache = Arc::new(bg_cache);
 
             while let Ok(req) = rx_request.recv() {
-                if let Some(color_image) = process_image(req.id, &req.path, &bg_cache, req.high_banner_quality) {
-                    let _ = tx_result.send(LoadedImage { id: req.id, img: color_image });
-                }
+                let tx = tx_result.clone();
+                let bg = bg_cache.clone();
+
+                rayon::spawn(move || {
+                    if let Some(color_image) = process_image(req.id, &req.path, &bg, req.high_banner_quality) {
+                        let _ = tx.send(LoadedImage { id: req.id, img: color_image });
+                    }
+                });
             }
         });
 
@@ -56,6 +66,9 @@ impl Default for CatList {
             hover_start_time: 0.0,
             hover_lost_time: None,
             scroll_to_top_needed: false,
+            last_search_query: String::new(),
+            last_unit_count: 0,
+            cached_indices: Vec::new(),
         }
     }
 }
@@ -66,6 +79,7 @@ impl CatList {
         self.pending_requests.clear();
         self.hovered_id = None;
         self.hover_lost_time = None;
+        self.last_unit_count = 0; 
     }
 
     pub fn reset_scroll(&mut self) {
@@ -74,7 +88,7 @@ impl CatList {
 
     pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, units: &[CatEntry], selected_id: &mut Option<u32>, search_query: &str, high_banner_quality: bool) {
         
-        // Process incoming images
+        // Handle Background Loading
         while let Ok(loaded) = self.rx_result.try_recv() {
             let texture = ctx.load_texture(
                 format!("unit_{}", loaded.id),
@@ -85,84 +99,116 @@ impl CatList {
             self.pending_requests.remove(&loaded.id);
         }
 
-        // Filter Units
-        let query_lower = search_query.to_lowercase();
-        let filtered_units: Vec<&CatEntry> = units.iter()
-            .filter(|unit| {
-                if search_query.is_empty() { return true; }
-                let id_str = format!("{:03}", unit.id);
-                if id_str.contains(search_query) { return true; }
-                unit.names.iter().any(|name| name.to_lowercase().contains(&query_lower))
-            })
-            .collect();
-
-        // Render List
-        let target_height = 50.0; 
-        let padding = 5.0;
-        let row_height = target_height + padding;
-        let total_rows = filtered_units.len() + 1; 
-
-        let now = ui.input(|i| i.time);
-
-        let mut scroll_area = egui::ScrollArea::vertical()
-            .auto_shrink([false, false]);
-
-        if self.scroll_to_top_needed {
-            scroll_area = scroll_area.vertical_scroll_offset(0.0);
-            self.scroll_to_top_needed = false;
+        // Search Optimization
+        if search_query != self.last_search_query || units.len() != self.last_unit_count {
+            self.update_search_cache(units, search_query);
         }
 
-        let scroll_output = scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-            let mut hovered_this_frame = None;
+        // Render List
+        ui.scope(|ui| {
+            let row_height = 55.0; // 50.0 + 5.0 padding
+            let total_rows = self.cached_indices.len() + 1; // +1 Ghost Row
 
-            for index in row_range {
-                // Ensure index is valid
-                let unit = match filtered_units.get(index) {
-                    Some(u) => u,
-                    None => continue,
-                };
-                
-                // Trigger load if missing
-                if !self.texture_cache.contains_key(&unit.id) && !self.pending_requests.contains(&unit.id) {
-                    self.pending_requests.insert(unit.id);
-                    let _ = self.tx_request.send(LoadRequest {
-                        id: unit.id,
-                        path: unit.image_path.clone(),
-                        high_banner_quality, 
-                    });
-                }
-
-                // Render the row
-                let texture = self.texture_cache.get(&unit.id);
-                let response = self.render_unit_button(ui, unit, texture, selected_id, target_height);
-
-                // Handle Hover Logic
-                if ui.rect_contains_pointer(response.rect) {
-                    hovered_this_frame = Some(response.id);
-
-                    if self.hovered_id != Some(response.id) {
-                        self.hovered_id = Some(response.id);
-                        self.hover_start_time = now;
-                    }
-
-                    if now - self.hover_start_time > 1.0 {
-                        response.on_hover_ui(|ui| render_tooltip(ui, unit));
-                    }
-                }
+            let mut scroll_area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+            if self.scroll_to_top_needed {
+                scroll_area = scroll_area.vertical_scroll_offset(0.0);
+                self.scroll_to_top_needed = false;
             }
-            hovered_this_frame
+
+            let scroll_output = scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
+                let mut hovered_this_frame = None;
+                let now = ui.input(|i| i.time);
+
+                for index in row_range {
+                    if let Some(id) = self.render_list_row(ui, index, units, selected_id, high_banner_quality, now) {
+                        hovered_this_frame = Some(id);
+                    }
+                }
+                hovered_this_frame
+            });
+
+            self.handle_hover_loss(scroll_output.inner.is_some(), ui.input(|i| i.time));
         });
+    }
 
-        if scroll_output.inner.is_some() {
-            self.hover_lost_time = None;
-        } else {
-            if self.hover_lost_time.is_none() {
-                self.hover_lost_time = Some(now);
+    fn render_list_row(
+        &self,
+        ui: &mut egui::Ui,
+        index: usize,
+        units: &[CatEntry],
+        selected_id: &mut Option<u32>,
+        hq: bool,
+        now: f64
+    ) -> Option<egui::Id> {
+        
+        let real_index = *self.cached_indices.get(index)?;
+        let unit = &units[real_index];
+
+        // Trigger Load
+        if !self.texture_cache.contains_key(&unit.id) && !self.pending_requests.contains(&unit.id) {
+            let _ = self.tx_request.send(LoadRequest {
+                id: unit.id,
+                path: unit.image_path.clone(),
+                high_banner_quality: hq, 
+            });
+        }
+
+        // Draw Button
+        let texture = self.texture_cache.get(&unit.id);
+        let response = self.render_unit_button(ui, unit, texture, selected_id, 50.0);
+
+        let response_id = response.id; 
+
+        if !ui.rect_contains_pointer(response.rect) {
+            return None;
+        }
+
+        if now - self.hover_start_time > 1.0 && self.hovered_id == Some(response_id) {
+            response.on_hover_ui(|ui| render_tooltip(ui, unit));
+        }
+
+        Some(response_id)
+    }
+
+    fn handle_hover_loss(&mut self, is_hovering_something: bool, now: f64) {
+        if is_hovering_something {
+             self.hover_lost_time = None;
+             return;
+        }
+
+        if self.hover_lost_time.is_none() {
+            self.hover_lost_time = Some(now);
+        }
+        
+        if let Some(lost_start) = self.hover_lost_time {
+            if now - lost_start > 0.1 {
+                self.hovered_id = None;
             }
-            if let Some(lost_start) = self.hover_lost_time {
-                if now - lost_start > 0.1 {
-                    self.hovered_id = None;
-                }
+        }
+    }
+
+    fn update_search_cache(&mut self, units: &[CatEntry], query: &str) {
+        self.last_search_query = query.to_string();
+        self.last_unit_count = units.len();
+        self.cached_indices.clear();
+
+        let query_lower = query.to_lowercase();
+        let is_empty = query.is_empty();
+
+        for (i, unit) in units.iter().enumerate() {
+            if is_empty {
+                self.cached_indices.push(i);
+                continue;
+            }
+
+            let id_str = format!("{:03}", unit.id);
+            if id_str.contains(&query_lower) {
+                self.cached_indices.push(i);
+                continue;
+            }
+
+            if unit.names.iter().any(|name| name.to_lowercase().contains(&query_lower)) {
+                self.cached_indices.push(i);
             }
         }
     }
@@ -190,7 +236,6 @@ impl CatList {
             return response;
         } 
         
-        // Placeholder
         let response = ui.allocate_response(
             egui::vec2(100.0, target_height), 
             egui::Sense::click()
@@ -221,7 +266,6 @@ fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
             raw_name.clone()
         };
 
-        // Skip if name is duplicate of previous form
         if i > 0 && raw_name == previous_name && !raw_name.is_empty() {
             continue; 
         }
@@ -238,14 +282,10 @@ fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
 }
 
 fn process_image(id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaImage>, high_banner_quality: bool) -> Option<egui::ColorImage> {
-    // Background must be loaded
     let bg = bg_cache.as_ref()?;
-
-    // Image must open successfully
     let image_buffer = image::open(path).ok()?;
     let mut unit_img = image_buffer.to_rgba8();
 
-    // Process Image
     let mut final_image = bg.clone();
     let bg_w = final_image.width() as i64;
     let bg_h = final_image.height() as i64;
