@@ -29,32 +29,34 @@ jobs:
       # 3. Mirror Files & Sanitize
       - name: Sync and Overwrite
         run: |
-          # 1. Sync files but EXCLUDE all private code
+          # 1. Sync but EXCLUDE private files AND the standard Readme
           rsync -av --delete \
             --exclude '.git' \
             --exclude '.github' \
             --exclude 'crates/' \
             --exclude 'src/import_data/mod_dev.rs' \
             --exclude 'src/import_data/game_data_dev.rs' \
+            --exclude 'README.md' \
             source_repo/ public_repo/
 
-          # 2. Sanitize Cargo.toml references
-          # Remove the workspace member line
+          # 2. THE README SWAP
+          # We take the special public readme and make it the MAIN readme
+          mv public_repo/README_pub.md public_repo/README.md
+
+          # 3. Sanitize Cargo.toml
           sed -i '/crates\/bc_crypto/d' public_repo/Cargo.toml
-          # Remove the dependency line
           sed -i '/bc_crypto/d' public_repo/Cargo.toml
-          # Set default features to empty
           sed -i 's/default *=.*\["dev"\]/default = []/' public_repo/Cargo.toml
           
-          # 3. Refresh Lockfile (The "Sticky" Fix)
+          # 4. Refresh Lockfile
           cd public_repo
           rm -f Cargo.lock
           cargo generate-lockfile
           
-          # 4. Standard Cleanup (if any sanitized folder remains)
+          # 5. Cleanup (if any sanitized folder remains)
           if [ -d "sanitized" ]; then
             rm -rf sanitized
-          fii
+          fi
 
       # 4. Commit to Public
       - name: Commit and Push
