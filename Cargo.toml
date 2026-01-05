@@ -41,8 +41,5 @@ regex = "1"
 rayon = "1.10"
 # Handles persistance
 serde = { version = "1", features = ["derive"] }
-
-[dependencies.bc_crypto]
 # Handles cryptography
-path = "crates/bc_crypto"
-optional = true
+bc_crypto = { path = "crates/bc_crypto", optional = true }
