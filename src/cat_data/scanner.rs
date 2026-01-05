@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::thread;
 use std::sync::{Arc, mpsc::{self, Receiver}};
-use rayon::prelude::*; // 1. Speed Fix
-use image::GenericImageView; 
+use rayon::prelude::*;
 use super::stats::{CatRaw, CatLevelCurve}; 
+use image::GenericImageView; 
 
 #[derive(Clone, Debug)]
 pub struct CatEntry {
@@ -89,13 +89,8 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>) -> Option<C
     
     let img = image::open(&img_path).ok()?;
     let (w, h) = img.dimensions();
+
     if w <= 14 || h <= 2 { return None; }
-    
-    if id > 25 {
-        let p = img.get_pixel(14, 2);
-        if p[3] == 0 { return None; }
-    }
-    
     if !img.pixels().any(|(_, _, pixel)| pixel[3] > 0) { return None; }
 
     let mut names = vec![String::new(); 4];
@@ -135,7 +130,6 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>) -> Option<C
 fn find_name_file(lang_dir: &Path, target_id: u32) -> Option<PathBuf> {
     if !lang_dir.exists() { return None; }
     
-
     fs::read_dir(lang_dir).ok()?.flatten().find_map(|entry| {
         let name = entry.file_name().to_string_lossy().to_string();
         if name.starts_with("Unit_Explanation") && name.ends_with("_en.csv") {
