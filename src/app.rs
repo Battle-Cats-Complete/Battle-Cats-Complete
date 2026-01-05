@@ -1,6 +1,5 @@
 use eframe::egui;
 use crate::{main_menu, import_data, cat_data, settings};
-use crate::functions::SoftReset; // <--- Updated import
 
 #[derive(PartialEq, Clone, Copy)]
 enum Page {
@@ -46,10 +45,17 @@ impl Default for BattleCatsApp {
 
 impl BattleCatsApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        if let Some(storage) = cc.storage {
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-        }
-        Default::default()
+        // Load saved state or use default
+        let mut app: Self = if let Some(storage) = cc.storage {
+            eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
+        } else {
+            Default::default()
+        };
+
+        // STARTUP TRIGGER: Start scanning with the saved language
+        app.cat_list_state.restart_scan(&app.settings.game_language);
+
+        app
     }
 }
 
@@ -65,9 +71,13 @@ impl eframe::App for BattleCatsApp {
             ctx.request_repaint();
         }
 
-        let import_finished = self.import_state.update(ctx);
+        // TRIGGER 1: Import Finished -> Update Language -> Restart Scan
+        // We pass settings here so import_state can call validate_and_update_language()
+        let import_finished = self.import_state.update(ctx, &mut self.settings);
+        
         if import_finished {
-            self.cat_list_state.reset();
+            // Import done, language might have changed, re-scan cats
+            self.cat_list_state.restart_scan(&self.settings.game_language);
         }
 
         let mut style = (*ctx.style()).clone();
@@ -92,8 +102,11 @@ impl eframe::App for BattleCatsApp {
             },
             Page::Settings => {
                 let refresh_needed = settings::show(ctx, &mut self.settings);
+                
+                // TRIGGER 2: User changed settings manually -> Restart Scan
                 if refresh_needed {
                     self.cat_list_state.cat_list.clear_cache();
+                    self.cat_list_state.restart_scan(&self.settings.game_language);
                 }
             }
         }
