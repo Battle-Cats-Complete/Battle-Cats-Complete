@@ -102,8 +102,10 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>, lang: &str)
     if let Some(name_file_path) = find_name_file(&lang_dir, target_file_id, lang) {
         if let Ok(bytes) = fs::read(&name_file_path) {
             let content = String::from_utf8_lossy(&bytes);
+            let separator = if lang == "ja" { ',' } else { '|' };
+
             for (i, line) in content.lines().enumerate().take(4) {
-                if let Some(name_part) = line.split('|').next() {
+                if let Some(name_part) = line.split(separator).next() {
                     names[i] = name_part.trim().to_string();
                 }
             }
