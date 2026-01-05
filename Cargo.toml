@@ -30,3 +30,9 @@ rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
 # Handles cryptography
 bc_crypto = { path = "crates/bc_crypto", optional = true }
+
+[profile.release]
+strip = true
+opt-level = 3
+lto = "thin"
+panic = "abort"
