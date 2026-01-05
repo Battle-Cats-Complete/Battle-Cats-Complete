@@ -1,22 +1,7 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::sync::mpsc::{self, Receiver};
-use std::thread;
-
-// Strict priority order for auto-selection
-const LANGUAGE_PRIORITY: &[(&str, &str)] = &[
-    ("au", "Automatic"),
-    ("en", "English"),
-    ("ja", "Japanese"),
-    ("tw", "Taiwanese"),
-    ("kr", "Korean"),
-    ("es", "Spanish"),
-    ("de", "German"),
-    ("fr", "French"),
-    ("it", "Italian"),
-    ("th", "Thai"),
-];
+use std::sync::mpsc::Receiver;
+pub mod lang;
 
 #[derive(Serialize, Deserialize)]
 #[serde(default)] 
@@ -26,11 +11,8 @@ pub struct Settings {
     pub ability_padding_x: f32,
     pub ability_padding_y: f32,
     pub trait_padding_y: f32,
-    
-    // LANGUAGE SETTINGS
     pub game_language: String, 
 
-    // Runtime Cache (Not Saved)
     #[serde(skip)]
     pub available_languages: Vec<String>,
     #[serde(skip)]
@@ -49,57 +31,32 @@ impl Default for Settings {
             available_languages: Vec::new(),
             rx_lang: None,
         };
-        // Trigger initial scan
-        s.refresh_languages();
+        s.validate_and_update_language();
         s
     }
 }
 
 impl Settings {
-    /// Spawns a background thread to scan for languages.
-    pub fn refresh_languages(&mut self) {
-        let (tx, rx) = mpsc::channel();
-        self.rx_lang = Some(rx);
-
-        thread::spawn(move || {
-            let base_path = Path::new("game/assets/img015");
-            let mut found = Vec::new();
-
-            if base_path.exists() {
-                for (code, _) in LANGUAGE_PRIORITY {
-                    if is_valid_pair(base_path, code) {
-                        found.push(code.to_string());
-                    }
-                }
-            }
-            let _ = tx.send(found);
-        });
-    }
-
-    /// Checks the background thread for results.
     pub fn update_language_list(&mut self) {
-        if let Some(rx) = &self.rx_lang {
-            if let Ok(langs) = rx.try_recv() {
-                self.available_languages = langs;
-                self.rx_lang = None; // Cleanup
-                self.validate_selection(); 
-            }
+        let Some(rx) = &self.rx_lang else { return };
+        
+        if let Ok(langs) = rx.try_recv() {
+            self.available_languages = langs;
+            self.rx_lang = None; 
+            self.validate_selection(); 
         }
     }
 
-    /// Auto-selects a language if the current one is invalid
     pub fn validate_and_update_language(&mut self) {
-        self.refresh_languages();
+        self.rx_lang = Some(lang::refresh_available_languages());
     }
     
     fn validate_selection(&mut self) {
-        // If we have a valid selection, keep it
         if !self.game_language.is_empty() && self.available_languages.contains(&self.game_language) {
             return;
         }
         
-        // Otherwise pick the best available one
-        for (code, _) in LANGUAGE_PRIORITY {
+        for (code, _) in lang::LANGUAGE_PRIORITY {
             if self.available_languages.contains(&code.to_string()) {
                 self.game_language = code.to_string();
                 return;
@@ -111,7 +68,6 @@ impl Settings {
 }
 
 pub fn show(ctx: &egui::Context, settings: &mut Settings) -> bool {
-    // Check for scan results every frame (Non-blocking)
     settings.update_language_list();
 
     let mut refresh_needed = false;
@@ -120,7 +76,6 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings) -> bool {
         ui.heading("Settings");
         ui.add_space(20.0);
 
-        // --- Language Selector ---
         ui.horizontal(|ui| {
             ui.label("Game Language:");
             
@@ -129,18 +84,18 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings) -> bool {
             }
 
             egui::ComboBox::from_id_salt("lang_selector")
-                .selected_text(get_label_for_code(&settings.game_language))
+                .selected_text(lang::get_label_for_code(&settings.game_language))
                 .show_ui(ui, |ui| {
-                    // 1. Show detected languages FIRST
-                    for (code, label) in LANGUAGE_PRIORITY {
-                        if settings.available_languages.contains(&code.to_string()) {
-                             if ui.selectable_value(&mut settings.game_language, code.to_string(), *label).clicked() {
-                                 refresh_needed = true;
-                             }
+                    for (code, label) in lang::LANGUAGE_PRIORITY {
+                        if !settings.available_languages.contains(&code.to_string()) {
+                            continue;
+                        }
+
+                        if ui.selectable_value(&mut settings.game_language, code.to_string(), *label).clicked() {
+                            refresh_needed = true;
                         }
                     }
 
-                    // 2. Show "None" at the BOTTOM
                     if ui.selectable_value(&mut settings.game_language, "".to_string(), "None").clicked() {
                         refresh_needed = true;
                     }
@@ -189,23 +144,6 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings) -> bool {
     });
 
     refresh_needed
-}
-
-// --- HELPERS ---
-
-fn is_valid_pair(base: &Path, code: &str) -> bool {
-    let png = base.join(format!("img015_{}.png", code));
-    let cut = base.join(format!("img015_{}.imgcut", code));
-    png.exists() && cut.exists()
-}
-
-fn get_label_for_code(code: &str) -> String {
-    if code.is_empty() { return "None".to_string(); }
-    
-    for (c, label) in LANGUAGE_PRIORITY {
-        if *c == code { return label.to_string(); }
-    }
-    "Unknown".to_string()
 }
 
 fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {

@@ -37,7 +37,6 @@ impl Default for CatListState {
             cats: Vec::new(),
             selected_cat: None,
             cat_list: CatList::default(),
-            // CHANGED: Start None. App::new will trigger the correct language scan.
             scan_receiver: None,
             search_query: String::new(),
             selected_form: 0,
@@ -71,8 +70,6 @@ impl SoftReset for CatListState {
         self.sprite_sheet = SpriteSheet::default(); 
         self.multihit_texture = None; 
 
-        // CHANGED: Do not auto-start scan here. 
-        // We let the App trigger restart_scan() with the specific language.
         self.scan_receiver = None;
     }
 }
@@ -95,7 +92,6 @@ impl CatListState {
         }
     }
 
-    // NEW: Helper for App to trigger language-aware scans
     pub fn restart_scan(&mut self, language: &str) {
         self.reset();
         self.scan_receiver = Some(scanner::start_scan(language.to_string()));

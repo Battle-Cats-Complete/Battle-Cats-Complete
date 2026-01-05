@@ -186,7 +186,7 @@ fn should_skip_file(
 ) -> bool {
     if filename.ends_with("img015_th.imgcut") { return true; }
 
-    // If it's sensitive (region specific) we always want to try extracting it
+    // If it's sensitive we always want to try extracting it
     // because we rename it to avoid conflicts
     if patterns::REGION_SENSITIVE_FILES.iter().any(|&f| filename.ends_with(f)) {
         return false;

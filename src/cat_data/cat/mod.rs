@@ -34,7 +34,6 @@ pub fn show(
 ) {
     let base_dir = std::path::Path::new("game/assets");
     
-    // CHANGED: Use dynamic language from settings
     if !settings.game_language.is_empty() {
         let tex_name = format!("img015/img015_{}.png", settings.game_language);
         let cut_name = format!("img015/img015_{}.imgcut", settings.game_language);
