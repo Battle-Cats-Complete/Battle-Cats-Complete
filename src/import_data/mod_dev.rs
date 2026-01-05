@@ -7,6 +7,7 @@ use std::env;
 
 use super::game_data_dev as game_data;
 use super::sort;
+use crate::settings::Settings; // NEW IMPORT
 
 #[derive(PartialEq, Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum GameRegion {
@@ -75,7 +76,8 @@ impl ImportState {
         self.censored_folder = censor_path(&self.selected_folder);
     }
 
-    pub fn update(&mut self, ctx: &egui::Context) -> bool {
+    // CHANGED: Now accepts settings
+    pub fn update(&mut self, ctx: &egui::Context, settings: &mut Settings) -> bool {
         if self.censored_folder.is_empty() && !self.selected_folder.is_empty() {
              self.censored_folder = censor_path(&self.selected_folder);
         }
@@ -89,6 +91,11 @@ impl ImportState {
 
         if let Some(trigger_time) = self.reset_trigger {
             self.check_reset_trigger(ctx, trigger_time);
+        }
+
+        // TRIGGER: Auto-detect language on success
+        if finished_just_now && self.status_message.contains("Success") {
+            settings.validate_and_update_language();
         }
 
         finished_just_now

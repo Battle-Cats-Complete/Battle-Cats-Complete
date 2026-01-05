@@ -6,6 +6,9 @@ use rayon::prelude::*;
 use super::stats::{CatRaw, CatLevelCurve}; 
 use image::GenericImageView; 
 
+// Priority order for Automatic (au) detection
+const SCAN_PRIORITY: &[&str] = &["au", "en", "ja", "tw", "ko", "es", "de", "fr", "it", "th"];
+
 #[derive(Clone, Debug)]
 pub struct CatEntry {
     pub id: u32,
@@ -17,7 +20,8 @@ pub struct CatEntry {
     pub atk_anim_frames: [i32; 4], 
 }
 
-pub fn start_scan() -> Receiver<CatEntry> {
+// CHANGED: Now accepts language code
+pub fn start_scan(lang: String) -> Receiver<CatEntry> {
     let (tx, rx) = mpsc::channel();
 
     thread::spawn(move || {
@@ -38,7 +42,8 @@ pub fn start_scan() -> Receiver<CatEntry> {
             let tx = tx.clone();
             let curves = Arc::clone(&level_curves);
             
-            if let Some(entry) = process_cat_entry(path, &curves) {
+            // Pass language down
+            if let Some(entry) = process_cat_entry(path, &curves, &lang) {
                 let _ = tx.send(entry);
             }
         });
@@ -57,7 +62,8 @@ fn load_level_curves(cats_dir: &Path) -> Vec<CatLevelCurve> {
     curves
 }
 
-fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>) -> Option<CatEntry> {
+// CHANGED: Accepts language arg
+fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>, lang: &str) -> Option<CatEntry> {
     let stem = path.file_name()?.to_str()?;
     let id = stem.parse::<u32>().ok()?;
 
@@ -97,7 +103,8 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>) -> Option<C
     let target_file_id = id + 1;
     let lang_dir = path.join("lang");
     
-    if let Some(name_file_path) = find_name_file(&lang_dir, target_file_id) {
+    // CHANGED: Use find_name_file with language logic
+    if let Some(name_file_path) = find_name_file(&lang_dir, target_file_id, lang) {
         if let Ok(bytes) = fs::read(&name_file_path) {
             let content = String::from_utf8_lossy(&bytes);
             for (i, line) in content.lines().enumerate().take(4) {
@@ -127,24 +134,48 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>) -> Option<C
     })
 }
 
-fn find_name_file(lang_dir: &Path, target_id: u32) -> Option<PathBuf> {
-    if !lang_dir.exists() { return None; }
+// CHANGED: Automatic language fallback logic (Never Nested)
+fn find_name_file(lang_dir: &Path, target_id: u32, lang: &str) -> Option<PathBuf> {
+    if !lang_dir.exists() || lang.is_empty() { return None; }
     
-    fs::read_dir(lang_dir).ok()?.flatten().find_map(|entry| {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with("Unit_Explanation") && name.ends_with("_en.csv") {
-             let num_part = name
-                .trim_start_matches("Unit_Explanation")
-                .trim_end_matches("_en.csv");
-            
-            if let Ok(num) = num_part.parse::<u32>() {
-                if num == target_id {
-                    return Some(entry.path());
+    let codes_to_try: Vec<&str> = if lang == "au" {
+        SCAN_PRIORITY.to_vec()
+    } else {
+        vec![lang]
+    };
+
+    for code in codes_to_try {
+        let suffix = format!("_{}.csv", code);
+
+        // Try to find a matching file in this directory
+        let found = fs::read_dir(lang_dir).ok()?
+            .flatten()
+            .find_map(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                
+                if !name.starts_with("Unit_Explanation") || !name.ends_with(&suffix) {
+                    return None;
                 }
-            }
+
+                let num_part = name
+                    .trim_start_matches("Unit_Explanation")
+                    .trim_end_matches(&suffix);
+                
+                // If ID matches, return path
+                if let Ok(num) = num_part.parse::<u32>() {
+                    if num == target_id {
+                        return Some(entry.path());
+                    }
+                }
+                None
+            });
+
+        if found.is_some() {
+            return found;
         }
-        None
-    })
+    }
+    
+    None
 }
 
 fn parse_max_frame(content: &str) -> i32 {
