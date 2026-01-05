@@ -5,7 +5,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
 use super::scanner::CatEntry;
-use image::imageops; 
+use image::imageops;
 
 struct LoadedImage {
     id: u32,
@@ -87,8 +87,6 @@ impl CatList {
     }
 
     pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, units: &[CatEntry], selected_id: &mut Option<u32>, search_query: &str, high_banner_quality: bool) {
-        
-        // Handle Background Loading
         while let Ok(loaded) = self.rx_result.try_recv() {
             let texture = ctx.load_texture(
                 format!("unit_{}", loaded.id),
@@ -99,15 +97,13 @@ impl CatList {
             self.pending_requests.remove(&loaded.id);
         }
 
-        // Search Optimization
         if search_query != self.last_search_query || units.len() != self.last_unit_count {
             self.update_search_cache(units, search_query);
         }
 
-        // Render List
         ui.scope(|ui| {
-            let row_height = 55.0; // 50.0 + 5.0 padding
-            let total_rows = self.cached_indices.len() + 1; // +1 Ghost Row
+            let row_height = 55.0; 
+            let total_rows = self.cached_indices.len() + 1; 
 
             let mut scroll_area = egui::ScrollArea::vertical().auto_shrink([false, false]);
             if self.scroll_to_top_needed {
@@ -140,11 +136,9 @@ impl CatList {
         hq: bool,
         now: f64
     ) -> Option<egui::Id> {
-        
         let real_index = *self.cached_indices.get(index)?;
         let unit = &units[real_index];
 
-        // Trigger Load
         if !self.texture_cache.contains_key(&unit.id) && !self.pending_requests.contains(&unit.id) {
             let _ = self.tx_request.send(LoadRequest {
                 id: unit.id,
@@ -153,10 +147,8 @@ impl CatList {
             });
         }
 
-        // Draw Button
         let texture = self.texture_cache.get(&unit.id);
         let response = self.render_unit_button(ui, unit, texture, selected_id, 50.0);
-
         let response_id = response.id; 
 
         if !ui.rect_contains_pointer(response.rect) {
@@ -281,7 +273,7 @@ fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
     }
 }
 
-fn process_image(id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaImage>, high_banner_quality: bool) -> Option<egui::ColorImage> {
+fn process_image(_id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaImage>, high_banner_quality: bool) -> Option<egui::ColorImage> {
     let bg = bg_cache.as_ref()?;
     let image_buffer = image::open(path).ok()?;
     let mut unit_img = image_buffer.to_rgba8();
@@ -289,8 +281,14 @@ fn process_image(id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaImage>, h
     let mut final_image = bg.clone();
     let bg_w = final_image.width() as i64;
     let bg_h = final_image.height() as i64;
+    let (w, h) = unit_img.dimensions();
+    let is_transparent_unit = if w > 311 && h > 2 {
+        unit_img.get_pixel(311, 2)[3] == 0
+    } else {
+        true 
+    };
 
-    let (x, y) = if id <= 25 {
+    let (x, y) = if is_transparent_unit {
         let fixed_x: i64 = -2; 
         let fixed_y: i64 = 9;  
         (fixed_x, fixed_y)
