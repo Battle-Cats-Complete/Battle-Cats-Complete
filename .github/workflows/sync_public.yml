@@ -29,14 +29,17 @@ jobs:
       # 3. Mirror Files & Sanitize
       - name: Sync and Overwrite
         run: |
-          # 1. Sync but EXCLUDE private files AND the standard Readme
+          # 1. Sync Files
+          # The rule "--exclude '*_dev.rs'" automatically hides ANY file ending in _dev.rs
+          # The rule "--exclude 'crates/'" hides your entire crypto folder
+          
           rsync -av --delete \
             --exclude '.git' \
             --exclude '.github' \
             --exclude 'crates/' \
-            --exclude 'src/import_data/mod_dev.rs' \
-            --exclude 'src/import_data/game_data_dev.rs' \
+            --exclude '*_dev.rs' \
             --exclude 'README.md' \
+            --exclude 'Cargo_PUBLIC.toml' \
             source_repo/ public_repo/
 
           # 2. THE README SWAP
@@ -44,8 +47,18 @@ jobs:
           mv public_repo/README_pub.md public_repo/README.md
 
           # 3. Sanitize Cargo.toml
+          
+          # Remove the workspace member (Keep this)
           sed -i '/crates\/bc_crypto/d' public_repo/Cargo.toml
-          sed -i '/bc_crypto/d' public_repo/Cargo.toml
+
+          # Remove the dependency line (Matches "bc_crypto = ...")
+          sed -i '/bc_crypto =/d' public_repo/Cargo.toml
+
+          # Don't delete the feature; make it empty!
+          # Matches "dev = ...bc_crypto..." and changes it to "dev = []"
+          sed -i 's/dev = .*bc_crypto.*/dev = []/' public_repo/Cargo.toml
+
+          # Clear the default list
           sed -i 's/default *=.*\["dev"\]/default = []/' public_repo/Cargo.toml
           
           # 4. Refresh Lockfile

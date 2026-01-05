@@ -6,15 +6,9 @@ version = 4
 name = "Battle_Cats_Complete"
 version = "0.1.0"
 dependencies = [
- "aes",
  "bc_crypto",
- "block-padding",
- "cbc",
- "ecb",
  "eframe",
- "hex",
  "image",
- "md5",
  "rayon",
  "regex",
  "rfd",
