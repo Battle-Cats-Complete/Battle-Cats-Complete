@@ -1,6 +1,6 @@
 [package]
 name = "Battle_Cats_Complete"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [workspace]
@@ -12,8 +12,6 @@ members = [
 [features]
 default = ["dev"]
 dev = ["dep:bc_crypto"]
-
-
 
 [dependencies]
 # GUI framework
