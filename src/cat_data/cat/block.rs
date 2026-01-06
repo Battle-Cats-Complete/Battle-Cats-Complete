@@ -101,8 +101,8 @@ pub fn render_list_view(
             }
 
             if is_conjure_item {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 7.0;
 
                     expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.expand_spirit_details));
                     text_with_superscript(ui, &item.text);
