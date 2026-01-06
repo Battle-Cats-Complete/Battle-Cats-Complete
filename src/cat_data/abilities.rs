@@ -79,9 +79,11 @@ pub fn collect_ability_data(
 
         let mh_desc = format!("Damage split {}\nAbility split {}/{}{}", dmg_str, ab1, ab2, ab3);
         
-        if let Some(tex) = multihit_tex {
-            grp_body_1.push(AbilityItem { icon_id: 0, text: mh_desc, custom_tex: Some(tex.id()) });
-        }
+        grp_body_1.push(AbilityItem { 
+            icon_id: definitions::ICON_MULTIHIT,
+            text: mh_desc, 
+            custom_tex: multihit_tex.as_ref().map(|t| t.id())
+        });
     }
 
     let mut is_omni = false;
