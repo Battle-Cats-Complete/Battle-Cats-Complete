@@ -141,7 +141,7 @@ if !is_conjure {
     push_ab(&mut grp_body_1, s.survive > 0, definitions::ICON_SURVIVE, format!("{}% Chance to Survive a lethal strike", s.survive));
 
     push_ab(&mut grp_body_1, s.barrier_breaker_chance > 0, definitions::ICON_BARRIER_BREAKER, format!("{}% Chance to break enemy Barriers", s.barrier_breaker_chance));
-    push_ab(&mut grp_body_1, s.shield_pierce_chance > 0, definitions::ICON_SHIELD_PEIRCER, format!("{}% Chance to pierce enemy Shields", s.shield_pierce_chance));
+    push_ab(&mut grp_body_1, s.shield_pierce_chance > 0, definitions::ICON_SHIELD_PIERCER, format!("{}% Chance to pierce enemy Shields", s.shield_pierce_chance));
     push_ab(&mut grp_body_1, s.metal_killer_percent > 0, definitions::ICON_METAL_KILLER, format!("Deals {}% of a Metal Enemies current HP upon hit", s.metal_killer_percent));
 
     if !is_conjure {
