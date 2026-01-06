@@ -133,7 +133,7 @@ impl eframe::App for BattleCatsApp {
             Page::Settings => {
                 let mut tabs = vec!["General"];
                 for (page_enum, label) in PAGES {
-                    if *page_enum != Page::MainMenu {
+                    if *page_enum != Page::MainMenu && *page_enum != Page::Settings {
                         tabs.push(label);
                     }
                 }
