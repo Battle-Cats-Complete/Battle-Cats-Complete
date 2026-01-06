@@ -20,26 +20,32 @@ pub fn render_abilities(
 
     let (grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(s, level, curve, multihit_tex, false);
     
-    ui.add_space(settings.trait_padding_y);
+
     
+    let mut previous_content = false;
+
     if !grp_hl1.is_empty() { 
         render_icon_row(ui, &grp_hl1, sheet, settings); 
+        previous_content = true;
     }
     
     if !grp_hl2.is_empty() { 
-        ui.add_space(settings.ability_padding_y); 
+        if previous_content { ui.add_space(settings.ability_padding_y); }
         render_icon_row(ui, &grp_hl2, sheet, settings); 
+        previous_content = true;
     }
 
-    if (!grp_hl1.is_empty() || !grp_hl2.is_empty()) && (!grp_b1.is_empty() || !grp_b2.is_empty()) {
-       ui.add_space(settings.ability_padding_y);
+    let has_body = !grp_b1.is_empty() || !grp_b2.is_empty();
+    if has_body {
+       if previous_content { ui.add_space(settings.ability_padding_y); }
+       
+       render_list_view(ui, &grp_b1, sheet, multihit_tex, cat_id, level, curve, s, settings);
+       render_list_view(ui, &grp_b2, sheet, multihit_tex, cat_id, level, curve, s, settings);
+       previous_content = true;
     }
-
-    render_list_view(ui, &grp_b1, sheet, multihit_tex, cat_id, level, curve, s, settings);
-    render_list_view(ui, &grp_b2, sheet, multihit_tex, cat_id, level, curve, s, settings);
 
     if !grp_footer.is_empty() {
-        if grp_b1.is_empty() && grp_b2.is_empty() {
+        if previous_content { 
             ui.add_space(settings.ability_padding_y);
         }
         render_icon_row(ui, &grp_footer, sheet, settings); 
