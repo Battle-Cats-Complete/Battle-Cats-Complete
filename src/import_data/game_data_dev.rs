@@ -53,12 +53,27 @@ fn decrypt_list_file(data: &[u8]) -> Result<String, String> {
     Err("Failed to decrypt list file.".to_string())
 }
 
-fn write_if_bigger(path: &Path, data: &[u8]) -> bool {
+fn count_lines_bytes(data: &[u8]) -> usize {
+    data.iter().filter(|&&b| b == b'\n').count()
+}
+
+fn write_smart(path: &Path, data: &[u8], filename: &str) -> bool {
     let new_size = data.len() as u64;
     
     if path.exists() {
-        if let Ok(meta) = fs::metadata(path) {
-            if meta.len() >= new_size { return false; }
+        if patterns::CHECK_LINE_FILES.contains(&filename) {
+            if let Ok(existing_data) = fs::read(path) {
+                let existing_lines = count_lines_bytes(&existing_data);
+                let new_lines = count_lines_bytes(data);
+                
+                if new_lines <= existing_lines {
+                    return false; 
+                }
+            }
+        } else {
+            if let Ok(meta) = fs::metadata(path) {
+                if meta.len() >= new_size { return false; }
+            }
         }
     }
 
@@ -118,7 +133,6 @@ fn determine_pack_code(pack_filename: &str, selected_region: &str) -> String {
         return selected_region.to_string();
     }
     
-    // Auto-detect based on filename if region is Global
     for code in patterns::GLOBAL_CODES {
         if *code == "en" { continue; } 
         if pack_filename.contains(&format!("_{}", code)) {
@@ -167,10 +181,10 @@ fn process_pack_line(
             output_dir.join(filename)
         };
 
-        if write_if_bigger(&target_path, final_data) {
+        if write_smart(&target_path, final_data, filename) {
             let c = count.fetch_add(1, Ordering::Relaxed);
             if !target_path.file_name().unwrap().to_string_lossy().contains("_") {
-                 if c % 50 == 0 {
+                 if c > 0 && c % 50 == 0 {
                     let _ = tx.send(format!("Extracted {} files | Current: {}", c, filename));
                 }
             }
@@ -184,15 +198,16 @@ fn should_skip_file(
     output_dir: &Path, 
     file_index: &HashMap<String, Vec<PathBuf>>
 ) -> bool {
+    if patterns::CHECK_LINE_FILES.contains(&filename) {
+        return false;
+    }
+
     if filename.ends_with("img015_th.imgcut") { return true; }
 
-    // If it's sensitive we always want to try extracting it
-    // because we rename it to avoid conflicts
     if patterns::REGION_SENSITIVE_FILES.iter().any(|&f| filename.ends_with(f)) {
         return false;
     }
 
-    // Check Index
     let lowercase_name = filename.to_lowercase();
     if let Some(paths) = file_index.get(&lowercase_name) {
         for path in paths {
@@ -204,7 +219,6 @@ fn should_skip_file(
         }
     }
 
-    // Check Output Dir
     let raw_path = output_dir.join(filename);
     if raw_path.exists() {
          if let Ok(meta) = fs::metadata(&raw_path) {
