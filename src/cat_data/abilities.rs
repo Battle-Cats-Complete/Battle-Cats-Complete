@@ -34,7 +34,6 @@ pub fn collect_ability_data(
         }
     };
 
-
     let target_s = if is_conjure { "Enemies" } else { "Target Traits" };
 
     push_ab(&mut grp_headline_1, s.attack_only > 0, definitions::ICON_ATTACK_ONLY, format!("Only damages {}", target_s));
@@ -66,25 +65,36 @@ pub fn collect_ability_data(
     push_ab(&mut grp_headline_2, s.witch_killer > 0, definitions::ICON_WITCH_KILLER, "Deals 5× Damage to and takes 0.1× Damage from Witches".into());
 
     if s.attack_2 > 0 {
-        let a1 = curve.map_or(s.attack_1, |c| c.calculate_stat(s.attack_1, level));
-        let a2 = curve.map_or(s.attack_2, |c| c.calculate_stat(s.attack_2, level));
-        let a3 = curve.map_or(s.attack_3, |c| c.calculate_stat(s.attack_3, level));
-        
-        let ab1 = if s.attack_1_abilities > 0 { "True" } else { "False" };
-        let ab2 = if s.attack_2_abilities > 0 { "True" } else { "False" };
-        let ab3 = if s.attack_3 > 0 {
-             if s.attack_3_abilities > 0 { "/True" } else { "/False" }
-        } else { "" };
-        let dmg_str = if s.attack_3 > 0 { format!("{}/{}/{}", a1, a2, a3) } else { format!("{}/{}", a1, a2) };
+    let a1 = curve.map_or(s.attack_1, |c| c.calculate_stat(s.attack_1, level));
+    let a2 = curve.map_or(s.attack_2, |c| c.calculate_stat(s.attack_2, level));
+    let a3 = curve.map_or(s.attack_3, |c| c.calculate_stat(s.attack_3, level));
+    
+    let ab1 = if s.attack_1_abilities > 0 { "True" } else { "False" };
+    let ab2 = if s.attack_2_abilities > 0 { "True" } else { "False" };
+    let ab3 = if s.attack_3 > 0 {
+         if s.attack_3_abilities > 0 { " / True" } else { " / False" }
+    } else { "" };
+    
+    let dmg_str = if s.attack_3 > 0 { 
+        format!("{} / {} / {}", a1, a2, a3) 
+    } else { 
+        format!("{} / {}", a1, a2) 
+    };
 
-        let mh_desc = format!("Damage split {}\nAbility split {}/{}{}", dmg_str, ab1, ab2, ab3);
-        
-        grp_body_1.push(AbilityItem { 
-            icon_id: definitions::ICON_MULTIHIT,
-            text: mh_desc, 
-            custom_tex: multihit_tex.as_ref().map(|t| t.id())
-        });
-    }
+    let mh_desc = format!("Damage split {}\nAbility split {} / {}{}", dmg_str, ab1, ab2, ab3);
+    
+    grp_body_1.push(AbilityItem { 
+        icon_id: definitions::ICON_MULTIHIT,
+        text: mh_desc, 
+        custom_tex: multihit_tex.as_ref().map(|t| t.id())
+    });
+}
+
+    let enem_base_range = {
+        let (s1, e1) = (s.long_distance_1_anchor, s.long_distance_1_anchor + s.long_distance_1_span);
+        let (min1, max1) = if s1 < e1 { (s1, e1) } else { (e1, s1) };
+        if min1 > 0 { min1 } else { max1 }
+    };
 
     let mut is_omni = false;
     let mut has_ld = false;
@@ -93,6 +103,7 @@ pub fn collect_ability_data(
         (s.long_distance_2_anchor, if s.long_distance_2_flag == 1 { s.long_distance_2_span } else { 0 }),
         (s.long_distance_3_anchor, if s.long_distance_3_flag == 1 { s.long_distance_3_span } else { 0 }),
     ];
+    
     let mut range_strs = Vec::new();
     for (anchor, span) in check_hits {
         if span != 0 {
@@ -104,11 +115,16 @@ pub fn collect_ability_data(
             range_strs.push(format!("{}~{}", min, max));
         }
     }
-    let range_desc = format!("Damage dealt between ranges {}", range_strs.join(" / "));
+
+    let mut range_desc = format!("Damage dealt between ranges {}", range_strs.join(" / "));
+    if !range_strs.is_empty() {
+        range_desc.push_str(&format!("\nStands at {} Range relative to Enemy Base", enem_base_range));
+    }
+
     push_ab(&mut grp_body_1, is_omni, definitions::ICON_OMNI_STRIKE, range_desc.clone());
     push_ab(&mut grp_body_1, !is_omni && has_ld, definitions::ICON_LONG_DISTANCE, range_desc);
 
-if !is_conjure {
+    if !is_conjure {
         push_ab(&mut grp_body_1, s.conjure_unit_id > 0, definitions::ICON_CONJURE, 
             "Conjures a Spirit to the battlefield when tapped\nThis Cat may only be deployed one at a time".into()
         );

@@ -83,7 +83,7 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>, lang: &str)
                 .join(format!("{:03}_{}02.maanim", id, forms_chars[i]));
             
             if let Ok(content) = fs::read_to_string(&anim_path) {
-                atk_anim_frames[i] = parse_max_frame(&content);
+                atk_anim_frames[i] = parse_anim_length(&content);
             }
         }
     }
@@ -189,15 +189,36 @@ fn find_name_file_for_code(lang_dir: &Path, target_id: u32, code: &str) -> Optio
         })
 }
 
-fn parse_max_frame(content: &str) -> i32 {
+fn parse_anim_length(content: &str) -> i32 {
     let mut max_frame = 0;
-    for line in content.lines() {
-        let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() >= 2 {
-            if let Ok(frame) = parts[0].trim().parse::<i32>() {
-                if frame > max_frame { max_frame = frame; }
-            }
+    let lines: Vec<Vec<i32>> = content
+        .lines()
+        .map(|line| {
+            line.split(',')
+                .filter_map(|c| c.trim().parse::<i32>().ok())
+                .collect()
+        })
+        .collect();
+
+    for (i, line) in lines.iter().enumerate() {
+        if line.len() < 5 {
+            continue;
         }
+
+        let following_lines_amt = lines.get(i + 1).and_then(|l| l.get(0)).cloned().unwrap_or(0) as usize;
+        if following_lines_amt == 0 {
+            continue;
+        }
+
+        let first_anim_frame = lines.get(i + 2).and_then(|l| l.get(0)).cloned().unwrap_or(0);
+        let last_anim_frame = lines.get(i + following_lines_amt + 1).and_then(|l| l.get(0)).cloned().unwrap_or(0);
+        
+        let duration = last_anim_frame - first_anim_frame;
+        let repeats = std::cmp::max(line[2], 1);
+
+        let last_frame_used = (duration * repeats) + first_anim_frame;
+        max_frame = std::cmp::max(last_frame_used, max_frame);
     }
+
     max_frame + 1
 }
