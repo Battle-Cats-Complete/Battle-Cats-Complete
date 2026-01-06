@@ -263,7 +263,7 @@ fn handle_list_file(
 
     let list_str = match decrypt_list_file(&list_buf) {
         Ok(s) => s,
-        Err(_) => return Ok(()), // Skip if decryption fails
+        Err(_) => return Ok(()),
     };
 
     let pack_name = filename.replace(".list", ".pack");
