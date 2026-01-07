@@ -103,8 +103,16 @@ pub fn show(
         ui.horizontal_top(|ui| {
             ui.horizontal_top(|ui| {
                 let form_char = match *current_form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
-                let expected = format!("game/cats/{:03}/{}/uni{:03}_{}00.png", cat.id, form_char, cat.id, form_char);
-
+                
+                let (egg_norm, egg_evol) = cat.egg_ids;
+                let expected = if *current_form == 0 && egg_norm != -1 {
+                    format!("game/cats/egg_{:03}/f/uni{:03}_m00.png", egg_norm, egg_norm)
+                } else if *current_form == 1 && egg_evol != -1 {
+                    format!("game/cats/egg_{:03}/c/uni{:03}_m01.png", egg_evol, egg_evol)
+                } else {
+                    format!("game/cats/{:03}/{}/uni{:03}_{}00.png", cat.id, form_char, cat.id, form_char)
+                };
+                
                 if *current_key != expected {
                     *current_key = expected.clone(); 
                     
@@ -141,7 +149,21 @@ pub fn show(
 
                     let form_num = *current_form + 1;
                     let raw_name = cat.names.get(*current_form).cloned().unwrap_or_default();
-                    let disp_name = if raw_name.is_empty() { format!("{:03}-{}", cat.id, form_num) } else { raw_name };
+                    
+                    // --- SYNCED PLACEHOLDER LOGIC ---
+                    let is_placeholder = if *current_form > 0 {
+                         let prev_name = cat.names.get(*current_form - 1).map(|s| s.as_str()).unwrap_or("");
+                         !raw_name.is_empty() && raw_name == prev_name
+                    } else {
+                        false
+                    };
+
+                    let disp_name = if raw_name.is_empty() || is_placeholder { 
+                        format!("{:03}-{}", cat.id, form_num) 
+                    } else { 
+                        raw_name 
+                    };
+                    // --------------------------------
 
                     ui.add_space(15.0); 
                     render_name_in_box(ui, &disp_name);
