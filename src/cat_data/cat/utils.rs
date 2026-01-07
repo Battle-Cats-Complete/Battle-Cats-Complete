@@ -11,7 +11,6 @@ pub fn paint_fallback_at(ui: &mut egui::Ui, rect: egui::Rect, text: &str, border
             egui::Stroke::new(1.5, border_color),
         );
 
-        // Standardizes font size
         let font_id = egui::FontId::proportional(10.0); 
         ui.painter().text(
             rect.center(),

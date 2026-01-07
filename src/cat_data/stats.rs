@@ -1,5 +1,59 @@
 use std::fs;
 use std::path::Path;
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Default)]
+pub struct UnitBuyRow {
+    pub guide_order: i32,
+    pub egg_id_norm: i32, // -1 if not egg
+    pub egg_id_evol: i32, // -1 if not egg
+}
+
+impl UnitBuyRow {
+    pub fn from_line(line: &str, _id: u32) -> Option<Self> {
+        let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        
+        let clean_parts: Vec<&str> = parts.iter()
+            .rev()
+            .skip_while(|s| s.is_empty())
+            .cloned() 
+            .collect();
+        
+        let true_len = clean_parts.len();
+
+        if true_len < 28 { return None; }
+
+        let get_raw = |i| parts.get(i).and_then(|s: &&str| s.parse::<i32>().ok()).unwrap_or(-1);
+
+        let egg_evol_str = clean_parts.get(0).unwrap_or(&"-1");
+        let egg_norm_str = clean_parts.get(1).unwrap_or(&"-1");
+
+        let egg_id_evol = egg_evol_str.parse::<i32>().unwrap_or(-1);
+        let egg_id_norm = egg_norm_str.parse::<i32>().unwrap_or(-1);
+
+        let row = Self {
+            guide_order: get_raw(27),
+            egg_id_norm,
+            egg_id_evol,
+        };
+
+        Some(row)
+    }
+}
+
+pub fn load_unitbuy(cats_dir: &Path) -> HashMap<u32, UnitBuyRow> {
+    let mut map = HashMap::new();
+    let path = cats_dir.join("unitbuy.csv");
+    
+    if let Ok(content) = fs::read_to_string(&path) {
+        for (i, line) in content.lines().enumerate() {
+            if let Some(row) = UnitBuyRow::from_line(line, i as u32) {
+                map.insert(i as u32, row);
+            }
+        }
+    } 
+    map
+}
 
 pub fn load_from_id(id: i32) -> Option<CatRaw> {
     let path = format!("game/cats/{:03}/unit{:03}.csv", id, id + 1);
@@ -142,8 +196,8 @@ pub struct CatRaw {
 impl CatRaw {
     pub fn from_csv_line(line: &str) -> Option<Self> {
         let parts: Vec<&str> = line.split(',').collect();
-        let get = |index: usize| parts.get(index).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0);
-        let get_neg = |index: usize| parts.get(index).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(-1);
+        let get = |index: usize| parts.get(index).and_then(|s: &&str| s.trim().parse::<i32>().ok()).unwrap_or(0);
+        let get_neg = |index: usize| parts.get(index).and_then(|s: &&str| s.trim().parse::<i32>().ok()).unwrap_or(-1);
 
         if parts.len() < 10 { return None; }
 

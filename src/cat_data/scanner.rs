@@ -3,8 +3,7 @@ use std::fs;
 use std::thread;
 use std::sync::{Arc, mpsc::{self, Receiver}};
 use rayon::prelude::*;
-use super::stats::{CatRaw, CatLevelCurve}; 
-use image::GenericImageView; 
+use super::stats::{self, CatRaw, CatLevelCurve, UnitBuyRow}; 
 
 pub const SCAN_PRIORITY: &[&str] = &["en", "ja", "tw", "ko", "es", "de", "fr", "it", "th", ""];
 
@@ -17,6 +16,7 @@ pub struct CatEntry {
     pub stats: Vec<Option<CatRaw>>,
     pub curve: Option<CatLevelCurve>,
     pub atk_anim_frames: [i32; 4], 
+    pub egg_ids: (i32, i32),
 }
 
 pub fn start_scan(lang: String) -> Receiver<CatEntry> {
@@ -26,6 +26,7 @@ pub fn start_scan(lang: String) -> Receiver<CatEntry> {
         let cats_dir = Path::new("game/cats");
         
         let level_curves = Arc::new(load_level_curves(cats_dir));
+        let unit_buy_map = Arc::new(stats::load_unitbuy(cats_dir));
         
         let entries: Vec<PathBuf> = match fs::read_dir(cats_dir) {
             Ok(read_dir) => read_dir
@@ -39,8 +40,9 @@ pub fn start_scan(lang: String) -> Receiver<CatEntry> {
         entries.par_iter().for_each(|path| {
             let tx = tx.clone();
             let curves = Arc::clone(&level_curves);
+            let unit_buys = Arc::clone(&unit_buy_map);
             
-            if let Some(entry) = process_cat_entry(path, &curves, &lang) {
+            if let Some(entry) = process_cat_entry(path, &curves, &unit_buys, &lang) {
                 let _ = tx.send(entry);
             }
         });
@@ -59,53 +61,116 @@ fn load_level_curves(cats_dir: &Path) -> Vec<CatLevelCurve> {
     curves
 }
 
-fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>, lang: &str) -> Option<CatEntry> {
-    let stem = path.file_name()?.to_str()?;
+fn process_cat_entry(
+    original_path: &Path, 
+    level_curves: &Vec<CatLevelCurve>, 
+    unit_buys: &std::collections::HashMap<u32, UnitBuyRow>,
+    lang: &str
+) -> Option<CatEntry> {
+    
+    let stem = original_path.file_name()?.to_str()?;
     let id = stem.parse::<u32>().ok()?;
 
+    let unit_buy = unit_buys.get(&id);
+    if let Some(ub) = unit_buy {
+        let is_egg = ub.egg_id_norm != -1;
+        
+        if !is_egg && ub.guide_order == -1 && id != 673 {
+            return None; 
+        }
+    } else {
+        return None;
+    }
+    let ub = unit_buy.unwrap(); 
+
+    let cats_root = Path::new("game/cats");
+    
+    let get_form_path = |form_idx: usize, form_char: char| -> PathBuf {
+        let is_egg_norm = form_idx == 0 && ub.egg_id_norm != -1;
+        let is_egg_evol = form_idx == 1 && ub.egg_id_evol != -1;
+
+        if is_egg_norm {
+            cats_root.join(format!("egg_{:03}", ub.egg_id_norm)).join(form_char.to_string())
+        } else if is_egg_evol {
+            cats_root.join(format!("egg_{:03}", ub.egg_id_evol)).join(form_char.to_string())
+        } else {
+            original_path.join(form_char.to_string())
+        }
+    };
+
+    let get_anim_file = |form_idx: usize, form_char: char| -> PathBuf {
+        let is_egg_norm = form_idx == 0 && ub.egg_id_norm != -1;
+        let is_egg_evol = form_idx == 1 && ub.egg_id_evol != -1;
+
+        if is_egg_norm {
+            cats_root.join(format!("egg_{:03}", ub.egg_id_norm))
+                     .join("anim")
+                     .join(format!("{:03}_m02.maanim", ub.egg_id_norm))
+        } else if is_egg_evol {
+            cats_root.join(format!("egg_{:03}", ub.egg_id_evol))
+                     .join("anim")
+                     .join(format!("{:03}_m02.maanim", ub.egg_id_evol))
+        } else {
+            original_path.join(form_char.to_string())
+                         .join("anim")
+                         .join(format!("{:03}_{}02.maanim", id, form_char))
+        }
+    };
+
     let forms_chars = ['f', 'c', 's', 'u'];
-    let forms = [
-        path.join("f").exists(),
-        path.join("c").exists(),
-        path.join("s").exists(),
-        path.join("u").exists(),
+    let forms_paths = [
+        get_form_path(0, 'f'),
+        get_form_path(1, 'c'),
+        get_form_path(2, 's'),
+        get_form_path(3, 'u'),
     ];
 
-    if !forms[1] && id != 673 {
+    let forms_exist = [
+        forms_paths[0].exists(),
+        forms_paths[1].exists(),
+        forms_paths[2].exists(),
+        forms_paths[3].exists(),
+    ];
+
+    if !forms_exist[1] && id != 673 {
         return None;
     }
 
     let mut atk_anim_frames = [0; 4];
     for i in 0..4 {
-        if forms[i] {
-            let anim_path = path.join(format!("{}", forms_chars[i]))
-                .join("anim")
-                .join(format!("{:03}_{}02.maanim", id, forms_chars[i]));
-            
+        if forms_exist[i] {
+            let anim_path = get_anim_file(i, forms_chars[i]);
             if let Ok(content) = fs::read_to_string(&anim_path) {
                 atk_anim_frames[i] = parse_anim_length(&content);
             }
         }
     }
 
-    let filename = format!("udi{:03}_f.png", id);
-    let img_path = path.join("f").join(&filename);
-    
-    if !img_path.exists() { return None; }
-    
-    let img = image::open(&img_path).ok()?;
-    let (w, h) = img.dimensions();
+    // --- ICON FINDER ---
+    let find_image = |base_path: &Path, name_no_ext: &str| -> Option<PathBuf> {
+        let p1 = base_path.join(format!("{}.png", name_no_ext));
+        if p1.exists() { return Some(p1); }
+        let p2 = base_path.join(format!("{}.PNG", name_no_ext));
+        if p2.exists() { return Some(p2); }
+        None
+    };
 
-    if (w <= 14 || h <= 2) && id != 673 { 
-        return None; 
-    }
-    if (w > 14 && h > 2) && !img.pixels().any(|(_, _, pixel)| pixel[3] > 0) { 
-        return None; 
-    }
+    let final_img_path = if ub.egg_id_norm != -1 {
+        find_image(&forms_paths[0], &format!("udi{:03}_m00", ub.egg_id_norm))
+            .or_else(|| find_image(&forms_paths[0], &format!("uni{:03}_m00", ub.egg_id_norm)))
+    } else {
+        find_image(&forms_paths[0], &format!("udi{:03}_f", id))
+            .or_else(|| find_image(&forms_paths[0], &format!("uni{:03}_f00", id)))
+    };
 
+    let image_path = match final_img_path {
+        Some(p) => p,
+        None => return None, 
+    };
+    
     let mut names = vec![String::new(); 4];
     let target_file_id = id + 1;
-    let lang_dir = path.join("lang");
+    let lang_dir = original_path.join("lang"); 
 
     let codes_to_try: Vec<&str> = if lang.is_empty() {
         SCAN_PRIORITY.to_vec()
@@ -125,7 +190,6 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>, lang: &str)
                 for (i, line) in content.lines().enumerate().take(4) {
                     if let Some(name_part) = line.split(separator).next() {
                         let trimmed = name_part.trim();
-                        
                         if !trimmed.is_empty() && !looks_like_garbage_id(trimmed) {
                             found_valid_name = true;
                             temp_names[i] = trimmed.to_string();
@@ -146,7 +210,7 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>, lang: &str)
     }
     
     let mut stats = vec![None; 4];
-    let stats_path = path.join(format!("unit{:03}.csv", target_file_id));
+    let stats_path = original_path.join(format!("unit{:03}.csv", target_file_id));
     if let Ok(content) = fs::read_to_string(&stats_path) {
         for (i, line) in content.lines().enumerate().take(4) {
             stats[i] = CatRaw::from_csv_line(line);
@@ -155,12 +219,13 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>, lang: &str)
 
     Some(CatEntry { 
         id, 
-        image_path: img_path, 
+        image_path,
         names,
-        forms,
+        forms: forms_exist,
         stats, 
         curve: level_curves.get(id as usize).cloned(),
         atk_anim_frames,
+        egg_ids: (ub.egg_id_norm, ub.egg_id_evol),
     })
 }
 

@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant; 
 use super::scanner::CatEntry;
 use image::imageops;
 
@@ -106,9 +105,6 @@ impl CatList {
             }
         }
 
-        let start_time = Instant::now();
-        let time_budget_secs = 0.0025; 
-
         while let Ok(loaded) = self.rx_result.try_recv() {
             let texture = ctx.load_texture(
                 format!("unit_{}", loaded.id),
@@ -117,92 +113,87 @@ impl CatList {
             );
             self.texture_cache.insert(loaded.id, texture);
             self.pending_requests.remove(&loaded.id);
-
-            if start_time.elapsed().as_secs_f32() > time_budget_secs {
-                ctx.request_repaint();
-                break;
-            }
         }
 
         if search_query != self.last_search_query || units.len() != self.last_unit_count {
             self.update_search_cache(units, search_query);
         }
 
-        ui.scope(|ui| {
-            let row_height = 55.0; 
-            let total_rows = self.cached_indices.len() + 1; 
+        let row_height = 55.0; 
+        let total_rows = self.cached_indices.len() + 1; 
+        let now = ui.input(|i| i.time);
 
-            let mut scroll_area = egui::ScrollArea::vertical().auto_shrink([false, false]);
-            if self.scroll_to_top_needed {
-                scroll_area = scroll_area.vertical_scroll_offset(0.0);
-                self.scroll_to_top_needed = false;
-            }
+        let mut scroll_area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+        if self.scroll_to_top_needed {
+            scroll_area = scroll_area.vertical_scroll_offset(0.0);
+            self.scroll_to_top_needed = false;
+        }
 
-            let scroll_output = scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-                let mut hovered_this_frame = None;
-                let now = ui.input(|i| i.time);
+        let scroll_output = scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
+            let mut hovered_this_frame = None;
 
-                for index in row_range {
-                    if let Some(id) = self.render_list_row(ui, index, units, selected_id, high_banner_quality, now) {
-                        hovered_this_frame = Some(id);
+            for index in row_range {
+                if let Some(&real_index) = self.cached_indices.get(index) {
+                    let unit = &units[real_index];
+
+                    if !self.texture_cache.contains_key(&unit.id) && !self.pending_requests.contains(&unit.id) {
+                        self.pending_requests.insert(unit.id);
+                        let _ = self.tx_request.send(LoadRequest {
+                            id: unit.id,
+                            path: unit.image_path.clone(),
+                            high_banner_quality, 
+                        });
+                    }
+
+                    let texture = self.texture_cache.get(&unit.id);
+                    let tex_to_draw = texture.or(self.placeholder_texture.as_ref());
+
+                    let response = if let Some(tex) = tex_to_draw {
+                        let size = tex.size_vec2();
+                        let scale = 50.0 / size.y;
+                        let btn_size = size * scale;
+                        
+                        let is_selected = Some(unit.id) == *selected_id;
+                        ui.add(egui::ImageButton::new((tex.id(), btn_size)).selected(is_selected))
+                    } else {
+                        let r = ui.allocate_response(egui::vec2(100.0, 50.0), egui::Sense::click());
+                        ui.painter().rect_filled(r.rect, 4.0, egui::Color32::from_gray(30));
+                        r
+                    };
+
+                    if response.clicked() { 
+                        *selected_id = Some(unit.id); 
+                    }
+
+                    if ui.rect_contains_pointer(response.rect) {
+                        hovered_this_frame = Some(response.id);
+
+                        if self.hovered_id != Some(response.id) {
+                            self.hovered_id = Some(response.id);
+                            self.hover_start_time = now;
+                        }
+
+                        if now - self.hover_start_time < 0.5 { 
+                            ui.ctx().request_repaint();
+                        } else {
+                            response.on_hover_ui(|ui| render_tooltip(ui, unit));
+                        }
                     }
                 }
-                hovered_this_frame
-            });
-
-            self.handle_hover_loss(scroll_output.inner.is_some(), ui.input(|i| i.time));
+            }
+            hovered_this_frame
         });
-    }
 
-    fn render_list_row(
-        &self,
-        ui: &mut egui::Ui,
-        index: usize,
-        units: &[CatEntry],
-        selected_id: &mut Option<u32>,
-        hq: bool,
-        now: f64
-    ) -> Option<egui::Id> {
-        let real_index = *self.cached_indices.get(index)?;
-        let unit = &units[real_index];
-
-        if !self.texture_cache.contains_key(&unit.id) && !self.pending_requests.contains(&unit.id) {
-            let _ = self.tx_request.send(LoadRequest {
-                id: unit.id,
-                path: unit.image_path.clone(),
-                high_banner_quality: hq, 
-            });
-        }
-
-        let texture = self.texture_cache.get(&unit.id);
-        
-        let response = self.render_unit_button(ui, unit, texture, selected_id, 50.0);
-        let response_id = response.id; 
-
-        if !ui.rect_contains_pointer(response.rect) {
-            return None;
-        }
-
-        if now - self.hover_start_time > 1.0 && self.hovered_id == Some(response_id) {
-            response.on_hover_ui(|ui| render_tooltip(ui, unit));
-        }
-
-        Some(response_id)
-    }
-
-    fn handle_hover_loss(&mut self, is_hovering_something: bool, now: f64) {
-        if is_hovering_something {
+        if scroll_output.inner.is_some() {
              self.hover_lost_time = None;
-             return;
-        }
-
-        if self.hover_lost_time.is_none() {
-            self.hover_lost_time = Some(now);
-        }
-        
-        if let Some(lost_start) = self.hover_lost_time {
-            if now - lost_start > 0.1 {
-                self.hovered_id = None;
+        } else {
+            if self.hover_lost_time.is_none() {
+                self.hover_lost_time = Some(now);
+            }
+            if let Some(lost_start) = self.hover_lost_time {
+                if now - lost_start > 0.1 {
+                    self.hovered_id = None;
+                }
             }
         }
     }
@@ -232,41 +223,6 @@ impl CatList {
             }
         }
     }
-
-    fn render_unit_button(
-        &self, 
-        ui: &mut egui::Ui, 
-        unit: &CatEntry, 
-        texture: Option<&egui::TextureHandle>, 
-        selected_id: &mut Option<u32>, 
-        target_height: f32
-    ) -> egui::Response {
-        
-        let is_selected = Some(unit.id) == *selected_id;
-
-        let tex_to_draw = texture.or(self.placeholder_texture.as_ref());
-
-        if let Some(tex) = tex_to_draw {
-            let size = tex.size_vec2();
-            let scale = target_height / size.y;
-            let btn_size = size * scale;
-            
-            let btn = egui::ImageButton::new((tex.id(), btn_size)).selected(is_selected);
-            let response = ui.add(btn);
-            
-            if response.clicked() { *selected_id = Some(unit.id); }
-            return response;
-        } 
-        
-        let response = ui.allocate_response(
-            egui::vec2(100.0, target_height), 
-            egui::Sense::click()
-        );
-        ui.painter().rect_filled(response.rect, 4.0, egui::Color32::from_gray(30));
-        
-        if response.clicked() { *selected_id = Some(unit.id); }
-        response
-    }
 }
 
 fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
@@ -279,23 +235,29 @@ fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
     let mut previous_name = "";
 
     for i in 0..4 {
+        // 1. If form doesn't exist, we skip.
         if !unit.forms[i] { continue; }
 
         let raw_name = &unit.names[i];
-        let display_name = if raw_name.is_empty() {
+        
+        // 2. CHECK: Is this name a duplicate of the previous one?
+        //    (Detailed View Parity: This matches the "Placeholder Logic")
+        let is_duplicate = i > 0 && raw_name == previous_name && !raw_name.is_empty();
+
+        // 3. DECIDE: Use fallback ID if empty OR duplicate
+        let display_name = if raw_name.is_empty() || is_duplicate {
             format!("{:03}-{}", unit.id, i + 1)
         } else {
             raw_name.clone()
         };
 
-        if i > 0 && raw_name == previous_name && !raw_name.is_empty() {
-            continue; 
-        }
-
+        // 4. UPDATE TRACKER: We update `previous_name` even if we used the fallback ID,
+        //    because the *data* is still the duplicate name.
         if !raw_name.is_empty() {
             previous_name = raw_name;
         }
 
+        // 5. RENDER: We do NOT `continue` here anymore. We show the line.
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(format!("[{}]", labels[i])).weak());
             ui.label(display_name);
@@ -312,6 +274,7 @@ fn process_image(_id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaImage>, 
     let bg_w = final_image.width() as i64;
     let bg_h = final_image.height() as i64;
     let (w, h) = unit_img.dimensions();
+    
     let is_transparent_unit = if w > 311 && h > 2 {
         unit_img.get_pixel(311, 2)[3] == 0
     } else {

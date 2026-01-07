@@ -114,14 +114,20 @@ impl CatListState {
             self.cats.sort_by_key(|c| c.id);
         }
 
-        if self.selected_cat.is_none() {
-            self.selected_cat = Some(0);
+        // Only default select 0 if we actually have cats
+        if self.selected_cat.is_none() && !self.cats.is_empty() {
+            self.selected_cat = Some(self.cats[0].id);
         }
         
         if scan_complete {
+            // Validate selection
             if let Some(target) = self.selected_cat {
-                if !self.cats.iter().any(|c| c.id == target) && !self.cats.is_empty() {
-                    self.selected_cat = Some(0);
+                if !self.cats.iter().any(|c| c.id == target) {
+                    if let Some(first) = self.cats.first() {
+                        self.selected_cat = Some(first.id);
+                    } else {
+                        self.selected_cat = None;
+                    }
                 }
             }
             self.scan_receiver = None;
@@ -140,7 +146,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::set
     if !state.initialized {
         state.initialized = true;
         if !settings.unit_persistence {
-            state.selected_cat = Some(0);
+            state.selected_cat = None;
             state.cat_list.reset_scroll();
         }
     }
@@ -170,13 +176,41 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::set
         });
 
     egui::CentralPanel::default().show(ctx, |ui| {
+        // --- LOADING / EMPTY STATE HANDLING ---
+        if state.cats.is_empty() {
+            ui.centered_and_justified(|ui| {
+                if state.scan_receiver.is_some() {
+                    ui.vertical(|ui| {
+                        ui.spinner();
+                        ui.add_space(10.0);
+                        ui.label("Loading Unit Data...");
+                    });
+                } else {
+                    ui.vertical_centered(|ui| {
+                        ui.heading("No Data Found");
+                        ui.label("Could not find any units in game/cats.");
+                        ui.add_space(5.0);
+                        ui.label("Check that 'unitbuy.csv' exists and");
+                        ui.label("unit folders (000, 001...) are present.");
+                        ui.add_space(15.0);
+                        if ui.button("Retry Scan").clicked() {
+                            state.restart_scan(&settings.game_language);
+                        }
+                    });
+                }
+            });
+            return;
+        }
+
+        // --- NORMAL DISPLAY ---
         let Some(selected_id) = state.selected_cat else {
-            ui.centered_and_justified(|ui| { ui.spinner(); });
+            // Should theoretically be handled by update_data, but safe fallback
+            ui.centered_and_justified(|ui| { ui.label("Select a Unit"); });
             return;
         };
 
         let Some(cat) = state.cats.iter().find(|c| c.id == selected_id) else {
-            ui.centered_and_justified(|ui| { ui.spinner(); });
+            ui.centered_and_justified(|ui| { ui.spinner(); }); // Transient state
             return;
         };
         
