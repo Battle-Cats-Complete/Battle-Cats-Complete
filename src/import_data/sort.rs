@@ -36,6 +36,13 @@ fn move_if_bigger(src: &Path, dest: &Path) -> std::io::Result<bool> {
     }
 }
 
+fn map_egg_form(code: &str) -> &str {
+    match code {
+        "00" => "f", // Normal
+        _ => "c", // Evolved
+    }
+}
+
 pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
     let raw_dir = Path::new("game/raw");
     let cats_dir = Path::new("game/cats");
@@ -47,13 +54,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
 
     let _ = tx.send("Sorting files...".to_string());
 
-    for &sensitive_file in patterns::REGION_SENSITIVE_FILES {
-        let target_path = raw_dir.join(sensitive_file);
-        if target_path.exists() {
-            let _ = fs::remove_file(target_path);
-        }
-    }
-
     let universal_pattern = Regex::new(patterns::CAT_UNIVERSAL_PATTERN).unwrap();
     let re_stats = Regex::new(patterns::CAT_STATS_PATTERN).unwrap();
     let re_icon = Regex::new(patterns::CAT_ICON_PATTERN).unwrap();
@@ -62,6 +62,12 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
     let re_anim = Regex::new(patterns::CAT_ANIM_PATTERN).unwrap();
     let re_maanim = Regex::new(patterns::CAT_MAANIM_PATTERN).unwrap();
     let re_explain = Regex::new(patterns::CAT_EXPLAIN_PATTERN).unwrap();
+
+    let re_egg_icon = Regex::new(patterns::EGG_ICON_PATTERN).unwrap();
+    let re_egg_upgrade = Regex::new(patterns::EGG_UPGRADE_PATTERN).unwrap();
+    let re_egg_gacha = Regex::new(patterns::EGG_GACHA_PATTERN).unwrap();
+    let re_egg_anim = Regex::new(patterns::EGG_ANIM_PATTERN).unwrap();
+    let re_egg_maanim = Regex::new(patterns::EGG_MAANIM_PATTERN).unwrap();
 
     let mut moved_count = 0;
     
@@ -76,45 +82,25 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             None => continue,
         };
 
-        if filename.starts_with("unitevolve_") && filename.ends_with(".csv") {
-            let dest_folder = cats_dir.join("unitevolve");
-            if !dest_folder.exists() { let _ = fs::create_dir_all(&dest_folder); }
-            
-            let dest_path = dest_folder.join(filename);
-            if dest_path.exists() { let _ = fs::remove_file(&dest_path); }
-            
-            if fs::rename(&path, &dest_path).is_ok() {
-                moved_count += 1;
-            }
-            continue;
-        }
-
-        if filename.starts_with("SkillDescriptions") && filename.ends_with(".csv") {
-            let dest_folder = cats_dir.join("SkillDescriptions");
-            if !dest_folder.exists() { let _ = fs::create_dir_all(&dest_folder); }
-            
-            let dest_path = dest_folder.join(filename);
-            if dest_path.exists() { let _ = fs::remove_file(&dest_path); }
-
-            if fs::rename(&path, &dest_path).is_ok() {
-                moved_count += 1;
-            }
-            continue;
-        }
-
-        if patterns::CHECK_LINE_FILES.contains(&filename) {
-            let dest_path = cats_dir.join(filename);
-            if let Ok(was_moved) = move_if_bigger(&path, &dest_path) {
-                if was_moved { moved_count += 1; }
-            }
-            continue;
-        }
-
         let mut dest_folder = None;
 
         if patterns::CAT_UNIVERSAL_FILES.contains(&filename) || universal_pattern.is_match(filename) {
-            dest_folder = Some(cats_dir.to_path_buf());
+            let dest_path = cats_dir.join(filename);
+            
+            if patterns::CHECK_LINE_FILES.contains(&filename) {
+                if let Ok(was_moved) = move_if_bigger(&path, &dest_path) {
+                    if was_moved { moved_count += 1; }
+                }
+            } else {
+                if dest_path.exists() { let _ = fs::remove_file(&dest_path); }
+                if let Some(parent) = dest_path.parent() {
+                    if !parent.exists() { let _ = fs::create_dir_all(parent); }
+                }
+                if fs::rename(&path, &dest_path).is_ok() { moved_count += 1; }
+            }
+            continue;
         }
+
         else if let Some(caps) = re_stats.captures(filename) {
             if let Ok(file_id) = caps[1].parse::<u32>() {
                 if file_id > 0 {
@@ -154,6 +140,32 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
                 }
             }
         }
+
+        else if let Some(caps) = re_egg_icon.captures(filename) {
+            let id = &caps[1];
+            let form_code = &caps[2];
+            let form_dir = map_egg_form(form_code);
+            dest_folder = Some(cats_dir.join(format!("egg_{}", id)).join(form_dir));
+        }
+        else if let Some(caps) = re_egg_upgrade.captures(filename) {
+            let id = &caps[1];
+            let form_code = &caps[2];
+            let form_dir = map_egg_form(form_code);
+            dest_folder = Some(cats_dir.join(format!("egg_{}", id)).join(form_dir));
+        }
+        else if let Some(caps) = re_egg_gacha.captures(filename) {
+            let id = &caps[1];
+            dest_folder = Some(cats_dir.join(format!("egg_{}", id)));
+        }
+        else if let Some(caps) = re_egg_anim.captures(filename) {
+            let id = &caps[1];
+            dest_folder = Some(cats_dir.join(format!("egg_{}", id)).join("anim"));
+        }
+        else if let Some(caps) = re_egg_maanim.captures(filename) {
+            let id = &caps[1];
+            dest_folder = Some(cats_dir.join(format!("egg_{}", id)).join("anim"));
+        }
+
         else if filename.starts_with("img015") {
             dest_folder = Some(assets_dir.join("img015"));
         }

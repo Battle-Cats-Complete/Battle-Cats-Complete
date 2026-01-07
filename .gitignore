@@ -1,9 +1,11 @@
 # Rust Build Artifacts
 /target/
 
+
 # Debugging
 Battle_Cats_Complete.exe
 /stuff/
+.cargo/
 
 # Extracted Game Data
 /game/
