@@ -18,6 +18,12 @@ pub const CAT_ANIM_PATTERN: &str = concat!(r"^", r"(\d{3})_", r"([fcsu])", r"\.(
 pub const CAT_MAANIM_PATTERN: &str = concat!(r"^", r"(\d{3})_", r"([fcsu])", r"(0[0-3])", r"\.maanim$");
 pub const CAT_EXPLAIN_PATTERN: &str = concat!(r"^Unit_Explanation", r"(\d{1,3})_", r"([a-z]{2})", r"\.csv$");
 
+pub const EGG_ICON_PATTERN: &str = concat!(r"^uni", r"(\d{3})_", r"m", r"(\d{2})", r"\.png$");
+pub const EGG_UPGRADE_PATTERN: &str = concat!(r"^udi", r"(\d{3})_", r"m", r"(\d{2})", r"\.png$");
+pub const EGG_GACHA_PATTERN: &str = concat!(r"^gatyachara_", r"(\d{3})", r"_m\.png$");
+pub const EGG_ANIM_PATTERN: &str = concat!(r"^", r"(\d{3})_", r"m", r"\.(png|imgcut|mamodel)$");
+pub const EGG_MAANIM_PATTERN: &str = concat!(r"^", r"(\d{3})_", r"m", r"(0[0-3])", r"\.maanim$");
+
 pub const CAT_UNIVERSAL_PATTERN: &str = concat!(r"^unitevolve_", r"([a-z]{2})", r"\.csv$");
 
 pub const ASSET_IMG015_PATTERN: &str = r"^img015_([a-z]{2})\.png$";
@@ -25,6 +31,8 @@ pub const ASSET_015CUT_PATTERN: &str = r"^img015\.imgcut$";
 
 // Master files for Cat Data
 pub const CAT_UNIVERSAL_FILES: &[&str] = &[
+    "SkillAcquisition.csv", 
+    "SkillLevel.csv",
     "unitbuy.csv", 
     "unitexp.csv", 
     "unitlevel.csv", 
@@ -42,6 +50,7 @@ pub const GLOBAL_CODES: &[&str] = &[
     "th"
 ];
 
+// Country codes for the 4 main versions
 pub const REGION_CODES: &[&str] = &[
     "ja", 
     "en", 

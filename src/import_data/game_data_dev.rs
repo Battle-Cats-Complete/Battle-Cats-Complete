@@ -183,10 +183,9 @@ fn process_pack_line(
 
         if write_smart(&target_path, final_data, filename) {
             let c = count.fetch_add(1, Ordering::Relaxed);
-            if !target_path.file_name().unwrap().to_string_lossy().contains("_") {
-                 if c > 0 && c % 50 == 0 {
-                    let _ = tx.send(format!("Extracted {} files | Current: {}", c, filename));
-                }
+            
+            if c > 0 && c % 50 == 0 {
+                let _ = tx.send(format!("Extracted {} files | Current: {}", c, filename));
             }
         }
     }
