@@ -34,14 +34,7 @@ pub fn import_from_folder(source_folder: &str, tx: Sender<String>) -> Result<(),
                     if let Some(name_os) = path.file_name() {
                         let name_str = name_os.to_string_lossy().to_string();
                         
-                        let mut dest_filename = name_str.clone();
-
-                        if patterns::REGION_SENSITIVE_FILES.contains(&name_str.as_str()) {
-                            let path_obj = Path::new(&name_str);
-                            let stem = path_obj.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
-                            let ext = path_obj.extension().map(|s| s.to_string_lossy()).unwrap_or_default();
-                            dest_filename = format!("{}_au.{}", stem, ext);
-                        }
+                        let dest_filename = name_str.clone();
 
                         let dest_path = output_dir.join(&dest_filename);
                         
@@ -131,7 +124,6 @@ pub fn import_from_zip(zip_path_str: &str, tx: Sender<String>) -> Result<(), Str
                 
                 if let Ok(mut outfile) = fs::File::create(&outpath) {
                     if std::io::copy(&mut file, &mut outfile).is_ok() {
-                        // Lively logging
                         if i % 50 == 0 {
                             let _ = tx.send(format!("Extracted {} files | Current: {}", i + 1, safe_name));
                         }

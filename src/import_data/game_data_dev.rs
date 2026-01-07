@@ -382,7 +382,13 @@ pub fn import_all_from_folder(folder_path: &str, region_code: &str, tx: Sender<S
     tasks.par_iter().for_each(|file_path| {
         process_task_file(file_path, output_dir, &count, &tx, &index_arc, &region_ref);
     });
-
+    
+    for &sensitive_file in patterns::REGION_SENSITIVE_FILES {
+        let target_path = output_dir.join(sensitive_file);
+        if target_path.exists() {
+            let _ = fs::remove_file(target_path);
+        }
+    }
     Ok(format!("Success! Processed {} files.", count.load(Ordering::Relaxed)))
 }
 

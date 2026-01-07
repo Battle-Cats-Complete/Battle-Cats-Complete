@@ -5,6 +5,7 @@ use crate::cat_data::sprites::SpriteSheet;
 use crate::cat_data::stats; 
 use crate::definitions; 
 use crate::settings::Settings;
+use crate::cat_data::scanner; 
 
 pub mod name;
 pub mod grid;
@@ -32,16 +33,29 @@ pub fn show(
     multihit_texture: &mut Option<egui::TextureHandle>,
     settings: &Settings,
 ) {
-    let base_dir = std::path::Path::new("game/assets");
-    
-    if !settings.game_language.is_empty() {
-        let tex_name = format!("img015/img015_{}.png", settings.game_language);
-        let cut_name = format!("img015/img015_{}.imgcut", settings.game_language);
-        
-        let texture_path = base_dir.join(tex_name);
-        let cut_path = base_dir.join(cut_name);
-        
-        sprite_sheet.load(ctx, &texture_path, &cut_path);
+    let base_dir = std::path::Path::new("game/assets/img015");
+
+    let lang = &settings.game_language;
+    let codes_to_try: Vec<&str> = if lang.is_empty() {
+        scanner::SCAN_PRIORITY.to_vec()
+    } else {
+        vec![lang.as_str()]
+    };
+
+    for code in codes_to_try {
+        let (png_name, cut_name) = if code.is_empty() {
+            ("img015.png".to_string(), "img015.imgcut".to_string())
+        } else {
+            (format!("img015_{}.png", code), format!("img015_{}.imgcut", code))
+        };
+
+        let p = base_dir.join(png_name);
+        let c = base_dir.join(cut_name);
+
+        if p.exists() && c.exists() {
+            sprite_sheet.load(ctx, &p, &c);
+            break;
+        }
     }
 
     if multihit_texture.is_none() {

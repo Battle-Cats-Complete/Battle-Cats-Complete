@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use super::stats::{CatRaw, CatLevelCurve}; 
 use image::GenericImageView; 
 
-const SCAN_PRIORITY: &[&str] = &["au", "en", "ja", "tw", "ko", "es", "de", "fr", "it", "th"];
+pub const SCAN_PRIORITY: &[&str] = &["en", "ja", "tw", "ko", "es", "de", "fr", "it", "th", ""];
 
 #[derive(Clone, Debug)]
 pub struct CatEntry {
@@ -107,8 +107,8 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>, lang: &str)
     let target_file_id = id + 1;
     let lang_dir = path.join("lang");
 
-    let codes_to_try: Vec<&str> = if lang == "au" || lang.is_empty() {
-        SCAN_PRIORITY.iter().filter(|&&c| c != "au").cloned().collect() 
+    let codes_to_try: Vec<&str> = if lang.is_empty() {
+        SCAN_PRIORITY.to_vec()
     } else {
         vec![lang]
     };
@@ -129,7 +129,6 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>, lang: &str)
                         if !trimmed.is_empty() && !looks_like_garbage_id(trimmed) {
                             found_valid_name = true;
                             temp_names[i] = trimmed.to_string();
-                        } else {
                         }
                     }
                 }
@@ -166,13 +165,17 @@ fn process_cat_entry(path: &Path, level_curves: &Vec<CatLevelCurve>, lang: &str)
 }
 
 fn looks_like_garbage_id(s: &str) -> bool {
-    s.chars().all(|c| c.is_ascii_digit() || c == '-')
+    s.chars().all(|c| c.is_ascii_digit() || c == '-' || c == '_')
 }
 
 fn find_name_file_for_code(lang_dir: &Path, target_id: u32, code: &str) -> Option<PathBuf> {
     if !lang_dir.exists() { return None; }
     
-    let suffix = format!("_{}.csv", code);
+    let suffix = if code.is_empty() {
+        ".csv".to_string()
+    } else {
+        format!("_{}.csv", code)
+    };
 
     fs::read_dir(lang_dir).ok()?
         .flatten()
@@ -214,11 +217,11 @@ fn parse_anim_length(content: &str) -> i32 {
         let last_anim_frame = lines.get(i + following_lines_amt + 1).and_then(|l| l.get(0)).cloned().unwrap_or(0);
         
         let duration = last_anim_frame - first_anim_frame;
-        let repeats = std::cmp::max(line[2], 1);
+        let repeats = std::cmp::max(line[2], 1); 
 
         let last_frame_used = (duration * repeats) + first_anim_frame;
         max_frame = std::cmp::max(last_frame_used, max_frame);
     }
 
-    max_frame + 1
+    max_frame + 1 
 }

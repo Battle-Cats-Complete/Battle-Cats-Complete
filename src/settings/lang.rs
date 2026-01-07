@@ -3,7 +3,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 pub const LANGUAGE_PRIORITY: &[(&str, &str)] = &[
-    ("au", "Automatic"),
+    ("", "Automatic"),
     ("en", "English"),
     ("ja", "Japanese"),
     ("tw", "Taiwanese"),
@@ -35,7 +35,7 @@ pub fn handle_update(
 }
 
 pub fn validate_selection(current: &mut String, available: &[String]) {
-    if !current.is_empty() && available.contains(current) {
+    if available.contains(current) {
         return;
     }
     
@@ -59,9 +59,16 @@ pub fn start_scan() -> Receiver<Vec<String>> {
         if base_path.exists() {
             found = LANGUAGE_PRIORITY
                 .iter()
+                .filter(|(code, _)| !code.is_empty()) 
                 .map(|(code, _)| code.to_string())
                 .filter(|code| is_valid_pair(base_path, code))
                 .collect();
+
+            let raw_exists = is_valid_pair(base_path, "");
+
+            if !found.is_empty() || raw_exists {
+                found.insert(0, "".to_string());
+            }
         }
         let _ = tx.send(found);
     });
@@ -69,16 +76,16 @@ pub fn start_scan() -> Receiver<Vec<String>> {
 }
 
 fn is_valid_pair(base: &Path, code: &str) -> bool {
-    let png = base.join(format!("img015_{}.png", code));
-    let cut = base.join(format!("img015_{}.imgcut", code));
-    png.exists() && cut.exists()
+    let (png_name, cut_name) = if code.is_empty() {
+        ("img015.png".to_string(), "img015.imgcut".to_string())
+    } else {
+        (format!("img015_{}.png", code), format!("img015_{}.imgcut", code))
+    };
+
+    base.join(png_name).exists() && base.join(cut_name).exists()
 }
 
 pub fn get_label_for_code(code: &str) -> String {
-    if code.is_empty() { 
-        return "None".to_string(); 
-    }
-    
     for (c, label) in LANGUAGE_PRIORITY {
         if *c == code { 
             return label.to_string(); 
