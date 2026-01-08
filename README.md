@@ -1,5 +1,5 @@
 # Battle Cats Complete (Legacy)
-This is the old version before the codebase had a major modular overhaul, as I realized how huge the scope of this project really is. This version is depricated and is here to provide a "source of truth" for any logic I may have left our of my refactored version. This version also acts as a guide dumping the game, as I cant be bothered to handle private and public versions of files anymore.
+This is the old version before the codebase had a major modular overhaul, as I realized how huge the scope of this project really is. This version is depricated and is here to provide a "source of truth" for any logic I may have left our of my refactored version. This version also acts as a guide for dumping the game, as I cant be bothered to handle sanitization with private and public versions of files anymore.
 
 An all-in-one tool for The Battle Cats that allows Users to sort, read, and modify files that they import into it.
 
