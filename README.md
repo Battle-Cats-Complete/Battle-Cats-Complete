@@ -1,20 +1,6 @@
 # Battle Cats Complete (Legacy)
 This is the old version before the codebase had a major modular overhaul, as I realized how huge the scope of this project really is. This version is depricated and is here to provide a "source of truth" for any logic I may have left our of my refactored version. This version also acts as a guide for dumping the game, as I cant be bothered to handle sanitization with private and public versions of files anymore.
 
-An all-in-one tool for The Battle Cats that allows Users to sort, read, and modify files that they import into it.
-
-This is the source repository of the app—for developers' eyes only. This version has "Game Decryption" logic in place of "Sorting Set-up" and "Zip Extraction" logic. The public repos' sanitized logic is within the "sanitized" folder.
-
-## Push to Public
-To push the project and its sanitized files to the [Public Repo](https://github.com/WonderMOMOCO/Battle-Cats-Complete):
-
-1. Click the Actions tab at the top
-2. On the left sidebar, click "Sync to Public Repo"
-3. Click the "Run workflow" button on the right, select branch (main), and click the green button
-
-## Usage
-First, you must extract your game files using the Guide below, then select the folder containing them to sort them into the database to be read!
-
 ## Guide: Extracting Game Files
 
 To use this tool, you need the encrypted game files from an Android device. I personally use [MuMu Player](https://www.mumuplayer.com/download/), but this method works on any rooted emulator or phone.
@@ -58,13 +44,6 @@ Navigate to `/data/app/`. Look for a folder containing `[PACKAGE_NAME]`.
 3. Choose the folder where you saved the files. The tool will automatically decrypt, extract, and sort everything into a file structure inside the `/game` folder.
 
 *This process will have to be repeated every time the game updates to obtain new content.*
-
-## Credit
-Many people/groups have helped and encouraged me to make this project:
-* TimTams, providing knowledge on most of the games csv logic
-* TheWWRNerdGuy, inadvertantly convincing me to learn Rust and providing some csv logic
-* SweetDonut0, providing a "source of truth" via working Javascript code to port/review from the [Miraheze Wiki](https://battlecats.miraheze.org/wiki/Battle_Cats_Wiki)
-* [Battle Cats Ultimate](https://github.com/battlecatsultimate), an unoptimized and poorly maintained app that I use as a "proof of concept"
 
 ## Legal
 This project is for educational purposes only. Assets are copyright PONOS Corp. Please support the official release.
