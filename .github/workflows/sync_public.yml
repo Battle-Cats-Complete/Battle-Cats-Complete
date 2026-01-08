@@ -1,10 +1,6 @@
 name: Sync to Public Repo
 
 on:
-  # 0. Removed automatic Push logic
-  #push:
-    #branches:
-      #- main 
   workflow_dispatch:
 
 jobs:
@@ -26,63 +22,36 @@ jobs:
           token: ${{ secrets.PUBLIC_REPO_TOKEN }}
           path: public_repo
 
-      # 3. Mirror Files & Sanitize
+      # 3. Mirror Files (With src/dev exclusion)
       - name: Sync and Overwrite
         run: |
-          # 1. Sync Files
-          # The rule "--exclude '*_dev.rs'" automatically hides ANY file ending in _dev.rs
-          # The rule "--exclude 'crates/'" hides your entire crypto folder
+          # Sync Files using rsync
+          # --delete: Removes files in public_repo that no longer exist in source_repo (cleans up old architecture)
+          # --exclude 'src/dev': Keeps your dev tools private
+          # --exclude '.git': Protects the public repo's history
           
           rsync -av --delete \
             --exclude '.git' \
             --exclude '.github' \
-            --exclude 'crates/' \
-            --exclude '*_dev.rs' \
-            --exclude 'README.md' \
-            --exclude 'Cargo_PUBLIC.toml' \
+            --exclude 'src/dev' \
             source_repo/ public_repo/
-
-          # 2. THE README SWAP
-          # We take the special public readme and make it the MAIN readme
-          mv public_repo/README_pub.md public_repo/README.md
-
-          # 3. Sanitize Cargo.toml
-          
-          # Remove the workspace member (Keep this)
-          sed -i '/crates\/bc_crypto/d' public_repo/Cargo.toml
-
-          # Remove the dependency line (Matches "bc_crypto = ...")
-          sed -i '/bc_crypto =/d' public_repo/Cargo.toml
-
-          # Don't delete the feature; make it empty!
-          # Matches "dev = ...bc_crypto..." and changes it to "dev = []"
-          sed -i 's/dev = .*bc_crypto.*/dev = []/' public_repo/Cargo.toml
-
-          # Clear the default list
-          sed -i 's/default *=.*\["dev"\]/default = []/' public_repo/Cargo.toml
-          
-          # 4. Refresh Lockfile
-          cd public_repo
-          rm -f Cargo.lock
-          cargo generate-lockfile
-          
-          # 5. Cleanup (if any sanitized folder remains)
-          if [ -d "sanitized" ]; then
-            rm -rf sanitized
-          fi
 
       # 4. Commit to Public
       - name: Commit and Push
         run: |
           cd public_repo
-          # Configure Git
-          git config user.name "Your Name"
-          git config user.email "your@email.com"
           
-          # Add and commit
+          # Configure Git
+          # Change these to your preferred public identity if needed
+          git config user.name "WonderMOMOCO"
+          git config user.email "your_email@example.com"
+          
+          # Add all changes (including deletions from the rsync)
           git add .
+          
+          # Commit only if there are changes
           if [[ -n $(git status -s) ]]; then
-            git commit -m "Update: $(date +'%Y-%m-%d')"
+            git commit -m "Refactor Update: v0.3.0"
             git push origin main
           else
             echo "No changes to sync."
