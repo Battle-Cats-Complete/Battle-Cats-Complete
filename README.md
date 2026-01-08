@@ -1,5 +1,5 @@
 # Battle Cats Complete (Legacy)
-This is the old version of Battle Cats Complete, before the codebase had a major modular overhaul due to the scope. This version is depricated and is here to provide a "source of truth" for any logic I may have left our of my refactored version. This version also acts as a guide for dumping the game, as I cant be bothered to handle sanitization with private and public versions of files anymore.
+This is the old version of Battle Cats Complete, before the codebase had a major modular overhaul due to the scope. This version is depricated and is here to provide a "source of truth" for any logic I may have left out of my refactored version. This version also acts as a guide for dumping the game, as I cant be bothered to handle sanitization with private and public versions of files anymore.
 
 ## Guide: Extracting Game Files
 
