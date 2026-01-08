@@ -1,10 +1,7 @@
 # Battle Cats Complete (Legacy)
-
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/SNSE8HNhmP)
+This is the old version before the codebase had a major modular overhaul, as I realized how huge the scope of this project really is. This version is depricated and is here to provide a "source of truth" for any logic I may have left our of my refactored version. This version also acts as a guide dumping the game, as I cant be bothered to handle private and public versions of files anymore.
 
 An all-in-one tool for The Battle Cats that allows Users to sort, read, and modify files that they import into it.
-
-This is the old version before the codebase had a major modular overhaul, as I realized how huge the scope of this project really is.
 
 This is the source repository of the app—for developers' eyes only. This version has "Game Decryption" logic in place of "Sorting Set-up" and "Zip Extraction" logic. The public repos' sanitized logic is within the "sanitized" folder.
 
