@@ -105,7 +105,7 @@ impl eframe::App for BattleCatsApp {
         
         if import_finished {
             self.cat_list_state.restart_scan(&self.settings.game_language);
-            ctx.request_repaint(); // Force repaint to show new data
+            ctx.request_repaint();
         }
 
         let mut style = (*ctx.style()).clone();

@@ -24,16 +24,20 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
                 _ => None,
             };
             if let Some(path) = res {
-                state.set_path(path.display().to_string());
+                // [CHANGE] Use Import-specific setter
+                state.set_import_path(path.display().to_string());
                 state.status_message = "Source selected.".to_string();
                 state.log_content.clear();
             }
         }
-        ui.monospace(&state.censored_path);
+        // [CHANGE] Use Import-specific censored string
+        ui.monospace(&state.import_censored);
     });
 
     ui.add_space(15.0);
-    let can_start = state.selected_path != "No source selected" && state.rx.is_none() && state.import_mode != ImportMode::None;
+    
+    // [CHANGE] Use import_path for validation
+    let can_start = !state.import_path.is_empty() && state.rx.is_none() && state.import_mode != ImportMode::None;
     
     if ui.add_enabled(can_start, egui::Button::new("Start Import")).clicked() {
         state.status_message = "Starting worker...".to_string();
@@ -41,7 +45,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
         let (tx, rx) = mpsc::channel();
         state.rx = Some(rx);
         
-        let path = state.selected_path.clone();
+        // [CHANGE] Use import_path for execution
+        let path = state.import_path.clone();
         let mode = state.import_mode;
 
         thread::spawn(move || {
@@ -61,7 +66,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
                             let _ = tx.send("Success! Files imported and sorted.".to_string());
                         }
                     } else {
-
+                        // Smart Import success - worker already sent success msg
                     }
                 },
                 Err(e) => {
