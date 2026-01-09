@@ -1,7 +1,7 @@
 #[cfg(feature = "dev")]
 use eframe::egui;
 #[cfg(feature = "dev")]
-use crate::core::import::{ImportState, GameRegion};
+use crate::core::import::{ImportState, GameRegion, game_data, sort};
 #[cfg(feature = "dev")]
 use std::sync::mpsc;
 
@@ -27,17 +27,19 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
         let btn_enabled = state.rx.is_none();
         if ui.add_enabled(btn_enabled, egui::Button::new("Select Game Folder")).clicked() {
             if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                // Use new setter
-                state.set_extract_folder(path.display().to_string());
+                // [FIX] Use unified setter
+                state.set_path(path.display().to_string());
                 state.status_message = "Folder selected.".to_string();
             }
         }
-        ui.monospace(&state.censored_folder);
+        // [FIX] Use unified field
+        ui.monospace(&state.censored_path);
     });
 
     ui.add_space(15.0);
 
-    let can_start = state.selected_folder != "No folder selected" && state.rx.is_none();
+    // [FIX] Use unified field
+    let can_start = state.selected_path != "No source selected" && state.rx.is_none();
     
     if ui.add_enabled(can_start, egui::Button::new("Start Extraction")).clicked() {
         state.status_message = "Initializing Decryptor...".to_string();
@@ -46,12 +48,22 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
         let (tx, rx) = mpsc::channel();
         state.rx = Some(rx);
 
-        let folder = state.selected_folder.clone();
-        let region_code = state.selected_region.code().to_string();
+        let folder = state.selected_path.clone();
+        let region = state.selected_region.code().to_string();
 
         std::thread::spawn(move || {
-            if let Err(e) = crate::dev::extract_data::run_extraction(folder, region_code, tx.clone()) {
+            // [FIX] Call the unified stable logic
+            if let Err(e) = game_data::import_all_from_folder(&folder, &region, tx.clone()) {
                 let _ = tx.send(format!("Error: {}", e));
+                return; 
+            }
+            
+            // Auto-sort after extract
+            let _ = tx.send("Sorting extracted files...".to_string());
+            if let Err(e) = sort::sort_game_files(tx.clone()) {
+                let _ = tx.send(format!("Error Sorting: {}", e));
+            } else {
+                let _ = tx.send("Success! Extraction and sort complete.".to_string());
             }
         });
     }
