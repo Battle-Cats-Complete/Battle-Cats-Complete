@@ -1,6 +1,6 @@
 ## Guide: Extracting Game Files
 
-To use this tool, you need the encrypted game files from an Android device. I personally use [MuMu Player](https://www.mumuplayer.com/download/), but this method works on any rooted emulator or phone.
+To use this feature, you need the encrypted game files from an Android device. I personally use [MuMu Player](https://www.mumuplayer.com/download/), but this method works on any rooted emulator or phone.
 
 ### 1. Install the Game
 Download your desired region of *The Battle Cats*. You can use the Play Store or QooApp:
