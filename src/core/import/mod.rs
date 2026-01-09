@@ -45,28 +45,36 @@ pub struct ImportState {
     pub active_tab: DataTab,
     pub import_mode: ImportMode,
     
+    pub export_filename: String,
+    
     #[cfg(feature = "dev")] pub selected_region: GameRegion,
     pub compression_level: i32,
 
     #[serde(skip)] pub status_message: String,
     #[serde(skip)] pub log_content: String,
     #[serde(skip)] pub rx: Option<Receiver<String>>,
-    #[serde(skip)] pub reset_trigger: Option<f64>,
 }
 
 impl Default for ImportState {
     fn default() -> Self {
         Self {
-            selected_path: "No source selected".to_owned(),
-            censored_path: "No source selected".to_owned(),
+            selected_path: String::new(),
+            censored_path: String::new(),
+            
+            #[cfg(feature = "dev")]
+            active_tab: DataTab::Decrypt,
+            #[cfg(not(feature = "dev"))]
             active_tab: DataTab::Import,
-            import_mode: ImportMode::None,
+
+            import_mode: ImportMode::Zip,
+            
+            export_filename: String::new(),
+            
             #[cfg(feature = "dev")] selected_region: GameRegion::Global,
             compression_level: 6,
             status_message: "Ready".to_owned(),
             log_content: String::new(),
             rx: None,
-            reset_trigger: None,
         }
     }
 }
@@ -85,31 +93,20 @@ impl ImportState {
         let mut finished_just_now = false;
 
         if let Some(rx) = self.rx.take() {
-            let mut done = false;
+            let mut job_finished = false;
             while let Ok(msg) = rx.try_recv() {
                 self.status_message = msg.clone();
                 self.log_content.push_str(&format!("{}\n", msg));
                 
                 if self.status_message.contains("Success") || self.status_message.contains("Error") {
-                    let current_time = ctx.input(|i| i.time);
-                    self.reset_trigger = Some(current_time + 5.0);
-                    done = true;
+                    job_finished = true;
                 }
             }
-            if done { finished_just_now = true; }
-            self.rx = Some(rx);
-            ctx.request_repaint();
-        }
-
-        if let Some(trigger_time) = self.reset_trigger {
-            let current_time = ctx.input(|i| i.time);
-            if current_time >= trigger_time {
-                self.status_message = "Ready".to_string();
-                self.rx = None; 
-                self.reset_trigger = None;
-                self.set_path("No source selected".to_string());
-                self.import_mode = ImportMode::None;
+            
+            if job_finished {
+                finished_just_now = true; 
             } else {
+                self.rx = Some(rx);
                 ctx.request_repaint();
             }
         }

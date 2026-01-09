@@ -19,20 +19,19 @@ use crate::dev::keys;
 #[cfg(feature = "dev")]
 use crate::core::patterns; 
 
-// [DEV] Main Entry Point
 #[cfg(feature = "dev")]
-pub fn run_decryption(target_folder: &str, region_code: &str, tx: Sender<String>) -> Result<(), String> {
-    let input_path = Path::new(target_folder);
-    let output_dir = Path::new("game/raw");
+pub fn run_decryption(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(), String> {
+    let input_path = Path::new(folder_path);
+    let raw_dir = Path::new("game/raw");
     let game_root = Path::new("game");
 
-    if !output_dir.exists() {
-        fs::create_dir_all(output_dir).map_err(|e| e.to_string())?;
+    if !raw_dir.exists() {
+        fs::create_dir_all(raw_dir).map_err(|e| e.to_string())?;
     }
 
     let _ = tx.send("Indexing existing files...".to_string());
-    let index_map = build_file_index(game_root);
-    let index_arc = Arc::new(index_map);
+    let index_map = build_index(game_root);
+    let shared_index = Arc::new(index_map);
 
     let _ = tx.send(format!("Scanning {} version...", region_code));
     
@@ -44,19 +43,17 @@ pub fn run_decryption(target_folder: &str, region_code: &str, tx: Sender<String>
     let count = AtomicI32::new(0);
     let region_ref = region_code.to_string();
 
-    tasks.par_iter().for_each(|task_path| {
-        process_task_file(task_path, output_dir, &count, &tx, &index_arc, &region_ref);
+    tasks.par_iter().for_each(|path| {
+        process_task(path, raw_dir, &count, &tx, &shared_index, &region_ref);
     });
 
     let _ = tx.send(format!("Decryption complete. Processed {} files.", count.load(Ordering::Relaxed)));
     
-    crate::core::import::sort::sort_game_files(tx)
+    Ok(())
 }
 
-// --- Helpers ---
-
 #[cfg(feature = "dev")]
-fn build_file_index(root: &Path) -> std::collections::HashMap<String, Vec<PathBuf>> {
+fn build_index(root: &Path) -> std::collections::HashMap<String, Vec<PathBuf>> {
     let mut index = std::collections::HashMap::new();
     let _ = scan_for_index(root, &mut index);
     index
@@ -95,7 +92,7 @@ fn find_game_files(dir: &Path, list: &mut Vec<PathBuf>) -> std::io::Result<()> {
 }
 
 #[cfg(feature = "dev")]
-fn process_task_file(
+fn process_task(
     path: &Path, 
     out_dir: &Path, 
     count: &AtomicI32, 
@@ -113,8 +110,8 @@ fn process_task_file(
         let pack_path = path.with_extension("pack");
         if pack_path.exists() {
             if let Ok(data) = fs::read(path) {
-                if let Ok(content) = decrypt_list_file(&data) {
-                    let _ = extract_pack_contents(&content, &pack_path, out_dir, count, tx, index, region);
+                if let Ok(content) = decrypt_list(&data) {
+                    let _ = extract_pack(&content, &pack_path, out_dir, count, tx, index, region);
                 }
             }
         }
@@ -122,7 +119,7 @@ fn process_task_file(
 }
 
 #[cfg(feature = "dev")]
-fn decrypt_list_file(data: &[u8]) -> Result<String, String> {
+fn decrypt_list(data: &[u8]) -> Result<String, String> {
     let k_pack = keys::get_md5_key("pack");
     if let Ok(b) = keys::decrypt_ecb_with_key(data, &k_pack) {
         if let Ok(s) = String::from_utf8(b) { return Ok(s); }
@@ -134,17 +131,14 @@ fn decrypt_list_file(data: &[u8]) -> Result<String, String> {
     Err("Decryption failed".into())
 }
 
-// [CRITICAL FIX] Logic to determine correct language code from pack filename
 #[cfg(feature = "dev")]
-fn determine_pack_code(pack_filename: &str, selected_region: &str) -> String {
+fn determine_code(filename: &str, selected_region: &str) -> String {
     if selected_region != "en" {
         return selected_region.to_string();
     }
-    
-    // Legacy logic: Check if filename contains "_es", "_fr", etc.
     for code in patterns::GLOBAL_CODES {
         if *code == "en" { continue; } 
-        if pack_filename.contains(&format!("_{}", code)) {
+        if filename.contains(&format!("_{}", code)) {
             return code.to_string();
         }
     }
@@ -152,7 +146,7 @@ fn determine_pack_code(pack_filename: &str, selected_region: &str) -> String {
 }
 
 #[cfg(feature = "dev")]
-fn extract_pack_contents(
+fn extract_pack(
     content: &str, 
     pack_path: &Path, 
     out_dir: &Path, 
@@ -162,10 +156,8 @@ fn extract_pack_contents(
     region: &str
 ) -> Result<(), String> {
     let mut f = fs::File::open(pack_path).map_err(|e| e.to_string())?;
-    
-    // [CRITICAL FIX] Calculate the correct code for THIS specific pack
-    let pack_name_str = pack_path.file_name().unwrap_or_default().to_string_lossy();
-    let current_pack_code = determine_pack_code(&pack_name_str, region);
+    let pack_name = pack_path.file_name().unwrap_or_default().to_string_lossy();
+    let current_code = determine_code(&pack_name, region);
 
     for line in content.lines() {
         let parts: Vec<&str> = line.split(',').collect();
@@ -186,19 +178,20 @@ fn extract_pack_contents(
         if let Ok((decrypted, _)) = keys::decrypt_pack_chunk(&buf, name) {
             let final_data = &decrypted[..std::cmp::min(size, decrypted.len())];
             
-            // [CRITICAL FIX] Use current_pack_code instead of region
             let target = if patterns::REGION_SENSITIVE_FILES.iter().any(|&x| name.ends_with(x)) {
                  let p = Path::new(name);
                  let stem = p.file_stem().unwrap().to_string_lossy();
                  let ext = p.extension().unwrap().to_string_lossy();
-                 out_dir.join(format!("{}_{}.{}", stem, current_pack_code, ext))
+                 out_dir.join(format!("{}_{}.{}", stem, current_code, ext))
             } else {
                  out_dir.join(name)
             };
 
             if write_smart(&target, final_data, name) {
                 let c = count.fetch_add(1, Ordering::Relaxed);
-                if c % 50 == 0 { let _ = tx.send(format!("Decrypted {} files...", c)); }
+                if c % 50 == 0 { 
+                    let _ = tx.send(format!("Decrypted {} files | Current: {}", c, name)); 
+                }
             }
         }
     }
@@ -229,7 +222,7 @@ fn should_skip(name: &str, size: usize, out_dir: &Path, index: &std::collections
 }
 
 #[cfg(feature = "dev")]
-fn count_lines_bytes(data: &[u8]) -> usize {
+fn count_lines(data: &[u8]) -> usize {
     data.iter().filter(|&&b| b == b'\n').count()
 }
 
@@ -240,8 +233,8 @@ fn write_smart(path: &Path, data: &[u8], filename: &str) -> bool {
     if path.exists() {
         if patterns::CHECK_LINE_FILES.contains(&filename) {
             if let Ok(existing) = fs::read(path) {
-                let old_lines = count_lines_bytes(&existing);
-                let new_lines = count_lines_bytes(data);
+                let old_lines = count_lines(&existing);
+                let new_lines = count_lines(data);
                 if new_lines <= old_lines { return false; }
             }
         } else {
@@ -269,40 +262,40 @@ fn process_apk(
     output_dir: &Path, 
     count: &AtomicI32, 
     tx: &Sender<String>,
-    file_index: &Arc<std::collections::HashMap<String, Vec<PathBuf>>>, 
+    index: &Arc<std::collections::HashMap<String, Vec<PathBuf>>>, 
     region: &str
 ) -> Result<(), String> {
-    let apk_file = fs::File::open(apk_path).map_err(|e| e.to_string())?;
-    let mut zip_archive = ZipArchive::new(apk_file).map_err(|e| e.to_string())?;
+    let f = fs::File::open(apk_path).map_err(|e| e.to_string())?;
+    let mut zip = ZipArchive::new(f).map_err(|e| e.to_string())?;
 
-    let mut list_pack_pairs = Vec::new();
-    for i in 0..zip_archive.len() {
-        if let Ok(file) = zip_archive.by_index(i) {
+    let mut pairs = Vec::new();
+    for i in 0..zip.len() {
+        if let Ok(file) = zip.by_index(i) {
             let name = file.name().to_string();
             if name.ends_with(".list") {
                 let pack = name.replace(".list", ".pack");
-                list_pack_pairs.push((name, pack));
+                pairs.push((name, pack));
             }
         }
     }
 
-    for (list_name, pack_name) in list_pack_pairs {
+    for (list_name, pack_name) in pairs {
         let mut list_data = Vec::new();
-        let mut read_ok = false;
+        let mut ok = false;
 
-        if let Ok(mut f) = zip_archive.by_name(&list_name) {
-            if f.read_to_end(&mut list_data).is_ok() { read_ok = true; }
+        if let Ok(mut f) = zip.by_name(&list_name) {
+            if f.read_to_end(&mut list_data).is_ok() { ok = true; }
         } 
 
-        if read_ok {
-            if let Ok(content) = decrypt_list_file(&list_data) {
-                if let Ok(mut pack_file) = zip_archive.by_name(&pack_name) {
+        if ok {
+            if let Ok(content) = decrypt_list(&list_data) {
+                if let Ok(mut pack) = zip.by_name(&pack_name) {
                     let safe_name = Path::new(&pack_name).file_name().unwrap().to_string_lossy();
                     let temp_path = output_dir.join(format!("_temp_{}", safe_name));
                     
                     if let Ok(mut temp) = fs::File::create(&temp_path) {
-                        if std::io::copy(&mut pack_file, &mut temp).is_ok() {
-                            let _ = extract_pack_contents(&content, &temp_path, output_dir, count, tx, file_index, region);
+                        if std::io::copy(&mut pack, &mut temp).is_ok() {
+                            let _ = extract_pack(&content, &temp_path, output_dir, count, tx, index, region);
                             let _ = fs::remove_file(temp_path);
                         }
                     }

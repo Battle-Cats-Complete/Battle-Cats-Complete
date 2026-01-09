@@ -170,25 +170,32 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
 
     egui::CentralPanel::default().show(ctx, |ui| {
         if state.cats.is_empty() {
-            ui.centered_and_justified(|ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(ui.available_height() * 0.35);
+                
+                ui.set_max_width(400.0);
+
                 if state.scan_receiver.is_some() {
-                    ui.vertical(|ui| {
-                        ui.spinner();
-                        ui.add_space(10.0);
-                        ui.label("Loading Unit Data...");
-                    });
+                    ui.spinner();
+                    ui.add_space(10.0);
+                    ui.label("Loading Unit Data...");
                 } else {
-                    ui.vertical_centered(|ui| {
-                        ui.heading("No Data Found");
-                        ui.label("Could not find any units in game/cats.");
-                        ui.add_space(5.0);
-                        ui.label("Check that 'unitbuy.csv' exists and");
-                        ui.label("unit folders (000, 001...) are present.");
-                        ui.add_space(15.0);
-                        if ui.button("Retry Scan").clicked() {
-                            state.restart_scan(&settings.game_language);
-                        }
-                    });
+                    ui.heading("No Data Found");
+                    
+                    ui.label(egui::RichText::new("Could not find any units in game/cats.")
+                        .color(ui.visuals().weak_text_color()));
+                    
+                    ui.add_space(5.0);
+                    
+                    ui.label("Check that 'unitbuy.csv' exists and");
+                    ui.label("unit folders (000, 001...) are present.");
+                    
+                    ui.add_space(15.0);
+                    
+                    if ui.button("Retry Scan").clicked() {
+                        state.restart_scan(&settings.game_language);
+                        ui.ctx().request_repaint();
+                    }
                 }
             });
             return;

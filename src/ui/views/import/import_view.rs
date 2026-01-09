@@ -45,23 +45,29 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
         let mode = state.import_mode;
 
         thread::spawn(move || {
-            let import_res = match mode {
+            let import_result = match mode {
                 ImportMode::Folder => game_data::import_standard_folder(&path, tx.clone()),
                 ImportMode::Zip => game_data::import_standard_zip(&path, tx.clone()),
                 _ => Err("Invalid mode".to_string()),
             };
 
-            if let Err(e) = import_res {
-                let _ = tx.send(format!("Error Importing: {}", e));
-                return;
+            match import_result {
+                Ok(should_sort) => {
+                    if should_sort {
+                        let _ = tx.send("Starting Sort...".to_string());
+                        if let Err(e) = sort::sort_game_files(tx.clone()) {
+                            let _ = tx.send(format!("Error Sorting: {}", e));
+                        } else {
+                            let _ = tx.send("Success! Files imported and sorted.".to_string());
+                        }
+                    } else {
+
+                    }
+                },
+                Err(e) => {
+                    let _ = tx.send(format!("Error Importing: {}", e));
+                }
             }
-            
-            let _ = tx.send("Starting Sort...".to_string());
-            if let Err(e) = sort::sort_game_files(tx.clone()) {
-                let _ = tx.send(format!("Error Sorting: {}", e));
-                return;
-            }
-            let _ = tx.send("Success! Files imported and sorted.".to_string());
         });
     }
 }
