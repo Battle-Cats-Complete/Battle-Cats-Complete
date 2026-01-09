@@ -11,7 +11,7 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
         ui.heading("Game Data Management");
         ui.add_space(10.0);
 
-        // Tab Selector
+        // Tabs
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 
             let tabs = vec![
@@ -35,7 +35,7 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
 
         ui.add_space(15.0);
 
-        // View Routing
+        // Route to sub-views
         match state.active_tab {
             DataTab::Import => import_view::show(ui, state),
             DataTab::Export => export_view::show(ui, state),
@@ -57,8 +57,21 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
         }
         
         ui.separator();
-        egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
-            ui.monospace(&state.log_content);
-        })
+        
+        // [FIX] Log now expands to fill the remaining space
+        egui::ScrollArea::vertical()
+            .stick_to_bottom(true)
+            .auto_shrink([false, false]) // Critical: Tells it NOT to shrink, but to fill
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width()); // Force full width
+                
+                // Use a read-only TextEdit for better copy-paste and layout than labels
+                ui.add_sized(
+                    ui.available_size(),
+                    egui::TextEdit::multiline(&mut state.log_content.as_str())
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY)
+                );
+            });
     });
 }
