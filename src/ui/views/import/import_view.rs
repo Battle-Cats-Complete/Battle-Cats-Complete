@@ -4,7 +4,7 @@ use std::thread;
 use crate::core::import::{ImportState, ImportMode, game_data, sort};
 
 pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
-    ui.label(egui::RichText::new("Import/Extract game files.").strong());
+    ui.label(egui::RichText::new("Import/Restore game files.").strong());
     ui.add_space(10.0);
     
     ui.horizontal(|ui| {
@@ -32,11 +32,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
         ui.monospace(&state.censored_path);
     });
 
-    ui.add_space(5.0);
-    
-    // [OPTIONAL] You can re-add the Region selector here if you want it visible for Import too.
-    // For now, defaulting to EN or using the state's selected_region if Dev.
-    
     ui.add_space(15.0);
     let can_start = state.selected_path != "No source selected" && state.rx.is_none() && state.import_mode != ImportMode::None;
     
@@ -48,22 +43,16 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
         
         let path = state.selected_path.clone();
         let mode = state.import_mode;
-        
-        // Simple default for public build, or use state.selected_region for dev
-        #[cfg(feature = "dev")]
-        let region = state.selected_region.code().to_string();
-        #[cfg(not(feature = "dev"))]
-        let region = "en".to_string();
 
         thread::spawn(move || {
-            let extract_res = match mode {
-                ImportMode::Folder => game_data::import_all_from_folder(&path, &region, tx.clone()),
-                ImportMode::Zip => game_data::import_all_from_zip(&path, &region, tx.clone()),
+            let import_res = match mode {
+                ImportMode::Folder => game_data::import_standard_folder(&path, tx.clone()),
+                ImportMode::Zip => game_data::import_standard_zip(&path, tx.clone()),
                 _ => Err("Invalid mode".to_string()),
             };
 
-            if let Err(e) = extract_res {
-                let _ = tx.send(format!("Error Extracting: {}", e));
+            if let Err(e) = import_res {
+                let _ = tx.send(format!("Error Importing: {}", e));
                 return;
             }
             
@@ -72,7 +61,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
                 let _ = tx.send(format!("Error Sorting: {}", e));
                 return;
             }
-            let _ = tx.send("Success! Files extracted and sorted.".to_string());
+            let _ = tx.send("Success! Files imported and sorted.".to_string());
         });
     }
 }
