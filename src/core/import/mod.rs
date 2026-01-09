@@ -92,6 +92,7 @@ impl ImportState {
         self.import_censored = censor_path(&self.import_path);
     }
 
+    #[cfg(feature = "dev")]
     pub fn set_decrypt_path(&mut self, path: String) {
         self.decrypt_path = path;
         self.decrypt_censored = censor_path(&self.decrypt_path);
