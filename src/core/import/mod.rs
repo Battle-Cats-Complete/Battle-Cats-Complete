@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::mpsc::Receiver;
 use std::env;
 use eframe::egui;
-use std::path::{Path, PathBuf}; // [ADDED] Needed for component splitting
+use std::path::{Path, PathBuf};
 
 pub mod game_data; 
 pub mod sort;
@@ -40,11 +40,9 @@ pub enum ImportMode { None, Folder, Zip }
 #[derive(Deserialize, Serialize)]
 #[serde(default)]
 pub struct ImportState {
-    // Separate Import Paths
     pub import_path: String,
     #[serde(skip)] pub import_censored: String,
     
-    // Separate Decrypt Paths
     pub decrypt_path: String,
     #[serde(skip)] pub decrypt_censored: String,
     
@@ -100,7 +98,6 @@ impl ImportState {
     }
 
     pub fn update(&mut self, ctx: &egui::Context, settings: &mut Settings) -> bool {
-        // Sync censored paths if they are somehow empty but the real path isn't
         if self.import_censored.is_empty() && !self.import_path.is_empty() {
              self.import_censored = censor_path(&self.import_path);
         }
@@ -137,26 +134,22 @@ impl ImportState {
     }
 }
 
-// [CHANGE] "Tail-Only" Censor Logic
 fn censor_path(path: &str) -> String {
     if path.is_empty() || path == "No source selected" { return String::new(); }
     
     let mut clean = path.to_string();
     
-    // 1. Hide Username
     if let Ok(user) = env::var("USERNAME").or_else(|_| env::var("USER")) {
         if !user.is_empty() { 
             clean = clean.replace(&user, "***"); 
         }
     }
 
-    // 2. Keep only the last 3 components
     let path_obj = Path::new(&clean);
     let components: Vec<_> = path_obj.components().collect();
     
     if components.len() > 3 {
         let len = components.len();
-        // Collect the last 3 folders/files (e.g. "Downloads", "MyGame", "game.zip")
         let last_parts: PathBuf = components[len-3..].iter().collect();
         return last_parts.to_string_lossy().to_string();
     }
