@@ -2,6 +2,11 @@ name: Sync to Public Repo
 
 on:
   workflow_dispatch:
+    inputs:
+      commit_msg:
+        description: 'Optional: Enter a description of changes (defaults to timestamp if empty)'
+        required: false
+        type: string
 
 jobs:
   sync_and_sanitize:
@@ -26,9 +31,8 @@ jobs:
       - name: Sync and Overwrite
         run: |
           # Sync Files using rsync
-          # --delete: Removes files in public_repo that no longer exist in source_repo (cleans up old architecture)
+          # --delete: Removes files in public_repo that no longer exist in source_repo
           # --exclude 'src/dev': Keeps your dev tools private
-          # --exclude '.git': Protects the public repo's history
           
           rsync -av --delete \
             --exclude '.git' \
@@ -36,23 +40,31 @@ jobs:
             --exclude 'src/dev' \
             source_repo/ public_repo/
 
-      # 4. Commit to Public
+      # 4. Commit to Public with Smart Message Logic
       - name: Commit and Push
         run: |
           cd public_repo
           
-          # Configure Git
-          # Change these to your preferred public identity if needed
+          # Configure Git with Verified No-Reply Identity
           git config user.name "WonderMOMOCO"
           git config user.email "WonderMOMOCO@users.noreply.github.com"
           
-          # Add all changes (including deletions from the rsync)
           git add .
           
-          # Commit only if there are changes
+          # Generate Timestamp for the fallback message
+          TIMESTAMP=$(TZ="America/New_York" date +'%Y-%m-%d | %H:%M:%S')
+          
+          # Logic: Use the manual input if provided, otherwise use the timestamp
+          if [[ "${{ github.event.inputs.commit_msg }}" != "" ]]; then
+            FINAL_MSG="${{ github.event.inputs.commit_msg }}"
+          else
+            FINAL_MSG="Update: $TIMESTAMP"
+          fi
+          
+          # Only commit and push if there are actual file changes
           if [[ -n $(git status -s) ]]; then
-            git commit -m "Refactor Update: v0.3.0"
+            git commit -m "$FINAL_MSG"
             git push origin main
           else
-            echo "No changes to sync."
+            echo "No changes detected. Skipping sync."
           fi
