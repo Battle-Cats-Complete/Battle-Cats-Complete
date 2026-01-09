@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::mpsc::Receiver;
 use std::env;
 use eframe::egui;
+use std::path::{Path, PathBuf}; // [ADDED] Needed for component splitting
 
 pub mod game_data; 
 pub mod sort;
@@ -39,8 +40,13 @@ pub enum ImportMode { None, Folder, Zip }
 #[derive(Deserialize, Serialize)]
 #[serde(default)]
 pub struct ImportState {
-    pub selected_path: String,
-    #[serde(skip)] pub censored_path: String,
+    // Separate Import Paths
+    pub import_path: String,
+    #[serde(skip)] pub import_censored: String,
+    
+    // Separate Decrypt Paths
+    pub decrypt_path: String,
+    #[serde(skip)] pub decrypt_censored: String,
     
     pub active_tab: DataTab,
     pub import_mode: ImportMode,
@@ -58,11 +64,14 @@ pub struct ImportState {
 impl Default for ImportState {
     fn default() -> Self {
         Self {
-            selected_path: String::new(),
-            censored_path: String::new(),
+            import_path: String::new(),
+            import_censored: String::new(),
+            
+            decrypt_path: String::new(),
+            decrypt_censored: String::new(),
             
             #[cfg(feature = "dev")]
-            active_tab: DataTab::Decrypt,
+            active_tab: DataTab::Export,
             #[cfg(not(feature = "dev"))]
             active_tab: DataTab::Import,
 
@@ -80,14 +89,23 @@ impl Default for ImportState {
 }
 
 impl ImportState {
-    pub fn set_path(&mut self, path: String) {
-        self.selected_path = path;
-        self.censored_path = censor_path(&self.selected_path);
+    pub fn set_import_path(&mut self, path: String) {
+        self.import_path = path;
+        self.import_censored = censor_path(&self.import_path);
+    }
+
+    pub fn set_decrypt_path(&mut self, path: String) {
+        self.decrypt_path = path;
+        self.decrypt_censored = censor_path(&self.decrypt_path);
     }
 
     pub fn update(&mut self, ctx: &egui::Context, settings: &mut Settings) -> bool {
-        if self.censored_path.is_empty() && !self.selected_path.is_empty() {
-             self.censored_path = censor_path(&self.selected_path);
+        // Sync censored paths if they are somehow empty but the real path isn't
+        if self.import_censored.is_empty() && !self.import_path.is_empty() {
+             self.import_censored = censor_path(&self.import_path);
+        }
+        if self.decrypt_censored.is_empty() && !self.decrypt_path.is_empty() {
+             self.decrypt_censored = censor_path(&self.decrypt_path);
         }
 
         let mut finished_just_now = false;
@@ -119,10 +137,29 @@ impl ImportState {
     }
 }
 
+// [CHANGE] "Tail-Only" Censor Logic
 fn censor_path(path: &str) -> String {
-    if path == "No source selected" { return path.to_string(); }
+    if path.is_empty() || path == "No source selected" { return String::new(); }
+    
+    let mut clean = path.to_string();
+    
+    // 1. Hide Username
     if let Ok(user) = env::var("USERNAME").or_else(|_| env::var("USER")) {
-        if !user.is_empty() { return path.replace(&user, "***"); }
+        if !user.is_empty() { 
+            clean = clean.replace(&user, "***"); 
+        }
     }
-    path.to_string()
+
+    // 2. Keep only the last 3 components
+    let path_obj = Path::new(&clean);
+    let components: Vec<_> = path_obj.components().collect();
+    
+    if components.len() > 3 {
+        let len = components.len();
+        // Collect the last 3 folders/files (e.g. "Downloads", "MyGame", "game.zip")
+        let last_parts: PathBuf = components[len-3..].iter().collect();
+        return last_parts.to_string_lossy().to_string();
+    }
+    
+    clean
 }

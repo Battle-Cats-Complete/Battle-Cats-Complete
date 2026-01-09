@@ -4,7 +4,6 @@ use crate::core::import::{ImportState, DataTab};
 pub mod import_view;
 pub mod export_view;
 
-// Only compile extract view if in dev mode
 #[cfg(feature = "dev")]
 pub mod decrypt_view;
 
@@ -13,11 +12,9 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
         ui.heading("Game Data Management");
         ui.add_space(10.0);
 
-        // Tabs
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 
             
-            // Build tab list dynamically based on features
             let mut tabs = Vec::new();
             #[cfg(feature = "dev")]
             tabs.push((DataTab::Decrypt, "Decrypt"));
@@ -39,7 +36,6 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
 
         ui.add_space(15.0);
 
-        // Route to sub-views
         match state.active_tab {
             DataTab::Import => import_view::show(ui, state),
             DataTab::Export => export_view::show(ui, state),
@@ -50,7 +46,6 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
         ui.add_space(15.0);
         ui.separator(); 
 
-        // Status Bar
         if state.rx.is_some() && !state.status_message.contains("Success") && !state.status_message.contains("Error") {
             ui.horizontal(|ui| { ui.spinner(); ui.label(&state.status_message); });
         } else {

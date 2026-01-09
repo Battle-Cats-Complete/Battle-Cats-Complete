@@ -27,16 +27,19 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
         let btn_enabled = state.rx.is_none();
         if ui.add_enabled(btn_enabled, egui::Button::new("Select Game Folder")).clicked() {
             if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                state.set_path(path.display().to_string());
+                // [CHANGE] Use Decrypt-specific setter
+                state.set_decrypt_path(path.display().to_string());
                 state.status_message = "Folder selected.".to_string();
             }
         }
-        ui.monospace(&state.censored_path);
+        // [CHANGE] Use Decrypt-specific censored string
+        ui.monospace(&state.decrypt_censored);
     });
 
     ui.add_space(15.0);
 
-    let can_start = state.selected_path != "No source selected" && state.rx.is_none();
+    // [CHANGE] Use decrypt_path for validation
+    let can_start = !state.decrypt_path.is_empty() && state.rx.is_none();
     
     if ui.add_enabled(can_start, egui::Button::new("Start Decryption")).clicked() {
         state.status_message = "Initializing Decryptor...".to_string();
@@ -45,7 +48,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
         let (tx, rx) = mpsc::channel();
         state.rx = Some(rx);
 
-        let folder = state.selected_path.clone();
+        // [CHANGE] Use decrypt_path for execution
+        let folder = state.decrypt_path.clone();
         let region = state.selected_region.code().to_string();
 
         std::thread::spawn(move || {
