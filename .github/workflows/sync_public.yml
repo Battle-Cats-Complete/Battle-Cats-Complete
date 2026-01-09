@@ -44,7 +44,7 @@ jobs:
           # Configure Git
           # Change these to your preferred public identity if needed
           git config user.name "WonderMOMOCO"
-          git config user.email "your_email@example.com"
+          git config user.email "wondermomoco69@gmail.com"
           
           # Add all changes (including deletions from the rsync)
           git add .
