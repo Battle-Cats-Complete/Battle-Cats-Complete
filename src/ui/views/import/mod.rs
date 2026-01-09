@@ -3,8 +3,10 @@ use crate::core::import::{ImportState, DataTab};
 
 pub mod import_view;
 pub mod export_view;
+
+// Only compile extract view if in dev mode
 #[cfg(feature = "dev")]
-pub mod extract_view;
+pub mod decrypt_view;
 
 pub fn show(ctx: &egui::Context, state: &mut ImportState) {
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -14,11 +16,13 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
         // Tabs
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 
-            let tabs = vec![
-                #[cfg(feature = "dev")] (DataTab::Extract, "Extract"),
-                (DataTab::Import, "Import"), 
-                (DataTab::Export, "Export")
-            ];
+            
+            // Build tab list dynamically based on features
+            let mut tabs = Vec::new();
+            #[cfg(feature = "dev")]
+            tabs.push((DataTab::Decrypt, "Decrypt"));
+            tabs.push((DataTab::Import, "Import"));
+            tabs.push((DataTab::Export, "Export"));
 
             for (tab, label) in tabs {
                 let is_selected = state.active_tab == tab;
@@ -40,7 +44,7 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
             DataTab::Import => import_view::show(ui, state),
             DataTab::Export => export_view::show(ui, state),
             #[cfg(feature = "dev")]
-            DataTab::Extract => extract_view::show(ui, state),
+            DataTab::Decrypt => decrypt_view::show(ui, state),
         }
 
         ui.add_space(15.0);
@@ -58,14 +62,11 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
         
         ui.separator();
         
-        // [FIX] Log now expands to fill the remaining space
         egui::ScrollArea::vertical()
             .stick_to_bottom(true)
-            .auto_shrink([false, false]) // Critical: Tells it NOT to shrink, but to fill
+            .auto_shrink([false, false]) 
             .show(ui, |ui| {
-                ui.set_min_width(ui.available_width()); // Force full width
-                
-                // Use a read-only TextEdit for better copy-paste and layout than labels
+                ui.set_min_width(ui.available_width());
                 ui.add_sized(
                     ui.available_size(),
                     egui::TextEdit::multiline(&mut state.log_content.as_str())

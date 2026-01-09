@@ -1,20 +1,20 @@
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::Receiver;
-use std::path::{Path, PathBuf};
 use std::env;
 use eframe::egui;
 
-// Logic Modules
 pub mod game_data; 
 pub mod sort;
 
 use crate::core::settings::Settings;
 
+#[cfg(feature = "dev")]
 #[derive(PartialEq, Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum GameRegion {
     Japan, Taiwan, Korean, Global,
 }
 
+#[cfg(feature = "dev")]
 impl GameRegion {
     pub fn code(&self) -> &'static str {
         match self {
@@ -28,7 +28,7 @@ impl GameRegion {
 
 #[derive(PartialEq, Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum DataTab {
-    #[cfg(feature = "dev")] Extract, 
+    #[cfg(feature = "dev")] Decrypt, 
     Import, 
     Export 
 }
@@ -39,7 +39,6 @@ pub enum ImportMode { None, Folder, Zip }
 #[derive(Deserialize, Serialize)]
 #[serde(default)]
 pub struct ImportState {
-    // [UNIFIED STATE] Replaces separate folder/zip/extract variables
     pub selected_path: String,
     #[serde(skip)] pub censored_path: String,
     
@@ -73,14 +72,12 @@ impl Default for ImportState {
 }
 
 impl ImportState {
-    // Unified Setter
     pub fn set_path(&mut self, path: String) {
         self.selected_path = path;
         self.censored_path = censor_path(&self.selected_path);
     }
 
     pub fn update(&mut self, ctx: &egui::Context, settings: &mut Settings) -> bool {
-        // Ensure path is censored if loaded from save file
         if self.censored_path.is_empty() && !self.selected_path.is_empty() {
              self.censored_path = censor_path(&self.selected_path);
         }
@@ -89,7 +86,6 @@ impl ImportState {
 
         if let Some(rx) = self.rx.take() {
             let mut done = false;
-            // [CRITICAL] The working "Drain Loop"
             while let Ok(msg) = rx.try_recv() {
                 self.status_message = msg.clone();
                 self.log_content.push_str(&format!("{}\n", msg));
@@ -101,7 +97,7 @@ impl ImportState {
                 }
             }
             if done { finished_just_now = true; }
-            self.rx = Some(rx); // Put it back for next frame
+            self.rx = Some(rx);
             ctx.request_repaint();
         }
 
@@ -118,7 +114,6 @@ impl ImportState {
             }
         }
 
-        // Trigger settings scan on success
         if finished_just_now && self.status_message.contains("Success") {
             settings.rx_lang = Some(crate::core::settings::lang::start_scan());
         }

@@ -6,7 +6,6 @@ use regex::Regex;
 use crate::core::patterns; 
 
 fn count_lines(path: &Path) -> usize {
-    // Safety check for binary files to prevent read hangs
     if let Some(ext) = path.extension() {
         let s = ext.to_string_lossy();
         if s == "png" || s == "imgcut" || s == "mamodel" { return 0; }
@@ -170,7 +169,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
         }
     }
 
-    // LEGACY: Send success message
     let _ = tx.send("Success! Files sorted.".to_string());
     Ok(())
 }
