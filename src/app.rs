@@ -102,10 +102,14 @@ impl eframe::App for BattleCatsApp {
             ctx.request_repaint();
         }
 
+        // [LEGACY RESTORATION]
+        // import_state.update handles Language Scan internally (see mod.rs).
+        // It returns 'true' on success, allowing us to trigger the Cat Scan here.
         let import_finished = self.import_state.update(ctx, &mut self.settings);
+        
         if import_finished {
-            // Refresh if new data was imported/sorted
             self.cat_list_state.restart_scan(&self.settings.game_language);
+            ctx.request_repaint(); // Force repaint to show new data
         }
 
         // Global Style Overrides
@@ -146,7 +150,7 @@ impl eframe::App for BattleCatsApp {
                 }
             }
         }
-
+        
         // Sidebar & Navigation Logic
         let sidebar_inner_width = 150.0; 
         let sidebar_margin = 15.0;       
