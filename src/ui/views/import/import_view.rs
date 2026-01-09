@@ -24,19 +24,16 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
                 _ => None,
             };
             if let Some(path) = res {
-                // [CHANGE] Use Import-specific setter
                 state.set_import_path(path.display().to_string());
                 state.status_message = "Source selected.".to_string();
                 state.log_content.clear();
             }
         }
-        // [CHANGE] Use Import-specific censored string
         ui.monospace(&state.import_censored);
     });
 
     ui.add_space(15.0);
     
-    // [CHANGE] Use import_path for validation
     let can_start = !state.import_path.is_empty() && state.rx.is_none() && state.import_mode != ImportMode::None;
     
     if ui.add_enabled(can_start, egui::Button::new("Start Import")).clicked() {
@@ -45,7 +42,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
         let (tx, rx) = mpsc::channel();
         state.rx = Some(rx);
         
-        // [CHANGE] Use import_path for execution
         let path = state.import_path.clone();
         let mode = state.import_mode;
 
@@ -66,7 +62,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
                             let _ = tx.send("Success! Files imported and sorted.".to_string());
                         }
                     } else {
-                        // Smart Import success - worker already sent success msg
                     }
                 },
                 Err(e) => {
