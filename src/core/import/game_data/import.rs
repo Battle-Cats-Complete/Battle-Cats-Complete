@@ -166,7 +166,6 @@ pub fn import_from_zip(path_str: &str, tx: Sender<String>) -> Result<bool, Strin
     Ok(true)
 }
 
-// Helpers
 fn scan_dir(dir: &Path, list: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if dir.is_dir() {
         for entry in fs::read_dir(dir)? {
