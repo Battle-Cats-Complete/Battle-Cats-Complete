@@ -7,6 +7,22 @@ pub mod export_view;
 #[cfg(feature = "dev")]
 pub mod decrypt_view;
 
+#[cfg(feature = "dev")]
+pub mod keys;
+#[cfg(feature = "dev")]
+pub mod decrypt;
+#[cfg(feature = "dev")]
+pub mod modpack;
+
+#[cfg(feature = "dev")]
+pub fn run_decryption(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(), String> {
+    if region_code == "mod" {
+        modpack::run(folder_path, tx)
+    } else {
+        decrypt::run(folder_path, region_code, tx)
+    }
+}
+
 pub fn show(ctx: &egui::Context, state: &mut ImportState) {
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.heading("Game Data Management");
@@ -62,11 +78,11 @@ pub fn show(ctx: &egui::Context, state: &mut ImportState) {
             .auto_shrink([false, false]) 
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                ui.add_sized(
-                    ui.available_size(),
-                    egui::TextEdit::multiline(&mut state.log_content.as_str())
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(f32::INFINITY)
+                
+                ui.label(
+                    egui::RichText::new(&state.log_content)
+                    .monospace()
+                    .size(12.0)
                 );
             });
     });
