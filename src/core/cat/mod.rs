@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub mod scanner;
 pub mod stats;
 pub mod abilities; 
+pub mod talents;
 
 use crate::ui::components::cat_list::CatList; 
 use crate::ui::views::cat_detail; 

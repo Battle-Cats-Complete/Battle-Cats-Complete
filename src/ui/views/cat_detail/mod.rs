@@ -9,13 +9,14 @@ use crate::core::settings::Settings;
 mod header;
 mod stats;
 mod abilities;
+mod talents; // Added
 
 pub fn show(
     ctx: &egui::Context, 
     ui: &mut egui::Ui, 
     cat: &CatEntry, 
     current_form: &mut usize,
-    current_tab: &mut DetailTab,
+    current_tab: &mut DetailTab, 
     level_input: &mut String,   
     current_level: &mut i32,    
     texture_cache: &mut Option<egui::TextureHandle>,
@@ -33,7 +34,7 @@ pub fn show(
         ui, 
         cat, 
         current_form, 
-        current_tab,
+        current_tab, 
         current_level, 
         level_input, 
         texture_cache, 
@@ -44,6 +45,7 @@ pub fn show(
     ui.separator(); 
     ui.add_space(0.0);
 
+    // Asset Loading
     if multihit_texture.is_none() {
         const MULTIHIT_BYTES: &[u8] = include_bytes!("../../../assets/multihit.png");
         if let Ok(img) = image::load_from_memory(MULTIHIT_BYTES) {
@@ -66,6 +68,7 @@ pub fn show(
         }
     }
 
+    // Main Content Switching
     match current_tab {
         DetailTab::Abilities => {
             let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
@@ -97,14 +100,20 @@ pub fn show(
                     }
                 });
         },
+        DetailTab::Talents => {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    if let Some(raw) = &cat.talent_data {
+                        talents::render(ui, raw, sprite_sheet);
+                    } else {
+                        ui.label("Error: Talents expected but not found.");
+                    }
+                });
+        },
         DetailTab::Details => {
             ui.centered_and_justified(|ui| {
                 ui.heading("Details Coming Soon");
-            });
-        },
-        DetailTab::Talents => {
-            ui.centered_and_justified(|ui| {
-                ui.heading("Talents Coming Soon");
             });
         }
     }

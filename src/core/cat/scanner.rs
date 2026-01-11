@@ -10,7 +10,7 @@ use crate::core::patterns;
 use crate::core::files::unitid::CatRaw;
 use crate::core::files::unitbuy::{self, UnitBuyRow};
 use crate::core::files::unitlevel::{self, CatLevelCurve};
-use crate::core::files::SkillAcquisition; // Import
+use crate::core::files::skillacquisition::{self, TalentRaw}; 
 
 pub const SCAN_PRIORITY: &[&str] = &["en", "ja", "tw", "ko", "es", "de", "fr", "it", "th", ""];
 
@@ -24,7 +24,7 @@ pub struct CatEntry {
     pub curve: Option<CatLevelCurve>,
     pub atk_anim_frames: [i32; 4], 
     pub egg_ids: (i32, i32),
-    pub has_talents: bool, // Added field
+    pub talent_data: Option<TalentRaw>, // Changed from bool to Option<Data>
 }
 
 pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
@@ -35,8 +35,7 @@ pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
         
         let level_curves_arc = Arc::new(unitlevel::load_level_curves(cats_directory));
         let unit_buy_map_arc = Arc::new(unitbuy::load_unitbuy(cats_directory));
-        // Load talent IDs
-        let talent_ids_arc = Arc::new(SkillAcquisition::load(cats_directory));
+        let talent_map_arc = Arc::new(skillacquisition::load(cats_directory));
         
         let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
             Ok(read_dir_iter) => read_dir_iter
@@ -51,7 +50,7 @@ pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
             let sender_clone = cat_sender.clone();
             let curves_clone = Arc::clone(&level_curves_arc);
             let unit_buys_clone = Arc::clone(&unit_buy_map_arc);
-            let talents_clone = Arc::clone(&talent_ids_arc);
+            let talents_clone = Arc::clone(&talent_map_arc);
             
             if let Some(cat_entry) = process_cat_entry(folder_path, &curves_clone, &unit_buys_clone, &talents_clone, &language_code) {
                 let _ = sender_clone.send(cat_entry);
@@ -65,7 +64,7 @@ fn process_cat_entry(
     original_folder_path: &Path, 
     level_curves: &Vec<CatLevelCurve>, 
     unit_buys: &std::collections::HashMap<u32, UnitBuyRow>,
-    talent_ids: &std::collections::HashSet<i32>,
+    talents_map: &std::collections::HashMap<u16, TalentRaw>, 
     language_code: &str
 ) -> Option<CatEntry> {
     
@@ -166,14 +165,9 @@ fn process_cat_entry(
     match image::open(&valid_image_path) {
         Ok(img) => {
             let (w, h) = img.dimensions();
-            
-            if w < 50 || h < 30 {
-                return None;
-            }
+            if w < 50 || h < 30 { return None; }
         },
-        Err(_) => {
-            return None;
-        }
+        Err(_) => { return None; }
     }
     
     let mut cat_names = vec![String::new(); 4];
@@ -225,6 +219,9 @@ fn process_cat_entry(
         }
     }
 
+    // Capture the Talent data
+    let talent_data = talents_map.get(&(cat_id as u16)).cloned();
+
     Some(CatEntry { 
         id: cat_id, 
         image_path: valid_image_path,
@@ -234,7 +231,7 @@ fn process_cat_entry(
         curve: level_curves.get(cat_id as usize).cloned(),
         atk_anim_frames: attack_anim_frames,
         egg_ids: (ub_row.egg_id_normal, ub_row.egg_id_evolved),
-        has_talents: talent_ids.contains(&(cat_id as i32)), // Check talent existence
+        talent_data, // Store full struct
     })
 }
 

@@ -25,7 +25,6 @@ pub const ICON_OMNI_STRIKE: usize = 117;
 pub const ICON_LONG_DISTANCE: usize = 217;
 pub const ICON_MULTIHIT: usize = 9999; // Mock ID
 
-
 // Target Abiltiies
 pub const ICON_ATTACK_ONLY: usize = 207;
 pub const ICON_STRONG_AGAINST: usize = 208;
@@ -94,6 +93,8 @@ pub const ICON_IMPROVE_KNOCKBACKS: usize = 103;
 pub const ICON_ATTACK_BUFF: usize = 123;
 pub const ICON_HEALTH_BUFF: usize = 125;
 pub const ICON_TBA_DOWN: usize = 310;
+pub const ICON_COST_DOWN: usize = 97;
+pub const ICON_RECOVER_SPEED_UP: usize = 99;
 
 // Resist
 pub const ICON_RESIST_WEAKEN: usize = 48;
@@ -195,6 +196,26 @@ pub fn img015_alt(id: usize) -> &'static str {
         // Counters
         ICON_WAVE_BLOCK => "W-Blk",
         ICON_COUNTER_SURGE => "C-Srg",
+
+        // Talent Only
+        ICON_MOVE_SPEED => "Spd",
+        ICON_IMPROVE_KNOCKBACKS => "KB+",
+        ICON_ATTACK_BUFF => "Atk+",
+        ICON_HEALTH_BUFF => "HP+",
+        ICON_TBA_DOWN => "TBA-",
+        ICON_COST_DOWN => "Cost-",
+        ICON_RECOVER_SPEED_UP => "Rec+",
+
+        // Resist
+        ICON_RESIST_WEAKEN => "ReWkn",
+        ICON_RESIST_FREEZE => "ReFrz",
+        ICON_RESIST_SLOW => "ReSlw",
+        ICON_RESIST_KNOCKBACK => "ReKB",
+        ICON_RESIST_WAVE => "ReWav",
+        ICON_RESIST_WARP => "ReWrp",
+        ICON_RESIST_CURSE => "ReCur",
+        ICON_RESIST_TOXIC => "ReTox",
+        ICON_SURGE_RESIST => "ReSrg",
 
         _ => "???",
     }
