@@ -42,6 +42,10 @@ pub struct CatListState {
     pub sprite_sheet: SpriteSheet, 
     #[serde(skip)]
     pub multihit_texture: Option<egui::TextureHandle>,
+    #[serde(skip)]
+    pub kamikaze_texture: Option<egui::TextureHandle>,
+    #[serde(skip)]
+    pub boss_wave_immune_texture: Option<egui::TextureHandle>,
 
     #[serde(skip)]
     pub initialized: bool,
@@ -62,6 +66,8 @@ impl Default for CatListState {
             detail_key: String::new(),
             sprite_sheet: SpriteSheet::default(), 
             multihit_texture: None,
+            kamikaze_texture: None,
+            boss_wave_immune_texture: None,
             initialized: false, 
         }
     }
@@ -228,6 +234,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             &mut state.detail_key,
             &mut state.sprite_sheet,
             &mut state.multihit_texture,
+            &mut state.kamikaze_texture,
+            &mut state.boss_wave_immune_texture,
             settings
         );
     });

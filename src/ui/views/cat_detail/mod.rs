@@ -20,6 +20,8 @@ pub fn show(
     current_key: &mut String,
     sprite_sheet: &mut SpriteSheet,
     multihit_texture: &mut Option<egui::TextureHandle>,
+    kamikaze_texture: &mut Option<egui::TextureHandle>,
+    boss_wave_immune_texture: &mut Option<egui::TextureHandle>,
     settings: &Settings,
 ) {
     img015::ensure_loaded(ctx, sprite_sheet, settings);
@@ -53,6 +55,35 @@ pub fn show(
             ));
         }
     }
+    if kamikaze_texture.is_none() {
+        const KAMIKAZE_BYTES: &[u8] = include_bytes!("../../../assets/kamikaze.png");
+        if let Ok(img) = image::load_from_memory(KAMIKAZE_BYTES) {
+            let rgba = img.to_rgba8();
+            *kamikaze_texture = Some(ctx.load_texture(
+                "kamikaze_icon",
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [rgba.width() as usize, rgba.height() as usize],
+                    rgba.as_flat_samples().as_slice()
+                ),
+                egui::TextureOptions::LINEAR
+            ));
+        }
+    }
+
+    if boss_wave_immune_texture.is_none() {
+        const BOSS_WAVE_BYTES: &[u8] = include_bytes!("../../../assets/boss_wave_immune.png");
+        if let Ok(img) = image::load_from_memory(BOSS_WAVE_BYTES) {
+            let rgba = img.to_rgba8();
+            *boss_wave_immune_texture = Some(ctx.load_texture(
+                "boss_wave_immune_icon",
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [rgba.width() as usize, rgba.height() as usize],
+                    rgba.as_flat_samples().as_slice()
+                ),
+                egui::TextureOptions::LINEAR
+            ));
+        }
+    }
 
     let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
 
@@ -74,7 +105,9 @@ pub fn show(
                     cat, 
                     *current_level, 
                     sprite_sheet, 
-                    multihit_texture, 
+                    multihit_texture,
+                    kamikaze_texture,
+                    boss_wave_immune_texture,
                     settings
                 );
                 ui.add_space(5.0);
