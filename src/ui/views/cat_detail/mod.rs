@@ -1,4 +1,5 @@
 use eframe::egui;
+use std::collections::HashMap; // Added
 
 use crate::core::cat::scanner::CatEntry;
 use crate::core::cat::DetailTab;
@@ -9,7 +10,7 @@ use crate::core::settings::Settings;
 mod header;
 mod stats;
 mod abilities;
-mod talents; // Added
+mod talents; 
 
 pub fn show(
     ctx: &egui::Context, 
@@ -25,6 +26,7 @@ pub fn show(
     multihit_texture: &mut Option<egui::TextureHandle>,
     kamikaze_texture: &mut Option<egui::TextureHandle>,
     boss_wave_immune_texture: &mut Option<egui::TextureHandle>,
+    talent_name_cache: &mut HashMap<String, egui::TextureHandle>, // Added arg
     settings: &Settings,
 ) {
     img015::ensure_loaded(ctx, sprite_sheet, settings);
@@ -68,7 +70,6 @@ pub fn show(
         }
     }
 
-    // Main Content Switching
     match current_tab {
         DetailTab::Abilities => {
             let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
@@ -105,7 +106,8 @@ pub fn show(
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     if let Some(raw) = &cat.talent_data {
-                        talents::render(ui, raw, sprite_sheet);
+                        // Pass the cache here
+                        talents::render(ui, raw, sprite_sheet, talent_name_cache);
                     } else {
                         ui.label("Error: Talents expected but not found.");
                     }

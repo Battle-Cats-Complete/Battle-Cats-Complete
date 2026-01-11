@@ -58,7 +58,11 @@ fn parse_line(line: &str) -> Option<TalentRaw> {
         let get = |idx: usize| -> u16 { p[idx].trim().parse::<u16>().unwrap_or(0) };
         
         let ability_id: u8 = get(0) as u8;
-        if ability_id == 0 { continue; } // Empty slot
+        // Parse name_id early to check it
+        let name_id: i16 = p[12].trim().parse().unwrap_or(-1);
+
+        // MODIFIED: Only skip if BOTH ability_id is 0 AND name_id is invalid (-1)
+        if ability_id == 0 && name_id == -1 { continue; } 
 
         groups.push(TalentGroupRaw {
             ability_id,
@@ -69,7 +73,7 @@ fn parse_line(line: &str) -> Option<TalentRaw> {
             min_4: get(8), max_4: get(9),
             text_id: get(10) as u8,
             cost_id: get(11) as u8,
-            name_id: p[12].trim().parse().unwrap_or(-1),
+            name_id,
             limit: get(13) as u8,
         });
     }

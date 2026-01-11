@@ -1,5 +1,6 @@
 use eframe::egui;
 use std::sync::mpsc::{Receiver, TryRecvError};
+use std::collections::HashMap; // Added import
 use crate::core::utils::SoftReset; 
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +61,10 @@ pub struct CatListState {
     pub kamikaze_texture: Option<egui::TextureHandle>,
     #[serde(skip)]
     pub boss_wave_immune_texture: Option<egui::TextureHandle>,
+    
+    // Cache for Talent Name Images (e.g. "Skill_name_024.png")
+    #[serde(skip)]
+    pub talent_name_textures: HashMap<String, egui::TextureHandle>, 
 
     #[serde(skip)]
     pub initialized: bool,
@@ -83,6 +88,7 @@ impl Default for CatListState {
             multihit_texture: None,
             kamikaze_texture: None,
             boss_wave_immune_texture: None,
+            talent_name_textures: HashMap::new(), // Init
             initialized: false, 
         }
     }
@@ -104,6 +110,7 @@ impl SoftReset for CatListState {
         self.multihit_texture = None; 
         self.kamikaze_texture = None;
         self.boss_wave_immune_texture = None;
+        self.talent_name_textures.clear(); // Clear cache on full reset
         self.scan_receiver = None;
     }
 }
@@ -186,31 +193,24 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, settings.high_banner_quality);
             
             if state.selected_cat != old_selection_id {
-                // Reset visual caches
+                // Reset unit-specific caches, but KEEP the talent_name_textures
+                // as those are shared global assets
                 state.detail_texture = None; 
                 state.detail_key.clear();
 
-                // --- SMART PERSISTENCE LOGIC ---
                 if let Some(new_id) = state.selected_cat {
                     if let Some(new_cat) = state.cats.iter().find(|c| c.id == new_id) {
                         
-                        // 1. FORM PERSISTENCE
-                        // Find the highest available form index for this new unit (e.g. 2 for True Form)
                         let mut max_form_index = 0;
                         for (i, &exists) in new_cat.forms.iter().enumerate() {
                             if exists { max_form_index = i; }
                         }
 
-                        // If the persisted form selection doesn't exist on this unit, fallback to max
                         if state.selected_form > max_form_index || !new_cat.forms[state.selected_form] {
                             state.selected_form = max_form_index;
                         }
 
-                        // 2. TALENT TAB VALIDATION
                         if state.selected_detail_tab == DetailTab::Talents {
-                            // Talents require:
-                            // A) Form is True (2) or Ultra (3)
-                            // B) Unit actually has talent data
                             let form_valid = state.selected_form >= 2;
                             let has_data = new_cat.talent_data.is_some();
 
@@ -278,6 +278,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             &mut state.multihit_texture,
             &mut state.kamikaze_texture,
             &mut state.boss_wave_immune_texture,
+            &mut state.talent_name_textures, // Pass cache
             settings
         );
     });
