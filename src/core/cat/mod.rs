@@ -1,6 +1,6 @@
 use eframe::egui;
 use std::sync::mpsc::{Receiver, TryRecvError};
-use std::collections::HashMap; // Added import
+use std::collections::HashMap;
 use crate::core::utils::SoftReset; 
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +13,7 @@ use crate::ui::views::cat_detail;
 
 use scanner::CatEntry;
 use crate::core::files::imgcut::SpriteSheet; 
+use crate::core::files::skilldescriptions; // Import
 
 #[derive(Deserialize, Serialize, PartialEq, Clone, Copy)]
 pub enum DetailTab {
@@ -62,9 +63,12 @@ pub struct CatListState {
     #[serde(skip)]
     pub boss_wave_immune_texture: Option<egui::TextureHandle>,
     
-    // Cache for Talent Name Images (e.g. "Skill_name_024.png")
     #[serde(skip)]
     pub talent_name_textures: HashMap<String, egui::TextureHandle>, 
+
+    // Cache for Talent Descriptions (Loaded on demand/init)
+    #[serde(skip)]
+    pub skill_descriptions: Option<Vec<String>>,
 
     #[serde(skip)]
     pub initialized: bool,
@@ -88,7 +92,8 @@ impl Default for CatListState {
             multihit_texture: None,
             kamikaze_texture: None,
             boss_wave_immune_texture: None,
-            talent_name_textures: HashMap::new(), // Init
+            talent_name_textures: HashMap::new(),
+            skill_descriptions: None, // Init
             initialized: false, 
         }
     }
@@ -110,7 +115,8 @@ impl SoftReset for CatListState {
         self.multihit_texture = None; 
         self.kamikaze_texture = None;
         self.boss_wave_immune_texture = None;
-        self.talent_name_textures.clear(); // Clear cache on full reset
+        self.talent_name_textures.clear(); 
+        self.skill_descriptions = None; // Clear on reset to allow language refresh
         self.scan_receiver = None;
     }
 }
@@ -175,6 +181,12 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
         }
     }
 
+    // Lazy load descriptions if missing
+    if state.skill_descriptions.is_none() {
+        let path = std::path::Path::new("game/cats");
+        state.skill_descriptions = Some(skilldescriptions::load(path, &settings.game_language));
+    }
+
     egui::SidePanel::left("cat_list_panel")
         .resizable(false)
         .default_width(160.0)
@@ -193,8 +205,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, settings.high_banner_quality);
             
             if state.selected_cat != old_selection_id {
-                // Reset unit-specific caches, but KEEP the talent_name_textures
-                // as those are shared global assets
                 state.detail_texture = None; 
                 state.detail_key.clear();
 
@@ -278,7 +288,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             &mut state.multihit_texture,
             &mut state.kamikaze_texture,
             &mut state.boss_wave_immune_texture,
-            &mut state.talent_name_textures, // Pass cache
+            &mut state.talent_name_textures,
+            state.skill_descriptions.as_ref(), // Pass the loaded descriptions
             settings
         );
     });

@@ -1,5 +1,5 @@
 use eframe::egui;
-use std::collections::HashMap; // Added
+use std::collections::HashMap;
 
 use crate::core::cat::scanner::CatEntry;
 use crate::core::cat::DetailTab;
@@ -26,7 +26,8 @@ pub fn show(
     multihit_texture: &mut Option<egui::TextureHandle>,
     kamikaze_texture: &mut Option<egui::TextureHandle>,
     boss_wave_immune_texture: &mut Option<egui::TextureHandle>,
-    talent_name_cache: &mut HashMap<String, egui::TextureHandle>, // Added arg
+    talent_name_cache: &mut HashMap<String, egui::TextureHandle>,
+    skill_descriptions: Option<&Vec<String>>, // Added argument
     settings: &Settings,
 ) {
     img015::ensure_loaded(ctx, sprite_sheet, settings);
@@ -106,8 +107,8 @@ pub fn show(
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     if let Some(raw) = &cat.talent_data {
-                        // Pass the cache here
-                        talents::render(ui, raw, sprite_sheet, talent_name_cache);
+                        // Pass descriptions
+                        talents::render(ui, raw, sprite_sheet, talent_name_cache, skill_descriptions);
                     } else {
                         ui.label("Error: Talents expected but not found.");
                     }
