@@ -23,7 +23,7 @@ pub const ICON_SINGLE_ATTACK: usize = 222;
 pub const ICON_AREA_ATTACK: usize = 216;
 pub const ICON_OMNI_STRIKE: usize = 117;
 pub const ICON_LONG_DISTANCE: usize = 217;
-pub const ICON_MULTIHIT: usize = 9999; // Mimicing a real icon
+pub const ICON_MULTIHIT: usize = 9999; // Mock ID
 
 
 // Target Abiltiies
@@ -69,6 +69,7 @@ pub const ICON_MINI_SURGE: usize = 315;
 pub const ICON_CONJURE: usize = 322;
 pub const ICON_METAL_KILLER: usize = 326;
 pub const ICON_EXPLOSION: usize = 340;
+pub const ICON_KAMIKAZE: usize = 9998; // Mock ID
 
 // Immunities
 pub const ICON_IMMUNE_CURSE: usize = 121;
@@ -81,6 +82,7 @@ pub const ICON_IMMUNE_TOXIC: usize = 242;
 pub const ICON_IMMUNE_SURGE: usize = 248;
 pub const ICON_IMMUNE_WARP: usize = 267;
 pub const ICON_IMMUNE_EXPLOSION: usize = 342;
+pub const ICON_IMMUNE_BOSS_WAVE: usize = 9997; // Mock ID
 
 // Counters
 pub const ICON_WAVE_BLOCK: usize = 223;
@@ -175,6 +177,7 @@ pub fn img015_alt(id: usize) -> &'static str {
         ICON_CONJURE => "Spirit",
         ICON_METAL_KILLER => "MetKil",
         ICON_EXPLOSION => "Expl",
+        ICON_KAMIKAZE => "Kami",
         
         // Immunities
         ICON_IMMUNE_CURSE => "NoCur",
@@ -187,6 +190,7 @@ pub fn img015_alt(id: usize) -> &'static str {
         ICON_IMMUNE_SURGE => "NoSrg",
         ICON_IMMUNE_WARP => "NoWrp",
         ICON_IMMUNE_EXPLOSION => "NoExp",
+        ICON_IMMUNE_BOSS_WAVE => "NoBos",
         
         // Counters
         ICON_WAVE_BLOCK => "W-Blk",

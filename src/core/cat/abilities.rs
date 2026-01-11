@@ -14,6 +14,8 @@ pub fn collect_ability_data(
     current_level: i32,
     level_curve: Option<&stats::CatLevelCurve>,
     multihit_texture: &Option<egui::TextureHandle>,
+    kamikaze_texture: &Option<egui::TextureHandle>,
+    boss_wave_texture: &Option<egui::TextureHandle>,
     settings: &Settings, 
     is_conjure_unit: bool
 ) -> (Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>) {
@@ -64,6 +66,15 @@ pub fn collect_ability_data(
     push_ability(&mut group_headline_2, cat_stats.eva_killer > 0, img015::ICON_EVA_KILLER, "Deals 5× Damage to and takes 0.2× Damage from Eva Angels".into());
     push_ability(&mut group_headline_2, cat_stats.witch_killer > 0, img015::ICON_WITCH_KILLER, "Deals 5× Damage to and takes 0.1× Damage from Witches".into());
 
+    if !is_conjure_unit && cat_stats.kamikaze > 0 {
+        let effective_tex = kamikaze_texture.as_ref().map(|t| t.id());
+        group_headline_2.push(AbilityItem {
+            icon_id: img015::ICON_KAMIKAZE,
+            text: "Unit disappears after a single attack".into(),
+            custom_tex: effective_tex,
+        });
+    }
+
     // Multihit
     let effective_multihit_texture = if settings.game_language == "--" {
         None
@@ -72,9 +83,9 @@ pub fn collect_ability_data(
     };
 
     if cat_stats.attack_2 > 0 {
-        let damage_hit_1 = level_curve.map_or(cat_stats.attack_1, |c| c.calculate_stat(cat_stats.attack_1, current_level));
-        let damage_hit_2 = level_curve.map_or(cat_stats.attack_2, |c| c.calculate_stat(cat_stats.attack_2, current_level));
-        let damage_hit_3 = level_curve.map_or(cat_stats.attack_3, |c| c.calculate_stat(cat_stats.attack_3, current_level));
+        let damage_hit_1 = level_curve.map_or(cat_stats.attack_1, |curve| curve.calculate_stat(cat_stats.attack_1, current_level));
+        let damage_hit_2 = level_curve.map_or(cat_stats.attack_2, |curve| curve.calculate_stat(cat_stats.attack_2, current_level));
+        let damage_hit_3 = level_curve.map_or(cat_stats.attack_3, |curve| curve.calculate_stat(cat_stats.attack_3, current_level));
         
         let ability_flag_1 = if cat_stats.attack_1_abilities > 0 { "True" } else { "False" };
         let ability_flag_2 = if cat_stats.attack_2_abilities > 0 { "True" } else { "False" };
@@ -136,7 +147,7 @@ pub fn collect_ability_data(
         push_ability(&mut group_body_1, cat_stats.conjure_unit_id > 0, img015::ICON_CONJURE, "Conjures a Spirit to the battlefield when tapped\nThis Cat may only be deployed one at a time".into());
     }
 
-    // Effects with % chance
+    // Effects
     let wave_type = if cat_stats.mini_wave_flag > 0 { "Mini-Wave" } else { "Wave" };
     let wave_icon = if cat_stats.mini_wave_flag > 0 { img015::ICON_MINI_WAVE } else { img015::ICON_WAVE };
     let wave_range = 332.5 + ((cat_stats.wave_level - 1) as f32 * 200.0);
@@ -170,7 +181,7 @@ pub fn collect_ability_data(
         push_ability(&mut group_body_2, cat_stats.dodge_chance > 0, img015::ICON_DODGE, format!("{}% Chance to Dodge {} for {}", cat_stats.dodge_chance, target_label, frames_to_seconds(cat_stats.dodge_duration))); 
     }
 
-    // Crowd Control
+    // CC
     push_ability(&mut group_body_2, cat_stats.weaken_chance > 0, img015::ICON_WEAKEN, format!("{}% Chance to weaken {} to {}% Attack Power for {}", cat_stats.weaken_chance, target_label, cat_stats.weaken_to, frames_to_seconds(cat_stats.weaken_duration)));
     push_ability(&mut group_body_2, cat_stats.freeze_chance > 0, img015::ICON_FREEZE, format!("{}% Chance to Freeze {} for {}", cat_stats.freeze_chance, target_label, frames_to_seconds(cat_stats.freeze_duration)));
     push_ability(&mut group_body_2, cat_stats.slow_chance > 0, img015::ICON_SLOW, format!("{}% Chance to Slow {} for {}", cat_stats.slow_chance, target_label, frames_to_seconds(cat_stats.slow_duration)));
@@ -193,6 +204,15 @@ pub fn collect_ability_data(
     ];
     for (has_immunity, icon, text_content) in immunities {
         push_ability(&mut group_footer, has_immunity, icon, text_content.into());
+    }
+
+    if !is_conjure_unit && cat_stats.boss_wave_immune > 0 {
+        let effective_tex = boss_wave_texture.as_ref().map(|t| t.id());
+        group_footer.push(AbilityItem {
+            icon_id: img015::ICON_IMMUNE_BOSS_WAVE,
+            text: "Immune to Boss Shockwaves".into(),
+            custom_tex: effective_tex,
+        });
     }
 
     (group_headline_1, group_headline_2, group_body_1, group_body_2, group_footer)

@@ -15,6 +15,8 @@ pub fn render(
     level: i32,
     sheet: &SpriteSheet, 
     multihit_tex: &Option<egui::TextureHandle>, 
+    kamikaze_tex: &Option<egui::TextureHandle>,   
+    boss_wave_tex: &Option<egui::TextureHandle>, 
     settings: &Settings, 
 ) {
     if render_traits(ui, s, sheet, settings) {
@@ -22,7 +24,9 @@ pub fn render(
     }
 
     let curve = cat.curve.as_ref();
-    let (grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(s, level, curve, multihit_tex, settings, false);
+    let (grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(
+        s, level, curve, multihit_tex, kamikaze_tex, boss_wave_tex, settings, false
+    );
     
     let mut previous_content = false;
     let main_border = egui::Color32::BLACK;
@@ -42,8 +46,8 @@ pub fn render(
     if has_body {
        if previous_content { ui.add_space(settings.ability_padding_y); }
        
-       render_list_view(ui, &grp_b1, sheet, multihit_tex, cat.id, level, curve, s, settings, main_border);
-       render_list_view(ui, &grp_b2, sheet, multihit_tex, cat.id, level, curve, s, settings, main_border);
+       render_list_view(ui, &grp_b1, sheet, multihit_tex, kamikaze_tex, boss_wave_tex, cat.id, level, curve, s, settings, main_border);
+       render_list_view(ui, &grp_b2, sheet, multihit_tex, kamikaze_tex, boss_wave_tex, cat.id, level, curve, s, settings, main_border);
        previous_content = true;
     }
 
@@ -143,6 +147,8 @@ pub fn render_list_view(
     items: &Vec<AbilityItem>, 
     sheet: &SpriteSheet,
     multihit_tex: &Option<egui::TextureHandle>,
+    kamikaze_tex: &Option<egui::TextureHandle>,   
+    boss_wave_tex: &Option<egui::TextureHandle>, 
     cat_id: u32,
     current_level: i32,
     curve: Option<&stats::CatLevelCurve>,
@@ -168,7 +174,7 @@ pub fn render_list_view(
         let expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.expand_spirit_details));
         if is_conjure && expanded {
             ui.add_space(3.0);
-            render_conjure_details(ui, s, current_level, curve, sheet, multihit_tex, settings);
+            render_conjure_details(ui, s, current_level, curve, sheet, multihit_tex, kamikaze_tex, boss_wave_tex, settings);
         }
         
         ui.add_space(settings.ability_padding_y);
@@ -203,6 +209,8 @@ fn render_conjure_details(
     curve: Option<&stats::CatLevelCurve>,
     sheet: &SpriteSheet,
     multihit_tex: &Option<egui::TextureHandle>,
+    kamikaze_tex: &Option<egui::TextureHandle>,   
+    boss_wave_tex: &Option<egui::TextureHandle>, 
     settings: &Settings
 ) {
     egui::Frame::none()
@@ -222,7 +230,7 @@ fn render_conjure_details(
 
             let dmg = curve.as_ref().map_or(
                 conjure_stats.attack_1, 
-                |c| c.calculate_stat(conjure_stats.attack_1, level)
+                |curve| curve.calculate_stat(conjure_stats.attack_1, level)
             );
             
             ui.horizontal(|ui| {
@@ -242,16 +250,18 @@ fn render_conjure_details(
             
             ui.add_space(settings.ability_padding_y);
 
-            let (c_hl1, c_hl2, c_b1, c_b2, c_ft) = abilities::collect_ability_data(&conjure_stats, level, curve, multihit_tex, settings, true);
+            let (spirit_head_1, spirit_head_2, spirit_body_1, spirit_body_2, spirit_footer) = abilities::collect_ability_data(
+                &conjure_stats, level, curve, multihit_tex, kamikaze_tex, boss_wave_tex, settings, true
+            );
             
-            if !c_hl1.is_empty() { render_icon_row(ui, &c_hl1, sheet, settings, spirit_border); }
-            if !c_hl2.is_empty() { render_icon_row(ui, &c_hl2, sheet, settings, spirit_border); }
+            if !spirit_head_1.is_empty() { render_icon_row(ui, &spirit_head_1, sheet, settings, spirit_border); }
+            if !spirit_head_2.is_empty() { render_icon_row(ui, &spirit_head_2, sheet, settings, spirit_border); }
             
-            render_list_view(ui, &c_b1, sheet, multihit_tex, 0, level, curve, &conjure_stats, settings, spirit_border);
-            render_list_view(ui, &c_b2, sheet, multihit_tex, 0, level, curve, &conjure_stats, settings, spirit_border);
+            render_list_view(ui, &spirit_body_1, sheet, multihit_tex, kamikaze_tex, boss_wave_tex, 0, level, curve, &conjure_stats, settings, spirit_border);
+            render_list_view(ui, &spirit_body_2, sheet, multihit_tex, kamikaze_tex, boss_wave_tex, 0, level, curve, &conjure_stats, settings, spirit_border);
             
-            if !c_ft.is_empty() {
-                render_icon_row(ui, &c_ft, sheet, settings, spirit_border);
+            if !spirit_footer.is_empty() {
+                render_icon_row(ui, &spirit_footer, sheet, settings, spirit_border);
             }
         });
 }
