@@ -233,26 +233,28 @@ pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Se
     }
 
     let base_dir = std::path::Path::new("game/assets/img015");
-    let lang = &settings.game_language;
+    let current_language = &settings.game_language;
     
-    let codes_to_try: Vec<String> = if lang.is_empty() {
-        let mut p: Vec<String> = crate::core::cat::scanner::SCAN_PRIORITY.iter().map(|s| s.to_string()).collect();
-        p.push("".to_string());
-        p
+    // Updated to use shared config from utils
+    let codes_to_try: Vec<String> = if current_language.is_empty() {
+        crate::core::utils::LANGUAGE_PRIORITY
+            .iter()
+            .map(|language_code| language_code.to_string()) // RENAMED s -> language_code
+            .collect()
     } else {
-        vec![lang.clone()]
+        vec![current_language.clone()]
     };
 
     for code in codes_to_try {
-        let (png, cut) = if code.is_empty() {
-            ("img015.png".into(), "img015.imgcut".into())
+        let (png_filename, imgcut_filename) = if code.is_empty() {
+            ("img015.png".to_string(), "img015.imgcut".to_string())
         } else {
             (format!("img015_{}.png", code), format!("img015_{}.imgcut", code))
         };
 
-        let (p, c) = (base_dir.join(png), base_dir.join(cut));
-        if p.exists() && c.exists() {
-            sheet.load(ctx, &p, &c);
+        let (full_png_path, full_imgcut_path) = (base_dir.join(png_filename), base_dir.join(imgcut_filename));
+        if full_png_path.exists() && full_imgcut_path.exists() {
+            sheet.load(ctx, &full_png_path, &full_imgcut_path);
             break;
         }
     }

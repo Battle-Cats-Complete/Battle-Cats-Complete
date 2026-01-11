@@ -86,5 +86,6 @@ pub const ESSENTIAL_FILES: &[(&str, &str, &[&str])] = &[
 pub const REGION_SENSITIVE_FILES: &[&str] = &[
     "img015.imgcut", 
     "img015.png", 
-    "SkillDescriptions.csv"
+    "SkillDescriptions.csv",
+    "Skill_name_"
 ];

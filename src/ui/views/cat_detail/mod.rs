@@ -27,8 +27,8 @@ pub fn show(
     kamikaze_texture: &mut Option<egui::TextureHandle>,
     boss_wave_immune_texture: &mut Option<egui::TextureHandle>,
     talent_name_cache: &mut HashMap<String, egui::TextureHandle>,
-    skill_descriptions: Option<&Vec<String>>, // Added argument
-    settings: &Settings,
+    skill_descriptions: Option<&Vec<String>>, 
+    settings: &Settings, // Passed in
 ) {
     img015::ensure_loaded(ctx, sprite_sheet, settings);
 
@@ -107,8 +107,14 @@ pub fn show(
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     if let Some(raw) = &cat.talent_data {
-                        // Pass descriptions
-                        talents::render(ui, raw, sprite_sheet, talent_name_cache, skill_descriptions);
+                        talents::render(
+                            ui, 
+                            raw, 
+                            sprite_sheet, 
+                            talent_name_cache, 
+                            skill_descriptions,
+                            settings // Pass settings here
+                        );
                     } else {
                         ui.label("Error: Talents expected but not found.");
                     }
