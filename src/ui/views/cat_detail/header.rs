@@ -1,6 +1,7 @@
 use eframe::egui;
 use std::path::Path;
 use crate::core::cat::scanner::CatEntry;
+use crate::core::cat::DetailTab;
 use crate::core::settings::Settings;
 use crate::core::utils::autocrop; 
 use crate::ui::components::name_box;
@@ -10,6 +11,7 @@ pub fn render(
     ui: &mut egui::Ui,
     cat: &CatEntry,
     current_form: &mut usize,
+    current_tab: &mut DetailTab,
     current_level: &mut i32,
     level_input: &mut String,
     texture_cache: &mut Option<egui::TextureHandle>,
@@ -17,7 +19,7 @@ pub fn render(
     _settings: &Settings,
 ) {
     ui.vertical(|ui| {
-        render_form_buttons(ui, cat, current_form);
+        render_form_buttons(ui, cat, current_form, current_tab);
         ui.separator();
         ui.add_space(5.0);
 
@@ -29,15 +31,13 @@ pub fn render(
     });
 }
 
-fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usize) {
+fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usize, current_tab: &mut DetailTab) {
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing.x = 5.0; 
         ui.horizontal(|ui| {
             let form_labels = ["Normal", "Evolved", "True", "Ultra"];
             
-            // Iterate strictly 0..4 to maintain consistent layout width
             for index in 0..4 {
-                // Safely check if the form exists (handle potential bounds if cat.forms < 4)
                 let exists = cat.forms.get(index).copied().unwrap_or(false);
 
                 if exists { 
@@ -54,13 +54,46 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
                         .rounding(egui::Rounding::ZERO)
                         .min_size(egui::vec2(60.0, 30.0));
                     
-                    if ui.add(btn).clicked() { *current_form = index; }
+                    if ui.add(btn).clicked() { 
+                        *current_form = index; 
+                        
+                        if index < 2 && *current_tab == DetailTab::Talents {
+                            *current_tab = DetailTab::Abilities;
+                        }
+                    }
                 } else {
                     ui.allocate_space(egui::vec2(60.0, 30.0)); 
                 } 
             }
 
-            ui.add(egui::Separator::default().vertical());
+            ui.add(egui::Separator::default().vertical().spacing(13.0));
+
+            let tabs = [
+                (DetailTab::Abilities, "Abilities"),
+                (DetailTab::Talents, "Talents"),
+                (DetailTab::Details, "Details"),
+            ];
+
+            for (tab_enum, label) in tabs {
+                if tab_enum == DetailTab::Talents && *current_form < 2 {
+                    continue;
+                }
+
+                let is_selected = *current_tab == tab_enum;
+                let (fill, stroke, text) = if is_selected {
+                    (egui::Color32::from_rgb(0, 100, 200), egui::Stroke::new(2.0, egui::Color32::WHITE), egui::Color32::WHITE)
+                } else {
+                    (egui::Color32::from_gray(40), egui::Stroke::new(1.0, egui::Color32::from_gray(100)), egui::Color32::from_gray(200))
+                };
+
+                let btn = egui::Button::new(egui::RichText::new(label).color(text))
+                    .fill(fill)
+                    .stroke(stroke)
+                    .rounding(egui::Rounding::from(5.0)) 
+                    .min_size(egui::vec2(60.0, 30.0));
+
+                if ui.add(btn).clicked() { *current_tab = tab_enum; }
+            }
         });
     });
 }
