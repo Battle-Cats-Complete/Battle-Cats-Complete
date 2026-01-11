@@ -13,7 +13,7 @@ use crate::ui::views::cat_detail;
 
 use scanner::CatEntry;
 use crate::core::files::imgcut::SpriteSheet; 
-use crate::core::files::skilldescriptions; // Import
+use crate::core::files::skilldescriptions; 
 
 #[derive(Deserialize, Serialize, PartialEq, Clone, Copy)]
 pub enum DetailTab {
@@ -66,7 +66,6 @@ pub struct CatListState {
     #[serde(skip)]
     pub talent_name_textures: HashMap<String, egui::TextureHandle>, 
 
-    // Cache for Talent Descriptions (Loaded on demand/init)
     #[serde(skip)]
     pub skill_descriptions: Option<Vec<String>>,
 
@@ -93,7 +92,7 @@ impl Default for CatListState {
             kamikaze_texture: None,
             boss_wave_immune_texture: None,
             talent_name_textures: HashMap::new(),
-            skill_descriptions: None, // Init
+            skill_descriptions: None, 
             initialized: false, 
         }
     }
@@ -116,7 +115,7 @@ impl SoftReset for CatListState {
         self.kamikaze_texture = None;
         self.boss_wave_immune_texture = None;
         self.talent_name_textures.clear(); 
-        self.skill_descriptions = None; // Clear on reset to allow language refresh
+        self.skill_descriptions = None; 
         self.scan_receiver = None;
     }
 }
@@ -165,9 +164,18 @@ impl CatListState {
     }
 
     pub fn restart_scan(&mut self, language_code: &str) {
+        // Capture current state BEFORE reset
         let current_selection_id = self.selected_cat;
+        let current_form = self.selected_form;
+        let current_tab = self.selected_detail_tab;
+
         self.reset();
+
+        // Restore state AFTER reset
         self.selected_cat = current_selection_id;
+        self.selected_form = current_form;
+        self.selected_detail_tab = current_tab;
+
         self.scan_receiver = Some(scanner::start_scan(language_code.to_string()));
     }
 }
@@ -289,7 +297,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             &mut state.kamikaze_texture,
             &mut state.boss_wave_immune_texture,
             &mut state.talent_name_textures,
-            state.skill_descriptions.as_ref(), // Pass the loaded descriptions
+            state.skill_descriptions.as_ref(), 
             settings
         );
     });
