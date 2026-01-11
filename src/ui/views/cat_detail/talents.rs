@@ -19,12 +19,17 @@ pub fn render(
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0); 
 
-        for group in &talent_data.groups {
+        // Enumerate to get a unique index for ID generation
+        for (index, group) in talent_data.groups.iter().enumerate() {
             let bg_color = if group.limit == 1 {
                 egui::Color32::from_rgb(120, 20, 20) 
             } else {
                 egui::Color32::from_rgb(180, 140, 20) 
             };
+
+            // 1. Persistent State Management
+            let id = ui.make_persistent_id(format!("talent_group_{}", index));
+            let mut expanded = ui.data(|d| d.get_temp(id).unwrap_or(false)); 
 
             egui::Frame::none()
                 .fill(bg_color)
@@ -35,112 +40,127 @@ pub fn render(
 
                     ui.vertical(|ui| {
                         
-                        // --- Header Group (Icon + Name) ---
+                        // --- Header Row (Icon + Name + Toggle Button) ---
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 8.0;
+                            ui.set_width(ui.available_width());
 
-                            // 1. Icon
-                            if let Some(icon_id) = skillacquisition::map_ability_to_icon(group.ability_id) {
-                                if let Some(sprite) = sheet.get_sprite_by_line(icon_id) {
-                                    ui.add(sprite.fit_to_exact_size(egui::vec2(40.0, 40.0)));
-                                } else {
-                                    ui.label(egui::RichText::new("?").strong());
-                                }
-                            } else {
-                                ui.label(egui::RichText::new("?").weak());
-                            }
+                            // A. Left Side: Icon + Name
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 8.0;
 
-                            // 2. Name Image
-                            let image_id_to_use = if group.name_id > 0 {
-                                group.name_id
-                            } else {
-                                group.ability_id as i16
-                            };
-
-                            if image_id_to_use > 0 {
-                                let mut final_file_name = None;
-                                let base_dir = "game/assets/Skill_name";
-
-                                // --- LOGIC START ---
-                                if !settings.game_language.is_empty() {
-                                    // 1. STRICT MODE
-                                    let candidate = format!("Skill_name_{:03}_{}.png", image_id_to_use, settings.game_language);
-                                    let path_str = format!("{}/{}", base_dir, candidate);
-                                    if Path::new(&path_str).exists() {
-                                        final_file_name = Some(candidate);
+                                // Icon
+                                if let Some(icon_id) = skillacquisition::map_ability_to_icon(group.ability_id) {
+                                    if let Some(sprite) = sheet.get_sprite_by_line(icon_id) {
+                                        ui.add(sprite.fit_to_exact_size(egui::vec2(40.0, 40.0)));
+                                    } else {
+                                        ui.label(egui::RichText::new("?").strong());
                                     }
                                 } else {
-                                    // 2. AUTOMATIC MODE
-                                    // Iterate shared priority list
-                                    for code in utils::LANGUAGE_PRIORITY {
-                                        if code.is_empty() { continue; } // Skip base/empty logic for talents, they always have a code
+                                    ui.label(egui::RichText::new("?").weak());
+                                }
 
-                                        let candidate = format!("Skill_name_{:03}_{}.png", image_id_to_use, code);
+                                // Name Image
+                                let image_id_to_use = if group.name_id > 0 {
+                                    group.name_id
+                                } else {
+                                    group.ability_id as i16
+                                };
+
+                                if image_id_to_use > 0 {
+                                    let mut final_file_name = None;
+                                    let base_dir = "game/assets/Skill_name";
+
+                                    // --- AUTOMATIC FALLBACK LOGIC ---
+                                    if !settings.game_language.is_empty() {
+                                        // 1. STRICT MODE (Specific Language Selected)
+                                        let candidate = format!("Skill_name_{:03}_{}.png", image_id_to_use, settings.game_language);
                                         let path_str = format!("{}/{}", base_dir, candidate);
                                         if Path::new(&path_str).exists() {
                                             final_file_name = Some(candidate);
-                                            break; 
                                         }
-                                    }
-                                }
-                                // --- LOGIC END ---
-
-                                if let Some(file_name) = final_file_name {
-                                    if !name_cache.contains_key(&file_name) {
-                                        let path_str = format!("{}/{}", base_dir, file_name);
-                                        let path = Path::new(&path_str);
-
-                                        if let Ok(img) = image::open(path) {
-                                            let rgba = autocrop(img.to_rgba8());
-                                            let texture = ui.ctx().load_texture(
-                                                &file_name,
-                                                egui::ColorImage::from_rgba_unmultiplied(
-                                                    [rgba.width() as usize, rgba.height() as usize],
-                                                    rgba.as_flat_samples().as_slice()
-                                                ),
-                                                egui::TextureOptions::LINEAR
-                                            );
-                                            name_cache.insert(file_name.clone(), texture);
+                                    } else {
+                                        // 2. AUTOMATIC MODE (Iterate Priority List)
+                                        for code in utils::LANGUAGE_PRIORITY {
+                                            if code.is_empty() { continue; }
+                                            let candidate = format!("Skill_name_{:03}_{}.png", image_id_to_use, code);
+                                            let path_str = format!("{}/{}", base_dir, candidate);
+                                            if Path::new(&path_str).exists() {
+                                                final_file_name = Some(candidate);
+                                                break; 
+                                            }
                                         }
                                     }
 
-                                    if let Some(texture) = name_cache.get(&file_name) {
-                                        ui.image(&*texture);
+                                    if let Some(file_name) = final_file_name {
+                                        if !name_cache.contains_key(&file_name) {
+                                            let path_str = format!("{}/{}", base_dir, file_name);
+                                            let path = Path::new(&path_str);
+                                            if let Ok(img) = image::open(path) {
+                                                let rgba = autocrop(img.to_rgba8());
+                                                let texture = ui.ctx().load_texture(
+                                                    &file_name,
+                                                    egui::ColorImage::from_rgba_unmultiplied(
+                                                        [rgba.width() as usize, rgba.height() as usize],
+                                                        rgba.as_flat_samples().as_slice()
+                                                    ),
+                                                    egui::TextureOptions::LINEAR
+                                                );
+                                                name_cache.insert(file_name.clone(), texture);
+                                            }
+                                        }
+                                        if let Some(texture) = name_cache.get(&file_name) {
+                                            ui.image(&*texture);
+                                        } 
                                     } 
-                                } 
-                            }
+                                }
+                            });
+
+                            // B. Right Side: Toggle Button
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                // CHANGE: Use Standard Arrows
+                                let arrow = if expanded { "▲" } else { "▼" };
+                                
+                                let btn = egui::Button::new(egui::RichText::new(arrow).size(20.0).strong())
+                                    .fill(egui::Color32::from_black_alpha(100));
+
+                                if ui.add_sized([40.0, 40.0], btn).clicked() {
+                                    expanded = !expanded;
+                                    ui.data_mut(|d| d.insert_temp(id, expanded));
+                                }
+                            });
                         }); 
 
-                        // --- Description Text ---
-                        ui.add_space(6.0);
-                        
-                        let mut text_to_display = if let Some(desc_list) = descriptions {
-                            let tid = group.text_id as usize;
-                            if let Some(text) = desc_list.get(tid) {
-                                if text.trim().is_empty() {
-                                    "No skill description found".to_string()
+                        // --- Collapsible Content ---
+                        if expanded {
+                            ui.add_space(6.0);
+                            
+                            let mut text_to_display = if let Some(desc_list) = descriptions {
+                                let tid = group.text_id as usize;
+                                if let Some(text) = desc_list.get(tid) {
+                                    if text.trim().is_empty() {
+                                        "No skill description found".to_string()
+                                    } else {
+                                        text.clone()
+                                    }
                                 } else {
-                                    text.clone()
+                                    "No skill description found".to_string()
                                 }
                             } else {
                                 "No skill description found".to_string()
+                            };
+
+                            if !text_to_display.contains('\n') {
+                                text_to_display.push('\n');
                             }
-                        } else {
-                            "No skill description found".to_string()
-                        };
 
-                        if !text_to_display.contains('\n') {
-                            text_to_display.push('\n');
+                            egui::Frame::none()
+                                .fill(egui::Color32::from_black_alpha(100)) 
+                                .rounding(4.0)
+                                .inner_margin(4.0)
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new(text_to_display).color(egui::Color32::WHITE).size(13.0));
+                                });
                         }
-
-                        // Render inside a Darker Sub-Area
-                        egui::Frame::none()
-                            .fill(egui::Color32::from_black_alpha(100)) 
-                            .rounding(4.0)
-                            .inner_margin(4.0)
-                            .show(ui, |ui| {
-                                ui.label(egui::RichText::new(text_to_display).color(egui::Color32::WHITE).size(13.0));
-                            });
                     });
                 });
         }
