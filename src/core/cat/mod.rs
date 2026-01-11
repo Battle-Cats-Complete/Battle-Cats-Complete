@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 pub mod scanner;
 pub mod stats;
 pub mod abilities; 
-pub mod talents;
 
 use crate::ui::components::cat_list::CatList; 
 use crate::ui::views::cat_detail; 
@@ -187,9 +186,40 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, settings.high_banner_quality);
             
             if state.selected_cat != old_selection_id {
-                state.selected_form = 0; 
+                // Reset visual caches
                 state.detail_texture = None; 
                 state.detail_key.clear();
+
+                // --- SMART PERSISTENCE LOGIC ---
+                if let Some(new_id) = state.selected_cat {
+                    if let Some(new_cat) = state.cats.iter().find(|c| c.id == new_id) {
+                        
+                        // 1. FORM PERSISTENCE
+                        // Find the highest available form index for this new unit (e.g. 2 for True Form)
+                        let mut max_form_index = 0;
+                        for (i, &exists) in new_cat.forms.iter().enumerate() {
+                            if exists { max_form_index = i; }
+                        }
+
+                        // If the persisted form selection doesn't exist on this unit, fallback to max
+                        if state.selected_form > max_form_index || !new_cat.forms[state.selected_form] {
+                            state.selected_form = max_form_index;
+                        }
+
+                        // 2. TALENT TAB VALIDATION
+                        if state.selected_detail_tab == DetailTab::Talents {
+                            // Talents require:
+                            // A) Form is True (2) or Ultra (3)
+                            // B) Unit actually has talent data
+                            let form_valid = state.selected_form >= 2;
+                            let has_data = new_cat.talent_data.is_some();
+
+                            if !form_valid || !has_data {
+                                state.selected_detail_tab = DetailTab::Abilities;
+                            }
+                        }
+                    }
+                }
             }
         });
 
