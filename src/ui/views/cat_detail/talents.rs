@@ -10,6 +10,7 @@ pub fn render(
     talent_data: &TalentRaw,
     sheet: &SpriteSheet,
     name_cache: &mut HashMap<String, egui::TextureHandle>,
+    descriptions: Option<&Vec<String>>,
 ) {
     ui.add_space(5.0);
     
@@ -17,6 +18,7 @@ pub fn render(
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0); 
 
         for group in &talent_data.groups {
+            // Determine Card Background (Yellow vs Red)
             let bg_color = if group.limit == 1 {
                 egui::Color32::from_rgb(120, 20, 20) 
             } else {
@@ -30,11 +32,9 @@ pub fn render(
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
 
-                    // Main Row Layout
-                    ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
                         
                         // --- Header Group (Icon + Name) ---
-                        // Wrapped in its own scope to keep them tightly bound top-left
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 8.0;
 
@@ -83,9 +83,43 @@ pub fn render(
                                     ui.image(&*texture);
                                 } 
                             }
-                        }); // End Header Group
+                        }); 
+
+                        // --- Description Text ---
+                        ui.add_space(6.0);
                         
-                        // Space for future content (Cost, Description, etc.) can go here
+                        // Prepare the text
+                        let mut text_to_display = if let Some(desc_list) = descriptions {
+                            let tid = group.text_id as usize;
+                            if let Some(text) = desc_list.get(tid) {
+                                if text.trim().is_empty() {
+                                    "No skill description found".to_string()
+                                } else {
+                                    text.clone()
+                                }
+                            } else {
+                                "No skill description found".to_string()
+                            }
+                        } else {
+                            "No skill description found".to_string()
+                        };
+
+                        // Consistency Hack: If no newline, append one so the box height is consistent 
+                        // with multi-line descriptions
+                        if !text_to_display.contains('\n') {
+                            text_to_display.push('\n');
+                        }
+
+                        // Render inside a Darker Sub-Area
+                        egui::Frame::none()
+                            .fill(egui::Color32::from_black_alpha(100)) // Dark semi-transparent
+                            .rounding(4.0)
+                            .inner_margin(4.0)
+                            .show(ui, |ui| {
+                                // REMOVED: ui.set_width(ui.available_width()); 
+                                // Now the frame size is determined by the content (text)
+                                ui.label(egui::RichText::new(text_to_display).color(egui::Color32::WHITE).size(13.0));
+                            });
                     });
                 });
         }

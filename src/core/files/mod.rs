@@ -5,3 +5,4 @@ pub mod unitid;
 pub mod unitlevel;
 pub mod skillacquisition;
 pub mod skilllevel;
+pub mod skilldescriptions;
