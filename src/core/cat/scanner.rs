@@ -10,6 +10,7 @@ use crate::core::patterns;
 use crate::core::files::unitid::CatRaw;
 use crate::core::files::unitbuy::{self, UnitBuyRow};
 use crate::core::files::unitlevel::{self, CatLevelCurve};
+use crate::core::files::SkillAcquisition; // Import
 
 pub const SCAN_PRIORITY: &[&str] = &["en", "ja", "tw", "ko", "es", "de", "fr", "it", "th", ""];
 
@@ -23,6 +24,7 @@ pub struct CatEntry {
     pub curve: Option<CatLevelCurve>,
     pub atk_anim_frames: [i32; 4], 
     pub egg_ids: (i32, i32),
+    pub has_talents: bool, // Added field
 }
 
 pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
@@ -33,6 +35,8 @@ pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
         
         let level_curves_arc = Arc::new(unitlevel::load_level_curves(cats_directory));
         let unit_buy_map_arc = Arc::new(unitbuy::load_unitbuy(cats_directory));
+        // Load talent IDs
+        let talent_ids_arc = Arc::new(SkillAcquisition::load(cats_directory));
         
         let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
             Ok(read_dir_iter) => read_dir_iter
@@ -47,8 +51,9 @@ pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
             let sender_clone = cat_sender.clone();
             let curves_clone = Arc::clone(&level_curves_arc);
             let unit_buys_clone = Arc::clone(&unit_buy_map_arc);
+            let talents_clone = Arc::clone(&talent_ids_arc);
             
-            if let Some(cat_entry) = process_cat_entry(folder_path, &curves_clone, &unit_buys_clone, &language_code) {
+            if let Some(cat_entry) = process_cat_entry(folder_path, &curves_clone, &unit_buys_clone, &talents_clone, &language_code) {
                 let _ = sender_clone.send(cat_entry);
             }
         });
@@ -60,6 +65,7 @@ fn process_cat_entry(
     original_folder_path: &Path, 
     level_curves: &Vec<CatLevelCurve>, 
     unit_buys: &std::collections::HashMap<u32, UnitBuyRow>,
+    talent_ids: &std::collections::HashSet<i32>,
     language_code: &str
 ) -> Option<CatEntry> {
     
@@ -228,6 +234,7 @@ fn process_cat_entry(
         curve: level_curves.get(cat_id as usize).cloned(),
         atk_anim_frames: attack_anim_frames,
         egg_ids: (ub_row.egg_id_normal, ub_row.egg_id_evolved),
+        has_talents: talent_ids.contains(&(cat_id as i32)), // Check talent existence
     })
 }
 
