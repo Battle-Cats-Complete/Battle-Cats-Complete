@@ -11,8 +11,7 @@ use crate::core::files::unitid::CatRaw;
 use crate::core::files::unitbuy::{self, UnitBuyRow};
 use crate::core::files::unitlevel::{self, CatLevelCurve};
 use crate::core::files::skillacquisition::{self, TalentRaw}; 
-
-pub const SCAN_PRIORITY: &[&str] = &["en", "ja", "tw", "ko", "es", "de", "fr", "it", "th", ""];
+use crate::core::utils; // Import utils
 
 #[derive(Clone, Debug)]
 pub struct CatEntry {
@@ -24,7 +23,7 @@ pub struct CatEntry {
     pub curve: Option<CatLevelCurve>,
     pub atk_anim_frames: [i32; 4], 
     pub egg_ids: (i32, i32),
-    pub talent_data: Option<TalentRaw>, // Changed from bool to Option<Data>
+    pub talent_data: Option<TalentRaw>, 
 }
 
 pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
@@ -174,8 +173,9 @@ fn process_cat_entry(
     let target_file_id = cat_id + 1;
     let lang_directory = original_folder_path.join("lang"); 
 
+    // Use utils::LANGUAGE_PRIORITY if checking default
     let language_codes_to_check: Vec<&str> = if language_code.is_empty() {
-        SCAN_PRIORITY.to_vec()
+        utils::LANGUAGE_PRIORITY.to_vec()
     } else {
         vec![language_code]
     };
@@ -219,7 +219,6 @@ fn process_cat_entry(
         }
     }
 
-    // Capture the Talent data
     let talent_data = talents_map.get(&(cat_id as u16)).cloned();
 
     Some(CatEntry { 
@@ -231,7 +230,7 @@ fn process_cat_entry(
         curve: level_curves.get(cat_id as usize).cloned(),
         atk_anim_frames: attack_anim_frames,
         egg_ids: (ub_row.egg_id_normal, ub_row.egg_id_evolved),
-        talent_data, // Store full struct
+        talent_data, 
     })
 }
 

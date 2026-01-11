@@ -126,7 +126,10 @@ fn extract_pack(
         if let Ok((decrypted_bytes, _)) = keys::decrypt_pack_chunk(&buffer, asset_name) {
             let final_data = &decrypted_bytes[..std::cmp::min(size, decrypted_bytes.len())];
 
-            let target_path = if patterns::REGION_SENSITIVE_FILES.iter().any(|&x| asset_name.ends_with(x)) {
+            let is_region_sensitive = patterns::REGION_SENSITIVE_FILES.iter()
+                .any(|&x| asset_name.ends_with(x) || asset_name.starts_with(x));
+
+            let target_path = if is_region_sensitive {
                  let path_obj = Path::new(asset_name);
                  let stem = path_obj.file_stem().unwrap().to_string_lossy();
                  let ext = path_obj.extension().unwrap().to_string_lossy();
@@ -230,7 +233,7 @@ fn find_game_files(search_dir: &Path, path_list: &mut Vec<PathBuf>) -> std::io::
 fn should_skip(name: &str, size: usize, output_dir: &Path, index: &std::collections::HashMap<String, Vec<PathBuf>>) -> bool {
     if patterns::CHECK_LINE_FILES.contains(&name) { return false; }
     if name.ends_with("img015_th.imgcut") { return true; }
-    if patterns::REGION_SENSITIVE_FILES.iter().any(|&x| name.ends_with(x)) { return false; }
+    if patterns::REGION_SENSITIVE_FILES.iter().any(|&x| name.ends_with(x) || name.starts_with(x)) { return false; }
 
     let name_lower = name.to_lowercase();
     if let Some(existing_paths) = index.get(&name_lower) {

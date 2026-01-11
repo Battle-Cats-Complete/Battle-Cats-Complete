@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use crate::core::files::skillacquisition::{self, TalentRaw};
 use crate::core::files::imgcut::SpriteSheet;
-use crate::core::utils::autocrop;
+use crate::core::utils::{self, autocrop};
+use crate::core::settings::Settings; 
 
 pub fn render(
     ui: &mut egui::Ui,
@@ -11,6 +12,7 @@ pub fn render(
     sheet: &SpriteSheet,
     name_cache: &mut HashMap<String, egui::TextureHandle>,
     descriptions: Option<&Vec<String>>,
+    settings: &Settings, 
 ) {
     ui.add_space(5.0);
     
@@ -18,7 +20,6 @@ pub fn render(
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0); 
 
         for group in &talent_data.groups {
-            // Determine Card Background (Yellow vs Red)
             let bg_color = if group.limit == 1 {
                 egui::Color32::from_rgb(120, 20, 20) 
             } else {
@@ -57,13 +58,38 @@ pub fn render(
                             };
 
                             if image_id_to_use > 0 {
-                                let file_name = format!("Skill_name_{:03}.png", image_id_to_use);
-                                
-                                if !name_cache.contains_key(&file_name) {
-                                    let path_str = format!("game/assets/Skill_name/{}", file_name);
-                                    let path = Path::new(&path_str);
+                                let mut final_file_name = None;
+                                let base_dir = "game/assets/Skill_name";
 
-                                    if path.exists() {
+                                // --- LOGIC START ---
+                                if !settings.game_language.is_empty() {
+                                    // 1. STRICT MODE
+                                    let candidate = format!("Skill_name_{:03}_{}.png", image_id_to_use, settings.game_language);
+                                    let path_str = format!("{}/{}", base_dir, candidate);
+                                    if Path::new(&path_str).exists() {
+                                        final_file_name = Some(candidate);
+                                    }
+                                } else {
+                                    // 2. AUTOMATIC MODE
+                                    // Iterate shared priority list
+                                    for code in utils::LANGUAGE_PRIORITY {
+                                        if code.is_empty() { continue; } // Skip base/empty logic for talents, they always have a code
+
+                                        let candidate = format!("Skill_name_{:03}_{}.png", image_id_to_use, code);
+                                        let path_str = format!("{}/{}", base_dir, candidate);
+                                        if Path::new(&path_str).exists() {
+                                            final_file_name = Some(candidate);
+                                            break; 
+                                        }
+                                    }
+                                }
+                                // --- LOGIC END ---
+
+                                if let Some(file_name) = final_file_name {
+                                    if !name_cache.contains_key(&file_name) {
+                                        let path_str = format!("{}/{}", base_dir, file_name);
+                                        let path = Path::new(&path_str);
+
                                         if let Ok(img) = image::open(path) {
                                             let rgba = autocrop(img.to_rgba8());
                                             let texture = ui.ctx().load_texture(
@@ -77,10 +103,10 @@ pub fn render(
                                             name_cache.insert(file_name.clone(), texture);
                                         }
                                     }
-                                }
 
-                                if let Some(texture) = name_cache.get(&file_name) {
-                                    ui.image(&*texture);
+                                    if let Some(texture) = name_cache.get(&file_name) {
+                                        ui.image(&*texture);
+                                    } 
                                 } 
                             }
                         }); 
@@ -88,7 +114,6 @@ pub fn render(
                         // --- Description Text ---
                         ui.add_space(6.0);
                         
-                        // Prepare the text
                         let mut text_to_display = if let Some(desc_list) = descriptions {
                             let tid = group.text_id as usize;
                             if let Some(text) = desc_list.get(tid) {
@@ -104,20 +129,16 @@ pub fn render(
                             "No skill description found".to_string()
                         };
 
-                        // Consistency Hack: If no newline, append one so the box height is consistent 
-                        // with multi-line descriptions
                         if !text_to_display.contains('\n') {
                             text_to_display.push('\n');
                         }
 
                         // Render inside a Darker Sub-Area
                         egui::Frame::none()
-                            .fill(egui::Color32::from_black_alpha(100)) // Dark semi-transparent
+                            .fill(egui::Color32::from_black_alpha(100)) 
                             .rounding(4.0)
                             .inner_margin(4.0)
                             .show(ui, |ui| {
-                                // REMOVED: ui.set_width(ui.available_width()); 
-                                // Now the frame size is determined by the content (text)
                                 ui.label(egui::RichText::new(text_to_display).color(egui::Color32::WHITE).size(13.0));
                             });
                     });
