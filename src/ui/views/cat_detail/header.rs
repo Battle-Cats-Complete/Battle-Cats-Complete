@@ -66,7 +66,7 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
                 } 
             }
 
-            ui.add(egui::Separator::default().vertical().spacing(13.0));
+            ui.add(egui::Separator::default().vertical().spacing(20.0));
 
             let tabs = [
                 (DetailTab::Abilities, "Abilities"),
@@ -75,7 +75,7 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
             ];
 
             for (tab_enum, label) in tabs {
-                if tab_enum == DetailTab::Talents && *current_form < 2 {
+                if tab_enum == DetailTab::Talents && (*current_form < 2 || !cat.has_talents) {
                     continue;
                 }
 
