@@ -2,25 +2,28 @@ use std::fs;
 use std::path::Path;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Default)]
-pub struct SkillLevelRow {
-    pub id: i32,
+#[derive(Debug, Clone)]
+pub struct TalentCost {
+    pub costs: Vec<u16>,
 }
 
-impl SkillLevelRow {
-    pub fn from_csv_line(_csv_line: &str) -> Option<Self> {
-        Some(Self { id: 0 })
-    }
-}
-
-pub fn load(cats_directory: &Path) -> HashMap<i32, SkillLevelRow> {
+pub fn load(cats_directory: &Path) -> HashMap<u8, TalentCost> {
     let mut map = HashMap::new();
     let file_path = cats_directory.join("SkillLevel.csv");
     
-    if let Ok(file_content) = fs::read_to_string(&file_path) {
-        for (i, line) in file_content.lines().enumerate() {
-            if let Some(row) = SkillLevelRow::from_csv_line(line) {
-                map.insert(i as i32, row);
+    if let Ok(content) = fs::read_to_string(&file_path) {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.is_empty() { continue; }
+            
+            // First column is the Cost ID
+            if let Ok(id) = parts[0].trim().parse::<u8>() {
+                let costs: Vec<u16> = parts.iter()
+                    .skip(1)
+                    .filter_map(|s| s.trim().parse::<u16>().ok())
+                    .collect();
+                
+                map.insert(id, TalentCost { costs });
             }
         }
     } 

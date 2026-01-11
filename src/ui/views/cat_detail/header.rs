@@ -75,7 +75,10 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
             ];
 
             for (tab_enum, label) in tabs {
-                if tab_enum == DetailTab::Talents && (*current_form < 2 || !cat.has_talents) {
+                // HIDE IF:
+                // 1. It's the Talents tab AND
+                // 2. Either the form is < 2 (Normal/Evolved) OR the unit simply has no talent data
+                if tab_enum == DetailTab::Talents && (*current_form < 2 || cat.talent_data.is_none()) {
                     continue;
                 }
 
