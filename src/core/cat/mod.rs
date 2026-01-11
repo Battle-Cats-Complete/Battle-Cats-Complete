@@ -13,6 +13,17 @@ use crate::ui::views::cat_detail;
 use scanner::CatEntry;
 use crate::core::files::imgcut::SpriteSheet; 
 
+#[derive(Deserialize, Serialize, PartialEq, Clone, Copy)]
+pub enum DetailTab {
+    Abilities,
+    Details,
+    Talents,
+}
+
+impl Default for DetailTab {
+    fn default() -> Self { Self::Abilities }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(default)] 
 pub struct CatListState {
@@ -24,6 +35,9 @@ pub struct CatListState {
     
     pub search_query: String, 
     pub selected_form: usize, 
+    
+    pub selected_detail_tab: DetailTab,
+
     pub level_input: String, 
     pub current_level: i32, 
 
@@ -60,6 +74,7 @@ impl Default for CatListState {
             scan_receiver: None,
             search_query: String::new(),
             selected_form: 0,
+            selected_detail_tab: DetailTab::default(),
             level_input: "50".to_string(),
             current_level: 50,
             detail_texture: None,
@@ -81,11 +96,14 @@ impl SoftReset for CatListState {
         self.detail_key.clear();
         self.selected_cat = None;
         self.selected_form = 0; 
+        self.selected_detail_tab = DetailTab::Abilities;
         self.search_query.clear(); 
         self.level_input = "50".to_string();
         self.current_level = 50;
         self.sprite_sheet = SpriteSheet::default(); 
         self.multihit_texture = None; 
+        self.kamikaze_texture = None;
+        self.boss_wave_immune_texture = None;
         self.scan_receiver = None;
     }
 }
@@ -114,7 +132,6 @@ impl CatListState {
         if has_new_data { 
             self.cats.sort_by_key(|cat| cat.id);
         }
-
         
         if is_scan_complete {
             if let Some(target_id) = self.selected_cat {
@@ -188,17 +205,10 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
                         ui.label("Loading Unit Data...");
                     } else {
                         ui.heading("No Data Found");
-                        
-                        ui.label(egui::RichText::new("Could not find any units in game/cats.")
-                            .color(ui.visuals().weak_text_color()));
-                        
+                        ui.label(egui::RichText::new("Could not find any units in game/cats.").color(ui.visuals().weak_text_color()));
                         ui.add_space(5.0);
-                        
-                        ui.label("Check that 'unitbuy.csv' exists and");
-                        ui.label("unit folders (000, 001...) are present.");
-                        
+                        ui.label("Check that 'unitbuy.csv' exists and unit folders are present.");
                         ui.add_space(15.0);
-                        
                         if ui.button("Retry Scan").clicked() {
                             state.restart_scan(&settings.game_language);
                             ui.ctx().request_repaint();
@@ -228,6 +238,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             ui, 
             cat_entry, 
             &mut state.selected_form,
+            &mut state.selected_detail_tab,
             &mut state.level_input,   
             &mut state.current_level, 
             &mut state.detail_texture, 
