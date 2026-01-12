@@ -102,7 +102,7 @@ pub fn map_ability_to_icon(ability_id: u8) -> Option<usize> {
         25 => Some(img015::ICON_COST_DOWN),
         26 => Some(img015::ICON_RECOVER_SPEED_UP),
         27 => Some(img015::ICON_MOVE_SPEED),
-        28 => Some(img015::ICON_IMPROVE_KNOCKBACKS),
+        28 => Some(img015::ICON_IMPROVE_KNOCKBACK_COUNT),
         31 => Some(img015::ICON_ATTACK_BUFF),
         32 => Some(img015::ICON_HEALTH_BUFF),
         61 => Some(img015::ICON_TBA_DOWN),

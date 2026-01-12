@@ -155,8 +155,6 @@ fn render_info_box(ui: &mut egui::Ui, cat: &CatEntry, form: usize, level_input: 
         let form_num = form + 1;
         let raw_name = cat.names.get(form).cloned().unwrap_or_default();
         
-        // --- CHANGED: Removed "is_placeholder" logic ---
-        // If the name is empty, fall back to ID. Otherwise, just show it.
         let disp_name = if raw_name.is_empty() { 
             format!("{:03}-{}", cat.id, form_num) 
         } else { 

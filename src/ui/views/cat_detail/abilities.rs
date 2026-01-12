@@ -7,7 +7,6 @@ use crate::core::files::imgcut::SpriteSheet;
 use crate::core::settings::Settings;
 use crate::ui::components::shared::{render_fallback_icon, text_with_superscript};
 use crate::core::files::img015;
-// NEW IMPORTS
 use crate::core::files::skillacquisition::TalentRaw;
 use std::collections::HashMap;
 
@@ -21,18 +20,16 @@ pub fn render(
     kamikaze_tex: &Option<egui::TextureHandle>,   
     boss_wave_tex: &Option<egui::TextureHandle>, 
     settings: &Settings, 
-    // NEW ARGUMENTS
     talent_data: Option<&TalentRaw>,
     talent_levels: Option<&HashMap<u8, u8>>
 ) {
-    if render_traits(ui, s, sheet, settings) {
+    if render_traits(ui, s, sheet, settings, talent_data, talent_levels) {
         ui.add_space(settings.trait_padding_y);
     }
 
     let curve = cat.curve.as_ref();
     let (grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(
         s, level, curve, multihit_tex, kamikaze_tex, boss_wave_tex, settings, false,
-        // PASS THROUGH
         talent_data,
         talent_levels
     );
@@ -68,7 +65,14 @@ pub fn render(
     }
 }
 
-fn render_traits(ui: &mut egui::Ui, s: &CatRaw, sheet: &SpriteSheet, settings: &Settings) -> bool {
+fn render_traits(
+    ui: &mut egui::Ui, 
+    s: &CatRaw, 
+    sheet: &SpriteSheet, 
+    settings: &Settings,
+    talent_data: Option<&TalentRaw>,
+    talent_levels: Option<&HashMap<u8, u8>>
+) -> bool {
     let has_any_trait = s.target_red > 0 || s.target_floating > 0 || s.target_black > 0 ||
         s.target_metal > 0 || s.target_angel > 0 || s.target_alien > 0 ||
         s.target_zombie > 0 || s.target_relic > 0 || s.target_aku > 0 ||
@@ -76,14 +80,66 @@ fn render_traits(ui: &mut egui::Ui, s: &CatRaw, sheet: &SpriteSheet, settings: &
 
     if !has_any_trait { return false; }
 
+    let mut talented_traits = Vec::new();
+    if let (Some(data), Some(levels)) = (talent_data, talent_levels) {
+        for (idx, group) in data.groups.iter().enumerate() {
+            let lv = *levels.get(&(idx as u8)).unwrap_or(&0);
+            if lv > 0 {
+                if group.name_id != -1 {
+                    if let Some(icon) = map_trait_index_to_icon(group.name_id as u16) {
+                        talented_traits.push(icon);
+                    }
+                    if data.type_id > 0 {
+                        for i in 0..12 {
+                            if (data.type_id & (1 << i)) != 0 {
+                                if let Some(icon) = map_trait_index_to_icon(i) {
+                                    talented_traits.push(icon);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                match group.ability_id {
+                    33 => talented_traits.push(img015::ICON_TRAIT_RED),
+                    34 => talented_traits.push(img015::ICON_TRAIT_FLOATING),
+                    35 => talented_traits.push(img015::ICON_TRAIT_BLACK),
+                    36 => talented_traits.push(img015::ICON_TRAIT_METAL),
+                    37 => talented_traits.push(img015::ICON_TRAIT_ANGEL),
+                    38 => talented_traits.push(img015::ICON_TRAIT_ALIEN),
+                    39 => talented_traits.push(img015::ICON_TRAIT_ZOMBIE),
+                    40 => talented_traits.push(img015::ICON_TRAIT_RELIC),
+                    41 => talented_traits.push(img015::ICON_TRAIT_TRAITLESS),
+                    57 => talented_traits.push(img015::ICON_TRAIT_AKU),
+                    _ => {}
+                }
+            }
+        }
+    }
+
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(settings.ability_padding_x, settings.ability_padding_y);
         for &line_num in definitions::UI_TRAIT_ORDER {
             let has_trait = check_trait(s, line_num);
             if has_trait {
                 let tooltip = get_trait_tooltip(line_num);
+                
+                let border_sprite_id = if talented_traits.contains(&line_num) {
+                    Some(img015::BORDER_GOLD)
+                } else {
+                    None
+                };
+
                 let r = if let Some(sprite) = sheet.get_sprite_by_line(line_num) {
-                    ui.add(sprite.fit_to_exact_size(egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE)))
+                    let size = egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE);
+                    let resp = ui.add(sprite.fit_to_exact_size(size));
+                    
+                    if let Some(bid) = border_sprite_id {
+                        if let Some(b_sprite) = sheet.get_sprite_by_line(bid) {
+                            ui.put(resp.rect, b_sprite.fit_to_exact_size(size));
+                        }
+                    }
+                    resp
                 } else {
                     let alt = img015::img015_alt(line_num);
                     render_fallback_icon(ui, alt, egui::Color32::BLACK)
@@ -95,6 +151,22 @@ fn render_traits(ui: &mut egui::Ui, s: &CatRaw, sheet: &SpriteSheet, settings: &
     
     ui.add_space(settings.ability_padding_y);
     true
+}
+
+fn map_trait_index_to_icon(idx: u16) -> Option<usize> {
+    match idx {
+        0 => Some(img015::ICON_TRAIT_RED),
+        1 => Some(img015::ICON_TRAIT_FLOATING),
+        2 => Some(img015::ICON_TRAIT_BLACK),
+        3 => Some(img015::ICON_TRAIT_METAL),
+        4 => Some(img015::ICON_TRAIT_ANGEL),
+        5 => Some(img015::ICON_TRAIT_ALIEN),
+        6 => Some(img015::ICON_TRAIT_ZOMBIE),
+        7 => Some(img015::ICON_TRAIT_RELIC),
+        8 => Some(img015::ICON_TRAIT_TRAITLESS),
+        11 => Some(img015::ICON_TRAIT_AKU),
+        _ => None,
+    }
 }
 
 fn check_trait(s: &CatRaw, line: usize) -> bool {
@@ -141,14 +213,26 @@ pub fn render_icon_row(ui: &mut egui::Ui, items: &Vec<AbilityItem>, sheet: &Spri
 
 fn render_single_icon(ui: &mut egui::Ui, item: &AbilityItem, sheet: &SpriteSheet, border: egui::Color32) -> egui::Response {
     let size = egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE);
-    if let Some(tex_id) = item.custom_tex {
+    
+    // Draw the main icon
+    let response = if let Some(tex_id) = item.custom_tex {
         ui.add(egui::Image::new(egui::load::SizedTexture::new(tex_id, size)))
     } else if let Some(sprite) = sheet.get_sprite_by_line(item.icon_id) {
         ui.add(sprite.fit_to_exact_size(size))
     } else {
         let alt = img015::img015_alt(item.icon_id);
         render_fallback_icon(ui, alt, border)
+    };
+
+    // Overlay border if present
+    if let Some(border_id) = item.border_id {
+        if let Some(border_sprite) = sheet.get_sprite_by_line(border_id) {
+            // Draw the border on top of the existing icon rect
+            ui.put(response.rect, border_sprite.fit_to_exact_size(size));
+        }
     }
+
+    response
 }
 
 pub fn render_list_view(

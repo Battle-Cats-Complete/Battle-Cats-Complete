@@ -3,8 +3,6 @@ use crate::core::files::unitid::CatRaw;
 use crate::core::files::unitlevel::CatLevelCurve;
 use std::collections::HashMap;
 
-// --- CALCULATION LOGIC ---
-
 pub fn calculate_talent_value(min: u16, max: u16, level: u8, max_level: u8) -> i32 {
     if level == 0 { return 0; }
     if max_level <= 1 { return min as i32; }
@@ -20,7 +18,6 @@ pub fn calculate_talent_value(min: u16, max: u16, level: u8, max_level: u8) -> i
     val.round() as i32
 }
 
-// Helper functions defined outside to avoid scope issues
 fn fmt_additive(base: i32, bonus: i32, unit: &str) -> String {
     format!("{}{} (+{}{}) -> {}{}", base, unit, bonus, unit, base + bonus, unit)
 }
@@ -56,23 +53,14 @@ pub fn calculate_talent_display(
     
     let get_val = |min, max| calculate_talent_value(min, max, talent_level, group.max_level);
 
-    // --- PRIORITY HANDLING BY ABILITY ID ---
     match group.ability_id {
-        // STATE / BOOLEAN:
-        // 5=Strong, 6=Resist, 7=Massive (The Sisters)
-        // 12=Base Destroyer, 14=Zombie Killer, 16=Double Bounty
-        // 23=Wave Immune, 29=Curse Immune
-        // 33-41=Target Traits
-        // 44-49=Immunities, 53=Toxic Immune, 55=Surge Immune, 57=Aku Target, 58=Shield Pierce
-        // 63=Colossus, 64=Behemoth, 66=Sage, 67=Explosion, 92=??
-        // NOTE: 25 (Cost Down) Removed to allow text_id 31 to handle it.
+        // State
         5 | 6 | 7 | 12 | 14 | 16 | 23 | 29 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 
-        44 | 45 | 46 | 47 | 48 | 49 | 53 | 55 | 57 | 58 | 63 | 64 | 66 | 67 | 92 => {
+        44 | 45 | 46 | 47 | 48 | 49 | 53 | 55 | 57 | 63 | 64 | 66 | 67 | 92 => {
             return Some(fmt_state(talent_level));
         },
 
-        // RESISTANCES (CC/SURGE/TOXIC): Display as Percentage
-        // 18-22 (CC), 24 (Warp), 30 (Curse), 52 (Toxic), 54 (Surge)
+        // percentage
         18 | 19 | 20 | 21 | 22 | 24 | 30 | 52 | 54 => {
             let bonus = get_val(group.min_1, group.max_1);
             return Some(fmt_additive(0, bonus, "%"));
@@ -81,9 +69,7 @@ pub fn calculate_talent_display(
         _ => {} 
     }
 
-    // --- STANDARD HANDLING BY TEXT ID ---
     match group.text_id {
-        // --- ADDITIVE WITH CHANCE ---
         1 | 70 | 71 => { // Weaken
             let chance = group.min_1; 
             let bonus = get_val(group.min_2, group.max_2); 
@@ -227,17 +213,19 @@ pub fn calculate_talent_display(
             let bonus = get_val(group.min_1, group.max_1);
             Some(format!("Duration: {}", fmt_additive(stats.curse_duration, bonus, "f")))
         },
-        82 => { // Attack Freq
-            let reduction = get_val(group.min_1, group.max_1);
-            Some(format!("TBA: -{}f", reduction))
-        },
+        82 => { // Attack Freq Up
+        let percent = get_val(group.min_1, group.max_1);
+        let base = stats.time_before_attack_1;
+        let reduction = (base as f32 * percent as f32 / 100.0).round() as i32;
+        Some(format!("{}f (-{}%) -> {}f", base, percent, base.saturating_sub(reduction)))
+    },
         83 => { // Mini-Wave
             let bonus = get_val(group.min_1, group.max_1);
             let level = group.min_2;
             let range = 332.5 + ((level - 1) as f32 * 200.0);
             Some(format!("Chance: {}\nLevel: {} (Mini)\nRange: {}", fmt_additive(stats.wave_chance, bonus, "%"), level, range))
         },
-        86 => { // Behemoth Slayer (with Dodge)
+        86 => { // Behemoth Slayer
             let chance = group.min_1;
             let duration = group.min_2;
             Some(format!("Inactive -> Active\n{}% Chance to Dodge for {}f", chance, duration))
@@ -264,13 +252,12 @@ pub fn calculate_talent_display(
             let bonus = get_val(group.min_1, group.max_1);
             Some(fmt_additive(stats.speed, bonus, ""))
         },
-        // --- MULTIPLICATIVE (HP/ATK) ---
-        27 => { 
+        27 => { // Health Buff
             let pct = get_val(group.min_1, group.max_1);
             let base_hp = curve.map_or(stats.hitpoints, |c| c.calculate_stat(stats.hitpoints, unit_level));
             Some(fmt_multi(base_hp, pct))
         },
-        28 => { 
+        28 => { // Attack Buff
             let pct = get_val(group.min_1, group.max_1);
             let total_base = stats.attack_1 + stats.attack_2 + stats.attack_3;
             let real_atk = curve.map_or(total_base, |c| c.calculate_stat(total_base, unit_level));
@@ -281,9 +268,7 @@ pub fn calculate_talent_display(
     }
 }
 
-// --- HELPER: Apply Targets ---
 fn apply_target_traits(s: &mut CatRaw, name_id: i16, type_id: u16) {
-    // 1. Apply name_id directly
     match name_id {
         0 => s.target_red = 1,
         1 => s.target_floating = 1,
@@ -300,7 +285,6 @@ fn apply_target_traits(s: &mut CatRaw, name_id: i16, type_id: u16) {
         _ => {}
     }
 
-    // 2. Apply type_id bitmap
     if type_id > 0 {
         if (type_id & (1 << 0)) != 0 { s.target_red = 1; }
         if (type_id & (1 << 1)) != 0 { s.target_floating = 1; }
@@ -317,14 +301,12 @@ fn apply_target_traits(s: &mut CatRaw, name_id: i16, type_id: u16) {
     }
 }
 
-// --- APPLY TALENT STATS TO BASE ---
 pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashMap<u8, u8>) -> CatRaw {
     let mut s = base.clone();
     
     for (idx, group) in talent_data.groups.iter().enumerate() {
         let lv = *levels.get(&(idx as u8)).unwrap_or(&0);
         
-        // --- TARGET TRAIT MAPPING ---
         if lv > 0 && group.name_id != -1 {
             apply_target_traits(&mut s, group.name_id, talent_data.type_id);
         }
@@ -365,7 +347,7 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
                 }
             },
             
-            // THE SISTERS (Correct IDs)
+            // The Sisters
             5 => s.strong_against = 1, // Strong Against
             6 => s.resist = 1,         // Resistant
             7 => s.massive_damage = 1, // Massive Damage
@@ -387,8 +369,6 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
                 s.wave_chance += val;
                 s.wave_level = group.min_2 as i32;
             },
-            
-            // NOTE: Resist CC/Wave/Surge/Toxic (18-22, 24, 30, 52, 54) omitted here; handled in abilities.rs
             
             25 => s.eoc1_cost -= val, 
             26 => s.cooldown -= val,
@@ -425,13 +405,17 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
             61 => { // TBA
                 s.time_before_attack_1 = s.time_before_attack_1.saturating_sub(val);
             },
+            82 => { // Attack Frequency Up
+                let reduction = (s.time_before_attack_1 as f32 * val as f32 / 100.0).round() as i32;
+                s.time_before_attack_1 = s.time_before_attack_1.saturating_sub(reduction);
+            },
             62 => { // Mini-Wave
                 s.mini_wave_flag = 1;
                 s.wave_chance += val;
                 s.wave_level = group.min_2 as i32;
             },
             
-            // SLAYERS (Apply Flags)
+            // Slayers
             63 => s.colossus_slayer = 1,
             64 => s.behemoth_slayer = 1,
             66 => s.sage_slayer = 1,
