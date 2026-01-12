@@ -73,12 +73,8 @@ pub fn show(
         }
     }
 
-    // --- APPLY TALENTS TO STATS ---
-    // base_stats: Raw CSV data (0 talents)
     let base_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
     
-    // Check form constraint: Talents only apply if Form 2 or 3 (True/Ultra)
-    // AND if we have talent data.
     let form_allows_talents = *current_form >= 2;
 
     let patched_stats_owned = if form_allows_talents {
@@ -91,7 +87,6 @@ pub fn show(
         None
     };
 
-    // current_stats: Used for Stats/Abilities tabs (active power)
     let current_stats = patched_stats_owned.as_ref().or(base_stats);
 
     match current_tab {
@@ -118,9 +113,7 @@ pub fn show(
                             kamikaze_texture,
                             boss_wave_immune_texture,
                             settings,
-                            // Pass talent data (only if Form 2+)
                             if form_allows_talents { cat.talent_data.as_ref() } else { None },
-                            // Pass talent levels (only if Form 2+)
                             if form_allows_talents { Some(&*talent_levels) } else { None }
                         );
                         ui.add_space(5.0);
@@ -139,7 +132,7 @@ pub fn show(
                             talent_name_cache, 
                             skill_descriptions,
                             settings,
-                            base_stats, // Pass base_stats so calculation display shows "Base -> Final" correctly
+                            base_stats,
                             cat.curve.as_ref(), 
                             *current_level,
                             talent_levels, 

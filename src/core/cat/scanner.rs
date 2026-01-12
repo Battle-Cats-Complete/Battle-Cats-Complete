@@ -169,14 +169,11 @@ fn process_cat_entry(
         Err(_) => { return None; }
     }
     
-    // --- MIX-AND-MATCH NAME LOGIC ---
     let mut cat_names = vec![String::new(); 4];
     
     let target_file_id = cat_id + 1;
     let lang_directory = original_folder_path.join("lang"); 
 
-    // 1. Determine which languages to check
-    // If empty (Automatic), check all. If set (Specific), check only that one.
     let language_codes_to_check: Vec<&str> = if language_code.is_empty() {
         utils::LANGUAGE_PRIORITY.to_vec()
     } else {
@@ -184,7 +181,6 @@ fn process_cat_entry(
     };
 
     for code in language_codes_to_check {
-        // Optimization: If we have names for all existing forms, we can stop early.
         let all_found = (0..4).all(|i| !forms_existence[i] || !cat_names[i].is_empty());
         if all_found { break; }
 
@@ -203,29 +199,22 @@ fn process_cat_entry(
                     }
                 }
 
-                // 2. Per-Form Validation & Merge
                 for i in 0..4 {
-                    // If we already have a name for this form (from a higher priority language), skip.
                     if !cat_names[i].is_empty() { continue; }
                     
-                    // If the form doesn't exist, skip.
                     if !forms_existence[i] { continue; }
 
                     let candidate = &current_lang_names[i];
                     
-                    // Validation: Empty check
                     if candidate.is_empty() { continue; }
 
-                    // Validation: Duplicate Check 
-                    // Compare against the PREVIOUS form in THIS SAME language file.
                     if i > 0 {
                         let prev_name_source = &current_lang_names[i-1];
                         if candidate == prev_name_source {
-                             continue; // Duplicate of previous form -> Invalid for this slot.
+                             continue;
                         }
                     }
 
-                    // If valid, accept it.
                     cat_names[i] = candidate.clone();
                 }
             }

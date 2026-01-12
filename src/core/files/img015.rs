@@ -89,7 +89,7 @@ pub const ICON_COUNTER_SURGE: usize = 320;
 
 // Talent Only
 pub const ICON_MOVE_SPEED: usize = 101;
-pub const ICON_IMPROVE_KNOCKBACKS: usize = 103;
+pub const ICON_IMPROVE_KNOCKBACK_COUNT: usize = 103;
 pub const ICON_ATTACK_BUFF: usize = 123;
 pub const ICON_HEALTH_BUFF: usize = 125;
 pub const ICON_TBA_DOWN: usize = 310;
@@ -199,7 +199,7 @@ pub fn img015_alt(id: usize) -> &'static str {
 
         // Talent Only
         ICON_MOVE_SPEED => "Spd",
-        ICON_IMPROVE_KNOCKBACKS => "KB+",
+        ICON_IMPROVE_KNOCKBACK_COUNT => "KB+",
         ICON_ATTACK_BUFF => "Atk+",
         ICON_HEALTH_BUFF => "HP+",
         ICON_TBA_DOWN => "TBA-",

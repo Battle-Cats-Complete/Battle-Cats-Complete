@@ -17,7 +17,6 @@ pub fn load(cats_directory: &Path) -> HashMap<u8, TalentCost> {
             let parts: Vec<&str> = line.split(',').collect();
             if parts.is_empty() { continue; }
             
-            // First column is the Cost ID
             if let Ok(id) = parts[0].trim().parse::<u8>() {
                 let costs: Vec<u16> = parts.iter()
                     .skip(1)

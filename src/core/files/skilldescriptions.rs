@@ -21,7 +21,7 @@ pub fn load(cats_directory: &Path, language_code: &str) -> Vec<String> {
                 continue;
             }
 
-            // Prune everything before the first separator (e.g., "94|Description" -> "Description")
+            // Prune everything before the first separator
             let raw_text = if let Some((_id, text_part)) = line.split_once(separator) {
                 text_part
             } else {
