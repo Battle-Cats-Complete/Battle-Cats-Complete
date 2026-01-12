@@ -1,6 +1,6 @@
 use eframe::egui;
 use std::sync::mpsc::{Receiver, TryRecvError};
-use std::collections::{HashMap, VecDeque}; // Added VecDeque
+use std::collections::{HashMap, VecDeque};
 use crate::core::utils::SoftReset; 
 use serde::{Deserialize, Serialize};
 
@@ -73,10 +73,7 @@ pub struct CatListState {
     #[serde(skip)]
     pub initialized: bool,
 
-    // --- NEW TALENT PERSISTENCE STATE ---
-    /// Stores talent levels for units: UnitID -> (TalentIndex -> Level)
     pub talent_levels: HashMap<u32, HashMap<u8, u8>>,
-    /// Tracks the order of unit selection for LRU logic (Max 3)
     pub talent_history: VecDeque<u32>, 
 }
 
@@ -220,29 +217,22 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             
             state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, settings.high_banner_quality);
             
-            // --- UNIT SELECTION LOGIC WITH HISTORY ---
             if state.selected_cat != old_selection_id {
                 state.detail_texture = None; 
                 state.detail_key.clear();
 
                 if let Some(new_id) = state.selected_cat {
-                    // Update History (Last 3)
-                    // 1. Remove if exists to move to end (update recency)
                     if let Some(pos) = state.talent_history.iter().position(|&id| id == new_id) {
                         state.talent_history.remove(pos);
                     }
-                    // 2. Add to back (most recent)
                     state.talent_history.push_back(new_id);
                     
-                    // 3. Trim if > 3
                     while state.talent_history.len() > 3 {
                         if let Some(popped_id) = state.talent_history.pop_front() {
-                            // Clear talents for the unit falling off the history
                             state.talent_levels.remove(&popped_id);
                         }
                     }
 
-                    // --- Standard Form Logic ---
                     if let Some(new_cat) = state.cats.iter().find(|c| c.id == new_id) {
                         let mut max_form_index = 0;
                         for (i, &exists) in new_cat.forms.iter().enumerate() {
@@ -307,7 +297,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             return;
         };
         
-        // Retrieve or Initialize Talent Map for this Unit
         let talent_map = state.talent_levels.entry(selected_id).or_default();
 
         cat_detail::show(
@@ -327,7 +316,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             &mut state.talent_name_textures,
             state.skill_descriptions.as_ref(), 
             settings,
-            talent_map // Pass the specific map for this unit
+            talent_map
         );
     });
 }
