@@ -174,9 +174,9 @@ pub fn render(
                                                 ui.add_space(4.0);
                                                 ui.label(
                                                     egui::RichText::new(display_text)
-                                                        .color(egui::Color32::from_gray(220))
-                                                        .size(15.0)   // Increased Size
-                                                        .strong()     // Bold
+                                                        .color(egui::Color32::WHITE) // Changed to WHITE
+                                                        .size(15.0)   
+                                                        .strong()     
                                                 );
                                             }
                                         }
