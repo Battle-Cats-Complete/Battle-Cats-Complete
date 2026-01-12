@@ -7,7 +7,7 @@ use crate::core::utils::{self, autocrop};
 use crate::core::settings::Settings; 
 use crate::core::files::unitid::CatRaw; 
 use crate::core::files::unitlevel::CatLevelCurve;
-use crate::core::cat::talents; // Import calculation logic
+use crate::core::cat::talents;
 
 pub fn render(
     ui: &mut egui::Ui,
@@ -19,6 +19,8 @@ pub fn render(
     current_stats: Option<&CatRaw>, 
     curve: Option<&CatLevelCurve>,
     unit_level: i32,
+    talent_levels: &mut HashMap<u8, u8>, // Mutable map from persistent state
+    cat_id: u32,                         // Cat ID for unique keys
 ) {
     ui.add_space(5.0);
     
@@ -32,7 +34,8 @@ pub fn render(
                 egui::Color32::from_rgb(180, 140, 20) 
             };
 
-            let id = ui.make_persistent_id(format!("talent_group_{}", index));
+            // Use cat_id in the ID to ensure uniqueness across units
+            let id = ui.make_persistent_id(format!("cat_{}_talent_group_{}", cat_id, index));
             let mut expanded = ui.data(|d| d.get_temp(id).unwrap_or(false)); 
 
             egui::Frame::none()
@@ -134,10 +137,9 @@ pub fn render(
                                     ui.vertical(|ui| {
                                         // 1. DATA PREP
                                         let effective_max = if group.max_level == 0 { 1 } else { group.max_level };
-                                        let level_id = ui.make_persistent_id(format!("talent_level_{}", index));
                                         
-                                        // We pull the level into a local variable.
-                                        let mut current_level = ui.data(|d| d.get_temp::<u8>(level_id).unwrap_or(0));
+                                        // Retrieve level DIRECTLY from the HashMap using the index
+                                        let current_level = talent_levels.entry(index as u8).or_insert(0);
 
                                         // 2. CONTROLS (Slider + Input)
                                         ui.horizontal(|ui| {
@@ -153,27 +155,22 @@ pub fn render(
                                                 ui.visuals_mut().widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(50));
                                                 ui.visuals_mut().widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(50));
                                                 
-                                                if ui.add(egui::Slider::new(&mut current_level, 0..=effective_max)
+                                                ui.add(egui::Slider::new(current_level, 0..=effective_max)
                                                     .step_by(1.0)
                                                     .show_value(false)
-                                                ).changed() {
-                                                    ui.data_mut(|d| d.insert_temp(level_id, current_level));
-                                                }
+                                                );
                                             });
 
                                             // INPUT BOX (Dark Theme - Standard)
-                                            if ui.add(egui::DragValue::new(&mut current_level)
+                                            ui.add(egui::DragValue::new(current_level)
                                                 .speed(0.1)
                                                 .range(0..=effective_max)
-                                            ).changed() {
-                                                ui.data_mut(|d| d.insert_temp(level_id, current_level));
-                                            }
+                                            );
                                         });
 
                                         // 3. CALCULATION DISPLAY
-                                        // This runs AFTER the controls have updated `current_level`, so it's always in sync.
                                         if let Some(stats) = current_stats {
-                                            if let Some(display_text) = talents::calculate_talent_display(group, stats, current_level, curve, unit_level) {
+                                            if let Some(display_text) = talents::calculate_talent_display(group, stats, *current_level, curve, unit_level) {
                                                 ui.add_space(4.0);
                                                 ui.label(
                                                     egui::RichText::new(display_text)

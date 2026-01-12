@@ -1,13 +1,13 @@
 use eframe::egui;
 use std::sync::mpsc::{Receiver, TryRecvError};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque}; // Added VecDeque
 use crate::core::utils::SoftReset; 
 use serde::{Deserialize, Serialize};
 
 pub mod scanner;
 pub mod stats;
-pub mod abilities;
-pub mod talents;
+pub mod abilities; 
+pub mod talents; 
 
 use crate::ui::components::cat_list::CatList; 
 use crate::ui::views::cat_detail; 
@@ -72,6 +72,12 @@ pub struct CatListState {
 
     #[serde(skip)]
     pub initialized: bool,
+
+    // --- NEW TALENT PERSISTENCE STATE ---
+    /// Stores talent levels for units: UnitID -> (TalentIndex -> Level)
+    pub talent_levels: HashMap<u32, HashMap<u8, u8>>,
+    /// Tracks the order of unit selection for LRU logic (Max 3)
+    pub talent_history: VecDeque<u32>, 
 }
 
 impl Default for CatListState {
@@ -95,6 +101,8 @@ impl Default for CatListState {
             talent_name_textures: HashMap::new(),
             skill_descriptions: None, 
             initialized: false, 
+            talent_levels: HashMap::new(),
+            talent_history: VecDeque::new(),
         }
     }
 }
@@ -118,6 +126,8 @@ impl SoftReset for CatListState {
         self.talent_name_textures.clear(); 
         self.skill_descriptions = None; 
         self.scan_receiver = None;
+        self.talent_levels.clear();
+        self.talent_history.clear();
     }
 }
 
@@ -165,14 +175,12 @@ impl CatListState {
     }
 
     pub fn restart_scan(&mut self, language_code: &str) {
-        // Capture current state BEFORE reset
         let current_selection_id = self.selected_cat;
         let current_form = self.selected_form;
         let current_tab = self.selected_detail_tab;
 
         self.reset();
 
-        // Restore state AFTER reset
         self.selected_cat = current_selection_id;
         self.selected_form = current_form;
         self.selected_detail_tab = current_tab;
@@ -190,7 +198,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
         }
     }
 
-    // Lazy load descriptions if missing
     if state.skill_descriptions.is_none() {
         let path = std::path::Path::new("game/cats");
         state.skill_descriptions = Some(skilldescriptions::load(path, &settings.game_language));
@@ -213,13 +220,30 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             
             state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, settings.high_banner_quality);
             
+            // --- UNIT SELECTION LOGIC WITH HISTORY ---
             if state.selected_cat != old_selection_id {
                 state.detail_texture = None; 
                 state.detail_key.clear();
 
                 if let Some(new_id) = state.selected_cat {
+                    // Update History (Last 3)
+                    // 1. Remove if exists to move to end (update recency)
+                    if let Some(pos) = state.talent_history.iter().position(|&id| id == new_id) {
+                        state.talent_history.remove(pos);
+                    }
+                    // 2. Add to back (most recent)
+                    state.talent_history.push_back(new_id);
+                    
+                    // 3. Trim if > 3
+                    while state.talent_history.len() > 3 {
+                        if let Some(popped_id) = state.talent_history.pop_front() {
+                            // Clear talents for the unit falling off the history
+                            state.talent_levels.remove(&popped_id);
+                        }
+                    }
+
+                    // --- Standard Form Logic ---
                     if let Some(new_cat) = state.cats.iter().find(|c| c.id == new_id) {
-                        
                         let mut max_form_index = 0;
                         for (i, &exists) in new_cat.forms.iter().enumerate() {
                             if exists { max_form_index = i; }
@@ -283,6 +307,9 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             return;
         };
         
+        // Retrieve or Initialize Talent Map for this Unit
+        let talent_map = state.talent_levels.entry(selected_id).or_default();
+
         cat_detail::show(
             ctx, 
             ui, 
@@ -299,7 +326,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             &mut state.boss_wave_immune_texture,
             &mut state.talent_name_textures,
             state.skill_descriptions.as_ref(), 
-            settings
+            settings,
+            talent_map // Pass the specific map for this unit
         );
     });
 }

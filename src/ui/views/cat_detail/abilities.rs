@@ -7,6 +7,9 @@ use crate::core::files::imgcut::SpriteSheet;
 use crate::core::settings::Settings;
 use crate::ui::components::shared::{render_fallback_icon, text_with_superscript};
 use crate::core::files::img015;
+// NEW IMPORTS
+use crate::core::files::skillacquisition::TalentRaw;
+use std::collections::HashMap;
 
 pub fn render(
     ui: &mut egui::Ui, 
@@ -18,6 +21,9 @@ pub fn render(
     kamikaze_tex: &Option<egui::TextureHandle>,   
     boss_wave_tex: &Option<egui::TextureHandle>, 
     settings: &Settings, 
+    // NEW ARGUMENTS
+    talent_data: Option<&TalentRaw>,
+    talent_levels: Option<&HashMap<u8, u8>>
 ) {
     if render_traits(ui, s, sheet, settings) {
         ui.add_space(settings.trait_padding_y);
@@ -25,7 +31,10 @@ pub fn render(
 
     let curve = cat.curve.as_ref();
     let (grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(
-        s, level, curve, multihit_tex, kamikaze_tex, boss_wave_tex, settings, false
+        s, level, curve, multihit_tex, kamikaze_tex, boss_wave_tex, settings, false,
+        // PASS THROUGH
+        talent_data,
+        talent_levels
     );
     
     let mut previous_content = false;
@@ -133,7 +142,7 @@ pub fn render_icon_row(ui: &mut egui::Ui, items: &Vec<AbilityItem>, sheet: &Spri
 fn render_single_icon(ui: &mut egui::Ui, item: &AbilityItem, sheet: &SpriteSheet, border: egui::Color32) -> egui::Response {
     let size = egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE);
     if let Some(tex_id) = item.custom_tex {
-        ui.add(egui::Image::new((tex_id, size)))
+        ui.add(egui::Image::new(egui::load::SizedTexture::new(tex_id, size)))
     } else if let Some(sprite) = sheet.get_sprite_by_line(item.icon_id) {
         ui.add(sprite.fit_to_exact_size(size))
     } else {
@@ -251,7 +260,9 @@ fn render_conjure_details(
             ui.add_space(settings.ability_padding_y);
 
             let (spirit_head_1, spirit_head_2, spirit_body_1, spirit_body_2, spirit_footer) = abilities::collect_ability_data(
-                &conjure_stats, level, curve, multihit_tex, kamikaze_tex, boss_wave_tex, settings, true
+                &conjure_stats, level, curve, multihit_tex, kamikaze_tex, boss_wave_tex, settings, true,
+                None, // Spirits don't have talents
+                None  // No level map for spirit
             );
             
             if !spirit_head_1.is_empty() { render_icon_row(ui, &spirit_head_1, sheet, settings, spirit_border); }

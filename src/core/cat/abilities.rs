@@ -2,6 +2,9 @@ use crate::core::files::img015;
 use crate::core::settings::Settings;
 use super::stats::{self, CatRaw};
 use eframe::egui;
+// NEW IMPORTS
+use crate::core::files::skillacquisition::TalentRaw;
+use std::collections::HashMap;
 
 pub struct AbilityItem {
     pub icon_id: usize,
@@ -17,7 +20,10 @@ pub fn collect_ability_data(
     kamikaze_texture: &Option<egui::TextureHandle>,
     boss_wave_texture: &Option<egui::TextureHandle>,
     settings: &Settings, 
-    is_conjure_unit: bool
+    is_conjure_unit: bool,
+    // NEW ARGUMENTS
+    talent_data: Option<&TalentRaw>,
+    talent_levels: Option<&HashMap<u8, u8>>
 ) -> (Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>) {
     
     let mut group_headline_1 = Vec::new();
@@ -213,6 +219,31 @@ pub fn collect_ability_data(
             text: "Immune to Boss Shockwaves".into(),
             custom_tex: effective_tex,
         });
+    }
+
+    // --- TALENT RESISTANCES LOGIC (FIXED ARGUMENTS) ---
+    if let (Some(t_data), Some(levels)) = (talent_data, talent_levels) {
+        for (idx, group) in t_data.groups.iter().enumerate() {
+            let lv = *levels.get(&(idx as u8)).unwrap_or(&0);
+            if lv == 0 { continue; }
+
+            // Using the shared core logic from talents.rs
+            let val = crate::core::cat::talents::calculate_talent_value(group.min_1, group.max_1, lv, group.max_level);
+
+            // Added 'true' for the condition argument
+            match group.ability_id {
+                18 => push_ability(&mut group_footer, true, img015::ICON_RESIST_WEAKEN, format!("Resist Weaken ({}%)", val)),
+                19 => push_ability(&mut group_footer, true, img015::ICON_RESIST_FREEZE, format!("Resist Freeze ({}%)", val)),
+                20 => push_ability(&mut group_footer, true, img015::ICON_RESIST_SLOW, format!("Resist Slow ({}%)", val)),
+                21 => push_ability(&mut group_footer, true, img015::ICON_RESIST_KNOCKBACK, format!("Resist Knockback ({}%)", val)),
+                22 => push_ability(&mut group_footer, true, img015::ICON_RESIST_WAVE, format!("Resist Wave ({}%)", val)),
+                24 => push_ability(&mut group_footer, true, img015::ICON_RESIST_WARP, format!("Resist Warp ({}%)", val)),
+                30 => push_ability(&mut group_footer, true, img015::ICON_RESIST_CURSE, format!("Resist Curse ({}%)", val)),
+                52 => push_ability(&mut group_footer, true, img015::ICON_RESIST_TOXIC, format!("Resist Toxic ({}%)", val)),
+                54 => push_ability(&mut group_footer, true, img015::ICON_SURGE_RESIST, format!("Resist Surge ({}%)", val)),
+                _ => {}
+            }
+        }
     }
 
     (group_headline_1, group_headline_2, group_body_1, group_body_2, group_footer)
