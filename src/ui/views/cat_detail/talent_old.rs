@@ -112,7 +112,7 @@ fn parse_targets(mask: u16) -> Vec<TalentTarget> {
 
 // --- CALCULATION LOGIC ---
 
-pub fn calculate_talent_value(min: u16, max: u16, level: u8, max_level: u8) -> i32 {
+fn calc_val_helper(min: u16, max: u16, level: u8, max_level: u8) -> i32 {
     if level == 0 { return 0; }
     if max_level <= 1 { return min as i32; }
     if level == 1 { return min as i32; }
@@ -135,7 +135,7 @@ pub fn calculate_talent_display(
     unit_level: i32
 ) -> Option<String> {
     
-    let get_val = |min, max| calculate_talent_value(min, max, talent_level, group.max_level);
+    let get_val = |min, max| calc_val_helper(min, max, talent_level, group.max_level);
 
     let fmt_additive = |base: i32, bonus: i32, unit: &str| -> String {
         format!("{}{} (+{}{}) -> {}{}", base, unit, bonus, unit, base + bonus, unit)
@@ -162,31 +162,6 @@ pub fn calculate_talent_display(
         }
     };
 
-    // --- PRIORITY HANDLING BY ABILITY ID ---
-    match group.ability_id {
-        // STATE / BOOLEAN:
-        // 5=Strong, 6=Resist, 7=Massive (The Sisters)
-        // 12=Base Destroyer, 14=Zombie Killer, 16=Double Bounty
-        // 23=Wave Immune, 25=Cost Down Flag, 29=Curse Immune
-        // 33-41=Target Traits
-        // 44-49=Immunities, 53=Toxic Immune, 55=Surge Immune, 57=Aku Target, 58=Shield Pierce
-        // 63=Colossus, 64=Behemoth, 66=Sage, 67=Explosion, 92=??
-        5 | 6 | 7 | 12 | 14 | 16 | 23 | 25 | 29 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 
-        44 | 45 | 46 | 47 | 48 | 49 | 53 | 55 | 57 | 58 | 63 | 64 | 66 | 67 | 92 => {
-            return Some(fmt_state());
-        },
-
-        // RESISTANCES (CC/SURGE/TOXIC): Display as Percentage
-        // 18-22 (CC), 24 (Warp), 30 (Curse), 52 (Toxic), 54 (Surge)
-        18 | 19 | 20 | 21 | 22 | 24 | 30 | 52 | 54 => {
-            let bonus = get_val(group.min_1, group.max_1);
-            return Some(fmt_additive(0, bonus, "%"));
-        },
-        
-        _ => {} 
-    }
-
-    // --- STANDARD HANDLING BY TEXT ID ---
     match group.text_id {
         // --- ADDITIVE WITH CHANCE ---
         1 | 70 | 71 => { // Weaken
@@ -256,7 +231,7 @@ pub fn calculate_talent_display(
             let bonus = get_val(group.min_1, group.max_1);
             Some(fmt_additive(stats.critical_chance, bonus, "%"))
         },
-        48 => { // Critical Upgrade
+        48 | 52 => {
             let bonus = get_val(group.min_1, group.max_1);
             Some(fmt_additive(stats.critical_chance, bonus, "%"))
         },
@@ -280,9 +255,8 @@ pub fn calculate_talent_display(
         },
         31 => { // Cost Down
             let reduction = get_val(group.min_1, group.max_1);
-            let effective_reduction = (reduction as f32 * 1.5).round() as i32;
             let base = stats.eoc1_cost * 3 / 2;
-            Some(format!("{}¢ (-{}¢) -> {}¢", base, effective_reduction, base.saturating_sub(effective_reduction)))
+            Some(format!("{}¢ (-{}¢) -> {}¢", base, reduction, base.saturating_sub(reduction as i32)))
         },
         32 => { // Recover Speed
             let reduction = get_val(group.min_1, group.max_1);
@@ -342,7 +316,7 @@ pub fn calculate_talent_display(
             let range = 332.5 + ((level - 1) as f32 * 200.0);
             Some(format!("{}\nLevel: {} (Mini)\nRange: {}", fmt_additive(stats.wave_chance, bonus, "%"), level, range))
         },
-        86 => { // Behemoth Slayer (with Dodge)
+        86 => { // Behemoth Slayer
             let chance = group.min_1;
             let duration = group.min_2;
             Some(format!("Inactive -> Active\n{}% Chance to Dodge for {}f", chance, duration))
@@ -362,12 +336,17 @@ pub fn calculate_talent_display(
         94 => { // Explosion
             let bonus = get_val(group.min_1, group.max_1);
             let min_range = group.min_2 / 4;
-            let max_range = min_range + (group.min_3 / 4);
+            // Explosion usually just has an anchor, checking if span (idx 3) exists or if anchor represents range
+            let max_range = min_range + (group.min_3 / 4); // Assuming min_3 is span if it exists
             Some(format!("{}\n{}", fmt_additive(stats.explosion_chance, bonus, "%"), fmt_range(min_range as i32, max_range as i32)))
         },
         29 => { // Speed
             let bonus = get_val(group.min_1, group.max_1);
             Some(fmt_additive(stats.speed, bonus, ""))
+        },
+        18 | 19 | 20 | 21 | 22 | 26 | 64 | 66 => { // Resistances
+            let bonus = get_val(group.min_1, group.max_1);
+            Some(fmt_additive(0, bonus, "%"))
         },
         // --- MULTIPLICATIVE (HP/ATK) ---
         27 => { 
@@ -381,7 +360,11 @@ pub fn calculate_talent_display(
             let real_atk = curve.map_or(total_base, |c| c.calculate_stat(total_base, unit_level));
             Some(fmt_multi(real_atk, pct))
         },
-        
+        // --- STATE / BOOLEAN ---
+        23 | 25 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 
+        53 | 54 | 55 | 56 | 58 | 65 | 67 | 92 => {
+            Some(fmt_state())
+        },
         _ => None,
     }
 }
@@ -414,8 +397,8 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
 
         if lv == 0 { continue; }
         
-        let val = calculate_talent_value(group.min_1, group.max_1, lv, group.max_level);
-        let val2 = calculate_talent_value(group.min_2, group.max_2, lv, group.max_level);
+        let val = calc_val_helper(group.min_1, group.max_1, lv, group.max_level);
+        let val2 = calc_val_helper(group.min_2, group.max_2, lv, group.max_level);
 
         match group.ability_id {
             1 => { // Weaken
@@ -443,35 +426,21 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
                     s.slow_duration += val;
                 }
             },
-            
-            // THE SISTERS (Correct IDs)
-            5 => s.strong_against = 1, // Strong Against
-            6 => s.resist = 1,         // Resistant
-            7 => s.massive_damage = 1, // Massive Damage
-            
             8 => s.knockback_chance += val,
             10 => { // Strengthen
                 s.strengthen_threshold = (100 - group.min_1) as i32;
                 s.strengthen_boost += val2;
             },
             11 => s.survive += val,
-            
-            12 => s.base_destroyer = 1, // Base Destroyer
             13 => s.critical_chance += val,
-            14 => s.zombie_killer = 1,  // Zombie Killer
             15 => s.barrier_breaker_chance += val,
-            16 => s.double_bounty = 1,  // Double Money
-            
             17 => { // Wave
                 s.wave_chance += val;
                 s.wave_level = group.min_2 as i32;
             },
-            
-            // NOTE: Resist CC/Wave/Surge/Toxic (18-22, 24, 30, 52, 54) omitted here; handled in abilities.rs
-            
             25 => s.eoc1_cost -= val, 
             26 => s.cooldown -= val,
-            27 => s.speed += val,
+            27 => s.speed += val, 
             31 => { // Attack Buff
                 let factor = (100 + val) as f32 / 100.0;
                 s.attack_1 = (s.attack_1 as f32 * factor) as i32;
@@ -493,6 +462,7 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
             56 => { // Surge
                 s.surge_chance += val;
                 s.surge_level = group.min_2 as i32;
+                // Params 3 & 4 contain raw range (4x game units)
                 s.surge_spawn_anchor = group.min_3 as i32 / 4; 
                 s.surge_spawn_span = group.min_4 as i32 / 4;   
             },
@@ -509,12 +479,6 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
                 s.wave_chance += val;
                 s.wave_level = group.min_2 as i32;
             },
-            
-            // SLAYERS (Apply Flags)
-            63 => s.colossus_slayer = 1,
-            64 => s.behemoth_slayer = 1,
-            66 => s.sage_slayer = 1,
-            
             65 => { // Mini-Surge
                 s.mini_surge_flag = 1;
                 s.surge_chance += val;
@@ -528,7 +492,7 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
                 s.explosion_spawn_span = group.min_3 as i32 / 4;
             },
             
-            // Immunities
+            // Immunities & Flags
             23 => s.wave_immune = 1,
             29 => s.curse_immune = 1, 
             44 => s.weaken_immune = 1,
@@ -540,8 +504,6 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
             53 => s.toxic_immune = 1,
             55 => s.surge_immune = 1,
             57 => s.target_aku = 1,
-            
-            // Target Traits
             33 => s.target_red = 1,
             34 => s.target_floating = 1,
             35 => s.target_black = 1,

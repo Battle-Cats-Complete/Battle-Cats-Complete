@@ -6,6 +6,7 @@ use crate::core::cat::DetailTab;
 use crate::core::files::imgcut::SpriteSheet;
 use crate::core::files::img015;
 use crate::core::settings::Settings;
+use crate::core::cat::talents as talent_logic; 
 
 mod header;
 mod stats;
@@ -28,7 +29,8 @@ pub fn show(
     boss_wave_immune_texture: &mut Option<egui::TextureHandle>,
     talent_name_cache: &mut HashMap<String, egui::TextureHandle>,
     skill_descriptions: Option<&Vec<String>>, 
-    settings: &Settings, // Passed in
+    settings: &Settings, 
+    talent_levels: &mut HashMap<u8, u8>, 
 ) {
     img015::ensure_loaded(ctx, sprite_sheet, settings);
 
@@ -71,10 +73,29 @@ pub fn show(
         }
     }
 
+    // --- APPLY TALENTS TO STATS ---
+    // base_stats: Raw CSV data (0 talents)
+    let base_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
+    
+    // Check form constraint: Talents only apply if Form 2 or 3 (True/Ultra)
+    // AND if we have talent data.
+    let form_allows_talents = *current_form >= 2;
+
+    let patched_stats_owned = if form_allows_talents {
+        if let (Some(base), Some(t_data)) = (base_stats, &cat.talent_data) {
+            Some(talent_logic::apply_talent_stats(base, t_data, talent_levels))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // current_stats: Used for Stats/Abilities tabs (active power)
+    let current_stats = patched_stats_owned.as_ref().or(base_stats);
+
     match current_tab {
         DetailTab::Abilities => {
-            let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
-
             if let Some(s) = current_stats {
                 stats::render(ui, cat, s, *current_form, *current_level);
                 ui.spacing_mut().item_spacing.y = 7.0;
@@ -96,15 +117,17 @@ pub fn show(
                             multihit_texture,
                             kamikaze_texture,
                             boss_wave_immune_texture,
-                            settings
+                            settings,
+                            // Pass talent data (only if Form 2+)
+                            if form_allows_talents { cat.talent_data.as_ref() } else { None },
+                            // Pass talent levels (only if Form 2+)
+                            if form_allows_talents { Some(&*talent_levels) } else { None }
                         );
                         ui.add_space(5.0);
                     }
                 });
         },
         DetailTab::Talents => {
-            let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
-
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -116,9 +139,11 @@ pub fn show(
                             talent_name_cache, 
                             skill_descriptions,
                             settings,
-                            current_stats,      // Passed stats
-                            cat.curve.as_ref(), // Passed curve
-                            *current_level      // Passed unit level
+                            base_stats, // Pass base_stats so calculation display shows "Base -> Final" correctly
+                            cat.curve.as_ref(), 
+                            *current_level,
+                            talent_levels, 
+                            cat.id         
                         );
                     } else {
                         ui.label("Error: Talents expected but not found.");
