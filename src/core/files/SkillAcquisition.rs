@@ -3,11 +3,10 @@ use std::path::Path;
 use std::collections::HashMap;
 use crate::core::files::img015;
 
-// Raw representation of a single line in SkillAcquisition.csv
 #[derive(Debug, Clone)]
 pub struct TalentRaw {
     pub id: u16,
-    pub type_id: u16, // Implicit targets bitmask
+    pub type_id: u16, 
     pub groups: Vec<TalentGroupRaw>,
 }
 
@@ -22,13 +21,12 @@ pub struct TalentGroupRaw {
     pub text_id: u8,
     pub cost_id: u8,
     pub name_id: i16,
-    pub limit: u8, // 0 = Normal, 1 = Ultra
+    pub limit: u8, 
 }
 
 pub fn load(cats_directory: &Path) -> HashMap<u16, TalentRaw> {
     let mut map = HashMap::new();
     let file_path = cats_directory.join("SkillAcquisition.csv");
-    
     if let Ok(content) = fs::read_to_string(&file_path) {
         for line in content.lines() {
             if let Some(data) = parse_line(line) {
@@ -42,48 +40,30 @@ pub fn load(cats_directory: &Path) -> HashMap<u16, TalentRaw> {
 fn parse_line(line: &str) -> Option<TalentRaw> {
     let parts: Vec<&str> = line.split(',').collect();
     if parts.len() < 2 { return None; }
-
     let id = parts[0].trim().parse::<u16>().ok()?;
     let type_id = parts[1].trim().parse::<u16>().unwrap_or(0);
-
     let mut groups = Vec::new();
     let group_size = 14;
-    
     for i in 0..8 {
         let start = 2 + (i * group_size);
         if start + group_size > parts.len() { break; }
-        
         let p = &parts[start..start+group_size];
-        
         let get = |idx: usize| -> u16 { p[idx].trim().parse::<u16>().unwrap_or(0) };
-        
         let ability_id: u8 = get(0) as u8;
-        // Parse name_id early to check it
         let name_id: i16 = p[12].trim().parse().unwrap_or(-1);
-
-        // MODIFIED: Only skip if BOTH ability_id is 0 AND name_id is invalid (-1)
         if ability_id == 0 && name_id == -1 { continue; } 
-
         groups.push(TalentGroupRaw {
-            ability_id,
-            max_level: get(1) as u8,
-            min_1: get(2), max_1: get(3),
-            min_2: get(4), max_2: get(5),
-            min_3: get(6), max_3: get(7),
-            min_4: get(8), max_4: get(9),
-            text_id: get(10) as u8,
-            cost_id: get(11) as u8,
-            name_id,
-            limit: get(13) as u8,
+            ability_id, max_level: get(1) as u8,
+            min_1: get(2), max_1: get(3), min_2: get(4), max_2: get(5),
+            min_3: get(6), max_3: get(7), min_4: get(8), max_4: get(9),
+            text_id: get(10) as u8, cost_id: get(11) as u8, name_id, limit: get(13) as u8,
         });
     }
-
     Some(TalentRaw { id, type_id, groups })
 }
 
 pub fn map_ability_to_icon(ability_id: u8) -> Option<usize> {
     match ability_id {
-        // Standard Effects
         1 => Some(img015::ICON_WEAKEN),
         2 => Some(img015::ICON_FREEZE),
         3 => Some(img015::ICON_SLOW),
@@ -101,16 +81,12 @@ pub fn map_ability_to_icon(ability_id: u8) -> Option<usize> {
         15 => Some(img015::ICON_BARRIER_BREAKER),
         16 => Some(img015::ICON_DOUBLE_BOUNTY),
         17 => Some(img015::ICON_WAVE),
-        
-        // Resistances
         18 => Some(img015::ICON_RESIST_WEAKEN),
         19 => Some(img015::ICON_RESIST_FREEZE),
         20 => Some(img015::ICON_RESIST_SLOW),
         21 => Some(img015::ICON_RESIST_KNOCKBACK),
         22 => Some(img015::ICON_RESIST_WAVE),
         24 => Some(img015::ICON_RESIST_WARP), 
-        
-        // Immunities
         23 => Some(img015::ICON_IMMUNE_WAVE),
         29 => Some(img015::ICON_IMMUNE_CURSE),
         30 => Some(img015::ICON_RESIST_CURSE),
@@ -118,12 +94,10 @@ pub fn map_ability_to_icon(ability_id: u8) -> Option<usize> {
         45 => Some(img015::ICON_IMMUNE_FREEZE),
         46 => Some(img015::ICON_IMMUNE_SLOW),
         47 => Some(img015::ICON_IMMUNE_KNOCKBACK),
-        48 => Some(img015::ICON_IMMUNE_WAVE), // Alt ID for Wave Immune
+        48 => Some(img015::ICON_IMMUNE_WAVE),
         49 => Some(img015::ICON_IMMUNE_WARP),
         53 => Some(img015::ICON_IMMUNE_TOXIC),
         55 => Some(img015::ICON_IMMUNE_SURGE),
-        
-        // Stat Buffs (Talent Only Icons)
         25 => Some(img015::ICON_COST_DOWN),
         26 => Some(img015::ICON_RECOVER_SPEED_UP),
         27 => Some(img015::ICON_MOVE_SPEED),
@@ -131,8 +105,6 @@ pub fn map_ability_to_icon(ability_id: u8) -> Option<usize> {
         31 => Some(img015::ICON_ATTACK_BUFF),
         32 => Some(img015::ICON_HEALTH_BUFF),
         61 => Some(img015::ICON_TBA_DOWN),
-
-        // Modern Abilities
         50 => Some(img015::ICON_SAVAGE_BLOW),
         51 => Some(img015::ICON_DODGE),
         52 => Some(img015::ICON_RESIST_TOXIC),
@@ -147,8 +119,6 @@ pub fn map_ability_to_icon(ability_id: u8) -> Option<usize> {
         65 => Some(img015::ICON_MINI_SURGE),
         66 => Some(img015::ICON_SAGE_SLAYER),
         67 => Some(img015::ICON_EXPLOSION),
-        
-        // Target Traits
         33 => Some(img015::ICON_TRAIT_RED),
         34 => Some(img015::ICON_TRAIT_FLOATING),
         35 => Some(img015::ICON_TRAIT_BLACK),
@@ -159,7 +129,6 @@ pub fn map_ability_to_icon(ability_id: u8) -> Option<usize> {
         40 => Some(img015::ICON_TRAIT_RELIC),
         41 => Some(img015::ICON_TRAIT_TRAITLESS),
         57 => Some(img015::ICON_TRAIT_AKU),
-
         _ => None, 
     }
 }

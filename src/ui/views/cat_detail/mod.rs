@@ -103,6 +103,8 @@ pub fn show(
                 });
         },
         DetailTab::Talents => {
+            let current_stats = cat.stats.get(*current_form).and_then(|opt| opt.as_ref());
+
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -113,7 +115,10 @@ pub fn show(
                             sprite_sheet, 
                             talent_name_cache, 
                             skill_descriptions,
-                            settings // Pass settings here
+                            settings,
+                            current_stats,      // Passed stats
+                            cat.curve.as_ref(), // Passed curve
+                            *current_level      // Passed unit level
                         );
                     } else {
                         ui.label("Error: Talents expected but not found.");
