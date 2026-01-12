@@ -3,113 +3,6 @@ use crate::core::files::unitid::CatRaw;
 use crate::core::files::unitlevel::CatLevelCurve;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
-pub struct CatTalents {
-    pub unit_id: u16,
-    pub implicit_targets: Vec<TalentTarget>,
-    pub normal: Vec<SingleTalent>,
-    pub ultra: Vec<SingleTalent>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SingleTalent {
-    pub ability_id: u8,
-    pub max_level: u8,
-    pub params: Vec<(u16, u16)>, 
-    pub description_id: u8,
-    pub cost_id: u8,
-    pub name_id: i16,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum TalentTarget {
-    Red = 0,
-    Floating = 1,
-    Black = 2,
-    Metal = 3,
-    Angel = 4,
-    Alien = 5,
-    Zombie = 6,
-    Relic = 7,
-    Traitless = 8,
-    Witch = 9,
-    Eva = 10,
-    Aku = 11,
-}
-
-impl CatTalents {
-    pub fn from_raw(raw: &TalentRaw) -> Self {
-        let mut normal = Vec::new();
-        let mut ultra = Vec::new();
-
-        for group in &raw.groups {
-            let talent = SingleTalent::from_raw(group);
-            if group.limit == 1 {
-                ultra.push(talent);
-            } else {
-                normal.push(talent);
-            }
-        }
-
-        Self {
-            unit_id: raw.id,
-            implicit_targets: parse_targets(raw.type_id),
-            normal,
-            ultra,
-        }
-    }
-}
-
-impl SingleTalent {
-    pub fn from_raw(group: &TalentGroupRaw) -> Self {
-        let mut params = Vec::new();
-        for (min, max) in [
-            (group.min_1, group.max_1),
-            (group.min_2, group.max_2),
-            (group.min_3, group.max_3),
-            (group.min_4, group.max_4),
-        ] {
-            params.push((min, max));
-        }
-
-        Self {
-            ability_id: group.ability_id,
-            max_level: group.max_level,
-            params,
-            description_id: group.text_id,
-            cost_id: group.cost_id,
-            name_id: group.name_id,
-        }
-    }
-}
-
-fn parse_targets(mask: u16) -> Vec<TalentTarget> {
-    let mut targets = Vec::new();
-    for i in 0..12 {
-        if (mask & (1 << i)) != 0 {
-            let t = match i {
-                0 => Some(TalentTarget::Red),
-                1 => Some(TalentTarget::Floating),
-                2 => Some(TalentTarget::Black),
-                3 => Some(TalentTarget::Metal),
-                4 => Some(TalentTarget::Angel),
-                5 => Some(TalentTarget::Alien),
-                6 => Some(TalentTarget::Zombie),
-                7 => Some(TalentTarget::Relic),
-                8 => Some(TalentTarget::Traitless),
-                9 => Some(TalentTarget::Witch), 
-                10 => Some(TalentTarget::Eva),
-                11 => Some(TalentTarget::Aku),
-                _ => None,
-            };
-            if let Some(target) = t {
-                targets.push(target);
-            }
-        }
-    }
-    targets
-}
-
 // --- CALCULATION LOGIC ---
 
 pub fn calculate_talent_value(min: u16, max: u16, level: u8, max_level: u8) -> i32 {
@@ -194,48 +87,48 @@ pub fn calculate_talent_display(
         1 | 70 | 71 => { // Weaken
             let chance = group.min_1; 
             let bonus = get_val(group.min_2, group.max_2); 
-            Some(format!("{}\nChance: {}%", fmt_additive(stats.weaken_duration, bonus, "f"), chance))
+            Some(format!("Duration: {}\nChance: {}%", fmt_additive(stats.weaken_duration, bonus, "f"), chance))
         },
         42 => { // Upgrade Weaken
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.weaken_duration, bonus, "f"))
+            Some(format!("Duration: {}", fmt_additive(stats.weaken_duration, bonus, "f")))
         },
         2 | 76 => { // Freeze
             let chance = group.min_1;
             let bonus = get_val(group.min_2, group.max_2);
-            Some(format!("{}\nChance: {}%", fmt_additive(stats.freeze_duration, bonus, "f"), chance))
+            Some(format!("Duration: {}\nChance: {}%", fmt_additive(stats.freeze_duration, bonus, "f"), chance))
         },
         43 => { // Upgrade Freeze
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.freeze_duration, bonus, "f"))
+            Some(format!("Duration: {}", fmt_additive(stats.freeze_duration, bonus, "f")))
         },
         74 => { // Upgrade Freeze Chance
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.freeze_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.freeze_chance, bonus, "%")))
         },
         3 | 69 | 72 => { // Slow
             let chance = group.min_1;
             let bonus = get_val(group.min_2, group.max_2);
-            Some(format!("{}\nChance: {}%", fmt_additive(stats.slow_duration, bonus, "f"), chance))
+            Some(format!("Duration: {}\nChance: {}%", fmt_additive(stats.slow_duration, bonus, "f"), chance))
         },
         44 => { // Upgrade Slow
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.slow_duration, bonus, "f"))
+            Some(format!("Duration: {}", fmt_additive(stats.slow_duration, bonus, "f")))
         },
         63 => { // Upgrade Slow Chance
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.slow_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.slow_chance, bonus, "%")))
         },
         8 | 73 | 75 => { // Knockback
             let mut bonus = get_val(group.min_1, group.max_1);
             if bonus == 0 && group.min_1 == 0 {
                 bonus = get_val(group.min_2, group.max_2);
             }
-            Some(fmt_additive(stats.knockback_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.knockback_chance, bonus, "%")))
         },
         45 => {
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.knockback_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.knockback_chance, bonus, "%")))
         },
         10 => { // Strengthen
             let hp_limit = 100 - group.min_1; 
@@ -248,37 +141,37 @@ pub fn calculate_talent_display(
         },
         11 => { // Survive
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.survive, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.survive, bonus, "%")))
         },
         47 => {
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.survive, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.survive, bonus, "%")))
         },
         13 => { // Critical
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.critical_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.critical_chance, bonus, "%")))
         },
         48 => { // Critical Upgrade
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.critical_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.critical_chance, bonus, "%")))
         },
         15 => { // Barrier Breaker
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.barrier_breaker_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.barrier_breaker_chance, bonus, "%")))
         },
         49 => {
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.barrier_breaker_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.barrier_breaker_chance, bonus, "%")))
         },
         17 => { // Wave
             let bonus = get_val(group.min_1, group.max_1);
             let level = group.min_2;
             let range = 332.5 + ((level - 1) as f32 * 200.0);
-            Some(format!("{}\nLevel: {}\nRange: {}", fmt_additive(stats.wave_chance, bonus, "%"), level, range))
+            Some(format!("Chance: {}\nLevel: {}\nRange: {}", fmt_additive(stats.wave_chance, bonus, "%"), level, range))
         },
         50 => {
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.wave_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.wave_chance, bonus, "%")))
         },
         31 => { // Cost Down
             let reduction = get_val(group.min_1, group.max_1);
@@ -294,24 +187,24 @@ pub fn calculate_talent_display(
         59 => { // Savage Blow
             let bonus = get_val(group.min_1, group.max_1);
             let dmg_boost = group.min_2;
-            Some(format!("{}\nDamage Boost: +{}%", fmt_additive(stats.savage_blow_chance, bonus, "%"), dmg_boost))
+            Some(format!("Chance: {}\nDamage Boost: +{}%", fmt_additive(stats.savage_blow_chance, bonus, "%"), dmg_boost))
         },
         61 => {
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.savage_blow_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.savage_blow_chance, bonus, "%")))
         },
         60 | 84 | 87 => { // Dodge
             let chance = group.min_1;
             let bonus = get_val(group.min_2, group.max_2);
-            Some(format!("{}\nChance: {}%", fmt_additive(stats.dodge_duration, bonus, "f"), chance))
+            Some(format!("Duration: {}\nChance: {}%", fmt_additive(stats.dodge_duration, bonus, "f"), chance))
         },
         62 | 81 => { // Upgrade Dodge
             if group.min_1 != group.max_1 {
                  let bonus = get_val(group.min_1, group.max_1);
-                 Some(fmt_additive(stats.dodge_chance, bonus, "%"))
+                 Some(format!("Chance: {}", fmt_additive(stats.dodge_chance, bonus, "%")))
             } else {
                  let bonus = get_val(group.min_2, group.max_2);
-                 Some(fmt_additive(stats.dodge_duration, bonus, "f"))
+                 Some(format!("Duration: {}", fmt_additive(stats.dodge_duration, bonus, "f")))
             }
         },
         68 => { // Surge
@@ -319,20 +212,20 @@ pub fn calculate_talent_display(
             let level = group.min_2;
             let min_range = group.min_3 / 4;
             let max_range = min_range + (group.min_4 / 4);
-            Some(format!("{}\nLevel: {}\n{}", fmt_additive(stats.surge_chance, bonus, "%"), level, fmt_range(min_range as i32, max_range as i32)))
+            Some(format!("Chance: {}\nLevel: {}\n{}", fmt_additive(stats.surge_chance, bonus, "%"), level, fmt_range(min_range as i32, max_range as i32)))
         },
         78 => { // Shield Pierce
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.shield_pierce_chance, bonus, "%"))
+            Some(format!("Chance: {}", fmt_additive(stats.shield_pierce_chance, bonus, "%")))
         },
         80 => { // Curse
             let chance = group.min_1;
             let bonus = get_val(group.min_2, group.max_2);
-            Some(format!("{}\nChance: {}%", fmt_additive(stats.curse_duration, bonus, "f"), chance))
+            Some(format!("Duration: {}\nChance: {}%", fmt_additive(stats.curse_duration, bonus, "f"), chance))
         },
         93 => { // Upgrade Curse
             let bonus = get_val(group.min_1, group.max_1);
-            Some(fmt_additive(stats.curse_duration, bonus, "f"))
+            Some(format!("Duration: {}", fmt_additive(stats.curse_duration, bonus, "f")))
         },
         82 => { // Attack Freq
             let reduction = get_val(group.min_1, group.max_1);
@@ -342,7 +235,7 @@ pub fn calculate_talent_display(
             let bonus = get_val(group.min_1, group.max_1);
             let level = group.min_2;
             let range = 332.5 + ((level - 1) as f32 * 200.0);
-            Some(format!("{}\nLevel: {} (Mini)\nRange: {}", fmt_additive(stats.wave_chance, bonus, "%"), level, range))
+            Some(format!("Chance: {}\nLevel: {} (Mini)\nRange: {}", fmt_additive(stats.wave_chance, bonus, "%"), level, range))
         },
         86 => { // Behemoth Slayer (with Dodge)
             let chance = group.min_1;
@@ -354,18 +247,18 @@ pub fn calculate_talent_display(
             let level = group.min_2;
             let min_range = group.min_3 / 4;
             let max_range = min_range + (group.min_4 / 4);
-            Some(format!("{}\nLevel: {} (Mini)\n{}", fmt_additive(stats.surge_chance, bonus, "%"), level, fmt_range(min_range as i32, max_range as i32)))
+            Some(format!("Chance: {}\nLevel: {} (Mini)\n{}", fmt_additive(stats.surge_chance, bonus, "%"), level, fmt_range(min_range as i32, max_range as i32)))
         },
         88 | 90 | 95 => { // Unlock Dodge
             let bonus = get_val(group.min_1, group.max_1);
             let duration = group.min_2;
-            Some(format!("{}\nDuration: {}f", fmt_additive(stats.dodge_chance, bonus, "%"), duration))
+            Some(format!("Chance: {}\nDuration: {}f", fmt_additive(stats.dodge_chance, bonus, "%"), duration))
         },
         94 => { // Explosion
             let bonus = get_val(group.min_1, group.max_1);
             let min_range = group.min_2 / 4;
             let max_range = min_range + (group.min_3 / 4);
-            Some(format!("{}\n{}", fmt_additive(stats.explosion_chance, bonus, "%"), fmt_range(min_range as i32, max_range as i32)))
+            Some(format!("Chance: {}\n{}", fmt_additive(stats.explosion_chance, bonus, "%"), fmt_range(min_range as i32, max_range as i32)))
         },
         29 => { // Speed
             let bonus = get_val(group.min_1, group.max_1);
