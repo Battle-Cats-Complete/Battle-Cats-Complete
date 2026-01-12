@@ -132,8 +132,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             }
         }
         else if let Some(_caps) = skill_name.captures(name) {
-            // Flattened structure: game/assets/Skill_name/
-            // File already has suffix from decrypt.rs, so we keep the filename as is.
             dest_folder = Some(assets_dir.join("Skill_name"));
         }
         else if let Some(caps) = egg_icon.captures(name) {
