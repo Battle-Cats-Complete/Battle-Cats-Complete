@@ -72,14 +72,13 @@ pub fn collect_ability_data(
     push_ability(&mut group_headline_2, cat_stats.eva_killer > 0, img015::ICON_EVA_KILLER, "Deals 5× Damage to and takes 0.2× Damage from Eva Angels".into());
     push_ability(&mut group_headline_2, cat_stats.witch_killer > 0, img015::ICON_WITCH_KILLER, "Deals 5× Damage to and takes 0.1× Damage from Witches".into());
 
-    let push_custom = |target_list: &mut Vec<AbilityItem>, texture: &Option<egui::TextureHandle>, text: String| {
-        if let Some(tex) = texture {
-            target_list.push(AbilityItem { icon_id: 0, text, custom_tex: Some(tex.id()) });
-        }
-    };
-
     if !is_conjure_unit && cat_stats.kamikaze > 0 {
-        push_custom(&mut group_headline_2, kamikaze_texture, "Unit disappears after a single attack".to_string());
+        let effective_tex = kamikaze_texture.as_ref().map(|t| t.id());
+        group_headline_2.push(AbilityItem {
+            icon_id: img015::ICON_KAMIKAZE,
+            text: "Unit disappears after a single attack".into(),
+            custom_tex: effective_tex,
+        });
     }
 
     // Multihit
@@ -222,10 +221,8 @@ pub fn collect_ability_data(
         });
     }
 
-    // --- TALENT ONLY STATS & RESISTANCES ---
+    // --- TALENT RESISTANCES LOGIC (FIXED ARGUMENTS) ---
     if let (Some(t_data), Some(levels)) = (talent_data, talent_levels) {
-        let mut talent_headline = Vec::new();
-
         for (idx, group) in t_data.groups.iter().enumerate() {
             let lv = *levels.get(&(idx as u8)).unwrap_or(&0);
             if lv == 0 { continue; }
@@ -235,19 +232,6 @@ pub fn collect_ability_data(
 
             // Added 'true' for the condition argument
             match group.ability_id {
-                // Stat Modifiers
-                25 => { // Cost Down (display effective reduction)
-                    let effective = (val as f32 * 1.5).round() as i32;
-                    push_ability(&mut talent_headline, true, img015::ICON_COST_DOWN, format!("Deploy Cost Down (-{}¢)", effective));
-                },
-                26 => push_ability(&mut talent_headline, true, img015::ICON_RECOVER_SPEED_UP, format!("Recover Speed Up (-{}f)", val)),
-                27 => push_ability(&mut talent_headline, true, img015::ICON_MOVE_SPEED, format!("Move Speed Up (+{})", val)),
-                31 => push_ability(&mut talent_headline, true, img015::ICON_ATTACK_BUFF, format!("Attack Power Up (+{}%)", val)),
-                32 => push_ability(&mut talent_headline, true, img015::ICON_HEALTH_BUFF, format!("Health Up (+{}%)", val)),
-                61 => push_ability(&mut talent_headline, true, img015::ICON_TBA_DOWN, format!("TBA Down (-{}f)", val)),
-                8 => push_ability(&mut talent_headline, true, img015::ICON_IMPROVE_KNOCKBACKS, format!("Knockback Chance Up (+{}%)", val)),
-
-                // Resistances
                 18 => push_ability(&mut group_footer, true, img015::ICON_RESIST_WEAKEN, format!("Resist Weaken ({}%)", val)),
                 19 => push_ability(&mut group_footer, true, img015::ICON_RESIST_FREEZE, format!("Resist Freeze ({}%)", val)),
                 20 => push_ability(&mut group_footer, true, img015::ICON_RESIST_SLOW, format!("Resist Slow ({}%)", val)),
@@ -260,11 +244,6 @@ pub fn collect_ability_data(
                 _ => {}
             }
         }
-
-        // Prepend talent stats to Group 2
-        let mut new_h2 = talent_headline;
-        new_h2.append(&mut group_headline_2);
-        group_headline_2 = new_h2;
     }
 
     (group_headline_1, group_headline_2, group_body_1, group_body_2, group_footer)
