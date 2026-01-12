@@ -75,9 +75,6 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
             ];
 
             for (tab_enum, label) in tabs {
-                // HIDE IF:
-                // 1. It's the Talents tab AND
-                // 2. Either the form is < 2 (Normal/Evolved) OR the unit simply has no talent data
                 if tab_enum == DetailTab::Talents && (*current_form < 2 || cat.talent_data.is_none()) {
                     continue;
                 }
@@ -158,10 +155,9 @@ fn render_info_box(ui: &mut egui::Ui, cat: &CatEntry, form: usize, level_input: 
         let form_num = form + 1;
         let raw_name = cat.names.get(form).cloned().unwrap_or_default();
         
-        let prev_name = if form > 0 { cat.names.get(form - 1).map(|s| s.as_str()).unwrap_or("") } else { "" };
-        let is_placeholder = !raw_name.is_empty() && raw_name == prev_name;
-
-        let disp_name = if raw_name.is_empty() || is_placeholder { 
+        // --- CHANGED: Removed "is_placeholder" logic ---
+        // If the name is empty, fall back to ID. Otherwise, just show it.
+        let disp_name = if raw_name.is_empty() { 
             format!("{:03}-{}", cat.id, form_num) 
         } else { 
             raw_name 

@@ -11,7 +11,7 @@ use crate::core::files::unitid::CatRaw;
 use crate::core::files::unitbuy::{self, UnitBuyRow};
 use crate::core::files::unitlevel::{self, CatLevelCurve};
 use crate::core::files::skillacquisition::{self, TalentRaw}; 
-use crate::core::utils; // Import utils
+use crate::core::utils; 
 
 #[derive(Clone, Debug)]
 pub struct CatEntry {
@@ -169,11 +169,14 @@ fn process_cat_entry(
         Err(_) => { return None; }
     }
     
+    // --- MIX-AND-MATCH NAME LOGIC ---
     let mut cat_names = vec![String::new(); 4];
+    
     let target_file_id = cat_id + 1;
     let lang_directory = original_folder_path.join("lang"); 
 
-    // Use utils::LANGUAGE_PRIORITY if checking default
+    // 1. Determine which languages to check
+    // If empty (Automatic), check all. If set (Specific), check only that one.
     let language_codes_to_check: Vec<&str> = if language_code.is_empty() {
         utils::LANGUAGE_PRIORITY.to_vec()
     } else {
@@ -181,27 +184,49 @@ fn process_cat_entry(
     };
 
     for code in language_codes_to_check {
+        // Optimization: If we have names for all existing forms, we can stop early.
+        let all_found = (0..4).all(|i| !forms_existence[i] || !cat_names[i].is_empty());
+        if all_found { break; }
+
         if let Some(name_file_path) = find_name_file_for_code(&lang_directory, target_file_id, code) {
             if let Ok(file_bytes) = fs::read(&name_file_path) {
                 let file_content = String::from_utf8_lossy(&file_bytes);
                 let separator_char = if code == "ja" { ',' } else { '|' };
 
-                let mut temp_name_list = vec![String::new(); 4];
-                let mut found_valid_name = false;
-
+                let mut current_lang_names = vec![String::new(); 4];
                 for (line_index, file_line) in file_content.lines().enumerate().take(4) {
                     if let Some(name_part) = file_line.split(separator_char).next() {
                         let trimmed_name = name_part.trim();
                         if !trimmed_name.is_empty() && !looks_like_garbage_id(trimmed_name) {
-                            found_valid_name = true;
-                            temp_name_list[line_index] = trimmed_name.to_string();
+                            current_lang_names[line_index] = trimmed_name.to_string();
                         }
                     }
                 }
 
-                if found_valid_name {
-                    cat_names = temp_name_list;
-                    break;
+                // 2. Per-Form Validation & Merge
+                for i in 0..4 {
+                    // If we already have a name for this form (from a higher priority language), skip.
+                    if !cat_names[i].is_empty() { continue; }
+                    
+                    // If the form doesn't exist, skip.
+                    if !forms_existence[i] { continue; }
+
+                    let candidate = &current_lang_names[i];
+                    
+                    // Validation: Empty check
+                    if candidate.is_empty() { continue; }
+
+                    // Validation: Duplicate Check 
+                    // Compare against the PREVIOUS form in THIS SAME language file.
+                    if i > 0 {
+                        let prev_name_source = &current_lang_names[i-1];
+                        if candidate == prev_name_source {
+                             continue; // Duplicate of previous form -> Invalid for this slot.
+                        }
+                    }
+
+                    // If valid, accept it.
+                    cat_names[i] = candidate.clone();
                 }
             }
         }
