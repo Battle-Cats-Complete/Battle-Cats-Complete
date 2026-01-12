@@ -127,6 +127,32 @@ pub fn calculate_talent_value(min: u16, max: u16, level: u8, max_level: u8) -> i
     val.round() as i32
 }
 
+// Helper functions defined outside to avoid scope issues
+fn fmt_additive(base: i32, bonus: i32, unit: &str) -> String {
+    format!("{}{} (+{}{}) -> {}{}", base, unit, bonus, unit, base + bonus, unit)
+}
+
+fn fmt_multi(base: i32, pct: i32) -> String {
+    let bonus_val = (base as f32 * (pct as f32 / 100.0)).round() as i32;
+    format!("{} (+{}%) -> {}", base, pct, base + bonus_val)
+}
+
+fn fmt_state(talent_level: u8) -> String {
+    if talent_level > 0 {
+        "Inactive -> Active".to_string()
+    } else {
+        "Inactive -> Inactive".to_string()
+    }
+}
+
+fn fmt_range(min: i32, max: i32) -> String {
+    if min == max {
+        format!("Range: {}", min)
+    } else {
+        format!("Range: {}~{}", min, max)
+    }
+}
+
 pub fn calculate_talent_display(
     group: &TalentGroupRaw, 
     stats: &CatRaw, 
@@ -137,43 +163,19 @@ pub fn calculate_talent_display(
     
     let get_val = |min, max| calculate_talent_value(min, max, talent_level, group.max_level);
 
-    let fmt_additive = |base: i32, bonus: i32, unit: &str| -> String {
-        format!("{}{} (+{}{}) -> {}{}", base, unit, bonus, unit, base + bonus, unit)
-    };
-
-    let fmt_multi = |base: i32, pct: i32| -> String {
-        let bonus_val = (base as f32 * (pct as f32 / 100.0)).round() as i32;
-        format!("{} (+{}%) -> {}", base, pct, base + bonus_val)
-    };
-
-    let fmt_state = || -> String {
-        if talent_level > 0 {
-            "Inactive -> Active".to_string()
-        } else {
-            "Inactive -> Inactive".to_string()
-        }
-    };
-
-    let fmt_range = |min: i32, max: i32| -> String {
-        if min == max {
-            format!("Range: {}", min)
-        } else {
-            format!("Range: {}~{}", min, max)
-        }
-    };
-
     // --- PRIORITY HANDLING BY ABILITY ID ---
     match group.ability_id {
         // STATE / BOOLEAN:
         // 5=Strong, 6=Resist, 7=Massive (The Sisters)
         // 12=Base Destroyer, 14=Zombie Killer, 16=Double Bounty
-        // 23=Wave Immune, 25=Cost Down Flag, 29=Curse Immune
+        // 23=Wave Immune, 29=Curse Immune
         // 33-41=Target Traits
         // 44-49=Immunities, 53=Toxic Immune, 55=Surge Immune, 57=Aku Target, 58=Shield Pierce
         // 63=Colossus, 64=Behemoth, 66=Sage, 67=Explosion, 92=??
-        5 | 6 | 7 | 12 | 14 | 16 | 23 | 25 | 29 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 
+        // NOTE: 25 (Cost Down) Removed to allow text_id 31 to handle it.
+        5 | 6 | 7 | 12 | 14 | 16 | 23 | 29 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 
         44 | 45 | 46 | 47 | 48 | 49 | 53 | 55 | 57 | 58 | 63 | 64 | 66 | 67 | 92 => {
-            return Some(fmt_state());
+            return Some(fmt_state(talent_level));
         },
 
         // RESISTANCES (CC/SURGE/TOXIC): Display as Percentage
@@ -386,6 +388,42 @@ pub fn calculate_talent_display(
     }
 }
 
+// --- HELPER: Apply Targets ---
+fn apply_target_traits(s: &mut CatRaw, name_id: i16, type_id: u16) {
+    // 1. Apply name_id directly
+    match name_id {
+        0 => s.target_red = 1,
+        1 => s.target_floating = 1,
+        2 => s.target_black = 1,
+        3 => s.target_metal = 1,
+        4 => s.target_angel = 1,
+        5 => s.target_alien = 1,
+        6 => s.target_zombie = 1,
+        7 => s.target_relic = 1,
+        8 => s.target_traitless = 1,
+        9 => s.target_witch = 1,
+        10 => s.target_eva = 1,
+        11 => s.target_aku = 1,
+        _ => {}
+    }
+
+    // 2. Apply type_id bitmap
+    if type_id > 0 {
+        if (type_id & (1 << 0)) != 0 { s.target_red = 1; }
+        if (type_id & (1 << 1)) != 0 { s.target_floating = 1; }
+        if (type_id & (1 << 2)) != 0 { s.target_black = 1; }
+        if (type_id & (1 << 3)) != 0 { s.target_metal = 1; }
+        if (type_id & (1 << 4)) != 0 { s.target_angel = 1; }
+        if (type_id & (1 << 5)) != 0 { s.target_alien = 1; }
+        if (type_id & (1 << 6)) != 0 { s.target_zombie = 1; }
+        if (type_id & (1 << 7)) != 0 { s.target_relic = 1; }
+        if (type_id & (1 << 8)) != 0 { s.target_traitless = 1; }
+        if (type_id & (1 << 9)) != 0 { s.target_witch = 1; }
+        if (type_id & (1 << 10)) != 0 { s.target_eva = 1; }
+        if (type_id & (1 << 11)) != 0 { s.target_aku = 1; }
+    }
+}
+
 // --- APPLY TALENT STATS TO BASE ---
 pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashMap<u8, u8>) -> CatRaw {
     let mut s = base.clone();
@@ -395,21 +433,7 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
         
         // --- TARGET TRAIT MAPPING ---
         if lv > 0 && group.name_id != -1 {
-            match group.name_id {
-                0 => s.target_red = 1,
-                1 => s.target_floating = 1,
-                2 => s.target_black = 1,
-                3 => s.target_metal = 1,
-                4 => s.target_angel = 1,
-                5 => s.target_alien = 1,
-                6 => s.target_zombie = 1,
-                7 => s.target_relic = 1,
-                8 => s.target_traitless = 1,
-                9 => s.target_witch = 1,
-                10 => s.target_eva = 1,
-                11 => s.target_aku = 1,
-                _ => {}
-            }
+            apply_target_traits(&mut s, group.name_id, talent_data.type_id);
         }
 
         if lv == 0 { continue; }
@@ -431,6 +455,8 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
                 if s.freeze_chance == 0 {
                     s.freeze_chance = group.min_1 as i32;
                     s.freeze_duration = val2;
+                } else if group.text_id == 74 {
+                    s.freeze_chance += val;
                 } else {
                     s.freeze_duration += val;
                 }
@@ -439,6 +465,8 @@ pub fn apply_talent_stats(base: &CatRaw, talent_data: &TalentRaw, levels: &HashM
                 if s.slow_chance == 0 {
                     s.slow_chance = group.min_1 as i32;
                     s.slow_duration = val2;
+                } else if group.text_id == 63 {
+                    s.slow_chance += val;
                 } else {
                     s.slow_duration += val;
                 }
