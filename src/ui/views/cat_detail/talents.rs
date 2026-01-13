@@ -19,8 +19,8 @@ pub fn render(
     current_stats: Option<&CatRaw>, 
     curve: Option<&CatLevelCurve>,
     unit_level: i32,
-    talent_levels: &mut HashMap<u8, u8>, // Mutable map from persistent state
-    cat_id: u32,                         // Cat ID for unique keys
+    talent_levels: &mut HashMap<u8, u8>,
+    cat_id: u32,                         
 ) {
     ui.add_space(5.0);
     
@@ -47,11 +47,11 @@ pub fn render(
 
                     ui.vertical(|ui| {
                         
-                        // --- Header Row ---
                         ui.horizontal(|ui| {
                             ui.set_width(ui.available_width());
 
-                            ui.horizontal(|ui| {
+                            // icon and Text
+                            let title_res = ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = 8.0;
                                 if let Some(icon_id) = skillacquisition::map_ability_to_icon(group.ability_id) {
                                     if let Some(sprite) = sheet.get_sprite_by_line(icon_id) {
@@ -94,10 +94,24 @@ pub fn render(
                                 }
                             });
 
+                            // Click on Title/Icon toggles expansion
+                            if ui.interact(title_res.response.rect, id.with("header_title"), egui::Sense::click()).clicked() {
+                                expanded = !expanded;
+                                ui.data_mut(|d| d.insert_temp(id, expanded));
+                            }
+
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                // Arrow Button
                                 let arrow = if expanded { "▲" } else { "▼" };
                                 let btn = egui::Button::new(egui::RichText::new(arrow).size(20.0).strong()).fill(egui::Color32::from_black_alpha(100));
                                 if ui.add_sized([40.0, 40.0], btn).clicked() {
+                                    expanded = !expanded;
+                                    ui.data_mut(|d| d.insert_temp(id, expanded));
+                                }
+
+                                // This makes the "background" clickable without adding a visible button style
+                                let spacer = ui.allocate_response(ui.available_size(), egui::Sense::click());
+                                if spacer.clicked() {
                                     expanded = !expanded;
                                     ui.data_mut(|d| d.insert_temp(id, expanded));
                                 }
@@ -135,18 +149,14 @@ pub fn render(
                                     ui.set_width(ui.available_width());
                                     
                                     ui.vertical(|ui| {
-                                        // 1. DATA PREP
                                         let effective_max = if group.max_level == 0 { 1 } else { group.max_level };
                                         
-                                        // Retrieve level DIRECTLY from the HashMap using the index
                                         let current_level = talent_levels.entry(index as u8).or_insert(0);
 
-                                        // 2. CONTROLS (Slider + Input)
                                         ui.horizontal(|ui| {
                                             ui.spacing_mut().item_spacing.x = 5.0;
                                             ui.label(egui::RichText::new("Level:").strong());
                                             
-                                            // SLIDER (Scoped for Light Theme)
                                             ui.scope(|ui| {
                                                 ui.visuals_mut().widgets.inactive.bg_fill = egui::Color32::from_gray(180); 
                                                 ui.visuals_mut().widgets.active.bg_fill = egui::Color32::WHITE;            
@@ -161,20 +171,18 @@ pub fn render(
                                                 );
                                             });
 
-                                            // INPUT BOX (Dark Theme - Standard)
                                             ui.add(egui::DragValue::new(current_level)
                                                 .speed(0.1)
                                                 .range(0..=effective_max)
                                             );
                                         });
 
-                                        // 3. CALCULATION DISPLAY
                                         if let Some(stats) = current_stats {
                                             if let Some(display_text) = talents::calculate_talent_display(group, stats, *current_level, curve, unit_level) {
                                                 ui.add_space(4.0);
                                                 ui.label(
                                                     egui::RichText::new(display_text)
-                                                        .color(egui::Color32::WHITE) // Changed to WHITE
+                                                        .color(egui::Color32::WHITE)
                                                         .size(15.0)   
                                                         .strong()     
                                                 );
