@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::core::{cat, import, settings, patterns}; // Added patterns
+use crate::core::{cat, import, settings, patterns};
 use crate::ui::views::main_menu;
 
 #[derive(PartialEq, Clone, Copy, serde::Deserialize, serde::Serialize)]
@@ -96,7 +96,6 @@ impl eframe::App for BattleCatsApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Sidebar Logic
         let sidebar_inner_width = 150.0; 
         let sidebar_margin = 15.0;       
         let total_sidebar_width = sidebar_inner_width + (sidebar_margin * 2.0);
@@ -111,7 +110,6 @@ impl eframe::App for BattleCatsApp {
             ctx.request_repaint();
         }
 
-        // Watcher for real-time stats editing
         let mut reload_queue = Vec::new();
         if let Some(rx) = &self.cat_list_state.watch_receiver {
             while let Ok(path) = rx.try_recv() {
@@ -135,7 +133,7 @@ impl eframe::App for BattleCatsApp {
                         if let Some(selected_id) = self.cat_list_state.selected_cat {
                             let id_str = format!("{:03}", selected_id);
                             if path.to_string_lossy().contains(&id_str) {
-                                self.cat_list_state.reload_selected_cat_data();
+                                self.cat_list_state.reload_selected_cat_data(&self.settings.game_language);
                                 reload_repaint = true;
                             }
                         }

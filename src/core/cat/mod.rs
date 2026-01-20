@@ -1,9 +1,9 @@
 use eframe::egui;
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::collections::{HashMap, VecDeque};
-use crate::core::utils::SoftReset; 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::fs;
 
 pub mod scanner;
 pub mod stats;
@@ -17,7 +17,9 @@ use crate::ui::views::cat_detail;
 use scanner::CatEntry;
 use crate::core::files::imgcut::SpriteSheet; 
 use crate::core::files::skilldescriptions; 
-use crate::core::files::unitid;
+use crate::core::files::unitlevel;
+use crate::core::files::unitbuy;
+use crate::core::files::skillacquisition;
 
 #[derive(Deserialize, Serialize, PartialEq, Clone, Copy)]
 pub enum DetailTab {
@@ -34,9 +36,9 @@ impl Default for DetailTab {
 #[serde(default)] 
 pub struct CatListState {
     #[serde(skip)] 
-    pub cats: Vec<CatEntry>,
+    pub cats: Vec<CatEntry>,          
     #[serde(skip)]
-    pub incoming_cats: Vec<CatEntry>,
+    pub incoming_cats: Vec<CatEntry>, 
     
     #[serde(alias = "persistent_id")] 
     pub selected_cat: Option<u32>,
@@ -117,31 +119,6 @@ impl Default for CatListState {
     }
 }
 
-impl SoftReset for CatListState {
-    fn reset(&mut self) {
-        self.cats.clear();
-        self.incoming_cats.clear();
-        self.cat_list.clear_cache();
-        self.detail_texture = None;
-        self.detail_key.clear();
-        self.selected_cat = None;
-        self.selected_form = 0; 
-        self.selected_detail_tab = DetailTab::Abilities;
-        self.search_query.clear(); 
-        self.level_input = "50".to_string();
-        self.current_level = 50;
-        self.sprite_sheet = SpriteSheet::default(); 
-        self.multihit_texture = None; 
-        self.kamikaze_texture = None;
-        self.boss_wave_immune_texture = None;
-        self.talent_name_textures.clear(); 
-        self.skill_descriptions = None; 
-        self.scan_receiver = None;
-        self.talent_levels.clear();
-        self.talent_history.clear();
-    }
-}
-
 impl CatListState {
     pub fn init_watcher(&mut self, ctx: &egui::Context) {
         if self.watchers.is_none() {
@@ -157,17 +134,24 @@ impl CatListState {
         }
     }
 
-    pub fn reload_selected_cat_data(&mut self) {
+    pub fn reload_selected_cat_data(&mut self, language_code: &str) {
         if let Some(id) = self.selected_cat {
-            if let Some(new_raw_vec) = unitid::load_from_id(id as i32) {
-                if let Some(entry) = self.cats.iter_mut().find(|c| c.id == id) {
-                    let mut new_stats: Vec<Option<unitid::CatRaw>> = vec![None; 4];
-                    for (i, raw) in new_raw_vec.into_iter().enumerate() {
-                        if i < 4 {
-                            new_stats[i] = Some(raw);
-                        }
-                    }
-                    entry.stats = new_stats; 
+            if let Some(entry) = self.cats.iter_mut().find(|c| c.id == id) {
+                let cats_dir = std::path::Path::new("game/cats");
+                let unit_folder = cats_dir.join(format!("{:03}", id));
+                
+                let level_curves = unitlevel::load_level_curves(cats_dir);
+                let unit_buys = unitbuy::load_unitbuy(cats_dir);
+                let talents_map = skillacquisition::load(cats_dir);
+
+                if let Some(new_entry) = scanner::process_cat_entry(
+                    &unit_folder,
+                    &level_curves,
+                    &unit_buys,
+                    &talents_map,
+                    language_code
+                ) {
+                    *entry = new_entry;
                 }
             }
         }
@@ -181,7 +165,6 @@ impl CatListState {
         loop {
             match receiver_handle.try_recv() {
                 Ok(cat_entry) => {
-                    // Buffer new data, DO NOT touch self.cats yet
                     self.incoming_cats.push(cat_entry);
                 },
                 Err(TryRecvError::Empty) => break,
@@ -226,6 +209,11 @@ impl CatListState {
         self.detail_texture = None;
         self.detail_key.clear();
         self.talent_name_textures.clear();
+
+        self.sprite_sheet = SpriteSheet::default();
+        self.multihit_texture = None;
+        self.kamikaze_texture = None;
+        self.boss_wave_immune_texture = None;
 
         self.selected_cat = current_selection_id;
         self.selected_form = current_form;

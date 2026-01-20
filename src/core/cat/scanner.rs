@@ -59,7 +59,7 @@ pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
     cat_receiver
 }
 
-fn process_cat_entry(
+pub fn process_cat_entry(
     original_folder_path: &Path, 
     level_curves: &Vec<CatLevelCurve>, 
     unit_buys: &std::collections::HashMap<u32, UnitBuyRow>,
