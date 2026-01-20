@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::core::{cat, import, settings};
+use crate::core::{cat, import, settings, patterns}; // Added patterns
 use crate::ui::views::main_menu;
 
 #[derive(PartialEq, Clone, Copy, serde::Deserialize, serde::Serialize)]
@@ -111,6 +111,53 @@ impl eframe::App for BattleCatsApp {
             ctx.request_repaint();
         }
 
+        // Watcher for real-time stats editing
+        let mut reload_queue = Vec::new();
+        if let Some(rx) = &self.cat_list_state.watch_receiver {
+            while let Ok(path) = rx.try_recv() {
+                reload_queue.push(path);
+            }
+        }
+
+        let mut reload_repaint = false;
+        let mut full_scan_needed = false;
+
+        for path in reload_queue {
+            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                if patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || 
+                   patterns::CHECK_LINE_FILES.contains(&file_name) {
+                    full_scan_needed = true;
+                }
+                else if let Some(ext) = path.extension() {
+                    let ext_str = ext.to_string_lossy();
+                    
+                    if ext_str == "csv" {
+                        if let Some(selected_id) = self.cat_list_state.selected_cat {
+                            let id_str = format!("{:03}", selected_id);
+                            if path.to_string_lossy().contains(&id_str) {
+                                self.cat_list_state.reload_selected_cat_data();
+                                reload_repaint = true;
+                            }
+                        }
+                    } 
+                    else if ext_str == "png" || ext_str == "maanim" || ext_str == "imgcut" || ext_str == "mamodel" {
+                        self.cat_list_state.detail_texture = None;
+                        self.cat_list_state.detail_key.clear();
+                        self.cat_list_state.talent_name_textures.clear();
+                        self.cat_list_state.sprite_sheet = crate::core::files::imgcut::SpriteSheet::default();
+                        reload_repaint = true;
+                    }
+                }
+            }
+        }
+
+        if full_scan_needed {
+            self.cat_list_state.restart_scan(&self.settings.game_language);
+            ctx.request_repaint();
+        } else if reload_repaint {
+            ctx.request_repaint();
+        }
+
         self.cat_list_state.update_data();
         if self.cat_list_state.scan_receiver.is_some() {
             ctx.request_repaint();
@@ -159,7 +206,6 @@ impl eframe::App for BattleCatsApp {
             }
         }
         
-        // Sidebar Rendering
         let screen_rect = ctx.screen_rect();
         let sidebar_x = screen_rect.width() - visible_sidebar_width;
         let button_gap = 10.0;

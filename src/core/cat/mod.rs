@@ -1,13 +1,15 @@
 use eframe::egui;
-use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::collections::{HashMap, VecDeque};
 use crate::core::utils::SoftReset; 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 pub mod scanner;
 pub mod stats;
 pub mod abilities; 
 pub mod talents; 
+pub mod watcher;
 
 use crate::ui::components::cat_list::CatList; 
 use crate::ui::views::cat_detail; 
@@ -15,6 +17,7 @@ use crate::ui::views::cat_detail;
 use scanner::CatEntry;
 use crate::core::files::imgcut::SpriteSheet; 
 use crate::core::files::skilldescriptions; 
+use crate::core::files::unitid;
 
 #[derive(Deserialize, Serialize, PartialEq, Clone, Copy)]
 pub enum DetailTab {
@@ -32,6 +35,8 @@ impl Default for DetailTab {
 pub struct CatListState {
     #[serde(skip)] 
     pub cats: Vec<CatEntry>,
+    #[serde(skip)]
+    pub incoming_cats: Vec<CatEntry>,
     
     #[serde(alias = "persistent_id")] 
     pub selected_cat: Option<u32>,
@@ -49,6 +54,11 @@ pub struct CatListState {
     
     #[serde(skip)]
     pub scan_receiver: Option<Receiver<CatEntry>>,
+    
+    #[serde(skip)]
+    pub watchers: Option<watcher::CatWatchers>,
+    #[serde(skip)]
+    pub watch_receiver: Option<Receiver<PathBuf>>,
     
     #[serde(skip)]
     pub detail_texture: Option<egui::TextureHandle>,
@@ -81,9 +91,12 @@ impl Default for CatListState {
     fn default() -> Self {
         Self {
             cats: Vec::new(),
+            incoming_cats: Vec::new(),
             selected_cat: None,
             cat_list: CatList::default(),
             scan_receiver: None,
+            watchers: None,
+            watch_receiver: None,
             search_query: String::new(),
             selected_form: 0,
             selected_detail_tab: DetailTab::default(),
@@ -107,6 +120,7 @@ impl Default for CatListState {
 impl SoftReset for CatListState {
     fn reset(&mut self) {
         self.cats.clear();
+        self.incoming_cats.clear();
         self.cat_list.clear_cache();
         self.detail_texture = None;
         self.detail_key.clear();
@@ -129,17 +143,46 @@ impl SoftReset for CatListState {
 }
 
 impl CatListState {
+    pub fn init_watcher(&mut self, ctx: &egui::Context) {
+        if self.watchers.is_none() {
+            let (tx, rx) = channel();
+            if let Some(mut w) = watcher::CatWatchers::new(tx, ctx.clone()) {
+                let path = std::path::Path::new("game/cats");
+                if path.exists() {
+                    w.watch_all(path);
+                    self.watchers = Some(w);
+                    self.watch_receiver = Some(rx);
+                }
+            }
+        }
+    }
+
+    pub fn reload_selected_cat_data(&mut self) {
+        if let Some(id) = self.selected_cat {
+            if let Some(new_raw_vec) = unitid::load_from_id(id as i32) {
+                if let Some(entry) = self.cats.iter_mut().find(|c| c.id == id) {
+                    let mut new_stats: Vec<Option<unitid::CatRaw>> = vec![None; 4];
+                    for (i, raw) in new_raw_vec.into_iter().enumerate() {
+                        if i < 4 {
+                            new_stats[i] = Some(raw);
+                        }
+                    }
+                    entry.stats = new_stats; 
+                }
+            }
+        }
+    }
+
     pub fn update_data(&mut self) {
         let Some(receiver_handle) = &self.scan_receiver else { return };
 
-        let mut has_new_data = false;
         let mut is_scan_complete = false;
 
         loop {
             match receiver_handle.try_recv() {
                 Ok(cat_entry) => {
-                    self.cats.push(cat_entry);
-                    has_new_data = true;
+                    // Buffer new data, DO NOT touch self.cats yet
+                    self.incoming_cats.push(cat_entry);
                 },
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
@@ -149,11 +192,10 @@ impl CatListState {
             }
         }
 
-        if has_new_data { 
-            self.cats.sort_by_key(|cat| cat.id);
-        }
-        
         if is_scan_complete {
+            self.incoming_cats.sort_by_key(|cat| cat.id);
+            self.cats = std::mem::take(&mut self.incoming_cats);
+            
             if let Some(target_id) = self.selected_cat {
                 if !self.cats.iter().any(|cat| cat.id == target_id) {
                     if let Some(first_cat) = self.cats.first() {
@@ -172,11 +214,18 @@ impl CatListState {
     }
 
     pub fn restart_scan(&mut self, language_code: &str) {
+        self.skill_descriptions = None; 
+        
         let current_selection_id = self.selected_cat;
         let current_form = self.selected_form;
         let current_tab = self.selected_detail_tab;
 
-        self.reset();
+        self.incoming_cats.clear();
+        
+        self.cat_list.clear_cache(); 
+        self.detail_texture = None;
+        self.detail_key.clear();
+        self.talent_name_textures.clear();
 
         self.selected_cat = current_selection_id;
         self.selected_form = current_form;
@@ -189,6 +238,8 @@ impl CatListState {
 pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::core::settings::Settings) {
     if !state.initialized {
         state.initialized = true;
+        state.init_watcher(ctx); 
+        
         if !settings.unit_persistence {
             state.selected_cat = None;
             state.cat_list.reset_scroll();
@@ -215,7 +266,11 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
 
             let old_selection_id = state.selected_cat;
             
-            state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, settings.high_banner_quality);
+            if !state.cats.is_empty() {
+                state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, settings.high_banner_quality);
+            } else {
+                ui.centered_and_justified(|ui| { ui.spinner(); });
+            }
             
             if state.selected_cat != old_selection_id {
                 state.detail_texture = None; 
