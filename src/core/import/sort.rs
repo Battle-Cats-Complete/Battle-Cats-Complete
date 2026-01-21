@@ -84,6 +84,8 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
     let egg_anim = Regex::new(patterns::EGG_ANIM_PATTERN).unwrap();
     let egg_maanim = Regex::new(patterns::EGG_MAANIM_PATTERN).unwrap();
 
+    let gatya_item_d = Regex::new(patterns::GATYA_ITEM_D_PATTERN).unwrap();
+
     let mut count = 0;
     
     for entry in fs::read_dir(raw_dir).map_err(|e| e.to_string())? {
@@ -133,6 +135,9 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
         }
         else if let Some(_caps) = skill_name.captures(name) {
             dest_folder = Some(assets_dir.join("Skill_name"));
+        }
+        else if let Some(_caps) = gatya_item_d.captures(name) {
+            dest_folder = Some(assets_dir.join("gatyaitemD"));
         }
         else if let Some(caps) = egg_icon.captures(name) {
             dest_folder = Some(cats_dir.join(format!("egg_{}", &caps[1])).join(map_egg(&caps[2])));
