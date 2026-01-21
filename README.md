@@ -11,15 +11,28 @@ Battle Cats Complete is still far from its fully functional state. This app is a
 To use this app, you must provide game files for it to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
 
 Heres what the app is currently capable of:
-- Displaying Cat Stats and Talent data
+- Sorting user-imported files for proper display/use
+  - Import ZIP Archives
+  - Import Folders
+  - Import Game.zip
+- Displaying Cat Data
+  - Forms
+  - Stats
+  - Abilities
+  - Talents
+  - Descriptions
+  - Evolution Info
+- Easy exporting allowing for efficient sharing
+  - Only exports app-essential files
+  - Exports to game.zip archive
 
 *This app will trigger Windows Defender Firewall: "Windows protected your PC" as I am not a registered publisher. You must click "More Info" and "Run Anyways" to use the app.*
 
 ## Credit
 Various people have motivated and helped me create this project:
-- Timtams: Did field research to confirm certain game data quirks, also supplied some custom assets.
-- TheWWRNerdGuy: Provided a repo which holds Rust code for reading raw game data, also gave coding tips.
-- SweetDonut0: Used their Cat Stats Tool web-app hosted on the Wiki as a reference for level scaling code.
+- **Timtams:** Did field research to confirm certain game data quirks, also supplied some custom assets.
+- **TheWWRNerdGuy:** Provided a repo which holds Rust code for reading raw game data, also gave coding tips.
+- **SweetDonut0:** Used their Cat Stats Tool web-app hosted on the Wiki as a reference for level scaling code.
 
 ## Legal
 This project is for educational purposes only. Assets are copyright PONOS Corp. Please support the official release.
