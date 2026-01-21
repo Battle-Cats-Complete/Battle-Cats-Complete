@@ -3,7 +3,6 @@ use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::collections::{HashMap, VecDeque};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::fs;
 
 pub mod scanner;
 pub mod stats;
@@ -17,6 +16,7 @@ use crate::ui::views::cat_detail;
 use scanner::CatEntry;
 use crate::core::files::imgcut::SpriteSheet; 
 use crate::core::files::skilldescriptions; 
+
 use crate::core::files::unitlevel;
 use crate::core::files::unitbuy;
 use crate::core::files::skillacquisition;
@@ -120,6 +120,7 @@ impl Default for CatListState {
 }
 
 impl CatListState {
+
     pub fn init_watcher(&mut self, ctx: &egui::Context) {
         if self.watchers.is_none() {
             let (tx, rx) = channel();
@@ -136,7 +137,8 @@ impl CatListState {
 
     pub fn reload_selected_cat_data(&mut self, language_code: &str) {
         if let Some(id) = self.selected_cat {
-            if let Some(entry) = self.cats.iter_mut().find(|c| c.id == id) {
+            if let Some(index) = self.cats.iter().position(|c| c.id == id) {
+                
                 let cats_dir = std::path::Path::new("game/cats");
                 let unit_folder = cats_dir.join(format!("{:03}", id));
                 
@@ -151,7 +153,7 @@ impl CatListState {
                     &talents_map,
                     language_code
                 ) {
-                    *entry = new_entry;
+                    self.cats[index] = new_entry;
                 }
             }
         }
