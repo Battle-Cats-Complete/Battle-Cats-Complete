@@ -18,12 +18,10 @@ impl CatWatchers {
                     for path in event.paths {
                         let path_str = path.to_string_lossy().to_lowercase();
 
-                        // 1. IGNORE "Raw" folder
                         if path_str.contains("raw") {
                             continue;
                         }
 
-                        // 2. EXTENSION FILTER
                         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                         let valid_exts = ["csv", "png", "maanim", "imgcut", "mamodel", "txt"];
                         
@@ -31,7 +29,6 @@ impl CatWatchers {
                              continue;
                         }
 
-                        // 3. NUCLEAR OPTION: TREAT EVERYTHING AS NEEDING STABILITY
                         let sender_clone = sender.clone();
                         let ctx_clone = ctx.clone();
                         let path_clone = path.clone();
@@ -40,7 +37,6 @@ impl CatWatchers {
                             wait_for_stability(&path_clone);
                             
                             if let Err(_e) = sender_clone.send(path_clone) {
-                                // Channel closed
                             }
                             ctx_clone.request_repaint();
                         });
@@ -57,7 +53,6 @@ impl CatWatchers {
     }
 }
 
-// Helper: Waits until file size stops changing
 fn wait_for_stability(path: &Path) {
     let mut last_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     let mut stable_checks = 0;

@@ -12,7 +12,7 @@ pub mod watcher;
 
 use crate::ui::components::cat_list::CatList; 
 use crate::ui::views::cat_detail; 
-use crate::core::patterns; // Added for handle_event check
+use crate::core::patterns;
 
 use scanner::CatEntry;
 use crate::core::files::imgcut::SpriteSheet; 
@@ -145,20 +145,16 @@ impl CatListState {
         }
     }
 
-    // UPDATED: Centralized Event Handler
-    // Now handles Universal Files, CSVs, and Assets in one place.
     pub fn handle_event(&mut self, ctx: &egui::Context, path: &PathBuf, language_code: &str) {
         let path_str = path.to_string_lossy().to_lowercase();
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        // 1. GLOBAL UNIVERSAL FILES (Triggers Full Restart)
         if patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || patterns::CHECK_LINE_FILES.contains(&file_name) {
             self.restart_scan(language_code);
             ctx.request_repaint();
             return;
         }
 
-        // 2. UNITBUY.CSV (Hot Swap)
         if file_name == "unitbuy.csv" {
             let cats_dir = std::path::Path::new("game/cats");
             let new_map = unitbuy::load_unitbuy(cats_dir);
@@ -171,18 +167,15 @@ impl CatListState {
             return;
         }
 
-        // 3. UNITEVOLVE (Hot Swap + Dictionary Refresh)
         if path_str.contains("unitevolve") {
             let cats_dir = std::path::Path::new("game/cats");
             let new_text_map = unitevolve::load(cats_dir, language_code);
 
-            // Update all loaded cats in memory
             for cat in &mut self.cats {
                 if let Some(text_arr) = new_text_map.get(&cat.id) {
                     cat.evolve_text = text_arr.clone();
                 }
             }
-            // Force reload the currently viewed cat to ensure the UI picks up the change
             if self.selected_cat.is_some() {
                 self.reload_selected_cat_data(language_code);
             }
@@ -190,7 +183,6 @@ impl CatListState {
             return;
         }
 
-        // 4. ASSETS (Images) - Cache Busting
         if path_str.contains("assets") || path_str.contains("gatyaitem") {
             self.gatya_item_textures.clear();
             self.texture_cache_version += 1; 
@@ -198,10 +190,8 @@ impl CatListState {
             return;
         }
         
-        // 5. UNIT SPECIFIC FILES (CSV)
         if path_str.contains("cats") {
              if let Some(id) = self.selected_cat {
-                 // Optimization: Only reload if the changed file actually belongs to the selected cat
                  let id_str = format!("{:03}", id);
                  if path_str.contains(&id_str) {
                      self.reload_selected_cat_data(language_code);
@@ -315,9 +305,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             state.cat_list.reset_scroll();
         }
     }
-
-    // REMOVED: state.process_watcher_events call. 
-    // Logic is now handled by app.rs calling state.handle_event
 
     if state.skill_descriptions.is_none() {
         let path = std::path::Path::new("game/cats");
