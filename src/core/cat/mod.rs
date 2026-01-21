@@ -12,6 +12,7 @@ pub mod watcher;
 
 use crate::ui::components::cat_list::CatList; 
 use crate::ui::views::cat_detail; 
+use crate::core::patterns; // Added for handle_event check
 
 use scanner::CatEntry;
 use crate::core::files::imgcut::SpriteSheet; 
@@ -20,6 +21,7 @@ use crate::core::files::skilldescriptions;
 use crate::core::files::unitlevel;
 use crate::core::files::unitbuy;
 use crate::core::files::skillacquisition;
+use crate::core::files::unitevolve;
 
 #[derive(Deserialize, Serialize, PartialEq, Clone, Copy)]
 pub enum DetailTab {
@@ -78,6 +80,12 @@ pub struct CatListState {
     
     #[serde(skip)]
     pub talent_name_textures: HashMap<String, egui::TextureHandle>, 
+    
+    #[serde(skip)]
+    pub gatya_item_textures: HashMap<i32, Option<egui::TextureHandle>>,
+
+    #[serde(skip)]
+    pub texture_cache_version: u64,
 
     #[serde(skip)]
     pub skill_descriptions: Option<Vec<String>>,
@@ -111,6 +119,8 @@ impl Default for CatListState {
             kamikaze_texture: None,
             boss_wave_immune_texture: None,
             talent_name_textures: HashMap::new(),
+            gatya_item_textures: HashMap::new(), 
+            texture_cache_version: 0, 
             skill_descriptions: None, 
             initialized: false, 
             talent_levels: HashMap::new(),
@@ -125,12 +135,78 @@ impl CatListState {
         if self.watchers.is_none() {
             let (tx, rx) = channel();
             if let Some(mut w) = watcher::CatWatchers::new(tx, ctx.clone()) {
-                let path = std::path::Path::new("game/cats");
+                let path = std::path::Path::new("game");
                 if path.exists() {
                     w.watch_all(path);
                     self.watchers = Some(w);
                     self.watch_receiver = Some(rx);
                 }
+            }
+        }
+    }
+
+    // UPDATED: Centralized Event Handler
+    // Now handles Universal Files, CSVs, and Assets in one place.
+    pub fn handle_event(&mut self, ctx: &egui::Context, path: &PathBuf, language_code: &str) {
+        let path_str = path.to_string_lossy().to_lowercase();
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+        // 1. GLOBAL UNIVERSAL FILES (Triggers Full Restart)
+        if patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || patterns::CHECK_LINE_FILES.contains(&file_name) {
+            self.restart_scan(language_code);
+            ctx.request_repaint();
+            return;
+        }
+
+        // 2. UNITBUY.CSV (Hot Swap)
+        if file_name == "unitbuy.csv" {
+            let cats_dir = std::path::Path::new("game/cats");
+            let new_map = unitbuy::load_unitbuy(cats_dir);
+            for cat in &mut self.cats {
+                if let Some(row) = new_map.get(&cat.id) {
+                    cat.unit_buy = row.clone();
+                }
+            }
+            ctx.request_repaint();
+            return;
+        }
+
+        // 3. UNITEVOLVE (Hot Swap + Dictionary Refresh)
+        if path_str.contains("unitevolve") {
+            let cats_dir = std::path::Path::new("game/cats");
+            let new_text_map = unitevolve::load(cats_dir, language_code);
+
+            // Update all loaded cats in memory
+            for cat in &mut self.cats {
+                if let Some(text_arr) = new_text_map.get(&cat.id) {
+                    cat.evolve_text = text_arr.clone();
+                }
+            }
+            // Force reload the currently viewed cat to ensure the UI picks up the change
+            if self.selected_cat.is_some() {
+                self.reload_selected_cat_data(language_code);
+            }
+            ctx.request_repaint();
+            return;
+        }
+
+        // 4. ASSETS (Images) - Cache Busting
+        if path_str.contains("assets") || path_str.contains("gatyaitem") {
+            self.gatya_item_textures.clear();
+            self.texture_cache_version += 1; 
+            ctx.request_repaint();
+            return;
+        }
+        
+        // 5. UNIT SPECIFIC FILES (CSV)
+        if path_str.contains("cats") {
+             if let Some(id) = self.selected_cat {
+                 // Optimization: Only reload if the changed file actually belongs to the selected cat
+                 let id_str = format!("{:03}", id);
+                 if path_str.contains(&id_str) {
+                     self.reload_selected_cat_data(language_code);
+                     ctx.request_repaint();
+                 }
             }
         }
     }
@@ -145,12 +221,14 @@ impl CatListState {
                 let level_curves = unitlevel::load_level_curves(cats_dir);
                 let unit_buys = unitbuy::load_unitbuy(cats_dir);
                 let talents_map = skillacquisition::load(cats_dir);
+                let evolve_text_map = unitevolve::load(cats_dir, language_code);
 
                 if let Some(new_entry) = scanner::process_cat_entry(
                     &unit_folder,
                     &level_curves,
                     &unit_buys,
                     &talents_map,
+                    &evolve_text_map,
                     language_code
                 ) {
                     self.cats[index] = new_entry;
@@ -211,6 +289,8 @@ impl CatListState {
         self.detail_texture = None;
         self.detail_key.clear();
         self.talent_name_textures.clear();
+        self.gatya_item_textures.clear(); 
+        self.texture_cache_version += 1;
 
         self.sprite_sheet = SpriteSheet::default();
         self.multihit_texture = None;
@@ -235,6 +315,9 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             state.cat_list.reset_scroll();
         }
     }
+
+    // REMOVED: state.process_watcher_events call. 
+    // Logic is now handled by app.rs calling state.handle_event
 
     if state.skill_descriptions.is_none() {
         let path = std::path::Path::new("game/cats");
@@ -359,9 +442,11 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             &mut state.kamikaze_texture,
             &mut state.boss_wave_immune_texture,
             &mut state.talent_name_textures,
+            &mut state.gatya_item_textures, 
             state.skill_descriptions.as_ref(), 
             settings,
-            talent_map
+            talent_map,
+            state.texture_cache_version
         );
     });
 }

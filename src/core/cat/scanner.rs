@@ -11,6 +11,7 @@ use crate::core::files::unitid::CatRaw;
 use crate::core::files::unitbuy::{self, UnitBuyRow};
 use crate::core::files::unitlevel::{self, CatLevelCurve};
 use crate::core::files::skillacquisition::{self, TalentRaw}; 
+use crate::core::files::unitevolve; // <--- Import
 use crate::core::utils; 
 
 #[derive(Clone, Debug)]
@@ -24,7 +25,9 @@ pub struct CatEntry {
     pub curve: Option<CatLevelCurve>,
     pub atk_anim_frames: [i32; 4], 
     pub egg_ids: (i32, i32),
-    pub talent_data: Option<TalentRaw>, 
+    pub talent_data: Option<TalentRaw>,
+    pub unit_buy: UnitBuyRow,
+    pub evolve_text: [Vec<String>; 4], // <--- Added field
 }
 
 pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
@@ -36,6 +39,8 @@ pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
         let level_curves_arc = Arc::new(unitlevel::load_level_curves(cats_directory));
         let unit_buy_map_arc = Arc::new(unitbuy::load_unitbuy(cats_directory));
         let talent_map_arc = Arc::new(skillacquisition::load(cats_directory));
+        // Load evolution text map
+        let evolve_text_map_arc = Arc::new(unitevolve::load(cats_directory, &language_code));
         
         let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
             Ok(read_dir_iter) => read_dir_iter
@@ -51,8 +56,16 @@ pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
             let curves_clone = Arc::clone(&level_curves_arc);
             let unit_buys_clone = Arc::clone(&unit_buy_map_arc);
             let talents_clone = Arc::clone(&talent_map_arc);
+            let evolve_text_clone = Arc::clone(&evolve_text_map_arc);
             
-            if let Some(cat_entry) = process_cat_entry(folder_path, &curves_clone, &unit_buys_clone, &talents_clone, &language_code) {
+            if let Some(cat_entry) = process_cat_entry(
+                folder_path, 
+                &curves_clone, 
+                &unit_buys_clone, 
+                &talents_clone, 
+                &evolve_text_clone, // Pass map
+                &language_code
+            ) {
                 let _ = sender_clone.send(cat_entry);
             }
         });
@@ -65,6 +78,7 @@ pub fn process_cat_entry(
     level_curves: &Vec<CatLevelCurve>, 
     unit_buys: &std::collections::HashMap<u32, UnitBuyRow>,
     talents_map: &std::collections::HashMap<u16, TalentRaw>, 
+    evolve_text_map: &std::collections::HashMap<u32, [Vec<String>; 4]>, // New Arg
     language_code: &str
 ) -> Option<CatEntry> {
     
@@ -245,6 +259,9 @@ pub fn process_cat_entry(
     }
 
     let talent_data = talents_map.get(&(cat_id as u16)).cloned();
+    
+    // Get Evolution Text, defaulting to empty arrays if not found
+    let evolve_text = evolve_text_map.get(&cat_id).cloned().unwrap_or_default();
 
     Some(CatEntry { 
         id: cat_id, 
@@ -256,7 +273,9 @@ pub fn process_cat_entry(
         curve: level_curves.get(cat_id as usize).cloned(),
         atk_anim_frames: attack_anim_frames,
         egg_ids: (ub_row.egg_id_normal, ub_row.egg_id_evolved),
-        talent_data, 
+        talent_data,
+        unit_buy: ub_row.clone(),
+        evolve_text, // Pass it
     })
 }
 

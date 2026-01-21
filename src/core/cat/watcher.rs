@@ -5,7 +5,6 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 use std::fs;
-use crate::core::patterns; 
 
 pub struct CatWatchers {
     _watcher: RecommendedWatcher,
@@ -17,33 +16,34 @@ impl CatWatchers {
             if let Ok(event) = res {
                 if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
                     for path in event.paths {
-                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                        if !["csv", "png", "maanim", "imgcut", "mamodel"].contains(&ext) {
+                        let path_str = path.to_string_lossy().to_lowercase();
+
+                        // 1. IGNORE "Raw" folder
+                        if path_str.contains("raw") {
                             continue;
                         }
 
-                        let file_name = match path.file_name().and_then(|n| n.to_str()) {
-                            Some(n) => n,
-                            None => continue,
-                        };
+                        // 2. EXTENSION FILTER
+                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        let valid_exts = ["csv", "png", "maanim", "imgcut", "mamodel", "txt"];
+                        
+                        if !valid_exts.contains(&ext) {
+                             continue;
+                        }
 
-                        let is_universal = patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || 
-                                           patterns::CHECK_LINE_FILES.contains(&file_name);
-
+                        // 3. NUCLEAR OPTION: TREAT EVERYTHING AS NEEDING STABILITY
                         let sender_clone = sender.clone();
                         let ctx_clone = ctx.clone();
                         let path_clone = path.clone();
 
-                        if is_universal {
-                            thread::spawn(move || {
-                                wait_for_stability(&path_clone);
-                                let _ = sender_clone.send(path_clone);
-                                ctx_clone.request_repaint();
-                            });
-                        } else {
-                            let _ = sender_clone.send(path);
+                        thread::spawn(move || {
+                            wait_for_stability(&path_clone);
+                            
+                            if let Err(_e) = sender_clone.send(path_clone) {
+                                // Channel closed
+                            }
                             ctx_clone.request_repaint();
-                        }
+                        });
                     }
                 }
             }
@@ -57,6 +57,7 @@ impl CatWatchers {
     }
 }
 
+// Helper: Waits until file size stops changing
 fn wait_for_stability(path: &Path) {
     let mut last_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     let mut stable_checks = 0;
@@ -69,8 +70,8 @@ fn wait_for_stability(path: &Path) {
             stable_checks += 1;
             if stable_checks >= 2 { return; }
         } else {
-            last_size = current_size;
             stable_checks = 0;
+            last_size = current_size;
         }
     }
 }

@@ -1,6 +1,7 @@
 use eframe::egui;
-use crate::core::{cat, import, settings, patterns};
+use crate::core::{cat, import, settings}; // Removed patterns import
 use crate::ui::views::main_menu;
+use std::path::PathBuf;
 
 #[derive(PartialEq, Clone, Copy, serde::Deserialize, serde::Serialize)]
 enum Page {
@@ -110,50 +111,18 @@ impl eframe::App for BattleCatsApp {
             ctx.request_repaint();
         }
 
-        let mut reload_queue = Vec::new();
+        // --- WATCHER EVENT HANDLING ---
+        // Drain events here, delegate ALL logic to the state handler.
+        let mut reload_queue: Vec<PathBuf> = Vec::new();
         if let Some(rx) = &self.cat_list_state.watch_receiver {
             while let Ok(path) = rx.try_recv() {
                 reload_queue.push(path);
             }
         }
 
-        let mut reload_repaint = false;
-        let mut full_scan_needed = false;
-
         for path in reload_queue {
-            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                if patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || 
-                   patterns::CHECK_LINE_FILES.contains(&file_name) {
-                    full_scan_needed = true;
-                }
-                else if let Some(ext) = path.extension() {
-                    let ext_str = ext.to_string_lossy();
-                    
-                    if ext_str == "csv" {
-                        if let Some(selected_id) = self.cat_list_state.selected_cat {
-                            let id_str = format!("{:03}", selected_id);
-                            if path.to_string_lossy().contains(&id_str) {
-                                self.cat_list_state.reload_selected_cat_data(&self.settings.game_language);
-                                reload_repaint = true;
-                            }
-                        }
-                    } 
-                    else if ext_str == "png" || ext_str == "maanim" || ext_str == "imgcut" || ext_str == "mamodel" {
-                        self.cat_list_state.detail_texture = None;
-                        self.cat_list_state.detail_key.clear();
-                        self.cat_list_state.talent_name_textures.clear();
-                        self.cat_list_state.sprite_sheet = crate::core::files::imgcut::SpriteSheet::default();
-                        reload_repaint = true;
-                    }
-                }
-            }
-        }
-
-        if full_scan_needed {
-            self.cat_list_state.restart_scan(&self.settings.game_language);
-            ctx.request_repaint();
-        } else if reload_repaint {
-            ctx.request_repaint();
+            // Simplified: All logic moved to handle_event
+            self.cat_list_state.handle_event(ctx, &path, &self.settings.game_language);
         }
 
         self.cat_list_state.update_data();
