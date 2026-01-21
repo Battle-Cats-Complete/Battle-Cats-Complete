@@ -167,7 +167,7 @@ pub fn process_cat_entry(
     }
     
     let mut cat_names = vec![String::new(); 4];
-    let mut cat_descriptions = vec![Vec::new(); 4]; // Stores description lines per form
+    let mut cat_descriptions = vec![Vec::new(); 4];
     
     let target_file_id = cat_id + 1;
     let lang_directory = original_folder_path.join("lang"); 
@@ -193,7 +193,6 @@ pub fn process_cat_entry(
                 for (line_index, file_line) in file_content.lines().enumerate().take(4) {
                     let parts: Vec<&str> = file_line.split(separator_char).collect();
                     
-                    // Index 0: Name
                     if let Some(name_part) = parts.get(0) {
                         let trimmed_name = name_part.trim();
                         if !trimmed_name.is_empty() && !looks_like_garbage_id(trimmed_name) {
@@ -201,10 +200,9 @@ pub fn process_cat_entry(
                         }
                     }
 
-                    // Index 1+: Description Columns (including empty ones)
-                    // We collect everything after the name as description lines
                     let desc_lines: Vec<String> = parts.iter()
                         .skip(1)
+                        .take(3)
                         .map(|s| s.trim().to_string())
                         .collect();
                     
@@ -228,7 +226,6 @@ pub fn process_cat_entry(
                     }
 
                     cat_names[i] = candidate.clone();
-                    // If we take the name from this lang, we take the description too
                     cat_descriptions[i] = current_lang_descs[i].clone(); 
                 }
             }
@@ -253,7 +250,7 @@ pub fn process_cat_entry(
         id: cat_id, 
         image_path: valid_image_path,
         names: cat_names,
-        description: cat_descriptions, // Assign parsed descriptions
+        description: cat_descriptions,
         forms: forms_existence,
         stats: cat_stats, 
         curve: level_curves.get(cat_id as usize).cloned(),
