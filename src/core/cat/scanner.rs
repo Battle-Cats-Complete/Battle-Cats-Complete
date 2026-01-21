@@ -17,7 +17,8 @@ use crate::core::utils;
 pub struct CatEntry {
     pub id: u32,
     pub image_path: PathBuf,
-    pub names: Vec<String>, 
+    pub names: Vec<String>,
+    pub description: Vec<Vec<String>>,
     pub forms: [bool; 4],
     pub stats: Vec<Option<CatRaw>>,
     pub curve: Option<CatLevelCurve>,
@@ -70,16 +71,12 @@ pub fn process_cat_entry(
     let folder_stem = original_folder_path.file_name()?.to_str()?;
     let cat_id = folder_stem.parse::<u32>().ok()?;
 
-    let unit_buy_data = unit_buys.get(&cat_id);
-    if let Some(row_data) = unit_buy_data {
-        let is_egg_unit = row_data.egg_id_normal != -1;
-        if !is_egg_unit && row_data.guide_order == -1 && cat_id != 673 {
-            return None; 
-        }
-    } else {
-        return None;
+    let ub_row = unit_buys.get(&cat_id)?;
+
+    let is_egg_unit = ub_row.egg_id_normal != -1;
+    if !is_egg_unit && ub_row.guide_order == -1 && cat_id != 673 {
+        return None; 
     }
-    let ub_row = unit_buy_data.unwrap(); 
 
     let cats_root_dir = Path::new("game/cats");
     
@@ -170,6 +167,7 @@ pub fn process_cat_entry(
     }
     
     let mut cat_names = vec![String::new(); 4];
+    let mut cat_descriptions = vec![Vec::new(); 4]; // Stores description lines per form
     
     let target_file_id = cat_id + 1;
     let lang_directory = original_folder_path.join("lang"); 
@@ -190,13 +188,27 @@ pub fn process_cat_entry(
                 let separator_char = if code == "ja" { ',' } else { '|' };
 
                 let mut current_lang_names = vec![String::new(); 4];
+                let mut current_lang_descs = vec![Vec::new(); 4];
+
                 for (line_index, file_line) in file_content.lines().enumerate().take(4) {
-                    if let Some(name_part) = file_line.split(separator_char).next() {
+                    let parts: Vec<&str> = file_line.split(separator_char).collect();
+                    
+                    // Index 0: Name
+                    if let Some(name_part) = parts.get(0) {
                         let trimmed_name = name_part.trim();
                         if !trimmed_name.is_empty() && !looks_like_garbage_id(trimmed_name) {
                             current_lang_names[line_index] = trimmed_name.to_string();
                         }
                     }
+
+                    // Index 1+: Description Columns (including empty ones)
+                    // We collect everything after the name as description lines
+                    let desc_lines: Vec<String> = parts.iter()
+                        .skip(1)
+                        .map(|s| s.trim().to_string())
+                        .collect();
+                    
+                    current_lang_descs[line_index] = desc_lines;
                 }
 
                 for i in 0..4 {
@@ -216,6 +228,8 @@ pub fn process_cat_entry(
                     }
 
                     cat_names[i] = candidate.clone();
+                    // If we take the name from this lang, we take the description too
+                    cat_descriptions[i] = current_lang_descs[i].clone(); 
                 }
             }
         }
@@ -239,6 +253,7 @@ pub fn process_cat_entry(
         id: cat_id, 
         image_path: valid_image_path,
         names: cat_names,
+        description: cat_descriptions, // Assign parsed descriptions
         forms: forms_existence,
         stats: cat_stats, 
         curve: level_curves.get(cat_id as usize).cloned(),

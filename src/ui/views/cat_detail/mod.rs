@@ -11,7 +11,8 @@ use crate::core::cat::talents as talent_logic;
 mod header;
 mod stats;
 mod abilities;
-mod talents; 
+mod talents;
+mod details;
 
 pub fn show(
     ctx: &egui::Context, 
@@ -144,9 +145,13 @@ pub fn show(
                 });
         },
         DetailTab::Details => {
-            ui.centered_and_justified(|ui| {
-                ui.heading("Details Coming Soon");
-            });
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let fallback = Vec::new();
+                    let desc = cat.description.get(*current_form).unwrap_or(&fallback);
+                    details::render(ui, desc);
+                });
         }
     }
 }
