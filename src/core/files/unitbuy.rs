@@ -2,72 +2,70 @@
 use std::fs;
 use std::path::Path;
 use std::collections::HashMap;
+use crate::core::utils; // Import utils
 
 #[derive(Debug, Clone, Default)]
 pub struct UnitBuyRow {
-    // --- Basic Info ---
-    pub stage_unlock_requirement: i32,  // Index 0
-    pub purchase_cost: i32,             // Index 1
+    // Basic Info
+    pub stage_unlock_requirement: i32,
+    pub purchase_cost: i32,
     // Indices 2-11 stored in upgrade_costs
-    pub currency_type: i32,             // Index 12
-    pub rarity: i32,                    // Index 13
-    pub guide_order: i32,               // Index 14
-    pub chapter_unlock_requirement: i32,// Index 15
-    pub sell_xp_yield: i32,             // Index 16
-    pub unknown_17: i32,                // Index 17
+    pub currency_type: i32,
+    pub rarity: i32,
+    pub guide_order: i32,
+    pub chapter_unlock_requirement: i32,
+    pub sell_xp_yield: i32,
+    pub unknown_17: i32,
     
-    // --- Level Caps ---
-    pub level_cap_ch2: i32,             // Index 18
-    pub base_max_plus_level: i32,       // Index 19
+    // Level Caps (Legacy)
+    pub level_cap_ch2: i32,
+    pub base_max_plus_level: i32,
     
-    // --- Evolution ---
-    pub evolve_level_xp: i32,           // Index 20
-    pub unknown_21: i32,                // Index 21
-    pub level_cap_ch1: i32,             // Index 22
-    pub true_form_id: i32,              // Index 23
-    pub ultra_form_id: i32,             // Index 24
+    // Evolution
+    pub evolve_level_xp: i32,
+    pub unknown_21: i32,
+    pub level_cap_ch1: i32,
+    pub true_form_id: i32,
+    pub ultra_form_id: i32,
     
-    // --- Requirements ---
-    pub true_form_unlock_level: i32,    // Index 25
-    pub ultra_form_unlock_level: i32,   // Index 26
-    pub true_form_xp_cost: i32,         // Index 27
+    // Requirements
+    pub true_form_unlock_level: i32,
+    pub ultra_form_unlock_level: i32,
+    pub true_form_xp_cost: i32,
     // Indices 28-37 stored in true_form_materials
-    pub ultra_form_xp_cost: i32,        // Index 38
+    pub ultra_form_xp_cost: i32,
     // Indices 39-48 stored in ultra_form_materials
     
-    // --- Limits & Meta ---
-    pub unknown_49: i32,                // Index 49
-    pub level_cap_standard: i32,        // Index 50
-    pub level_cap_plus: i32,            // Index 51
-    pub unknown_52: i32,                // Index 52
-    pub unknown_53: i32,                // Index 53
-    pub unknown_54: i32,                // Index 54
-    pub unknown_55: i32,                // Index 55
-    pub unknown_56: i32,                // Index 56
-    pub version_added: i64,             // Index 57
-    pub sell_np_yield: i32,             // Index 58
-    pub unknown_59: i32,                // Index 59
-    pub unknown_60: i32,                // Index 60
+    // Limits & Meta
+    pub unknown_49: i32,
+    pub level_cap_standard: i32,
+    pub level_cap_plus: i32,
+    pub unknown_52: i32,
+    pub unknown_53: i32,
+    pub unknown_54: i32,
+    pub unknown_55: i32,
+    pub unknown_56: i32,
+    pub version_added: i64,
+    pub sell_np_yield: i32,
+    pub unknown_59: i32,
+    pub unknown_60: i32,
     
-    // --- Eggs ---
-    pub egg_id_normal: i32,             // Index 61
-    pub egg_id_evolved: i32,            // Index 62
+    // Eggs
+    pub egg_id_normal: i32,
+    pub egg_id_evolved: i32,
 
-    // --- Catch-All for Future Updates ---
-    pub rest: Vec<i32>,                 // Index 63+
+    // Update Fallback
+    pub rest: Vec<i32>,
 
-    // --- Compressed Vectors for UI Ease ---
+    // Compressed Vectors
     pub upgrade_costs: Vec<i32>,                // Indices 2-11
     pub true_form_materials: Vec<(i32, i32)>,   // Indices 28-37
     pub ultra_form_materials: Vec<(i32, i32)>,  // Indices 39-48
 }
 
 impl UnitBuyRow {
-    pub fn from_csv_line(csv_line: &str) -> Option<Self> {
-        let parts: Vec<&str> = csv_line.split(',').map(|s| s.trim()).collect();
-        
-        // REMOVED: strict length check (if parts.len() < 63). 
-        // We now allow shorter rows and just fill defaults (-1).
+    pub fn from_csv_line(csv_line: &str, delimiter: char) -> Option<Self> {
+        let parts: Vec<&str> = csv_line.split(delimiter).map(|s| s.trim()).collect();
         
         let get = |idx: usize| -> i32 {
             parts.get(idx).and_then(|s| s.parse::<i32>().ok()).unwrap_or(-1)
@@ -95,7 +93,6 @@ impl UnitBuyRow {
             (0..10).map(|i| get(start_index + i)).collect()
         };
 
-        // Capture everything after index 62 into 'rest'
         let mut rest_vec = Vec::new();
         if parts.len() > 63 {
             for i in 63..parts.len() {
@@ -160,10 +157,12 @@ pub fn load_unitbuy(cats_directory: &Path) -> HashMap<u32, UnitBuyRow> {
     let file_path = cats_directory.join("unitbuy.csv");
     
     if let Ok(file_content) = fs::read_to_string(&file_path) {
+        let delimiter = utils::detect_csv_separator(&file_content);
+
         for (line_index, csv_line) in file_content.lines().enumerate() {
             if csv_line.trim().is_empty() { continue; }
             
-            if let Some(row_data) = UnitBuyRow::from_csv_line(csv_line) {
+            if let Some(row_data) = UnitBuyRow::from_csv_line(csv_line, delimiter) {
                 unit_buy_map.insert(line_index as u32, row_data);
             }
         }

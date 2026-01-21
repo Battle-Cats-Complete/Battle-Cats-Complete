@@ -11,7 +11,7 @@ use crate::core::files::unitid::CatRaw;
 use crate::core::files::unitbuy::{self, UnitBuyRow};
 use crate::core::files::unitlevel::{self, CatLevelCurve};
 use crate::core::files::skillacquisition::{self, TalentRaw}; 
-use crate::core::files::unitevolve; // <--- Import
+use crate::core::files::unitevolve; 
 use crate::core::utils; 
 
 #[derive(Clone, Debug)]
@@ -27,7 +27,7 @@ pub struct CatEntry {
     pub egg_ids: (i32, i32),
     pub talent_data: Option<TalentRaw>,
     pub unit_buy: UnitBuyRow,
-    pub evolve_text: [Vec<String>; 4], // <--- Added field
+    pub evolve_text: [Vec<String>; 4], 
 }
 
 pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
@@ -39,7 +39,6 @@ pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
         let level_curves_arc = Arc::new(unitlevel::load_level_curves(cats_directory));
         let unit_buy_map_arc = Arc::new(unitbuy::load_unitbuy(cats_directory));
         let talent_map_arc = Arc::new(skillacquisition::load(cats_directory));
-        // Load evolution text map
         let evolve_text_map_arc = Arc::new(unitevolve::load(cats_directory, &language_code));
         
         let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
@@ -63,7 +62,7 @@ pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
                 &curves_clone, 
                 &unit_buys_clone, 
                 &talents_clone, 
-                &evolve_text_clone, // Pass map
+                &evolve_text_clone, 
                 &language_code
             ) {
                 let _ = sender_clone.send(cat_entry);
@@ -78,7 +77,7 @@ pub fn process_cat_entry(
     level_curves: &Vec<CatLevelCurve>, 
     unit_buys: &std::collections::HashMap<u32, UnitBuyRow>,
     talents_map: &std::collections::HashMap<u16, TalentRaw>, 
-    evolve_text_map: &std::collections::HashMap<u32, [Vec<String>; 4]>, // New Arg
+    evolve_text_map: &std::collections::HashMap<u32, [Vec<String>; 4]>, 
     language_code: &str
 ) -> Option<CatEntry> {
     
@@ -199,7 +198,8 @@ pub fn process_cat_entry(
         if let Some(name_file_path) = find_name_file_for_code(&lang_directory, target_file_id, code) {
             if let Ok(file_bytes) = fs::read(&name_file_path) {
                 let file_content = String::from_utf8_lossy(&file_bytes);
-                let separator_char = if code == "ja" { ',' } else { '|' };
+                
+                let separator_char = utils::detect_csv_separator(&file_content);
 
                 let mut current_lang_names = vec![String::new(); 4];
                 let mut current_lang_descs = vec![Vec::new(); 4];
@@ -253,14 +253,14 @@ pub fn process_cat_entry(
     let mut cat_stats = vec![None; 4];
     let stats_file_path = original_folder_path.join(format!("unit{:03}.csv", target_file_id));
     if let Ok(file_content) = fs::read_to_string(&stats_file_path) {
+        let delimiter = utils::detect_csv_separator(&file_content);
+        
         for (line_index, csv_line) in file_content.lines().enumerate().take(4) {
-            cat_stats[line_index] = CatRaw::from_csv_line(csv_line);
+            cat_stats[line_index] = CatRaw::from_csv_line(csv_line, delimiter);
         }
     }
 
     let talent_data = talents_map.get(&(cat_id as u16)).cloned();
-    
-    // Get Evolution Text, defaulting to empty arrays if not found
     let evolve_text = evolve_text_map.get(&cat_id).cloned().unwrap_or_default();
 
     Some(CatEntry { 
@@ -275,7 +275,7 @@ pub fn process_cat_entry(
         egg_ids: (ub_row.egg_id_normal, ub_row.egg_id_evolved),
         talent_data,
         unit_buy: ub_row.clone(),
-        evolve_text, // Pass it
+        evolve_text,
     })
 }
 
@@ -317,10 +317,13 @@ fn find_name_file_for_code(lang_directory: &Path, target_id: u32, region_code: &
 
 fn parse_anim_length(file_content: &str) -> i32 {
     let mut max_frame_count = 0;
+    
+    let delimiter = utils::detect_csv_separator(file_content);
+
     let maanim_lines: Vec<Vec<i32>> = file_content
         .lines()
         .map(|line| {
-            line.split(',')
+            line.split(delimiter)
                 .filter_map(|component| component.trim().parse::<i32>().ok())
                 .collect()
         })

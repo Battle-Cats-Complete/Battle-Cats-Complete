@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::core::{cat, import, settings}; // Removed patterns import
+use crate::core::{cat, import, settings};
 use crate::ui::views::main_menu;
 use std::path::PathBuf;
 
@@ -111,8 +111,6 @@ impl eframe::App for BattleCatsApp {
             ctx.request_repaint();
         }
 
-        // --- WATCHER EVENT HANDLING ---
-        // Drain events here, delegate ALL logic to the state handler.
         let mut reload_queue: Vec<PathBuf> = Vec::new();
         if let Some(rx) = &self.cat_list_state.watch_receiver {
             while let Ok(path) = rx.try_recv() {
@@ -121,7 +119,6 @@ impl eframe::App for BattleCatsApp {
         }
 
         for path in reload_queue {
-            // Simplified: All logic moved to handle_event
             self.cat_list_state.handle_event(ctx, &path, &self.settings.game_language);
         }
 

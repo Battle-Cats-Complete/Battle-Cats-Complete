@@ -40,7 +40,6 @@ pub fn render_evolve(
     ui.separator(); 
     ui.add_space(10.0);
 
-    // Determine Materials and XP based on form
     let (materials, xp_cost) = match current_form {
         2 => (&unit_buy.true_form_materials, unit_buy.true_form_xp_cost),
         3 => (&unit_buy.ultra_form_materials, unit_buy.ultra_form_xp_cost),
@@ -58,7 +57,6 @@ pub fn render_evolve(
     });
     ui.add_space(8.0);
 
-    // --- Render Evolution Text ---
     if has_text {
         ui.vertical_centered(|ui| {
             for line in evolution_text {
@@ -69,10 +67,10 @@ pub fn render_evolve(
                 }
             }
         });
-        ui.add_space(10.0);
+        ui.add_space(2.0);
     }
 
-    // --- Render Materials ---
+    // Materials
     if has_mats {
         let icon_size = 64.0;
         let spacing = 5.0;
@@ -90,23 +88,9 @@ pub fn render_evolve(
             ui.spacing_mut().item_spacing = egui::vec2(spacing, spacing);
             
             for (item_id, amount) in materials {
-                // RETRY LOGIC: If checking the cache returns None or a Cached-None, try loading.
-                // We use Entry API to check efficiently.
                 let texture_handle_opt = texture_cache.entry(*item_id).or_insert_with(|| {
-                    // Try to load. If it fails (file locked), this returns None.
-                    // We store None so we don't spam the disk every frame *unless* we want to retry.
-                    // To force retry on failure, we should NOT store None if it failed due to a transient error,
-                    // but for simplicity, we rely on the cache_version clearing the map to trigger retries.
-                    // However, to fix the "Hot Swap" issue where file might be locked, 
-                    // we will actually try to load it every frame if it's missing, UNTIL it succeeds.
-                    
                     load_material_icon_legacy(ctx, *item_id, cache_version)
                 });
-
-                // If we have a cached "None" (failed load), try loading again *this frame* // just in case it was a momentary file lock.
-                if texture_handle_opt.is_none() {
-                     *texture_handle_opt = load_material_icon_legacy(ctx, *item_id, cache_version);
-                }
 
                 let rect_size = egui::vec2(icon_size, icon_size);
                 let (rect, _) = ui.allocate_exact_size(rect_size, egui::Sense::hover());
@@ -126,7 +110,7 @@ pub fn render_evolve(
                     );
                 }
 
-                // Amount Badge
+                // Amount
                 let text = format!("×{}", amount);
                 let font_id = egui::FontId::proportional(13.0);
                 let text_color = egui::Color32::WHITE;
@@ -151,7 +135,7 @@ pub fn render_evolve(
         });
     }
 
-    // --- Render XP Cost ---
+    // XP
     if has_xp {
         ui.add_space(2.0); 
 
@@ -170,11 +154,6 @@ pub fn render_evolve(
         let texture_handle_opt = texture_cache.entry(xp_icon_id).or_insert_with(|| {
             load_xp_icon_trimmed(ctx, xp_icon_id, cache_version)
         });
-        
-        // Retry logic for XP icon too
-        if texture_handle_opt.is_none() {
-             *texture_handle_opt = load_xp_icon_trimmed(ctx, xp_icon_id, cache_version);
-        }
 
         let display_width = if let Some(tex) = texture_handle_opt {
              let tex_size = tex.size_vec2();
@@ -224,7 +203,6 @@ pub fn render_evolve(
     }
 }
 
-// --- LEGACY LOADER ---
 fn load_material_icon_legacy(ctx: &egui::Context, id: i32, version: u64) -> Option<egui::TextureHandle> {
     let possible_paths = [
         format!("game/assets/gatyaitemD/gatyaitemD_{:03}_f.png", id),
@@ -237,12 +215,10 @@ fn load_material_icon_legacy(ctx: &egui::Context, id: i32, version: u64) -> Opti
 
     for path_str in &possible_paths {
         let path = Path::new(path_str);
-        // Only try to open if it exists to avoid FS spam, but remember existence != readable
         if path.exists() {
             if let Ok(mut img) = image::open(path) {
                 let (w, h) = img.dimensions();
                 
-                // --- Safe processing logic (Resize or Center) ---
                 let mut min_x = w;
                 let mut min_y = h;
                 let mut max_x = 0;
@@ -266,7 +242,6 @@ fn load_material_icon_legacy(ctx: &egui::Context, id: i32, version: u64) -> Opti
                     
                     if crop_w > 128 || crop_h > 128 {
                         let sub_img = img.crop(min_x, min_y, crop_w, crop_h);
-                        // Using image::imageops explicitly
                         let resized = sub_img.resize(128, 128, image::imageops::FilterType::Lanczos3);
                         let (r_w, r_h) = resized.dimensions();
                         
@@ -303,8 +278,6 @@ fn load_material_icon_legacy(ctx: &egui::Context, id: i32, version: u64) -> Opti
                 }
                 break; 
             } 
-            // If Ok(img) fails (e.g. file locked), we fall through here.
-            // Loop continues to next path or finishes.
         }
     }
     
@@ -315,7 +288,6 @@ fn load_material_icon_legacy(ctx: &egui::Context, id: i32, version: u64) -> Opti
     }
 }
 
-// --- TRIMMED LOADER ---
 fn load_xp_icon_trimmed(ctx: &egui::Context, id: i32, version: u64) -> Option<egui::TextureHandle> {
     let possible_paths = [
         format!("game/assets/gatyaitemD/gatyaitemD_{:03}_f.png", id),

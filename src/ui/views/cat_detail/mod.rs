@@ -33,7 +33,7 @@ pub fn show(
     skill_descriptions: Option<&Vec<String>>, 
     settings: &Settings, 
     talent_levels: &mut HashMap<u8, u8>,
-    cache_version: u64, // NEW ARGUMENT
+    cache_version: u64,
 ) {
     img015::ensure_loaded(ctx, sprite_sheet, settings);
 
@@ -157,7 +157,6 @@ pub fn show(
                     let text_fallback = Vec::new();
                     let ev_text = cat.evolve_text.get(*current_form).unwrap_or(&text_fallback);
 
-                    // Pass version to details render
                     details::render_evolve(ui, ctx, &cat.unit_buy, ev_text, *current_form, gatya_item_textures, cache_version);
                 });
         }
