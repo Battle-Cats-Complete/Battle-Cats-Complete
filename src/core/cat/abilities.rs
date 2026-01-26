@@ -171,6 +171,14 @@ pub fn collect_ability_data(
         }
     }
 
+    // Collapse if all ranges are the same
+    if range_strings.len() > 1 {
+        let first = &range_strings[0];
+        if range_strings.iter().all(|s| s == first) {
+            range_strings.truncate(1);
+        }
+    }
+
     if !range_strings.is_empty() {
         let range_description = format!(
             "Damage dealt between ranges {}\nStands at {} Range relative to Enemy Base", 
