@@ -195,13 +195,17 @@ impl CatList {
         let needs_load = (!is_cached && !is_missing) || is_invalidated;
 
         if needs_load && !self.pending_requests.contains(&unit.id) {
-            self.pending_requests.insert(unit.id);
-            let _ = self.tx_request.send(LoadRequest {
-                id: unit.id,
-                path: unit.image_path.clone(),
-                high_banner_quality: hq, 
-                ctx: ui.ctx().clone(),
-            });
+            if let Some(path) = &unit.image_path {
+                self.pending_requests.insert(unit.id);
+                let _ = self.tx_request.send(LoadRequest {
+                    id: unit.id,
+                    path: path.clone(),
+                    high_banner_quality: hq, 
+                    ctx: ui.ctx().clone(),
+                });
+            } else {
+                self.missing_ids.insert(unit.id);
+            }
         }
 
         let texture = self.texture_cache.get(&unit.id);

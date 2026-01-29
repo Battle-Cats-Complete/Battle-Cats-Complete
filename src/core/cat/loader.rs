@@ -27,7 +27,7 @@ pub fn ensure_global_data_loaded(state: &mut CatListState, language_code: &str) 
     }
 }
 
-pub fn refresh_cat(state: &mut CatListState, id: u32, language_code: &str) {
+pub fn refresh_cat(state: &mut CatListState, id: u32, language_code: &str, preferred_form: usize) {
     ensure_global_data_loaded(state, language_code);
 
     let cats_dir = Path::new("game/cats");
@@ -39,28 +39,22 @@ pub fn refresh_cat(state: &mut CatListState, id: u32, language_code: &str) {
         state.cached_unit_buy.as_ref().unwrap(),
         state.cached_talents.as_ref().unwrap(),
         state.cached_evolve_text.as_ref().unwrap(),
-        language_code
+        language_code,
+        preferred_form
     );
 
     match new_entry {
         Some(entry) => {
-            // Cat exists -> Update it
             if let Some(index) = state.cats.iter().position(|c| c.id == id) {
                 state.cats[index] = entry;
-            } 
-            // Cat is ew -> Add it
-            else {
+            } else {
                 state.cats.push(entry);
-                // Unstable sort is fast and keeps the list ordered by ID
                 state.cats.sort_unstable_by_key(|c| c.id);
             }
         },
         None => {
-            // Cat data is invalid/deleted -> Remove it if it exists
             if let Some(index) = state.cats.iter().position(|c| c.id == id) {
                 state.cats.remove(index);
-                
-                // Deselect cat if its removed
                 if state.selected_cat == Some(id) {
                     state.selected_cat = None;
                 }
@@ -69,9 +63,9 @@ pub fn refresh_cat(state: &mut CatListState, id: u32, language_code: &str) {
     }
 }
 
-pub fn reload_selected_cat_data(state: &mut CatListState, language_code: &str) {
+pub fn reload_selected_cat_data(state: &mut CatListState, language_code: &str, preferred_form: usize) {
     if let Some(id) = state.selected_cat {
-        refresh_cat(state, id, language_code);
+        refresh_cat(state, id, language_code, preferred_form);
     }
 }
 
@@ -124,6 +118,8 @@ pub fn update_data(state: &mut CatListState) {
             state.incoming_cats.sort_unstable_by_key(|cat| cat.id);
             state.cats = std::mem::take(&mut state.incoming_cats);
             
+            state.cat_list.clear_cache();
+
             if let Some(target_id) = state.selected_cat {
                 if !state.cats.iter().any(|cat| cat.id == target_id) {
                     if let Some(first_cat) = state.cats.first() {
@@ -143,7 +139,7 @@ pub fn update_data(state: &mut CatListState) {
     }
 }
 
-pub fn restart_scan(state: &mut CatListState, language_code: &str) {
+pub fn restart_scan(state: &mut CatListState, language_code: &str, preferred_form: usize) {
     state.skill_descriptions = None; 
     
     let current_selection_id = state.selected_cat;
@@ -176,5 +172,5 @@ pub fn restart_scan(state: &mut CatListState, language_code: &str) {
     state.selected_form = current_form;
     state.selected_detail_tab = current_tab;
 
-    state.scan_receiver = Some(scanner::start_scan(language_code.to_string()));
+    state.scan_receiver = Some(scanner::start_scan(language_code.to_string(), preferred_form));
 }

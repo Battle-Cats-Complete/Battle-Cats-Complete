@@ -155,16 +155,16 @@ impl CatListState {
         watcher::init(self, ctx);
     }
 
-    pub fn handle_event(&mut self, ctx: &egui::Context, path: &PathBuf, language_code: &str) {
-        watcher::handle_event(self, ctx, path, language_code);
+    pub fn handle_event(&mut self, ctx: &egui::Context, path: &PathBuf, language_code: &str, preferred_form: usize) {
+        watcher::handle_event(self, ctx, path, language_code, preferred_form);
     }
 
     pub fn update_data(&mut self) {
         loader::update_data(self);
     }
 
-    pub fn restart_scan(&mut self, language_code: &str) {
-        loader::restart_scan(self, language_code);
+    pub fn restart_scan(&mut self, language_code: &str, preferred_form: usize) {
+        loader::restart_scan(self, language_code, preferred_form);
     }
 }
 
@@ -267,7 +267,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
                         ui.label("Check that 'unitbuy.csv' exists and unit folders are present.");
                         ui.add_space(15.0);
                         if ui.button("Retry Scan").clicked() {
-                            state.restart_scan(&settings.game_language);
+                            state.restart_scan(&settings.game_language, settings.preferred_banner_form);
                             ui.ctx().request_repaint();
                         }
                     }
