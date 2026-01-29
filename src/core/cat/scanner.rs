@@ -17,7 +17,7 @@ use crate::core::utils;
 #[derive(Clone, Debug)]
 pub struct CatEntry {
     pub id: u32,
-    pub image_path: PathBuf,
+    pub image_path: Option<PathBuf>, 
     pub names: Vec<String>,
     pub description: Vec<Vec<String>>,
     pub forms: [bool; 4],
@@ -30,7 +30,7 @@ pub struct CatEntry {
     pub evolve_text: [Vec<String>; 4], 
 }
 
-pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
+pub fn start_scan(language_code: String, preferred_form: usize) -> Receiver<CatEntry> {
     let (cat_sender, cat_receiver) = mpsc::channel();
 
     thread::spawn(move || {
@@ -63,7 +63,8 @@ pub fn start_scan(language_code: String) -> Receiver<CatEntry> {
                 &unit_buys_clone, 
                 &talents_clone, 
                 &evolve_text_clone, 
-                &language_code
+                &language_code,
+                preferred_form 
             ) {
                 let _ = sender_clone.send(cat_entry);
             }
@@ -78,7 +79,8 @@ pub fn process_cat_entry(
     unit_buys: &std::collections::HashMap<u32, UnitBuyRow>,
     talents_map: &std::collections::HashMap<u16, TalentRaw>, 
     evolve_text_map: &std::collections::HashMap<u32, [Vec<String>; 4]>, 
-    language_code: &str
+    language_code: &str,
+    preferred_form: usize 
 ) -> Option<CatEntry> {
     
     let folder_stem = original_folder_path.file_name()?.to_str()?;
@@ -158,23 +160,42 @@ pub fn process_cat_entry(
         None
     };
 
-    let final_image_path_opt = if ub_row.egg_id_normal != -1 {
-        find_image_path(&form_folder_paths[0], &format!("udi{:03}_m00", ub_row.egg_id_normal))
-    } else {
-        find_image_path(&form_folder_paths[0], &format!("udi{:03}_f", cat_id))
-    };
+    let mut final_image_path_opt = None;
 
-    let valid_image_path = match final_image_path_opt {
-        Some(p) => p,
-        None => return None, 
-    };
+    for form_idx in (0..=preferred_form).rev() {
+         let folder = &form_folder_paths[form_idx];
+         
+         let filename = if form_idx == 0 && ub_row.egg_id_normal != -1 {
+             format!("udi{:03}_m00", ub_row.egg_id_normal)
+         } else if form_idx == 1 && ub_row.egg_id_evolved != -1 {
+             format!("udi{:03}_m01", ub_row.egg_id_evolved)
+         } else {
+             let suffix = form_suffixes[form_idx];
+             format!("udi{:03}_{}", cat_id, suffix)
+         };
+         
+         if let Some(path) = find_image_path(folder, &filename) {
+             final_image_path_opt = Some(path);
+             break;
+         }
 
-    match image::open(&valid_image_path) {
-        Ok(img) => {
-            let (w, h) = img.dimensions();
-            if w < 50 || h < 30 { return None; }
-        },
-        Err(_) => { return None; }
+         if form_idx == 1 && ub_row.egg_id_evolved != -1 && final_image_path_opt.is_none() {
+             let fallback_name = format!("udi{:03}_m00", ub_row.egg_id_evolved);
+             if let Some(path) = find_image_path(folder, &fallback_name) {
+                 final_image_path_opt = Some(path);
+                 break;
+             }
+         }
+    }
+
+    if let Some(path) = &final_image_path_opt {
+        match image::open(path) {
+            Ok(img) => {
+                let (w, h) = img.dimensions();
+                if w < 50 || h < 30 { return None; }
+            },
+            Err(_) => { return None; }
+        }
     }
     
     let mut cat_names = vec![String::new(); 4];
@@ -263,7 +284,7 @@ pub fn process_cat_entry(
 
     Some(CatEntry { 
         id: cat_id, 
-        image_path: valid_image_path,
+        image_path: final_image_path_opt, 
         names: cat_names,
         description: cat_descriptions,
         forms: forms_existence,

@@ -76,13 +76,13 @@ pub fn init(state: &mut CatListState, ctx: &egui::Context) {
     }
 }
 
-pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBuf, language_code: &str) {
+pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBuf, language_code: &str, preferred_form: usize) {
     let path_str = path.to_string_lossy().to_lowercase();
     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let cats_dir = Path::new("game/cats");
 
     if patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || patterns::CHECK_LINE_FILES.contains(&file_name) {
-        loader::restart_scan(state, language_code);
+        loader::restart_scan(state, language_code, preferred_form);
         ctx.request_repaint();
         return;
     }
@@ -110,7 +110,7 @@ pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBu
             }
         }
         if state.selected_cat.is_some() {
-            loader::reload_selected_cat_data(state, language_code);
+            loader::reload_selected_cat_data(state, language_code, preferred_form);
         }
         ctx.request_repaint();
         return;
@@ -129,19 +129,13 @@ pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBu
         if let Some(cats_idx) = components.iter().position(|c| c == "cats") {
             if let Some(id_str) = components.get(cats_idx + 1) {
                 if let Ok(id) = id_str.parse::<u32>() {
-                    
-                    // Flush Icon
                     state.cat_list.flush_icon(id);
-                    
-                    // Flush Details
                     if state.selected_cat == Some(id) {
                         state.detail_texture = None; 
                         state.detail_key.clear();
                         state.texture_cache_version += 1; 
                     }
-                    
-                    loader::refresh_cat(state, id, language_code);
-                    
+                    loader::refresh_cat(state, id, language_code, preferred_form);
                     ctx.request_repaint();
                 }
             }
