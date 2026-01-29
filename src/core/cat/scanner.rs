@@ -160,10 +160,8 @@ pub fn process_cat_entry(
 
     let final_image_path_opt = if ub_row.egg_id_normal != -1 {
         find_image_path(&form_folder_paths[0], &format!("udi{:03}_m00", ub_row.egg_id_normal))
-            .or_else(|| find_image_path(&form_folder_paths[0], &format!("uni{:03}_m00", ub_row.egg_id_normal)))
     } else {
         find_image_path(&form_folder_paths[0], &format!("udi{:03}_f", cat_id))
-            .or_else(|| find_image_path(&form_folder_paths[0], &format!("uni{:03}_f00", cat_id)))
     };
 
     let valid_image_path = match final_image_path_opt {
