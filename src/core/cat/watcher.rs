@@ -5,13 +5,13 @@ use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use std::time::Duration;
 use std::fs;
-
 use super::CatListState;
 use super::loader;
 use crate::core::patterns;
-use crate::core::files::unitbuy;
-use crate::core::files::unitevolve;
-use crate::core::files::imgcut::SpriteSheet;
+use crate::data::cat::unitbuy;
+use crate::data::cat::unitevolve;
+use crate::data::global::imgcut::SpriteSheet;
+use crate::paths::cat;
 
 pub struct CatWatchers {
     _watcher: RecommendedWatcher,
@@ -79,7 +79,8 @@ pub fn init(state: &mut CatListState, ctx: &egui::Context) {
 pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBuf, language_code: &str, preferred_form: usize) {
     let path_str = path.to_string_lossy().to_lowercase();
     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let cats_dir = Path::new("game/cats");
+    
+    let cats_dir = Path::new(cat::DIR_CATS);
 
     if patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || patterns::CHECK_LINE_FILES.contains(&file_name) {
         loader::restart_scan(state, language_code, preferred_form);
@@ -87,7 +88,7 @@ pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBu
         return;
     }
 
-    if file_name == "unitbuy.csv" {
+    if file_name == cat::UNIT_BUY {
         state.cached_unit_buy = Some(unitbuy::load_unitbuy(cats_dir));
         if let Some(ref map) = state.cached_unit_buy {
             for cat in &mut state.cats {
@@ -100,7 +101,7 @@ pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBu
         return;
     }
 
-    if path_str.contains("unitevolve") {
+    if path_str.contains(cat::DIR_UNIT_EVOLVE) || path_str.contains("unitevolve") {
         state.cached_evolve_text = Some(unitevolve::load(cats_dir, language_code));
             if let Some(ref map) = state.cached_evolve_text {
             for cat in &mut state.cats {
