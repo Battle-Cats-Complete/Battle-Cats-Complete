@@ -13,6 +13,7 @@ mod stats;
 mod abilities;
 mod talents;
 mod details;
+pub mod list;
 
 pub fn show(
     ctx: &egui::Context, 

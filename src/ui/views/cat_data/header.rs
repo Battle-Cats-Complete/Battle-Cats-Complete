@@ -140,7 +140,12 @@ fn load_icon_texture(ctx: &egui::Context, path_str: &str) -> Option<egui::Textur
     let final_path = if path.exists() { path } else if fallback.exists() { fallback } else { return None };
 
     let img = image::open(final_path).ok()?;
-    let rgba = autocrop(img.to_rgba8());
+    let mut rgba = autocrop(img.to_rgba8());
+    
+    // FIX: Normalize Dimensions to 110x85 if they differ (this is the Detail Icon)
+    if rgba.width() != 110 || rgba.height() != 85 {
+        rgba = image::imageops::resize(&rgba, 110, 85, image::imageops::FilterType::Lanczos3);
+    }
     
     let size = [rgba.width() as usize, rgba.height() as usize];
     let pixels = rgba.as_flat_samples();
