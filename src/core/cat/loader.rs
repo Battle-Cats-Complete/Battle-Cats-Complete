@@ -4,14 +4,15 @@ use std::sync::mpsc::TryRecvError;
 
 use super::CatListState;
 use super::scanner;
-use crate::core::files::imgcut::SpriteSheet; 
-use crate::core::files::unitlevel;
-use crate::core::files::unitbuy;
-use crate::core::files::skillacquisition;
-use crate::core::files::unitevolve;
+use crate::data::global::imgcut::SpriteSheet; 
+use crate::data::cat::unitlevel;
+use crate::data::cat::unitbuy;
+use crate::data::cat::skillacquisition;
+use crate::data::cat::unitevolve;
+use crate::paths::cat;
 
 pub fn ensure_global_data_loaded(state: &mut CatListState, language_code: &str) {
-    let cats_dir = Path::new("game/cats");
+    let cats_dir = Path::new(cat::DIR_CATS);
 
     if state.cached_level_curves.is_none() {
         state.cached_level_curves = Some(unitlevel::load_level_curves(cats_dir));
@@ -30,7 +31,7 @@ pub fn ensure_global_data_loaded(state: &mut CatListState, language_code: &str) 
 pub fn refresh_cat(state: &mut CatListState, id: u32, language_code: &str, preferred_form: usize) {
     ensure_global_data_loaded(state, language_code);
 
-    let cats_dir = Path::new("game/cats");
+    let cats_dir = Path::new(cat::DIR_CATS);
     let unit_folder = cats_dir.join(format!("{:03}", id));
 
     let new_entry = scanner::process_cat_entry(

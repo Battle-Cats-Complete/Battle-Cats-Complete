@@ -5,14 +5,14 @@ use std::sync::{Arc, mpsc::{self, Receiver}};
 use rayon::prelude::*;
 use regex::Regex; 
 use image::GenericImageView; 
-
 use crate::core::patterns; 
-use crate::core::files::unitid::CatRaw;
-use crate::core::files::unitbuy::{self, UnitBuyRow};
-use crate::core::files::unitlevel::{self, CatLevelCurve};
-use crate::core::files::skillacquisition::{self, TalentRaw}; 
-use crate::core::files::unitevolve; 
+use crate::data::cat::unitid::CatRaw;
+use crate::data::cat::unitbuy::{self, UnitBuyRow};
+use crate::data::cat::unitlevel::{self, CatLevelCurve};
+use crate::data::cat::skillacquisition::{self, TalentRaw}; 
+use crate::data::cat::unitevolve; 
 use crate::core::utils; 
+use crate::paths::cat::{self, AssetType, AnimType};
 
 #[derive(Clone, Debug)]
 pub struct CatEntry {
@@ -34,7 +34,7 @@ pub fn start_scan(language_code: String, preferred_form: usize) -> Receiver<CatE
     let (cat_sender, cat_receiver) = mpsc::channel();
 
     thread::spawn(move || {
-        let cats_directory = Path::new("game/cats");
+        let cats_directory = Path::new(cat::DIR_CATS);
         
         let level_curves_arc = Arc::new(unitlevel::load_level_curves(cats_directory));
         let unit_buy_map_arc = Arc::new(unitbuy::load_unitbuy(cats_directory));
@@ -93,99 +93,21 @@ pub fn process_cat_entry(
         return None; 
     }
 
-    let cats_root_dir = Path::new("game/cats");
-    
-    let get_form_path = |form_index: usize, form_char: char| -> PathBuf {
-        let is_egg_normal_form = form_index == 0 && ub_row.egg_id_normal != -1;
-        let is_egg_evolved_form = form_index == 1 && ub_row.egg_id_evolved != -1;
+    let cats_root_dir = Path::new(cat::DIR_CATS);
+    let egg_ids = (ub_row.egg_id_normal, ub_row.egg_id_evolved);
 
-        if is_egg_normal_form {
-            cats_root_dir.join(format!("egg_{:03}", ub_row.egg_id_normal)).join(form_char.to_string())
-        } else if is_egg_evolved_form {
-            cats_root_dir.join(format!("egg_{:03}", ub_row.egg_id_evolved)).join(form_char.to_string())
-        } else {
-            original_folder_path.join(form_char.to_string())
-        }
-    };
-
-    let get_anim_file_path = |form_index: usize, form_char: char| -> PathBuf {
-        let is_egg_normal_form = form_index == 0 && ub_row.egg_id_normal != -1;
-        let is_egg_evolved_form = form_index == 1 && ub_row.egg_id_evolved != -1;
-
-        if is_egg_normal_form {
-            cats_root_dir.join(format!("egg_{:03}", ub_row.egg_id_normal))
-                     .join("anim")
-                     .join(format!("{:03}_m02.maanim", ub_row.egg_id_normal))
-        } else if is_egg_evolved_form {
-            cats_root_dir.join(format!("egg_{:03}", ub_row.egg_id_evolved))
-                     .join("anim")
-                     .join(format!("{:03}_m02.maanim", ub_row.egg_id_evolved))
-        } else {
-            original_folder_path.join(form_char.to_string())
-                         .join("anim")
-                         .join(format!("{:03}_{}02.maanim", cat_id, form_char))
-        }
-    };
-
-    let form_suffixes = ['f', 'c', 's', 'u'];
-    let form_folder_paths = [
-        get_form_path(0, 'f'),
-        get_form_path(1, 'c'),
-        get_form_path(2, 's'),
-        get_form_path(3, 'u'),
-    ];
-
-    let forms_existence = [
-        form_folder_paths[0].exists(),
-        form_folder_paths[1].exists(),
-        form_folder_paths[2].exists(),
-        form_folder_paths[3].exists(),
-    ];
-
-    let mut attack_anim_frames = [0; 4];
+    let mut forms_existence = [false; 4];
     for i in 0..4 {
-        if forms_existence[i] {
-            let anim_file_path = get_anim_file_path(i, form_suffixes[i]);
-            if let Ok(file_content) = fs::read_to_string(&anim_file_path) {
-                attack_anim_frames[i] = parse_anim_length(&file_content);
-            }
-        }
+        let folder = cat::folder(cats_root_dir, cat_id, i, egg_ids);
+        forms_existence[i] = folder.exists();
     }
 
-    let find_image_path = |search_dir: &Path, file_stem: &str| -> Option<PathBuf> {
-        let png_path = search_dir.join(format!("{}.png", file_stem));
-        if png_path.exists() { return Some(png_path); }
-        let uppercase_png_path = search_dir.join(format!("{}.PNG", file_stem));
-        if uppercase_png_path.exists() { return Some(uppercase_png_path); }
-        None
-    };
-
     let mut final_image_path_opt = None;
-
     for form_idx in (0..=preferred_form).rev() {
-         let folder = &form_folder_paths[form_idx];
-         
-         let filename = if form_idx == 0 && ub_row.egg_id_normal != -1 {
-             format!("udi{:03}_m00", ub_row.egg_id_normal)
-         } else if form_idx == 1 && ub_row.egg_id_evolved != -1 {
-             format!("udi{:03}_m01", ub_row.egg_id_evolved)
-         } else {
-             let suffix = form_suffixes[form_idx];
-             format!("udi{:03}_{}", cat_id, suffix)
-         };
-         
-         if let Some(path) = find_image_path(folder, &filename) {
-             final_image_path_opt = Some(path);
-             break;
-         }
-
-         if form_idx == 1 && ub_row.egg_id_evolved != -1 && final_image_path_opt.is_none() {
-             let fallback_name = format!("udi{:03}_m00", ub_row.egg_id_evolved);
-             if let Some(path) = find_image_path(folder, &fallback_name) {
-                 final_image_path_opt = Some(path);
-                 break;
-             }
-         }
+        if let Some(path) = cat::image(cats_root_dir, AssetType::Banner, cat_id, form_idx, egg_ids) {
+            final_image_path_opt = Some(path);
+            break;
+        }
     }
 
     if let Some(path) = &final_image_path_opt {
@@ -197,12 +119,31 @@ pub fn process_cat_entry(
             Err(_) => { return None; }
         }
     }
+
+    let mut attack_anim_frames = [0; 4];
+    for i in 0..4 {
+        if forms_existence[i] {
+            let anim_path = cat::anim(cats_root_dir, cat_id, i, egg_ids, AnimType::Maanim);
+            if let Ok(file_content) = fs::read_to_string(&anim_path) {
+                attack_anim_frames[i] = parse_anim_length(&file_content);
+            }
+        }
+    }
     
+    let mut cat_stats = vec![None; 4];
+    let stats_file_path = cat::stats(cats_root_dir, cat_id);
+    if let Ok(file_content) = fs::read_to_string(&stats_file_path) {
+        let delimiter = utils::detect_csv_separator(&file_content);
+        for (line_index, csv_line) in file_content.lines().enumerate().take(4) {
+            cat_stats[line_index] = CatRaw::from_csv_line(csv_line, delimiter);
+        }
+    }
+
     let mut cat_names = vec![String::new(); 4];
     let mut cat_descriptions = vec![Vec::new(); 4];
     
     let target_file_id = cat_id + 1;
-    let lang_directory = original_folder_path.join("lang"); 
+    let lang_directory = cat::lang(cats_root_dir, cat_id);
 
     let language_codes_to_check: Vec<&str> = if language_code.is_empty() {
         utils::LANGUAGE_PRIORITY.to_vec()
@@ -217,47 +158,31 @@ pub fn process_cat_entry(
         if let Some(name_file_path) = find_name_file_for_code(&lang_directory, target_file_id, code) {
             if let Ok(file_bytes) = fs::read(&name_file_path) {
                 let file_content = String::from_utf8_lossy(&file_bytes);
-                
                 let separator_char = utils::detect_csv_separator(&file_content);
-
                 let mut current_lang_names = vec![String::new(); 4];
                 let mut current_lang_descs = vec![Vec::new(); 4];
 
                 for (line_index, file_line) in file_content.lines().enumerate().take(4) {
                     let parts: Vec<&str> = file_line.split(separator_char).collect();
-                    
                     if let Some(name_part) = parts.get(0) {
                         let trimmed_name = name_part.trim();
                         if !trimmed_name.is_empty() && !looks_like_garbage_id(trimmed_name) {
                             current_lang_names[line_index] = trimmed_name.to_string();
                         }
                     }
-
-                    let desc_lines: Vec<String> = parts.iter()
-                        .skip(1)
-                        .take(3)
-                        .map(|s| s.trim().to_string())
-                        .collect();
-                    
+                    let desc_lines: Vec<String> = parts.iter().skip(1).take(3).map(|s| s.trim().to_string()).collect();
                     current_lang_descs[line_index] = desc_lines;
                 }
 
                 for i in 0..4 {
-                    if !cat_names[i].is_empty() { continue; }
-                    
+                    if !cat_names[i].is_empty() && forms_existence[i] { continue; }
                     if !forms_existence[i] { continue; }
-
                     let candidate = &current_lang_names[i];
-                    
                     if candidate.is_empty() { continue; }
-
                     if i > 0 {
                         let prev_name_source = &current_lang_names[i-1];
-                        if candidate == prev_name_source {
-                             continue;
-                        }
+                        if candidate == prev_name_source { continue; }
                     }
-
                     cat_names[i] = candidate.clone();
                     cat_descriptions[i] = current_lang_descs[i].clone(); 
                 }
@@ -267,16 +192,6 @@ pub fn process_cat_entry(
     
     if cat_id == 673 && cat_names[0].is_empty() {
         cat_names[0] = "Cheetah Cat".to_string();
-    }
-    
-    let mut cat_stats = vec![None; 4];
-    let stats_file_path = original_folder_path.join(format!("unit{:03}.csv", target_file_id));
-    if let Ok(file_content) = fs::read_to_string(&stats_file_path) {
-        let delimiter = utils::detect_csv_separator(&file_content);
-        
-        for (line_index, csv_line) in file_content.lines().enumerate().take(4) {
-            cat_stats[line_index] = CatRaw::from_csv_line(csv_line, delimiter);
-        }
     }
 
     let talent_data = talents_map.get(&(cat_id as u16)).cloned();
@@ -291,7 +206,7 @@ pub fn process_cat_entry(
         stats: cat_stats, 
         curve: level_curves.get(cat_id as usize).cloned(),
         atk_anim_frames: attack_anim_frames,
-        egg_ids: (ub_row.egg_id_normal, ub_row.egg_id_evolved),
+        egg_ids,
         talent_data,
         unit_buy: ub_row.clone(),
         evolve_text,
@@ -306,27 +221,21 @@ fn find_name_file_for_code(lang_directory: &Path, target_id: u32, region_code: &
     if !lang_directory.exists() { return None; }
     
     if region_code.is_empty() {
-        let expected_filename = format!("Unit_Explanation{}.csv", target_id);
-        let default_path = lang_directory.join(&expected_filename);
+        let default_path = lang_directory.join(format!("Unit_Explanation{}.csv", target_id));
         return if default_path.exists() { Some(default_path) } else { None };
     }
 
     let regex_pattern = Regex::new(patterns::CAT_EXPLAIN_PATTERN).ok()?;
-
     for entry_result in fs::read_dir(lang_directory).ok()? {
         let entry = entry_result.ok()?;
         let path = entry.path();
         let file_name = path.file_name()?.to_string_lossy();
-
         if let Some(captures) = regex_pattern.captures(&file_name) {
             let file_id_str = &captures[1];
             let file_code_str = &captures[2];
-
             if file_code_str == region_code {
                 if let Ok(parsed_id) = file_id_str.parse::<u32>() {
-                    if parsed_id == target_id {
-                        return Some(path);
-                    }
+                    if parsed_id == target_id { return Some(path); }
                 }
             }
         }
@@ -336,33 +245,20 @@ fn find_name_file_for_code(lang_directory: &Path, target_id: u32, region_code: &
 
 fn parse_anim_length(file_content: &str) -> i32 {
     let mut max_frame_count = 0;
-    
     let delimiter = utils::detect_csv_separator(file_content);
-
-    let maanim_lines: Vec<Vec<i32>> = file_content
-        .lines()
-        .map(|line| {
-            line.split(delimiter)
-                .filter_map(|component| component.trim().parse::<i32>().ok())
-                .collect()
-        })
-        .collect();
-
+    let maanim_lines: Vec<Vec<i32>> = file_content.lines().map(|line| {
+            line.split(delimiter).filter_map(|component| component.trim().parse::<i32>().ok()).collect()
+        }).collect();
     for (line_index, line_values) in maanim_lines.iter().enumerate() {
         if line_values.len() < 5 { continue; }
-
         let following_lines_count = maanim_lines.get(line_index + 1).and_then(|l| l.get(0)).cloned().unwrap_or(0) as usize;
         if following_lines_count == 0 { continue; }
-
         let first_frame = maanim_lines.get(line_index + 2).and_then(|l| l.get(0)).cloned().unwrap_or(0);
         let last_frame = maanim_lines.get(line_index + following_lines_count + 1).and_then(|l| l.get(0)).cloned().unwrap_or(0);
-        
         let animation_duration = last_frame - first_frame;
         let loop_repeats = std::cmp::max(line_values[2], 1); 
-
         let final_frame_used = (animation_duration * loop_repeats) + first_frame;
         max_frame_count = std::cmp::max(final_frame_used, max_frame_count);
     }
-
     max_frame_count + 1 
 }

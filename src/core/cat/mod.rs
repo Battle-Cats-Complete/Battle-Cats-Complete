@@ -16,12 +16,12 @@ use crate::ui::views::cat_data::list::CatList;
 use crate::ui::views::cat_data as cat_detail;
 
 use scanner::CatEntry;
-use crate::core::files::imgcut::SpriteSheet; 
-use crate::core::files::skilldescriptions; 
+use crate::data::global::imgcut::SpriteSheet; 
+use crate::data::cat::skilldescriptions; 
 
-use crate::core::files::unitlevel::CatLevelCurve;
-use crate::core::files::unitbuy::UnitBuyRow;
-use crate::core::files::skillacquisition::TalentRaw;
+use crate::data::cat::unitlevel::CatLevelCurve;
+use crate::data::cat::unitbuy::UnitBuyRow;
+use crate::data::cat::skillacquisition::TalentRaw;
 
 #[derive(Deserialize, Serialize, PartialEq, Clone, Copy)]
 pub enum DetailTab {

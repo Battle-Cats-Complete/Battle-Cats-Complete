@@ -160,7 +160,7 @@ impl eframe::App for BattleCatsApp {
         ctx.set_style(style);
 
         match self.current_page {
-            Page::MainMenu => main_menu::show(ctx),
+            Page::MainMenu => main_menu::show(ctx, &mut self.drag_guard),
             Page::ImportData => {
                 crate::ui::views::import::show(ctx, &mut self.import_state); 
             },

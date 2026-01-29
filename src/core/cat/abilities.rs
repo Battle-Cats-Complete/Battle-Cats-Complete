@@ -1,8 +1,8 @@
-use crate::core::files::img015;
+use crate::data::global::img015;
 use crate::core::settings::Settings;
 use super::stats::{self, CatRaw};
 use eframe::egui;
-use crate::core::files::skillacquisition::TalentRaw;
+use crate::data::cat::skillacquisition::TalentRaw;
 use std::collections::HashMap;
 
 pub struct AbilityItem {
@@ -55,7 +55,6 @@ pub fn collect_ability_data(
                 return Some(border);
             }
 
-            // Wave Immune can be 23 or 48
             if ability_id == 23 {
                 if let Some(border) = check_id(48) { return Some(border); }
             }
