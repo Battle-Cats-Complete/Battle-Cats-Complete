@@ -9,17 +9,17 @@ on:
         type: string
 
 jobs:
-  sync_and_sanitize:
+  sync_public:
     runs-on: ubuntu-latest
     steps:
-      # 1. Check out Private (Source) Repo
+      # 1. Check out Private Repo
       - name: Checkout Private Source
         uses: actions/checkout@v4
         with:
           path: source_repo
           fetch-depth: 0
 
-      # 2. Check out Public (Portfolio) Repo
+      # 2. Check out Public Repo
       - name: Checkout Public Portfolio
         uses: actions/checkout@v4
         with:
@@ -27,17 +27,17 @@ jobs:
           token: ${{ secrets.PUBLIC_REPO_TOKEN }}
           path: public_repo
 
-      # 3. Mirror Files (With src/dev exclusion)
+      # 3. Mirror Files
       - name: Sync and Overwrite
         run: |
           # Sync Files using rsync
           # --delete: Removes files in public_repo that no longer exist in source_repo
-          # --exclude 'src/dev': Keeps your dev tools private
+          # We exclude .git to avoid corrupting the public repository history
+          # We exclude .github to prevent overwriting public workflows with private ones
           
           rsync -av --delete \
             --exclude '.git' \
             --exclude '.github' \
-            --exclude 'src/dev' \
             source_repo/ public_repo/
 
       # 4. Commit to Public with Smart Message Logic
