@@ -11,10 +11,10 @@ Battle Cats Complete is still far from its fully functional state. This app is a
 To use this app, you must provide game files for it to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
 
 Heres what the app is currently capable of:
-- Sorting user-imported files for proper display/use
-  - Import ZIP Archives
-  - Import Folders
-  - Import Game.zip
+- Importing Game Data
+  - Import from emulator
+  - Import from pack/apk
+  - Import from archives
 - Displaying Cat Data
   - Forms
   - Stats
@@ -22,9 +22,6 @@ Heres what the app is currently capable of:
   - Talents
   - Descriptions
   - Evolution Info
-- Easy exporting allowing for efficient sharing
-  - Only exports app-essential files
-  - Exports to game.zip archive
 
 *This app will trigger Windows Defender Firewall: "Windows protected your PC" as I am not a registered publisher. You must click "More Info" and "Run Anyways" to use the app.*
 
@@ -36,3 +33,5 @@ Various people have motivated and helped me create this project:
 
 ## Legal
 This project is for educational purposes only. Assets are copyright PONOS Corp. Please support the official release.
+
+*This applcation is intended to be used with legally obtained game files only. Make sure to recieve explicit permission from PONOS Corp. to use their data and assets.*
