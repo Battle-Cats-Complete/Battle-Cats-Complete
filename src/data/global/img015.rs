@@ -5,111 +5,111 @@ use super::imgcut::SpriteSheet;
 use crate::paths::global;
 
 // Traits
-pub const ICON_TRAIT_RED: usize = 224;
-pub const ICON_TRAIT_FLOATING: usize = 225;
-pub const ICON_TRAIT_BLACK: usize = 226;
-pub const ICON_TRAIT_METAL: usize = 227;
-pub const ICON_TRAIT_ANGEL: usize = 228;
-pub const ICON_TRAIT_ALIEN: usize = 229;
-pub const ICON_TRAIT_ZOMBIE: usize = 230;
-pub const ICON_TRAIT_RELIC: usize = 231;
-pub const ICON_TRAIT_AKU: usize = 299;      
-pub const ICON_TRAIT_TRAITLESS: usize = 232;
+pub const ICON_TRAIT_RED: usize = 223;
+pub const ICON_TRAIT_FLOATING: usize = 224;
+pub const ICON_TRAIT_BLACK: usize = 225;
+pub const ICON_TRAIT_METAL: usize = 226;
+pub const ICON_TRAIT_ANGEL: usize = 227;
+pub const ICON_TRAIT_ALIEN: usize = 228;
+pub const ICON_TRAIT_ZOMBIE: usize = 229;
+pub const ICON_TRAIT_RELIC: usize = 230;
+pub const ICON_TRAIT_AKU: usize = 298;      
+pub const ICON_TRAIT_TRAITLESS: usize = 231;
 
 // Range
-pub const ICON_SINGLE_ATTACK: usize = 222;
-pub const ICON_AREA_ATTACK: usize = 216;
-pub const ICON_OMNI_STRIKE: usize = 117;
-pub const ICON_LONG_DISTANCE: usize = 217;
+pub const ICON_SINGLE_ATTACK: usize = 221;
+pub const ICON_AREA_ATTACK: usize = 215;
+pub const ICON_OMNI_STRIKE: usize = 116;
+pub const ICON_LONG_DISTANCE: usize = 216;
 pub const ICON_MULTIHIT: usize = 9999; // Mock ID
 
 // Target Abiltiies
-pub const ICON_ATTACK_ONLY: usize = 207;
-pub const ICON_STRONG_AGAINST: usize = 208;
-pub const ICON_RESIST: usize = 209;
-pub const ICON_INSANELY_TOUGH: usize = 127;
-pub const ICON_MASSIVE_DAMAGE: usize = 211;
-pub const ICON_INSANE_DAMAGE: usize = 119;
-pub const ICON_DODGE: usize = 236;
+pub const ICON_ATTACK_ONLY: usize = 206;
+pub const ICON_STRONG_AGAINST: usize = 207;
+pub const ICON_RESIST: usize = 208;
+pub const ICON_INSANELY_TOUGH: usize = 126;
+pub const ICON_MASSIVE_DAMAGE: usize = 210;
+pub const ICON_INSANE_DAMAGE: usize = 118;
+pub const ICON_DODGE: usize = 235;
 
 // Crowd Control
-pub const ICON_WARP: usize = 271;
-pub const ICON_CURSE: usize = 294;
-pub const ICON_WEAKEN: usize = 200;
-pub const ICON_FREEZE: usize = 202;
-pub const ICON_SLOW: usize = 203;
-pub const ICON_KNOCKBACK: usize = 212;
+pub const ICON_WARP: usize = 270;
+pub const ICON_CURSE: usize = 293;
+pub const ICON_WEAKEN: usize = 199;
+pub const ICON_FREEZE: usize = 201;
+pub const ICON_SLOW: usize = 202;
+pub const ICON_KNOCKBACK: usize = 211;
 
 // Slayer Abilities
-pub const ICON_EVA_KILLER: usize = 115;
-pub const ICON_WITCH_KILLER: usize = 263;
-pub const ICON_COLOSSUS_SLAYER: usize = 302;
-pub const ICON_BEHEMOTH_SLAYER: usize = 307;
-pub const ICON_SAGE_SLAYER: usize = 324;
+pub const ICON_EVA_KILLER: usize = 114;
+pub const ICON_WITCH_KILLER: usize = 262;
+pub const ICON_COLOSSUS_SLAYER: usize = 301;
+pub const ICON_BEHEMOTH_SLAYER: usize = 306;
+pub const ICON_SAGE_SLAYER: usize = 323;
 
 // Passive Abilities
-pub const ICON_STRENGTHEN: usize = 201;
-pub const ICON_SURVIVE: usize = 204;
-pub const ICON_BASE_DESTROYER: usize = 205;
-pub const ICON_CRITICAL_HIT: usize = 206;
-pub const ICON_DOUBLE_BOUNTY: usize = 210;
-pub const ICON_WAVE: usize = 213;
-pub const ICON_METAL: usize = 214;
-pub const ICON_SAVAGE_BLOW: usize = 234;
-pub const ICON_SURGE: usize = 244;
-pub const ICON_ZOMBIE_KILLER: usize = 265;
-pub const ICON_BARRIER_BREAKER: usize = 269;
-pub const ICON_MINI_WAVE: usize = 298;
-pub const ICON_SHIELD_PIERCER: usize = 301;
-pub const ICON_SOULSTRIKE: usize = 305;
-pub const ICON_MINI_SURGE: usize = 315;
-pub const ICON_CONJURE: usize = 322;
-pub const ICON_METAL_KILLER: usize = 326;
-pub const ICON_EXPLOSION: usize = 340;
+pub const ICON_STRENGTHEN: usize = 200;
+pub const ICON_SURVIVE: usize = 203;
+pub const ICON_BASE_DESTROYER: usize = 204;
+pub const ICON_CRITICAL_HIT: usize = 205;
+pub const ICON_DOUBLE_BOUNTY: usize = 209;
+pub const ICON_WAVE: usize = 212;
+pub const ICON_METAL: usize = 213;
+pub const ICON_SAVAGE_BLOW: usize = 233;
+pub const ICON_SURGE: usize = 243;
+pub const ICON_ZOMBIE_KILLER: usize = 264;
+pub const ICON_BARRIER_BREAKER: usize = 268;
+pub const ICON_MINI_WAVE: usize = 297;
+pub const ICON_SHIELD_PIERCER: usize = 300;
+pub const ICON_SOULSTRIKE: usize = 304;
+pub const ICON_MINI_SURGE: usize = 314;
+pub const ICON_CONJURE: usize = 321;
+pub const ICON_METAL_KILLER: usize = 325;
+pub const ICON_EXPLOSION: usize = 339;
 pub const ICON_KAMIKAZE: usize = 9998; // Mock ID
 
 // Immunities
-pub const ICON_IMMUNE_CURSE: usize = 121;
-pub const ICON_IMMUNE_WAVE: usize = 215;
-pub const ICON_IMMUNE_WEAKEN: usize = 218;
-pub const ICON_IMMUNE_FREEZE: usize = 219;
-pub const ICON_IMMUNE_SLOW: usize = 220;
-pub const ICON_IMMUNE_KNOCKBACK: usize = 221;
-pub const ICON_IMMUNE_TOXIC: usize = 242;
-pub const ICON_IMMUNE_SURGE: usize = 248;
-pub const ICON_IMMUNE_WARP: usize = 267;
-pub const ICON_IMMUNE_EXPLOSION: usize = 342;
+pub const ICON_IMMUNE_CURSE: usize = 120;
+pub const ICON_IMMUNE_WAVE: usize = 214;
+pub const ICON_IMMUNE_WEAKEN: usize = 217;
+pub const ICON_IMMUNE_FREEZE: usize = 218;
+pub const ICON_IMMUNE_SLOW: usize = 219;
+pub const ICON_IMMUNE_KNOCKBACK: usize = 220;
+pub const ICON_IMMUNE_TOXIC: usize = 241;
+pub const ICON_IMMUNE_SURGE: usize = 247;
+pub const ICON_IMMUNE_WARP: usize = 266;
+pub const ICON_IMMUNE_EXPLOSION: usize = 341;
 pub const ICON_IMMUNE_BOSS_WAVE: usize = 9997; // Mock ID
 
 // Counters
-pub const ICON_WAVE_BLOCK: usize = 223;
-pub const ICON_COUNTER_SURGE: usize = 320;
+pub const ICON_WAVE_BLOCK: usize = 222;
+pub const ICON_COUNTER_SURGE: usize = 319;
 
 // Talent Only
-pub const ICON_MOVE_SPEED: usize = 101;
-pub const ICON_IMPROVE_KNOCKBACK_COUNT: usize = 103;
-pub const ICON_ATTACK_BUFF: usize = 123;
-pub const ICON_HEALTH_BUFF: usize = 125;
-pub const ICON_TBA_DOWN: usize = 310;
-pub const ICON_COST_DOWN: usize = 97;
-pub const ICON_RECOVER_SPEED_UP: usize = 99;
+pub const ICON_MOVE_SPEED: usize = 100;
+pub const ICON_IMPROVE_KNOCKBACK_COUNT: usize = 102;
+pub const ICON_ATTACK_BUFF: usize = 122;
+pub const ICON_HEALTH_BUFF: usize = 124;
+pub const ICON_TBA_DOWN: usize = 309;
+pub const ICON_COST_DOWN: usize = 96;
+pub const ICON_RECOVER_SPEED_UP: usize = 98;
 
 // Resist
-pub const ICON_RESIST_WEAKEN: usize = 48;
-pub const ICON_RESIST_FREEZE: usize = 50;
-pub const ICON_RESIST_SLOW: usize = 52;
-pub const ICON_RESIST_KNOCKBACK: usize = 54;
-pub const ICON_RESIST_WAVE: usize = 56;
-pub const ICON_RESIST_WARP: usize = 58;
-pub const ICON_RESIST_CURSE: usize = 114;
-pub const ICON_RESIST_TOXIC: usize = 240;
-pub const ICON_SURGE_RESIST: usize = 246;
+pub const ICON_RESIST_WEAKEN: usize = 47;
+pub const ICON_RESIST_FREEZE: usize = 49;
+pub const ICON_RESIST_SLOW: usize = 51;
+pub const ICON_RESIST_KNOCKBACK: usize = 53;
+pub const ICON_RESIST_WAVE: usize = 55;
+pub const ICON_RESIST_WARP: usize = 57;
+pub const ICON_RESIST_CURSE: usize = 113;
+pub const ICON_RESIST_TOXIC: usize = 239;
+pub const ICON_SURGE_RESIST: usize = 245;
 
 // Other
-pub const ICON_EMPTY: usize = 275;
-pub const BORDER_GOLD_SMALL: usize = 276;
-pub const BORDER_RED: usize = 277;
-pub const BORDER_GOLD: usize = 278;
+pub const ICON_EMPTY: usize = 274;
+pub const BORDER_GOLD_SMALL: usize = 275;
+pub const BORDER_RED: usize = 276;
+pub const BORDER_GOLD: usize = 277;
 
 // Alt Text Fallbacks
 pub fn img015_alt(id: usize) -> &'static str {
@@ -226,7 +226,7 @@ pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Se
         return; 
     }
 
-    if sheet.texture_handle.is_some() || sheet.is_loading() {
+    if sheet.texture_handle.is_some() || sheet.is_loading_active { // Fixed: is_loading() -> is_loading_active
         return;
     }
 
@@ -251,7 +251,8 @@ pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Se
 
         let (full_png_path, full_imgcut_path) = (base_dir.join(png_filename), base_dir.join(imgcut_filename));
         if full_png_path.exists() && full_imgcut_path.exists() {
-            sheet.load(ctx, &full_png_path, &full_imgcut_path);
+            // FIX IS HERE: Added the unique_id string
+            sheet.load(ctx, &full_png_path, &full_imgcut_path, "global_img015".to_string());
             break;
         }
     }

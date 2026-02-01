@@ -1,11 +1,11 @@
 use eframe::egui;
 use std::path::Path;
 use crate::core::cat::scanner::CatEntry;
+// Ensure DetailTab is imported from wherever you defined it (likely `super` or `crate::mod`)
 use crate::core::cat::DetailTab;
 use crate::core::settings::Settings;
 use crate::core::utils::autocrop; 
 use crate::ui::components::name_box;
-
 use crate::paths::cat::{self, AssetType};
 
 pub fn render(
@@ -59,6 +59,7 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
                     if ui.add(btn).clicked() { 
                         *current_form = index; 
                         
+                        // Switch back to abilities if talents aren't available for this form
                         if index < 2 && *current_tab == DetailTab::Talents {
                             *current_tab = DetailTab::Abilities;
                         }
@@ -70,13 +71,16 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
 
             ui.add(egui::Separator::default().vertical().spacing(20.0));
 
+            // UPDATED TABS LIST
             let tabs = [
                 (DetailTab::Abilities, "Abilities"),
                 (DetailTab::Talents, "Talents"),
                 (DetailTab::Details, "Details"),
+                (DetailTab::Animation, "Animation"), // NEW BUTTON
             ];
 
             for (tab_enum, label) in tabs {
+                // Hide talents tab if not applicable
                 if tab_enum == DetailTab::Talents && (*current_form < 2 || cat.talent_data.is_none()) {
                     continue;
                 }
