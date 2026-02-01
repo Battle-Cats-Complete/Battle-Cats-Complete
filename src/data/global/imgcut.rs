@@ -16,7 +16,8 @@ pub struct SpriteSheet {
     pub texture_handle: Option<egui::TextureHandle>,
     pub cuts_map: HashMap<usize, SpriteCut>, 
     pub is_loading_active: bool,
-    pub data_receiver: Option<Receiver<(egui::ColorImage, HashMap<usize, SpriteCut>)>>,
+    // We pass the "Texture Name" back so the main thread knows what to call it
+    pub data_receiver: Option<Receiver<(String, egui::ColorImage, HashMap<usize, SpriteCut>)>>,
 }
 
 impl Default for SpriteSheet {
@@ -34,6 +35,10 @@ impl SpriteSheet {
     pub fn is_loading(&self) -> bool {
         self.is_loading_active
     }
+    
+    pub fn is_ready(&self) -> bool {
+        self.texture_handle.is_some()
+    }
 
     pub fn update(&mut self, context: &egui::Context) {
         let receiver = match &self.data_receiver {
@@ -41,9 +46,10 @@ impl SpriteSheet {
             None => return,
         };
 
-        if let Ok((loaded_image, loaded_cuts)) = receiver.try_recv() {
+        if let Ok((texture_name, loaded_image, loaded_cuts)) = receiver.try_recv() {
+            // FIX 1: Use the Dynamic Name
             self.texture_handle = Some(context.load_texture(
-                "img015_atlas",
+                &texture_name,
                 loaded_image,
                 egui::TextureOptions::LINEAR
             ));
@@ -53,15 +59,15 @@ impl SpriteSheet {
         }
     }
 
-    pub fn load(&mut self, context: &egui::Context, image_path: &Path, cut_path: &Path) {
+    pub fn load(&mut self, context: &egui::Context, image_path: &Path, cut_path: &Path, unique_id: String) {
         self.update(context);
 
         if self.texture_handle.is_none() && !self.is_loading_active {
-            self.start_loading_thread(context, image_path, cut_path);
+            self.start_loading_thread(context, image_path, cut_path, unique_id);
         }
     }
 
-    fn start_loading_thread(&mut self, context: &egui::Context, image_path: &Path, cut_path: &Path) {
+    fn start_loading_thread(&mut self, context: &egui::Context, image_path: &Path, cut_path: &Path, unique_id: String) {
         self.is_loading_active = true;
         let (sender, receiver) = mpsc::channel();
         self.data_receiver = Some(receiver);
@@ -72,7 +78,8 @@ impl SpriteSheet {
 
         thread::spawn(move || {
             if let Some(parsed_data) = parse_imgcut_data(&image_path_buf, &cut_path_buf) {
-                let _ = sender.send(parsed_data);
+                // Pass unique_id back to main thread
+                let _ = sender.send((unique_id, parsed_data.0, parsed_data.1));
                 context_clone.request_repaint();
             }
         });
@@ -80,7 +87,6 @@ impl SpriteSheet {
 
     pub fn get_sprite_by_line(&self, target_line_index: usize) -> Option<egui::Image<'_>> {
         let texture = self.texture_handle.as_ref()?;
-        
         let cut_data = self.cuts_map.get(&target_line_index)?;
 
         Some(
@@ -89,6 +95,11 @@ impl SpriteSheet {
                 .maintain_aspect_ratio(false)
                 .fit_to_exact_size(cut_data.original_size)
         )
+    }
+    
+    // Alias for compatibility
+    pub fn get_sprite(&self, index: usize) -> Option<egui::Image<'_>> {
+        self.get_sprite_by_line(index)
     }
 }
 
@@ -106,7 +117,6 @@ fn parse_imgcut_data(image_file_path: &Path, cut_file_path: &Path) -> Option<(eg
     let atlas_height = image_dimensions[1] as f32;
     
     let mut parsed_cuts = HashMap::new();
-
     let delimiter = utils::detect_csv_separator(&imgcut_content);
 
     for (line_index, file_line) in imgcut_content.lines().enumerate() {
@@ -122,7 +132,8 @@ fn parse_imgcut_data(image_file_path: &Path, cut_file_path: &Path) -> Option<(eg
             let uv_min = egui::pos2(sprite_x / atlas_width, sprite_y / atlas_height);
             let uv_max = egui::pos2((sprite_x + sprite_width) / atlas_width, (sprite_y + sprite_height) / atlas_height);
 
-            parsed_cuts.insert(line_index + 1, SpriteCut {
+            // FIX 2: Removed "+ 1". Now it matches 0-based indexing correctly.
+            parsed_cuts.insert(line_index, SpriteCut {
                 uv_coordinates: egui::Rect::from_min_max(uv_min, uv_max),
                 original_size: egui::vec2(sprite_width, sprite_height),
             });
