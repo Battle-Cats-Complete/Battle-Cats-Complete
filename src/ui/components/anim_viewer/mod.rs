@@ -12,13 +12,13 @@ pub struct AnimViewer {
     pub zoom_level: f32,
     pub pan_offset: egui::Vec2,
     pub debug_show_info: bool,
+    pub game_accuracy: bool, // Snap to integer frames
     
     pub current_anim: Option<Animation>,
     pub current_frame: f32,
     pub is_playing: bool,
     pub playback_speed: f32,
     
-    // 0=Walk, 1=Idle (Continuous) | 2=Attack, 3=KB (Once)
     pub loaded_anim_index: usize, 
     pub loaded_id: String, 
 }
@@ -29,6 +29,7 @@ impl Default for AnimViewer {
             zoom_level: 1.0, 
             pan_offset: egui::vec2(0.0, 0.0),
             debug_show_info: false,
+            game_accuracy: true,
             current_anim: None,
             current_frame: 0.0,
             is_playing: true,
@@ -47,6 +48,7 @@ impl AnimViewer {
         self.loaded_id.clear();
         self.pan_offset = egui::vec2(0.0, 0.0);
         self.zoom_level = 1.0;
+        self.game_accuracy = true;
     }
 
     pub fn load_anim(&mut self, path: &Path) {
@@ -60,27 +62,22 @@ impl AnimViewer {
     }
 
     pub fn render(&mut self, ui: &mut egui::Ui, sprite_sheet: &SpriteSheet, model: &Model) {
-        // --- 1. PLAYBACK ---
         if self.is_playing {
             if let Some(anim) = &self.current_anim {
                 let dt = ui.input(|i| i.stable_dt);
-                // Wiki viewer runs at 30fps base
                 self.current_frame += dt * 30.0 * self.playback_speed;
                 
                 let max_f = if anim.max_frame > 0 { anim.max_frame as f32 } else { 100.0 };
                 
-                // Wiki Logic: Attack/KB loops at end; others continuous
                 if self.loaded_anim_index >= 2 {
                     if self.current_frame >= max_f + 1.0 { self.current_frame = 0.0; }
                 } else {
                     if self.current_frame > 1_000_000.0 { self.current_frame = 0.0; }
                 }
-                
                 ui.ctx().request_repaint();
             }
         }
 
-        // --- 2. TOOLBAR ---
         ui.horizontal(|ui| {
             if ui.button(if self.is_playing { "Pause" } else { "Play" }).clicked() {
                 self.is_playing = !self.is_playing;
@@ -92,17 +89,19 @@ impl AnimViewer {
                 self.pan_offset = egui::vec2(0.0, 0.0);
                 self.zoom_level = 1.0;
             }
+            ui.separator();
+            ui.checkbox(&mut self.game_accuracy, "Game Accuracy");
             ui.checkbox(&mut self.debug_show_info, "Debug");
         });
 
-        // --- 3. CANVAS ---
         let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::drag());
         if response.dragged() { self.pan_offset += response.drag_delta(); }
         ui.input(|i| { if i.zoom_delta() != 1.0 { self.zoom_level *= i.zoom_delta(); } });
 
-        // --- 4. PIPELINE ---
         let parts_to_draw = if let Some(anim) = &self.current_anim {
-            let animated_parts = animator::animate(model, anim, self.current_frame);
+            // Jitter Fix: Rounding prevents sub-pixel errors in matrix math
+            let frame = if self.game_accuracy { self.current_frame.floor() } else { self.current_frame };
+            let animated_parts = animator::animate(model, anim, frame);
             transform::solve_hierarchy(&animated_parts, model)
         } else {
             transform::solve_hierarchy(&model.parts, model)

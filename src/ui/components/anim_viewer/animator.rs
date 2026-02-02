@@ -7,7 +7,6 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
     for curve in &animation.curves {
         if curve.part_id >= parts.len() { continue; }
         
-        // Loop Logic (Ported from Wiki JS: `animate` function)
         let loop_count = curve.loop_count; 
         let fir = curve.min_frame;
         let smax = curve.max_frame;
@@ -34,13 +33,10 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
         let part = &mut parts[curve.part_id];
         
         match curve.modification_type {
-            // Discrete: Direct Set
             0 => part.parent_id = val as i32,
             1 => part.unit_id = val as i32,
             2 => part.sprite_index = val as i32,
             3 => part.drawing_layer = val as i32, 
-            
-            // Continuous: Additive
             4 => part.position_x += val, 
             5 => part.position_y += val,
             6 => part.pivot_x += val,
@@ -89,11 +85,10 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
     let start_val = start_k.value as f32;
     let change = (end_k.value - start_k.value) as f32;
 
-    // Easing Logic
     match start_k.ease_mode {
-        0 => start_val + (change * x), // Linear
-        1 => if x >= 1.0 { end_k.value as f32 } else { start_val }, // Step
-        2 => { // Exponential
+        0 => start_val + (change * x), 
+        1 => if x >= 1.0 { end_k.value as f32 } else { start_val }, 
+        2 => { 
             let p = if start_k.ease_power != 0 { start_k.ease_power as f32 } else { 1.0 };
             let x_clamped = x.clamp(0.0, 1.0);
             let factor = if p >= 0.0 {
