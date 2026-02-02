@@ -20,7 +20,8 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             }
         } else if loop_count > 0 && lmax > 0 {
             let end_time = fir + loop_count * lmax;
-            if global_frame as i32 > end_time {
+            // FIX: Use float comparison to handle sub-frame values correctly at the end of loop
+            if global_frame >= end_time as f32 {
                 local_frame = smax as f32; 
             } else if (global_frame as i32) > fir {
                 let frame_in_loop = (global_frame as i32 - fir) % lmax;
@@ -28,15 +29,26 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             }
         }
         
-        let is_discrete = curve.modification_type < 4;
-        let val = interpolate_curve(curve, local_frame, is_discrete);
+        let is_discrete = curve.modification_type == 0 || curve.modification_type == 1 || curve.modification_type == 3;
+        
+        let (val, slope) = interpolate_curve(curve, local_frame, is_discrete);
+        
         let part = &mut parts[curve.part_id];
         
         match curve.modification_type {
             0 => part.parent_id = val as i32,
             1 => part.unit_id = val as i32,
-            2 => part.sprite_index = val as i32,
             3 => part.drawing_layer = val as i32, 
+            
+            // Sprite Index (Mod 2)
+            2 => {
+                if slope < 0.0 {
+                    part.sprite_index = val.ceil() as i32;
+                } else {
+                    part.sprite_index = val.floor() as i32;
+                }
+            },
+
             4 => part.position_x += val, 
             5 => part.position_y += val,
             6 => part.pivot_x += val,
@@ -59,24 +71,30 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
     parts
 }
 
-fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) -> f32 {
-    if curve.keyframes.is_empty() { return 0.0; }
+fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) -> (f32, f32) {
+    if curve.keyframes.is_empty() { return (0.0, 0.0); }
 
     let mut start_k = &curve.keyframes[0];
     let mut end_k = &curve.keyframes[0];
 
-    if frame <= start_k.frame as f32 { return start_k.value as f32; }
+    if frame <= start_k.frame as f32 { return (start_k.value as f32, 0.0); }
 
+    let mut found = false;
     for k in &curve.keyframes {
         if (k.frame as f32) > frame {
             end_k = k;
+            found = true;
             break;
         }
         start_k = k;
     }
     
-    if is_discrete { return start_k.value as f32; }
-    if start_k.frame == end_k.frame { return start_k.value as f32; }
+    if !found {
+        return (start_k.value as f32, 0.0);
+    }
+    
+    if is_discrete { return (start_k.value as f32, 0.0); }
+    if start_k.frame == end_k.frame { return (start_k.value as f32, 0.0); }
 
     let t_duration = (end_k.frame - start_k.frame) as f32;
     let t_current = frame - (start_k.frame as f32);
@@ -84,8 +102,9 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
 
     let start_val = start_k.value as f32;
     let change = (end_k.value - start_k.value) as f32;
+    let slope = change; 
 
-    match start_k.ease_mode {
+    let result = match start_k.ease_mode {
         0 => start_val + (change * x), 
         1 => if x >= 1.0 { end_k.value as f32 } else { start_val }, 
         2 => { 
@@ -99,5 +118,7 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
             if factor.is_nan() { start_val + (change * x) } else { start_val + (change * factor) }
         },
         _ => start_val + (change * x) 
-    }
+    };
+    
+    (result, slope)
 }
