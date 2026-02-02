@@ -24,7 +24,10 @@ pub fn paint(
     };
 
     for part in parts {
-        // Strict culling for ghosts/invisibles
+        // Culling Check:
+        // 1. Explicitly hidden (from transform.rs)
+        // 2. Opacity near zero
+        // 3. Scale near zero (common "hide" trick in animations)
         if part.hidden 
            || part.opacity < 0.005 
            || part.scale.x.abs() < 0.001 
@@ -39,6 +42,9 @@ pub fn paint(
             let px = part.pivot.x;
             let py = part.pivot.y;
 
+            // Quad construction (Y-Up logic)
+            // TL: (-px, py)
+            // TR: (w-px, py) ...
             let corners = [
                 egui::vec2(0.0 - px, py),       
                 egui::vec2(w - px,   py),       
@@ -53,15 +59,20 @@ pub fn paint(
                 let lx = corners[i].x;
                 let ly = corners[i].y;
 
+                // 1. Scale
                 let sx = lx * part.scale.x;
                 let sy = ly * part.scale.y;
 
+                // 2. Rotate
+                // Match JS Logic: x' = x*cos + y*sin, y' = x*-sin + y*cos
                 let rx = sx * cos + sy * sin;
                 let ry = sx * -sin + sy * cos;
 
+                // 3. Translate
                 let world_x = part.pos.x + rx;
                 let world_y = part.pos.y + ry;
 
+                // 4. Project (Flip Y)
                 screen_corners[i] = center + egui::vec2(world_x * zoom, -world_y * zoom);
             }
 
