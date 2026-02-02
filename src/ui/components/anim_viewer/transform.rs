@@ -4,11 +4,12 @@ use crate::data::global::mamodel::{Model, ModelPart};
 
 #[derive(Clone, Copy, Debug)]
 pub struct WorldTransform {
-    // 2x3 Matrix [a, b, c, d, tx, ty]
+    // [a, b, c, d, tx, ty]
     pub mat: [f32; 6], 
     pub opacity: f32,
     pub z_order: i32,
     pub sprite_index: usize,
+    pub part_index: usize, // Needed for Tie-Breaker
     pub pivot: egui::Vec2,
     pub hidden: bool,
     pub glow: i32,
@@ -22,7 +23,13 @@ pub fn solve_hierarchy(parts: &[ModelPart], model: &Model) -> Vec<WorldTransform
         results.push(solve_bone(i, parts, model, &mut cache));
     }
     
-    results.sort_by_key(|t| t.z_order);
+    // FIX: Stable Sorting (Z-Order -> Part Index)
+    // Ensures parts on the same layer don't flicker or disappear.
+    results.sort_by(|a, b| {
+        a.z_order.cmp(&b.z_order)
+            .then(a.part_index.cmp(&b.part_index))
+    });
+    
     results
 }
 
@@ -31,7 +38,6 @@ fn solve_bone(index: usize, parts: &[ModelPart], model: &Model, cache: &mut Hash
 
     let part = &parts[index];
     
-    // 1. Parent Matrix
     let parent_mat = if part.parent_id >= 0 && (part.parent_id as usize) < parts.len() && (part.parent_id as usize) != index {
         solve_bone(part.parent_id as usize, parts, model, cache).mat
     } else {
@@ -44,9 +50,9 @@ fn solve_bone(index: usize, parts: &[ModelPart], model: &Model, cache: &mut Hash
         1.0
     };
 
-    let is_hidden = part.unit_id == -1;
+    // FIX: Visibility uses Sprite Index. Unit ID -1 is valid for generic parts.
+    let is_hidden = part.sprite_index == -1;
 
-    // 2. Local Transform
     let sx = part.scale_x / model.scale_unit;
     let sy = part.scale_y / model.scale_unit;
     
@@ -54,17 +60,16 @@ fn solve_bone(index: usize, parts: &[ModelPart], model: &Model, cache: &mut Hash
     let rotation = (part.rotation / rot_div).to_radians();
     let (sin, cos) = rotation.sin_cos();
 
-    // User Fix: Positive Y
     let tx = part.position_x;
     let ty = part.position_y; 
 
-    // 3. Local Matrix (Scale -> Rotate -> Translate)
+    // Matrix Construction
     let la = sx * cos;
     let lb = sx * sin;
     let lc = -sy * sin;
     let ld = sy * cos;
     
-    // 4. Multiply (Parent * Local)
+    // Matrix Multiplication
     let pa = parent_mat[0]; let pc = parent_mat[2]; let ptx = parent_mat[4];
     let pb = parent_mat[1]; let pd = parent_mat[3]; let pty = parent_mat[5];
 
@@ -85,6 +90,7 @@ fn solve_bone(index: usize, parts: &[ModelPart], model: &Model, cache: &mut Hash
         opacity: final_opacity,
         z_order: part.drawing_layer,
         sprite_index: part.sprite_index as usize,
+        part_index: index,
         pivot: egui::vec2(part.pivot_x, part.pivot_y),
         hidden: is_hidden,
         glow: part.glow_mode,

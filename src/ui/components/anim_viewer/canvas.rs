@@ -33,7 +33,6 @@ pub fn paint(
             let px = part.pivot.x;
             let py = part.pivot.y;
 
-            // Local Corners (Top-Left is origin for image, so subtract pivot)
             let local_corners = [
                 egui::vec2(0.0 - px, 0.0 - py), 
                 egui::vec2(w - px,   0.0 - py), 
@@ -48,7 +47,7 @@ pub fn paint(
                 let lx = local_corners[i].x;
                 let ly = local_corners[i].y;
 
-                // Affine Transform
+                // Affine Matrix Transform
                 let world_x = m[0] * lx + m[2] * ly + m[4];
                 let world_y = m[1] * lx + m[3] * ly + m[5];
 
@@ -59,7 +58,6 @@ pub fn paint(
             let color = egui::Color32::WHITE.gamma_multiply(part.opacity);
             let uv = cut.uv_coordinates;
 
-            // FIX: Using egui::epaint::Vertex to avoid compilation errors
             mesh.vertices.push(egui::epaint::Vertex { pos: screen_corners[0], uv: uv.left_top(), color });
             mesh.vertices.push(egui::epaint::Vertex { pos: screen_corners[1], uv: uv.right_top(), color });
             mesh.vertices.push(egui::epaint::Vertex { pos: screen_corners[2], uv: uv.right_bottom(), color });

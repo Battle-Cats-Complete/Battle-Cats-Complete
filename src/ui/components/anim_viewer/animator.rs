@@ -29,6 +29,7 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             }
         }
         
+        // FIX: Always snap discrete values (Sprite ID, Z-Order, Parent).
         let is_discrete = curve.modification_type < 4;
         let raw_val = interpolate_curve(curve, local_frame, is_discrete);
         
@@ -38,7 +39,8 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             0 => part.parent_id = raw_val as i32,
             1 => part.unit_id = raw_val as i32,
             2 => part.sprite_index = raw_val as i32,
-            3 => part.drawing_layer = raw_val as i32,
+            // FIX: Layering is additive. This ensures the unit stays "inside" the portal layers.
+            3 => part.drawing_layer += raw_val as i32,
             4 => part.position_x += raw_val, 
             5 => part.position_y += raw_val,
             6 => part.pivot_x += raw_val,
@@ -77,6 +79,7 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
         start_k = k;
     }
     
+    // FIX: Force snap for discrete types
     if is_discrete { return start_k.value as f32; }
     
     if start_k.frame == end_k.frame { return start_k.value as f32; }
