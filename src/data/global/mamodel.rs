@@ -39,32 +39,25 @@ impl Model {
         let mut part_count = 0;
         let mut data_start_index = 0;
 
-        // 1. Find Header Information
         for (i, line) in lines.iter().take(5).enumerate() {
             if !line.contains(',') {
                 if let Ok(val) = line.trim().parse::<usize>() {
-                    // Valid part counts are usually > 0 and < 1000
                     if val > 0 && val < 1000 {
                         part_count = val;
                         data_start_index = i + 1;
                     }
                 }
-            } else {
-                break;
-            }
+            } else { break; }
         }
 
         if part_count == 0 { return None; }
 
-        // 2. Parse Unit Configuration (Scale, Angle, Alpha)
-        // Defaults match MaModel.java (1000, 3600, 1000)
+        let unit_line_index = data_start_index + part_count;
         let mut scale_unit = 1000.0;
         let mut angle_unit = 3600.0; 
         let mut alpha_unit = 1000.0;
 
-        let unit_line_index = data_start_index + part_count;
         if lines.len() > unit_line_index {
-            // Check subsequent lines for the ints config
             for i in unit_line_index..lines.len() {
                 let p: Vec<&str> = lines[i].split(delimiter).collect();
                 if p.len() == 3 {
@@ -82,27 +75,28 @@ impl Model {
             }
         }
 
-        // 3. Parse Parts
         let mut parts = Vec::new();
 
         for i in 0..part_count {
             let line_idx = data_start_index + i;
             if line_idx >= lines.len() { break; }
             let line = lines[line_idx];
-            
             let p: Vec<&str> = line.split(delimiter).collect();
             if p.len() < 13 { continue; } 
 
-            // Standard Loading - No manual overrides/zeroing
+            let is_root = parts.is_empty();
+
             let part = ModelPart {
                 parent_id:     p[0].trim().parse().unwrap_or(-1),
                 unit_id:       p[1].trim().parse().unwrap_or(0),
                 sprite_index:  p[2].trim().parse().unwrap_or(0),
                 drawing_layer: p[3].trim().parse().unwrap_or(0),
-                position_x:    p[4].trim().parse().unwrap_or(0.0),
-                position_y:    p[5].trim().parse().unwrap_or(0.0),
-                pivot_x:       p[6].trim().parse().unwrap_or(0.0),
-                pivot_y:       p[7].trim().parse().unwrap_or(0.0),
+                // FIX: Zeroing Root Position/Pivot is REQUIRED to prevent "Floating Units".
+                // This ignores the arbitrary editor offset in the file header.
+                position_x:    if is_root { 0.0 } else { p[4].trim().parse().unwrap_or(0.0) },
+                position_y:    if is_root { 0.0 } else { p[5].trim().parse().unwrap_or(0.0) },
+                pivot_x:       if is_root { 0.0 } else { p[6].trim().parse().unwrap_or(0.0) },
+                pivot_y:       if is_root { 0.0 } else { p[7].trim().parse().unwrap_or(0.0) },
                 scale_x:       p[8].trim().parse().unwrap_or(scale_unit), 
                 scale_y:       p[9].trim().parse().unwrap_or(scale_unit),
                 rotation:      p[10].trim().parse().unwrap_or(0.0),
@@ -112,12 +106,6 @@ impl Model {
             parts.push(part);
         }
 
-        Some(Model { 
-            parts, 
-            version: 1, 
-            scale_unit, 
-            angle_unit, 
-            alpha_unit 
-        })
+        Some(Model { parts, version: 1, scale_unit, angle_unit, alpha_unit })
     }
 }
