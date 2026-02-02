@@ -36,51 +36,53 @@ impl Model {
 
         if lines.is_empty() { return None; }
 
-        // --- ROBUST HEADER PARSING ---
         let mut part_count = 0;
         let mut data_start_index = 0;
 
-        // Try to find the part count in the first 5 lines
+        // 1. Find Header Information
         for (i, line) in lines.iter().take(5).enumerate() {
-            // If line is a single number and seemingly valid count (1-1000)
             if !line.contains(',') {
                 if let Ok(val) = line.trim().parse::<usize>() {
-                    // BCU format: Line 0=[header], Line 1=Ver, Line 2=Count
-                    // Raw format: Line 0=Ver, Line 1=Count OR Line 0=Count
-                    // We assume the LAST single number we see before CSV data is the count.
-                    part_count = val;
-                    data_start_index = i + 1;
+                    // Valid part counts are usually > 0 and < 1000
+                    if val > 0 && val < 1000 {
+                        part_count = val;
+                        data_start_index = i + 1;
+                    }
                 }
             } else {
-                // Found CSV data (commas), stop searching.
                 break;
             }
         }
 
         if part_count == 0 { return None; }
 
-        // "Units" line (Scale, Angle, Alpha) is immediately after the parts
-        let unit_line_index = data_start_index + part_count;
-
+        // 2. Parse Unit Configuration (Scale, Angle, Alpha)
+        // Defaults match MaModel.java (1000, 3600, 1000)
         let mut scale_unit = 1000.0;
-        let mut angle_unit = 10.0; // 3600 = 360 deg
-        let mut alpha_unit = 255.0; // 255 = 1.0 opacity
+        let mut angle_unit = 3600.0; 
+        let mut alpha_unit = 1000.0;
 
+        let unit_line_index = data_start_index + part_count;
         if lines.len() > unit_line_index {
-            let unit_line = lines[unit_line_index];
-            let p: Vec<&str> = unit_line.split(delimiter).collect();
-            if p.len() >= 3 {
-                 if let Ok(s) = p[0].trim().parse::<f32>() { scale_unit = s; }
-                 if let Ok(a) = p[1].trim().parse::<f32>() { angle_unit = a; }
-                 if let Ok(o) = p[2].trim().parse::<f32>() { alpha_unit = o; }
+            // Check subsequent lines for the ints config
+            for i in unit_line_index..lines.len() {
+                let p: Vec<&str> = lines[i].split(delimiter).collect();
+                if p.len() == 3 {
+                     if let (Ok(s), Ok(a), Ok(o)) = (
+                        p[0].trim().parse::<f32>(), 
+                        p[1].trim().parse::<f32>(), 
+                        p[2].trim().parse::<f32>()
+                    ) {
+                        scale_unit = s;
+                        angle_unit = a;
+                        alpha_unit = o;
+                        break;
+                    }
+                }
             }
         }
 
-        // Safety Defaults
-        if scale_unit.abs() < 1.0 { scale_unit = 1000.0; }
-        if angle_unit.abs() < 0.01 { angle_unit = 10.0; }
-        if alpha_unit.abs() < 1.0 { alpha_unit = 255.0; }
-
+        // 3. Parse Parts
         let mut parts = Vec::new();
 
         for i in 0..part_count {
@@ -91,6 +93,7 @@ impl Model {
             let p: Vec<&str> = line.split(delimiter).collect();
             if p.len() < 13 { continue; } 
 
+            // Standard Loading - No manual overrides/zeroing
             let part = ModelPart {
                 parent_id:     p[0].trim().parse().unwrap_or(-1),
                 unit_id:       p[1].trim().parse().unwrap_or(0),
@@ -109,6 +112,12 @@ impl Model {
             parts.push(part);
         }
 
-        Some(Model { parts, version: 1, scale_unit, angle_unit, alpha_unit })
+        Some(Model { 
+            parts, 
+            version: 1, 
+            scale_unit, 
+            angle_unit, 
+            alpha_unit 
+        })
     }
 }

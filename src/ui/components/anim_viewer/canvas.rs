@@ -12,60 +12,63 @@ pub fn paint(
     show_debug: bool
 ) {
     painter.rect_filled(rect, egui::Rounding::ZERO, egui::Color32::from_gray(20));
-    let center = rect.center() + pan;
+    let center = rect.center() + pan + egui::vec2(0.0, 200.0);
     
-    // Origin Dot
-    painter.circle_filled(center, 4.0, egui::Color32::GREEN);
+    painter.line_segment(
+        [center - egui::vec2(200.0, 0.0), center + egui::vec2(200.0, 0.0)], 
+        egui::Stroke::new(1.0, egui::Color32::GREEN)
+    );
     
     let texture_id = match &sheet.texture_handle {
         Some(t) => t.id(),
         None => return,
     };
 
-    for (i, part) in parts.iter().enumerate() {
+    for part in parts {
         if part.hidden || part.opacity < 0.01 { continue; }
 
-        let idx = part.sprite_index;
+        if let Some(cut) = sheet.cuts_map.get(&part.sprite_index) {
+            let w = cut.original_size.x;
+            let h = cut.original_size.y;
+            let px = part.pivot.x;
+            let py = part.pivot.y;
 
-        if let Some(cut) = sheet.cuts_map.get(&idx) {
-            let final_scale = part.scale.abs() * zoom;
-            let display_size = cut.original_size * final_scale;
+            // Local Corners (Top-Left is origin for image, so subtract pivot)
+            let local_corners = [
+                egui::vec2(0.0 - px, 0.0 - py), 
+                egui::vec2(w - px,   0.0 - py), 
+                egui::vec2(w - px,   h - py),   
+                egui::vec2(0.0 - px, h - py),   
+            ];
 
-            // POSITION LOGIC:
-            // transform.rs now produces standard Screen Coordinates.
-            // We just map (0,0) to Center.
-            let screen_bone_pos = center + (part.pos * zoom);
-            
-            // PIVOT LOGIC:
-            // Pivot is offset from Top-Left.
-            let pivot_offset = part.pivot * final_scale;
-            let screen_top_left = screen_bone_pos - pivot_offset;
-            
-            let dest_rect = egui::Rect::from_min_size(screen_top_left, display_size);
-            
-            let mut tint = egui::Color32::WHITE;
-            if part.glow > 0 {
-                tint = egui::Color32::from_rgb(200, 255, 255);
+            let mut screen_corners = [egui::Pos2::ZERO; 4];
+            let m = part.mat; 
+
+            for i in 0..4 {
+                let lx = local_corners[i].x;
+                let ly = local_corners[i].y;
+
+                // Affine Transform
+                let world_x = m[0] * lx + m[2] * ly + m[4];
+                let world_y = m[1] * lx + m[3] * ly + m[5];
+
+                screen_corners[i] = center + egui::vec2(world_x * zoom, world_y * zoom);
             }
-            
-            let final_alpha = if show_debug { 1.0 } else { part.opacity };
-            
-            // Note: painter.image does NOT rotate. 
-            // If parts are rotated, this will look stiff, but it won't be a "cyclone".
-            // To support rotation with this method, you would need the Mesh approach,
-            // but you asked to revert to this version.
-            painter.image(
-                texture_id,
-                dest_rect,
-                cut.uv_coordinates,
-                tint.gamma_multiply(final_alpha)
-            );
 
-            // Debug
-            if show_debug && i == 0 {
-                 let info = format!("Root:\nPos: {:.0},{:.0}", part.pos.x, part.pos.y);
-                 painter.text(rect.min + egui::vec2(10.0, 50.0), egui::Align2::LEFT_TOP, info, egui::FontId::monospace(14.0), egui::Color32::YELLOW);
-            }
+            let mut mesh = egui::Mesh::with_texture(texture_id);
+            let color = egui::Color32::WHITE.gamma_multiply(part.opacity);
+            let uv = cut.uv_coordinates;
+
+            // FIX: Using egui::epaint::Vertex to avoid compilation errors
+            mesh.vertices.push(egui::epaint::Vertex { pos: screen_corners[0], uv: uv.left_top(), color });
+            mesh.vertices.push(egui::epaint::Vertex { pos: screen_corners[1], uv: uv.right_top(), color });
+            mesh.vertices.push(egui::epaint::Vertex { pos: screen_corners[2], uv: uv.right_bottom(), color });
+            mesh.vertices.push(egui::epaint::Vertex { pos: screen_corners[3], uv: uv.left_bottom(), color });
+            
+            mesh.add_triangle(0, 1, 2);
+            mesh.add_triangle(0, 2, 3);
+
+            painter.add(mesh);
         }
     }
 }

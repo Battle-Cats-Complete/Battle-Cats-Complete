@@ -29,14 +29,14 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             }
         }
         
-        // FIX: Discrete fields (Parent, Sprite, Z-order) must NOT interpolate.
-        let is_discrete = curve.modification_type < 4; 
+        let is_discrete = curve.modification_type < 4;
         let raw_val = interpolate_curve(curve, local_frame, is_discrete);
         
         let part = &mut parts[curve.part_id];
         
         match curve.modification_type {
             0 => part.parent_id = raw_val as i32,
+            1 => part.unit_id = raw_val as i32,
             2 => part.sprite_index = raw_val as i32,
             3 => part.drawing_layer = raw_val as i32,
             4 => part.position_x += raw_val, 
@@ -77,12 +77,9 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
         start_k = k;
     }
     
+    if is_discrete { return start_k.value as f32; }
+    
     if start_k.frame == end_k.frame { return start_k.value as f32; }
-
-    // FIX: If discrete, just return start value. No math.
-    if is_discrete {
-        return start_k.value as f32;
-    }
 
     let t_duration = (end_k.frame - start_k.frame) as f32;
     let t_current = frame - (start_k.frame as f32);
@@ -101,12 +98,7 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
             } else {
                 (1.0 - (1.0 - x_clamped).powf(-p)).sqrt()
             };
-            
-            if factor.is_nan() {
-                start_val + (change * x)
-            } else {
-                start_val + (change * factor)
-            }
+            if factor.is_nan() { start_val + (change * x) } else { start_val + (change * factor) }
         },
         _ => start_val + (change * x)
     }
