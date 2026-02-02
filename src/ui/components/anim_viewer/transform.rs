@@ -13,14 +13,14 @@ pub struct WorldTransform {
     pub pivot: egui::Vec2,
     pub hidden: bool,
     pub glow: i32,
-    pub part_index: usize,
 }
 
+// Internal struct to match the JS "vectors" array
 #[derive(Clone, Copy)]
 struct TransformStep {
-    child_pos: [f32; 2],      
-    parent_scale: [f32; 2],   
-    parent_rot: [f32; 4],     
+    child_pos: [f32; 2],      // [data.x, -data.y]
+    parent_scale: [f32; 2],   // [parent.scaleX, parent.scaleY]
+    parent_rot: [f32; 4],     // Rotation matrix of parent
 }
 
 pub fn solve_hierarchy(parts: &[ModelPart], model: &Model) -> Vec<WorldTransform> {
@@ -30,9 +30,9 @@ pub fn solve_hierarchy(parts: &[ModelPart], model: &Model) -> Vec<WorldTransform
         results.push(solve_single_part(i, parts, model));
     }
     
+    // Sort by Z-Index
     results.sort_by(|a, b| {
         a.z_order.cmp(&b.z_order)
-            .then(a.part_index.cmp(&b.part_index))
     });
     
     results
@@ -41,7 +41,8 @@ pub fn solve_hierarchy(parts: &[ModelPart], model: &Model) -> Vec<WorldTransform
 fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldTransform {
     let target_part = &parts[index];
     
-    let mut chain = Vec::new();
+    // 1. Build Chain
+    let mut chain: Vec<usize> = Vec::new();
     let mut curr = index;
     chain.push(curr);
     
@@ -54,33 +55,43 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
     }
     chain.reverse();
     
-    // Vector Calc (Position Logic)
+    // 2. Prepare Vectors
     let mut vectors = Vec::with_capacity(chain.len());
     let rot_div = if model.angle_unit != 0.0 { model.angle_unit / 360.0 } else { 1.0 };
 
     for &idx in &chain {
         let p = &parts[idx];
-        let pos = [p.position_x, -p.position_y]; 
+        
+        // POS: JS uses [x, -y].
+        let pos = [p.position_x, -p.position_y];
+        
+        // SCALE
         let sx = p.scale_x / model.scale_unit;
         let sy = p.scale_y / model.scale_unit;
-        
+        let scale = [sx, sy];
+
+        // ROT: JS uses degToRad. 
+        // JS Rotation Matrix: [cos, sin, -sin, cos]
+        // This effectively encodes a Clockwise rotation (or inverted axis rotation).
         let rot_rad = (p.rotation / rot_div).to_radians();
         let (sin, cos) = rot_rad.sin_cos();
         let rot_matrix = [cos, sin, -sin, cos];
 
         vectors.push(TransformStep {
             child_pos: pos,
-            parent_scale: [sx, sy],
+            parent_scale: scale,
             parent_rot: rot_matrix,
         });
     }
     
+    // 3. Apply Transforms Iteratively (updateSprites Algorithm)
     let len = vectors.len();
     
-    // Apply Scales
+    // Loop 1: Apply Scales
     for j in 0..len {
         let scale = vectors[j].parent_scale;
         for k in j..len {
+            // Note: Loops starting at j (applying to self + children) matches Wiki logic
             if k > j { 
                  vectors[k].child_pos[0] *= scale[0];
                  vectors[k].child_pos[1] *= scale[1];
@@ -88,54 +99,51 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         }
     }
 
-    // Apply Rotations
+    // Loop 2: Apply Rotations and Sum Positions
     let mut g_pos = egui::Vec2::ZERO;
+
     for j in 0..len {
-        let rot = vectors[j].parent_rot; 
+        let rot = vectors[j].parent_rot; // [cos, sin, -sin, cos]
+        
         for l in j..len {
             if l > j {
+                // Apply JS "applyMatrix": [m0*x + m1*y, m2*x + m3*y]
+                // m0=cos, m1=sin, m2=-sin, m3=cos
+                // x' = x*cos + y*sin
+                // y' = x*-sin + y*cos
+                // This rotates Clockwise.
                 let x = vectors[l].child_pos[0];
                 let y = vectors[l].child_pos[1];
+                
                 let nx = x * rot[0] + y * rot[1];
                 let ny = x * rot[2] + y * rot[3];
+                
                 vectors[l].child_pos[0] = nx;
                 vectors[l].child_pos[1] = ny;
             }
         }
+        
+        // Sum Vectors
         g_pos.x += vectors[j].child_pos[0];
         g_pos.y += vectors[j].child_pos[1];
     }
 
-    // Global Properties Calc
+    // --- Global Properties Accumulation ---
     let mut g_scale = egui::vec2(1.0, 1.0);
     let mut g_rot = 0.0;
     let mut g_op = 1.0;
     
-    // Explicitly track flip state to invert rotation
-    let mut flip_x = 1.0;
-    let mut flip_y = 1.0;
-
     for &idx in &chain {
         let p = &parts[idx];
-        let sx = p.scale_x / model.scale_unit;
-        let sy = p.scale_y / model.scale_unit;
-        
-        g_scale.x *= sx;
-        g_scale.y *= sy;
-        
-        // Rotation accumulation depends on CURRENT flip state
-        let local_r = (p.rotation / rot_div).to_radians();
-        g_rot += local_r * flip_x * flip_y;
-        
+        g_scale.x *= p.scale_x / model.scale_unit;
+        g_scale.y *= p.scale_y / model.scale_unit;
+        g_rot += (p.rotation / rot_div).to_radians();
         g_op *= p.alpha / model.alpha_unit;
-        
-        // Update flip state for next child
-        if sx < 0.0 { flip_x *= -1.0; }
-        if sy < 0.0 { flip_y *= -1.0; }
     }
 
-    // Ghost Part Logic: If Unit ID is -1, it's a structural bone, not a sprite.
-    // Also respect manual hiding.
+    // GHOST FIX:
+    // If unit_id is -1, it's a structural bone/dummy part.
+    // If sprite_index is -1, it has no texture.
     let is_ghost = target_part.unit_id == -1 || target_part.sprite_index == -1;
 
     WorldTransform {
@@ -148,6 +156,5 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         pivot: egui::vec2(target_part.pivot_x, target_part.pivot_y),
         hidden: is_ghost,
         glow: target_part.glow_mode,
-        part_index: index,
     }
 }
