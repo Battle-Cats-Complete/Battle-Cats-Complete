@@ -24,7 +24,14 @@ pub fn paint(
     };
 
     for part in parts {
-        if part.hidden || part.opacity < 0.01 { continue; }
+        // Strict culling for ghosts/invisibles
+        if part.hidden 
+           || part.opacity < 0.005 
+           || part.scale.x.abs() < 0.001 
+           || part.scale.y.abs() < 0.001 
+        { 
+            continue; 
+        }
 
         if let Some(cut) = sheet.cuts_map.get(&part.sprite_index) {
             let w = cut.original_size.x;
@@ -32,9 +39,6 @@ pub fn paint(
             let px = part.pivot.x;
             let py = part.pivot.y;
 
-            // Quad construction (Y-Up logic from Wiki)
-            // TL: (-px, py)
-            // TR: (w-px, py) ...
             let corners = [
                 egui::vec2(0.0 - px, py),       
                 egui::vec2(w - px,   py),       
@@ -49,31 +53,15 @@ pub fn paint(
                 let lx = corners[i].x;
                 let ly = corners[i].y;
 
-                // 1. Scale
                 let sx = lx * part.scale.x;
                 let sy = ly * part.scale.y;
 
-                // 2. Rotate
-                // FIX: Match JS "transform" matrix logic (Column Major)
-                // Row 1: sx*cos, -sx*sin (implicitly handled by x/y terms above) => x*cos + y*sin
-                // Row 2: sy*sin, sy*cos  => x*-sin + y*cos (Note: JS array is [cos, -sin, 0, sin, cos...])
-                
-                // JS `drawFrame`:
-                // transform = [sx*cos, -sx*sin, 0, sy*sin, sy*cos, 0, ...]
-                // multMat3(matrix, transform)
-                // This corresponds to:
-                // x' = x(cos) + y(sin)
-                // y' = x(-sin) + y(cos)
-                // This creates a Clockwise rotation (matching hierarchy).
-                
                 let rx = sx * cos + sy * sin;
                 let ry = sx * -sin + sy * cos;
 
-                // 3. Translate (Global Pos from transform.rs)
                 let world_x = part.pos.x + rx;
                 let world_y = part.pos.y + ry;
 
-                // 4. Project to Screen (Flip Y)
                 screen_corners[i] = center + egui::vec2(world_x * zoom, -world_y * zoom);
             }
 
