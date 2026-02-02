@@ -8,11 +8,10 @@ pub fn paint(
     sheet: &SpriteSheet,
     parts: &[WorldTransform],
     pan: egui::Vec2,
-    zoom: f32,
-    show_debug: bool
+    zoom: f32
 ) {
     painter.rect_filled(rect, egui::Rounding::ZERO, egui::Color32::from_gray(20));
-    let center = rect.center() + pan + egui::vec2(0.0, 200.0);
+    let center = rect.center() + pan;
     
     painter.line_segment(
         [center - egui::vec2(200.0, 0.0), center + egui::vec2(200.0, 0.0)], 
@@ -33,25 +32,49 @@ pub fn paint(
             let px = part.pivot.x;
             let py = part.pivot.y;
 
-            let local_corners = [
-                egui::vec2(0.0 - px, 0.0 - py), 
-                egui::vec2(w - px,   0.0 - py), 
-                egui::vec2(w - px,   h - py),   
-                egui::vec2(0.0 - px, h - py),   
+            // Quad construction (Y-Up logic from Wiki)
+            // TL: (-px, py)
+            // TR: (w-px, py) ...
+            let corners = [
+                egui::vec2(0.0 - px, py),       
+                egui::vec2(w - px,   py),       
+                egui::vec2(w - px,   py - h),   
+                egui::vec2(0.0 - px, py - h),   
             ];
 
             let mut screen_corners = [egui::Pos2::ZERO; 4];
-            let m = part.mat; 
+            let (sin, cos) = part.rotation.sin_cos();
 
             for i in 0..4 {
-                let lx = local_corners[i].x;
-                let ly = local_corners[i].y;
+                let lx = corners[i].x;
+                let ly = corners[i].y;
 
-                // Affine Matrix Transform
-                let world_x = m[0] * lx + m[2] * ly + m[4];
-                let world_y = m[1] * lx + m[3] * ly + m[5];
+                // 1. Scale
+                let sx = lx * part.scale.x;
+                let sy = ly * part.scale.y;
 
-                screen_corners[i] = center + egui::vec2(world_x * zoom, world_y * zoom);
+                // 2. Rotate
+                // FIX: Match JS "transform" matrix logic (Column Major)
+                // Row 1: sx*cos, -sx*sin (implicitly handled by x/y terms above) => x*cos + y*sin
+                // Row 2: sy*sin, sy*cos  => x*-sin + y*cos (Note: JS array is [cos, -sin, 0, sin, cos...])
+                
+                // JS `drawFrame`:
+                // transform = [sx*cos, -sx*sin, 0, sy*sin, sy*cos, 0, ...]
+                // multMat3(matrix, transform)
+                // This corresponds to:
+                // x' = x(cos) + y(sin)
+                // y' = x(-sin) + y(cos)
+                // This creates a Clockwise rotation (matching hierarchy).
+                
+                let rx = sx * cos + sy * sin;
+                let ry = sx * -sin + sy * cos;
+
+                // 3. Translate (Global Pos from transform.rs)
+                let world_x = part.pos.x + rx;
+                let world_y = part.pos.y + ry;
+
+                // 4. Project to Screen (Flip Y)
+                screen_corners[i] = center + egui::vec2(world_x * zoom, -world_y * zoom);
             }
 
             let mut mesh = egui::Mesh::with_texture(texture_id);
