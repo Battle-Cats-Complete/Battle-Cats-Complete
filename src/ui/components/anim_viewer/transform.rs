@@ -1,101 +1,154 @@
 use eframe::egui;
-use std::collections::HashMap;
 use crate::data::global::mamodel::{Model, ModelPart};
 
 #[derive(Clone, Copy, Debug)]
 pub struct WorldTransform {
-    // [a, b, c, d, tx, ty]
-    pub mat: [f32; 6], 
+    pub pos: egui::Vec2,
+    pub scale: egui::Vec2,
+    pub rotation: f32, 
     pub opacity: f32,
+    
     pub z_order: i32,
     pub sprite_index: usize,
-    pub part_index: usize, // Needed for Tie-Breaker
     pub pivot: egui::Vec2,
     pub hidden: bool,
     pub glow: i32,
 }
 
-pub fn solve_hierarchy(parts: &[ModelPart], model: &Model) -> Vec<WorldTransform> {
-    let mut cache: HashMap<usize, WorldTransform> = HashMap::new();
-    let mut results: Vec<WorldTransform> = Vec::new();
+// Internal struct to match the JS "vectors" array
+#[derive(Clone, Copy)]
+struct TransformStep {
+    child_pos: [f32; 2],      // [data.x, -data.y]
+    parent_scale: [f32; 2],   // [parent.scaleX, parent.scaleY]
+    parent_rot: [f32; 4],     // Rotation matrix of parent
+}
 
-    for i in 0..parts.len() {
-        results.push(solve_bone(i, parts, model, &mut cache));
+pub fn solve_hierarchy(parts: &[ModelPart], model: &Model) -> Vec<WorldTransform> {
+    let mut results = Vec::with_capacity(parts.len());
+
+    for (i, _) in parts.iter().enumerate() {
+        results.push(solve_single_part(i, parts, model));
     }
     
-    // FIX: Stable Sorting (Z-Order -> Part Index)
-    // Ensures parts on the same layer don't flicker or disappear.
+    // Sort by Z-Index
     results.sort_by(|a, b| {
         a.z_order.cmp(&b.z_order)
-            .then(a.part_index.cmp(&b.part_index))
     });
     
     results
 }
 
-fn solve_bone(index: usize, parts: &[ModelPart], model: &Model, cache: &mut HashMap<usize, WorldTransform>) -> WorldTransform {
-    if let Some(cached) = cache.get(&index) { return *cached; }
-
-    let part = &parts[index];
+fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldTransform {
+    let target_part = &parts[index];
     
-    let parent_mat = if part.parent_id >= 0 && (part.parent_id as usize) < parts.len() && (part.parent_id as usize) != index {
-        solve_bone(part.parent_id as usize, parts, model, cache).mat
-    } else {
-        [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
-    };
-
-    let parent_opacity = if part.parent_id >= 0 && (part.parent_id as usize) < parts.len() && (part.parent_id as usize) != index {
-        cache.get(&(part.parent_id as usize)).map(|t| t.opacity).unwrap_or(1.0)
-    } else {
-        1.0
-    };
-
-    // FIX: Visibility uses Sprite Index. Unit ID -1 is valid for generic parts.
-    let is_hidden = part.sprite_index == -1;
-
-    let sx = part.scale_x / model.scale_unit;
-    let sy = part.scale_y / model.scale_unit;
+    // 1. Build Chain
+    let mut chain: Vec<usize> = Vec::new();
+    let mut curr = index;
+    chain.push(curr);
     
+    let mut safety = 0;
+    while parts[curr].parent_id != -1 && safety < 100 {
+        curr = parts[curr].parent_id as usize;
+        if curr >= parts.len() { break; }
+        chain.push(curr);
+        safety += 1;
+    }
+    chain.reverse();
+    
+    // 2. Prepare Vectors
+    let mut vectors = Vec::with_capacity(chain.len());
     let rot_div = if model.angle_unit != 0.0 { model.angle_unit / 360.0 } else { 1.0 };
-    let rotation = (part.rotation / rot_div).to_radians();
-    let (sin, cos) = rotation.sin_cos();
 
-    let tx = part.position_x;
-    let ty = part.position_y; 
+    for &idx in &chain {
+        let p = &parts[idx];
+        
+        // POS: JS uses [x, -y].
+        let pos = [p.position_x, -p.position_y];
+        
+        // SCALE
+        let sx = p.scale_x / model.scale_unit;
+        let sy = p.scale_y / model.scale_unit;
+        let scale = [sx, sy];
 
-    // Matrix Construction
-    let la = sx * cos;
-    let lb = sx * sin;
-    let lc = -sy * sin;
-    let ld = sy * cos;
+        // ROT: JS uses degToRad. 
+        // JS Rotation Matrix: [cos, sin, -sin, cos]
+        // This effectively encodes a Clockwise rotation (or inverted axis rotation).
+        let rot_rad = (p.rotation / rot_div).to_radians();
+        let (sin, cos) = rot_rad.sin_cos();
+        let rot_matrix = [cos, sin, -sin, cos];
+
+        vectors.push(TransformStep {
+            child_pos: pos,
+            parent_scale: scale,
+            parent_rot: rot_matrix,
+        });
+    }
     
-    // Matrix Multiplication
-    let pa = parent_mat[0]; let pc = parent_mat[2]; let ptx = parent_mat[4];
-    let pb = parent_mat[1]; let pd = parent_mat[3]; let pty = parent_mat[5];
+    // 3. Apply Transforms Iteratively (updateSprites Algorithm)
+    let len = vectors.len();
+    
+    // Loop 1: Apply Scales
+    for j in 0..len {
+        let scale = vectors[j].parent_scale;
+        for k in j..len {
+            if k > j { 
+                 vectors[k].child_pos[0] *= scale[0];
+                 vectors[k].child_pos[1] *= scale[1];
+            }
+        }
+    }
 
-    let final_mat = [
-        pa * la + pc * lb,       
-        pb * la + pd * lb,       
-        pa * lc + pc * ld,       
-        pb * lc + pd * ld,       
-        pa * tx + pc * ty + ptx, 
-        pb * tx + pd * ty + pty  
-    ];
+    // Loop 2: Apply Rotations and Sum Positions
+    let mut g_pos = egui::Vec2::ZERO;
 
-    let alpha_norm = part.alpha / model.alpha_unit;
-    let final_opacity = parent_opacity * alpha_norm;
+    for j in 0..len {
+        let rot = vectors[j].parent_rot; // [cos, sin, -sin, cos]
+        
+        for l in j..len {
+            if l > j {
+                // Apply JS "applyMatrix": [m0*x + m1*y, m2*x + m3*y]
+                // m0=cos, m1=sin, m2=-sin, m3=cos
+                // x' = x*cos + y*sin
+                // y' = x*-sin + y*cos
+                // This rotates Clockwise.
+                let x = vectors[l].child_pos[0];
+                let y = vectors[l].child_pos[1];
+                
+                let nx = x * rot[0] + y * rot[1];
+                let ny = x * rot[2] + y * rot[3];
+                
+                vectors[l].child_pos[0] = nx;
+                vectors[l].child_pos[1] = ny;
+            }
+        }
+        
+        // Sum Vectors
+        g_pos.x += vectors[j].child_pos[0];
+        g_pos.y += vectors[j].child_pos[1];
+    }
 
-    let result = WorldTransform {
-        mat: final_mat,
-        opacity: final_opacity,
-        z_order: part.drawing_layer,
-        sprite_index: part.sprite_index as usize,
-        part_index: index,
-        pivot: egui::vec2(part.pivot_x, part.pivot_y),
-        hidden: is_hidden,
-        glow: part.glow_mode,
-    };
+    // --- Global Properties Accumulation ---
+    let mut g_scale = egui::vec2(1.0, 1.0);
+    let mut g_rot = 0.0;
+    let mut g_op = 1.0;
+    
+    for &idx in &chain {
+        let p = &parts[idx];
+        g_scale.x *= p.scale_x / model.scale_unit;
+        g_scale.y *= p.scale_y / model.scale_unit;
+        g_rot += (p.rotation / rot_div).to_radians();
+        g_op *= p.alpha / model.alpha_unit;
+    }
 
-    cache.insert(index, result);
-    result
+    WorldTransform {
+        pos: g_pos,
+        scale: g_scale,
+        rotation: g_rot,
+        opacity: g_op,
+        z_order: target_part.drawing_layer,
+        sprite_index: target_part.sprite_index as usize,
+        pivot: egui::vec2(target_part.pivot_x, target_part.pivot_y),
+        hidden: target_part.sprite_index == -1,
+        glow: target_part.glow_mode,
+    }
 }

@@ -1,5 +1,5 @@
 use eframe::egui;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::fs;
 use std::thread;
 use std::sync::mpsc::{self, Receiver};
