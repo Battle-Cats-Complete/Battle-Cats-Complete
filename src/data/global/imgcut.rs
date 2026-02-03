@@ -18,6 +18,7 @@ pub struct SpriteSheet {
     pub cuts_map: HashMap<usize, SpriteCut>, 
     pub is_loading_active: bool,
     pub data_receiver: Option<Receiver<(String, egui::ColorImage, HashMap<usize, SpriteCut>)>>,
+    pub sheet_name: String, 
 }
 
 impl Default for SpriteSheet {
@@ -27,6 +28,7 @@ impl Default for SpriteSheet {
             cuts_map: HashMap::new(),
             is_loading_active: false,
             data_receiver: None,
+            sheet_name: String::new(),
         }
     }
 }
@@ -40,7 +42,7 @@ impl SpriteSheet {
         self.texture_handle.is_some()
     }
 
-    // Spawns a thread to load PNG + ImgCut
+    /// Spawns a thread to load PNG + ImgCut
     pub fn load(&mut self, ctx: &egui::Context, png_path: &Path, imgcut_path: &Path, id_str: String) {
         if self.is_loading_active { return; }
         
@@ -56,15 +58,15 @@ impl SpriteSheet {
             if let Some((img, cuts)) = Self::load_internal(&png_p, &cut_p) {
                 let _ = tx.send((id_str, img, cuts));
                 ctx_clone.request_repaint();
-            } else {
-                // Handle failure if needed, or just hang (simple implementation)
             }
         });
     }
 
+    /// Receives loaded data from the background thread and creates the texture
     pub fn update(&mut self, ctx: &egui::Context) {
         if let Some(rx) = &self.data_receiver {
             if let Ok((name, img, cuts)) = rx.try_recv() {
+                self.sheet_name = name.clone(); 
                 self.texture_handle = Some(ctx.load_texture(&name, img, Default::default()));
                 self.cuts_map = cuts;
                 self.is_loading_active = false;
@@ -73,7 +75,8 @@ impl SpriteSheet {
         }
     }
 
-    // Helper for UI to get an egui::Image from a sprite ID (line number)
+    /// Returns an Image widget for the specified line index.
+    /// Note: This returns the image at its natural size. Use .fit_to_exact_size() in the UI.
     pub fn get_sprite_by_line(&self, index: usize) -> Option<egui::Image<'_>> {
         let tex = self.texture_handle.as_ref()?;
         let cut = self.cuts_map.get(&index)?;
@@ -81,7 +84,7 @@ impl SpriteSheet {
         Some(egui::Image::new(tex).uv(cut.uv_coordinates))
     }
 
-    // --- INTERNAL PARSING LOGIC (BCU Style) ---
+    // --- INTERNAL PARSING LOGIC ---
     fn load_internal(png_path: &Path, cut_path: &Path) -> Option<(egui::ColorImage, HashMap<usize, SpriteCut>)> {
         // 1. Load Image
         let image_data = fs::read(png_path).ok()?;
@@ -91,7 +94,7 @@ impl SpriteSheet {
         let pixels = image_buffer.as_flat_samples();
         let egui_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
 
-        // 2. Load Text
+        // 2. Load ImgCut Text
         let content = fs::read_to_string(cut_path).ok()?;
         let delimiter = utils::detect_csv_separator(&content);
         let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -102,24 +105,20 @@ impl SpriteSheet {
         let mut found_header = false;
 
         for (i, line) in lines.iter().enumerate() {
-            // Find the line that is JUST a number (count)
             if !line.contains(',') {
                 if let Ok(val) = line.trim().parse::<usize>() {
-                    // Heuristic: Valid count usually > 0 and < 2000
-                    if val > 0 && val < 2000 {
+                    if val > 0 && val < 5000 {
                         sprite_count = val;
-                        data_start_index = i + 1; // Data starts AFTER count
+                        data_start_index = i + 1;
                         found_header = true;
                     }
                 }
-            } else {
-                // If we hit CSV data, stop looking
-                if found_header { break; }
+            } else if found_header { 
+                break; 
             }
         }
 
         if !found_header || sprite_count == 0 {
-            // Fallback: Raw CSV file
             data_start_index = 0;
             sprite_count = lines.len();
         }
@@ -137,7 +136,6 @@ impl SpriteSheet {
             let line = lines[line_idx];
             let p: Vec<&str> = line.split(delimiter).collect();
             
-            // Expected: x, y, w, h
             if p.len() >= 4 {
                 if let (Ok(x), Ok(y), Ok(cw), Ok(ch)) = (
                     p[0].trim().parse::<f32>(),

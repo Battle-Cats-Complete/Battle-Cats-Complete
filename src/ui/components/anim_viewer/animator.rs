@@ -20,7 +20,8 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             }
         } else if loop_count > 0 && lmax > 0 {
             let end_time = fir + loop_count * lmax;
-            // FIX: Use float comparison to handle sub-frame values correctly at the end of loop
+            // FIX: Use >= to Clamp "Once" animations at the end. 
+            // Prevents wrapping to 0 when frame == end_time (due to Jitter Fix).
             if global_frame >= end_time as f32 {
                 local_frame = smax as f32; 
             } else if (global_frame as i32) > fir {
@@ -62,8 +63,25 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             10 => part.scale_y *= val / model.scale_unit,
             11 => part.rotation += val,
             12 => part.alpha *= val / model.alpha_unit,
-            13 => if val != 0.0 { part.scale_x *= -1.0; },
-            14 => if val != 0.0 { part.scale_y *= -1.0; },
+            
+            // GLOW HACK: Store "True Flip" state in high bits of glow_mode
+            // This separates Mod 13 (Flip) from Mod 8 (Scale)
+            13 => {
+                if val != 0.0 { 
+                    part.scale_x *= -1.0; 
+                    part.glow_mode |= 0x10000; // Flag Flip X
+                } else {
+                    part.glow_mode &= !0x10000;
+                }
+            },
+            14 => {
+                if val != 0.0 { 
+                    part.scale_y *= -1.0; 
+                    part.glow_mode |= 0x20000; // Flag Flip Y
+                } else {
+                    part.glow_mode &= !0x20000;
+                }
+            },
             _ => {}
         }
     }
