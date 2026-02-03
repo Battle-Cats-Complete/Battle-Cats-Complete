@@ -20,8 +20,7 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             }
         } else if loop_count > 0 && lmax > 0 {
             let end_time = fir + loop_count * lmax;
-            // FIX: Use >= to Clamp "Once" animations at the end. 
-            // Prevents wrapping to 0 when frame == end_time (due to Jitter Fix).
+            // FIX: Use >= to Clamp "Once" animations. 
             if global_frame >= end_time as f32 {
                 local_frame = smax as f32; 
             } else if (global_frame as i32) > fir {
@@ -41,7 +40,6 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             1 => part.unit_id = val as i32,
             3 => part.drawing_layer = val as i32, 
             
-            // Sprite Index (Mod 2)
             2 => {
                 if slope < 0.0 {
                     part.sprite_index = val.ceil() as i32;
@@ -64,22 +62,23 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             11 => part.rotation += val,
             12 => part.alpha *= val / model.alpha_unit,
             
-            // GLOW HACK: Store "True Flip" state in high bits of glow_mode
-            // This separates Mod 13 (Flip) from Mod 8 (Scale)
+            // CLEAN FIX: Use explicit flip fields
+            // Mod 8 (Scale) affects scale_x/y above. 
+            // Mod 13 (Flip) affects flip_x/y here AND scale_x/y (for visual flip).
             13 => {
                 if val != 0.0 { 
                     part.scale_x *= -1.0; 
-                    part.glow_mode |= 0x10000; // Flag Flip X
+                    part.flip_x = true;   
                 } else {
-                    part.glow_mode &= !0x10000;
+                    part.flip_x = false;
                 }
             },
             14 => {
                 if val != 0.0 { 
                     part.scale_y *= -1.0; 
-                    part.glow_mode |= 0x20000; // Flag Flip Y
+                    part.flip_y = true;   
                 } else {
-                    part.glow_mode &= !0x20000;
+                    part.flip_y = false;
                 }
             },
             _ => {}

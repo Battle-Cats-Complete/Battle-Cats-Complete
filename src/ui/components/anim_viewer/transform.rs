@@ -29,7 +29,7 @@ pub fn solve_hierarchy(parts: &[ModelPart], model: &Model) -> Vec<WorldTransform
         results.push(solve_single_part(i, parts, model));
     }
     
-    // Stable Sort (Fixes flickering on overlapping parts)
+    // STABLE SORT: Fixes "jittering when still" (Z-fighting)
     results.sort_by(|a, b| {
         a.z_order.cmp(&b.z_order)
             .then(a.part_index.cmp(&b.part_index))
@@ -64,22 +64,17 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
     for &idx in &chain {
         let p = &parts[idx];
         let pos = [p.position_x, -p.position_y]; 
-        
-        // Scale includes Mod 8 (Scale) AND Mod 13 (Flip)
         let sx = p.scale_x / model.scale_unit;
         let sy = p.scale_y / model.scale_unit;
         
-        // Decode True Flip from Glow Flags (Set in animator.rs)
-        // This isolates Mod 13 (Flip) from Mod 8 (Negative Scale)
-        let is_flipped_x = (p.glow_mode & 0x10000) != 0;
-        let is_flipped_y = (p.glow_mode & 0x20000) != 0;
-        let current_flip_x = if is_flipped_x { -1.0 } else { 1.0 };
-        let current_flip_y = if is_flipped_y { -1.0 } else { 1.0 };
+        // CLEAN FIX: Read True Flip from explicit fields
+        let current_flip_x = if p.flip_x { -1.0 } else { 1.0 };
+        let current_flip_y = if p.flip_y { -1.0 } else { 1.0 };
         
         let total_flip_x = acc_flip_x * current_flip_x;
         let total_flip_y = acc_flip_y * current_flip_y;
         
-        // JS Logic: Rotation is affected by TRUE FLIP, not Scale Sign.
+        // Rotation is affected by TRUE FLIP (Mod 13) only, NOT Mod 8.
         let rot_rad = (p.rotation / rot_div).to_radians();
         let adjusted_rot = rot_rad * total_flip_x * total_flip_y;
         
@@ -88,7 +83,7 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
 
         vectors.push(TransformStep {
             child_pos: pos,
-            parent_scale: [sx, sy], // Use actual scale (includes both mods) for position scaling
+            parent_scale: [sx, sy], // Position uses combined visual scale
             parent_rot: rot_matrix,
         });
         
@@ -98,7 +93,6 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
     
     let len = vectors.len();
     
-    // Apply Scales
     for j in 0..len {
         let scale = vectors[j].parent_scale;
         for k in j..len {
@@ -109,7 +103,6 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         }
     }
 
-    // Apply Rotations
     let mut g_pos = egui::Vec2::ZERO;
     for j in 0..len {
         let rot = vectors[j].parent_rot; 
@@ -127,7 +120,6 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         g_pos.y += vectors[j].child_pos[1];
     }
 
-    // Global Properties
     let mut g_scale = egui::vec2(1.0, 1.0);
     let mut g_rot = 0.0;
     let mut g_op = 1.0;
@@ -143,11 +135,8 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         g_scale.x *= sx;
         g_scale.y *= sy;
         
-        // Decode True Flip again for Global Rotation
-        let is_flipped_x = (p.glow_mode & 0x10000) != 0;
-        let is_flipped_y = (p.glow_mode & 0x20000) != 0;
-        let current_flip_x = if is_flipped_x { -1.0 } else { 1.0 };
-        let current_flip_y = if is_flipped_y { -1.0 } else { 1.0 };
+        let current_flip_x = if p.flip_x { -1.0 } else { 1.0 };
+        let current_flip_y = if p.flip_y { -1.0 } else { 1.0 };
         
         let local_r = (p.rotation / rot_div).to_radians();
         g_rot += local_r * acc_flip_x * current_flip_x * acc_flip_y * current_flip_y;
@@ -169,7 +158,7 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         sprite_index: target_part.sprite_index as usize,
         pivot: egui::vec2(target_part.pivot_x, target_part.pivot_y),
         hidden: is_ghost,
-        glow: target_part.glow_mode & 0xFFFF, // Clean the flags before render
+        glow: target_part.glow_mode,
         part_index: index,
     }
 }
