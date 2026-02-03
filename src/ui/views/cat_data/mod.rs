@@ -9,13 +9,14 @@ use crate::data::global::img015;
 use crate::core::settings::Settings;
 use crate::core::cat::talents as talent_logic; 
 use crate::data::global::mamodel::Model;
-use crate::ui::components::anim_viewer::AnimViewer;
+use crate::ui::views::cat_data::anim::AnimViewer;
 
 mod header;
 mod stats;
 mod abilities;
 mod talents;
 mod details;
+pub mod anim;
 pub mod list;
 
 pub fn show(

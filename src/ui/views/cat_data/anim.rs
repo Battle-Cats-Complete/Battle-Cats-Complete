@@ -1,13 +1,10 @@
 use eframe::egui;
 use std::path::Path;
-use std::sync::{Arc, Mutex}; // Use standard Mutex instead of parking_lot
+use std::sync::{Arc, Mutex};
 use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
-
-pub mod transform;
-mod canvas;
-mod animator;
+use crate::core::anim::{animator, canvas, transform};
 
 pub struct AnimViewer {
     pub zoom_level: f32,
@@ -23,9 +20,6 @@ pub struct AnimViewer {
     pub loaded_anim_index: usize, 
     pub loaded_id: String,
     
-    // NEW: Persistent Renderer State
-    // We use Arc<Mutex<Option<...>>> to allow the paint callback (which runs on a render thread)
-    // to access the GL context safely.
     pub renderer: Arc<Mutex<Option<canvas::GlowRenderer>>>,
 }
 
@@ -57,7 +51,6 @@ impl AnimViewer {
         self.zoom_level = 1.0;
         self.interpolation = false;
         
-        // Clear renderer on reset to force re-upload of textures if needed
         if let Ok(mut r) = self.renderer.lock() {
             *r = None;
         }
@@ -107,7 +100,6 @@ impl AnimViewer {
             ui.checkbox(&mut self.debug_show_info, "Debug");
         });
 
-        // Allocate the rect for the GL canvas
         let (rect, _response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
         if _response.dragged() { self.pan_offset += _response.drag_delta(); }
         ui.input(|i| { if i.zoom_delta() != 1.0 { self.zoom_level *= i.zoom_delta(); } });
@@ -125,17 +117,12 @@ impl AnimViewer {
             transform::solve_hierarchy(&model.parts, model)
         };
 
-        // GLOW IMPLEMENTATION:
-        // Pass the renderer (shared state), the sheet (data), and the parts to the callback.
-        // We clone the sprite_sheet data into an Arc here. Ideally, `sprite_sheet` should already be an Arc in your main app,
-        // but this works for now.
-        // NOTE: This assumes SpriteSheet now contains `image_data` from the imgcut.rs update.
         let sheet_arc = Arc::new(SpriteSheet {
             texture_handle: sprite_sheet.texture_handle.clone(),
             image_data: sprite_sheet.image_data.clone(),
             cuts_map: sprite_sheet.cuts_map.clone(),
             is_loading_active: sprite_sheet.is_loading_active,
-            data_receiver: None, // Can't clone receiver, but we don't need it for rendering
+            data_receiver: None, 
             sheet_name: sprite_sheet.sheet_name.clone(),
         });
 
