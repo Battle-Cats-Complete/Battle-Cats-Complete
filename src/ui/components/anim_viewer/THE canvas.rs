@@ -108,22 +108,6 @@ impl GlowRenderer {
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
 
-            // --- GLOW FIX: Manual Pre-multiplied Alpha ---
-            // The Wiki uses UNPACK_PREMULTIPLY_ALPHA_WEBGL.
-            // We replicate this by multiplying RGB by Alpha on the CPU.
-            // This ensures Additive Blending (ONE, ONE) adds the correct amount of light.
-            let pixels = &img.pixels;
-            let mut data: Vec<u8> = Vec::with_capacity(pixels.len() * 4);
-            
-            for p in pixels {
-                let a = p.a() as f32 / 255.0;
-                // Multiply RGB by Alpha
-                data.push((p.r() as f32 * a) as u8);
-                data.push((p.g() as f32 * a) as u8);
-                data.push((p.b() as f32 * a) as u8);
-                data.push(p.a());
-            }
-
             gl.tex_image_2d(
                 glow::TEXTURE_2D,
                 0,
@@ -133,7 +117,7 @@ impl GlowRenderer {
                 0,
                 glow::RGBA,
                 glow::UNSIGNED_BYTE,
-                Some(&data),
+                Some(bytemuck::cast_slice(&img.pixels)),
             );
 
             self.texture = Some(tex);
@@ -154,8 +138,10 @@ impl GlowRenderer {
             let w = viewport.width();
             let h = viewport.height();
             
-            // UNTOUCHED: Original Projection from "THE canvas.rs" (Y-Up logic)
-            // This was confirmed to orient units correctly.
+            // FIX: Flip Y-Axis for Projection.
+            // Old: -2.0/h (Y-Down). New: 2.0/h (Y-Up).
+            // This aligns with the Unit Geometry which expects Y to increase upwards.
+            // Translation set to -1.0 to map screen bottom to NDC -1.
             let projection = [
                 2.0 / w, 0.0, 0.0,
                 0.0, 2.0 / h, 0.0, 
@@ -165,13 +151,11 @@ impl GlowRenderer {
             let center_x = w / 2.0;
             let center_y = h / 2.0;
             
-            // --- SCROLL FIX: Invert Pan Y ---
-            // "THE canvas.rs" used `center_y + pan.y`.
-            // We change to `center_y - pan.y` so dragging up moves the view up.
+            // Camera Matrix (Pan + Zoom)
             let camera = [
                 zoom, 0.0, 0.0,
                 0.0, zoom, 0.0,
-                center_x + pan.x * zoom, center_y - pan.y * zoom, 1.0
+                center_x + pan.x * zoom, center_y + pan.y * zoom, 1.0
             ];
 
             let view_matrix = multiply_mat3(&projection, &camera);
@@ -209,13 +193,14 @@ impl GlowRenderer {
                     gl.uniform_matrix_3_f32_slice(u_transform.as_ref(), false, &final_matrix);
                     gl.uniform_1_f32(u_opacity.as_ref(), part.opacity);
 
-                    // UNTOUCHED: Original Vertex logic from "THE canvas.rs"
-                    // Uses positive 'py' for top edge, which works with the Y-Up projection above.
+                    // Vertices (Standard orientation)
                     let w = cut.original_size.x;
                     let h = cut.original_size.y;
                     let px = part.pivot.x;
                     let py = part.pivot.y;
 
+                    // With Y-Up Projection, 'py' is visually higher than 'py-h'.
+                    // This matches standard geometry.
                     let vertices: [f32; 12] = [
                         -px, py,                
                         w - px, py,             

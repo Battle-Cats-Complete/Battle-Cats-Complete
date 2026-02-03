@@ -1,5 +1,6 @@
 use eframe::egui;
 use std::path::Path;
+use std::sync::{Arc, Mutex}; // Use standard Mutex instead of parking_lot
 use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
@@ -12,9 +13,7 @@ pub struct AnimViewer {
     pub zoom_level: f32,
     pub pan_offset: egui::Vec2,
     pub debug_show_info: bool,
-    
-    // Toggle: Unchecked = Game Accurate (30FPS Snap), Checked = Smooth
-    pub interpolation: bool, 
+    pub interpolation: bool,
     
     pub current_anim: Option<Animation>,
     pub current_frame: f32,
@@ -22,7 +21,12 @@ pub struct AnimViewer {
     pub playback_speed: f32,
     
     pub loaded_anim_index: usize, 
-    pub loaded_id: String, 
+    pub loaded_id: String,
+    
+    // NEW: Persistent Renderer State
+    // We use Arc<Mutex<Option<...>>> to allow the paint callback (which runs on a render thread)
+    // to access the GL context safely.
+    pub renderer: Arc<Mutex<Option<canvas::GlowRenderer>>>,
 }
 
 impl Default for AnimViewer {
@@ -31,13 +35,14 @@ impl Default for AnimViewer {
             zoom_level: 1.0, 
             pan_offset: egui::vec2(0.0, 0.0),
             debug_show_info: false,
-            interpolation: false, // Default to Game Accurate
+            interpolation: false,
             current_anim: None,
             current_frame: 0.0,
             is_playing: true,
             playback_speed: 1.0,
             loaded_anim_index: 0, 
             loaded_id: String::new(),
+            renderer: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -51,6 +56,11 @@ impl AnimViewer {
         self.pan_offset = egui::vec2(0.0, 0.0);
         self.zoom_level = 1.0;
         self.interpolation = false;
+        
+        // Clear renderer on reset to force re-upload of textures if needed
+        if let Ok(mut r) = self.renderer.lock() {
+            *r = None;
+        }
     }
 
     pub fn load_anim(&mut self, path: &Path) {
@@ -97,12 +107,12 @@ impl AnimViewer {
             ui.checkbox(&mut self.debug_show_info, "Debug");
         });
 
-        let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::drag());
-        if response.dragged() { self.pan_offset += response.drag_delta(); }
+        // Allocate the rect for the GL canvas
+        let (rect, _response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
+        if _response.dragged() { self.pan_offset += _response.drag_delta(); }
         ui.input(|i| { if i.zoom_delta() != 1.0 { self.zoom_level *= i.zoom_delta(); } });
 
         let parts_to_draw = if let Some(anim) = &self.current_anim {
-            // JITTER FIX: Use floor with epsilon to handle float drift.
             let frame = if self.interpolation { 
                 self.current_frame 
             } else { 
@@ -115,6 +125,28 @@ impl AnimViewer {
             transform::solve_hierarchy(&model.parts, model)
         };
 
-        canvas::paint(&painter, response.rect, sprite_sheet, &parts_to_draw, self.pan_offset, self.zoom_level);
+        // GLOW IMPLEMENTATION:
+        // Pass the renderer (shared state), the sheet (data), and the parts to the callback.
+        // We clone the sprite_sheet data into an Arc here. Ideally, `sprite_sheet` should already be an Arc in your main app,
+        // but this works for now.
+        // NOTE: This assumes SpriteSheet now contains `image_data` from the imgcut.rs update.
+        let sheet_arc = Arc::new(SpriteSheet {
+            texture_handle: sprite_sheet.texture_handle.clone(),
+            image_data: sprite_sheet.image_data.clone(),
+            cuts_map: sprite_sheet.cuts_map.clone(),
+            is_loading_active: sprite_sheet.is_loading_active,
+            data_receiver: None, // Can't clone receiver, but we don't need it for rendering
+            sheet_name: sprite_sheet.sheet_name.clone(),
+        });
+
+        canvas::paint(
+            ui, 
+            rect, 
+            self.renderer.clone(), 
+            sheet_arc, 
+            parts_to_draw, 
+            self.pan_offset, 
+            self.zoom_level
+        );
     }
 }
