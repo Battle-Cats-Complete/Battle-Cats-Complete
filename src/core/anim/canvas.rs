@@ -108,6 +108,18 @@ impl GlowRenderer {
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
 
+            // --- GLOW FIX: Manual Pre-multiplied Alpha ---
+            let pixels = &img.pixels;
+            let mut data: Vec<u8> = Vec::with_capacity(pixels.len() * 4);
+            
+            for p in pixels {
+                let a = p.a() as f32 / 255.0;
+                data.push((p.r() as f32 * a) as u8);
+                data.push((p.g() as f32 * a) as u8);
+                data.push((p.b() as f32 * a) as u8);
+                data.push(p.a());
+            }
+
             gl.tex_image_2d(
                 glow::TEXTURE_2D,
                 0,
@@ -117,7 +129,7 @@ impl GlowRenderer {
                 0,
                 glow::RGBA,
                 glow::UNSIGNED_BYTE,
-                Some(bytemuck::cast_slice(&img.pixels)),
+                Some(&data),
             );
 
             self.texture = Some(tex);
@@ -138,10 +150,6 @@ impl GlowRenderer {
             let w = viewport.width();
             let h = viewport.height();
             
-            // FIX: Flip Y-Axis for Projection.
-            // Old: -2.0/h (Y-Down). New: 2.0/h (Y-Up).
-            // This aligns with the Unit Geometry which expects Y to increase upwards.
-            // Translation set to -1.0 to map screen bottom to NDC -1.
             let projection = [
                 2.0 / w, 0.0, 0.0,
                 0.0, 2.0 / h, 0.0, 
@@ -151,11 +159,11 @@ impl GlowRenderer {
             let center_x = w / 2.0;
             let center_y = h / 2.0;
             
-            // Camera Matrix (Pan + Zoom)
+            // --- SCROLL FIX: Invert Pan Y ---
             let camera = [
                 zoom, 0.0, 0.0,
                 0.0, zoom, 0.0,
-                center_x + pan.x * zoom, center_y + pan.y * zoom, 1.0
+                center_x + pan.x * zoom, center_y - pan.y * zoom, 1.0
             ];
 
             let view_matrix = multiply_mat3(&projection, &camera);
@@ -179,6 +187,13 @@ impl GlowRenderer {
                 }
 
                 if let Some(cut) = sheet.cuts_map.get(&part.sprite_index) {
+                    let w = cut.original_size.x;
+                    let h = cut.original_size.y;
+                    
+                    // --- CULLING FIX: Ignore sprites area <= 16 (1x1, 2x2, etc) ---
+                    if w * h <= 16.0 { continue; }
+                    // -------------------------------------------------------------
+
                     let (sin, cos) = part.rotation.sin_cos();
                     let sx = part.scale.x; 
                     let sy = part.scale.y;
@@ -193,14 +208,9 @@ impl GlowRenderer {
                     gl.uniform_matrix_3_f32_slice(u_transform.as_ref(), false, &final_matrix);
                     gl.uniform_1_f32(u_opacity.as_ref(), part.opacity);
 
-                    // Vertices (Standard orientation)
-                    let w = cut.original_size.x;
-                    let h = cut.original_size.y;
                     let px = part.pivot.x;
                     let py = part.pivot.y;
 
-                    // With Y-Up Projection, 'py' is visually higher than 'py-h'.
-                    // This matches standard geometry.
                     let vertices: [f32; 12] = [
                         -px, py,                
                         w - px, py,             
@@ -213,7 +223,6 @@ impl GlowRenderer {
                     gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
                     gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytemuck::cast_slice(&vertices), glow::DYNAMIC_DRAW);
 
-                    // UVs
                     let uv = cut.uv_coordinates;
                     let tex_coords: [f32; 12] = [
                         uv.min.x, uv.min.y, 

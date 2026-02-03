@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use crate::core::utils;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ModelPart {
     pub parent_id: i32,
     pub unit_id: i32,
@@ -17,18 +17,52 @@ pub struct ModelPart {
     pub rotation: f32,
     pub alpha: f32,
     pub glow_mode: i32,
-    // NEW: Explicit fields for logical flip state
     pub flip_x: bool,
     pub flip_y: bool,
 }
 
-#[derive(Clone, Debug, Default)]
+impl Default for ModelPart {
+    fn default() -> Self {
+        Self {
+            parent_id: -1,
+            unit_id: 0,
+            sprite_index: 0,
+            drawing_layer: 0,
+            position_x: 0.0,
+            position_y: 0.0,
+            pivot_x: 0.0,
+            pivot_y: 0.0,
+            scale_x: 1000.0,
+            scale_y: 1000.0,
+            rotation: 0.0,
+            alpha: 1000.0,
+            glow_mode: 0,
+            flip_x: false,
+            flip_y: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Model {
     pub parts: Vec<ModelPart>,
     pub version: u32,
     pub scale_unit: f32, 
     pub angle_unit: f32,
     pub alpha_unit: f32,
+}
+
+impl Default for Model {
+    fn default() -> Self {
+        Self {
+            parts: Vec::new(),
+            version: 0,
+            // FIX: Initialize with valid defaults to prevent Div/0 if file misses header.
+            scale_unit: 1000.0,
+            angle_unit: 3600.0,
+            alpha_unit: 1000.0,
+        }
+    }
 }
 
 impl Model {
@@ -56,10 +90,13 @@ impl Model {
         if part_count == 0 { return None; }
 
         let unit_line_index = data_start_index + part_count;
+        
+        // Initialize with defaults (Standard BC values)
         let mut scale_unit = 1000.0;
         let mut angle_unit = 3600.0; 
         let mut alpha_unit = 1000.0;
 
+        // Try to read custom units if the line exists
         if lines.len() > unit_line_index {
             for i in unit_line_index..lines.len() {
                 let p: Vec<&str> = lines[i].split(delimiter).collect();
@@ -69,9 +106,10 @@ impl Model {
                         p[1].trim().parse::<f32>(), 
                         p[2].trim().parse::<f32>()
                     ) {
-                        scale_unit = s;
-                        angle_unit = a;
-                        alpha_unit = o;
+                        // Only override if non-zero
+                        if s != 0.0 { scale_unit = s; }
+                        if a != 0.0 { angle_unit = a; }
+                        if o != 0.0 { alpha_unit = o; }
                         break;
                     }
                 }
@@ -103,7 +141,6 @@ impl Model {
                 rotation:      p[10].trim().parse().unwrap_or(0.0),
                 alpha:         p[11].trim().parse().unwrap_or(alpha_unit),
                 glow_mode:     p[12].trim().parse().unwrap_or(0),
-                // Initialize new fields
                 flip_x:        false,
                 flip_y:        false,
             };

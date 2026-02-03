@@ -46,12 +46,25 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
     chain.push(curr);
     
     let mut safety = 0;
-    while parts[curr].parent_id != -1 && safety < 100 {
-        curr = parts[curr].parent_id as usize;
+    
+    // UPGRADE: Increased limit to 256 as requested
+    while parts[curr].parent_id != -1 && safety < 256 {
+        let next_parent = parts[curr].parent_id as usize;
+        
+        // FIX 1: Prevent Direct Self-Parenting (Optimization)
+        if next_parent == curr { break; }
+        
+        curr = next_parent;
         if curr >= parts.len() { break; }
         chain.push(curr);
         safety += 1;
     }
+    
+    // FIX 2: The "Safety Valve"
+    // If we hit the 256 limit, it means the unit is corrupt (infinite loop).
+    // We force this part to be HIDDEN so it doesn't draw a massive visual artifact.
+    let loop_detected = safety >= 256;
+
     chain.reverse();
     
     let mut vectors = Vec::with_capacity(chain.len());
@@ -147,7 +160,9 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         acc_flip_y *= current_flip_y;
     }
 
-    let is_ghost = target_part.unit_id == -1 || target_part.sprite_index == -1;
+    // UPGRADE APPLIED HERE:
+    // If loop_detected is true, we hide the part.
+    let is_ghost = target_part.unit_id == -1 || target_part.sprite_index == -1 || loop_detected;
 
     WorldTransform {
         pos: g_pos,
