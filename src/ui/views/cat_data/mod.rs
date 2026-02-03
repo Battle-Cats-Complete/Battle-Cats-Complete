@@ -1,6 +1,5 @@
 use eframe::egui;
 use std::collections::HashMap;
-use std::path::Path;
 
 use crate::core::cat::scanner::CatEntry;
 use crate::core::cat::DetailTab;
@@ -9,15 +8,17 @@ use crate::data::global::img015;
 use crate::core::settings::Settings;
 use crate::core::cat::talents as talent_logic; 
 use crate::data::global::mamodel::Model;
-use crate::ui::views::cat_data::anim::AnimViewer;
+// CHANGED: Import from components
+use crate::ui::components::anim_viewer::AnimViewer;
 
 mod header;
 mod stats;
 mod abilities;
 mod talents;
 mod details;
-pub mod anim;
+// REMOVED: pub mod anim;
 pub mod list;
+mod viewer;
 
 pub fn show(
     ctx: &egui::Context, 
@@ -108,85 +109,8 @@ pub fn show(
              details::render_evolve(ui, ctx, &cat_entry.unit_buy, ev_text, *current_form, gatya_item_textures, cache_version);
         },
         DetailTab::Animation => {
-            // --- ID GENERATION ---
-            let form_char = match current_form { 0 => 'f', 1 => 'c', 2 => 's', _ => 'u' };
-            let id_str = format!("{:03}", cat_entry.id);
-            let unique_id = format!("{}_{}", id_str, form_char);
-
-            // --- RESET CHECK (Fix for Crash) ---
-            if anim_viewer.loaded_id != unique_id {
-                anim_viewer.reset();
-                anim_viewer.loaded_id = unique_id.clone();
-                *model_data = None; 
-                *anim_sheet = SpriteSheet::default(); 
-            }
-
-            // --- PATHS ---
-            let base_dir = Path::new("game/cats").join(&id_str).join(form_char.to_string()).join("anim");
-            let base_name = format!("{}_{}", id_str, form_char);
-            
-            let png_path = base_dir.join(format!("{}.png", base_name));
-            let imgcut_path = base_dir.join(format!("{}.imgcut", base_name));
-            let mamodel_path = base_dir.join(format!("{}.mamodel", base_name));
-            
-            let walk_path = base_dir.join(format!("{}00.maanim", base_name));
-            let idle_path = base_dir.join(format!("{}01.maanim", base_name));
-            let attack_path = base_dir.join(format!("{}02.maanim", base_name));
-            let knockback_path = base_dir.join(format!("{}03.maanim", base_name));
-
-            if model_data.is_none() && mamodel_path.exists() {
-                 if let Some(m) = Model::load(&mamodel_path) {
-                     *model_data = Some(m);
-                 }
-            }
-
-            if !anim_sheet.is_loading_active && !anim_sheet.is_ready() {
-                 if png_path.exists() && imgcut_path.exists() {
-                     anim_sheet.load(ctx, &png_path, &imgcut_path, unique_id.clone());
-                 }
-            }
-            
-            if anim_viewer.current_anim.is_none() {
-                if walk_path.exists() {
-                    anim_viewer.load_anim(&walk_path);
-                    anim_viewer.loaded_anim_index = 0;
-                } else if attack_path.exists() {
-                    anim_viewer.load_anim(&attack_path);
-                    anim_viewer.loaded_anim_index = 2;
-                }
-            }
-            
-            ui.vertical(|ui| {
-                ui.add_space(10.0);
-                
-                ui.horizontal(|ui| {
-                    ui.label("Animations:");
-                    if ui.selectable_label(anim_viewer.loaded_anim_index == 0, "Walk").clicked() {
-                        anim_viewer.load_anim(&walk_path);
-                        anim_viewer.loaded_anim_index = 0;
-                    }
-                    if ui.selectable_label(anim_viewer.loaded_anim_index == 1, "Idle").clicked() {
-                        anim_viewer.load_anim(&idle_path);
-                        anim_viewer.loaded_anim_index = 1;
-                    }
-                    if ui.selectable_label(anim_viewer.loaded_anim_index == 2, "Attack").clicked() {
-                        anim_viewer.load_anim(&attack_path);
-                        anim_viewer.loaded_anim_index = 2;
-                    }
-                    if ui.selectable_label(anim_viewer.loaded_anim_index == 3, "KB").clicked() {
-                        anim_viewer.load_anim(&knockback_path);
-                        anim_viewer.loaded_anim_index = 3;
-                    }
-                });
-
-                if model_data.is_none() {
-                    ui.label(format!("Model missing or loading... {:?}", mamodel_path));
-                    if ui.button("Retry").clicked() { *model_data = None; }
-                } else {
-                    anim_sheet.update(ctx);
-                    anim_viewer.render(ui, anim_sheet, model_data.as_ref().unwrap());
-                }
-            });
+            // Updated to call viewer.rs
+            viewer::show(ui, ctx, cat_entry, *current_form, anim_viewer, model_data, anim_sheet);
         }
     }
 }
