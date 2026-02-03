@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
-// ADDED: controls
 use crate::core::anim::{animator, canvas, transform, center, controls};
 
 pub struct AnimViewer {
@@ -105,7 +104,6 @@ impl AnimViewer {
         }
 
         // 3. SMOOTH ZOOM INTERPOLATION
-        // We do this here because it runs every frame, separate from input events
         let diff = self.target_zoom_level - self.zoom_level;
         if diff.abs() > 0.001 {
             self.zoom_level += diff * 15.0 * dt;
@@ -129,26 +127,10 @@ impl AnimViewer {
             }
         }
 
-        ui.horizontal(|ui| {
-            if ui.button(if self.is_playing { "Pause" } else { "Play" }).clicked() {
-                self.is_playing = !self.is_playing;
-            }
-            if let Some(anim) = &self.current_anim {
-                ui.label(format!("F: {:.1} / {}", self.current_frame, anim.max_frame));
-            }
-            if ui.button("Center View").clicked() {
-                self.center_view(model, sprite_sheet);
-            }
-            ui.separator();
-            ui.checkbox(&mut self.interpolation, "Interpolation");
-            ui.checkbox(&mut self.debug_show_info, "Debug");
-        });
-
         // 5. ALLOCATE CANVAS
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
         
-        // 6. DELEGATE INPUT TO CONTROLS.RS
-        // This keeps anim.rs clean!
+        // 6. DELEGATE INPUT TO CONTROLS
         controls::handle_viewport_input(
             ui, 
             &response, 
@@ -202,16 +184,10 @@ impl AnimViewer {
                 if bound_rect.width() > 0.0 {
                     let world_min_y = -bound_rect.min.y;
                     let world_max_y = -bound_rect.max.y;
-
-                    let (final_min_y, final_max_y) = if world_min_y < world_max_y {
-                        (world_min_y, world_max_y)
-                    } else {
-                        (world_max_y, world_min_y)
-                    };
+                    let (final_min_y, final_max_y) = if world_min_y < world_max_y { (world_min_y, world_max_y) } else { (world_max_y, world_min_y) };
 
                     let min_x = cx + (bound_rect.min.x + self.pan_offset.x) * self.zoom_level;
                     let max_x = cx + (bound_rect.max.x + self.pan_offset.x) * self.zoom_level;
-                    
                     let min_y = cy + (final_min_y + self.pan_offset.y) * self.zoom_level;
                     let max_y = cy + (final_max_y + self.pan_offset.y) * self.zoom_level;
 
