@@ -108,17 +108,25 @@ impl GlowRenderer {
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
 
-            // --- GLOW FIX: Manual Pre-multiplied Alpha ---
             let pixels = &img.pixels;
             let mut data: Vec<u8> = Vec::with_capacity(pixels.len() * 4);
             
+            // KEEPING THIS: Accurate Round-to-Nearest Premultiplication
+            // This matches WebGL behavior closer than standard casting.
             for p in pixels {
                 let a = p.a() as f32 / 255.0;
-                data.push((p.r() as f32 * a) as u8);
-                data.push((p.g() as f32 * a) as u8);
-                data.push((p.b() as f32 * a) as u8);
+                let r = (p.r() as f32 * a + 0.5).floor() as u8;
+                let g = (p.g() as f32 * a + 0.5).floor() as u8;
+                let b = (p.b() as f32 * a + 0.5).floor() as u8;
+                
+                data.push(r);
+                data.push(g);
+                data.push(b);
                 data.push(p.a());
             }
+
+            // REVERTED: Removed pixel_store unpack alignment settings
+            // as they did not resolve the issue.
 
             gl.tex_image_2d(
                 glow::TEXTURE_2D,
@@ -159,7 +167,6 @@ impl GlowRenderer {
             let center_x = w / 2.0;
             let center_y = h / 2.0;
             
-            // --- SCROLL FIX: Invert Pan Y ---
             let camera = [
                 zoom, 0.0, 0.0,
                 0.0, zoom, 0.0,
@@ -190,9 +197,7 @@ impl GlowRenderer {
                     let w = cut.original_size.x;
                     let h = cut.original_size.y;
                     
-                    // --- CULLING FIX: Ignore sprites area <= 16 (1x1, 2x2, etc) ---
                     if w * h <= 16.0 { continue; }
-                    // -------------------------------------------------------------
 
                     let (sin, cos) = part.rotation.sin_cos();
                     let sx = part.scale.x; 
@@ -245,7 +250,6 @@ impl GlowRenderer {
     }
 }
 
-// 3x3 Matrix Multiplication (Column-Major for OpenGL)
 fn multiply_mat3(a: &[f32; 9], b: &[f32; 9]) -> [f32; 9] {
     [
         a[0]*b[0] + a[3]*b[1] + a[6]*b[2],
