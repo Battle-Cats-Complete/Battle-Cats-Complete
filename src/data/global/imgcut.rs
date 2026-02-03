@@ -2,7 +2,7 @@ use eframe::egui;
 use std::path::{Path};
 use std::fs;
 use std::thread;
-use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, Mutex, mpsc::{self, Receiver}};
 use std::collections::HashMap;
 use crate::core::utils;
 
@@ -15,9 +15,13 @@ pub struct SpriteCut {
 
 pub struct SpriteSheet {
     pub texture_handle: Option<egui::TextureHandle>,
+    // Kept raw image data for Custom GL Renderer
+    pub image_data: Option<Arc<egui::ColorImage>>, 
     pub cuts_map: HashMap<usize, SpriteCut>, 
     pub is_loading_active: bool,
-    pub data_receiver: Option<Receiver<(String, egui::ColorImage, HashMap<usize, SpriteCut>)>>,
+    // FIX: Wrap Receiver in Mutex to make SpriteSheet Sync.
+    // This resolves error E0277.
+    pub data_receiver: Option<Mutex<Receiver<(String, egui::ColorImage, HashMap<usize, SpriteCut>)>>>,
     pub sheet_name: String, 
 }
 
@@ -25,6 +29,7 @@ impl Default for SpriteSheet {
     fn default() -> Self {
         Self {
             texture_handle: None,
+            image_data: None,
             cuts_map: HashMap::new(),
             is_loading_active: false,
             data_receiver: None,
@@ -42,7 +47,6 @@ impl SpriteSheet {
         self.texture_handle.is_some()
     }
 
-    /// Spawns a thread to load PNG + ImgCut
     pub fn load(&mut self, ctx: &egui::Context, png_path: &Path, imgcut_path: &Path, id_str: String) {
         if self.is_loading_active { return; }
         
@@ -52,7 +56,8 @@ impl SpriteSheet {
         let cut_p = imgcut_path.to_path_buf();
         
         let (tx, rx) = mpsc::channel();
-        self.data_receiver = Some(rx);
+        // FIX: Store Receiver in a Mutex
+        self.data_receiver = Some(Mutex::new(rx));
 
         thread::spawn(move || {
             if let Some((img, cuts)) = Self::load_internal(&png_p, &cut_p) {
@@ -62,29 +67,35 @@ impl SpriteSheet {
         });
     }
 
-    /// Receives loaded data from the background thread and creates the texture
     pub fn update(&mut self, ctx: &egui::Context) {
-        if let Some(rx) = &self.data_receiver {
-            if let Ok((name, img, cuts)) = rx.try_recv() {
-                self.sheet_name = name.clone(); 
-                self.texture_handle = Some(ctx.load_texture(&name, img, Default::default()));
-                self.cuts_map = cuts;
-                self.is_loading_active = false;
-                self.data_receiver = None;
+        if let Some(mutex) = &self.data_receiver {
+            // FIX: Lock the mutex to access the receiver
+            // Using try_lock to be safe on the UI thread, though contention is unlikely
+            if let Ok(rx) = mutex.try_lock() {
+                if let Ok((name, img, cuts)) = rx.try_recv() {
+                    self.sheet_name = name.clone(); 
+                    self.texture_handle = Some(ctx.load_texture(&name, img.clone(), Default::default()));
+                    self.image_data = Some(Arc::new(img));
+                    self.cuts_map = cuts;
+                    self.is_loading_active = false;
+                    // We can't easily set self.data_receiver to None here while holding the lock,
+                    // but we can mark it as done via the flag. The mutex overhead is negligible.
+                }
             }
+        }
+        
+        // Cleanup receiver if done
+        if !self.is_loading_active && self.data_receiver.is_some() {
+            self.data_receiver = None;
         }
     }
 
-    /// Returns an Image widget for the specified line index.
-    /// Note: This returns the image at its natural size. Use .fit_to_exact_size() in the UI.
     pub fn get_sprite_by_line(&self, index: usize) -> Option<egui::Image<'_>> {
         let tex = self.texture_handle.as_ref()?;
         let cut = self.cuts_map.get(&index)?;
-        
         Some(egui::Image::new(tex).uv(cut.uv_coordinates))
     }
 
-    // --- INTERNAL PARSING LOGIC ---
     fn load_internal(png_path: &Path, cut_path: &Path) -> Option<(egui::ColorImage, HashMap<usize, SpriteCut>)> {
         // 1. Load Image
         let image_data = fs::read(png_path).ok()?;
@@ -94,12 +105,12 @@ impl SpriteSheet {
         let pixels = image_buffer.as_flat_samples();
         let egui_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
 
-        // 2. Load ImgCut Text
+        // 2. Load ImgCut
         let content = fs::read_to_string(cut_path).ok()?;
         let delimiter = utils::detect_csv_separator(&content);
         let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
 
-        // 3. Find Header & Count
+        // 3. Find Header
         let mut sprite_count = 0;
         let mut data_start_index = 0;
         let mut found_header = false;
@@ -132,7 +143,6 @@ impl SpriteSheet {
         for i in 0..sprite_count {
             let line_idx = data_start_index + i;
             if line_idx >= lines.len() { break; }
-            
             let line = lines[line_idx];
             let p: Vec<&str> = line.split(delimiter).collect();
             
@@ -145,7 +155,6 @@ impl SpriteSheet {
                 ) {
                     let uv_min = egui::pos2(x / w, y / h);
                     let uv_max = egui::pos2((x + cw) / w, (y + ch) / h);
-                    
                     let name = if p.len() > 4 { p[4].to_string() } else { String::new() };
 
                     parsed_cuts.insert(current_id, SpriteCut {
