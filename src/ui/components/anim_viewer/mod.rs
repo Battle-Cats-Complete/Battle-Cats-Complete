@@ -102,8 +102,7 @@ impl AnimViewer {
         ui.input(|i| { if i.zoom_delta() != 1.0 { self.zoom_level *= i.zoom_delta(); } });
 
         let parts_to_draw = if let Some(anim) = &self.current_anim {
-            // JITTER FIX: Use floor with epsilon to handle float drift (4.999 -> 5.0)
-            // This prevents frame skipping or lagging that pure floor() or round() causes.
+            // JITTER FIX: Matches 30FPS timing exactly
             let frame = if self.interpolation { 
                 self.current_frame 
             } else { 
