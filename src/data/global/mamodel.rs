@@ -19,6 +19,8 @@ pub struct ModelPart {
     pub glow_mode: i32,
     pub flip_x: bool,
     pub flip_y: bool,
+    // ADDED: Name field
+    pub name: String,
 }
 
 impl Default for ModelPart {
@@ -39,6 +41,8 @@ impl Default for ModelPart {
             glow_mode: 0,
             flip_x: false,
             flip_y: false,
+            // ADDED: Default name
+            name: String::new(),
         }
     }
 }
@@ -127,6 +131,9 @@ impl Model {
 
             let is_root = parts.is_empty();
 
+            // ADDED: Parse Name (Index 13) if available
+            let raw_name = if p.len() > 13 { p[13].trim().to_string() } else { String::new() };
+
             let part = ModelPart {
                 parent_id:     p[0].trim().parse().unwrap_or(-1),
                 unit_id:       p[1].trim().parse().unwrap_or(0),
@@ -143,6 +150,8 @@ impl Model {
                 glow_mode:     p[12].trim().parse().unwrap_or(0),
                 flip_x:        false,
                 flip_y:        false,
+                // ADDED: Assign Name
+                name:          raw_name,
             };
             parts.push(part);
         }
