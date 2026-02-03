@@ -31,7 +31,7 @@ impl Default for AnimViewer {
             zoom_level: 1.0, 
             pan_offset: egui::vec2(0.0, 0.0),
             debug_show_info: false,
-            interpolation: false, 
+            interpolation: false, // Default to Game Accurate
             current_anim: None,
             current_frame: 0.0,
             is_playing: true,
@@ -102,7 +102,7 @@ impl AnimViewer {
         ui.input(|i| { if i.zoom_delta() != 1.0 { self.zoom_level *= i.zoom_delta(); } });
 
         let parts_to_draw = if let Some(anim) = &self.current_anim {
-            // JITTER FIX: Matches 30FPS timing exactly
+            // JITTER FIX: Use floor with epsilon to handle float drift.
             let frame = if self.interpolation { 
                 self.current_frame 
             } else { 

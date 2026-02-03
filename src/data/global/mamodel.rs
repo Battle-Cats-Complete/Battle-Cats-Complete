@@ -17,6 +17,9 @@ pub struct ModelPart {
     pub rotation: f32,
     pub alpha: f32,
     pub glow_mode: i32,
+    // NEW: Explicit fields for logical flip state
+    pub flip_x: bool,
+    pub flip_y: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -91,8 +94,6 @@ impl Model {
                 unit_id:       p[1].trim().parse().unwrap_or(0),
                 sprite_index:  p[2].trim().parse().unwrap_or(0),
                 drawing_layer: p[3].trim().parse().unwrap_or(0),
-                // FIX: Zeroing Root Position/Pivot is REQUIRED to prevent "Floating Units".
-                // This ignores the arbitrary editor offset in the file header.
                 position_x:    if is_root { 0.0 } else { p[4].trim().parse().unwrap_or(0.0) },
                 position_y:    if is_root { 0.0 } else { p[5].trim().parse().unwrap_or(0.0) },
                 pivot_x:       if is_root { 0.0 } else { p[6].trim().parse().unwrap_or(0.0) },
@@ -102,6 +103,9 @@ impl Model {
                 rotation:      p[10].trim().parse().unwrap_or(0.0),
                 alpha:         p[11].trim().parse().unwrap_or(alpha_unit),
                 glow_mode:     p[12].trim().parse().unwrap_or(0),
+                // Initialize new fields
+                flip_x:        false,
+                flip_y:        false,
             };
             parts.push(part);
         }
