@@ -31,69 +31,63 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
         // Mod 13/14 are discrete triggers
         let is_discrete = matches!(curve.modification_type, 0 | 1 | 3 | 13 | 14);
         
-        let val = interpolate_curve(curve, local_frame, is_discrete);
-        
-        let part = &mut parts[curve.part_id];
-        
-        match curve.modification_type {
-            0 => part.parent_id = val as i32,
-            1 => part.unit_id = val as i32,
-            3 => part.drawing_layer = val as i32, 
+        // FIX: Handle Pre-Animation (return None)
+        if let Some(val) = interpolate_curve(curve, local_frame, is_discrete) {
+            let part = &mut parts[curve.part_id];
             
-            2 => {
-                // Sprite switching requires standard rounding
-                part.sprite_index = val.round() as i32;
-            },
+            match curve.modification_type {
+                0 => part.parent_id = val as i32,
+                1 => part.unit_id = val as i32,
+                3 => part.drawing_layer = val as i32, 
+                
+                2 => {
+                    // FIX: Mod 2 (Sprite) is now rounded correctly inside interpolate_curve
+                    // so we can just cast it here.
+                    part.sprite_index = val as i32;
+                },
 
-            4 => part.position_x += val, 
-            5 => part.position_y += val,
-            6 => part.pivot_x += val,
-            7 => part.pivot_y += val,
-            8 => { 
-                let factor = val / model.scale_unit;
-                part.scale_x *= factor;
-                part.scale_y *= factor;
-            },
-            9 => part.scale_x *= val / model.scale_unit,
-            10 => part.scale_y *= val / model.scale_unit,
-            11 => part.rotation += val,
-            12 => part.alpha *= val / model.alpha_unit,
-            
-            // Flip logic
-            13 => {
-                if val != 0.0 { 
-                    part.scale_x *= -1.0; 
-                    part.flip_x = true;   
-                } else {
-                    part.flip_x = false;
-                }
-            },
-            14 => {
-                if val != 0.0 { 
-                    part.scale_y *= -1.0; 
-                    part.flip_y = true;   
-                } else {
-                    part.flip_y = false;
-                }
-            },
-            _ => {}
+                4 => part.position_x += val, 
+                5 => part.position_y += val,
+                6 => part.pivot_x += val,
+                7 => part.pivot_y += val,
+                8 => { 
+                    let factor = val / model.scale_unit;
+                    part.scale_x *= factor;
+                    part.scale_y *= factor;
+                },
+                9 => part.scale_x *= val / model.scale_unit,
+                10 => part.scale_y *= val / model.scale_unit,
+                11 => part.rotation += val,
+                12 => part.alpha *= val / model.alpha_unit,
+                
+                // FIX: Flip Logic (Mod 13/14)
+                // Do NOT multiply scale by -1.0. Just set the flag.
+                // transform.rs handles the negative multiplication based on the flag.
+                13 => {
+                    part.flip_x = val != 0.0;
+                },
+                14 => {
+                    part.flip_y = val != 0.0;
+                },
+                _ => {}
+            }
         }
     }
     
     parts
 }
 
-fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) -> f32 {
-    if curve.keyframes.is_empty() { return 0.0; }
+fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) -> Option<f32> {
+    if curve.keyframes.is_empty() { return None; }
+
+    // FIX: Return None if before first frame (preserves default model state)
+    if frame < curve.keyframes[0].frame as f32 {
+        return None;
+    }
 
     let mut start_idx = 0;
     let mut end_idx = 0;
     let mut found = false;
-
-    // Find the surrounding keyframes
-    if frame < curve.keyframes[0].frame as f32 {
-        return curve.keyframes[0].value as f32;
-    }
 
     for (i, k) in curve.keyframes.iter().enumerate() {
         if (k.frame as f32) > frame {
@@ -104,30 +98,23 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
         }
     }
     
-    // If past the last frame, hold the last value
     if !found {
-        return curve.keyframes.last().unwrap().value as f32;
+        return Some(curve.keyframes.last().unwrap().value as f32);
     }
 
     let start_k = &curve.keyframes[start_idx];
     let end_k = &curve.keyframes[end_idx];
 
-    if is_discrete { return start_k.value as f32; }
-    if start_k.frame == end_k.frame { return start_k.value as f32; }
+    if is_discrete { return Some(start_k.value as f32); }
+    if start_k.frame == end_k.frame { return Some(start_k.value as f32); }
 
     // --- EASE MODE 3 (LAGRANGE) ---
-    // Fixed to match JS viewer logic exactly:
-    // Do NOT include neighbors that are not Ease Mode 3.
     if start_k.ease_mode == 3 {
         let mut points = Vec::new();
         
-        // Scan backwards
         let mut i = start_idx as isize;
         while i >= 0 {
             let k = &curve.keyframes[i as usize];
-            // JS Parity: Check Ease Mode BEFORE adding.
-            // If this point isn't part of the spline chain, don't include it.
-            // (Exception: Always include start_idx itself, which we know is Mode 3)
             if (i as usize) != start_idx && k.ease_mode != 3 { 
                 break; 
             }
@@ -136,18 +123,14 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
         }
         points.reverse(); 
 
-        // Scan forwards
         let mut i = end_idx;
         while i < curve.keyframes.len() {
             let k = &curve.keyframes[i];
-            // JS Parity: Add the point, THEN check if it continues the chain.
-            // (Because this point IS the end of the current segment)
             points.push((k.frame as f32, k.value as f32));
             if k.ease_mode != 3 { break; }
             i += 1;
         }
 
-        // Lagrange Interpolation
         let mut result = 0.0;
         let n = points.len();
         
@@ -164,11 +147,10 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
             }
             result += prod;
         }
-        return result;
+        return Some(result);
     }
     // -------------------------------------------
 
-    // Standard Interpolation
     let t_duration = (end_k.frame - start_k.frame) as f32;
     let t_current = frame - (start_k.frame as f32);
     let x = t_current / t_duration;
@@ -176,7 +158,7 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
     let start_val = start_k.value as f32;
     let change = (end_k.value - start_k.value) as f32;
 
-    match start_k.ease_mode {
+    let interpolated_val = match start_k.ease_mode {
         0 => start_val + (change * x), 
         1 => if x >= 1.0 { end_k.value as f32 } else { start_val }, 
         2 => { 
@@ -190,5 +172,17 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
             if factor.is_nan() { start_val + (change * x) } else { start_val + (change * factor) }
         },
         _ => start_val + (change * x) 
+    };
+
+    // FIX: Special Rounding for Sprite Switching (Mod 2)
+    // JS Logic: if decreasing, use Ceil. If increasing, use Floor.
+    if curve.modification_type == 2 {
+        if change < 0.0 {
+            return Some(interpolated_val.ceil());
+        } else {
+            return Some(interpolated_val.floor());
+        }
     }
+
+    Some(interpolated_val)
 }
