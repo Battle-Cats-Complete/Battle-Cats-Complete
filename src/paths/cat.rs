@@ -43,7 +43,35 @@ impl AnimType {
     }
 }
 
-// Unit Specific Paths
+// --- Internal Helpers ---
+
+fn anim_folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf {
+    let (egg_norm, egg_evol) = egg_ids;
+    let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
+
+    if form == 0 && egg_norm != -1 {
+        root.join(format!("egg_{:03}", egg_norm)).join(DIR_ANIM)
+    } else if form == 1 && egg_evol != -1 {
+        root.join(format!("egg_{:03}", egg_evol)).join(DIR_ANIM)
+    } else {
+        root.join(format!("{:03}", id)).join(form_char).join(DIR_ANIM)
+    }
+}
+
+fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
+    let (egg_norm, egg_evol) = egg_ids;
+    let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
+    
+    if form == 0 && egg_norm != -1 {
+         format!("{:03}_m", egg_norm)
+    } else if form == 1 && egg_evol != -1 {
+         format!("{:03}_m", egg_evol)
+    } else {
+         format!("{:03}_{}", id, form_char)
+    }
+}
+
+// --- Public Path Functions ---
 
 pub fn folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf {
     let (egg_norm, egg_evol) = egg_ids;
@@ -91,37 +119,21 @@ pub fn image(root: &Path, asset_type: AssetType, id: u32, form: usize, egg_ids: 
     None
 }
 
-/// Retrieves paths for animation files.
-/// Naming Convention: {id}_{form}.{ext}
-/// Exception: Maanim files usually have a suffix (00, 01, 02, 03).
-/// This function returns the base path. For Maanim, the caller might need to handle the index.
+/// Retrieves paths for standard animation files (Png, Imgcut, Mamodel).
 pub fn anim(root: &Path, id: u32, form: usize, egg_ids: (i32, i32), file_type: AnimType) -> PathBuf {
-    let (egg_norm, egg_evol) = egg_ids;
-    let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
+    let folder = anim_folder(root, id, form, egg_ids);
+    let filename = anim_base_filename(id, form, egg_ids);
     let ext = file_type.ext();
+    folder.join(format!("{}.{}", filename, ext))
+}
 
-    // Determine the base filename (e.g. 001_f)
-    let filename = if form == 0 && egg_norm != -1 {
-         format!("{:03}_m", egg_norm)
-    } else if form == 1 && egg_evol != -1 {
-         format!("{:03}_m", egg_evol)
-    } else {
-         format!("{:03}_{}", id, form_char)
-    };
-
-    // Construct the folder path: game/cats/{id}/{form}/anim/
-    let base_folder = if form == 0 && egg_norm != -1 {
-        root.join(format!("egg_{:03}", egg_norm)).join(DIR_ANIM)
-    } else if form == 1 && egg_evol != -1 {
-        root.join(format!("egg_{:03}", egg_evol)).join(DIR_ANIM)
-    } else {
-        root.join(format!("{:03}", id)).join(form_char).join(DIR_ANIM)
-    };
-
-    // Construct full path
-    // Note: Maanim usually has suffixes like 00, 01, 02.
-    // For now, this function returns the standard "{id}_{form}.{ext}" used for Png, Imgcut, Mamodel.
-    base_folder.join(format!("{}.{}", filename, ext))
+/// Retrieves paths specifically for Maanim files, handling the 2-digit index suffix.
+/// Index usually maps to: 00 (Walk), 01 (Idle), 02 (Attack), 03 (Knockback).
+pub fn maanim(root: &Path, id: u32, form: usize, egg_ids: (i32, i32), index: usize) -> PathBuf {
+    let folder = anim_folder(root, id, form, egg_ids);
+    let filename = anim_base_filename(id, form, egg_ids);
+    // Maanim format: {basename}{index}.maanim (e.g., 001_f00.maanim)
+    folder.join(format!("{}{:02}.maanim", filename, index))
 }
 
 pub fn stats(root: &Path, id: u32) -> PathBuf {

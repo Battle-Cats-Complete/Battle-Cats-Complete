@@ -5,7 +5,8 @@ use crate::core::cat::scanner::CatEntry;
 use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model;
 use crate::ui::components::anim_viewer::AnimViewer;
-use crate::core::settings::Settings; // Import Settings
+use crate::core::settings::Settings;
+use crate::paths::cat::{self, AnimType};
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -15,7 +16,7 @@ pub fn show(
     anim_viewer: &mut AnimViewer,
     model_data: &mut Option<Model>,
     anim_sheet: &mut SpriteSheet,
-    settings: &Settings, // Added settings parameter
+    settings: &Settings,
 ) {
     // --- ID & Path Generation ---
     let form_char = match current_form { 0 => 'f', 1 => 'c', 2 => 's', _ => 'u' };
@@ -31,17 +32,22 @@ pub fn show(
     }
 
     // --- File Paths ---
-    let base_dir = Path::new("game/cats").join(&id_str).join(form_char.to_string()).join("anim");
-    let base_name = format!("{}_{}", id_str, form_char);
+    // Define root path (game/cats)
+    let root = Path::new(cat::DIR_CATS);
     
-    let png_path = base_dir.join(format!("{}.png", base_name));
-    let imgcut_path = base_dir.join(format!("{}.imgcut", base_name));
-    let mamodel_path = base_dir.join(format!("{}.mamodel", base_name));
+    // Extract Egg IDs from the cat entry
+    let egg_ids = cat_entry.egg_ids;
+
+    // Use centralized path logic which handles Unit vs Egg switching
+    let png_path = cat::anim(root, cat_entry.id, current_form, egg_ids, AnimType::Png);
+    let imgcut_path = cat::anim(root, cat_entry.id, current_form, egg_ids, AnimType::Imgcut);
+    let mamodel_path = cat::anim(root, cat_entry.id, current_form, egg_ids, AnimType::Mamodel);
     
-    let walk_path = base_dir.join(format!("{}00.maanim", base_name));
-    let idle_path = base_dir.join(format!("{}01.maanim", base_name));
-    let attack_path = base_dir.join(format!("{}02.maanim", base_name));
-    let knockback_path = base_dir.join(format!("{}03.maanim", base_name));
+    // Maanim paths (0: Walk, 1: Idle, 2: Attack, 3: Knockback)
+    let walk_path = cat::maanim(root, cat_entry.id, current_form, egg_ids, 0);
+    let idle_path = cat::maanim(root, cat_entry.id, current_form, egg_ids, 1);
+    let attack_path = cat::maanim(root, cat_entry.id, current_form, egg_ids, 2);
+    let knockback_path = cat::maanim(root, cat_entry.id, current_form, egg_ids, 3);
 
     // --- Loading Logic ---
     if model_data.is_none() && mamodel_path.exists() {
@@ -120,8 +126,6 @@ pub fn show(
                     anim_viewer.center_view(model, anim_sheet);
                 }
             }
-
-            // Toggles Removed (Moved to Settings)
         });
 
         ui.add_space(5.0);
