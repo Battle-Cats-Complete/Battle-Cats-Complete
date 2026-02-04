@@ -47,7 +47,7 @@ pub fn show(
 
     // -- Spirit Paths --
     let conjure_id = if let Some(Some(stats)) = cat_entry.stats.get(current_form) {
-        if stats.conjure_unit_id > -1 { Some(stats.conjure_unit_id as u32) } else { None }
+        if stats.conjure_unit_id > 0 { Some(stats.conjure_unit_id as u32) } else { None }
     } else { None };
 
     let mut spirit_pack = None;
