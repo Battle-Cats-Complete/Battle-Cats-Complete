@@ -19,7 +19,6 @@ pub struct ModelPart {
     pub glow_mode: i32,
     pub flip_x: bool,
     pub flip_y: bool,
-    // ADDED: Name field
     pub name: String,
 }
 
@@ -41,7 +40,6 @@ impl Default for ModelPart {
             glow_mode: 0,
             flip_x: false,
             flip_y: false,
-            // ADDED: Default name
             name: String::new(),
         }
     }

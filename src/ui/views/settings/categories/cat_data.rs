@@ -72,5 +72,23 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
         ui.end_row();
     });
 
+    ui.add_space(20.0);
+    ui.heading("Animation Viewer");
+    ui.add_space(10.0);
+
+    ui.horizontal(|ui| {
+        let tooltip = "Switches from 30fps to your monitors native refresh rate\nAllows animations to be smooth but incredibly buggy\nThis feature is not actively supported nor maintained";
+        
+        if toggle_ui(ui, &mut settings.animation_interpolation).on_hover_text(tooltip).changed() {
+            refresh_needed = true;
+        }
+        ui.label("Use Native Refresh Rate").on_hover_text(tooltip);
+    });
+
+    ui.horizontal(|ui| {
+        toggle_ui(ui, &mut settings.animation_debug);
+        ui.label("Enable Debug View");
+    });
+
     refresh_needed
 }

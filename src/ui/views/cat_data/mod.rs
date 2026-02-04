@@ -109,8 +109,8 @@ pub fn show(
              details::render_evolve(ui, ctx, &cat_entry.unit_buy, ev_text, *current_form, gatya_item_textures, cache_version);
         },
         DetailTab::Animation => {
-            // Updated to call viewer.rs
-            viewer::show(ui, ctx, cat_entry, *current_form, anim_viewer, model_data, anim_sheet);
+            // UPDATED: Now passes 'settings' to the viewer
+            viewer::show(ui, ctx, cat_entry, *current_form, anim_viewer, model_data, anim_sheet, settings);
         }
     }
 }
