@@ -19,7 +19,7 @@ pub struct ModelPart {
     pub glow_mode: i32,
     pub flip_x: bool,
     pub flip_y: bool,
-    pub name: String,
+    #[allow(dead_code)] pub name: String,
 }
 
 impl Default for ModelPart {
@@ -48,7 +48,7 @@ impl Default for ModelPart {
 #[derive(Clone, Debug)]
 pub struct Model {
     pub parts: Vec<ModelPart>,
-    pub version: u32,
+    #[allow(dead_code)] pub version: u32,
     pub scale_unit: f32, 
     pub angle_unit: f32,
     pub alpha_unit: f32,

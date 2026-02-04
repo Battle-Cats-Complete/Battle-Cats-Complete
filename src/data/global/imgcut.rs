@@ -10,7 +10,7 @@ use crate::core::utils;
 pub struct SpriteCut {
     pub uv_coordinates: egui::Rect,
     pub original_size: egui::Vec2,
-    pub name: String,
+    #[allow(dead_code)] pub name: String,
 }
 
 pub struct SpriteSheet {
@@ -39,10 +39,6 @@ impl Default for SpriteSheet {
 }
 
 impl SpriteSheet {
-    pub fn is_loading(&self) -> bool {
-        self.is_loading_active
-    }
-    
     pub fn is_ready(&self) -> bool {
         self.texture_handle.is_some()
     }
