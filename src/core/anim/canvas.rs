@@ -111,22 +111,43 @@ impl GlowRenderer {
             let pixels = &img.pixels;
             let mut data: Vec<u8> = Vec::with_capacity(pixels.len() * 4);
             
-            // KEEPING THIS: Accurate Round-to-Nearest Premultiplication
-            // This matches WebGL behavior closer than standard casting.
-            for p in pixels {
-                let a = p.a() as f32 / 255.0;
-                let r = (p.r() as f32 * a + 0.5).floor() as u8;
-                let g = (p.g() as f32 * a + 0.5).floor() as u8;
-                let b = (p.b() as f32 * a + 0.5).floor() as u8;
-                
-                data.push(r);
-                data.push(g);
-                data.push(b);
-                data.push(p.a());
-            }
+            // --- GAMMA CORRECT PREMULTIPLICATION ---
+            // Helper: sRGB to Linear conversion
+            let to_linear = |c: u8| -> f32 {
+                let f = c as f32 / 255.0;
+                if f <= 0.04045 { f / 12.92 } else { ((f + 0.055) / 1.055).powf(2.4) }
+            };
 
-            // REVERTED: Removed pixel_store unpack alignment settings
-            // as they did not resolve the issue.
+            // Helper: Linear to sRGB conversion
+            let to_srgb = |f: f32| -> u8 {
+                let v = if f <= 0.0031308 { 12.92 * f } else { 1.055 * f.powf(1.0 / 2.4) - 0.055 };
+                (v * 255.0 + 0.5).clamp(0.0, 255.0) as u8
+            };
+
+            for p in pixels {
+                let a_byte = p.a();
+                if a_byte == 0 {
+                    data.push(0);
+                    data.push(0);
+                    data.push(0);
+                    data.push(0);
+                } else {
+                    let r_lin = to_linear(p.r());
+                    let g_lin = to_linear(p.g());
+                    let b_lin = to_linear(p.b());
+                    let a_lin = a_byte as f32 / 255.0;
+
+                    // Multiply in Linear Space to avoid dark fringes
+                    let r_pre = r_lin * a_lin;
+                    let g_pre = g_lin * a_lin;
+                    let b_pre = b_lin * a_lin;
+
+                    data.push(to_srgb(r_pre));
+                    data.push(to_srgb(g_pre));
+                    data.push(to_srgb(b_pre));
+                    data.push(a_byte);
+                }
+            }
 
             gl.tex_image_2d(
                 glow::TEXTURE_2D,
