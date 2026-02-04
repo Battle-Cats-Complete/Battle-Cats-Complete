@@ -159,7 +159,7 @@ impl AnimViewer {
         });
 
         // 8. RENDER CANVAS
-        canvas::paint(ui, rect, self.renderer.clone(), sheet_arc, parts_to_draw, self.pan_offset, self.zoom_level);
+        canvas::paint(ui, rect, self.renderer.clone(), sheet_arc, parts_to_draw, self.pan_offset, self.zoom_level, );
 
         // 9. DRAW OVERLAYS
         let border_rect = rect.shrink(2.0);
