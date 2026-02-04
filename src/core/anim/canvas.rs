@@ -73,18 +73,6 @@ impl GlowRenderer {
         }
     }
 
-    pub fn destroy(&self, gl: &glow::Context) {
-        unsafe {
-            gl.delete_program(self.program);
-            gl.delete_vertex_array(self.vertex_array);
-            gl.delete_buffer(self.vbo);
-            gl.delete_buffer(self.tbo);
-            if let Some(tex) = self.texture {
-                gl.delete_texture(tex);
-            }
-        }
-    }
-
     fn upload_texture(&mut self, gl: &glow::Context, sheet: &SpriteSheet) {
         unsafe {
             if self.last_sheet_name == sheet.sheet_name && self.texture.is_some() {
