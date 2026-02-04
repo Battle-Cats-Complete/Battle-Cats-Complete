@@ -12,6 +12,10 @@ pub struct Settings {
     pub expand_spirit_details: bool,
     pub show_invalid_units: bool,
     
+    // --- New Animation Settings ---
+    pub animation_interpolation: bool,
+    pub animation_debug: bool,
+    
     pub ability_padding_x: f32,
     pub ability_padding_y: f32,
     pub trait_padding_y: f32,
@@ -44,6 +48,10 @@ impl Default for Settings {
             unit_persistence: true,
             expand_spirit_details: false,
             show_invalid_units: false,
+            
+            // Default to false as requested
+            animation_interpolation: false,
+            animation_debug: false,
             
             ability_padding_x: 3.0,
             ability_padding_y: 5.0,

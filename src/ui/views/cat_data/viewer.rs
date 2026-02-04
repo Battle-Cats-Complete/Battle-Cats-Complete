@@ -5,6 +5,7 @@ use crate::core::cat::scanner::CatEntry;
 use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model;
 use crate::ui::components::anim_viewer::AnimViewer;
+use crate::core::settings::Settings; // Import Settings
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -14,6 +15,7 @@ pub fn show(
     anim_viewer: &mut AnimViewer,
     model_data: &mut Option<Model>,
     anim_sheet: &mut SpriteSheet,
+    settings: &Settings, // Added settings parameter
 ) {
     // --- ID & Path Generation ---
     let form_char = match current_form { 0 => 'f', 1 => 'c', 2 => 's', _ => 'u' };
@@ -97,7 +99,7 @@ pub fn show(
 
         ui.add_space(5.0);
 
-        // 2. Playback Controls & Settings (Integrated from anim_old.rs)
+        // 2. Playback Controls & Settings
         ui.horizontal(|ui| {
             // Play/Pause Button
             let play_label = if anim_viewer.is_playing { "Pause" } else { "Play" };
@@ -119,11 +121,7 @@ pub fn show(
                 }
             }
 
-            ui.separator();
-
-            // Toggles
-            ui.checkbox(&mut anim_viewer.interpolation, "Interpolation");
-            ui.checkbox(&mut anim_viewer.debug_show_info, "Debug");
+            // Toggles Removed (Moved to Settings)
         });
 
         ui.add_space(5.0);
@@ -134,8 +132,14 @@ pub fn show(
             if ui.button("Retry").clicked() { *model_data = None; }
         } else {
             anim_sheet.update(ctx);
-            // Pass the model directly
-            anim_viewer.render(ui, anim_sheet, model_data.as_ref().unwrap());
+            // Pass the model directly + Settings flags
+            anim_viewer.render(
+                ui, 
+                anim_sheet, 
+                model_data.as_ref().unwrap(),
+                settings.animation_interpolation,
+                settings.animation_debug
+            );
         }
     });
 }

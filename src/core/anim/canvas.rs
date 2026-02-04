@@ -111,17 +111,18 @@ impl GlowRenderer {
             let pixels = &img.pixels;
             let mut data: Vec<u8> = Vec::with_capacity(pixels.len() * 4);
             
-            // --- GAMMA CORRECT PREMULTIPLICATION ---
-            // Helper: sRGB to Linear conversion
+            // --- GAMMA VARIABLE (INTERNAL) ---
+            // Set this to your desired value (e.g., 1.9).
+            let gamma: f32 = 1.883;
+            let inv_gamma = 1.0 / gamma;
+
+            // Helper closures for Gamma Correction
             let to_linear = |c: u8| -> f32 {
-                let f = c as f32 / 255.0;
-                if f <= 0.04045 { f / 12.92 } else { ((f + 0.055) / 1.055).powf(2.4) }
+                (c as f32 / 255.0).powf(gamma)
             };
 
-            // Helper: Linear to sRGB conversion
-            let to_srgb = |f: f32| -> u8 {
-                let v = if f <= 0.0031308 { 12.92 * f } else { 1.055 * f.powf(1.0 / 2.4) - 0.055 };
-                (v * 255.0 + 0.5).clamp(0.0, 255.0) as u8
+            let to_monitor = |f: f32| -> u8 {
+                (f.powf(inv_gamma) * 255.0 + 0.5).clamp(0.0, 255.0) as u8
             };
 
             for p in pixels {
@@ -132,19 +133,21 @@ impl GlowRenderer {
                     data.push(0);
                     data.push(0);
                 } else {
+                    // 1. Convert sRGB to Linear
                     let r_lin = to_linear(p.r());
                     let g_lin = to_linear(p.g());
                     let b_lin = to_linear(p.b());
-                    let a_lin = a_byte as f32 / 255.0;
+                    let a_lin = a_byte as f32 / 255.0; 
 
-                    // Multiply in Linear Space to avoid dark fringes
+                    // 2. Multiply in Linear Space (Fixes Dark Halos)
                     let r_pre = r_lin * a_lin;
                     let g_pre = g_lin * a_lin;
                     let b_pre = b_lin * a_lin;
 
-                    data.push(to_srgb(r_pre));
-                    data.push(to_srgb(g_pre));
-                    data.push(to_srgb(b_pre));
+                    // 3. Convert back using Custom Gamma (Fixes Gray Lines)
+                    data.push(to_monitor(r_pre));
+                    data.push(to_monitor(g_pre));
+                    data.push(to_monitor(b_pre));
                     data.push(a_byte);
                 }
             }
@@ -249,6 +252,7 @@ impl GlowRenderer {
                     gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
                     gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytemuck::cast_slice(&vertices), glow::DYNAMIC_DRAW);
 
+                    // NO INSETS APPLIED - Using raw UVs from imgcut
                     let uv = cut.uv_coordinates;
                     let tex_coords: [f32; 12] = [
                         uv.min.x, uv.min.y, 

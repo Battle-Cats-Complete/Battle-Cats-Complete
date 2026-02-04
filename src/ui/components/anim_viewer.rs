@@ -10,8 +10,8 @@ pub struct AnimViewer {
     pub zoom_level: f32,
     pub target_zoom_level: f32,
     pub pan_offset: egui::Vec2,
-    pub debug_show_info: bool,
-    pub interpolation: bool,
+    
+    // Removed local interpolation/debug flags
     
     pub current_anim: Option<Animation>,
     pub current_frame: f32,
@@ -33,8 +33,6 @@ impl Default for AnimViewer {
             zoom_level: 1.0, 
             target_zoom_level: 1.0,
             pan_offset: egui::vec2(0.0, 0.0),
-            debug_show_info: false,
-            interpolation: false,
             current_anim: None,
             current_frame: 0.0,
             is_playing: true,
@@ -59,7 +57,6 @@ impl AnimViewer {
         self.pan_offset = egui::vec2(0.0, 0.0);
         self.zoom_level = 1.0;
         self.target_zoom_level = 1.0;
-        self.interpolation = false;
         
         if let Ok(mut r) = self.renderer.lock() {
             *r = None;
@@ -71,7 +68,7 @@ impl AnimViewer {
             self.current_anim = Some(anim);
             self.current_frame = 0.0;
         } else {
-            eprintln!("Failed to load animation at {:?}", path);
+            // Removed console print
             self.current_anim = None;
         }
     }
@@ -85,7 +82,15 @@ impl AnimViewer {
         }
     }
 
-    pub fn render(&mut self, ui: &mut egui::Ui, sprite_sheet: &SpriteSheet, model: &Model) {
+    pub fn render(
+        &mut self, 
+        ui: &mut egui::Ui, 
+        sprite_sheet: &SpriteSheet, 
+        model: &Model,
+        // New arguments passed from Settings
+        interpolation: bool,
+        debug_show_info: bool
+    ) {
         let dt = ui.input(|i| i.stable_dt);
 
         // 1. DETECT NEW UNIT
@@ -142,7 +147,8 @@ impl AnimViewer {
 
         // 7. SOLVE ANIMATION HIERARCHY
         let parts_to_draw = if let Some(anim) = &self.current_anim {
-            let frame = if self.interpolation { self.current_frame } else { (self.current_frame + 0.01).floor() };
+            // Use passed interpolation argument
+            let frame = if interpolation { self.current_frame } else { (self.current_frame + 0.01).floor() };
             let animated_parts = animator::animate(model, anim, frame);
             transform::solve_hierarchy(&animated_parts, model)
         } else {
@@ -166,7 +172,7 @@ impl AnimViewer {
         let border_color = egui::Color32::from_rgb(31, 106, 165); 
         ui.painter().rect_stroke(border_rect, egui::Rounding::same(5.0), egui::Stroke::new(4.0, border_color));
 
-        if self.debug_show_info {
+        if debug_show_info {
             let clip_rect = rect.shrink(4.0);
             let painter = ui.painter().with_clip_rect(clip_rect);
             
