@@ -59,7 +59,6 @@ impl Default for Model {
         Self {
             parts: Vec::new(),
             version: 0,
-            // FIX: Initialize with valid defaults to prevent Div/0 if file misses header.
             scale_unit: 1000.0,
             angle_unit: 3600.0,
             alpha_unit: 1000.0,
@@ -102,13 +101,13 @@ impl Model {
         if lines.len() > unit_line_index {
             for i in unit_line_index..lines.len() {
                 let p: Vec<&str> = lines[i].split(delimiter).collect();
-                if p.len() == 3 {
+                // FIX: Changed '==' to '>=' to handle files with extra parameters (like Unit 564)
+                if p.len() >= 3 {
                      if let (Ok(s), Ok(a), Ok(o)) = (
                         p[0].trim().parse::<f32>(), 
                         p[1].trim().parse::<f32>(), 
                         p[2].trim().parse::<f32>()
                     ) {
-                        // Only override if non-zero
                         if s != 0.0 { scale_unit = s; }
                         if a != 0.0 { angle_unit = a; }
                         if o != 0.0 { alpha_unit = o; }
@@ -128,8 +127,6 @@ impl Model {
             if p.len() < 13 { continue; } 
 
             let is_root = parts.is_empty();
-
-            // ADDED: Parse Name (Index 13) if available
             let raw_name = if p.len() > 13 { p[13].trim().to_string() } else { String::new() };
 
             let part = ModelPart {
@@ -148,7 +145,6 @@ impl Model {
                 glow_mode:     p[12].trim().parse().unwrap_or(0),
                 flip_x:        false,
                 flip_y:        false,
-                // ADDED: Assign Name
                 name:          raw_name,
             };
             parts.push(part);

@@ -27,9 +27,6 @@ pub fn render(
     
     let sidebar_pad = ui.ctx().data(|d| d.get_temp::<f32>(egui::Id::new("sidebar_visible_width"))).unwrap_or(0.0);
 
-    // FIX: .auto_shrink([false, false]) forces the scroll area to fill the available width.
-    // This ensures the scrollbar stays pinned to the far right of the window, 
-    // rather than hugging the content.
     egui::ScrollArea::vertical()
         .auto_shrink([false, false]) 
         .show(ui, |ui| {
@@ -86,10 +83,7 @@ fn render_talent_group(
         .rounding(5.0)
         .inner_margin(6.0)
         .show(ui, |ui| {
-            // FIX: Padding for the scrollbar.
-            // Since the scroll area is now full-width (auto_shrink=false), this padding 
-            // creates a visible gap between the card edge and the scrollbar.
-            let scrollbar_padding = 15.0; 
+            let scrollbar_padding = 12.0; 
             
             let target_width = ui.available_width() - sidebar_pad - scrollbar_padding;
             ui.set_width(target_width.max(10.0));
@@ -133,7 +127,6 @@ fn render_header(
             ui.spacing_mut().item_spacing.x = 8.0;
             
             if let Some(icon_id) = skillacquisition::map_ability_to_icon(group.ability_id) {
-                // FIX: Hardcoded 40x40 size using SizedTexture to prevent distortion
                 let size = egui::vec2(40.0, 40.0);
                 
                 let drawn = if let Some(cut) = sheet.cuts_map.get(&icon_id) {

@@ -7,28 +7,29 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
     for curve in &animation.curves {
         if curve.part_id >= parts.len() { continue; }
         
-        let loop_count = curve.loop_count; 
-        let fir = curve.min_frame;
-        let smax = curve.max_frame;
-        let lmax = (smax - fir).max(1);
-        let mut local_frame = global_frame;
+        // FIX: Derive bounds directly from Keyframes (matches JS behavior)
+        // We ignore curve.min_frame/max_frame from the header because for Unit 564 
+        // they are "0,0" while the keyframes are "-235, 5".
+        let (k_min, k_max) = if let (Some(first), Some(last)) = (curve.keyframes.first(), curve.keyframes.last()) {
+            (first.frame as f32, last.frame as f32)
+        } else {
+            (0.0, 0.0)
+        };
 
-        if loop_count == -1 {
-            if smax > fir {
-                let frame_in_loop = (local_frame as i32 - fir).rem_euclid(lmax);
-                local_frame = (fir + frame_in_loop) as f32 + (global_frame.fract());
-            }
-        } else if loop_count > 0 {
-            let end_time = fir + loop_count * lmax;
-            if global_frame >= end_time as f32 {
-                local_frame = smax as f32; 
-            } else if (global_frame as i32) > fir {
-                let frame_in_loop = (global_frame as i32 - fir) % lmax;
-                local_frame = (fir + frame_in_loop) as f32 + (global_frame.fract());
-            }
-        }
-        
-        // Mod 13/14 are discrete triggers
+        let duration = (k_max - k_min).max(1.0);
+        let mut local_frame = global_frame;
+        let loop_count = curve.loop_count; 
+
+        // Apply JS Looping Logic
+        // In Rust, 'loop_count' maps to maanim row[2].
+        // If it is NOT 1, we apply the loop modulo logic.
+        if loop_count != 1 {
+            // Calculate the offset into the loop, allowing for negative start times.
+            // rem_euclid handles negative operands correctly (always returns positive remainder).
+            // Formula: (frame - min) % duration + min
+            local_frame = (global_frame - k_min).rem_euclid(duration) + k_min;
+        } 
+
         let is_discrete = matches!(curve.modification_type, 0 | 1 | 3 | 13 | 14);
         
         if let Some(val) = interpolate_curve(curve, local_frame, is_discrete) {
@@ -39,9 +40,7 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 1 => part.unit_id = val as i32,
                 3 => part.drawing_layer = val as i32, 
                 
-                2 => {
-                    part.sprite_index = val as i32;
-                },
+                2 => { part.sprite_index = val as i32; },
 
                 4 => part.position_x += val, 
                 5 => part.position_y += val,
@@ -57,15 +56,11 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 11 => part.rotation += val,
                 12 => part.alpha *= val / model.alpha_unit,
                 
-                // FIX: Restore "Double Flip" logic.
-                // transform.rs needs negative scale for visual flip, 
-                // AND the boolean flag for rotation correction.
                 13 => {
                     if val != 0.0 { 
                         part.scale_x *= -1.0; 
                         part.flip_x = true;   
                     } else {
-                        // Reset if the keyframe says "0" (Not Flipped)
                         part.flip_x = false;
                     }
                 },
@@ -88,10 +83,6 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
 fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) -> Option<f32> {
     if curve.keyframes.is_empty() { return None; }
 
-    if frame < curve.keyframes[0].frame as f32 {
-        return None;
-    }
-
     let mut start_idx = 0;
     let mut end_idx = 0;
     let mut found = false;
@@ -107,6 +98,9 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
     
     if !found {
         return Some(curve.keyframes.last().unwrap().value as f32);
+    }
+    if end_idx == 0 {
+         return Some(curve.keyframes[0].value as f32);
     }
 
     let start_k = &curve.keyframes[start_idx];
@@ -181,7 +175,6 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
         _ => start_val + (change * x) 
     };
 
-    // Special Rounding for Sprite Switching (Mod 2)
     if curve.modification_type == 2 {
         if change < 0.0 {
             return Some(interpolated_val.ceil());
