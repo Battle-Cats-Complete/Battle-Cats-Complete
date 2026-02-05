@@ -100,7 +100,6 @@ impl GlowRenderer {
             let mut data: Vec<u8> = Vec::with_capacity(pixels.len() * 4);
             
             // --- GAMMA VARIABLE (INTERNAL) ---
-            // Set this to your desired value (e.g., 1.9).
             let gamma: f32 = 1.883;
             let inv_gamma = 1.0 / gamma;
 
@@ -209,7 +208,9 @@ impl GlowRenderer {
                     let w = cut.original_size.x;
                     let h = cut.original_size.y;
                     
-                    if w * h <= 16.0 { continue; }
+                    // FIX: Removed the "Small Sprite Culling" check here.
+                    // The JS viewer only uses this for bounding box calculation, NOT rendering.
+                    // if w * h <= 16.0 { continue; } 
 
                     let (sin, cos) = part.rotation.sin_cos();
                     let sx = part.scale.x; 
