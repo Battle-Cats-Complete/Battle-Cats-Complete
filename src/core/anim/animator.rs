@@ -31,7 +31,6 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
         // Mod 13/14 are discrete triggers
         let is_discrete = matches!(curve.modification_type, 0 | 1 | 3 | 13 | 14);
         
-        // FIX: Handle Pre-Animation (return None)
         if let Some(val) = interpolate_curve(curve, local_frame, is_discrete) {
             let part = &mut parts[curve.part_id];
             
@@ -41,8 +40,6 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 3 => part.drawing_layer = val as i32, 
                 
                 2 => {
-                    // FIX: Mod 2 (Sprite) is now rounded correctly inside interpolate_curve
-                    // so we can just cast it here.
                     part.sprite_index = val as i32;
                 },
 
@@ -60,14 +57,25 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 11 => part.rotation += val,
                 12 => part.alpha *= val / model.alpha_unit,
                 
-                // FIX: Flip Logic (Mod 13/14)
-                // Do NOT multiply scale by -1.0. Just set the flag.
-                // transform.rs handles the negative multiplication based on the flag.
+                // FIX: Restore "Double Flip" logic.
+                // transform.rs needs negative scale for visual flip, 
+                // AND the boolean flag for rotation correction.
                 13 => {
-                    part.flip_x = val != 0.0;
+                    if val != 0.0 { 
+                        part.scale_x *= -1.0; 
+                        part.flip_x = true;   
+                    } else {
+                        // Reset if the keyframe says "0" (Not Flipped)
+                        part.flip_x = false;
+                    }
                 },
                 14 => {
-                    part.flip_y = val != 0.0;
+                    if val != 0.0 { 
+                        part.scale_y *= -1.0; 
+                        part.flip_y = true;   
+                    } else {
+                        part.flip_y = false;
+                    }
                 },
                 _ => {}
             }
@@ -80,7 +88,6 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
 fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) -> Option<f32> {
     if curve.keyframes.is_empty() { return None; }
 
-    // FIX: Return None if before first frame (preserves default model state)
     if frame < curve.keyframes[0].frame as f32 {
         return None;
     }
@@ -174,8 +181,7 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
         _ => start_val + (change * x) 
     };
 
-    // FIX: Special Rounding for Sprite Switching (Mod 2)
-    // JS Logic: if decreasing, use Ceil. If increasing, use Floor.
+    // Special Rounding for Sprite Switching (Mod 2)
     if curve.modification_type == 2 {
         if change < 0.0 {
             return Some(interpolated_val.ceil());
