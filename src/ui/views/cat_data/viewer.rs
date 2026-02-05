@@ -160,6 +160,9 @@ pub fn show(
     // 4. UI RENDER PHASE
     // =========================================================
     
+    // FIX: Retrieve Sidebar Width for dynamic resizing
+    let sidebar_pad = ui.ctx().data(|d| d.get_temp::<f32>(egui::Id::new("sidebar_visible_width"))).unwrap_or(0.0);
+
     let mut clicked_index: Option<usize> = None;
 
     ui.vertical(|ui| {
@@ -286,13 +289,21 @@ pub fn show(
             
             if safe_to_render {
                 anim_sheet.update(ctx);
-                anim_viewer.render(
-                    ui, 
-                    anim_sheet, 
-                    model_data.as_ref().unwrap(),
-                    settings.animation_interpolation,
-                    settings.animation_debug
-                );
+                
+                // FIX: Constrain Viewport Width based on Sidebar Padding
+                // This ensures the viewer shrinks when the sidebar is open.
+                let mut size = ui.available_size();
+                size.x = (size.x - sidebar_pad).max(10.0);
+                
+                ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Min), |ui| {
+                    anim_viewer.render(
+                        ui, 
+                        anim_sheet, 
+                        model_data.as_ref().unwrap(),
+                        settings.animation_interpolation,
+                        settings.animation_debug
+                    );
+                });
             } else {
                 ui.allocate_space(ui.available_size());
             }

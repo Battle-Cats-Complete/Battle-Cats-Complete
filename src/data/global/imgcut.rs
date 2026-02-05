@@ -86,12 +86,6 @@ impl SpriteSheet {
         }
     }
 
-    pub fn get_sprite_by_line(&self, index: usize) -> Option<egui::Image<'_>> {
-        let tex = self.texture_handle.as_ref()?;
-        let cut = self.cuts_map.get(&index)?;
-        Some(egui::Image::new(tex).uv(cut.uv_coordinates))
-    }
-
     fn load_internal(png_path: &Path, cut_path: &Path) -> Option<(egui::ColorImage, HashMap<usize, SpriteCut>)> {
         // 1. Load Image
         let image_data = fs::read(png_path).ok()?;
