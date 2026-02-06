@@ -73,65 +73,70 @@ impl GlowRenderer {
         }
     }
 
-    fn upload_texture(&mut self, gl: &glow::Context, sheet: &SpriteSheet) {
+    fn upload_texture(&mut self, gl: &glow::Context, sheet: &SpriteSheet, allow_update: bool) {
         unsafe {
+            // 1. Cache Hit Check
             if self.last_sheet_name == sheet.sheet_name && self.texture.is_some() {
                 return;
             }
 
-            let img = match &sheet.image_data {
-                Some(data) => data,
-                None => return, 
-            };
-
-            if let Some(old_tex) = self.texture {
-                gl.delete_texture(old_tex);
+            // 2. Safety Lock (Prevent Explosion)
+            if !allow_update {
+                if self.texture.is_some() { return; } // Keep old texture
             }
 
-            let tex = gl.create_texture().expect("Failed to create texture");
-            gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-            
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+            // 3. Data Check
+            let img = match &sheet.image_data {
+                Some(data) => data,
+                None => {
+                    if self.texture.is_some() { return; } // Keep old texture if loading
+                    return; 
+                },
+            };
 
+            // 4. Texture Recycling (Prevent Leak/Slowdown)
+            let tex = if let Some(existing_tex) = self.texture {
+                // REUSE: Bind the existing texture ID. 
+                // We do NOT delete it. We just overwrite its data below.
+                gl.bind_texture(glow::TEXTURE_2D, Some(existing_tex));
+                existing_tex
+            } else {
+                // CREATE: First time only.
+                let new_tex = gl.create_texture().expect("Failed to create texture");
+                gl.bind_texture(glow::TEXTURE_2D, Some(new_tex));
+                
+                // Set parameters only on creation (or if needed)
+                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+                
+                new_tex
+            };
+
+            // 5. Convert & Upload Pixels
             let pixels = &img.pixels;
             let mut data: Vec<u8> = Vec::with_capacity(pixels.len() * 4);
             
-            // --- GAMMA VARIABLE (INTERNAL) ---
             let gamma: f32 = 1.883;
             let inv_gamma = 1.0 / gamma;
-
-            // Helper closures for Gamma Correction
-            let to_linear = |c: u8| -> f32 {
-                (c as f32 / 255.0).powf(gamma)
-            };
-
-            let to_monitor = |f: f32| -> u8 {
-                (f.powf(inv_gamma) * 255.0 + 0.5).clamp(0.0, 255.0) as u8
-            };
+            let to_linear = |c: u8| -> f32 { (c as f32 / 255.0).powf(gamma) };
+            let to_monitor = |f: f32| -> u8 { (f.powf(inv_gamma) * 255.0 + 0.5).clamp(0.0, 255.0) as u8 };
 
             for p in pixels {
                 let a_byte = p.a();
                 if a_byte == 0 {
-                    data.push(0);
-                    data.push(0);
-                    data.push(0);
-                    data.push(0);
+                    data.extend_from_slice(&[0, 0, 0, 0]);
                 } else {
-                    // 1. Convert sRGB to Linear
                     let r_lin = to_linear(p.r());
                     let g_lin = to_linear(p.g());
                     let b_lin = to_linear(p.b());
                     let a_lin = a_byte as f32 / 255.0; 
 
-                    // 2. Multiply in Linear Space (Fixes Dark Halos)
                     let r_pre = r_lin * a_lin;
                     let g_pre = g_lin * a_lin;
                     let b_pre = b_lin * a_lin;
 
-                    // 3. Convert back using Custom Gamma (Fixes Gray Lines)
                     data.push(to_monitor(r_pre));
                     data.push(to_monitor(g_pre));
                     data.push(to_monitor(b_pre));
@@ -140,15 +145,9 @@ impl GlowRenderer {
             }
 
             gl.tex_image_2d(
-                glow::TEXTURE_2D,
-                0,
-                glow::RGBA as i32,
-                img.width() as i32,
-                img.height() as i32,
-                0,
-                glow::RGBA,
-                glow::UNSIGNED_BYTE,
-                Some(&data),
+                glow::TEXTURE_2D, 0, glow::RGBA as i32,
+                img.width() as i32, img.height() as i32, 0,
+                glow::RGBA, glow::UNSIGNED_BYTE, Some(&data),
             );
 
             self.texture = Some(tex);
@@ -156,9 +155,19 @@ impl GlowRenderer {
         }
     }
 
-    pub fn paint(&mut self, gl: &glow::Context, viewport: egui::Rect, parts: &[WorldTransform], sheet: &SpriteSheet, pan: egui::Vec2, zoom: f32) {
+    pub fn paint(
+        &mut self, 
+        gl: &glow::Context, 
+        viewport: egui::Rect, 
+        parts: &[WorldTransform], 
+        sheet: &SpriteSheet, 
+        pan: egui::Vec2, 
+        zoom: f32,
+        allow_update: bool
+    ) {
         unsafe {
-            self.upload_texture(gl, sheet);
+            self.upload_texture(gl, sheet, allow_update);
+            
             if self.texture.is_none() { return; }
 
             gl.use_program(Some(self.program));
@@ -171,8 +180,8 @@ impl GlowRenderer {
             
             let projection = [
                 2.0 / w, 0.0, 0.0,
-                0.0, 2.0 / h, 0.0, 
-                -1.0, -1.0, 1.0,
+                0.0, -2.0 / h, 0.0, 
+                -1.0, 1.0, 1.0,
             ];
 
             let center_x = w / 2.0;
@@ -181,7 +190,7 @@ impl GlowRenderer {
             let camera = [
                 zoom, 0.0, 0.0,
                 0.0, zoom, 0.0,
-                center_x + pan.x * zoom, center_y - pan.y * zoom, 1.0
+                center_x + pan.x * zoom, center_y + pan.y * zoom, 1.0
             ];
 
             let view_matrix = multiply_mat3(&projection, &camera);
@@ -194,9 +203,7 @@ impl GlowRenderer {
             gl.enable(glow::BLEND);
 
             for part in parts {
-                if part.hidden || part.opacity < 0.005 || part.scale.x.abs() < 0.001 || part.scale.y.abs() < 0.001 {
-                    continue;
-                }
+                if part.hidden || part.opacity < 0.005 { continue; }
 
                 if part.glow > 0 {
                     gl.blend_func(glow::ONE, glow::ONE);
@@ -205,48 +212,35 @@ impl GlowRenderer {
                 }
 
                 if let Some(cut) = sheet.cuts_map.get(&part.sprite_index) {
-                    let w = cut.original_size.x;
-                    let h = cut.original_size.y;
-                    
-                    // FIX: Removed the "Small Sprite Culling" check here.
-                    // The JS viewer only uses this for bounding box calculation, NOT rendering.
-                    // if w * h <= 16.0 { continue; } 
-
-                    let (sin, cos) = part.rotation.sin_cos();
-                    let sx = part.scale.x; 
-                    let sy = part.scale.y;
-
-                    let model = [
-                        sx * cos, -sx * sin, 0.0,
-                        sy * sin,  sy * cos, 0.0,
-                        part.pos.x, part.pos.y, 1.0
-                    ];
-
-                    let final_matrix = multiply_mat3(&view_matrix, &model);
-                    gl.uniform_matrix_3_f32_slice(u_transform.as_ref(), false, &final_matrix);
-                    gl.uniform_1_f32(u_opacity.as_ref(), part.opacity);
-
+                    let sw = cut.original_size.x;
+                    let sh = cut.original_size.y;
                     let px = part.pivot.x;
                     let py = part.pivot.y;
 
+                    let final_matrix = multiply_mat3(&view_matrix, &part.matrix);
+                    
+                    gl.uniform_matrix_3_f32_slice(u_transform.as_ref(), false, &final_matrix);
+                    gl.uniform_1_f32(u_opacity.as_ref(), part.opacity);
+
                     let vertices: [f32; 12] = [
-                        -px, py,                
-                        w - px, py,             
-                        -px, py - h,            
-                        -px, py - h,            
-                        w - px, py,             
-                        w - px, py - h,         
+                        -px,      -py,          
+                        sw - px,  -py,          
+                        -px,      sh - py,      
+                        
+                        -px,      sh - py,      
+                        sw - px,  -py,          
+                        sw - px,  sh - py,      
                     ];
                     
                     gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
                     gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytemuck::cast_slice(&vertices), glow::DYNAMIC_DRAW);
 
-                    // NO INSETS APPLIED - Using raw UVs from imgcut
                     let uv = cut.uv_coordinates;
                     let tex_coords: [f32; 12] = [
                         uv.min.x, uv.min.y, 
                         uv.max.x, uv.min.y, 
                         uv.min.x, uv.max.y, 
+                        
                         uv.min.x, uv.max.y, 
                         uv.max.x, uv.min.y, 
                         uv.max.x, uv.max.y, 
@@ -319,7 +313,8 @@ pub fn paint(
     sheet: Arc<SpriteSheet>,
     parts: Vec<WorldTransform>,
     pan: egui::Vec2,
-    zoom: f32
+    zoom: f32,
+    allow_update: bool
 ) {
     let callback = egui::PaintCallback {
         rect,
@@ -331,7 +326,7 @@ pub fn paint(
             }
 
             if let Some(renderer) = renderer_lock.as_mut() {
-                renderer.paint(painter.gl(), info.viewport, &parts, &sheet, pan, zoom);
+                renderer.paint(painter.gl(), info.viewport, &parts, &sheet, pan, zoom, allow_update);
             }
         })),
     };

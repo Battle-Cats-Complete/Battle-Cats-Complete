@@ -19,8 +19,6 @@ pub struct SpriteSheet {
     pub image_data: Option<Arc<egui::ColorImage>>, 
     pub cuts_map: HashMap<usize, SpriteCut>, 
     pub is_loading_active: bool,
-    // FIX: Wrap Receiver in Mutex to make SpriteSheet Sync.
-    // This resolves error E0277.
     pub data_receiver: Option<Mutex<Receiver<(String, egui::ColorImage, HashMap<usize, SpriteCut>)>>>,
     pub sheet_name: String, 
 }
@@ -48,16 +46,15 @@ impl SpriteSheet {
         
         self.is_loading_active = true;
         let ctx_clone = ctx.clone();
-        let png_p = png_path.to_path_buf();
-        let cut_p = imgcut_path.to_path_buf();
+        let png_path_buf = png_path.to_path_buf();
+        let cut_path_buf = imgcut_path.to_path_buf();
         
-        let (tx, rx) = mpsc::channel();
-        // FIX: Store Receiver in a Mutex
-        self.data_receiver = Some(Mutex::new(rx));
+        let (sender, receiver) = mpsc::channel();
+        self.data_receiver = Some(Mutex::new(receiver));
 
         thread::spawn(move || {
-            if let Some((img, cuts)) = Self::load_internal(&png_p, &cut_p) {
-                let _ = tx.send((id_str, img, cuts));
+            if let Some((image, cuts)) = Self::load_internal(&png_path_buf, &cut_path_buf) {
+                let _ = sender.send((id_str, image, cuts));
                 ctx_clone.request_repaint();
             }
         });
@@ -65,17 +62,13 @@ impl SpriteSheet {
 
     pub fn update(&mut self, ctx: &egui::Context) {
         if let Some(mutex) = &self.data_receiver {
-            // FIX: Lock the mutex to access the receiver
-            // Using try_lock to be safe on the UI thread, though contention is unlikely
-            if let Ok(rx) = mutex.try_lock() {
-                if let Ok((name, img, cuts)) = rx.try_recv() {
+            if let Ok(receiver) = mutex.try_lock() {
+                if let Ok((name, image, cuts)) = receiver.try_recv() {
                     self.sheet_name = name.clone(); 
-                    self.texture_handle = Some(ctx.load_texture(&name, img.clone(), Default::default()));
-                    self.image_data = Some(Arc::new(img));
+                    self.texture_handle = Some(ctx.load_texture(&name, image.clone(), Default::default()));
+                    self.image_data = Some(Arc::new(image));
                     self.cuts_map = cuts;
                     self.is_loading_active = false;
-                    // We can't easily set self.data_receiver to None here while holding the lock,
-                    // but we can mark it as done via the flag. The mutex overhead is negligible.
                 }
             }
         }
@@ -98,19 +91,24 @@ impl SpriteSheet {
         // 2. Load ImgCut
         let content = fs::read_to_string(cut_path).ok()?;
         let delimiter = utils::detect_csv_separator(&content);
-        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+        
+        // REVERTED LOGIC: Filter empty lines to "collapse" the list.
+        // This is standard behavior for Battle Cats tools and fixes the 736_c issue 
+        // by ignoring garbage lines and aligning valid cuts to sequential IDs.
+        let lines: Vec<&str> = content.lines().filter(|line| !line.trim().is_empty()).collect();
 
         // 3. Find Header
         let mut sprite_count = 0;
         let mut data_start_index = 0;
         let mut found_header = false;
 
-        for (i, line) in lines.iter().enumerate() {
+        for (index, line) in lines.iter().enumerate() {
             if !line.contains(',') {
-                if let Ok(val) = line.trim().parse::<usize>() {
-                    if val > 0 && val < 5000 {
-                        sprite_count = val;
-                        data_start_index = i + 1;
+                if let Ok(count_val) = line.trim().parse::<usize>() {
+                    // Sanity check: valid sprite counts are usually between 1 and 5000
+                    if count_val > 0 && count_val < 5000 {
+                        sprite_count = count_val;
+                        data_start_index = index + 1;
                         found_header = true;
                     }
                 }
@@ -128,31 +126,41 @@ impl SpriteSheet {
         let w = size[0] as f32;
         let h = size[1] as f32;
         let mut parsed_cuts = HashMap::new();
-        let mut current_id = 0;
 
         for i in 0..sprite_count {
-            let line_idx = data_start_index + i;
-            if line_idx >= lines.len() { break; }
-            let line = lines[line_idx];
-            let p: Vec<&str> = line.split(delimiter).collect();
+            let line_index = data_start_index + i;
+            if line_index >= lines.len() { break; }
             
-            if p.len() >= 4 {
-                if let (Ok(x), Ok(y), Ok(cw), Ok(ch)) = (
-                    p[0].trim().parse::<f32>(),
-                    p[1].trim().parse::<f32>(),
-                    p[2].trim().parse::<f32>(),
-                    p[3].trim().parse::<f32>(),
+            let line = lines[line_index];
+            let parts: Vec<&str> = line.split(delimiter).collect();
+            
+            // Standard Indexing: The ID is the loop index `i`.
+            // Because we filtered empty lines earlier, `i` corresponds to the Nth *valid* line.
+            let sprite_id = i; 
+
+            // We strictly need at least 4 columns (x, y, w, h).
+            if parts.len() >= 4 {
+                if let (Ok(x), Ok(y), Ok(cut_width), Ok(cut_height)) = (
+                    parts[0].trim().parse::<f32>(),
+                    parts[1].trim().parse::<f32>(),
+                    parts[2].trim().parse::<f32>(),
+                    parts[3].trim().parse::<f32>(),
                 ) {
                     let uv_min = egui::pos2(x / w, y / h);
-                    let uv_max = egui::pos2((x + cw) / w, (y + ch) / h);
-                    let name = if p.len() > 4 { p[4].to_string() } else { String::new() };
+                    let uv_max = egui::pos2((x + cut_width) / w, (y + cut_height) / h);
+                    
+                    // Robust Name Handling: Check if 5th column exists, otherwise default to empty.
+                    let cut_name = if parts.len() > 4 { 
+                        parts[4].trim().to_string() 
+                    } else { 
+                        String::new() 
+                    };
 
-                    parsed_cuts.insert(current_id, SpriteCut {
+                    parsed_cuts.insert(sprite_id, SpriteCut {
                         uv_coordinates: egui::Rect::from_min_max(uv_min, uv_max),
-                        original_size: egui::vec2(cw, ch),
-                        name,
+                        original_size: egui::vec2(cut_width, cut_height),
+                        name: cut_name,
                     });
-                    current_id += 1;
                 }
             }
         }

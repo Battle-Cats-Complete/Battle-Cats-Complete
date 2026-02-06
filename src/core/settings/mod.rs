@@ -17,6 +17,9 @@ pub struct Settings {
     pub animation_debug: bool,
     pub reset_view_on_selection: bool,
     
+    // 0 = Unit (Default), 1 = Origin, 2 = None
+    pub centering_behavior: usize, 
+    
     pub ability_padding_x: f32,
     pub ability_padding_y: f32,
     pub trait_padding_y: f32,
@@ -54,6 +57,7 @@ impl Default for Settings {
             animation_interpolation: false,
             animation_debug: false,
             reset_view_on_selection: true,
+            centering_behavior: 0,
             
             ability_padding_x: 3.0,
             ability_padding_y: 5.0,
