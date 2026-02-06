@@ -10,26 +10,29 @@ pub struct AnimViewer {
     pub zoom_level: f32,
     pub target_zoom_level: f32,
     pub pan_offset: egui::Vec2,
-    
     pub current_anim: Option<Animation>,
     pub current_frame: f32,
     pub is_playing: bool,
     pub playback_speed: f32,
     
+    // Range: None = "Continuous/Default", Some = "User Override"
+    pub loop_range: (Option<i32>, Option<i32>),
+    pub range_str_cache: (String, String),
+    
+    // Buffers for Single Frame and Speed inputs
+    pub single_frame_str: String,
+    pub speed_str: String,
+    
+    pub hold_timer: f32,
+    pub hold_dir: i8, 
     pub loaded_anim_index: usize, 
     pub loaded_id: String,
-    
     last_loaded_id: String,
     pub pending_initial_center: bool,
-    
-    // Staging (Background Loading)
     pub staging_model: Option<Model>,
     pub staging_sheet: Option<SpriteSheet>,
-    
-    // Retained (Active Rendering)
     pub held_model: Option<Model>,
     pub held_sheet: Option<SpriteSheet>,
-    
     pub renderer: Arc<Mutex<Option<canvas::GlowRenderer>>>,
 }
 
@@ -43,16 +46,20 @@ impl Default for AnimViewer {
             current_frame: 0.0,
             is_playing: true,
             playback_speed: 1.0,
+            loop_range: (None, None),
+            range_str_cache: (String::new(), String::new()),
+            single_frame_str: String::new(),
+            speed_str: "1.0".to_string(),
+            hold_timer: 0.0,
+            hold_dir: 0,
             loaded_anim_index: 0, 
             loaded_id: String::new(),
             last_loaded_id: "FORCE_INIT".to_string(),
             pending_initial_center: false,
-            
             staging_model: None,
             staging_sheet: None,
             held_model: None,
             held_sheet: None,
-            
             renderer: Arc::new(Mutex::new(None)),
         }
     }
@@ -61,10 +68,18 @@ impl Default for AnimViewer {
 impl AnimViewer {
     pub fn load_anim(&mut self, path: &Path) {
         if let Some(anim) = Animation::load(path) {
-            self.current_anim = Some(anim);
             self.current_frame = 0.0;
+            self.loop_range = (None, None);
+            self.range_str_cache = (String::new(), String::new());
+            self.single_frame_str = "0".to_string();
+            // Keep speed persistence, don't reset speed_str
+            self.current_anim = Some(anim);
         } else {
             self.current_anim = None;
+            self.current_frame = 0.0;
+            self.loop_range = (None, None); 
+            self.range_str_cache = (String::new(), String::new());
+            self.single_frame_str = "0".to_string();
         }
     }
 
@@ -118,31 +133,52 @@ impl AnimViewer {
             self.zoom_level = self.target_zoom_level;
         }
 
-        if self.is_playing {
-            if let Some(anim) = &self.current_anim {
-                self.current_frame += dt * 30.0 * self.playback_speed;
-                let max_f = if anim.max_frame > 0 { anim.max_frame as f32 } else { 100.0 };
-                
-                if self.loaded_anim_index >= 2 {
-                    if self.current_frame >= max_f + 1.0 { self.current_frame = 0.0; }
-                } else {
-                    if self.current_frame > 1_000_000.0 { self.current_frame = 0.0; }
+        if let Some(anim) = &self.current_anim {
+            let lcm_max = if self.loaded_anim_index <= 1 {
+                anim.calculate_true_loop()
+            } else {
+                anim.max_frame
+            };
+
+            let start = self.loop_range.0.unwrap_or(0);
+            let end = self.loop_range.1.unwrap_or(lcm_max);
+            let loop_end = end as f32;
+            
+            // 1. Hold Logic (Manual Scrub)
+            if self.hold_dir != 0 {
+                self.hold_timer += dt;
+                ui.ctx().request_repaint();
+
+                if self.hold_timer > 0.2 {
+                   let delta = self.hold_dir as f32 * dt * 30.0;
+                   let mut new_frame = self.current_frame + delta;
+                   
+                   if new_frame > loop_end { new_frame = 0.0; }
+                   else if new_frame < 0.0 { new_frame = loop_end; }
+                   
+                   self.current_frame = new_frame;
                 }
-                
+            } else {
+                self.hold_timer = 0.0;
+            }
+
+            // 2. Play Logic (Auto Play)
+            if self.is_playing {
+                if loop_end < 1.0 {
+                    self.current_frame = 0.0;
+                } else {
+                    self.current_frame += dt * 30.0 * self.playback_speed;
+                    
+                    if self.current_frame > loop_end {
+                        self.current_frame = start as f32;
+                    }
+                }
                 ui.ctx().request_repaint();
             }
         }
 
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
-        
-        controls::handle_viewport_input(
-            ui, 
-            &response, 
-            &mut self.pan_offset, 
-            &mut self.zoom_level, 
-            &mut self.target_zoom_level, 
-            &mut self.pending_initial_center
-        );
+        controls::handle_viewport_input(ui, &response, &mut self.pan_offset, &mut self.zoom_level, &mut self.target_zoom_level, &mut self.pending_initial_center);
 
         let parts_to_draw = if let Some(anim) = &self.current_anim {
             let frame = if interpolation { self.current_frame } else { (self.current_frame + 0.01).floor() };
@@ -152,7 +188,6 @@ impl AnimViewer {
             transform::solve_hierarchy(&model.parts, model)
         };
 
-        // Pass 1: Create atomic view of the sheet for the renderer
         let sheet_arc = Arc::new(SpriteSheet {
             texture_handle: sprite_sheet.texture_handle.clone(),
             image_data: sprite_sheet.image_data.clone(),
@@ -162,10 +197,8 @@ impl AnimViewer {
             sheet_name: sprite_sheet.sheet_name.clone(),
         });
 
-        // Pass 2: Render
         canvas::paint(ui, rect, self.renderer.clone(), sheet_arc, parts_to_draw, self.pan_offset, self.zoom_level, allow_update);
 
-        // Border
         let border_rect = rect.shrink(2.0);
         let border_color = egui::Color32::from_rgb(31, 106, 165); 
         ui.painter().rect_stroke(border_rect, egui::Rounding::same(5.0), egui::Stroke::new(4.0, border_color));
