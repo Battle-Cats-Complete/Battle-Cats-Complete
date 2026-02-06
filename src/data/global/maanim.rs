@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use std::fs;
 use std::path::Path;
 use crate::core::utils;
@@ -8,8 +7,9 @@ fn gcd(a: i32, b: i32) -> i32 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
 
-fn lcm(a: i32, b: i32) -> i32 {
-    if a == 0 || b == 0 { 0 } else { (a * b).abs() / gcd(a, b) }
+// CHANGED: Returns i64 to prevent overflow during calculation
+fn lcm(a: i32, b: i32) -> i64 {
+    if a == 0 || b == 0 { 0 } else { (a as i64 * b as i64).abs() / gcd(a, b) as i64 }
 }
 
 #[derive(Clone, Debug)]
@@ -107,17 +107,21 @@ impl Animation {
         Some(Self { curves, max_frame: max_len })
     }
 
-    pub fn calculate_true_loop(&self) -> i32 {
-        let mut overall_lcm = 1;
+    /// Calculates the LCM (Least Common Multiple) of all looping curves.
+    /// Returns:
+    /// - `Some(frame_count)` if the loop is finite and within the safety limit (999,999).
+    /// - `None` if the loop is effectively infinite, too large, or causes overflow.
+    pub fn calculate_true_loop(&self) -> Option<i32> {
+        let mut overall_lcm: i64 = 1;
         let mut found_looping_part = false;
         
         for curve in &self.curves {
             // Check parts that loop infinitely (or standard loops)
             if curve.loop_count != 1 {
                 if let (Some(first), Some(last)) = (curve.keyframes.first(), curve.keyframes.last()) {
-                    let duration = last.frame - first.frame; 
+                    let duration = (last.frame - first.frame) as i32; 
                     if duration > 0 {
-                        overall_lcm = lcm(overall_lcm, duration);
+                        overall_lcm = lcm(overall_lcm as i32, duration);
                         found_looping_part = true;
                     }
                 }
@@ -125,15 +129,17 @@ impl Animation {
         }
         
         if !found_looping_part {
-            return self.max_frame;
+            return Some(self.max_frame);
         }
         
-        // Safety cap increased to 2,000,000 to handle complex syncs like Unit 587
-        if overall_lcm > 2_000_000 {
-            return self.max_frame;
+        // CHANGED: Fallback Logic
+        // 1. If calculation resulted in overflow (very unlikely with i64 but good hygiene)
+        // 2. If result exceeds 999,999 (User requested limit)
+        if overall_lcm > 999_999 {
+            return None; // Treat as "???", Infinite / Continuous
         }
 
-        std::cmp::max(overall_lcm, self.max_frame)
+        Some(std::cmp::max(overall_lcm as i32, self.max_frame))
     }
 
     pub fn scan_duration(file_content: &str) -> i32 {

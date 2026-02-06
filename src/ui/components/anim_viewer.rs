@@ -49,7 +49,8 @@ impl Default for AnimViewer {
             loop_range: (None, None),
             range_str_cache: (String::new(), String::new()),
             single_frame_str: String::new(),
-            speed_str: "1.0".to_string(),
+            // CHANGED: Default is empty string so ghost text shows "1.0"
+            speed_str: String::new(),
             hold_timer: 0.0,
             hold_dir: 0,
             loaded_anim_index: 0, 
@@ -137,12 +138,20 @@ impl AnimViewer {
             let lcm_max = if self.loaded_anim_index <= 1 {
                 anim.calculate_true_loop()
             } else {
-                anim.max_frame
+                Some(anim.max_frame)
             };
 
             let start = self.loop_range.0.unwrap_or(0);
-            let end = self.loop_range.1.unwrap_or(lcm_max);
-            let loop_end = end as f32;
+            
+            // Loop Logic:
+            // 1. User Override (Raw): Takes precedence. No clamping.
+            // 2. LCM Calc (Auto): Used if finite.
+            // 3. Infinite: Fallback.
+            let (effective_max, is_infinite, has_user_override) = match (self.loop_range.1, lcm_max) {
+                (Some(user_override), _) => (user_override as f32, false, true),
+                (None, Some(calc)) => (calc as f32, false, false),
+                (None, None) => (0.0, true, false), 
+            };
             
             // 1. Hold Logic (Manual Scrub)
             if self.hold_dir != 0 {
@@ -153,8 +162,12 @@ impl AnimViewer {
                    let delta = self.hold_dir as f32 * dt * 30.0;
                    let mut new_frame = self.current_frame + delta;
                    
-                   if new_frame > loop_end { new_frame = 0.0; }
-                   else if new_frame < 0.0 { new_frame = loop_end; }
+                   if !is_infinite {
+                       if new_frame > effective_max { new_frame = 0.0; }
+                       else if new_frame < 0.0 { new_frame = effective_max; }
+                   } else {
+                       if new_frame < 0.0 { new_frame = 0.0; }
+                   }
                    
                    self.current_frame = new_frame;
                 }
@@ -164,13 +177,16 @@ impl AnimViewer {
 
             // 2. Play Logic (Auto Play)
             if self.is_playing {
-                if loop_end < 1.0 {
+                if !is_infinite && effective_max < 1.0 && !has_user_override {
                     self.current_frame = 0.0;
                 } else {
                     self.current_frame += dt * 30.0 * self.playback_speed;
                     
-                    if self.current_frame > loop_end {
-                        self.current_frame = start as f32;
+                    if !is_infinite {
+                        // CHANGED: If user override exists, loop back to start (even if start > end in weird cases, though unlikely)
+                        if self.current_frame > effective_max {
+                            self.current_frame = start as f32;
+                        }
                     }
                 }
                 ui.ctx().request_repaint();

@@ -22,7 +22,7 @@ const GAP: f32 = 4.0;
 // Column 1: Play/Orient
 const ICON_W: f32 = 60.0;
 
-// Column 2: Frame Controls (Calculated for seamless alignment)
+// Column 2: Frame Controls 
 const COL2_W: f32 = 148.0; 
 const NAV_W: f32 = 30.0;
 const INPUT_W: f32 = 80.0; 
@@ -30,7 +30,8 @@ const RANGE_INPUT_W: f32 = 60.0;
 const SEP_W: f32 = 20.0;
 
 // Column 3: Export/Speed
-const COL3_W: f32 = 80.0;
+// CHANGED: Increased to 100.0 to fit "Speed" label comfortably
+const COL3_W: f32 = 100.0;
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -236,10 +237,21 @@ pub fn show(
         ui.add_space(5.0);
         
         // --- SNAPSHOT STATE (PRE-BORROW) ---
-        let lcm_max = if let Some(anim) = &anim_viewer.current_anim {
-            if anim_viewer.loaded_anim_index <= 1 { anim.calculate_true_loop() } else { anim.max_frame }
-        } else { 0 };
-        let max_frame = lcm_max;
+        let (lcm_result, max_frame_val) = if let Some(anim) = &anim_viewer.current_anim {
+            if anim_viewer.loaded_anim_index <= 1 { 
+                let res = anim.calculate_true_loop();
+                (res, res.unwrap_or(0)) 
+            } else { 
+                (Some(anim.max_frame), anim.max_frame) 
+            }
+        } else { 
+            (Some(0), 0) 
+        };
+        
+        let display_max_str = match lcm_result {
+            Some(v) => v.to_string(),
+            None => "???".to_string()
+        };
 
         let cur_frame_val = anim_viewer.current_frame;
         let loop_range_0 = anim_viewer.loop_range.0;
@@ -248,9 +260,16 @@ pub fn show(
         let is_model_mode = anim_viewer.loaded_anim_index == IDX_MODEL;
 
         let cur_int = (cur_frame_val + 0.01).floor() as i32;
-        let effective_max = loop_range_1.unwrap_or(max_frame);
-        let display_max = if is_model_mode { 0 } else { effective_max };
-        let display_cur = if cur_int > display_max { display_max } else { cur_int };
+        
+        let effective_display_max = if is_model_mode {
+            "0".to_string()
+        } else if let Some(override_end) = loop_range_1 {
+            override_end.to_string()
+        } else {
+            display_max_str.clone()
+        };
+        
+        let display_cur = cur_int; 
 
         // Tile Frame Style
         let tile_frame = egui::Frame::none()
@@ -290,31 +309,28 @@ pub fn show(
                             // [◀]
                             let left_btn = ui.add_sized(egui::vec2(NAV_W, TILE_HEIGHT), egui::Button::new("◀").sense(egui::Sense::click().union(egui::Sense::drag())));
                             
-                            // [F] (Single Frame Input - Fully Transparent & Centered)
+                            // [F] (Single Frame Input)
                             tile_frame.show(ui, |ui| {
                                 ui.set_width(INPUT_W);
                                 ui.set_height(TILE_HEIGHT);
                                 
                                 ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
-                                    // Make text edit transparent
                                     ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
                                     ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
                                     ui.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
                                     
-                                    // Sync buffer if not editing
                                     let re = ui.add(egui::TextEdit::singleline(&mut anim_viewer.single_frame_str)
                                         .frame(false)
                                         .desired_width(INPUT_W)
                                         .vertical_align(egui::Align::Center)
                                         .horizontal_align(egui::Align::Center));
                                     
-                                    // Update frame on change
                                     if re.changed() {
                                         if let Ok(val) = anim_viewer.single_frame_str.parse::<i32>() {
-                                            anim_viewer.current_frame = val.clamp(0, max_frame) as f32;
+                                            // Allow manual seek anywhere
+                                            anim_viewer.current_frame = val as f32;
                                         }
                                     }
-                                    // Update buffer from logic if not focused
                                     if !re.has_focus() {
                                         anim_viewer.single_frame_str = format!("{}", cur_int);
                                     }
@@ -331,11 +347,16 @@ pub fn show(
                             
                             if left_btn.clicked() {
                                 let f = cur_frame_val - 1.0;
-                                anim_viewer.current_frame = if f < 0.0 { max_frame as f32 } else { f };
+                                let wrap_target = if lcm_result.is_some() { max_frame_val as f32 } else { 0.0 }; 
+                                anim_viewer.current_frame = if f < 0.0 { wrap_target } else { f };
                             }
                             if right_btn.clicked() {
                                 let f = cur_frame_val + 1.0;
-                                anim_viewer.current_frame = if f > max_frame as f32 { 0.0 } else { f };
+                                if let Some(mx) = lcm_result {
+                                    anim_viewer.current_frame = if f > mx as f32 { 0.0 } else { f };
+                                } else {
+                                    anim_viewer.current_frame = f; // No wrap forward for infinite
+                                }
                             }
 
                         } else {
@@ -366,9 +387,9 @@ pub fn show(
                                         if anim_viewer.range_str_cache.0.is_empty() {
                                             anim_viewer.loop_range.0 = None;
                                         } else if let Ok(val) = anim_viewer.range_str_cache.0.parse::<i32>() {
-                                            let clamped = val.clamp(0, max_frame);
-                                            anim_viewer.loop_range.0 = Some(clamped);
-                                            if cur_frame_val < clamped as f32 { anim_viewer.current_frame = clamped as f32; }
+                                            let val_raw = val; 
+                                            anim_viewer.loop_range.0 = Some(val_raw);
+                                            if cur_frame_val < val_raw as f32 { anim_viewer.current_frame = val_raw as f32; }
                                         }
                                     }
                                     if re.secondary_clicked() {
@@ -400,7 +421,7 @@ pub fn show(
                                         anim_viewer.range_str_cache.1 = loop_range_1.unwrap().to_string();
                                     }
                                     
-                                    let hint = egui::RichText::new(format!("{}", max_frame)).color(egui::Color32::GRAY);
+                                    let hint = egui::RichText::new(&display_max_str).color(egui::Color32::GRAY);
                                     let re = ui.add(egui::TextEdit::singleline(&mut anim_viewer.range_str_cache.1)
                                         .hint_text(hint)
                                         .frame(false)
@@ -412,10 +433,10 @@ pub fn show(
                                         if anim_viewer.range_str_cache.1.is_empty() {
                                             anim_viewer.loop_range.1 = None;
                                         } else if let Ok(val) = anim_viewer.range_str_cache.1.parse::<i32>() {
+                                            let val_raw = val;
+                                            anim_viewer.loop_range.1 = Some(val_raw);
                                             let start = loop_range_0.unwrap_or(0);
-                                            let clamped = val.clamp(start, max_frame.max(1));
-                                            anim_viewer.loop_range.1 = Some(clamped);
-                                            if cur_frame_val > clamped as f32 { anim_viewer.current_frame = start as f32; }
+                                            if cur_frame_val > val_raw as f32 { anim_viewer.current_frame = start as f32; }
                                         }
                                     }
                                     if re.secondary_clicked() {
@@ -453,7 +474,7 @@ pub fn show(
                             ui.set_width(60.0);
                             ui.set_height(TILE_HEIGHT);
                             ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
-                                ui.label(egui::RichText::new(format!("{}", display_max)).color(egui::Color32::WHITE)); 
+                                ui.label(egui::RichText::new(&effective_display_max).color(egui::Color32::WHITE)); 
                             });
                         });
                     });
@@ -478,33 +499,51 @@ pub fn show(
 
                 ui.add_space(GAP);
 
-                // Speed Input Tile (Number Only - Transparent & Centered)
-                tile_frame.show(ui, |ui| {
-                    ui.set_width(COL3_W);
-                    ui.set_height(TILE_HEIGHT);
-                    ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
-                        ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
-                        ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
-                        ui.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
-                        
-                        let re = ui.add(egui::TextEdit::singleline(&mut anim_viewer.speed_str)
-                            .hint_text(egui::RichText::new("1.0").color(egui::Color32::GRAY))
-                            .frame(false)
-                            .desired_width(COL3_W)
-                            .vertical_align(egui::Align::Center)
-                            .horizontal_align(egui::Align::Center));
+                // Speed Input (Split Tiles)
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = GAP;
+                    
+                    // CHANGED: Label 50.0 wide, "Speed" text, Gap 4.0
+                    // Input = 100.0 - 50.0 - 4.0 = 46.0
+                    let lbl_w = 50.0;
+                    let inp_w = COL3_W - lbl_w - GAP;
+
+                    // Tile 1: "Speed" Label
+                    tile_frame.show(ui, |ui| {
+                        ui.set_width(lbl_w);
+                        ui.set_height(TILE_HEIGHT);
+                        ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
+                            ui.label(egui::RichText::new("Speed").color(egui::Color32::WHITE).size(12.0));
+                        });
+                    });
+
+                    // Tile 2: Input Field
+                    tile_frame.show(ui, |ui| {
+                        ui.set_width(inp_w);
+                        ui.set_height(TILE_HEIGHT);
+                        ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
+                            ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
+                            ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
+                            ui.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
                             
-                        if re.changed() {
-                            if anim_viewer.speed_str.is_empty() {
-                                anim_viewer.playback_speed = 1.0;
-                            } else if let Ok(val) = anim_viewer.speed_str.parse::<f32>() {
-                                anim_viewer.playback_speed = val.clamp(0.1, 10.0);
+                            let re = ui.add(egui::TextEdit::singleline(&mut anim_viewer.speed_str)
+                                .hint_text(egui::RichText::new("1.0").color(egui::Color32::GRAY))
+                                .frame(false)
+                                .desired_width(inp_w)
+                                .vertical_align(egui::Align::Center)
+                                .horizontal_align(egui::Align::Center));
+                                
+                            if re.changed() {
+                                if anim_viewer.speed_str.is_empty() {
+                                    anim_viewer.playback_speed = 1.0;
+                                } else if let Ok(val) = anim_viewer.speed_str.parse::<f32>() {
+                                    anim_viewer.playback_speed = val.clamp(0.1, 10.0);
+                                }
                             }
-                        }
-                        // Default ghosting when empty and lost focus
-                        if !re.has_focus() && anim_viewer.speed_str.is_empty() {
-                            anim_viewer.playback_speed = 1.0;
-                        }
+                            if !re.has_focus() && anim_viewer.speed_str.is_empty() {
+                                anim_viewer.playback_speed = 1.0;
+                            }
+                        });
                     });
                 });
             });
