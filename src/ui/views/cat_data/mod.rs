@@ -8,7 +8,6 @@ use crate::data::global::img015;
 use crate::core::settings::Settings;
 use crate::core::cat::talents as talent_logic; 
 use crate::data::global::mamodel::Model;
-// CHANGED: Import from components
 use crate::ui::components::anim_viewer::AnimViewer;
 
 mod header;
@@ -16,7 +15,6 @@ mod stats;
 mod abilities;
 mod talents;
 mod details;
-// REMOVED: pub mod anim;
 pub mod list;
 mod viewer;
 
@@ -49,9 +47,13 @@ pub fn show(
 ) {
     img015::ensure_loaded(ctx, icon_sheet, settings);
 
+    // Render Header (Handles Form Buttons)
     header::render(
         ctx, ui, cat_entry, current_form, current_tab, current_level, level_input, texture_cache, current_key, settings
     );
+
+    // REMOVED: The Force Reset Logic ("Hijack") is gone. 
+    // We now rely on viewer.rs to handle the transition seamlessly.
 
     ui.separator(); 
     ui.add_space(0.0);
@@ -109,7 +111,6 @@ pub fn show(
              details::render_evolve(ui, ctx, &cat_entry.unit_buy, ev_text, *current_form, gatya_item_textures, cache_version);
         },
         DetailTab::Animation => {
-            // UPDATED: Now passes 'settings' to the viewer
             viewer::show(ui, ctx, cat_entry, *current_form, anim_viewer, model_data, anim_sheet, settings);
         }
     }

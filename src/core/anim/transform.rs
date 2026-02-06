@@ -3,9 +3,8 @@ use crate::data::global::mamodel::{Model, ModelPart};
 
 #[derive(Clone, Copy, Debug)]
 pub struct WorldTransform {
-    pub pos: egui::Vec2,
-    pub scale: egui::Vec2,
-    pub rotation: f32, 
+    // 3x3 Matrix (Column-Major)
+    pub matrix: [f32; 9], 
     pub opacity: f32,
     pub z_order: i32,
     pub sprite_index: usize,
@@ -15,6 +14,7 @@ pub struct WorldTransform {
     pub part_index: usize, 
 }
 
+// Temporary struct to hold hierarchy steps
 #[derive(Clone, Copy)]
 struct TransformStep {
     child_pos: [f32; 2],      
@@ -29,74 +29,76 @@ pub fn solve_hierarchy(parts: &[ModelPart], model: &Model) -> Vec<WorldTransform
         results.push(solve_single_part(i, parts, model));
     }
     
-    // STABLE SORT: Fixes "jittering when still" (Z-fighting)
+    // STABLE SORT (Painter's Algorithm)
     results.sort_by(|a, b| {
         a.z_order.cmp(&b.z_order)
             .then(a.part_index.cmp(&b.part_index))
     });
-    
+
     results
 }
 
-fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldTransform {
-    let target_part = &parts[index];
+fn solve_single_part(target_index: usize, parts: &[ModelPart], model: &Model) -> WorldTransform {
+    let target_part = &parts[target_index];
     
+    // 1. Build Parent Chain
     let mut chain = Vec::new();
-    let mut curr = index;
-    chain.push(curr);
-    
+    let mut curr = target_index;
     let mut safety = 0;
     
-    // UPGRADE: Increased limit to 256 as requested
-    while parts[curr].parent_id != -1 && safety < 256 {
-        let next_parent = parts[curr].parent_id as usize;
-        
-        // FIX 1: Prevent Direct Self-Parenting (Optimization)
-        if next_parent == curr { break; }
-        
-        curr = next_parent;
-        if curr >= parts.len() { break; }
+    loop {
         chain.push(curr);
+        let next_parent = parts[curr].parent_id;
+        
+        if next_parent == -1 { break; }
+        if next_parent as usize == curr { break; } 
+        
+        curr = next_parent as usize;
+        if curr >= parts.len() { break; }
+        
         safety += 1;
+        if safety > 100 { break; } 
     }
-    
-    // FIX 2: The "Safety Valve"
-    // If we hit the 256 limit, it means the unit is corrupt (infinite loop).
-    // We force this part to be HIDDEN so it doesn't draw a massive visual artifact.
-    let loop_detected = safety >= 256;
+    chain.reverse(); 
 
-    chain.reverse();
-    
+    // 2. Logic: Y-Down Coords + Explicit Flip Application
     let mut vectors = Vec::with_capacity(chain.len());
     let rot_div = if model.angle_unit != 0.0 { model.angle_unit / 360.0 } else { 1.0 };
     
-    // Accumulators for True Flip (Rotation)
     let mut acc_flip_x = 1.0;
     let mut acc_flip_y = 1.0;
 
     for &idx in &chain {
         let p = &parts[idx];
-        let pos = [p.position_x, -p.position_y]; 
+        
+        // Pos: Standard (Y-Down)
+        let pos = [p.position_x, p.position_y]; 
+        
         let sx = p.scale_x / model.scale_unit;
         let sy = p.scale_y / model.scale_unit;
         
-        // CLEAN FIX: Read True Flip from explicit fields
         let current_flip_x = if p.flip_x { -1.0 } else { 1.0 };
         let current_flip_y = if p.flip_y { -1.0 } else { 1.0 };
+        
+        // HIERARCHY SCALE: Apply Flip to mirror Child Positions.
+        // Since 'sx' is now clean (always positive size), we multiply by flip here.
+        let hierarchy_sx = sx * current_flip_x;
+        let hierarchy_sy = sy * current_flip_y;
         
         let total_flip_x = acc_flip_x * current_flip_x;
         let total_flip_y = acc_flip_y * current_flip_y;
         
-        // Rotation is affected by TRUE FLIP (Mod 13) only, NOT Mod 8.
         let rot_rad = (p.rotation / rot_div).to_radians();
-        let adjusted_rot = rot_rad * total_flip_x * total_flip_y;
+        
+        // ROTATION: Negative for Y-Down
+        let adjusted_rot = -rot_rad * total_flip_x * total_flip_y;
         
         let (sin, cos) = adjusted_rot.sin_cos();
         let rot_matrix = [cos, sin, -sin, cos];
 
         vectors.push(TransformStep {
             child_pos: pos,
-            parent_scale: [sx, sy], // Position uses combined visual scale
+            parent_scale: [hierarchy_sx, hierarchy_sy], 
             parent_rot: rot_matrix,
         });
         
@@ -104,6 +106,7 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         acc_flip_y *= current_flip_y;
     }
     
+    // B. Solve Position
     let len = vectors.len();
     
     for j in 0..len {
@@ -133,6 +136,7 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         g_pos.y += vectors[j].child_pos[1];
     }
 
+    // C. Visual Scale & Rotation
     let mut g_scale = egui::vec2(1.0, 1.0);
     let mut g_rot = 0.0;
     let mut g_op = 1.0;
@@ -145,6 +149,7 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         let sx = p.scale_x / model.scale_unit;
         let sy = p.scale_y / model.scale_unit;
         
+        // Scale Accumulation
         g_scale.x *= sx;
         g_scale.y *= sy;
         
@@ -152,28 +157,39 @@ fn solve_single_part(index: usize, parts: &[ModelPart], model: &Model) -> WorldT
         let current_flip_y = if p.flip_y { -1.0 } else { 1.0 };
         
         let local_r = (p.rotation / rot_div).to_radians();
-        g_rot += local_r * acc_flip_x * current_flip_x * acc_flip_y * current_flip_y;
+        
+        // Rotation Accumulation
+        g_rot += -local_r * acc_flip_x * current_flip_x * acc_flip_y * current_flip_y;
         
         g_op *= p.alpha / model.alpha_unit;
         
         acc_flip_x *= current_flip_x;
         acc_flip_y *= current_flip_y;
     }
+    
+    // VISUAL FLIP: Apply the final accumulated flip to the scale.
+    // This ensures the Sprite flips visually (fixing the Torso Jumble).
+    g_scale.x *= acc_flip_x;
+    g_scale.y *= acc_flip_y;
 
-    // UPGRADE APPLIED HERE:
-    // If loop_detected is true, we hide the part.
-    let is_ghost = target_part.unit_id == -1 || target_part.sprite_index == -1 || loop_detected;
+    // 3. Final Matrix
+    let c = g_rot.cos();
+    let s = g_rot.sin();
+    
+    let matrix = [
+        g_scale.x * c,   g_scale.x * -s,  0.0, 
+        g_scale.y * s,   g_scale.y * c,   0.0, 
+        g_pos.x,         g_pos.y,         1.0  
+    ];
 
     WorldTransform {
-        pos: g_pos,
-        scale: g_scale,
-        rotation: g_rot,
+        matrix,
         opacity: g_op,
-        z_order: target_part.drawing_layer,
+        z_order: target_part.drawing_layer, 
         sprite_index: target_part.sprite_index as usize,
         pivot: egui::vec2(target_part.pivot_x, target_part.pivot_y),
-        hidden: is_ghost,
+        hidden: g_op < 0.001 || target_part.unit_id == -1 || target_part.sprite_index == -1,
         glow: target_part.glow_mode,
-        part_index: index,
+        part_index: target_index,
     }
 }

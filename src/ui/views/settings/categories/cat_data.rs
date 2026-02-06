@@ -92,6 +92,26 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
                 toggle_ui(ui, &mut settings.animation_debug);
                 ui.label("Enable Debug View");
             });
+            
+            // --- New Centering Setting ---
+            ui.horizontal(|ui| {
+                ui.label("Centering Behavior:");
+                egui::ComboBox::from_id_salt("centering_behavior")
+                    .selected_text(match settings.centering_behavior {
+                        0 => "Unit",
+                        1 => "Origin",
+                        2 => "None",
+                        _ => "Unit",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut settings.centering_behavior, 0, "Unit")
+                            .on_hover_text("Automatically center the unit on load (Default)");
+                        ui.selectable_value(&mut settings.centering_behavior, 1, "Origin")
+                            .on_hover_text("Reset camera to (0,0) on load");
+                        ui.selectable_value(&mut settings.centering_behavior, 2, "None")
+                            .on_hover_text("Keep camera position/zoom when switching units/forms");
+                    });
+            });
         });
 
     refresh_needed

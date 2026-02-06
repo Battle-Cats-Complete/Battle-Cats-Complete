@@ -7,9 +7,6 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
     for curve in &animation.curves {
         if curve.part_id >= parts.len() { continue; }
         
-        // FIX: Derive bounds directly from Keyframes (matches JS behavior)
-        // We ignore curve.min_frame/max_frame from the header because for Unit 564 
-        // they are "0,0" while the keyframes are "-235, 5".
         let (k_min, k_max) = if let (Some(first), Some(last)) = (curve.keyframes.first(), curve.keyframes.last()) {
             (first.frame as f32, last.frame as f32)
         } else {
@@ -20,13 +17,7 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
         let mut local_frame = global_frame;
         let loop_count = curve.loop_count; 
 
-        // Apply JS Looping Logic
-        // In Rust, 'loop_count' maps to maanim row[2].
-        // If it is NOT 1, we apply the loop modulo logic.
         if loop_count != 1 {
-            // Calculate the offset into the loop, allowing for negative start times.
-            // rem_euclid handles negative operands correctly (always returns positive remainder).
-            // Formula: (frame - min) % duration + min
             local_frame = (global_frame - k_min).rem_euclid(duration) + k_min;
         } 
 
@@ -57,20 +48,12 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 12 => part.alpha *= val / model.alpha_unit,
                 
                 13 => {
-                    if val != 0.0 { 
-                        part.scale_x *= -1.0; 
-                        part.flip_x = true;   
-                    } else {
-                        part.flip_x = false;
-                    }
+                    // FIX: Do NOT invert scale here. Just set the flag.
+                    part.flip_x = val != 0.0;
                 },
                 14 => {
-                    if val != 0.0 { 
-                        part.scale_y *= -1.0; 
-                        part.flip_y = true;   
-                    } else {
-                        part.flip_y = false;
-                    }
+                    // FIX: Do NOT invert scale here. Just set the flag.
+                    part.flip_y = val != 0.0;
                 },
                 _ => {}
             }
@@ -82,6 +65,11 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
 
 fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) -> Option<f32> {
     if curve.keyframes.is_empty() { return None; }
+
+    let first_k = &curve.keyframes[0];
+    if frame < first_k.frame as f32 {
+        return None; 
+    }
 
     let mut start_idx = 0;
     let mut end_idx = 0;
@@ -109,21 +97,16 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
     if is_discrete { return Some(start_k.value as f32); }
     if start_k.frame == end_k.frame { return Some(start_k.value as f32); }
 
-    // --- EASE MODE 3 (LAGRANGE) ---
     if start_k.ease_mode == 3 {
         let mut points = Vec::new();
-        
         let mut i = start_idx as isize;
         while i >= 0 {
             let k = &curve.keyframes[i as usize];
-            if (i as usize) != start_idx && k.ease_mode != 3 { 
-                break; 
-            }
+            if (i as usize) != start_idx && k.ease_mode != 3 { break; }
             points.push((k.frame as f32, k.value as f32));
             i -= 1;
         }
         points.reverse(); 
-
         let mut i = end_idx;
         while i < curve.keyframes.len() {
             let k = &curve.keyframes[i];
@@ -134,11 +117,9 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
 
         let mut result = 0.0;
         let n = points.len();
-        
         for j in 0..n {
             let (xj, yj) = points[j];
             let mut prod = yj;
-            
             for m in 0..n {
                 if j == m { continue; }
                 let (xm, _) = points[m];
@@ -150,7 +131,6 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
         }
         return Some(result);
     }
-    // -------------------------------------------
 
     let t_duration = (end_k.frame - start_k.frame) as f32;
     let t_current = frame - (start_k.frame as f32);
