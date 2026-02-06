@@ -28,7 +28,7 @@ pub fn show(
     let root = Path::new(cat::DIR_CATS);
     let egg_ids = cat_entry.egg_ids;
     
-    // --- 0. PREPARE PATHS & IDS ---
+    // --- 0. PREPARE IDS ---
     let form_char = match current_form { 0 => 'f', 1 => 'c', 2 => 's', _ => 'u' };
     let id_str = format!("{:03}", cat_entry.id);
     let form_viewer_id = format!("{}_{}", id_str, form_char);
@@ -67,7 +67,7 @@ pub fn show(
     let std_model = cat::anim(root, cat_entry.id, current_form, egg_ids, AnimType::Mamodel);
     let base_assets_available = std_png.exists() && std_cut.exists() && std_model.exists();
 
-    // --- 1. CALCULATE TARGET STATE ---
+    // --- 1. CALCULATE STATE ---
     let target_viewer_id = if anim_viewer.loaded_anim_index == IDX_SPIRIT {
         spirit_sheet_id.clone()
     } else {
@@ -76,34 +76,40 @@ pub fn show(
 
     let is_stable = anim_viewer.loaded_id == target_viewer_id;
     let is_loading_new = !is_stable && (anim_viewer.staging_model.is_some() || anim_viewer.staging_sheet.is_some());
-    
-    // Only use "Instant Load" if the app has absolutely NOTHING to show (Startup).
-    // Otherwise, treat Unit Switch as a seamless transition.
-    let is_app_startup = model_data.is_none() && anim_sheet.image_data.is_none();
+    // Only "Fresh Load" if we have absolutely no held model (First App Launch)
+    let is_first_launch = anim_viewer.held_model.is_none() && model_data.is_none();
     
     let mut just_swapped = false;
+
+    // --- SYNC HELD MODEL ---
+    // If we are stable (loaded_id == target_viewer_id), we assume model_data is correct.
+    // We update held_model to match it. This prepares us for the NEXT switch.
+    if is_stable {
+        if let Some(m) = model_data {
+            anim_viewer.held_model = Some(m.clone());
+        }
+    }
+    // If !is_stable (Unit Switch), we STOP updating held_model. 
+    // It retains the OLD unit geometry.
 
     // =========================================================
     // 2. SEAMLESS TRANSITION LOGIC
     // =========================================================
 
-    // A. START TRANSITION (Prepare Staging)
-    // Applies to BOTH Form Swaps AND Unit Swaps
-    if !is_stable && !is_loading_new && !is_app_startup {
+    // A. START TRANSITION
+    if !is_stable && !is_loading_new && !is_first_launch {
         let mut valid_idx = anim_viewer.loaded_anim_index;
         if valid_idx == IDX_SPIRIT && !spirit_available { valid_idx = IDX_WALK; }
         else if valid_idx == IDX_MODEL && !base_assets_available { valid_idx = IDX_WALK; }
         
         let (resolved_png, resolved_cut, resolved_model, _) = resolve_paths(valid_idx, &std_png, &std_cut, &std_model, &spirit_pack, &available_anims);
         
-        // 1. Load Sheet into STAGING (Background)
         if let (Some(png), Some(cut)) = (resolved_png, resolved_cut) {
             let mut new_sheet = SpriteSheet::default();
             new_sheet.load(ctx, png, cut, target_viewer_id.clone());
             anim_viewer.staging_sheet = Some(new_sheet);
         }
 
-        // 2. Load Model into STAGING (Background)
         if let Some(model_path) = resolved_model {
             if let Some(loaded_model) = Model::load(model_path) {
                 anim_viewer.staging_model = Some(loaded_model);
@@ -111,8 +117,8 @@ pub fn show(
         }
     }
 
-    // B. APP STARTUP (Instant Load)
-    if is_app_startup {
+    // B. FIRST LAUNCH (Instant Load)
+    if is_first_launch {
         let mut valid_idx = anim_viewer.loaded_anim_index;
         if valid_idx == IDX_SPIRIT && !spirit_available { valid_idx = IDX_WALK; }
         else if valid_idx == IDX_MODEL && !base_assets_available { valid_idx = IDX_WALK; }
@@ -123,6 +129,7 @@ pub fn show(
              anim_sheet.image_data = None; 
              anim_sheet.load(ctx, png, cut, target_viewer_id.clone());
              if let Some(loaded_model) = Model::load(model_path) {
+                 anim_viewer.held_model = Some(loaded_model.clone()); // Initialize held
                  *model_data = Some(loaded_model);
              }
         }
@@ -137,7 +144,7 @@ pub fn show(
         anim_viewer.pending_initial_center = true; 
     }
 
-    // C. CHECK FOR TRANSITION COMPLETION
+    // C. CHECK COMPLETION
     if is_loading_new {
         if let Some(staging_sheet) = &mut anim_viewer.staging_sheet {
             staging_sheet.update(ctx);
@@ -147,14 +154,13 @@ pub fn show(
                                 && staging_sheet.image_data.is_some();
 
             if texture_is_ready {
-                // ATOMIC SWAP
                 if let (Some(new_model), Some(new_sheet)) = (anim_viewer.staging_model.take(), anim_viewer.staging_sheet.take()) {
                     
+                    anim_viewer.held_model = Some(new_model.clone()); // Update held to new unit
                     *model_data = Some(new_model);
                     *anim_sheet = new_sheet; 
                     anim_viewer.loaded_id = target_viewer_id.clone();
                     
-                    // Load Animation
                     let mut valid_idx = anim_viewer.loaded_anim_index;
                     if valid_idx == IDX_SPIRIT && !spirit_available { valid_idx = IDX_WALK; }
                     else if valid_idx == IDX_MODEL && !base_assets_available { valid_idx = IDX_WALK; }
@@ -169,8 +175,6 @@ pub fn show(
                     
                     anim_viewer.pending_initial_center = true;
                     just_swapped = true;
-                    
-                    // FORCE REPAINT: Ensures unit switch is drawn instantly
                     ctx.request_repaint();
                 }
             }
@@ -208,7 +212,6 @@ pub fn show(
         if let Some(target_idx) = clicked_index {
             if !is_loading_new {
                 anim_viewer.loaded_anim_index = target_idx;
-
                 let intended_target_id = if target_idx == IDX_SPIRIT { spirit_sheet_id.clone() } else { form_viewer_id.clone() };
                 
                 if anim_viewer.loaded_id == intended_target_id {
@@ -240,15 +243,13 @@ pub fn show(
         let (rect, _response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
         
         ui.put(rect, |ui: &mut egui::Ui| {
-            if let Some(model) = model_data {
+            // RENDER HELD MODEL.
+            // We clone it locally to break the borrow of `anim_viewer`.
+            if let Some(model_to_draw) = anim_viewer.held_model.clone() {
                 let allow_texture_update = !is_loading_new || just_swapped;
-                
-                // STABLE RENDERING:
-                // We always render if we have data. 
-                // The staging logic (allow_texture_update=false) protects us from glitches.
-                // The request_repaint() ensures the new unit appears instantly.
+
                 anim_viewer.render(
-                    ui, anim_sheet, model,
+                    ui, anim_sheet, &model_to_draw,
                     settings.animation_interpolation, settings.animation_debug, settings.centering_behavior,
                     allow_texture_update
                 );

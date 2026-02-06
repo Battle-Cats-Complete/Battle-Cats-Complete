@@ -36,6 +36,7 @@ impl Default for SpriteSheet {
     }
 }
 
+#[allow(dead_code)]
 impl SpriteSheet {
     pub fn is_ready(&self) -> bool {
         self.texture_handle.is_some()
