@@ -26,8 +26,9 @@ pub struct AnimViewer {
     pub staging_model: Option<Model>,
     pub staging_sheet: Option<SpriteSheet>,
     
-    // NEW: Holds the active model so we can render it even if the parent clears the prop
+    // RETAINED MODE BUFFERS
     pub held_model: Option<Model>,
+    pub held_sheet: Option<SpriteSheet>, // NEW: Must hold sheet to match model
     
     pub renderer: Arc<Mutex<Option<canvas::GlowRenderer>>>,
 }
@@ -49,7 +50,8 @@ impl Default for AnimViewer {
             
             staging_model: None,
             staging_sheet: None,
-            held_model: None, // Init empty
+            held_model: None,
+            held_sheet: None,
             
             renderer: Arc::new(Mutex::new(None)),
         }
@@ -155,6 +157,7 @@ impl AnimViewer {
             transform::solve_hierarchy(&model.parts, model)
         };
 
+        // Here we use the PASSED sheet (which will be held_sheet in the viewer)
         let sheet_arc = Arc::new(SpriteSheet {
             texture_handle: sprite_sheet.texture_handle.clone(),
             image_data: sprite_sheet.image_data.clone(),

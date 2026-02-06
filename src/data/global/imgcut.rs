@@ -13,6 +13,19 @@ pub struct SpriteCut {
     #[allow(dead_code)] pub name: String,
 }
 
+impl Clone for SpriteSheet {
+    fn clone(&self) -> Self {
+        Self {
+            texture_handle: self.texture_handle.clone(),
+            image_data: self.image_data.clone(),
+            cuts_map: self.cuts_map.clone(),
+            is_loading_active: self.is_loading_active,
+            data_receiver: None, // We cannot clone the channel, and we don't need to for the ghost
+            sheet_name: self.sheet_name.clone(),
+        }
+    }
+}
+
 pub struct SpriteSheet {
     pub texture_handle: Option<egui::TextureHandle>,
     // Kept raw image data for Custom GL Renderer
