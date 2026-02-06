@@ -22,9 +22,12 @@ pub struct AnimViewer {
     last_loaded_id: String,
     pub pending_initial_center: bool,
     
-    // Staging buffers for seamless transitions
+    // Staging buffers for transitions
     pub staging_model: Option<Model>,
     pub staging_sheet: Option<SpriteSheet>,
+    
+    // NEW: Holds the active model so we can render it even if the parent clears the prop
+    pub held_model: Option<Model>,
     
     pub renderer: Arc<Mutex<Option<canvas::GlowRenderer>>>,
 }
@@ -46,6 +49,7 @@ impl Default for AnimViewer {
             
             staging_model: None,
             staging_sheet: None,
+            held_model: None, // Init empty
             
             renderer: Arc::new(Mutex::new(None)),
         }
@@ -53,23 +57,6 @@ impl Default for AnimViewer {
 }
 
 impl AnimViewer {
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.current_anim = None;
-        self.current_frame = 0.0;
-        self.loaded_anim_index = 0;
-        self.loaded_id.clear();
-        self.last_loaded_id = "FORCE_RESET".to_string();
-        self.pending_initial_center = false;
-        
-        self.staging_model = None;
-        self.staging_sheet = None;
-        
-        if let Ok(mut r) = self.renderer.lock() {
-            *r = None;
-        }
-    }
-
     pub fn load_anim(&mut self, path: &Path) {
         if let Some(anim) = Animation::load(path) {
             self.current_anim = Some(anim);
@@ -96,7 +83,7 @@ impl AnimViewer {
         sprite_sheet: &SpriteSheet, 
         model: &Model,
         interpolation: bool,
-        _debug_show_info: bool, // Fixed warning
+        _debug_show_info: bool,
         centering_behavior: usize,
         allow_update: bool 
     ) {
