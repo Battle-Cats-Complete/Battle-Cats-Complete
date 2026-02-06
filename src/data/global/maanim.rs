@@ -3,6 +3,15 @@ use std::fs;
 use std::path::Path;
 use crate::core::utils;
 
+// Math Helpers
+fn gcd(a: i32, b: i32) -> i32 {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
+
+fn lcm(a: i32, b: i32) -> i32 {
+    if a == 0 || b == 0 { 0 } else { (a * b).abs() / gcd(a, b) }
+}
+
 #[derive(Clone, Debug)]
 pub struct Keyframe {
     pub frame: i32,
@@ -38,18 +47,9 @@ impl Animation {
         let mut curves = Vec::new();
         let mut i = 0;
 
-        // Skip [maanim]
-        if i < lines.len() && lines[i].starts_with("[") {
-            i += 1;
-        }
-
-        // Header
-        if i < lines.len() {
-            i += 1; // version?
-        }
-        if i < lines.len() {
-            i += 1; // total curves?
-        }
+        if i < lines.len() && lines[i].starts_with("[") { i += 1; }
+        if i < lines.len() { i += 1; } 
+        if i < lines.len() { i += 1; } 
 
         while i < lines.len() {
             let line = lines[i];
@@ -61,37 +61,26 @@ impl Animation {
             let part_id = parts[0].trim().parse().unwrap_or(0);
             let mod_type = parts[1].trim().parse().unwrap_or(0);
             let loop_behavior = parts[2].trim().parse().unwrap_or(0);
-            
-            // FIX: Removed 'mut' (Warning fix)
             let min_f = parts[3].trim().parse().unwrap_or(0);
             let max_f = parts[4].trim().parse().unwrap_or(0);
             
-            // Next line: count of keyframes
             if i >= lines.len() { break; }
             let count_line = lines[i];
             i += 1;
             let keyframe_count = count_line.trim().parse::<usize>().unwrap_or(0);
 
             let mut keyframes = Vec::new();
-            let mut global_max_frame = 0;
 
-            for _k in 0..keyframe_count {
-                // FIX: Removed unused 'k_idx' (Warning fix)
-                
+            for _ in 0..keyframe_count {
                 if i >= lines.len() { break; }
                 let k_line = lines[i];
                 i += 1;
-
                 let kp: Vec<&str> = k_line.split(delimiter).collect();
-                
                 if kp.len() >= 2 {
                     let frame = kp[0].trim().parse().unwrap_or(0);
                     let value = kp[1].trim().parse().unwrap_or(0);
                     let ease = kp.get(2).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
                     let power = kp.get(3).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
-                    
-                    if frame > global_max_frame { global_max_frame = frame; }
-                    
                     keyframes.push(Keyframe { frame, value, ease_mode: ease, ease_power: power });
                 }
             }
@@ -108,7 +97,6 @@ impl Animation {
             }
         }
 
-        // Calculate global max frame
         let mut max_len = 0;
         for c in &curves {
             if let Some(last) = c.keyframes.last() {
@@ -119,38 +107,52 @@ impl Animation {
         Some(Self { curves, max_frame: max_len })
     }
 
-    /// Efficiently scans a raw maanim file content to find its total duration
+    pub fn calculate_true_loop(&self) -> i32 {
+        let mut overall_lcm = 1;
+        let mut found_looping_part = false;
+        
+        for curve in &self.curves {
+            // Check parts that loop infinitely (or standard loops)
+            if curve.loop_count != 1 {
+                if let (Some(first), Some(last)) = (curve.keyframes.first(), curve.keyframes.last()) {
+                    let duration = last.frame - first.frame; 
+                    if duration > 0 {
+                        overall_lcm = lcm(overall_lcm, duration);
+                        found_looping_part = true;
+                    }
+                }
+            }
+        }
+        
+        if !found_looping_part {
+            return self.max_frame;
+        }
+        
+        // Safety cap increased to 2,000,000 to handle complex syncs like Unit 587
+        if overall_lcm > 2_000_000 {
+            return self.max_frame;
+        }
+
+        std::cmp::max(overall_lcm, self.max_frame)
+    }
+
     pub fn scan_duration(file_content: &str) -> i32 {
         let mut max_frame_count = 0;
         let delimiter = utils::detect_csv_separator(file_content);
-        
         let maanim_lines: Vec<Vec<i32>> = file_content.lines().map(|line| {
-            line.split(delimiter)
-                .filter_map(|component| component.trim().parse::<i32>().ok())
-                .collect()
+            line.split(delimiter).filter_map(|c| c.trim().parse::<i32>().ok()).collect()
         }).collect();
 
-        for (line_index, line_values) in maanim_lines.iter().enumerate() {
-            if line_values.len() < 5 { continue; }
-            
-            let following_lines_count = maanim_lines.get(line_index + 1)
-                .and_then(|l| l.get(0)).cloned().unwrap_or(0) as usize;
-            
-            if following_lines_count == 0 { continue; }
-            
-            let first_frame = maanim_lines.get(line_index + 2)
-                .and_then(|l| l.get(0)).cloned().unwrap_or(0);
-                
-            let last_frame = maanim_lines.get(line_index + following_lines_count + 1)
-                .and_then(|l| l.get(0)).cloned().unwrap_or(0);
-                
-            let animation_duration = last_frame - first_frame;
-            let loop_repeats = std::cmp::max(line_values[2], 1); 
-            let final_frame_used = (animation_duration * loop_repeats) + first_frame;
-            
-            max_frame_count = std::cmp::max(final_frame_used, max_frame_count);
+        for (i, val) in maanim_lines.iter().enumerate() {
+            if val.len() < 5 { continue; }
+            let follow = maanim_lines.get(i+1).and_then(|l| l.get(0)).cloned().unwrap_or(0) as usize;
+            if follow == 0 { continue; }
+            let first = maanim_lines.get(i+2).and_then(|l| l.get(0)).cloned().unwrap_or(0);
+            let last = maanim_lines.get(i+follow+1).and_then(|l| l.get(0)).cloned().unwrap_or(0);
+            let dur = last - first;
+            let reps = std::cmp::max(val[2], 1);
+            max_frame_count = std::cmp::max((dur * reps) + first, max_frame_count);
         }
-        
         max_frame_count + 1
     }
 }
