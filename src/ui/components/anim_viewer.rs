@@ -22,13 +22,13 @@ pub struct AnimViewer {
     last_loaded_id: String,
     pub pending_initial_center: bool,
     
-    // Staging buffers for transitions
+    // Staging (Background Loading)
     pub staging_model: Option<Model>,
     pub staging_sheet: Option<SpriteSheet>,
     
-    // RETAINED MODE BUFFERS
+    // Retained (Active Rendering)
     pub held_model: Option<Model>,
-    pub held_sheet: Option<SpriteSheet>, // NEW: Must hold sheet to match model
+    pub held_sheet: Option<SpriteSheet>,
     
     pub renderer: Arc<Mutex<Option<canvas::GlowRenderer>>>,
 }
@@ -99,17 +99,12 @@ impl AnimViewer {
         if self.pending_initial_center {
             match centering_behavior {
                 0 => { 
-                    if !model.parts.is_empty() {
-                        if self.center_view(model, sprite_sheet, ui.available_size()) {
-                            self.pending_initial_center = false;
-                        }
+                    if !model.parts.is_empty() && self.center_view(model, sprite_sheet, ui.available_size()) {
+                        self.pending_initial_center = false;
                     }
                 },
                 1 => { 
                     self.pan_offset = egui::Vec2::ZERO;
-                    self.pending_initial_center = false;
-                },
-                2 => { 
                     self.pending_initial_center = false;
                 },
                 _ => { self.pending_initial_center = false; }
@@ -157,7 +152,7 @@ impl AnimViewer {
             transform::solve_hierarchy(&model.parts, model)
         };
 
-        // Here we use the PASSED sheet (which will be held_sheet in the viewer)
+        // Pass 1: Create atomic view of the sheet for the renderer
         let sheet_arc = Arc::new(SpriteSheet {
             texture_handle: sprite_sheet.texture_handle.clone(),
             image_data: sprite_sheet.image_data.clone(),
@@ -167,8 +162,10 @@ impl AnimViewer {
             sheet_name: sprite_sheet.sheet_name.clone(),
         });
 
+        // Pass 2: Render
         canvas::paint(ui, rect, self.renderer.clone(), sheet_arc, parts_to_draw, self.pan_offset, self.zoom_level, allow_update);
 
+        // Border
         let border_rect = rect.shrink(2.0);
         let border_color = egui::Color32::from_rgb(31, 106, 165); 
         ui.painter().rect_stroke(border_rect, egui::Rounding::same(5.0), egui::Stroke::new(4.0, border_color));
