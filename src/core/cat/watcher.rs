@@ -4,10 +4,11 @@ fileName: watcher.rs
 */
 use eframe::egui;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use std::collections::{HashSet, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::fs;
 use super::CatListState;
 use super::loader;
@@ -24,36 +25,30 @@ pub struct CatWatchers {
 
 impl CatWatchers {
     pub fn new(sender: Sender<PathBuf>, ctx: egui::Context) -> Option<Self> {
+        // Internal channel for raw events
+        let (internal_tx, internal_rx) = channel();
+
+        // 1. Spawn Debounce Thread
+        thread::spawn(move || {
+            debounce_loop(internal_rx, sender, ctx);
+        });
+
+        // 2. Create Watcher
         let watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
             if let Ok(event) = res {
                 if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
                     for path in event.paths {
+                        // Filter basic invalid paths immediately
                         let path_str = path.to_string_lossy().to_lowercase();
-
-                        if path_str.contains("raw") {
-                            continue;
-                        }
-
+                        if path_str.contains("raw") { continue; }
+                        
                         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                         let is_in_cats_dir = path_str.contains("cats");
-                        let valid_exts = ["csv", "png", "maanim", "imgcut", "mamodel", "txt"];
                         
-                        let is_valid_file = valid_exts.contains(&ext);
-                        let is_likely_folder = is_in_cats_dir && ext.is_empty();
-
-                        if !is_valid_file && !is_likely_folder {
-                             continue;
+                        // We track everything relevant here, strict filtering happens in debounce or handle_event
+                        if is_in_cats_dir || path_str.contains("unitbuy") || path_str.contains("unitevolve") {
+                             let _ = internal_tx.send(path);
                         }
-
-                        let sender_clone = sender.clone();
-                        let ctx_clone = ctx.clone();
-                        let path_clone = path.clone();
-
-                        thread::spawn(move || {
-                            wait_for_stability(&path_clone);
-                            if let Err(_e) = sender_clone.send(path_clone) { }
-                            ctx_clone.request_repaint();
-                        });
                     }
                 }
             }
@@ -64,6 +59,53 @@ impl CatWatchers {
 
     pub fn watch_all(&mut self, path: &Path) {
         let _ = self._watcher.watch(path, RecursiveMode::Recursive);
+    }
+}
+
+// Dedicated Debounce Logic
+fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>, ctx: egui::Context) {
+    let mut pending_paths: HashSet<PathBuf> = HashSet::new();
+    let mut deadline: Option<Instant> = None;
+    // 200ms buffer: Wait this long after the *last* file change to trigger update
+    let buffer_duration = Duration::from_millis(200); 
+
+    loop {
+        // Determine how long to wait for next message
+        let timeout = if let Some(d) = deadline {
+            let now = Instant::now();
+            if now >= d {
+                // Time's up! Flush pending paths
+                if !pending_paths.is_empty() {
+                    // Send unique paths
+                    for path in pending_paths.drain() {
+                        let _ = final_sender.send(path);
+                    }
+                    ctx.request_repaint();
+                }
+                deadline = None;
+                Duration::from_millis(u64::MAX) // Go back to infinite sleep
+            } else {
+                d - now
+            }
+        } else {
+            Duration::from_millis(u64::MAX)
+        };
+
+        // Wait for event or timeout
+        match rx.recv_timeout(timeout) {
+            Ok(path) => {
+                // New event received!
+                pending_paths.insert(path);
+                // Reset/Extend the deadline
+                deadline = Some(Instant::now() + buffer_duration);
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Timeout handled by top of loop
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                break; // Channel closed, exit thread
+            }
+        }
     }
 }
 
@@ -137,21 +179,19 @@ pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBu
                 if let Ok(id) = id_str.parse::<u32>() {
                     
                     // Check if modification is inside 'anim'
-                    // Standard path: game/cats/{id}/{form}/anim/file
                     if let Some(anim_seg) = components.get(cats_idx + 3) {
                         if anim_seg == "anim" {
                             if state.selected_cat == Some(id) {
-                                // CRITICAL FIX: Extract the form directory char (f/c/s/u)
-                                // It is located at cats_idx + 2
+                                // Extract form char (f, c, s, u)
                                 let form_char_modified = components.get(cats_idx + 2)
-                                    .map(|s| s.as_ref())
-                                    .unwrap_or("f");
-
-                                // Only trigger reload if the modified form matches the currently loaded ID
-                                // loaded_id format: "{id}_{formChar}_{version}"
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| "f".to_string());
+                                
+                                // Only reload if the form being viewed matches the file modified
                                 let current_loaded_id = &state.anim_viewer.loaded_id;
                                 let form_marker = format!("_{}_", form_char_modified);
-
+                                
+                                // Partial match check handles the ID format "{id}_{char}_{ver}"
                                 if current_loaded_id.is_empty() || current_loaded_id.contains(&form_marker) {
                                     state.anim_viewer.loaded_id.clear();
                                     state.anim_viewer.texture_version += 1; 
@@ -171,31 +211,6 @@ pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBu
                     loader::refresh_cat(state, id, config);
                     ctx.request_repaint();
                 }
-            }
-        }
-    }
-}
-
-fn wait_for_stability(path: &Path) {
-    let mut last_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-    let mut stable_checks = 0;
-    
-    for _ in 0..50 {
-        thread::sleep(Duration::from_millis(50));
-        
-        match fs::metadata(path) {
-            Ok(meta) => {
-                let current_size = meta.len();
-                if current_size == last_size {
-                    stable_checks += 1;
-                    if stable_checks >= 5 { return; }
-                } else {
-                    stable_checks = 0; 
-                    last_size = current_size;
-                }
-            },
-            Err(_) => {
-                return;
             }
         }
     }
