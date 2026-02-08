@@ -21,7 +21,7 @@ pub const ICON_SINGLE_ATTACK: usize = 217;
 pub const ICON_AREA_ATTACK: usize = 211;
 pub const ICON_OMNI_STRIKE: usize = 112;
 pub const ICON_LONG_DISTANCE: usize = 212;
-pub const ICON_MULTIHIT: usize = 9999; // Unchanged (> 1000)
+pub const ICON_MULTIHIT: usize = 9999; // Mock ID
 
 // Target Abiltiies
 pub const ICON_ATTACK_ONLY: usize = 202;
@@ -66,8 +66,7 @@ pub const ICON_MINI_SURGE: usize = 310;
 pub const ICON_CONJURE: usize = 317;
 pub const ICON_METAL_KILLER: usize = 321;
 pub const ICON_EXPLOSION: usize = 335;
-pub const ICON_KAMIKAZE: usize = 9998; // Unchanged (> 1000)
-
+pub const ICON_KAMIKAZE: usize = 9998; // Mock ID
 // Immunities
 pub const ICON_IMMUNE_CURSE: usize = 116;
 pub const ICON_IMMUNE_WAVE: usize = 210;
@@ -79,7 +78,7 @@ pub const ICON_IMMUNE_TOXIC: usize = 237;
 pub const ICON_IMMUNE_SURGE: usize = 243;
 pub const ICON_IMMUNE_WARP: usize = 262;
 pub const ICON_IMMUNE_EXPLOSION: usize = 337;
-pub const ICON_IMMUNE_BOSS_WAVE: usize = 9997; // Unchanged (> 1000)
+pub const ICON_IMMUNE_BOSS_WAVE: usize = 9997; // Mock ID
 
 // Counters
 pub const ICON_WAVE_BLOCK: usize = 218;

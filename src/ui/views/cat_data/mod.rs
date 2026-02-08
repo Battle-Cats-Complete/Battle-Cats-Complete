@@ -66,6 +66,24 @@ pub fn show(
         }
     }
 
+    if kamikaze_texture.is_none() {
+        const KAMIKAZE_BYTES: &[u8] = include_bytes!("../../../assets/kamikaze.png");
+        if let Ok(img) = image::load_from_memory(KAMIKAZE_BYTES) {
+            let rgba = img.to_rgba8();
+            *kamikaze_texture = Some(ctx.load_texture("kamkikaze_icon", egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_flat_samples().as_slice()), egui::TextureOptions::LINEAR));
+        }
+    }
+
+    if boss_wave_immune_texture.is_none() {
+        const BOSS_WAVE_BYTES: &[u8] = include_bytes!("../../../assets/boss_wave_immune.png");
+        if let Ok(img) = image::load_from_memory(BOSS_WAVE_BYTES) {
+          let rgba = img.to_rgba8();
+           // Correct variable: *boss_wave_immune_texture
+          *boss_wave_immune_texture = Some(ctx.load_texture("boss_wave_icon", egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_flat_samples().as_slice()), egui::TextureOptions::LINEAR));
+    }
+    }
+
+
     let base_stats = cat_entry.stats.get(*current_form).and_then(|opt| opt.as_ref());
     let form_allows_talents = *current_form >= 2;
 
