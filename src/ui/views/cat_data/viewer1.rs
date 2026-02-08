@@ -93,7 +93,6 @@ pub fn show(
     if !is_current_valid {
         valid_idx = IDX_NONE; 
 
-        // Fallback Priority: Standard -> Spirit -> Model
         if base_assets_available {
             let priority_list = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
             for check_idx in priority_list {
@@ -115,7 +114,7 @@ pub fn show(
 
     if valid_idx != current_idx {
         anim_viewer.loaded_anim_index = valid_idx;
-        // If switching TO None, clear data immediately
+        
         if valid_idx == IDX_NONE {
             anim_viewer.current_anim = None;
             anim_viewer.held_model = None;
@@ -123,7 +122,7 @@ pub fn show(
             *model_data = None;
             *anim_sheet = SpriteSheet::default();
         }
-        // If recovering FROM None, force reload
+        
         if current_idx == IDX_NONE && valid_idx != IDX_NONE {
             anim_viewer.loaded_id.clear();
         }
@@ -143,15 +142,16 @@ pub fn show(
         form_viewer_id.clone()
     };
 
-    // FIX: Standard stability check. 
-    // We handle the "freeze" case by forcing loaded_id update on load failure below.
+    // FIX: We are stable if IDs match. We DO NOT check held_model here.
+    // If held_model is None but IDs match, it means we tried to load and failed (Stable Failure).
+    // This prevents the infinite loop.
     let is_stable = anim_viewer.loaded_id == target_viewer_id;
         
     let is_loading_new = !is_stable && (anim_viewer.staging_model.is_some() || anim_viewer.staging_sheet.is_some());
     let is_first_launch = anim_viewer.held_model.is_none() && model_data.is_none();
     let mut just_swapped = false;
 
-    // Safety for None state: If we are None, we are stable "empty".
+    // Safety: If we are in NONE state, ensure ID is synced so we don't try to load
     if valid_idx == IDX_NONE && !is_stable {
         anim_viewer.loaded_id = target_viewer_id.clone();
     }
@@ -168,7 +168,9 @@ pub fn show(
         let (resolved_png, resolved_cut, resolved_model, _) = resolve_paths(valid_idx, &std_png, &std_cut, &std_model, &spirit_pack, &available_anims);
         
         let mut load_success = false;
+
         if let (Some(png), Some(cut), Some(model_path)) = (resolved_png, resolved_cut, resolved_model) {
+            // Attempt load
             let mut new_sheet = SpriteSheet::default();
             new_sheet.load(ctx, png, cut, target_viewer_id.clone());
             
@@ -178,9 +180,8 @@ pub fn show(
                 load_success = true;
             }
         }
-        
-        // CRITICAL FIX: If load failed (missing files), FORCE STABILITY.
-        // This stops the infinite retry loop (freeze) while leaving the model as None (Black Screen).
+
+        // FIX: If load failed (missing files), mark as processed so we don't loop
         if !load_success {
             anim_viewer.loaded_id = target_viewer_id.clone();
             anim_viewer.held_model = None;
@@ -192,7 +193,6 @@ pub fn show(
     if is_first_launch && valid_idx != IDX_NONE {
         let (resolved_png, resolved_cut, resolved_model, resolved_anim) = resolve_paths(valid_idx, &std_png, &std_cut, &std_model, &spirit_pack, &available_anims);
 
-        let mut load_success = false;
         if let (Some(png), Some(cut), Some(model_path)) = (resolved_png, resolved_cut, resolved_model) {
              anim_sheet.image_data = None; 
              anim_sheet.load(ctx, png, cut, target_viewer_id.clone());
@@ -201,21 +201,16 @@ pub fn show(
                  anim_viewer.held_sheet = Some((*anim_sheet).clone());
                  *model_data = Some(loaded_model);
                  
+                 // Only set loaded_id if successful
                  anim_viewer.loaded_id = target_viewer_id.clone();
                  anim_viewer.pending_initial_center = true; 
-                 load_success = true;
              }
         }
         
-        // Same stability fix for first launch
-        if !load_success {
-            anim_viewer.loaded_id = target_viewer_id.clone();
-        } else {
-            if let Some(anim_path) = resolved_anim { 
-                anim_viewer.load_anim(anim_path); 
-            } else { 
-                anim_viewer.current_anim = None; 
-            }
+        if let Some(anim_path) = resolved_anim { 
+            anim_viewer.load_anim(anim_path); 
+        } else { 
+            anim_viewer.current_anim = None; 
         }
     }
 
