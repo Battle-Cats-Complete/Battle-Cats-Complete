@@ -1,10 +1,15 @@
+/*
+type: uploaded file
+fileName: anim_viewer.rs
+*/
 use eframe::egui;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::core::anim::{animator, canvas, transform, center, controls};
+use crate::ui::components::anim_controls;
 
 pub struct AnimViewer {
     pub zoom_level: f32,
@@ -34,6 +39,13 @@ pub struct AnimViewer {
     pub held_model: Option<Model>,
     pub held_sheet: Option<SpriteSheet>,
     pub renderer: Arc<Mutex<Option<canvas::GlowRenderer>>>,
+
+    // Dynamic Layout State
+    pub cached_controls_width: f32,
+    pub cached_grid_height: f32, // Stores height of the top button grid
+    
+    // NEW: Expansion State
+    pub is_expanded: bool,
 }
 
 impl Default for AnimViewer {
@@ -49,7 +61,6 @@ impl Default for AnimViewer {
             loop_range: (None, None),
             range_str_cache: (String::new(), String::new()),
             single_frame_str: String::new(),
-            // CHANGED: Default is empty string so ghost text shows "1.0"
             speed_str: String::new(),
             hold_timer: 0.0,
             hold_dir: 0,
@@ -62,6 +73,9 @@ impl Default for AnimViewer {
             held_model: None,
             held_sheet: None,
             renderer: Arc::new(Mutex::new(None)),
+            cached_controls_width: 0.0,
+            cached_grid_height: 55.0, 
+            is_expanded: false, // Default to normal view
         }
     }
 }
@@ -73,7 +87,6 @@ impl AnimViewer {
             self.loop_range = (None, None);
             self.range_str_cache = (String::new(), String::new());
             self.single_frame_str = "0".to_string();
-            // Keep speed persistence, don't reset speed_str
             self.current_anim = Some(anim);
         } else {
             self.current_anim = None;
@@ -103,7 +116,14 @@ impl AnimViewer {
         interpolation: bool,
         _debug_show_info: bool,
         centering_behavior: usize,
-        allow_update: bool 
+        allow_update: bool,
+        available_anims: &Vec<(usize, &str, PathBuf)>,
+        spirit_available: bool,
+        base_assets_available: bool,
+        is_loading_new: bool,
+        spirit_sheet_id: &str,
+        form_viewer_id: &str,
+        spirit_pack: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
     ) {
         let dt = ui.input(|i| i.stable_dt);
 
@@ -143,17 +163,12 @@ impl AnimViewer {
 
             let start = self.loop_range.0.unwrap_or(0);
             
-            // Loop Logic:
-            // 1. User Override (Raw): Takes precedence. No clamping.
-            // 2. LCM Calc (Auto): Used if finite.
-            // 3. Infinite: Fallback.
             let (effective_max, is_infinite, has_user_override) = match (self.loop_range.1, lcm_max) {
                 (Some(user_override), _) => (user_override as f32, false, true),
                 (None, Some(calc)) => (calc as f32, false, false),
                 (None, None) => (0.0, true, false), 
             };
             
-            // 1. Hold Logic (Manual Scrub)
             if self.hold_dir != 0 {
                 self.hold_timer += dt;
                 ui.ctx().request_repaint();
@@ -168,22 +183,18 @@ impl AnimViewer {
                    } else {
                        if new_frame < 0.0 { new_frame = 0.0; }
                    }
-                   
                    self.current_frame = new_frame;
                 }
             } else {
                 self.hold_timer = 0.0;
             }
 
-            // 2. Play Logic (Auto Play)
             if self.is_playing {
                 if !is_infinite && effective_max < 1.0 && !has_user_override {
                     self.current_frame = 0.0;
                 } else {
                     self.current_frame += dt * 30.0 * self.playback_speed;
-                    
                     if !is_infinite {
-                        // CHANGED: If user override exists, loop back to start (even if start > end in weird cases, though unlikely)
                         if self.current_frame > effective_max {
                             self.current_frame = start as f32;
                         }
@@ -218,5 +229,46 @@ impl AnimViewer {
         let border_rect = rect.shrink(2.0);
         let border_color = egui::Color32::from_rgb(31, 106, 165); 
         ui.painter().rect_stroke(border_rect, egui::Rounding::same(5.0), egui::Stroke::new(4.0, border_color));
+
+        // --- EXPAND BUTTON (Top Left) ---
+        let btn_size = egui::vec2(30.0, 30.0);
+        let margin = 8.0;
+        let btn_pos = rect.min + egui::vec2(margin, margin);
+        let btn_rect = egui::Rect::from_min_size(btn_pos, btn_size);
+
+        // Matching colors from anim_controls.rs
+        let bg_fill = if self.is_expanded {
+            egui::Color32::from_rgb(31, 106, 165) // Blue (Active)
+        } else {
+             egui::Color32::from_gray(60) // Gray (Inactive)
+        };
+
+        // We use ui.put to place the button on top of the canvas
+        ui.put(btn_rect, |ui: &mut egui::Ui| {
+             let btn = egui::Button::new(egui::RichText::new("⛶").size(20.0).color(egui::Color32::WHITE))
+                .fill(bg_fill) 
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
+                .rounding(4.0);
+            
+            // Fix: Capture the response, check click, and RETURN the response
+            let response = ui.add_sized(btn_size, btn);
+            if response.clicked() {
+                self.is_expanded = !self.is_expanded;
+            }
+            response
+        });
+
+        anim_controls::render_controls_overlay(
+            ui,
+            rect,
+            self,
+            available_anims,
+            spirit_available,
+            base_assets_available,
+            is_loading_new, 
+            spirit_sheet_id,
+            form_viewer_id,
+            spirit_pack,
+        );
     }
 }

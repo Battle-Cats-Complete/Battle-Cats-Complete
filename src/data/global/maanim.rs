@@ -26,8 +26,8 @@ pub struct AnimModification {
     pub modification_type: i32,
     pub loop_count: i32,
     pub keyframes: Vec<Keyframe>,
-    pub min_frame: i32,
-    pub max_frame: i32,
+    #[allow(dead_code)] pub min_frame: i32,
+    #[allow(dead_code)] pub max_frame: i32,
 }
 
 #[derive(Clone, Debug, Default)]
