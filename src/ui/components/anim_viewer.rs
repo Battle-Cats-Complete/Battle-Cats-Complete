@@ -20,11 +20,8 @@ pub struct AnimViewer {
     pub is_playing: bool,
     pub playback_speed: f32,
     
-    // Range: None = "Continuous/Default", Some = "User Override"
     pub loop_range: (Option<i32>, Option<i32>),
     pub range_str_cache: (String, String),
-    
-    // Buffers for Single Frame and Speed inputs
     pub single_frame_str: String,
     pub speed_str: String,
     
@@ -34,19 +31,19 @@ pub struct AnimViewer {
     pub loaded_id: String,
     last_loaded_id: String,
     pub pending_initial_center: bool,
+    
+    // Internal state
     pub staging_model: Option<Model>,
     pub staging_sheet: Option<SpriteSheet>,
     pub held_model: Option<Model>,
     pub held_sheet: Option<SpriteSheet>,
-    pub renderer: Arc<Mutex<Option<canvas::GlowRenderer>>>,
-
-    // Dynamic Layout State
-    pub cached_controls_width: f32,
-    pub cached_grid_height: f32, // Stores height of the top button grid
     
-    // Layout Flags
-    pub is_expanded: bool,          // Fullscreen Viewer
-    pub is_controls_expanded: bool, // Bottom Controls Panel
+    pub renderer: Arc<Mutex<Option<canvas::GlowRenderer>>>,
+    pub cached_controls_width: f32,
+    pub cached_grid_height: f32, 
+    pub is_expanded: bool,          
+    pub is_controls_expanded: bool, 
+    pub texture_version: u64,
 }
 
 impl Default for AnimViewer {
@@ -77,7 +74,8 @@ impl Default for AnimViewer {
             cached_controls_width: 0.0,
             cached_grid_height: 55.0, 
             is_expanded: false,
-            is_controls_expanded: true, // Default to Open
+            is_controls_expanded: true,
+            texture_version: 0,
         }
     }
 }
@@ -113,8 +111,6 @@ impl AnimViewer {
     pub fn render(
         &mut self, 
         ui: &mut egui::Ui, 
-        sprite_sheet: &SpriteSheet, 
-        model: &Model,
         interpolation: bool,
         _debug_show_info: bool,
         centering_behavior: usize,
@@ -126,6 +122,7 @@ impl AnimViewer {
         spirit_sheet_id: &str,
         form_viewer_id: &str,
         spirit_pack: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
+        native_fps: f32, 
     ) {
         let dt = ui.input(|i| i.stable_dt);
 
@@ -134,19 +131,36 @@ impl AnimViewer {
             self.pending_initial_center = true;
         }
 
-        if self.pending_initial_center {
-            match centering_behavior {
-                0 => { 
-                    if !model.parts.is_empty() && self.center_view(model, sprite_sheet, ui.available_size()) {
-                        self.pending_initial_center = false;
+        // --- CENTER CALCULATION (IMUTABLE) ---
+        let mut new_center: Option<(egui::Vec2, f32)> = None;
+        let mut should_clear_pending = false;
+
+        if let (Some(model), Some(sheet)) = (&self.held_model, &self.held_sheet) {
+            if self.pending_initial_center {
+                if centering_behavior == 0 { // Unit
+                    if !model.parts.is_empty() {
+                        if let Some((offset, bounds)) = center::calculate_center_offset(model, self.current_anim.as_ref(), sheet) {
+                            let fit_zoom = center::calculate_zoom_fit(bounds, ui.available_size(), 0.75);
+                            new_center = Some((offset, fit_zoom));
+                        }
                     }
-                },
-                1 => { 
-                    self.pan_offset = egui::Vec2::ZERO;
-                    self.pending_initial_center = false;
-                },
-                _ => { self.pending_initial_center = false; }
+                } else if centering_behavior == 1 { // Origin
+                    new_center = Some((egui::Vec2::ZERO, self.target_zoom_level));
+                } else {
+                    should_clear_pending = true;
+                }
             }
+        } else {
+            should_clear_pending = true;
+        }
+
+        // --- APPLY CENTER (MUTABLE) ---
+        if let Some((offset, zoom)) = new_center {
+            self.pan_offset = offset;
+            if centering_behavior == 0 { self.target_zoom_level = zoom; }
+            self.pending_initial_center = false;
+        } else if should_clear_pending {
+            self.pending_initial_center = false;
         }
 
         let diff = self.target_zoom_level - self.zoom_level;
@@ -209,30 +223,35 @@ impl AnimViewer {
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
         controls::handle_viewport_input(ui, &response, &mut self.pan_offset, &mut self.zoom_level, &mut self.target_zoom_level, &mut self.pending_initial_center);
 
-        let parts_to_draw = if let Some(anim) = &self.current_anim {
-            let frame = if interpolation { self.current_frame } else { (self.current_frame + 0.01).floor() };
-            let animated_parts = animator::animate(model, anim, frame);
-            transform::solve_hierarchy(&animated_parts, model)
+        // --- PAINT CANVAS ---
+        if let (Some(model), Some(sprite_sheet)) = (&self.held_model, &self.held_sheet) {
+            let parts_to_draw = if let Some(anim) = &self.current_anim {
+                let frame = if interpolation { self.current_frame } else { (self.current_frame + 0.01).floor() };
+                let animated_parts = animator::animate(model, anim, frame);
+                transform::solve_hierarchy(&animated_parts, model)
+            } else {
+                transform::solve_hierarchy(&model.parts, model)
+            };
+
+            let sheet_arc = Arc::new(SpriteSheet {
+                texture_handle: sprite_sheet.texture_handle.clone(),
+                image_data: sprite_sheet.image_data.clone(),
+                cuts_map: sprite_sheet.cuts_map.clone(),
+                is_loading_active: sprite_sheet.is_loading_active,
+                data_receiver: None, 
+                sheet_name: sprite_sheet.sheet_name.clone(),
+            });
+
+            canvas::paint(ui, rect, self.renderer.clone(), sheet_arc, parts_to_draw, self.pan_offset, self.zoom_level, allow_update);
         } else {
-            transform::solve_hierarchy(&model.parts, model)
-        };
-
-        let sheet_arc = Arc::new(SpriteSheet {
-            texture_handle: sprite_sheet.texture_handle.clone(),
-            image_data: sprite_sheet.image_data.clone(),
-            cuts_map: sprite_sheet.cuts_map.clone(),
-            is_loading_active: sprite_sheet.is_loading_active,
-            data_receiver: None, 
-            sheet_name: sprite_sheet.sheet_name.clone(),
-        });
-
-        canvas::paint(ui, rect, self.renderer.clone(), sheet_arc, parts_to_draw, self.pan_offset, self.zoom_level, allow_update);
+            // FIX: If model is missing, paint a black background to clear any lingering frames
+            ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgb(20, 20, 20));
+        }
 
         let border_rect = rect.shrink(2.0);
         let border_color = egui::Color32::from_rgb(31, 106, 165); 
         ui.painter().rect_stroke(border_rect, egui::Rounding::same(5.0), egui::Stroke::new(4.0, border_color));
 
-        // --- EXPAND BUTTON (Top Left) ---
         let btn_size = egui::vec2(30.0, 30.0);
         let margin = 8.0;
         let btn_pos = rect.min + egui::vec2(margin, margin);
@@ -257,6 +276,7 @@ impl AnimViewer {
             response
         });
 
+        // --- CONTROLS OVERLAY ---
         anim_controls::render_controls_overlay(
             ui,
             rect,
@@ -268,6 +288,8 @@ impl AnimViewer {
             spirit_sheet_id,
             form_viewer_id,
             spirit_pack,
+            interpolation,
+            native_fps, 
         );
     }
 }

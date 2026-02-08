@@ -1,3 +1,7 @@
+/*
+type: uploaded file
+fileName: watcher.rs
+*/
 use eframe::egui;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
@@ -131,6 +135,33 @@ pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBu
         if let Some(cats_idx) = components.iter().position(|c| c == "cats") {
             if let Some(id_str) = components.get(cats_idx + 1) {
                 if let Ok(id) = id_str.parse::<u32>() {
+                    
+                    // Check if modification is inside 'anim'
+                    // Standard path: game/cats/{id}/{form}/anim/file
+                    if let Some(anim_seg) = components.get(cats_idx + 3) {
+                        if anim_seg == "anim" {
+                            if state.selected_cat == Some(id) {
+                                // CRITICAL FIX: Extract the form directory char (f/c/s/u)
+                                // It is located at cats_idx + 2
+                                let form_char_modified = components.get(cats_idx + 2)
+                                    .map(|s| s.as_ref())
+                                    .unwrap_or("f");
+
+                                // Only trigger reload if the modified form matches the currently loaded ID
+                                // loaded_id format: "{id}_{formChar}_{version}"
+                                let current_loaded_id = &state.anim_viewer.loaded_id;
+                                let form_marker = format!("_{}_", form_char_modified);
+
+                                if current_loaded_id.is_empty() || current_loaded_id.contains(&form_marker) {
+                                    state.anim_viewer.loaded_id.clear();
+                                    state.anim_viewer.texture_version += 1; 
+                                    ctx.request_repaint();
+                                }
+                                return;
+                            }
+                        }
+                    }
+
                     state.cat_list.flush_icon(id);
                     if state.selected_cat == Some(id) {
                         state.detail_texture = None; 

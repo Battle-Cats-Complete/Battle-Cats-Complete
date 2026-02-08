@@ -1,3 +1,7 @@
+/*
+type: uploaded file
+fileName: cat.rs
+*/
 #![allow(dead_code)]
 use std::path::{Path, PathBuf};
 
@@ -43,9 +47,9 @@ impl AnimType {
     }
 }
 
-// --- Internal Helpers ---
+// --- Internal Helpers (Now Public) ---
 
-fn anim_folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf {
+pub fn anim_folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf {
     let (egg_norm, egg_evol) = egg_ids;
     let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
 
@@ -58,7 +62,7 @@ fn anim_folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBu
     }
 }
 
-fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
+pub fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     let (egg_norm, egg_evol) = egg_ids;
     let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
     
