@@ -96,8 +96,6 @@ pub fn show(
     }
 
     // APPLY FIX: If the index was invalid, update it immediately.
-    // This prevents the "Stuck" state where the UI thinks we are on Spirit 
-    // but the loader is trying to load Walk.
     if valid_idx != current_idx {
         anim_viewer.loaded_anim_index = valid_idx;
     }
@@ -129,7 +127,6 @@ pub fn show(
     }
 
     // A. Start Transition
-    // Note: We use valid_idx (which is just anim_viewer.loaded_anim_index) here
     if !is_stable && !is_loading_new && !is_first_launch {
         let (resolved_png, resolved_cut, resolved_model, _) = resolve_paths(valid_idx, &std_png, &std_cut, &std_model, &spirit_pack, &available_anims);
         
@@ -187,7 +184,6 @@ pub fn show(
                     *anim_sheet = new_sheet; 
                     anim_viewer.loaded_id = target_viewer_id.clone();
                     
-                    // We can reuse valid_idx here because we sanitized it at the top
                     let (_, _, _, resolved_anim) = resolve_paths(valid_idx, &std_png, &std_cut, &std_model, &spirit_pack, &available_anims);
                     
                     if let Some(anim_path) = resolved_anim { 
@@ -211,32 +207,43 @@ pub fn show(
     // =========================================================
     
     if anim_viewer.is_expanded {
-        // OVERLAY MODE
-        egui::Window::new("expanded_anim_viewer")
-            .fixed_rect(ctx.screen_rect())
-            .frame(egui::Frame::window(&ctx.style()).inner_margin(0.0).shadow(egui::epaint::Shadow::NONE)) 
-            .title_bar(false)
+        // OVERLAY MODE: Switched to Area to fix "Fade-in" animation
+        // Area renders instantly (Snaps) whereas Window animates opacity.
+        egui::Area::new("expanded_anim_viewer_area".into())
+            .fixed_pos(egui::pos2(0.0, 0.0))
             .order(egui::Order::Tooltip) 
             .show(ctx, |ui| {
-                let (rect, _response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
-                ui.put(rect, |ui: &mut egui::Ui| {
-                    if let (Some(model_to_draw), Some(sheet_to_draw)) = (anim_viewer.held_model.clone(), anim_viewer.held_sheet.clone()) {
-                        let allow_texture_update = !is_loading_new || just_swapped;
-                        anim_viewer.render(
-                            ui, &sheet_to_draw, &model_to_draw,
-                            settings.animation_interpolation, settings.animation_debug, settings.centering_behavior,
-                            allow_texture_update,
-                            &available_anims,
-                            spirit_available,
-                            base_assets_available,
-                            is_loading_new,
-                            &spirit_sheet_id,
-                            &form_viewer_id,
-                            &spirit_pack,
-                        );
-                    }
-                    ui.allocate_rect(rect, egui::Sense::hover())
-                });
+                let screen_rect = ctx.screen_rect();
+                
+                // We use a Frame here to paint the background since Area is transparent
+                egui::Frame::window(&ctx.style())
+                    .inner_margin(0.0)
+                    .shadow(egui::epaint::Shadow::NONE)
+                    .show(ui, |ui| {
+                        // Force the frame to cover the entire screen
+                        ui.set_min_size(screen_rect.size());
+                        ui.set_max_size(screen_rect.size());
+                        
+                        let (rect, _response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+                        ui.put(rect, |ui: &mut egui::Ui| {
+                            if let (Some(model_to_draw), Some(sheet_to_draw)) = (anim_viewer.held_model.clone(), anim_viewer.held_sheet.clone()) {
+                                let allow_texture_update = !is_loading_new || just_swapped;
+                                anim_viewer.render(
+                                    ui, &sheet_to_draw, &model_to_draw,
+                                    settings.animation_interpolation, settings.animation_debug, settings.centering_behavior,
+                                    allow_texture_update,
+                                    &available_anims,
+                                    spirit_available,
+                                    base_assets_available,
+                                    is_loading_new,
+                                    &spirit_sheet_id,
+                                    &form_viewer_id,
+                                    &spirit_pack,
+                                );
+                            }
+                            ui.allocate_rect(rect, egui::Sense::hover())
+                        });
+                    });
             });
 
         // Placeholder in original spot

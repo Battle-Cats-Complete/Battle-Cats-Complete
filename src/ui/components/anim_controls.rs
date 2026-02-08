@@ -11,6 +11,10 @@ const TILE_HEIGHT: f32 = 28.0;
 const GAP: f32 = 4.0;
 const OVERLAY_BOTTOM_OFFSET: f32 = 35.0; // Artificial pull-up
 
+// This is the constant you asked for!
+// It defines how far the controls slide down when minimized.
+pub const CONTROLS_SLIDE_DISTANCE: f32 = 180.0;
+
 // Column 1: Play/Orient
 const ICON_W: f32 = 60.0;
 
@@ -48,7 +52,20 @@ pub fn render_controls_overlay(
     clip_rect = clip_rect.shrink(4.0); 
     ui.set_clip_rect(clip_rect);
 
-    // ROOT BUILDER: Bottom-Up to ensure it hugs the bottom
+    // SLIDE ANIMATION LOGIC
+    let target_slide = if anim_viewer.is_controls_expanded { 0.0 } else { 1.0 };
+    
+    // FIX: Use a stable ID based on the content (loaded_id) rather than the UI hierarchy (ui.id()).
+    // This prevents the animation from resetting when switching between Inline and Fullscreen modes.
+    let anim_id = egui::Id::new("controls_slide").with(&anim_viewer.loaded_id);
+    let slide_factor = ui.ctx().animate_value_with_time(anim_id, target_slide, 0.35);
+    
+    // We modify the bottom margin. A negative margin pushes the anchor point down (offscreen)
+    // in a Bottom-Up layout.
+    let current_offset = CONTROLS_SLIDE_DISTANCE * slide_factor;
+    let bottom_margin = 5.0 + OVERLAY_BOTTOM_OFFSET - current_offset;
+
+    // ROOT BUILDER: Bottom-Up
     let builder = egui::UiBuilder::new()
         .max_rect(clip_rect)
         .layout(egui::Layout::bottom_up(egui::Align::Min));
@@ -57,15 +74,18 @@ pub fn render_controls_overlay(
         egui::Frame::window(ui.style())
             .fill(egui::Color32::from_black_alpha(160)) 
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
-            // FIX 1: Increased bottom margin to 12.0 for guaranteed padding
             .inner_margin(egui::Margin { left: 8.0, right: 8.0, top: 8.0, bottom: 18.0 })
-            // Apply the offset here to pull it up
-            .outer_margin(egui::Margin { left: 3.0, bottom: 5.0 + OVERLAY_BOTTOM_OFFSET, ..Default::default() })
+            // Apply the slide offset here
+            .outer_margin(egui::Margin { left: 3.0, bottom: bottom_margin, ..Default::default() })
             .rounding(8.0)
             .show(ui, |ui| {
                 
-                // CONTENT LAYOUT: Bottom-Up (Controls -> Gap -> Buttons)
+                // CONTENT LAYOUT: Bottom-Up
+                // Order of calls: Bottom element first, Top element last.
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    
+                    // 1. Main Controls (Bottom)
+                    // This function calculates width and updates cached_controls_width immediately
                     render_internal_ui(
                         ui, 
                         anim_viewer, 
@@ -77,6 +97,28 @@ pub fn render_controls_overlay(
                         form_viewer_id,
                         spirit_pack
                     );
+
+                    // Determine width based on the cached value from render_internal_ui
+                    let width_to_use = if anim_viewer.cached_controls_width > 1.0 {
+                        anim_viewer.cached_controls_width
+                    } else {
+                        ui.available_width()
+                    };
+
+                    // 2. Separator (Middle)
+                    // FIX: Removed ui.add_space(5.0);
+                    ui.add_sized(egui::vec2(width_to_use, 1.0), egui::Separator::default().horizontal());
+                    
+                    // 3. Toggle Button (Top)
+                    let icon = if anim_viewer.is_controls_expanded { "▼" } else { "▲" };
+                    let btn = egui::Button::new(egui::RichText::new(icon).strong().size(14.0))
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::NONE);
+
+                    // Use the cached width here so it matches the block exactly
+                    if ui.add_sized(egui::vec2(width_to_use, 18.0), btn).clicked() {
+                        anim_viewer.is_controls_expanded = !anim_viewer.is_controls_expanded;
+                    }
                 });
             });
     });
@@ -164,7 +206,7 @@ fn render_internal_ui(
             }
         });
 
-        // FIX 2: Explicitly sized Separator (Play -> Controls)
+        // Separator
         let sep_height = (TILE_HEIGHT * 2.0) + GAP;
         ui.add_sized(egui::vec2(10.0, sep_height), egui::Separator::default().vertical());
 
@@ -350,7 +392,7 @@ fn render_internal_ui(
             });
         });
 
-        // FIX 2: Explicitly sized Separator (Controls -> Export)
+        // Separator
         ui.add_sized(egui::vec2(10.0, sep_height), egui::Separator::default().vertical());
 
         // COLUMN 3: Export / Speed
