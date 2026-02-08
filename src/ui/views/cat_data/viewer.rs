@@ -12,7 +12,7 @@ use crate::ui::components::anim_viewer::AnimViewer;
 use crate::core::settings::Settings;
 use crate::paths::cat::{self, AnimType};
 use crate::ui::components::anim_controls::{
-    IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_SPIRIT, IDX_MODEL, IDX_BURROW, IDX_SURFACE
+    IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_SPIRIT, IDX_MODEL, IDX_BURROW, IDX_SURFACE, IDX_NONE
 };
 
 pub fn show(
@@ -29,10 +29,9 @@ pub fn show(
     let egg_ids = cat_entry.egg_ids;
     
     // =========================================================
-    // 0. PRE-CALCULATE AVAILABILITY (Hoisted)
+    // 0. PRE-CALCULATE AVAILABILITY
     // =========================================================
     
-    // Animation List
     let mut available_anims = Vec::new();
     let anim_defs = [
         (IDX_WALK, "Walk"), 
@@ -60,7 +59,7 @@ pub fn show(
 
     let mut spirit_pack = None;
     let mut spirit_available = false;
-    let spirit_sheet_id = if let Some(s_id) = conjure_id { format!("spirit_{}", s_id) } else { String::new() };
+    let spirit_sheet_id = if let Some(s_id) = conjure_id { format!("spirit_{}_{}", s_id, anim_viewer.texture_version) } else { String::new() };
 
     if let Some(s_id) = conjure_id {
         let s_png = cat::anim(root, s_id, 0, (-1, -1), AnimType::Png);
@@ -75,29 +74,58 @@ pub fn show(
     }
 
     // =========================================================
-    // 1. VALIDATE & SANITIZE STATE
+    // 1. VALIDATE & SANITIZE STATE (Priority Fallback)
     // =========================================================
     
-    // This block ensures we NEVER try to load an invalid animation
     let current_idx = anim_viewer.loaded_anim_index;
     let mut valid_idx = current_idx;
 
-    if current_idx == IDX_SPIRIT {
-        if !spirit_available { valid_idx = IDX_WALK; }
+    let is_current_valid = if current_idx == IDX_NONE {
+        false 
+    } else if current_idx == IDX_SPIRIT {
+        spirit_available
     } else if current_idx == IDX_MODEL {
-        if !base_assets_available { valid_idx = IDX_WALK; }
+        base_assets_available
     } else {
-        // For standard animations, check if they exist in the list
-        if !available_anims.iter().any(|(i, _, _)| *i == current_idx) {
-            // Special case: If Walk itself is missing (unlikely but possible), we shouldn't crash, 
-            // but we usually default to Walk (0) as the safe fallback.
-            valid_idx = IDX_WALK;
+        base_assets_available && available_anims.iter().any(|(i, _, _)| *i == current_idx)
+    };
+
+    if !is_current_valid {
+        valid_idx = IDX_NONE; 
+
+        if base_assets_available {
+            let priority_list = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
+            for check_idx in priority_list {
+                if available_anims.iter().any(|(i, _, _)| *i == check_idx) {
+                    valid_idx = check_idx;
+                    break;
+                }
+            }
+        }
+
+        if valid_idx == IDX_NONE && spirit_available {
+            valid_idx = IDX_SPIRIT;
+        }
+
+        if valid_idx == IDX_NONE && base_assets_available {
+            valid_idx = IDX_MODEL;
         }
     }
 
-    // APPLY FIX: If the index was invalid, update it immediately.
     if valid_idx != current_idx {
         anim_viewer.loaded_anim_index = valid_idx;
+        
+        if valid_idx == IDX_NONE {
+            anim_viewer.current_anim = None;
+            anim_viewer.held_model = None;
+            anim_viewer.held_sheet = None; 
+            *model_data = None;
+            *anim_sheet = SpriteSheet::default();
+        }
+        
+        if current_idx == IDX_NONE && valid_idx != IDX_NONE {
+            anim_viewer.loaded_id.clear();
+        }
     }
     
     // =========================================================
@@ -106,7 +134,7 @@ pub fn show(
 
     let form_char = match current_form { 0 => 'f', 1 => 'c', 2 => 's', _ => 'u' };
     let id_str = format!("{:03}", cat_entry.id);
-    let form_viewer_id = format!("{}_{}", id_str, form_char);
+    let form_viewer_id = format!("{}_{}_{}", id_str, form_char, anim_viewer.texture_version);
 
     let target_viewer_id = if anim_viewer.loaded_anim_index == IDX_SPIRIT {
         spirit_sheet_id.clone()
@@ -114,10 +142,19 @@ pub fn show(
         form_viewer_id.clone()
     };
 
+    // FIX: We are stable if IDs match. We DO NOT check held_model here.
+    // If held_model is None but IDs match, it means we tried to load and failed (Stable Failure).
+    // This prevents the infinite loop.
     let is_stable = anim_viewer.loaded_id == target_viewer_id;
+        
     let is_loading_new = !is_stable && (anim_viewer.staging_model.is_some() || anim_viewer.staging_sheet.is_some());
     let is_first_launch = anim_viewer.held_model.is_none() && model_data.is_none();
     let mut just_swapped = false;
+
+    // Safety: If we are in NONE state, ensure ID is synced so we don't try to load
+    if valid_idx == IDX_NONE && !is_stable {
+        anim_viewer.loaded_id = target_viewer_id.clone();
+    }
 
     if is_stable {
         if let Some(m) = model_data {
@@ -127,24 +164,33 @@ pub fn show(
     }
 
     // A. Start Transition
-    if !is_stable && !is_loading_new && !is_first_launch {
+    if !is_stable && !is_loading_new && !is_first_launch && valid_idx != IDX_NONE {
         let (resolved_png, resolved_cut, resolved_model, _) = resolve_paths(valid_idx, &std_png, &std_cut, &std_model, &spirit_pack, &available_anims);
         
-        if let (Some(png), Some(cut)) = (resolved_png, resolved_cut) {
+        let mut load_success = false;
+
+        if let (Some(png), Some(cut), Some(model_path)) = (resolved_png, resolved_cut, resolved_model) {
+            // Attempt load
             let mut new_sheet = SpriteSheet::default();
             new_sheet.load(ctx, png, cut, target_viewer_id.clone());
-            anim_viewer.staging_sheet = Some(new_sheet);
+            
+            if let Some(loaded_model) = Model::load(model_path) {
+                anim_viewer.staging_sheet = Some(new_sheet);
+                anim_viewer.staging_model = Some(loaded_model);
+                load_success = true;
+            }
         }
 
-        if let Some(model_path) = resolved_model {
-            if let Some(loaded_model) = Model::load(model_path) {
-                anim_viewer.staging_model = Some(loaded_model);
-            }
+        // FIX: If load failed (missing files), mark as processed so we don't loop
+        if !load_success {
+            anim_viewer.loaded_id = target_viewer_id.clone();
+            anim_viewer.held_model = None;
+            anim_viewer.held_sheet = None;
         }
     }
 
     // B. First Launch
-    if is_first_launch {
+    if is_first_launch && valid_idx != IDX_NONE {
         let (resolved_png, resolved_cut, resolved_model, resolved_anim) = resolve_paths(valid_idx, &std_png, &std_cut, &std_model, &spirit_pack, &available_anims);
 
         if let (Some(png), Some(cut), Some(model_path)) = (resolved_png, resolved_cut, resolved_model) {
@@ -154,6 +200,10 @@ pub fn show(
                  anim_viewer.held_model = Some(loaded_model.clone());
                  anim_viewer.held_sheet = Some((*anim_sheet).clone());
                  *model_data = Some(loaded_model);
+                 
+                 // Only set loaded_id if successful
+                 anim_viewer.loaded_id = target_viewer_id.clone();
+                 anim_viewer.pending_initial_center = true; 
              }
         }
         
@@ -162,9 +212,6 @@ pub fn show(
         } else { 
             anim_viewer.current_anim = None; 
         }
-        
-        anim_viewer.loaded_id = target_viewer_id.clone();
-        anim_viewer.pending_initial_center = true; 
     }
 
     // C. Completion
@@ -203,50 +250,43 @@ pub fn show(
     }
 
     // =========================================================
-    // RENDER LOGIC
+    // RENDER
     // =========================================================
     
+    let allow_texture_update = !is_loading_new || just_swapped;
+
     if anim_viewer.is_expanded {
-        // OVERLAY MODE: Switched to Area to fix "Fade-in" animation
-        // Area renders instantly (Snaps) whereas Window animates opacity.
         egui::Area::new("expanded_anim_viewer_area".into())
             .fixed_pos(egui::pos2(0.0, 0.0))
             .order(egui::Order::Tooltip) 
             .show(ctx, |ui| {
                 let screen_rect = ctx.screen_rect();
-                
-                // We use a Frame here to paint the background since Area is transparent
                 egui::Frame::window(&ctx.style())
                     .inner_margin(0.0)
                     .shadow(egui::epaint::Shadow::NONE)
                     .show(ui, |ui| {
-                        // Force the frame to cover the entire screen
                         ui.set_min_size(screen_rect.size());
                         ui.set_max_size(screen_rect.size());
-                        
                         let (rect, _response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
                         ui.put(rect, |ui: &mut egui::Ui| {
-                            if let (Some(model_to_draw), Some(sheet_to_draw)) = (anim_viewer.held_model.clone(), anim_viewer.held_sheet.clone()) {
-                                let allow_texture_update = !is_loading_new || just_swapped;
-                                anim_viewer.render(
-                                    ui, &sheet_to_draw, &model_to_draw,
-                                    settings.animation_interpolation, settings.animation_debug, settings.centering_behavior,
-                                    allow_texture_update,
-                                    &available_anims,
-                                    spirit_available,
-                                    base_assets_available,
-                                    is_loading_new,
-                                    &spirit_sheet_id,
-                                    &form_viewer_id,
-                                    &spirit_pack,
-                                );
-                            }
+                            anim_viewer.render(
+                                ui,
+                                settings.animation_interpolation, settings.animation_debug, settings.centering_behavior,
+                                allow_texture_update,
+                                &available_anims,
+                                spirit_available,
+                                base_assets_available,
+                                is_loading_new,
+                                &spirit_sheet_id,
+                                &form_viewer_id,
+                                &spirit_pack,
+                                settings.native_fps, 
+                            );
                             ui.allocate_rect(rect, egui::Sense::hover())
                         });
                     });
             });
 
-        // Placeholder in original spot
         ui.vertical_centered(|ui| {
             ui.add_space(50.0);
             ui.label(egui::RichText::new("Animation Expanded").size(16.0).weak());
@@ -256,25 +296,22 @@ pub fn show(
         });
 
     } else {
-        // NORMAL MODE
         ui.vertical(|ui| {
             let (rect, _response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
             ui.put(rect, |ui: &mut egui::Ui| {
-                if let (Some(model_to_draw), Some(sheet_to_draw)) = (anim_viewer.held_model.clone(), anim_viewer.held_sheet.clone()) {
-                    let allow_texture_update = !is_loading_new || just_swapped;
-                    anim_viewer.render(
-                        ui, &sheet_to_draw, &model_to_draw,
-                        settings.animation_interpolation, settings.animation_debug, settings.centering_behavior,
-                        allow_texture_update,
-                        &available_anims,
-                        spirit_available,
-                        base_assets_available,
-                        is_loading_new,
-                        &spirit_sheet_id,
-                        &form_viewer_id,
-                        &spirit_pack,
-                    );
-                }
+                anim_viewer.render(
+                    ui,
+                    settings.animation_interpolation, settings.animation_debug, settings.centering_behavior,
+                    allow_texture_update,
+                    &available_anims,
+                    spirit_available,
+                    base_assets_available,
+                    is_loading_new,
+                    &spirit_sheet_id,
+                    &form_viewer_id,
+                    &spirit_pack,
+                    settings.native_fps, 
+                );
                 ui.allocate_rect(rect, egui::Sense::hover())
             });
         });

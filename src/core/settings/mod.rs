@@ -1,3 +1,7 @@
+/*
+type: uploaded file
+fileName: mod.rs
+*/
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::Receiver;
 pub mod lang;
@@ -16,6 +20,9 @@ pub struct Settings {
     pub animation_interpolation: bool,
     pub animation_debug: bool,
     pub reset_view_on_selection: bool,
+    
+    // Stored FPS for interpolation (calculated once)
+    pub native_fps: f32,
     
     // 0 = Unit (Default), 1 = Origin, 2 = None
     pub centering_behavior: usize, 
@@ -57,6 +64,7 @@ impl Default for Settings {
             animation_interpolation: false,
             animation_debug: false,
             reset_view_on_selection: true,
+            native_fps: 30.0, // Default safe value
             centering_behavior: 0,
             
             ability_padding_x: 3.0,

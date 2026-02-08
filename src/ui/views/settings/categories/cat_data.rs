@@ -1,3 +1,7 @@
+/*
+type: uploaded file
+fileName: cat_data.rs
+*/
 use eframe::egui;
 use crate::core::settings::Settings;
 use crate::ui::views::settings::toggle_ui;
@@ -82,18 +86,34 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
             ui.horizontal(|ui| {
                 let tooltip = "Switches from 30fps to your monitors native refresh rate\nAllows animations to be smooth but incredibly buggy\nThis feature is not actively supported nor maintained";
                 
+                // Toggle UI logic
                 if toggle_ui(ui, &mut settings.animation_interpolation).on_hover_text(tooltip).changed() {
-                    refresh_needed = true;
+                    // CALCULATION LOGIC:
+                    // If enabled, capture current stable_dt, convert to FPS, and round to nearest int.
+                    if settings.animation_interpolation {
+                        let dt = ui.input(|i| i.stable_dt);
+                        if dt > 0.0 {
+                            settings.native_fps = (1.0 / dt).round();
+                        }
+                    }
+                    ui.ctx().request_repaint();
                 }
+                
                 ui.label("Use Native Refresh Rate").on_hover_text(tooltip);
+                
+                // Show the detected FPS if enabled
+                if settings.animation_interpolation {
+                    ui.label(egui::RichText::new(format!("({}fps)", settings.native_fps)).weak().size(12.0));
+                }
             });
 
             ui.horizontal(|ui| {
-                toggle_ui(ui, &mut settings.animation_debug);
+                if toggle_ui(ui, &mut settings.animation_debug).changed() {
+                    ui.ctx().request_repaint();
+                }
                 ui.label("Enable Debug View");
             });
             
-            // --- New Centering Setting ---
             ui.horizontal(|ui| {
                 ui.label("Centering Behavior:");
                 egui::ComboBox::from_id_salt("centering_behavior")
