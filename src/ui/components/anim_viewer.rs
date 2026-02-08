@@ -44,8 +44,9 @@ pub struct AnimViewer {
     pub cached_controls_width: f32,
     pub cached_grid_height: f32, // Stores height of the top button grid
     
-    // NEW: Expansion State
-    pub is_expanded: bool,
+    // Layout Flags
+    pub is_expanded: bool,          // Fullscreen Viewer
+    pub is_controls_expanded: bool, // Bottom Controls Panel
 }
 
 impl Default for AnimViewer {
@@ -75,7 +76,8 @@ impl Default for AnimViewer {
             renderer: Arc::new(Mutex::new(None)),
             cached_controls_width: 0.0,
             cached_grid_height: 55.0, 
-            is_expanded: false, // Default to normal view
+            is_expanded: false,
+            is_controls_expanded: true, // Default to Open
         }
     }
 }
@@ -236,21 +238,18 @@ impl AnimViewer {
         let btn_pos = rect.min + egui::vec2(margin, margin);
         let btn_rect = egui::Rect::from_min_size(btn_pos, btn_size);
 
-        // Matching colors from anim_controls.rs
         let bg_fill = if self.is_expanded {
-            egui::Color32::from_rgb(31, 106, 165) // Blue (Active)
+            egui::Color32::from_rgb(31, 106, 165)
         } else {
-             egui::Color32::from_gray(60) // Gray (Inactive)
+             egui::Color32::from_gray(60)
         };
 
-        // We use ui.put to place the button on top of the canvas
         ui.put(btn_rect, |ui: &mut egui::Ui| {
              let btn = egui::Button::new(egui::RichText::new("⛶").size(20.0).color(egui::Color32::WHITE))
                 .fill(bg_fill) 
                 .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
                 .rounding(4.0);
             
-            // Fix: Capture the response, check click, and RETURN the response
             let response = ui.add_sized(btn_size, btn);
             if response.clicked() {
                 self.is_expanded = !self.is_expanded;
