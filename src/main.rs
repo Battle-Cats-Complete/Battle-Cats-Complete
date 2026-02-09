@@ -20,9 +20,6 @@ fn main() -> eframe::Result<()> {
             .with_drag_and_drop(true)
             .with_icon(icon)
             .with_app_id("battle_cats_complete"),
-        // CRITICAL FIX: Disable MSAA. 
-        // Multisampling tries to smooth edges between adjacent sprite parts, 
-        // causing visible "cracks" or transparent lines in the animation.
         multisampling: 0, 
         ..Default::default()
     };

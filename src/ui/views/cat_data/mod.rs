@@ -47,13 +47,9 @@ pub fn show(
 ) {
     img015::ensure_loaded(ctx, icon_sheet, settings);
 
-    // Render Header (Handles Form Buttons)
     header::render(
         ctx, ui, cat_entry, current_form, current_tab, current_level, level_input, texture_cache, current_key, settings
     );
-
-    // REMOVED: The Force Reset Logic ("Hijack") is gone. 
-    // We now rely on viewer.rs to handle the transition seamlessly.
 
     ui.separator(); 
     ui.add_space(0.0);
@@ -78,7 +74,6 @@ pub fn show(
         const BOSS_WAVE_BYTES: &[u8] = include_bytes!("../../../assets/boss_wave_immune.png");
         if let Ok(img) = image::load_from_memory(BOSS_WAVE_BYTES) {
           let rgba = img.to_rgba8();
-           // Correct variable: *boss_wave_immune_texture
           *boss_wave_immune_texture = Some(ctx.load_texture("boss_wave_icon", egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_flat_samples().as_slice()), egui::TextureOptions::LINEAR));
     }
     }

@@ -43,7 +43,6 @@ pub fn load(cats_directory: &Path) -> HashMap<u16, TalentRaw> {
             // Data starts at index 2, blocks of 14
             let mut idx = 2;
             while idx + 13 < p.len() {
-                // If ability_id is 0, usually implies empty/end of valid data in this row
                 let ability_id = p[idx].trim().parse::<u8>().unwrap_or(0);
                 if ability_id == 0 { break; }
 
@@ -72,7 +71,7 @@ pub fn load(cats_directory: &Path) -> HashMap<u16, TalentRaw> {
 pub fn map_ability_to_icon(ability_id: u8) -> Option<usize> {
     match ability_id {
         // Stats
-        1 => Some(img015::ICON_ATTACK_BUFF), // Weaken
+        1 => Some(img015::ICON_WEAKEN),
         2 => Some(img015::ICON_FREEZE),
         3 => Some(img015::ICON_SLOW),
         4 => Some(img015::ICON_ATTACK_ONLY),
@@ -136,13 +135,12 @@ pub fn map_ability_to_icon(ability_id: u8) -> Option<usize> {
         63 => Some(img015::ICON_COLOSSUS_SLAYER),
         64 => Some(img015::ICON_BEHEMOTH_SLAYER),
         65 => Some(img015::ICON_MINI_SURGE),
-        66 => Some(img015::ICON_SAGE_SLAYER), // Hypothetical/Future
+        66 => Some(img015::ICON_SAGE_SLAYER),
         67 => Some(img015::ICON_EXPLOSION),
         _ => None
     }
 }
 
-// NEW: Moved from talents.rs
 pub fn calculate_talent_value(min: u16, max: u16, level: u8, max_level: u8) -> i32 {
     if level == 0 { return 0; }
     if max_level <= 1 { return min as i32; }

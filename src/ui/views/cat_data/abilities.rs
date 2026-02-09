@@ -117,7 +117,6 @@ fn render_traits(
         }
     }
 
-    // FIX: Set vertical spacing on the UI object *before* the horizontal wrap starts.
     ui.spacing_mut().item_spacing = egui::vec2(settings.ability_padding_x, settings.ability_padding_y);
     
     ui.horizontal_wrapped(|ui| {
@@ -134,7 +133,6 @@ fn render_traits(
 
                 let size = egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE);
                 let r = if let Some(cut) = sheet.cuts_map.get(&line_num) {
-                    // FIX: Use SizedTexture to force proper aspect ratio (40x40)
                     let resp = if let Some(tex) = &sheet.texture_handle {
                          ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(cut.uv_coordinates))
                     } else {
@@ -211,10 +209,7 @@ fn get_trait_tooltip(line: usize) -> &'static str {
 }
 
 pub fn render_icon_row(ui: &mut egui::Ui, items: &Vec<AbilityItem>, sheet: &SpriteSheet, settings: &Settings, border_color: egui::Color32) {
-    // FIX: Explicitly set spacing on the parent UI *before* horizontal_wrapped
-    // horizontal_wrapped uses ui.spacing().item_spacing.y for vertical gaps between wrapped rows.
     ui.spacing_mut().item_spacing = egui::vec2(settings.ability_padding_x, settings.ability_padding_y);
-    
     ui.horizontal_wrapped(|ui| {
         for item in items {
             let r = render_single_icon(ui, item, sheet, border_color);
@@ -225,11 +220,6 @@ pub fn render_icon_row(ui: &mut egui::Ui, items: &Vec<AbilityItem>, sheet: &Spri
 
 fn render_single_icon(ui: &mut egui::Ui, item: &AbilityItem, sheet: &SpriteSheet, border: egui::Color32) -> egui::Response {
     let size = egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE);
-    
-    // FIX: Use SizedTexture. This is the correct way to force an exact quad size
-    // without distorting aspect ratios (if the texture matches) or 
-    // respecting the texture's native aspect ratio (if used standard Image::new).
-    // SizedTexture tells egui: "Draw this texture into exactly this 40x40 rect."
     let response = if let Some(tex_id) = item.custom_tex {
         ui.add(egui::Image::new(egui::load::SizedTexture::new(tex_id, size)))
     } else if let Some(cut) = sheet.cuts_map.get(&item.icon_id) {

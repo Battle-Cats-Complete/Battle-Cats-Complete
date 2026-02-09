@@ -23,7 +23,7 @@ pub const ICON_OMNI_STRIKE: usize = 112;
 pub const ICON_LONG_DISTANCE: usize = 212;
 pub const ICON_MULTIHIT: usize = 9999; // Mock ID
 
-// Target Abiltiies
+// Target Abilties
 pub const ICON_ATTACK_ONLY: usize = 202;
 pub const ICON_STRONG_AGAINST: usize = 203;
 pub const ICON_RESIST: usize = 204;
@@ -225,7 +225,7 @@ pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Se
         return; 
     }
 
-    if sheet.texture_handle.is_some() || sheet.is_loading_active { // Fixed: is_loading() -> is_loading_active
+    if sheet.texture_handle.is_some() || sheet.is_loading_active {
         return;
     }
 
@@ -250,7 +250,6 @@ pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Se
 
         let (full_png_path, full_imgcut_path) = (base_dir.join(png_filename), base_dir.join(imgcut_filename));
         if full_png_path.exists() && full_imgcut_path.exists() {
-            // FIX IS HERE: Added the unique_id string
             sheet.load(ctx, &full_png_path, &full_imgcut_path, "global_img015".to_string());
             break;
         }

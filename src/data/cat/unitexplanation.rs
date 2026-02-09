@@ -20,7 +20,7 @@ impl UnitExplanation {
         for (line_index, file_line) in file_content.lines().enumerate().take(4) {
             let parts: Vec<&str> = file_line.split(separator_char).collect();
             
-            // 1. Parse Name
+            // Parse Name
             if let Some(name_part) = parts.get(0) {
                 let trimmed_name = name_part.trim();
                 
@@ -33,7 +33,7 @@ impl UnitExplanation {
                 }
             }
 
-            // 2. Parse Description (Next 3 columns)
+            // Parse Description
             let desc_lines: Vec<String> = parts.iter()
                 .skip(1)
                 .take(3)
@@ -49,9 +49,7 @@ impl UnitExplanation {
 
 fn is_problematic_char(c: char) -> bool {
     let u = c as u32;
-    // Variation Selectors Supplement (e.g. U+E0101)
     if (0xE0100..=0xE01EF).contains(&u) { return true; }
-    // Standard Variation Selectors (e.g. U+FE0F)
     if (0xFE00..=0xFE0F).contains(&u) { return true; }
     false
 }

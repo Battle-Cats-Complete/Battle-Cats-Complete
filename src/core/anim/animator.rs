@@ -4,6 +4,9 @@ use crate::data::global::maanim::{Animation, AnimModification};
 pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<ModelPart> {
     let mut parts = model.parts.clone();
 
+    // Define the back leg parts (Ushiro chain: 14-17, Oku chain: 18-19)
+    let debug_targets = [14, 15, 16, 17, 18, 19];
+
     for curve in &animation.curves {
         if curve.part_id >= parts.len() { continue; }
         
@@ -24,6 +27,19 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
         let is_discrete = matches!(curve.modification_type, 0 | 1 | 3 | 13 | 14);
         
         if let Some(val) = interpolate_curve(curve, local_frame, is_discrete) {
+            
+            // --- DEBUG PRINT START ---
+            // Filter for the specific back leg parts.
+            // Modification Type 5 is Position Y, which is likely the "lift" culprit.
+            // We also print Type 11 (Rotation) as that affects foot landing.
+            if debug_targets.contains(&curve.part_id) && (curve.modification_type == 5 || curve.modification_type == 11) {
+                println!(
+                    "Frame: {:.2} | Part: {} | Mod: {} | Val: {:.4}",
+                    global_frame, curve.part_id, curve.modification_type, val
+                );
+            }
+            // --- DEBUG PRINT END ---
+
             let part = &mut parts[curve.part_id];
             
             match curve.modification_type {
