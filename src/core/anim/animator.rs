@@ -5,7 +5,6 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
     let mut parts = model.parts.clone();
 
     // Define the back leg parts (Ushiro chain: 14-17, Oku chain: 18-19)
-    let debug_targets = [3, 11, 14, 15, 16, 17, 18, 19];
 
     for curve in &animation.curves {
         if curve.part_id >= parts.len() { continue; }
@@ -33,12 +32,6 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             // Filter for the specific back leg parts.
             // Modification Type 5 is Position Y, which is likely the "lift" culprit.
             // We also print Type 11 (Rotation) as that affects foot landing.
-            if debug_targets.contains(&curve.part_id) && (curve.modification_type == 5 || curve.modification_type == 11) {
-                println!(
-                    "Frame: {:.2} | Part: {} | Mod: {} | Val: {:.4}",
-                    global_frame, curve.part_id, curve.modification_type, val
-                );
-            }
             // --- DEBUG PRINT END ---
 
             let part = &mut parts[curve.part_id];
@@ -54,7 +47,7 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 5 => part.position_y = model.parts[curve.part_id].position_y + val,
                 6 => part.pivot_x += val,
                 7 => part.pivot_y += val,
-                // We now reference the original parts, thanks SweetDonut0
+                 // Change to modifications 8/9/10 are essential for Kaihime, thanks sweetdonut0
                 8 => { 
                     let factor = val / model.scale_unit;
                     part.scale_x = model.parts[curve.part_id].scale_x * factor;
@@ -72,11 +65,9 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 12 => part.alpha = model.parts[curve.part_id].alpha * (val / model.alpha_unit),
                 
                 13 => {
-                    // FIX: Do NOT invert scale here. Just set the flag.
                     part.flip_x = val != 0.0;
                 },
                 14 => {
-                    // FIX: Do NOT invert scale here. Just set the flag.
                     part.flip_y = val != 0.0;
                 },
                 _ => {}
@@ -91,8 +82,8 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
     if curve.keyframes.is_empty() { return None; }
 
     let first_k = &curve.keyframes[0];
-    if frame <= first_k.frame as f32 {
-        return Some(first_k.value as f32); 
+    if frame < first_k.frame as f32 {
+        return None; 
     }
 
     let mut start_idx = 0;
