@@ -46,7 +46,6 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
             
             match curve.modification_type {
                 0 => {
-                    // Never allow a part to parent itself
                     let parent_idx = interpolated_value as i32;
                     if parent_idx != curve.part_id as i32 {
                         part.parent_id = parent_idx;
@@ -56,19 +55,28 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 2 => part.sprite_index = interpolated_value as i32,
                 3 => part.drawing_layer = interpolated_value as i32, 
 
-                4 => part.position_x += interpolated_value, 
-                5 => part.position_y += interpolated_value,
-                6 => part.pivot_x += interpolated_value,
-                7 => part.pivot_y += interpolated_value,
+                // Absolute Position (Fixes Eva Unit-01 Detachment)
+                4 => part.position_x = model.parts[curve.part_id].position_x + interpolated_value, 
+                5 => part.position_y = model.parts[curve.part_id].position_y + interpolated_value,
+                
+                // Pivots remain relative as they offset the internal sprite center
+                6 => part.pivot_x = model.parts[curve.part_id].pivot_x + interpolated_value,
+                7 => part.pivot_y = model.parts[curve.part_id].pivot_y + interpolated_value,
+
+                // Absolute Scaling (Fixes Kaihime Distortion)
                 8 => { 
                     let factor = interpolated_value / model.scale_unit;
-                    part.scale_x *= factor;
-                    part.scale_y *= factor;
+                    part.scale_x = model.parts[curve.part_id].scale_x * factor;
+                    part.scale_y = model.parts[curve.part_id].scale_y * factor;
                 },
-                9 => part.scale_x *= interpolated_value / model.scale_unit,
-                10 => part.scale_y *= interpolated_value / model.scale_unit,
-                11 => part.rotation += interpolated_value,
-                12 => part.alpha *= interpolated_value / model.alpha_unit,
+                9 => part.scale_x = model.parts[curve.part_id].scale_x * (interpolated_value / model.scale_unit),
+                10 => part.scale_y = model.parts[curve.part_id].scale_y * (interpolated_value / model.scale_unit),
+                
+                // Absolute Rotation
+                11 => part.rotation = model.parts[curve.part_id].rotation + interpolated_value,
+                
+                // Absolute Alpha
+                12 => part.alpha = model.parts[curve.part_id].alpha * (interpolated_value / model.alpha_unit),
                 
                 13 => { part.flip_x = interpolated_value != 0.0; },
                 14 => { part.flip_y = interpolated_value != 0.0; },
@@ -90,10 +98,8 @@ fn interpolate_curve(
     if curve.keyframes.is_empty() { return None; }
 
     let first_k = &curve.keyframes[0];
-    
-    // Start Clamp
     if frame < first_k.frame as f32 {
-        return Some(first_k.value as f32); 
+        return None; 
     }
 
     let mut start_idx = 0;
