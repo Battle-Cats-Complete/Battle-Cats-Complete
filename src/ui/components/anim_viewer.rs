@@ -1,14 +1,10 @@
-/*
-type: uploaded file
-fileName: anim_viewer.rs
-*/
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
-use crate::core::anim::{animator, canvas, transform, center, controls};
+use crate::core::anim::{animator, smooth, canvas, transform, center, controls};
 use crate::ui::components::anim_controls;
 
 pub struct AnimViewer {
@@ -31,19 +27,21 @@ pub struct AnimViewer {
     pub loaded_id: String,
     last_loaded_id: String,
     pub pending_initial_center: bool,
-    
-    // Internal state
     pub staging_model: Option<Model>,
     pub staging_sheet: Option<SpriteSheet>,
     pub held_model: Option<Model>,
     pub held_sheet: Option<SpriteSheet>,
-    
     pub renderer: Arc<Mutex<Option<canvas::GlowRenderer>>>,
+
     pub cached_controls_width: f32,
     pub cached_grid_height: f32, 
+    
     pub is_expanded: bool,          
     pub is_controls_expanded: bool, 
     pub texture_version: u64,
+    
+    pub is_pointer_over_controls: bool,
+    pub is_viewport_dragging: bool,
 }
 
 impl Default for AnimViewer {
@@ -76,6 +74,8 @@ impl Default for AnimViewer {
             is_expanded: false,
             is_controls_expanded: true,
             texture_version: 0,
+            is_pointer_over_controls: false,
+            is_viewport_dragging: false,
         }
     }
 }
@@ -97,22 +97,11 @@ impl AnimViewer {
         }
     }
 
-    pub fn center_view(&mut self, model: &Model, sheet: &SpriteSheet, viewport_size: egui::Vec2) -> bool {
-        if let Some((offset, bounds)) = center::calculate_center_offset(model, self.current_anim.as_ref(), sheet) {
-            self.pan_offset = offset;
-            let fit_zoom = center::calculate_zoom_fit(bounds, viewport_size, 0.75);
-            self.target_zoom_level = fit_zoom;
-            true
-        } else {
-            false
-        }
-    }
-
     pub fn render(
         &mut self, 
         ui: &mut egui::Ui, 
         interpolation: bool,
-        _debug_show_info: bool,
+        debug_show_info: bool,
         centering_behavior: usize,
         allow_update: bool,
         available_anims: &Vec<(usize, &str, PathBuf)>,
@@ -131,20 +120,19 @@ impl AnimViewer {
             self.pending_initial_center = true;
         }
 
-        // --- CENTER CALCULATION (IMUTABLE) ---
         let mut new_center: Option<(egui::Vec2, f32)> = None;
         let mut should_clear_pending = false;
 
         if let (Some(model), Some(sheet)) = (&self.held_model, &self.held_sheet) {
             if self.pending_initial_center {
-                if centering_behavior == 0 { // Unit
+                if centering_behavior == 0 { 
                     if !model.parts.is_empty() {
                         if let Some((offset, bounds)) = center::calculate_center_offset(model, self.current_anim.as_ref(), sheet) {
                             let fit_zoom = center::calculate_zoom_fit(bounds, ui.available_size(), 0.75);
                             new_center = Some((offset, fit_zoom));
                         }
                     }
-                } else if centering_behavior == 1 { // Origin
+                } else if centering_behavior == 1 { 
                     new_center = Some((egui::Vec2::ZERO, self.target_zoom_level));
                 } else {
                     should_clear_pending = true;
@@ -154,7 +142,6 @@ impl AnimViewer {
             should_clear_pending = true;
         }
 
-        // --- APPLY CENTER (MUTABLE) ---
         if let Some((offset, zoom)) = new_center {
             self.pan_offset = offset;
             if centering_behavior == 0 { self.target_zoom_level = zoom; }
@@ -190,7 +177,9 @@ impl AnimViewer {
                 ui.ctx().request_repaint();
 
                 if self.hold_timer > 0.2 {
-                   let delta = self.hold_dir as f32 * dt * 30.0;
+                   let speed_factor = if self.playback_speed.abs() < 0.05 { 1.0 } else { self.playback_speed.abs() };
+                   let delta = self.hold_dir as f32 * dt * 30.0 * speed_factor;
+                   
                    let mut new_frame = self.current_frame + delta;
                    
                    if !is_infinite {
@@ -221,13 +210,33 @@ impl AnimViewer {
         }
 
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
-        controls::handle_viewport_input(ui, &response, &mut self.pan_offset, &mut self.zoom_level, &mut self.target_zoom_level, &mut self.pending_initial_center);
+        
+        controls::handle_viewport_input(
+            ui, 
+            &response, 
+            &mut self.pan_offset, 
+            &mut self.zoom_level, 
+            &mut self.target_zoom_level, 
+            &mut self.pending_initial_center,
+            self.is_pointer_over_controls,
+            &mut self.is_viewport_dragging 
+        );
 
-        // --- PAINT CANVAS ---
         if let (Some(model), Some(sprite_sheet)) = (&self.held_model, &self.held_sheet) {
             let parts_to_draw = if let Some(anim) = &self.current_anim {
-                let frame = if interpolation { self.current_frame } else { (self.current_frame + 0.01).floor() };
-                let animated_parts = animator::animate(model, anim, frame);
+                let render_frame = if self.loaded_anim_index >= 2 && anim.max_frame > 0 {
+                    self.current_frame.rem_euclid(anim.max_frame as f32)
+                } else {
+                    self.current_frame
+                };
+
+                let animated_parts = if interpolation {
+                    smooth::animate(model, anim, render_frame)
+                } else {
+                    let discrete_frame = (render_frame + 0.01).floor();
+                    animator::animate(model, anim, discrete_frame)
+                };
+                
                 transform::solve_hierarchy(&animated_parts, model)
             } else {
                 transform::solve_hierarchy(&model.parts, model)
@@ -243,8 +252,18 @@ impl AnimViewer {
             });
 
             canvas::paint(ui, rect, self.renderer.clone(), sheet_arc, parts_to_draw, self.pan_offset, self.zoom_level, allow_update);
+            
+            if debug_show_info {
+                let center = rect.center() + self.pan_offset * self.zoom_level;
+                let size = 15.0;
+                let color = egui::Color32::GREEN;
+                let stroke = egui::Stroke::new(2.0, color);
+                
+                ui.painter().line_segment([center - egui::vec2(size, 0.0), center + egui::vec2(size, 0.0)], stroke);
+                ui.painter().line_segment([center - egui::vec2(0.0, size), center + egui::vec2(0.0, size)], stroke);
+            }
+
         } else {
-            // FIX: If model is missing, paint a black background to clear any lingering frames
             ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgb(20, 20, 20));
         }
 
@@ -263,7 +282,8 @@ impl AnimViewer {
              egui::Color32::from_gray(60)
         };
 
-        ui.put(btn_rect, |ui: &mut egui::Ui| {
+        // Capture button response
+        let btn_response = ui.put(btn_rect, |ui: &mut egui::Ui| {
              let btn = egui::Button::new(egui::RichText::new("⛶").size(20.0).color(egui::Color32::WHITE))
                 .fill(bg_fill) 
                 .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
@@ -276,8 +296,8 @@ impl AnimViewer {
             response
         });
 
-        // --- CONTROLS OVERLAY ---
-        anim_controls::render_controls_overlay(
+        // Check if controls are hovered
+        let controls_hovered = anim_controls::render_controls_overlay(
             ui,
             rect,
             self,
@@ -291,5 +311,7 @@ impl AnimViewer {
             interpolation,
             native_fps, 
         );
+
+        self.is_pointer_over_controls = controls_hovered || btn_response.hovered();
     }
 }

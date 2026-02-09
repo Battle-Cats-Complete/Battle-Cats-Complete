@@ -1,15 +1,10 @@
-/*
-type: uploaded file
-fileName: watcher.rs
-*/
 use eframe::egui;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
-use std::fs;
 use super::CatListState;
 use super::loader;
 use crate::core::patterns;
@@ -28,12 +23,12 @@ impl CatWatchers {
         // Internal channel for raw events
         let (internal_tx, internal_rx) = channel();
 
-        // 1. Spawn Debounce Thread
+        // Spawn Debounce Thread
         thread::spawn(move || {
             debounce_loop(internal_rx, sender, ctx);
         });
 
-        // 2. Create Watcher
+        // Create Watcher
         let watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
             if let Ok(event) = res {
                 if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
@@ -42,7 +37,7 @@ impl CatWatchers {
                         let path_str = path.to_string_lossy().to_lowercase();
                         if path_str.contains("raw") { continue; }
                         
-                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        let _ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                         let is_in_cats_dir = path_str.contains("cats");
                         
                         // We track everything relevant here, strict filtering happens in debounce or handle_event
@@ -66,7 +61,7 @@ impl CatWatchers {
 fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>, ctx: egui::Context) {
     let mut pending_paths: HashSet<PathBuf> = HashSet::new();
     let mut deadline: Option<Instant> = None;
-    // 200ms buffer: Wait this long after the *last* file change to trigger update
+    // Wait this long after the last file change to trigger update
     let buffer_duration = Duration::from_millis(200); 
 
     loop {
@@ -74,7 +69,7 @@ fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>, ctx: egui
         let timeout = if let Some(d) = deadline {
             let now = Instant::now();
             if now >= d {
-                // Time's up! Flush pending paths
+                // Flush pending paths
                 if !pending_paths.is_empty() {
                     // Send unique paths
                     for path in pending_paths.drain() {
@@ -83,7 +78,8 @@ fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>, ctx: egui
                     ctx.request_repaint();
                 }
                 deadline = None;
-                Duration::from_millis(u64::MAX) // Go back to infinite sleep
+                // Go back to infinite sleep
+                Duration::from_millis(u64::MAX)
             } else {
                 d - now
             }
@@ -94,7 +90,7 @@ fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>, ctx: egui
         // Wait for event or timeout
         match rx.recv_timeout(timeout) {
             Ok(path) => {
-                // New event received!
+                // New event received
                 pending_paths.insert(path);
                 // Reset/Extend the deadline
                 deadline = Some(Instant::now() + buffer_duration);

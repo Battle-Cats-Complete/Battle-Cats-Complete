@@ -20,7 +20,7 @@ impl Clone for SpriteSheet {
             image_data: self.image_data.clone(),
             cuts_map: self.cuts_map.clone(),
             is_loading_active: self.is_loading_active,
-            data_receiver: None, // We cannot clone the channel, and we don't need to for the ghost
+            data_receiver: None,
             sheet_name: self.sheet_name.clone(),
         }
     }
@@ -28,7 +28,7 @@ impl Clone for SpriteSheet {
 
 pub struct SpriteSheet {
     pub texture_handle: Option<egui::TextureHandle>,
-    // Kept raw image data for Custom GL Renderer
+    // Raw image data for Custom GL Renderer
     pub image_data: Option<Arc<egui::ColorImage>>, 
     pub cuts_map: HashMap<usize, SpriteCut>, 
     pub is_loading_active: bool,
@@ -94,7 +94,7 @@ impl SpriteSheet {
     }
 
     fn load_internal(png_path: &Path, cut_path: &Path) -> Option<(egui::ColorImage, HashMap<usize, SpriteCut>)> {
-        // 1. Load Image
+        // Load Image
         let image_data = fs::read(png_path).ok()?;
         let image = image::load_from_memory(&image_data).ok()?;
         let size = [image.width() as usize, image.height() as usize];
@@ -102,16 +102,12 @@ impl SpriteSheet {
         let pixels = image_buffer.as_flat_samples();
         let egui_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
 
-        // 2. Load ImgCut
+        // Load ImgCut
         let content = fs::read_to_string(cut_path).ok()?;
         let delimiter = utils::detect_csv_separator(&content);
-        
-        // REVERTED LOGIC: Filter empty lines to "collapse" the list.
-        // This is standard behavior for Battle Cats tools and fixes the 736_c issue 
-        // by ignoring garbage lines and aligning valid cuts to sequential IDs.
         let lines: Vec<&str> = content.lines().filter(|line| !line.trim().is_empty()).collect();
 
-        // 3. Find Header
+        // Find Header
         let mut sprite_count = 0;
         let mut data_start_index = 0;
         let mut found_header = false;
@@ -136,7 +132,7 @@ impl SpriteSheet {
             sprite_count = lines.len();
         }
 
-        // 4. Parse Cuts
+        // Parse Cuts
         let w = size[0] as f32;
         let h = size[1] as f32;
         let mut parsed_cuts = HashMap::new();
@@ -148,8 +144,6 @@ impl SpriteSheet {
             let line = lines[line_index];
             let parts: Vec<&str> = line.split(delimiter).collect();
             
-            // Standard Indexing: The ID is the loop index `i`.
-            // Because we filtered empty lines earlier, `i` corresponds to the Nth *valid* line.
             let sprite_id = i; 
 
             // We strictly need at least 4 columns (x, y, w, h).
@@ -163,7 +157,7 @@ impl SpriteSheet {
                     let uv_min = egui::pos2(x / w, y / h);
                     let uv_max = egui::pos2((x + cut_width) / w, (y + cut_height) / h);
                     
-                    // Robust Name Handling: Check if 5th column exists, otherwise default to empty.
+                    // Check if 5th column exists
                     let cut_name = if parts.len() > 4 { 
                         parts[4].trim().to_string() 
                     } else { 

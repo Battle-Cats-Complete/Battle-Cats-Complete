@@ -1,7 +1,3 @@
-/*
-type: uploaded file
-fileName: viewer.rs
-*/
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
@@ -28,10 +24,7 @@ pub fn show(
     let root = Path::new(cat::DIR_CATS);
     let egg_ids = cat_entry.egg_ids;
     
-    // =========================================================
-    // 0. PRE-CALCULATE AVAILABILITY
-    // =========================================================
-    
+    // Calculate Availabilty
     let mut available_anims = Vec::new();
     let anim_defs = [
         (IDX_WALK, "Walk"), 
@@ -73,10 +66,7 @@ pub fn show(
         }
     }
 
-    // =========================================================
-    // 1. VALIDATE & SANITIZE STATE (Priority Fallback)
-    // =========================================================
-    
+    // Validate / Sanitize / Fallback
     let current_idx = anim_viewer.loaded_anim_index;
     let mut valid_idx = current_idx;
 
@@ -93,7 +83,6 @@ pub fn show(
     if !is_current_valid {
         valid_idx = IDX_NONE; 
 
-        // Fallback Priority: Standard -> Spirit -> Model
         if base_assets_available {
             let priority_list = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
             for check_idx in priority_list {
@@ -115,7 +104,7 @@ pub fn show(
 
     if valid_idx != current_idx {
         anim_viewer.loaded_anim_index = valid_idx;
-        // If switching TO None, clear data immediately
+        // If switching to None, clear data immediately
         if valid_idx == IDX_NONE {
             anim_viewer.current_anim = None;
             anim_viewer.held_model = None;
@@ -123,16 +112,13 @@ pub fn show(
             *model_data = None;
             *anim_sheet = SpriteSheet::default();
         }
-        // If recovering FROM None, force reload
+        // If recovering from None, force reload
         if current_idx == IDX_NONE && valid_idx != IDX_NONE {
             anim_viewer.loaded_id.clear();
         }
     }
     
-    // =========================================================
-    // 2. CALCULATE LOADING STATE
-    // =========================================================
-
+    // Calculate Loading State
     let form_char = match current_form { 0 => 'f', 1 => 'c', 2 => 's', _ => 'u' };
     let id_str = format!("{:03}", cat_entry.id);
     let form_viewer_id = format!("{}_{}_{}", id_str, form_char, anim_viewer.texture_version);
@@ -143,15 +129,13 @@ pub fn show(
         form_viewer_id.clone()
     };
 
-    // FIX: Standard stability check. 
-    // We handle the "freeze" case by forcing loaded_id update on load failure below.
     let is_stable = anim_viewer.loaded_id == target_viewer_id;
         
     let is_loading_new = !is_stable && (anim_viewer.staging_model.is_some() || anim_viewer.staging_sheet.is_some());
     let is_first_launch = anim_viewer.held_model.is_none() && model_data.is_none();
     let mut just_swapped = false;
 
-    // Safety for None state: If we are None, we are stable "empty".
+    // If we are None, we are stable "empty"
     if valid_idx == IDX_NONE && !is_stable {
         anim_viewer.loaded_id = target_viewer_id.clone();
     }
@@ -163,7 +147,7 @@ pub fn show(
         anim_viewer.held_sheet = Some((*anim_sheet).clone());
     }
 
-    // A. Start Transition
+    // Start Transition
     if !is_stable && !is_loading_new && !is_first_launch && valid_idx != IDX_NONE {
         let (resolved_png, resolved_cut, resolved_model, _) = resolve_paths(valid_idx, &std_png, &std_cut, &std_model, &spirit_pack, &available_anims);
         
@@ -179,8 +163,7 @@ pub fn show(
             }
         }
         
-        // CRITICAL FIX: If load failed (missing files), FORCE STABILITY.
-        // This stops the infinite retry loop (freeze) while leaving the model as None (Black Screen).
+        // If load fails, force stability
         if !load_success {
             anim_viewer.loaded_id = target_viewer_id.clone();
             anim_viewer.held_model = None;
@@ -188,7 +171,7 @@ pub fn show(
         }
     }
 
-    // B. First Launch
+    // First Launch
     if is_first_launch && valid_idx != IDX_NONE {
         let (resolved_png, resolved_cut, resolved_model, resolved_anim) = resolve_paths(valid_idx, &std_png, &std_cut, &std_model, &spirit_pack, &available_anims);
 
@@ -219,7 +202,7 @@ pub fn show(
         }
     }
 
-    // C. Completion
+    // Completion
     if is_loading_new {
         if let Some(staging_sheet) = &mut anim_viewer.staging_sheet {
             staging_sheet.update(ctx);
@@ -254,10 +237,7 @@ pub fn show(
         anim_sheet.update(ctx);
     }
 
-    // =========================================================
-    // RENDER
-    // =========================================================
-    
+    // Render
     let allow_texture_update = !is_loading_new || just_swapped;
 
     if anim_viewer.is_expanded {

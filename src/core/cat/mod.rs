@@ -268,7 +268,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
 
     egui::CentralPanel::default().show(ctx, |ui| {
         if state.cats.is_empty() {
-            // ... (Empty State Code - No Changes) ...
              ui.centered_and_justified(|ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() * 0.4);
@@ -303,7 +302,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
         
         let talent_map = state.talent_levels.entry(selected_id).or_default();
         
-        // --- FORM SWITCHING LOGIC ---
         // Capture previous form state
         let prev_form = state.selected_form;
 
@@ -337,7 +335,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &crate::cor
             // Reset Animation Data
             state.sprite_sheet = SpriteSheet::default();
             state.model_data = None;
-            // Also reset scroll or view if needed
+            // Also reset scroll or view
         }
     });
 }

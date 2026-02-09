@@ -1,18 +1,11 @@
-/*
-type: uploaded file
-fileName: anim_controls.rs
-*/
 use eframe::egui;
 use std::path::PathBuf;
 use crate::ui::components::anim_viewer::AnimViewer;
 
-// --- LAYOUT CONSTANTS ---
 const TILE_HEIGHT: f32 = 28.0; 
 const GAP: f32 = 4.0;
 const OVERLAY_BOTTOM_OFFSET: f32 = 35.0; 
-
 pub const CONTROLS_SLIDE_DISTANCE: f32 = 180.0;
-
 const ICON_W: f32 = 60.0;
 const COL2_W: f32 = 148.0; 
 const NAV_W: f32 = 30.0;
@@ -43,14 +36,14 @@ pub fn render_controls_overlay(
     spirit_pack: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
     interpolation: bool, 
     native_fps: f32,
-) {
+) -> bool {
     let mut clip_rect = rect;
     clip_rect = clip_rect.shrink(4.0); 
     ui.set_clip_rect(clip_rect);
 
     let target_slide = if anim_viewer.is_controls_expanded { 0.0 } else { 1.0 };
     
-    let anim_id = egui::Id::new("controls_slide").with(&anim_viewer.loaded_id);
+    let anim_id = egui::Id::new("controls_slide");
     let slide_factor = ui.ctx().animate_value_with_time(anim_id, target_slide, 0.35);
     
     let current_offset = CONTROLS_SLIDE_DISTANCE * slide_factor;
@@ -60,7 +53,8 @@ pub fn render_controls_overlay(
         .max_rect(clip_rect)
         .layout(egui::Layout::bottom_up(egui::Align::Min));
     
-    ui.allocate_new_ui(builder, |ui| {
+    // We capture the InnerResponse to check the rect later
+    let res = ui.allocate_new_ui(builder, |ui| {
         egui::Frame::window(ui.style())
             .fill(egui::Color32::from_black_alpha(160)) 
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
@@ -100,8 +94,17 @@ pub fn render_controls_overlay(
                         anim_viewer.is_controls_expanded = !anim_viewer.is_controls_expanded;
                     }
                 });
-            });
+            })
     });
+
+    // Check if pointer is over the panel's rect
+    if let Some(pointer_pos) = ui.ctx().pointer_latest_pos() {
+        if res.inner.response.rect.contains(pointer_pos) {
+            return true;
+        }
+    }
+    
+    false
 }
 
 fn render_internal_ui(
@@ -169,7 +172,7 @@ fn render_internal_ui(
     let controls_response = ui.horizontal(|ui| {
         ui.style_mut().spacing.item_spacing.x = GAP;
 
-        // COLUMN 1
+        // Column 1
         ui.vertical(|ui| {
             let play_icon = if is_playing { "⏸" } else { "▶" };
             let enabled = anim_viewer.loaded_anim_index != IDX_NONE && base_assets_available;
@@ -191,7 +194,7 @@ fn render_internal_ui(
 
         ui.add_sized(egui::vec2(10.0, (TILE_HEIGHT * 2.0) + GAP), egui::Separator::default().vertical());
 
-        // COLUMN 2
+        // Column 2
         ui.vertical(|ui| {
             ui.allocate_ui(egui::vec2(COL2_W, TILE_HEIGHT), |ui| {
                 ui.horizontal(|ui| {
@@ -210,14 +213,8 @@ fn render_internal_ui(
                                 ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
                                 ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
                                 ui.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
-                                
-                                // FIX: Restored horizontal_align(Center)
                                 let re = ui.add_enabled(enabled, egui::TextEdit::singleline(&mut anim_viewer.single_frame_str)
-                                    .frame(false)
-                                    .desired_width(INPUT_W)
-                                    .vertical_align(egui::Align::Center)
-                                    .horizontal_align(egui::Align::Center));
-                                    
+                                    .frame(false).desired_width(INPUT_W).vertical_align(egui::Align::Center).horizontal_align(egui::Align::Center));
                                 if re.changed() {
                                     if let Ok(val) = anim_viewer.single_frame_str.parse::<i32>() {
                                         anim_viewer.current_frame = val as f32 / display_multiplier;
@@ -260,15 +257,8 @@ fn render_internal_ui(
                                     let v = (loop_range_0.unwrap() as f32 * display_multiplier).round() as i32;
                                     anim_viewer.range_str_cache.0 = v.to_string();
                                 }
-                                
-                                // FIX: Restored horizontal_align(Center)
                                 let re = ui.add_enabled(enabled, egui::TextEdit::singleline(&mut anim_viewer.range_str_cache.0)
-                                    .hint_text(egui::RichText::new("0").color(egui::Color32::GRAY))
-                                    .frame(false)
-                                    .desired_width(60.0)
-                                    .vertical_align(egui::Align::Center)
-                                    .horizontal_align(egui::Align::Center));
-                                    
+                                    .hint_text(egui::RichText::new("0").color(egui::Color32::GRAY)).frame(false).desired_width(60.0).vertical_align(egui::Align::Center).horizontal_align(egui::Align::Center));
                                 if re.changed() {
                                     if anim_viewer.range_str_cache.0.is_empty() { anim_viewer.loop_range.0 = None; } 
                                     else if let Ok(val) = anim_viewer.range_str_cache.0.parse::<i32>() {
@@ -287,15 +277,8 @@ fn render_internal_ui(
                                     let v = (loop_range_1.unwrap() as f32 * display_multiplier).round() as i32;
                                     anim_viewer.range_str_cache.1 = v.to_string();
                                 }
-                                
-                                // FIX: Restored horizontal_align(Center)
                                 let re = ui.add_enabled(enabled, egui::TextEdit::singleline(&mut anim_viewer.range_str_cache.1)
-                                    .hint_text(egui::RichText::new(&display_max_str).color(egui::Color32::GRAY))
-                                    .frame(false)
-                                    .desired_width(60.0)
-                                    .vertical_align(egui::Align::Center)
-                                    .horizontal_align(egui::Align::Center));
-                                    
+                                    .hint_text(egui::RichText::new(&display_max_str).color(egui::Color32::GRAY)).frame(false).desired_width(60.0).vertical_align(egui::Align::Center).horizontal_align(egui::Align::Center));
                                 if re.changed() {
                                     if anim_viewer.range_str_cache.1.is_empty() { anim_viewer.loop_range.1 = None; } 
                                     else if let Ok(val) = anim_viewer.range_str_cache.1.parse::<i32>() {
@@ -324,7 +307,7 @@ fn render_internal_ui(
 
         ui.add_sized(egui::vec2(10.0, (TILE_HEIGHT * 2.0) + GAP), egui::Separator::default().vertical());
 
-        // COLUMN 3
+        // Column 3
         ui.vertical(|ui| {
             let id = ui.make_persistent_id("export_popup");
             let btn_resp = ui.add_enabled_ui(base_assets_available, |ui| {
@@ -350,15 +333,20 @@ fn render_internal_ui(
                         ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
                         ui.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
                         
-                        // FIX: Restored ghost text, centering, and size
-                        ui.add_enabled(base_assets_available, egui::TextEdit::singleline(&mut anim_viewer.speed_str)
+                        let re = ui.add_enabled(base_assets_available, egui::TextEdit::singleline(&mut anim_viewer.speed_str)
                             .hint_text(egui::RichText::new("1.0").color(egui::Color32::GRAY))
                             .frame(false)
                             .desired_width(40.0)
                             .vertical_align(egui::Align::Center)
                             .horizontal_align(egui::Align::Center));
-                            
-                        if anim_viewer.speed_str.parse::<f32>().is_ok() { anim_viewer.playback_speed = anim_viewer.speed_str.parse().unwrap(); }
+                        
+                        if re.changed() {
+                            if anim_viewer.speed_str.is_empty() {
+                                anim_viewer.playback_speed = 1.0;
+                            } else if let Ok(val) = anim_viewer.speed_str.parse::<f32>() {
+                                anim_viewer.playback_speed = val;
+                            }
+                        }
                     });
                 });
             });
@@ -422,7 +410,13 @@ fn render_internal_ui(
             if anim_viewer.loaded_id == intended_target_id {
                 let anim_path = if target_idx == IDX_SPIRIT { spirit_pack.as_ref().map(|(_, _, _, a)| a) }
                 else { available_anims.iter().find(|(i, _, _)| *i == target_idx).map(|(_, _, p)| p) };
-                if let Some(a_path) = anim_path { anim_viewer.load_anim(a_path); } else if target_idx == IDX_MODEL { anim_viewer.current_anim = None; }
+                if let Some(a_path) = anim_path { 
+                    anim_viewer.load_anim(a_path); 
+                } else if target_idx == IDX_MODEL { 
+                    anim_viewer.current_anim = None; 
+                    anim_viewer.current_frame = 0.0;
+                    anim_viewer.single_frame_str = "0".to_string();
+                }
             }
         }
     }

@@ -1,7 +1,6 @@
 use eframe::egui;
 use std::path::Path;
 use crate::core::cat::scanner::CatEntry;
-// Ensure DetailTab is imported from wherever you defined it (likely `super` or `crate::mod`)
 use crate::core::cat::DetailTab;
 use crate::core::settings::Settings;
 use crate::core::utils::autocrop; 
@@ -71,12 +70,11 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
 
             ui.add(egui::Separator::default().vertical().spacing(20.0));
 
-            // UPDATED TABS LIST
             let tabs = [
                 (DetailTab::Abilities, "Abilities"),
                 (DetailTab::Talents, "Talents"),
                 (DetailTab::Details, "Details"),
-                (DetailTab::Animation, "Animation"), // NEW BUTTON
+                (DetailTab::Animation, "Animation"),
             ];
 
             for (tab_enum, label) in tabs {

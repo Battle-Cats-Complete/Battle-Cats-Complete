@@ -1,7 +1,3 @@
-/*
-type: uploaded file
-fileName: cat.rs
-*/
 #![allow(dead_code)]
 use std::path::{Path, PathBuf};
 
@@ -47,7 +43,6 @@ impl AnimType {
     }
 }
 
-// --- Internal Helpers (Now Public) ---
 
 pub fn anim_folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf {
     let (egg_norm, egg_evol) = egg_ids;
@@ -75,7 +70,7 @@ pub fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     }
 }
 
-// --- Public Path Functions ---
+// Path Functions
 
 pub fn folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf {
     let (egg_norm, egg_evol) = egg_ids;
@@ -123,7 +118,7 @@ pub fn image(root: &Path, asset_type: AssetType, id: u32, form: usize, egg_ids: 
     None
 }
 
-/// Retrieves paths for standard animation files (Png, Imgcut, Mamodel).
+/// Retrieves paths for standard animation files (Png, Imgcut, Mamodel)
 pub fn anim(root: &Path, id: u32, form: usize, egg_ids: (i32, i32), file_type: AnimType) -> PathBuf {
     let folder = anim_folder(root, id, form, egg_ids);
     let filename = anim_base_filename(id, form, egg_ids);
@@ -132,11 +127,9 @@ pub fn anim(root: &Path, id: u32, form: usize, egg_ids: (i32, i32), file_type: A
 }
 
 /// Retrieves paths specifically for Maanim files, handling the 2-digit index suffix.
-/// Index usually maps to: 00 (Walk), 01 (Idle), 02 (Attack), 03 (Knockback).
 pub fn maanim(root: &Path, id: u32, form: usize, egg_ids: (i32, i32), index: usize) -> PathBuf {
     let folder = anim_folder(root, id, form, egg_ids);
     let filename = anim_base_filename(id, form, egg_ids);
-    // Maanim format: {basename}{index}.maanim (e.g., 001_f00.maanim)
     folder.join(format!("{}{:02}.maanim", filename, index))
 }
 

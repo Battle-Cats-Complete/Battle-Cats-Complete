@@ -15,7 +15,7 @@ use crate::data::cat::unitexplanation;
 use crate::core::utils; 
 use crate::paths::cat::{self, AssetType, AnimType};
 use crate::core::settings::handle::ScannerConfig;
-use crate::data::global::maanim::Animation; // NEW IMPORT
+use crate::data::global::maanim::Animation;
 
 #[derive(Clone, Debug)]
 pub struct CatEntry {
@@ -132,7 +132,6 @@ pub fn process_cat_entry(
         if forms_existence[i] {
             let anim_path = cat::anim(cats_root_dir, cat_id, i, egg_ids, AnimType::Maanim);
             if let Ok(file_content) = fs::read_to_string(&anim_path) {
-                // FIXED: Now uses the shared logic from maanim.rs
                 attack_anim_frames[i] = Animation::scan_duration(&file_content);
             }
         }
