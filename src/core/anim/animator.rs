@@ -5,7 +5,7 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
     let mut parts = model.parts.clone();
 
     // Define the back leg parts (Ushiro chain: 14-17, Oku chain: 18-19)
-    let debug_targets = [14, 15, 16, 17, 18, 19];
+    let debug_targets = [3, 11, 14, 15, 16, 17, 18, 19];
 
     for curve in &animation.curves {
         if curve.part_id >= parts.len() { continue; }
@@ -28,6 +28,7 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
         
         if let Some(val) = interpolate_curve(curve, local_frame, is_discrete) {
             
+            
             // --- DEBUG PRINT START ---
             // Filter for the specific back leg parts.
             // Modification Type 5 is Position Y, which is likely the "lift" culprit.
@@ -49,19 +50,26 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 
                 2 => { part.sprite_index = val as i32; },
 
-                4 => part.position_x += val, 
-                5 => part.position_y += val,
+                4 => part.position_x = model.parts[curve.part_id].position_x + val, 
+                5 => part.position_y = model.parts[curve.part_id].position_y + val,
                 6 => part.pivot_x += val,
                 7 => part.pivot_y += val,
+                // We now reference the original parts, thanks SweetDonut0
                 8 => { 
                     let factor = val / model.scale_unit;
-                    part.scale_x *= factor;
-                    part.scale_y *= factor;
+                    part.scale_x = model.parts[curve.part_id].scale_x * factor;
+                    part.scale_y = model.parts[curve.part_id].scale_y * factor;
                 },
-                9 => part.scale_x *= val / model.scale_unit,
-                10 => part.scale_y *= val / model.scale_unit,
-                11 => part.rotation += val,
-                12 => part.alpha *= val / model.alpha_unit,
+                9 => {
+                    let factor = val / model.scale_unit;
+                    part.scale_x = model.parts[curve.part_id].scale_x * factor;
+                },
+                10 => {
+                    let factor = val / model.scale_unit;
+                    part.scale_y = model.parts[curve.part_id].scale_y * factor;
+                },
+                11 => part.rotation = model.parts[curve.part_id].rotation + val,
+                12 => part.alpha = model.parts[curve.part_id].alpha * (val / model.alpha_unit),
                 
                 13 => {
                     // FIX: Do NOT invert scale here. Just set the flag.
@@ -83,8 +91,8 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
     if curve.keyframes.is_empty() { return None; }
 
     let first_k = &curve.keyframes[0];
-    if frame < first_k.frame as f32 {
-        return None; 
+    if frame <= first_k.frame as f32 {
+        return Some(first_k.value as f32); 
     }
 
     let mut start_idx = 0;

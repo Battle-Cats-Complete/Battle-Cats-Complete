@@ -159,6 +159,6 @@ impl Animation {
             let reps = std::cmp::max(val[2], 1);
             max_frame_count = std::cmp::max((dur * reps) + first, max_frame_count);
         }
-        max_frame_count + 1
+        max_frame_count
     }
 }
