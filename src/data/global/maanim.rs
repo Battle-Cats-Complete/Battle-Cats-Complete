@@ -108,7 +108,6 @@ impl Animation {
     }
 
     /// Calculates the LCM (Least Common Multiple) of all looping curves.
-    /// Returns:
     /// - `Some(frame_count)` if the loop is finite and within the safety limit (999,999).
     /// - `None` if the loop is effectively infinite, too large, or causes overflow.
     pub fn calculate_true_loop(&self) -> Option<i32> {
@@ -116,7 +115,7 @@ impl Animation {
         let mut found_looping_part = false;
         
         for curve in &self.curves {
-            // Check parts that loop infinitely (or standard loops)
+            // Check parts that loop infinitely
             if curve.loop_count != 1 {
                 if let (Some(first), Some(last)) = (curve.keyframes.first(), curve.keyframes.last()) {
                     let duration = (last.frame - first.frame) as i32; 
@@ -132,9 +131,7 @@ impl Animation {
             return Some(self.max_frame);
         }
         
-        // CHANGED: Fallback Logic
-        // 1. If calculation resulted in overflow (very unlikely with i64 but good hygiene)
-        // 2. If result exceeds 999,999 (User requested limit)
+
         if overall_lcm > 999_999 {
             return None; // Treat as "???", Infinite / Continuous
         }
