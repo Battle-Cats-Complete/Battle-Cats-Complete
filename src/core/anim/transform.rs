@@ -3,8 +3,6 @@ use crate::data::global::mamodel::{Model, ModelPart};
 
 #[derive(Clone, Copy, Debug)]
 pub struct WorldTransform {
-    // 3x3 Matrix (Column-Major for OpenGL/Glow)
-    // We keep this f32 because Glow/OpenGL requires f32 slices
     pub matrix: [f32; 9], 
     pub opacity: f32,
     pub z_order: i32,
@@ -15,18 +13,17 @@ pub struct WorldTransform {
     pub part_index: usize, 
 }
 
-// Represents the normalized local state of a part (similar to spritesNow objects in JS)
-// Using f64 for calculations to match JS precision
+// Represents the normalized local state of a part
 #[derive(Clone, Copy, Debug)]
 struct LocalState {
     x: f64,
     y: f64,
     scale_x: f64,
     scale_y: f64,
-    angle: f64,   // Degrees (already normalized by unit)
-    opacity: f64, // 0.0 - 1.0
-    flip_x: f64,  // 1.0 or -1.0
-    flip_y: f64,  // 1.0 or -1.0
+    angle: f64,   
+    opacity: f64,
+    flip_x: f64,
+    flip_y: f64,
 }
 
 // Represents the accumulated global state needed for hierarchy calculations
@@ -35,7 +32,7 @@ struct GlobalState {
     // Note: Position is calculated separately via vectors, so not stored here
     scale_x: f64,
     scale_y: f64,
-    angle: f64,   // Degrees
+    angle: f64,
     flip_x: f64,
     flip_y: f64,
     opacity: f64,
@@ -57,11 +54,11 @@ impl Default for GlobalState {
 pub fn solve_hierarchy(parts: &[ModelPart], model: &Model) -> Vec<WorldTransform> {
     let mut results = Vec::with_capacity(parts.len());
 
-    for (i, _) in parts.iter().enumerate() {
-        results.push(solve_single_part(i, parts, model));
+    for (part_idx, _) in parts.iter().enumerate() {
+        results.push(solve_single_part(part_idx, parts, model));
     }
     
-    // Stable sort by Z-order then ID (Painter's Algorithm)
+    // Stable sort by Z-order then ID
     results.sort_by(|a, b| {
         a.z_order.cmp(&b.z_order)
             .then(a.part_index.cmp(&b.part_index))
@@ -73,7 +70,7 @@ pub fn solve_hierarchy(parts: &[ModelPart], model: &Model) -> Vec<WorldTransform
 fn solve_single_part(target_index: usize, parts: &[ModelPart], model: &Model) -> WorldTransform {
     let target_part = &parts[target_index];
     
-    // 1. Build Parent Chain: Target -> Parent -> ... -> Root
+    // Build Parent Chain
     let mut chain = Vec::new();
     let mut curr = target_index;
     let mut safety = 0;
@@ -95,37 +92,18 @@ fn solve_single_part(target_index: usize, parts: &[ModelPart], model: &Model) ->
         if safety > 100 { break; } // Prevent infinite loops
     }
     
-    // Chain is now [Target, Parent, ..., Root]
-    // We often need to iterate from Root -> Target, so let's reverse iteration where needed.
-
-    // 2. Accumulate Global States (Iterate Root -> Target)
-    // We need the Global State of every parent in the chain to calculate the vectors later.
+    // Accumulate Global States
     let mut global_states = Vec::with_capacity(chain.len());
     let mut current_global = GlobalState::default();
 
-    // Iterate backwards through chain (Root -> Target)
+    // Iterate backwards through chain
     for &part_idx in chain.iter().rev() {
         let local = get_local_state(&parts[part_idx], model);
-        
-        // JS Logic:
-        // getScaleX(id) = local.scaleX * getScaleX(parent)
-        // getFlipX(id) = local.flipX * getFlipX(parent)
-        
         let new_flip_x = local.flip_x * current_global.flip_x;
         let new_flip_y = local.flip_y * current_global.flip_y;
-        
         let new_scale_x = local.scale_x * current_global.scale_x;
         let new_scale_y = local.scale_y * current_global.scale_y;
-        
-        // FIX: The Angle Accumulation Bug
-        // JS: getAngle(id) = local.angle * getFlipX(parent) * getFlipY(parent) + getAngle(parent)
-        // WAIT. JS logic for getAngle is:
-        // this.spritesNow[id].angle * this.getFlipX(id) * this.getFlipY(id) + this.getAngle(this.spritesNow[id].parent);
-        // Note that it uses `getFlipX(id)` which includes the CURRENT PART'S flip.
-        // Therefore, we must multiply by (local.flip * parent.flip).
-        
         let new_angle = local.angle * new_flip_x * new_flip_y + current_global.angle;
-        
         let new_opacity = local.opacity * current_global.opacity;
 
         current_global = GlobalState {
@@ -139,16 +117,6 @@ fn solve_single_part(target_index: usize, parts: &[ModelPart], model: &Model) ->
         
         global_states.push(current_global);
     }
-    // global_states is now ordered [RootState, ..., TargetState]
-
-    // 3. Calculate Global Position (The Vector Loop)
-    // JS Logic uses a list of vectors.
-    // vectors.unshift pushes to the front. 
-    // It pushes: [LocalPos, ParentLocalScale+Flip, ParentAdjustedAngle]
-    
-    // We reconstruct the `vectors` list as described in JS logic.
-    // The list in JS ends up being [ (Root->Child), ... , (Parent->Target) ]
-    
     struct VectorStep {
         pos: [f64; 2],      // The local position of the node
         matrix_scale: [f64; 2], // The scale/flip matrix params from the PARENT
@@ -156,126 +124,77 @@ fn solve_single_part(target_index: usize, parts: &[ModelPart], model: &Model) ->
     }
 
     let mut vector_steps = Vec::with_capacity(chain.len());
-
-    // Iterate Root -> Target
-    // The chain is [Target, Parent, Root].
-    // global_states is [RootState, ParentState, TargetState].
-    
-    // JS: "while (data.parent != -1)"
     if chain.len() > 1 {
-        // We iterate from the first Child (index 1 in global_states) to the Target.
-        // For each node, we determine the transformation imposed by its PARENT.
         
-        for i in 0..chain.len() - 1 {
-            // i=0 corresponds to the relationship between Root(parent) and the Next Node(child).
-            
-            // We want the node at global_states[i+1] (The Child)
-            // We want the parent at global_states[i] (The Parent)
-            
-            let child_idx = chain[chain.len() - 1 - (i + 1)]; // i+1 from Root
-            let parent_idx = chain[chain.len() - 1 - i];     // i from Root
+        for idx in 0..chain.len() - 1 {
+            let child_idx = chain[chain.len() - 1 - (idx + 1)]; // i+1 from Root
+            let parent_idx = chain[chain.len() - 1 - idx];     // i from Root
             
             let child_local = get_local_state(&parts[child_idx], model);
             let parent_local = get_local_state(&parts[parent_idx], model);
-
-            // Access Parent's GLOBAL state for flips
-            // global_states[i] corresponds to parent_idx
-            let parent_global_flip_x = global_states[i].flip_x;
-            let parent_global_flip_y = global_states[i].flip_y;
-
-            // JS: vectors.unshift(...)
-            // pos: [data.x, -data.y] (Child's local pos)
+            let parent_global_flip_x = global_states[idx].flip_x;
+            let parent_global_flip_y = global_states[idx].flip_y;
             let pos = [child_local.x, -child_local.y];
-
-            // matrix scale: [parent.scaleX * parent.flipX, ...]
-            // Uses PARENT'S LOCAL scale and flip
-            let sx = parent_local.scale_x * parent_local.flip_x;
-            let sy = parent_local.scale_y * parent_local.flip_y;
-
-            // matrix rot:
-            // "const a = parent.angle * degToRad * getFlipX(parent) * getFlipY(parent)"
-            // Uses PARENT'S LOCAL angle and PARENT'S GLOBAL flips
-            let a_rad = parent_local.angle.to_radians() * parent_global_flip_x * parent_global_flip_y;
-            let c = a_rad.cos();
-            let s = a_rad.sin();
-            
-            // JS Rot Matrix: [cos, sin, -sin, cos]
-            let rot = [c, s, -s, c];
+            let scale_x_comp = parent_local.scale_x * parent_local.flip_x;
+            let scale_y_comp = parent_local.scale_y * parent_local.flip_y;
+            let angle_rad = parent_local.angle.to_radians() * parent_global_flip_x * parent_global_flip_y;
+            let cos_val = angle_rad.cos();
+            let sin_val = angle_rad.sin();
+            let rot_matrix = [cos_val, sin_val, -sin_val, cos_val];
 
             vector_steps.push(VectorStep {
                 pos,
-                matrix_scale: [sx, sy],
-                matrix_rot: rot,
+                matrix_scale: [scale_x_comp, scale_y_comp],
+                matrix_rot: rot_matrix,
             });
         }
     }
 
-    // JS Loop 1 & 2 combined (Matrix Application)
-    // Iterate `j` (transforms) and apply to `k` (vectors)
-    // JS: for (let j = 0; j < len; j++) ... for (let k = j; k < len; k++)
-    
-    // 1. Scale Application
-    let len = vector_steps.len();
-    for j in 0..len {
-        let scale = vector_steps[j].matrix_scale;
-        for k in j..len {
-            vector_steps[k].pos[0] *= scale[0];
-            vector_steps[k].pos[1] *= scale[1];
+    // Scale Application
+    let step_count = vector_steps.len();
+    for apply_idx in 0..step_count {
+        let scale = vector_steps[apply_idx].matrix_scale;
+        for target_idx in apply_idx..step_count {
+            vector_steps[target_idx].pos[0] *= scale[0];
+            vector_steps[target_idx].pos[1] *= scale[1];
         }
     }
 
-    // 2. Rotation Application and Summation
+    // Rotation Application and Summation
     let mut final_pos = [0.0, 0.0];
-    for j in 0..len {
-        let rot = vector_steps[j].matrix_rot;
-        // JS applyMatrix: [m0*x + m1*y, m2*x + m3*y]
-        // m0=c, m1=s, m2=-s, m3=c
-        // x' = x*c + y*s
-        // y' = x*-s + y*c
-        
-        for k in j..len {
-            let x = vector_steps[k].pos[0];
-            let y = vector_steps[k].pos[1];
+    for apply_idx in 0..step_count {
+        let rot_matrix = vector_steps[apply_idx].matrix_rot;
+        for target_idx in apply_idx..step_count {
+            let x = vector_steps[target_idx].pos[0];
+            let y = vector_steps[target_idx].pos[1];
             
-            let nx = x * rot[0] + y * rot[1];
-            let ny = x * rot[2] + y * rot[3];
+            let new_x = x * rot_matrix[0] + y * rot_matrix[1];
+            let new_y = x * rot_matrix[2] + y * rot_matrix[3];
             
-            vector_steps[k].pos = [nx, ny];
+            vector_steps[target_idx].pos = [new_x, new_y];
         }
         
-        final_pos[0] += vector_steps[j].pos[0];
-        final_pos[1] += vector_steps[j].pos[1];
+        final_pos[0] += vector_steps[apply_idx].pos[0];
+        final_pos[1] += vector_steps[apply_idx].pos[1];
     }
 
-    // 4. Construct Final Matrix
-    // Use the Target's Global State
+    // Construct Final Matrix
     let target_global = if !global_states.is_empty() {
         global_states.last().unwrap()
     } else {
-        &current_global // Should default if list is empty (root only)
+        &current_global
     };
 
-    let sx = target_global.scale_x * target_global.flip_x;
-    let sy = target_global.scale_y * target_global.flip_y;
+    let final_scale_x = target_global.scale_x * target_global.flip_x;
+    let final_scale_y = target_global.scale_y * target_global.flip_y;
     
     let angle_rad = target_global.angle.to_radians();
-    let c = angle_rad.cos();
-    let s = angle_rad.sin();
-    
-    // JS drawFrame Matrix logic ported to Column-Major
-    // Note on Y-Axis:
-    // JS logic is "Y-Up". Renderer is "Y-Down".
-    // We must apply a Basis Transformation to map JS Space to Screen Space.
-    // T_screen = S_flip * T_js * S_flip
-    // This results in:
-    // m10 (Index 1) becoming Positive (sx * s)
-    // m01 (Index 3) becoming Negative (-sy * s)
-    // m11 (Index 4) becoming Positive (sy * c)
-    // m12 (Index 7) becoming Negative (-y)
+    let cos_final = angle_rad.cos();
+    let sin_final = angle_rad.sin();
     
     let matrix = [
-        (sx * c) as f32,     (sx * s) as f32,          0.0,
-        (-sy * s) as f32,    (sy * c) as f32,          0.0,
+        (final_scale_x * cos_final) as f32,     (final_scale_x * sin_final) as f32,          0.0,
+        (-final_scale_y * sin_final) as f32,    (final_scale_y * cos_final) as f32,          0.0,
         final_pos[0] as f32, -final_pos[1] as f32,     1.0 
     ];
 
@@ -301,7 +220,6 @@ fn get_local_state(part: &ModelPart, model: &Model) -> LocalState {
         y: part.position_y as f64, // Raw pixels
         scale_x: part.scale_x as f64 / scale_unit,
         scale_y: part.scale_y as f64 / scale_unit,
-        // JS: angle / (maxValues[1] / 360) -> angle * 360 / unit
         angle: (part.rotation as f64) * 360.0 / angle_unit,
         opacity: part.alpha as f64 / alpha_unit,
         flip_x: if part.flip_x { -1.0 } else { 1.0 },

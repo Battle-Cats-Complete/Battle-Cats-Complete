@@ -224,11 +224,7 @@ impl AnimViewer {
 
         if let (Some(model), Some(sprite_sheet)) = (&self.held_model, &self.held_sheet) {
             let parts_to_draw = if let Some(anim) = &self.current_anim {
-                let render_frame = if self.loaded_anim_index >= 2 && anim.max_frame > 0 {
-                    self.current_frame.rem_euclid(anim.max_frame as f32)
-                } else {
-                    self.current_frame
-                };
+                let render_frame = self.current_frame;
 
                 let animated_parts = if interpolation {
                     smooth::animate(model, anim, render_frame)

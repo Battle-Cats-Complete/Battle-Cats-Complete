@@ -88,6 +88,16 @@ pub fn show(
         } else { None }
     } else { None };
     let current_stats = patched_stats_owned.as_ref().or(base_stats);
+    if *current_tab != DetailTab::Animation {
+        if !anim_viewer.loaded_id.is_empty() {
+             anim_viewer.held_model = None;
+             anim_viewer.held_sheet = None;
+             anim_viewer.current_anim = None;
+             anim_viewer.loaded_id.clear();
+             anim_viewer.staging_model = None;
+             anim_viewer.staging_sheet = None;
+        }
+    }
 
     match current_tab {
         DetailTab::Abilities => {

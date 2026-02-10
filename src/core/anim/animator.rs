@@ -4,8 +4,6 @@ use crate::data::global::maanim::{Animation, AnimModification};
 pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<ModelPart> {
     let mut parts = model.parts.clone();
 
-    // Define the back leg parts (Ushiro chain: 14-17, Oku chain: 18-19)
-
     for curve in &animation.curves {
         if curve.part_id >= parts.len() { continue; }
         
@@ -27,14 +25,8 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
         
         if let Some(val) = interpolate_curve(curve, local_frame, is_discrete) {
             
-            
-            // --- DEBUG PRINT START ---
-            // Filter for the specific back leg parts.
-            // Modification Type 5 is Position Y, which is likely the "lift" culprit.
-            // We also print Type 11 (Rotation) as that affects foot landing.
-            // --- DEBUG PRINT END ---
-
             let part = &mut parts[curve.part_id];
+            let base_part = &model.parts[curve.part_id];
             
             match curve.modification_type {
                 0 => part.parent_id = val as i32,
@@ -43,26 +35,27 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 
                 2 => { part.sprite_index = val as i32; },
 
-                4 => part.position_x = model.parts[curve.part_id].position_x + val, 
-                5 => part.position_y = model.parts[curve.part_id].position_y + val,
-                6 => part.pivot_x += val,
-                7 => part.pivot_y += val,
-                 // Change to modifications 8/9/10 are essential for Kaihime, thanks sweetdonut0
+                4 => part.position_x = base_part.position_x + val, 
+                5 => part.position_y = base_part.position_y + val,
+                6 => part.pivot_x = base_part.pivot_x + val,
+                7 => part.pivot_y = base_part.pivot_y + val,
+                 // Change to modifications 8/9/10 are essential
+                 // for Kaihime, thanks SweetDonut0
                 8 => { 
                     let factor = val / model.scale_unit;
-                    part.scale_x = model.parts[curve.part_id].scale_x * factor;
-                    part.scale_y = model.parts[curve.part_id].scale_y * factor;
+                    part.scale_x = base_part.scale_x * factor;
+                    part.scale_y = base_part.scale_y * factor;
                 },
                 9 => {
                     let factor = val / model.scale_unit;
-                    part.scale_x = model.parts[curve.part_id].scale_x * factor;
+                    part.scale_x = base_part.scale_x * factor;
                 },
                 10 => {
                     let factor = val / model.scale_unit;
-                    part.scale_y = model.parts[curve.part_id].scale_y * factor;
+                    part.scale_y = base_part.scale_y * factor;
                 },
-                11 => part.rotation = model.parts[curve.part_id].rotation + val,
-                12 => part.alpha = model.parts[curve.part_id].alpha * (val / model.alpha_unit),
+                11 => part.rotation = base_part.rotation + val,
+                12 => part.alpha = base_part.alpha * (val / model.alpha_unit),
                 
                 13 => {
                     part.flip_x = val != 0.0;
