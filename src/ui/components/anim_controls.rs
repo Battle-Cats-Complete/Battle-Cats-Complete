@@ -38,7 +38,7 @@ pub fn render_controls_overlay(
     native_fps: f32,
 ) -> bool {
     let mut clip_rect = rect;
-    clip_rect = clip_rect.shrink(4.0); 
+    clip_rect = clip_rect.shrink(2.0); 
     ui.set_clip_rect(clip_rect);
 
     let target_slide = if anim_viewer.is_controls_expanded { 0.0 } else { 1.0 };
@@ -59,7 +59,7 @@ pub fn render_controls_overlay(
             .fill(egui::Color32::from_black_alpha(160)) 
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
             .inner_margin(egui::Margin { left: 8.0, right: 8.0, top: 8.0, bottom: 18.0 })
-            .outer_margin(egui::Margin { left: 3.0, bottom: bottom_margin, ..Default::default() })
+            .outer_margin(egui::Margin { left: 5.0, bottom: bottom_margin, ..Default::default() })
             .rounding(8.0)
             .show(ui, |ui| {
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {

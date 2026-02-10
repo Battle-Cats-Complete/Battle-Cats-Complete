@@ -54,12 +54,8 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
                 1 => part.unit_id = interpolated_value as i32,
                 2 => part.sprite_index = interpolated_value as i32,
                 3 => part.drawing_layer = interpolated_value as i32, 
-
-                // Absolute Position (Fixes Eva Unit-01 Detachment)
                 4 => part.position_x = model.parts[curve.part_id].position_x + interpolated_value, 
                 5 => part.position_y = model.parts[curve.part_id].position_y + interpolated_value,
-                
-                // Pivots remain relative as they offset the internal sprite center
                 6 => part.pivot_x = model.parts[curve.part_id].pivot_x + interpolated_value,
                 7 => part.pivot_y = model.parts[curve.part_id].pivot_y + interpolated_value,
 
