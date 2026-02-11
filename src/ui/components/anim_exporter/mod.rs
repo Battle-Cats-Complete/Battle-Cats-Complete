@@ -60,14 +60,14 @@ fn render_content(
 ) {
     if state.anim_name.is_empty() {
         if let Some(a) = anim {
-            let full_length = a.calculate_true_loop().unwrap_or(a.max_frame);
-            state.max_frame = full_length;
-            state.frame_end = full_length;
+            // FIXED: Use max_frame (highest keyframe) instead of LCM loop calculation
+            // This prevents accidental 100k+ frame exports for simple loops
+            state.max_frame = a.max_frame;
+            state.frame_end = a.max_frame;
         }
         state.anim_name = "Animation".to_string(); 
     }
     
-    // Check for encoder status
     if state.is_processing {
         if let Ok(rx_opt) = STATUS_RX.lock() {
             if let Some(rx) = rx_opt.as_ref() {
@@ -76,7 +76,6 @@ fn render_content(
                         EncoderStatus::Encoding => { },
                         EncoderStatus::Finished => {
                             state.is_processing = false;
-                            // FIXED: Capture completion time for the 5s timer
                             state.completion_time = Some(ui.input(|i| i.time));
                         }
                     }
@@ -212,31 +211,28 @@ fn render_content(
 
         ui.add_space(5.0);
 
-        // Progress Bar Logic with "Done" Timer and "Ready at 100%"
         let count = (state.frame_end - state.frame_start).abs() + 1;
         let ratio = if count == 0 { 0.0 } else { state.current_progress as f32 / count as f32 };
 
         let (progress_val, label_text) = if state.is_processing {
-            // Encoding Phase
             (ratio, format!("Rendering... {:.0}% ({}/{})", ratio * 100.0, state.current_progress, count))
         } else {
             match state.completion_time {
                 Some(done_time) => {
                     let elapsed = ui.input(|i| i.time) - done_time;
                     if elapsed < 5.0 {
-                        ui.ctx().request_repaint(); // Refresh to ensure timer works
+                        ui.ctx().request_repaint();
                         (1.0, "Done".to_string())
                     } else {
-                        state.completion_time = None; // Reset after 5s
+                        state.completion_time = None;
                         (1.0, "Ready".to_string())
                     }
                 },
                 None => {
-                    // Default state (or Paused)
                     if ratio > 0.0 && ratio < 1.0 {
                          (ratio, "Paused".to_string())
                     } else {
-                         (1.0, "Ready".to_string()) // Default start at 100%
+                         (1.0, "Ready".to_string()) 
                     }
                 }
             }
@@ -254,7 +250,7 @@ fn start_export(state: &mut ExporterState) {
     
     state.is_processing = true;
     state.current_progress = 0;
-    state.completion_time = None; // Reset timer
+    state.completion_time = None; 
     
     let mut output_path = std::env::current_dir().unwrap_or(PathBuf::from("."));
     output_path.push("exports");
