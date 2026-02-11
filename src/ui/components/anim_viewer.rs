@@ -1,3 +1,4 @@
+// ... (imports same as before) ...
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -6,8 +7,10 @@ use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::core::anim::{animator, smooth, canvas, transform, center, controls};
 use crate::ui::components::anim_controls;
+use crate::ui::components::anim_exporter::{self, state::ExporterState};
 
 pub struct AnimViewer {
+    // ... (fields same as before) ...
     pub zoom_level: f32,
     pub target_zoom_level: f32,
     pub pan_offset: egui::Vec2,
@@ -42,6 +45,12 @@ pub struct AnimViewer {
     
     pub is_pointer_over_controls: bool,
     pub is_viewport_dragging: bool,
+
+    // Export Fields
+    pub is_selecting_export_region: bool,
+    pub export_selection_start: Option<egui::Pos2>,
+    pub export_state: ExporterState,
+    pub show_export_popup: bool,
 }
 
 impl Default for AnimViewer {
@@ -76,6 +85,12 @@ impl Default for AnimViewer {
             texture_version: 0,
             is_pointer_over_controls: false,
             is_viewport_dragging: false,
+            
+            // Export Defaults
+            is_selecting_export_region: false,
+            export_selection_start: None,
+            export_state: ExporterState::default(),
+            show_export_popup: false,
         }
     }
 }
@@ -211,16 +226,97 @@ impl AnimViewer {
 
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
         
-        controls::handle_viewport_input(
-            ui, 
-            &response, 
-            &mut self.pan_offset, 
-            &mut self.zoom_level, 
-            &mut self.target_zoom_level, 
-            &mut self.pending_initial_center,
-            self.is_pointer_over_controls,
-            &mut self.is_viewport_dragging 
-        );
+        // --- INPUT HANDLING ---
+        let (hover_pos, right_down, left_down) = ui.input(|i| (i.pointer.hover_pos(), i.pointer.secondary_down(), i.pointer.primary_down()));
+        
+        // Manual override for Pan during Selection Mode
+        // If we are in selection mode, normally we block drag.
+        // BUT if Left Click is down (not Right Click), we allow dragging to pass through to controls.
+        
+        if self.is_selecting_export_region && left_down && hover_pos.is_some() {
+            // Force controls to handle drag even if we normally block it
+            controls::handle_viewport_input(
+                ui, &response, &mut self.pan_offset, &mut self.zoom_level, &mut self.target_zoom_level, 
+                &mut self.pending_initial_center, false, &mut self.is_viewport_dragging 
+            );
+        } else {
+            // Normal behavior
+            // Block input if hovering controls OR if actively selecting (Right Click)
+            let block_input = self.is_pointer_over_controls || (self.is_selecting_export_region && right_down);
+            
+            controls::handle_viewport_input(
+                ui, &response, &mut self.pan_offset, &mut self.zoom_level, &mut self.target_zoom_level, 
+                &mut self.pending_initial_center, block_input, &mut self.is_viewport_dragging 
+            );
+        }
+
+        // --- EXPORT SELECTION OVERLAY ---
+        if self.is_selecting_export_region {
+            ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(50));
+
+            ui.painter().text(
+                rect.center(), 
+                egui::Align2::CENTER_CENTER, 
+                "Right-Click Drag to Select Region\n(Left-Click to Pan)", 
+                egui::FontId::proportional(20.0), 
+                egui::Color32::WHITE
+            );
+
+            if let Some(pos) = hover_pos {
+                if right_down {
+                    if self.export_selection_start.is_none() {
+                        self.export_selection_start = Some(pos);
+                    }
+                    if let Some(start) = self.export_selection_start {
+                        let selection_rect = egui::Rect::from_two_pos(start, pos);
+                        ui.painter().rect_stroke(selection_rect, 0.0, egui::Stroke::new(2.0, egui::Color32::YELLOW));
+                        ui.painter().rect_filled(selection_rect, 0.0, egui::Color32::from_rgba_unmultiplied(255, 255, 0, 30));
+                    }
+                } else if self.export_selection_start.is_some() {
+                    let start = self.export_selection_start.take().unwrap();
+                    let selection_rect = egui::Rect::from_two_pos(start, pos);
+                    let area = selection_rect.width() * selection_rect.height();
+
+                    if area < 25.0 {
+                        self.is_selecting_export_region = false;
+                        self.show_export_popup = true;
+                    } else {
+                        let center_screen = rect.center();
+                        let to_world = |p: egui::Pos2| -> egui::Vec2 {
+                            ((p - center_screen) / self.zoom_level) - self.pan_offset
+                        };
+
+                        let min_w = to_world(selection_rect.min);
+                        let max_w = to_world(selection_rect.max);
+                        
+                        self.export_state.region_x = min_w.x;
+                        self.export_state.region_y = min_w.y;
+                        self.export_state.region_w = (max_w.x - min_w.x).abs();
+                        self.export_state.region_h = (max_w.y - min_w.y).abs();
+                        self.export_state.zoom = 1.0; 
+                        
+                        self.is_selecting_export_region = false;
+                        self.show_export_popup = true;
+                    }
+                }
+            }
+        }
+
+        // --- EXPORT PROCESSING LOOP ---
+        if self.export_state.is_processing {
+            if let (Some(model), Some(anim), Some(sheet)) = (&self.held_model, &self.current_anim, &self.held_sheet) {
+                anim_exporter::process_frame(
+                    ui, 
+                    rect, // Pass valid viewport rect
+                    &mut self.export_state, 
+                    model, 
+                    anim, 
+                    sheet, 
+                    self.renderer.clone()
+                );
+                ui.ctx().request_repaint();
+            }
+        }
 
         if let (Some(model), Some(sprite_sheet)) = (&self.held_model, &self.held_sheet) {
             let parts_to_draw = if let Some(anim) = &self.current_anim {
@@ -257,6 +353,21 @@ impl AnimViewer {
                 
                 ui.painter().line_segment([center - egui::vec2(size, 0.0), center + egui::vec2(size, 0.0)], stroke);
                 ui.painter().line_segment([center - egui::vec2(0.0, size), center + egui::vec2(0.0, size)], stroke);
+            }
+            
+            if self.show_export_popup {
+                 let center_screen = rect.center();
+                 let to_screen = |wx: f32, wy: f32| -> egui::Pos2 {
+                     let world_pos = egui::vec2(wx, wy);
+                     let screen_vec = (world_pos + self.pan_offset) * self.zoom_level;
+                     center_screen + screen_vec
+                 };
+                 
+                 let min = to_screen(self.export_state.region_x, self.export_state.region_y);
+                 let max = to_screen(self.export_state.region_x + self.export_state.region_w, self.export_state.region_y + self.export_state.region_h);
+                 let r = egui::Rect::from_min_max(min, max);
+                 
+                 ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.0, egui::Color32::YELLOW));
             }
 
         } else {
@@ -309,5 +420,23 @@ impl AnimViewer {
         );
 
         self.is_pointer_over_controls = controls_hovered || btn_response.hovered();
+
+        // Render Export Popup
+        let state = &mut self.export_state;
+        let show_popup = &mut self.show_export_popup;
+        let model = self.held_model.as_ref();
+        let anim = self.current_anim.as_ref();
+        let sheet = self.held_sheet.as_ref();
+        let start_select = &mut self.is_selecting_export_region;
+
+        anim_exporter::show_popup(
+            ui, 
+            state, 
+            model, 
+            anim, 
+            sheet, 
+            show_popup,
+            start_select
+        );
     }
 }

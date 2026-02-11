@@ -309,16 +309,14 @@ fn render_internal_ui(
 
         // Column 3
         ui.vertical(|ui| {
-            let id = ui.make_persistent_id("export_popup");
+            // EXPORT BUTTON LOGIC
             let btn_resp = ui.add_enabled_ui(base_assets_available, |ui| {
                 ui.add_sized(egui::vec2(COL3_W, TILE_HEIGHT), egui::Button::new("Export"))
             }).inner;
             
-            if btn_resp.clicked() { ui.memory_mut(|mem| mem.open_popup(id)); }
-            if ui.memory(|mem| mem.is_popup_open(id)) {
-                egui::popup_below_widget(ui, id, &btn_resp, egui::PopupCloseBehavior::CloseOnClickOutside, |ui: &mut egui::Ui| {
-                    ui.label("Export coming soon!");
-                });
+            if btn_resp.clicked() { 
+                // We use the AnimViewer struct passed into this function to trigger the popup
+                anim_viewer.show_export_popup = true;
             }
 
             ui.add_space(GAP);
