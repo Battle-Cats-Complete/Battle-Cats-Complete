@@ -7,6 +7,10 @@ pub struct ExporterState {
     pub frame_start: i32,
     pub frame_end: i32,
     pub max_frame: i32,
+    // Added string buffers for UI inputs
+    pub frame_start_str: String,
+    pub frame_end_str: String,
+
     pub fps: i32,
     pub zoom: f32,
     
@@ -30,7 +34,6 @@ pub struct ExporterState {
     // UI Helpers
     pub drag_guard: DragGuard,
     pub anim_name: String,
-    // ADDED: Tracks when export finished for the "Done" timer
     pub completion_time: Option<f64>, 
 }
 
@@ -40,6 +43,10 @@ impl Default for ExporterState {
             frame_start: 0,
             frame_end: 0,
             max_frame: 100,
+            // Strings start empty to show hint text
+            frame_start_str: String::new(),
+            frame_end_str: String::new(),
+
             fps: 30,
             zoom: 1.0,
             
@@ -48,7 +55,8 @@ impl Default for ExporterState {
             region_w: 300.0,
             region_h: 300.0,
             
-            file_name: "animation".to_string(),
+            // FIXED: Start empty to show hint text "animation"
+            file_name: String::new(),
             format: ExportFormat::Gif,
             quality: QualityLevel::High,
             interpolation: false,
@@ -59,7 +67,7 @@ impl Default for ExporterState {
             
             drag_guard: DragGuard::default(), 
             anim_name: String::new(),
-            completion_time: None, // Initialize to None
+            completion_time: None, 
         }
     }
 }

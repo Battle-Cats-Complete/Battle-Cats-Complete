@@ -60,10 +60,11 @@ fn render_content(
 ) {
     if state.anim_name.is_empty() {
         if let Some(a) = anim {
-            // FIXED: Use max_frame (highest keyframe) instead of LCM loop calculation
-            // This prevents accidental 100k+ frame exports for simple loops
             state.max_frame = a.max_frame;
-            state.frame_end = a.max_frame;
+            // Default to max_frame if input is empty
+            if state.frame_end_str.is_empty() {
+                state.frame_end = a.max_frame;
+            }
         }
         state.anim_name = "Animation".to_string(); 
     }
@@ -99,9 +100,34 @@ fn render_content(
 
             ui.horizontal(|ui| {
                 ui.label("Frames");
-                ui.add(egui::DragValue::new(&mut state.frame_start).range(0..=state.max_frame));
+                
+                // Start Frame Input
+                let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
+                ui.add(egui::TextEdit::singleline(&mut state.frame_start_str)
+                    .hint_text(start_hint)
+                    .desired_width(40.0));
+                
+                // Logic: If empty -> 0, else parse
+                if state.frame_start_str.is_empty() {
+                    state.frame_start = 0;
+                } else if let Ok(val) = state.frame_start_str.parse::<i32>() {
+                    state.frame_start = val;
+                }
+
                 ui.label("to");
-                ui.add(egui::DragValue::new(&mut state.frame_end).range(0..=state.max_frame));
+                
+                // End Frame Input
+                let end_hint = egui::RichText::new(state.max_frame.to_string()).color(egui::Color32::GRAY);
+                ui.add(egui::TextEdit::singleline(&mut state.frame_end_str)
+                    .hint_text(end_hint)
+                    .desired_width(40.0));
+
+                // Logic: If empty -> max_frame, else parse
+                if state.frame_end_str.is_empty() {
+                    state.frame_end = state.max_frame;
+                } else if let Ok(val) = state.frame_end_str.parse::<i32>() {
+                    state.frame_end = val;
+                }
             });
 
             ui.add_space(20.0);
@@ -153,7 +179,11 @@ fn render_content(
 
             ui.horizontal(|ui| {
                 ui.label("Name");
-                ui.add(egui::TextEdit::singleline(&mut state.file_name).desired_width(120.0));
+                // FIXED: Gray hint text "animation"
+                let name_hint = egui::RichText::new("animation").color(egui::Color32::GRAY);
+                ui.add(egui::TextEdit::singleline(&mut state.file_name)
+                    .hint_text(name_hint)
+                    .desired_width(120.0));
             });
 
             egui::Grid::new("out_grid")
@@ -252,9 +282,16 @@ fn start_export(state: &mut ExporterState) {
     state.current_progress = 0;
     state.completion_time = None; 
     
+    // FIXED: Handle empty file name by defaulting to "animation"
+    let file_name = if state.file_name.trim().is_empty() {
+        "animation"
+    } else {
+        &state.file_name
+    };
+
     let mut output_path = std::env::current_dir().unwrap_or(PathBuf::from("."));
     output_path.push("exports");
-    output_path.push(&state.file_name);
+    output_path.push(file_name);
     
     if let Some(ext) = match state.format {
         ExportFormat::Gif => Some("gif"),
