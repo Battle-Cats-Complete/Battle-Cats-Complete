@@ -179,10 +179,24 @@ fn render_content(
             ui.horizontal(|ui| {
                 ui.label("Name");
                 
-                let hint_str = if state.name_prefix.is_empty() {
+                let range_part = if state.frame_start == state.frame_end {
+                    format!("{}f", state.frame_start)
+                } else {
+                    format!("{}f~{}f", state.frame_start, state.frame_end)
+                };
+
+                // CLEANUP LOGIC: Clean the default name inline
+                // e.g. "000_s_0" -> "000-3"
+                let clean_prefix = state.name_prefix
+                    .replace("_0", "")
+                    .replace("_f", "-1")
+                    .replace("_c", "-2")
+                    .replace("_s", "-3");
+
+                let hint_str = if clean_prefix.is_empty() {
                     "animation".to_string()
                 } else {
-                    format!("{}.{}f~{}f", state.name_prefix, state.frame_start, state.frame_end)
+                    format!("{}.{}", clean_prefix, range_part)
                 };
                 
                 let name_hint = egui::RichText::new(&hint_str).color(egui::Color32::GRAY);
@@ -290,11 +304,23 @@ fn start_export(state: &mut ExporterState) {
     
     // 1. Construct the Base Name
     let mut file_name = if state.file_name.trim().is_empty() {
-        if state.name_prefix.is_empty() {
+        let range_part = if state.frame_start == state.frame_end {
+            format!("{}f", state.frame_start)
+        } else {
+            format!("{}f~{}f", state.frame_start, state.frame_end)
+        };
+        
+        // CLEANUP LOGIC: Apply the same cleaning here for the actual file
+        let clean_prefix = state.name_prefix
+            .replace("_0", "")
+            .replace("_f", "-1")
+            .replace("_c", "-2")
+            .replace("_s", "-3");
+
+        if clean_prefix.is_empty() {
             "animation".to_string()
         } else {
-            // This contains dots, e.g. "001.walk.0f~20f"
-            format!("{}.{}f~{}f", state.name_prefix, state.frame_start, state.frame_end)
+            format!("{}.{}", clean_prefix, range_part)
         }
     } else {
         state.file_name.clone()
@@ -305,11 +331,10 @@ fn start_export(state: &mut ExporterState) {
         ExportFormat::Gif => Some("gif"),
         ExportFormat::WebP => Some("webp"),
         ExportFormat::Avif => Some("avif"),
-        ExportFormat::PngSequence => None, // PNG sequence handles its own extensions
+        ExportFormat::PngSequence => None, 
     };
 
-    // 3. Manually Append Extension (Safe Handling)
-    // We avoid set_extension because it sees ".0f~20f" as an extension and replaces it.
+    // 3. Manually Append Extension
     if let Some(ext) = ext_opt {
         if !file_name.to_lowercase().ends_with(&format!(".{}", ext)) {
             file_name = format!("{}.{}", file_name, ext);
