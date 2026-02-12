@@ -109,15 +109,9 @@ pub fn render_frame(
         gl.clear_color(r, g, b, a);
         gl.clear(glow::COLOR_BUFFER_BIT);
 
-        let rect = egui::Rect::from_min_size(
-            egui::pos2(0.0, 0.0),
-            egui::vec2(width as f32, height as f32)
-        );
-
-        // FIXED: Removed export_mode parameter to match pure canvas signature
         renderer.paint(
             gl, 
-            rect,
+            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(width as f32, height as f32)),
             parts, 
             sheet, 
             pan, 
@@ -128,6 +122,19 @@ pub fn render_frame(
         gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
         let mut pixels = vec![0u8; (width * height * 4) as usize];
         gl.read_pixels(0, 0, width as i32, height as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(&mut pixels));
+
+        // FIX: Just un-premultiply! 
+        // The shader now guarantees that "Glow" parts have correct alpha,
+        // so we treat everything uniformly.
+        for chunk in pixels.chunks_exact_mut(4) {
+            let alpha = chunk[3];
+            if alpha > 0 && alpha < 255 {
+                let a = alpha as f32 / 255.0;
+                chunk[0] = (chunk[0] as f32 / a).min(255.0) as u8;
+                chunk[1] = (chunk[1] as f32 / a).min(255.0) as u8;
+                chunk[2] = (chunk[2] as f32 / a).min(255.0) as u8;
+            }
+        }
 
         gl.bind_framebuffer(glow::FRAMEBUFFER, None);
         gl.delete_framebuffer(fbo);
@@ -154,8 +161,6 @@ pub fn start_encoding_thread(
     status_tx: mpsc::Sender<EncoderStatus>
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        println!("[Encoder] Thread started. Format: {:?}", config.format);
-        
         if let Some(parent) = config.output_path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -168,7 +173,7 @@ pub fn start_encoding_thread(
                     let mut writer = Cursor::new(&mut buffer);
                     let mut encoder = match GifEncoder::new(&mut writer, config.width as u16, config.height as u16, &[]) {
                         Ok(e) => e,
-                        Err(e) => { eprintln!("[Encoder] Failed to init GIF encoder: {}", e); return; }
+                        Err(_) => { return; }
                     };
 
                     let _ = encoder.set_repeat(GifRepeat::Infinite);
@@ -185,8 +190,7 @@ pub fn start_encoding_thread(
                                 frame.dispose = DisposalMethod::Any;
                                 frame.delay = ticks;
 
-                                if let Err(e) = encoder.write_frame(&frame) {
-                                    eprintln!("[Encoder] Error writing frame: {}", e);
+                                if encoder.write_frame(&frame).is_err() {
                                     break;
                                 }
                             },
@@ -198,12 +202,7 @@ pub fn start_encoding_thread(
                     }
                 } 
                 
-                println!("[Encoder] Writing {} bytes to disk...", buffer.len());
-                if let Err(e) = fs::write(&config.output_path, &buffer) {
-                    eprintln!("[Encoder] Disk Write Error: {}", e);
-                } else {
-                    println!("[Encoder] Saved to {:?}", config.output_path);
-                }
+                let _ = fs::write(&config.output_path, &buffer);
             },
 
             ExportFormat::WebP => {
@@ -224,14 +223,13 @@ pub fn start_encoding_thread(
                 }
                 if let Ok(data) = encoder.finalize(timestamp_ms) {
                     let _ = std::fs::write(&config.output_path, data);
-                    println!("[Encoder] WebP saved.");
                 }
             },
 
             ExportFormat::Avif => {
                  let avif_path = match get_avifenc_path() {
                     Ok(p) => p,
-                    Err(e) => { eprintln!("[Encoder] No avifenc: {}", e); return; }
+                    Err(_) => { return; }
                 };
                 let speed_arg = match config.quality {
                     QualityLevel::Low => "8", QualityLevel::Medium => "4", QualityLevel::High => "2",  
@@ -311,7 +309,6 @@ pub fn get_avifenc_path() -> Result<PathBuf, String> {
         return Ok(binary_path);
     }
 
-    println!("Downloading avifenc tool from: {}", TOOL_URL);
     download_and_extract_tool(TOOL_URL, &tool_dir, TOOL_BINARY_NAME)?;
 
     if binary_path.exists() {

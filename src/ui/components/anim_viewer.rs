@@ -28,6 +28,7 @@ pub struct AnimViewer {
     pub hold_dir: i8, 
     pub loaded_anim_index: usize, 
     pub loaded_id: String,
+    pub summoner_id: String, // ADDED: Tracks the main unit ID (e.g. 700) even if Spirit (701) is loaded
     last_loaded_id: String,
     pub pending_initial_center: bool,
     pub staging_model: Option<Model>,
@@ -71,6 +72,7 @@ impl Default for AnimViewer {
             hold_dir: 0,
             loaded_anim_index: 0, 
             loaded_id: String::new(),
+            summoner_id: String::new(), // ADDED
             last_loaded_id: "FORCE_INIT".to_string(),
             pending_initial_center: false,
             staging_model: None,
@@ -96,13 +98,79 @@ impl Default for AnimViewer {
 }
 
 impl AnimViewer {
+    fn update_export_state(&mut self) {
+        // Handle Frame limits (safe for None anim)
+        if let Some(anim) = &self.current_anim {
+            self.export_state.max_frame = anim.max_frame;
+            self.export_state.frame_start = 0;
+            self.export_state.frame_end = anim.max_frame;
+        } else {
+            self.export_state.max_frame = 0;
+            self.export_state.frame_start = 0;
+            self.export_state.frame_end = 0;
+        }
+        self.export_state.frame_start_str.clear(); 
+        self.export_state.frame_end_str.clear();
+
+        // 1. Determine Animation Type String
+        let type_str = match self.loaded_anim_index {
+            anim_controls::IDX_WALK => "walk",
+            anim_controls::IDX_IDLE => "idle",
+            anim_controls::IDX_ATTACK => "attack",
+            anim_controls::IDX_KB => "kb",
+            anim_controls::IDX_BURROW => "burrow",
+            anim_controls::IDX_SURFACE => "surface",
+            anim_controls::IDX_SPIRIT => "spirit",
+            anim_controls::IDX_MODEL => "model",
+            _ => "anim",
+        };
+
+        // 2. Determine which ID to use
+        // If Spirit: Use Summoner ID (e.g. 700) instead of Spirit ID (701)
+        // If Model/Other: Use Loaded ID
+        let raw_id = if self.loaded_anim_index == anim_controls::IDX_SPIRIT {
+            if self.summoner_id.is_empty() { &self.loaded_id } else { &self.summoner_id }
+        } else {
+            &self.loaded_id
+        };
+
+        // 3. Clean ID (Remove leading zeros, map Form char)
+        let mut clean_id = raw_id.clone();
+        let parts: Vec<&str> = raw_id.split('_').collect();
+        
+        if parts.len() >= 2 {
+            if parts[0].chars().all(char::is_numeric) {
+                let form_num = match parts[1].chars().next() {
+                    Some('f') => 1,
+                    Some('c') => 2,
+                    Some('s') => 3,
+                    Some('u') => 4,
+                    _ => 0
+                };
+
+                if form_num > 0 {
+                    // Use string directly to preserve padding like "001" -> "001-1"
+                    // Or parse if you WANT to remove zeros. 
+                    // User request: "remove the leading 0... but [later] do not remove trailing zeros (padding?)"
+                    // Clarification: "do not remove zero padding in the unit id" -> Keep "001".
+                    clean_id = format!("{}-{}", parts[0], form_num);
+                }
+            }
+        }
+        
+        self.export_state.name_prefix = format!("{}.{}", clean_id, type_str);
+    }
+
     pub fn load_anim(&mut self, path: &Path) {
         if let Some(anim) = Animation::load(path) {
             self.current_frame = 0.0;
             self.loop_range = (None, None);
             self.range_str_cache = (String::new(), String::new());
             self.single_frame_str = "0".to_string();
+            
             self.current_anim = Some(anim);
+            self.update_export_state();
+            
         } else {
             self.current_anim = None;
             self.current_frame = 0.0;
@@ -130,9 +198,19 @@ impl AnimViewer {
     ) {
         let dt = ui.input(|i| i.stable_dt);
 
+        // Update Summoner ID tracking
+        if !form_viewer_id.is_empty() {
+            self.summoner_id = form_viewer_id.to_string();
+        }
+
         if self.loaded_id != self.last_loaded_id {
             self.last_loaded_id = self.loaded_id.clone();
             self.pending_initial_center = true;
+            
+            self.export_state = ExporterState::default();
+            
+            // FIXED: Always update export state on unit switch, even if model (anim=None)
+            self.update_export_state();
         }
 
         let mut new_center: Option<(egui::Vec2, f32)> = None;
@@ -157,7 +235,7 @@ impl AnimViewer {
             should_clear_pending = true;
         }
 
-        if let Some((offset, zoom)) = new_center {
+        if let (Some(offset), Some(zoom)) = (new_center.map(|x| x.0), new_center.map(|x| x.1)) {
             self.pan_offset = offset;
             if centering_behavior == 0 { self.target_zoom_level = zoom; }
             self.pending_initial_center = false;
@@ -226,31 +304,21 @@ impl AnimViewer {
 
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
         
-        // --- INPUT HANDLING ---
         let (hover_pos, right_down, left_down) = ui.input(|i| (i.pointer.hover_pos(), i.pointer.secondary_down(), i.pointer.primary_down()));
         
-        // Manual override for Pan during Selection Mode
-        // If we are in selection mode, normally we block drag.
-        // BUT if Left Click is down (not Right Click), we allow dragging to pass through to controls.
-        
         if self.is_selecting_export_region && left_down && hover_pos.is_some() {
-            // Force controls to handle drag even if we normally block it
             controls::handle_viewport_input(
                 ui, &response, &mut self.pan_offset, &mut self.zoom_level, &mut self.target_zoom_level, 
                 &mut self.pending_initial_center, false, &mut self.is_viewport_dragging 
             );
         } else {
-            // Normal behavior
-            // Block input if hovering controls OR if actively selecting (Right Click)
             let block_input = self.is_pointer_over_controls || (self.is_selecting_export_region && right_down);
-            
             controls::handle_viewport_input(
                 ui, &response, &mut self.pan_offset, &mut self.zoom_level, &mut self.target_zoom_level, 
                 &mut self.pending_initial_center, block_input, &mut self.is_viewport_dragging 
             );
         }
 
-        // --- EXPORT SELECTION OVERLAY ---
         if self.is_selecting_export_region {
             ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(50));
 
@@ -302,12 +370,11 @@ impl AnimViewer {
             }
         }
 
-        // --- EXPORT PROCESSING LOOP ---
         if self.export_state.is_processing {
             if let (Some(model), Some(anim), Some(sheet)) = (&self.held_model, &self.current_anim, &self.held_sheet) {
                 anim_exporter::process_frame(
                     ui, 
-                    rect, // Pass valid viewport rect
+                    rect,
                     &mut self.export_state, 
                     model, 
                     anim, 
@@ -389,7 +456,6 @@ impl AnimViewer {
              egui::Color32::from_gray(60)
         };
 
-        // Capture button response
         let btn_response = ui.put(btn_rect, |ui: &mut egui::Ui| {
              let btn = egui::Button::new(egui::RichText::new("⛶").size(20.0).color(egui::Color32::WHITE))
                 .fill(bg_fill) 
@@ -403,7 +469,6 @@ impl AnimViewer {
             response
         });
 
-        // Check if controls are hovered
         let controls_hovered = anim_controls::render_controls_overlay(
             ui,
             rect,

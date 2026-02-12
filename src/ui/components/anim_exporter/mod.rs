@@ -4,15 +4,18 @@ use eframe::egui;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::data::global::imgcut::SpriteSheet;
+// Fixed Imports: Everything is now directly under 'export'
 use crate::core::anim::export::{self, ExportConfig, ExportFormat, QualityLevel, EncoderMessage, EncoderStatus};
 use crate::core::anim::{animator, smooth, transform}; 
 use crate::core::anim::canvas::GlowRenderer;
 use std::sync::{Arc, Mutex, mpsc};
 use std::path::PathBuf;
-use crate::ui::views::settings::toggle_ui;
+// ADDED: Missing import for the toggle switch
+use crate::ui::views::settings::toggle_ui; 
 
 use self::state::ExporterState;
 
+// Global receiver to track encoder status
 static STATUS_RX: Mutex<Option<mpsc::Receiver<EncoderStatus>>> = Mutex::new(None);
 
 pub fn show_popup(
@@ -32,6 +35,7 @@ pub fn show_popup(
 
     egui::Window::new("Export Animation")
         .open(&mut open_local)
+        // Keep Tooltip order to ensure it stays on top of the fullscreen viewer
         .order(egui::Order::Foreground) 
         .constrain(true)             
         .movable(allow_drag)         
@@ -60,15 +64,17 @@ fn render_content(
 ) {
     if state.anim_name.is_empty() {
         if let Some(a) = anim {
-            state.max_frame = a.max_frame;
+            let full_length = a.max_frame;
+            state.max_frame = full_length;
             // Default to max_frame if input is empty
             if state.frame_end_str.is_empty() {
-                state.frame_end = a.max_frame;
+                state.frame_end = full_length;
             }
         }
         state.anim_name = "Animation".to_string(); 
     }
     
+    // Check for encoder status
     if state.is_processing {
         if let Ok(rx_opt) = STATUS_RX.lock() {
             if let Some(rx) = rx_opt.as_ref() {
@@ -101,13 +107,11 @@ fn render_content(
             ui.horizontal(|ui| {
                 ui.label("Frames");
                 
-                // Start Frame Input
                 let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
                 ui.add(egui::TextEdit::singleline(&mut state.frame_start_str)
                     .hint_text(start_hint)
                     .desired_width(40.0));
                 
-                // Logic: If empty -> 0, else parse
                 if state.frame_start_str.is_empty() {
                     state.frame_start = 0;
                 } else if let Ok(val) = state.frame_start_str.parse::<i32>() {
@@ -116,13 +120,11 @@ fn render_content(
 
                 ui.label("to");
                 
-                // End Frame Input
                 let end_hint = egui::RichText::new(state.max_frame.to_string()).color(egui::Color32::GRAY);
                 ui.add(egui::TextEdit::singleline(&mut state.frame_end_str)
                     .hint_text(end_hint)
                     .desired_width(40.0));
 
-                // Logic: If empty -> max_frame, else parse
                 if state.frame_end_str.is_empty() {
                     state.frame_end = state.max_frame;
                 } else if let Ok(val) = state.frame_end_str.parse::<i32>() {
@@ -179,8 +181,15 @@ fn render_content(
 
             ui.horizontal(|ui| {
                 ui.label("Name");
-                // FIXED: Gray hint text "animation"
-                let name_hint = egui::RichText::new("animation").color(egui::Color32::GRAY);
+                
+                let hint_str = if state.name_prefix.is_empty() {
+                    "animation".to_string()
+                } else {
+                    format!("{}.{}f~{}f", state.name_prefix, state.frame_start, state.frame_end)
+                };
+                
+                let name_hint = egui::RichText::new(&hint_str).color(egui::Color32::GRAY);
+                
                 ui.add(egui::TextEdit::singleline(&mut state.file_name)
                     .hint_text(name_hint)
                     .desired_width(120.0));
@@ -218,6 +227,7 @@ fn render_content(
                 });
             
             ui.horizontal(|ui| {
+                // FIXED: Now we have the import for this function
                 toggle_ui(ui, &mut state.interpolation);
                 ui.label("Interpolation");
             });
@@ -282,11 +292,15 @@ fn start_export(state: &mut ExporterState) {
     state.current_progress = 0;
     state.completion_time = None; 
     
-    // FIXED: Handle empty file name by defaulting to "animation"
+    // Use the dynamic name if file_name is empty
     let file_name = if state.file_name.trim().is_empty() {
-        "animation"
+        if state.name_prefix.is_empty() {
+            "animation".to_string()
+        } else {
+            format!("{}.{}f~{}f", state.name_prefix, state.frame_start, state.frame_end)
+        }
     } else {
-        &state.file_name
+        state.file_name.clone()
     };
 
     let mut output_path = std::env::current_dir().unwrap_or(PathBuf::from("."));

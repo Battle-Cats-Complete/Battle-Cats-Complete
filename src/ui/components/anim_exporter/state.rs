@@ -7,7 +7,6 @@ pub struct ExporterState {
     pub frame_start: i32,
     pub frame_end: i32,
     pub max_frame: i32,
-    // Added string buffers for UI inputs
     pub frame_start_str: String,
     pub frame_end_str: String,
 
@@ -22,6 +21,7 @@ pub struct ExporterState {
     
     // Output
     pub file_name: String,
+    pub name_prefix: String, // ADDED: Stores "334-2.attack" part
     pub format: ExportFormat,
     pub quality: QualityLevel,
     pub interpolation: bool,
@@ -43,7 +43,6 @@ impl Default for ExporterState {
             frame_start: 0,
             frame_end: 0,
             max_frame: 100,
-            // Strings start empty to show hint text
             frame_start_str: String::new(),
             frame_end_str: String::new(),
 
@@ -55,8 +54,8 @@ impl Default for ExporterState {
             region_w: 300.0,
             region_h: 300.0,
             
-            // FIXED: Start empty to show hint text "animation"
             file_name: String::new(),
+            name_prefix: String::new(), // ADDED
             format: ExportFormat::Gif,
             quality: QualityLevel::High,
             interpolation: false,
