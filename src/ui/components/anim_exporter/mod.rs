@@ -4,13 +4,13 @@ use eframe::egui;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::data::global::imgcut::SpriteSheet;
-// Fixed Imports: Everything is now directly under 'export'
 use crate::core::anim::export::{self, ExportConfig, ExportFormat, QualityLevel, EncoderMessage, EncoderStatus};
-use crate::core::anim::{animator, smooth, transform}; 
+use crate::core::anim::animator;
+use crate::core::anim::smooth;
+use crate::core::anim::transform;
 use crate::core::anim::canvas::GlowRenderer;
 use std::sync::{Arc, Mutex, mpsc};
 use std::path::PathBuf;
-// ADDED: Missing import for the toggle switch
 use crate::ui::views::settings::toggle_ui; 
 
 use self::state::ExporterState;
@@ -35,7 +35,6 @@ pub fn show_popup(
 
     egui::Window::new("Export Animation")
         .open(&mut open_local)
-        // Keep Tooltip order to ensure it stays on top of the fullscreen viewer
         .order(egui::Order::Foreground) 
         .constrain(true)             
         .movable(allow_drag)         
@@ -66,7 +65,6 @@ fn render_content(
         if let Some(a) = anim {
             let full_length = a.max_frame;
             state.max_frame = full_length;
-            // Default to max_frame if input is empty
             if state.frame_end_str.is_empty() {
                 state.frame_end = full_length;
             }
@@ -74,7 +72,6 @@ fn render_content(
         state.anim_name = "Animation".to_string(); 
     }
     
-    // Check for encoder status
     if state.is_processing {
         if let Ok(rx_opt) = STATUS_RX.lock() {
             if let Some(rx) = rx_opt.as_ref() {
@@ -227,7 +224,6 @@ fn render_content(
                 });
             
             ui.horizontal(|ui| {
-                // FIXED: Now we have the import for this function
                 toggle_ui(ui, &mut state.interpolation);
                 ui.label("Interpolation");
             });
@@ -292,32 +288,38 @@ fn start_export(state: &mut ExporterState) {
     state.current_progress = 0;
     state.completion_time = None; 
     
-    // Use the dynamic name if file_name is empty
-    let file_name = if state.file_name.trim().is_empty() {
+    // 1. Construct the Base Name
+    let mut file_name = if state.file_name.trim().is_empty() {
         if state.name_prefix.is_empty() {
             "animation".to_string()
         } else {
+            // This contains dots, e.g. "001.walk.0f~20f"
             format!("{}.{}f~{}f", state.name_prefix, state.frame_start, state.frame_end)
         }
     } else {
         state.file_name.clone()
     };
 
+    // 2. Determine Extension
+    let ext_opt = match state.format {
+        ExportFormat::Gif => Some("gif"),
+        ExportFormat::WebP => Some("webp"),
+        ExportFormat::Avif => Some("avif"),
+        ExportFormat::PngSequence => None, // PNG sequence handles its own extensions
+    };
+
+    // 3. Manually Append Extension (Safe Handling)
+    // We avoid set_extension because it sees ".0f~20f" as an extension and replaces it.
+    if let Some(ext) = ext_opt {
+        if !file_name.to_lowercase().ends_with(&format!(".{}", ext)) {
+            file_name = format!("{}.{}", file_name, ext);
+        }
+    }
+
     let mut output_path = std::env::current_dir().unwrap_or(PathBuf::from("."));
     output_path.push("exports");
     output_path.push(file_name);
     
-    if let Some(ext) = match state.format {
-        ExportFormat::Gif => Some("gif"),
-        ExportFormat::WebP => Some("webp"),
-        ExportFormat::Avif => Some("avif"),
-        ExportFormat::PngSequence => Some("png"),
-    } {
-            if state.format != ExportFormat::PngSequence {
-                output_path.set_extension(ext);
-            }
-    }
-
     let config = ExportConfig {
         width: state.region_w as u32,
         height: state.region_h as u32,
