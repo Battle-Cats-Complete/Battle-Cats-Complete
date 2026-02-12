@@ -414,6 +414,15 @@ fn render_internal_ui(
                     anim_viewer.current_anim = None; 
                     anim_viewer.current_frame = 0.0;
                     anim_viewer.single_frame_str = "0".to_string();
+
+                    // FIX: Manually update Export State for "Model"
+                    anim_viewer.export_state.name_prefix = format!("{}.model", form_viewer_id);
+                    anim_viewer.export_state.anim_name = "Model".to_string();
+                    anim_viewer.export_state.max_frame = 0;
+                    anim_viewer.export_state.frame_start = 0;
+                    anim_viewer.export_state.frame_start_str = "0".to_string();
+                    anim_viewer.export_state.frame_end = 0;
+                    anim_viewer.export_state.frame_end_str = "0".to_string();
                 }
             }
         }

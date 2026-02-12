@@ -1,4 +1,3 @@
-// ... (imports same as before) ...
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -28,7 +27,7 @@ pub struct AnimViewer {
     pub hold_dir: i8, 
     pub loaded_anim_index: usize, 
     pub loaded_id: String,
-    pub summoner_id: String, // ADDED: Tracks the main unit ID (e.g. 700) even if Spirit (701) is loaded
+    pub summoner_id: String,
     last_loaded_id: String,
     pub pending_initial_center: bool,
     pub staging_model: Option<Model>,
@@ -72,7 +71,7 @@ impl Default for AnimViewer {
             hold_dir: 0,
             loaded_anim_index: 0, 
             loaded_id: String::new(),
-            summoner_id: String::new(), // ADDED
+            summoner_id: String::new(),
             last_loaded_id: "FORCE_INIT".to_string(),
             pending_initial_center: false,
             staging_model: None,
@@ -126,15 +125,13 @@ impl AnimViewer {
         };
 
         // 2. Determine which ID to use
-        // If Spirit: Use Summoner ID (e.g. 700) instead of Spirit ID (701)
-        // If Model/Other: Use Loaded ID
         let raw_id = if self.loaded_anim_index == anim_controls::IDX_SPIRIT {
             if self.summoner_id.is_empty() { &self.loaded_id } else { &self.summoner_id }
         } else {
             &self.loaded_id
         };
 
-        // 3. Clean ID (Remove leading zeros, map Form char)
+        // 3. Clean ID
         let mut clean_id = raw_id.clone();
         let parts: Vec<&str> = raw_id.split('_').collect();
         
@@ -149,10 +146,6 @@ impl AnimViewer {
                 };
 
                 if form_num > 0 {
-                    // Use string directly to preserve padding like "001" -> "001-1"
-                    // Or parse if you WANT to remove zeros. 
-                    // User request: "remove the leading 0... but [later] do not remove trailing zeros (padding?)"
-                    // Clarification: "do not remove zero padding in the unit id" -> Keep "001".
                     clean_id = format!("{}-{}", parts[0], form_num);
                 }
             }
@@ -208,8 +201,6 @@ impl AnimViewer {
             self.pending_initial_center = true;
             
             self.export_state = ExporterState::default();
-            
-            // FIXED: Always update export state on unit switch, even if model (anim=None)
             self.update_export_state();
         }
 
@@ -320,15 +311,33 @@ impl AnimViewer {
         }
 
         if self.is_selecting_export_region {
+            // Keep background dimming on the standard layer
             ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(50));
 
-            ui.painter().text(
-                rect.center(), 
-                egui::Align2::CENTER_CENTER, 
-                "Right-Click Drag to Select Region\n(Left-Click to Pan)", 
-                egui::FontId::proportional(20.0), 
-                egui::Color32::WHITE
+            // FIX: Use Foreground Painter to ensure the tooltip is physically above the GL canvas
+            let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("anim_export_tip")));
+
+            // Styled Overlay for Instructions
+            let tip_text = "Right click & drag to set camera";
+            let font_id = egui::FontId::proportional(13.0);
+            let galley = painter.layout_no_wrap(tip_text.to_string(), font_id, egui::Color32::WHITE);
+            
+            let bg_margin = 6.0;
+            let bg_w = galley.size().x + bg_margin * 2.0;
+            let bg_h = galley.size().y + bg_margin * 2.0;
+            
+            // Position at top center with some padding
+            let top_center = rect.center_top() + egui::vec2(0.0, 30.0);
+            let tip_rect = egui::Rect::from_center_size(top_center, egui::vec2(bg_w, bg_h));
+            
+            painter.rect(
+                tip_rect, 
+                4.0, 
+                egui::Color32::from_black_alpha(180), 
+                egui::Stroke::new(1.0, egui::Color32::from_gray(180))
             );
+            
+            painter.galley(tip_rect.min + egui::vec2(bg_margin, bg_margin), galley, egui::Color32::WHITE);
 
             if let Some(pos) = hover_pos {
                 if right_down {
