@@ -314,7 +314,7 @@ impl AnimViewer {
             ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(50));
 
             // CHANGED: Use Tooltip layer via a layer_painter so it sits physically above the Foreground Expanded Viewer
-            let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("anim_export_tip")));
+            let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("anim_export_tip")));
 
             let tip_text = "Right click & drag to set camera";
             let font_id = egui::FontId::proportional(13.0);
@@ -508,7 +508,8 @@ impl AnimViewer {
             anim, 
             sheet, 
             show_popup,
-            start_select
+            start_select,
+            
         );
     }
 }

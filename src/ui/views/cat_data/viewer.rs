@@ -246,7 +246,7 @@ pub fn show(
             // CHANGED: Tooltip -> Foreground.
             // This is Layer 2. It covers the Sidebar (Middle - Layer 1).
             // But it is below Popups (Tooltip - Layer 3).
-            .order(egui::Order::Foreground) 
+            .order(egui::Order::Middle) 
             .show(ctx, |ui| {
                 let screen_rect = ctx.screen_rect();
                 egui::Frame::window(&ctx.style())
