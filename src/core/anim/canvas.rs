@@ -23,10 +23,18 @@ const FRAGMENT_SHADER_SOURCE: &str = r#"
     precision lowp float;
     uniform sampler2D u_texture;
     uniform float u_opacity;
+    uniform int u_is_glow;
     varying vec2 v_texcoord;
 
     void main() {
-        gl_FragColor = texture2D(u_texture, v_texcoord) * u_opacity;
+        vec4 tex_color = texture2D(u_texture, v_texcoord);
+        
+        if (u_is_glow == 1) {
+            float brightness = max(tex_color.r, max(tex_color.g, tex_color.b));
+            gl_FragColor = vec4(tex_color.rgb, brightness) * u_opacity;
+        } else {
+            gl_FragColor = tex_color * u_opacity;
+        }
     }
 "#;
 
@@ -197,6 +205,9 @@ impl GlowRenderer {
             let u_transform = gl_context.get_uniform_location(self.program, "u_transform");
             let u_opacity = gl_context.get_uniform_location(self.program, "u_opacity");
             let u_texture = gl_context.get_uniform_location(self.program, "u_texture");
+            // CHANGED: Get location for glow toggle
+            let u_is_glow = gl_context.get_uniform_location(self.program, "u_is_glow");
+            
             gl_context.uniform_1_i32(u_texture.as_ref(), 0);
 
             gl_context.enable(glow::BLEND);
@@ -204,8 +215,12 @@ impl GlowRenderer {
             for part in parts {
                 if part.hidden || part.opacity < 0.005 { continue; }
 
+                // CHANGED: Set uniform and standardize blending
+                gl_context.uniform_1_i32(u_is_glow.as_ref(), if part.glow > 0 { 1 } else { 0 });
+
                 if part.glow > 0 {
-                    gl_context.blend_func(glow::ONE, glow::ONE);
+                    // Since the shader handles the alpha now, we use standard blending
+                    gl_context.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
                 } else {
                     gl_context.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
                 }
