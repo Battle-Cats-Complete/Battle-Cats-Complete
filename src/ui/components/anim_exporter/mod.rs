@@ -147,6 +147,7 @@ fn render_content(
                      if state.showcase_mode && !old_mode {
                          state.showcase_walk_str.clear();
                          state.showcase_idle_str.clear();
+                         state.showcase_attack_str.clear();
                          state.showcase_kb_str.clear();
                          state.frame_start = 0;
                      }
@@ -192,8 +193,16 @@ fn render_content(
                     ui.end_row();
 
                     ui.label("Attack Frames");
-                    let atk_len_str = if state.showcase_attack_len > 0 { state.showcase_attack_len.to_string() } else { "?".to_string() };
-                    ui.add_enabled(false, egui::TextEdit::singleline(&mut atk_len_str.clone()).desired_width(50.0));
+                    let hint_atk = egui::RichText::new(state.detected_attack_len.to_string()).color(egui::Color32::GRAY);
+                    if ui.add(egui::TextEdit::singleline(&mut state.showcase_attack_str)
+                        .hint_text(hint_atk)
+                        .desired_width(50.0)).changed() 
+                    {
+                        state.showcase_attack_len = state.showcase_attack_str.parse().unwrap_or(if state.showcase_attack_str.is_empty() { state.detected_attack_len } else { 0 });
+                    }
+                    if state.showcase_attack_str.is_empty() {
+                        state.showcase_attack_len = state.detected_attack_len;
+                    }
                     ui.end_row();
 
                     ui.label("Knockback");
@@ -243,10 +252,11 @@ fn render_content(
             ui.horizontal(|ui| {
                 ui.label("Name");
                 
-                // GENERATE NAME HINT
                 let (disp_start, disp_end) = if state.showcase_mode {
                      let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
-                     (0, total)
+                     // [FIX] Consistent with export logic below: if total is 100, we export 0..99. Range is 0f~99f.
+                     let end_disp = if total > 0 { total - 1 } else { 0 };
+                     (0, end_disp)
                 } else {
                      (state.frame_start, state.frame_end)
                 };
@@ -367,13 +377,17 @@ fn start_export(state: &mut ExporterState) {
     if state.showcase_mode {
         state.frame_start = 0;
         let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
-        state.frame_end = if total > 0 { total } else { 100 }; 
+        // [FIX] Set frame_end to total - 1 (inclusive index).
+        // If total is 100 frames (0 to 99), end is 99.
+        // This prevents the count (end - start + 1) from being 101, which caused overflow logic errors.
+        state.frame_end = if total > 0 { total - 1 } else { 0 }; 
     }
 
     let file_name = if state.file_name.trim().is_empty() {
         let (disp_start, disp_end) = if state.showcase_mode {
              let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
-             (0, total)
+             let end_disp = if total > 0 { total - 1 } else { 0 };
+             (0, end_disp)
         } else {
              (state.frame_start, state.frame_end)
         };
@@ -398,7 +412,6 @@ fn start_export(state: &mut ExporterState) {
     let mut output_path = std::env::current_dir().unwrap_or(PathBuf::from("."));
     output_path.push("exports");
     
-    // FIX: Manually append extension to avoid overwriting the filename's last part (e.g. .0f~90f)
     let mut final_name = file_name;
     if let Some(ext) = match state.format {
         ExportFormat::Gif => Some("gif"),
@@ -448,7 +461,6 @@ pub fn process_frame(
 
     let count = (state.frame_end - state.frame_start).abs() + 1;
     
-    // Check if we are done
     if state.current_progress >= count {
         if let Some(tx) = state.tx.take() {
             let _ = tx.send(EncoderMessage::Finish);
