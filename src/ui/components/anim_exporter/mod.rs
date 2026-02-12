@@ -4,18 +4,15 @@ use eframe::egui;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::data::global::imgcut::SpriteSheet;
-// Fixed Imports: Everything is now directly under 'export'
 use crate::core::anim::export::{self, ExportConfig, ExportFormat, QualityLevel, EncoderMessage, EncoderStatus};
 use crate::core::anim::{animator, smooth, transform}; 
 use crate::core::anim::canvas::GlowRenderer;
 use std::sync::{Arc, Mutex, mpsc};
 use std::path::PathBuf;
-// ADDED: Missing import for the toggle switch
 use crate::ui::views::settings::toggle_ui; 
 
 use self::state::ExporterState;
 
-// Global receiver to track encoder status
 static STATUS_RX: Mutex<Option<mpsc::Receiver<EncoderStatus>>> = Mutex::new(None);
 
 pub fn show_popup(
@@ -33,16 +30,11 @@ pub fn show_popup(
     let mut open_local = *is_open;
     let allow_drag = state.drag_guard.update(&ctx);
 
-    // STYLE HACK: Disable side resize grabs to prevent "pushing" the window position
     let saved_style = ctx.style();
     let mut style = (*saved_style).clone();
     style.interaction.resize_grab_radius_side = 0.0;
     ctx.set_style(style);
 
-    // MANUAL CLAMP LOGIC:
-    // We check where the window was last frame. If the header is off-screen,
-    // we force it back onto the screen for this frame.
-    // This gives us "Walls" without the "Bouncy" resizing of .constrain(true).
     let window_id = egui::Id::new("Export Animation");
     let mut fixed_pos = None;
 
@@ -51,22 +43,16 @@ pub fn show_popup(
         let mut new_pos = rect.min;
         let mut changed = false;
 
-        // 1. Top Constraint (The most important one)
-        // Prevent header from going above the screen
         if new_pos.y < screen_rect.top() {
             new_pos.y = screen_rect.top();
             changed = true;
         }
 
-        // 2. Bottom Constraint 
-        // Ensure at least the header (approx 30px) is visible at the bottom
         if new_pos.y > screen_rect.bottom() - 30.0 {
             new_pos.y = screen_rect.bottom() - 30.0;
             changed = true;
         }
 
-        // 3. Horizontal Constraints
-        // Ensure at least 50px of the window is visible horizontally
         if new_pos.x + rect.width() - 50.0 < screen_rect.left() {
             new_pos.x = screen_rect.left() - rect.width() + 50.0;
             changed = true;
@@ -82,10 +68,10 @@ pub fn show_popup(
     }
 
     let mut window = egui::Window::new("Export Animation")
-        .id(window_id) // IMPORTANT: We must explicitly set ID to match our memory lookup
+        .id(window_id)
         .open(&mut open_local)
         .order(egui::Order::Foreground) 
-        .constrain(false) // Keep false to allow smooth bottom-right resizing
+        .constrain(false) 
         .movable(allow_drag)         
         .collapsible(false)
         .resizable(true) 
@@ -93,7 +79,6 @@ pub fn show_popup(
         .default_size(egui::vec2(400.0, 520.0)) 
         .default_pos(ctx.screen_rect().center() - egui::vec2(200.0, 260.0));
 
-    // Apply the clamped position if we calculated one
     if let Some(pos) = fixed_pos {
         window = window.current_pos(pos);
     }
@@ -158,34 +143,56 @@ fn render_content(
             ui.heading("Input"); 
             ui.add_space(5.0);
 
+            // Showcase Toggle
+            ui.horizontal(|ui| {
+                 if toggle_ui(ui, &mut state.showcase_mode).changed() {
+                     if state.showcase_mode {
+                         state.frame_start = 0;
+                         state.frame_start_str = "0".to_string();
+                         // Initialize with high buffer so it doesn't auto-finish before AnimViewer calculates total
+                         state.frame_end = 1000; 
+                         state.frame_end_str = "Auto".to_string();
+                     }
+                 }
+                 ui.label("Showcase Mode").on_hover_text("Walk (3s) -> Idle (3s) -> Attack -> Knockback (3s)");
+            });
+            ui.add_space(5.0);
+
             ui.horizontal(|ui| {
                 ui.label("Frames");
                 
                 let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
-                ui.add(egui::TextEdit::singleline(&mut state.frame_start_str)
+                
+                ui.add_enabled(!state.showcase_mode, egui::TextEdit::singleline(&mut state.frame_start_str)
                     .hint_text(start_hint)
                     .desired_width(40.0));
                 
-                if state.frame_start_str.is_empty() {
-                    state.frame_start = 0;
-                } else if let Ok(val) = state.frame_start_str.parse::<i32>() {
-                    state.frame_start = val;
+                if !state.showcase_mode {
+                    if state.frame_start_str.is_empty() {
+                        state.frame_start = 0;
+                    } else if let Ok(val) = state.frame_start_str.parse::<i32>() {
+                        state.frame_start = val;
+                    }
                 }
 
                 ui.label("to");
                 
                 let end_hint = egui::RichText::new(state.max_frame.to_string()).color(egui::Color32::GRAY);
-                ui.add(egui::TextEdit::singleline(&mut state.frame_end_str)
+                ui.add_enabled(!state.showcase_mode, egui::TextEdit::singleline(&mut state.frame_end_str)
                     .hint_text(end_hint)
                     .desired_width(40.0));
 
-                if state.frame_end_str.is_empty() {
-                    state.frame_end = state.max_frame;
-                } else if let Ok(val) = state.frame_end_str.parse::<i32>() {
-                    state.frame_end = val;
+                if !state.showcase_mode {
+                    if state.frame_end_str.is_empty() {
+                        state.frame_end = state.max_frame;
+                    } else if let Ok(val) = state.frame_end_str.parse::<i32>() {
+                        state.frame_end = val;
+                    }
                 }
             });
 
+            // ... (Camera and Output Sections remain same) ...
+            
             ui.add_space(20.0);
             ui.heading("Camera"); 
             ui.add_space(5.0);
@@ -236,7 +243,9 @@ fn render_content(
             ui.horizontal(|ui| {
                 ui.label("Name");
                 
-                let range_part = if state.frame_start == state.frame_end {
+                let range_part = if state.showcase_mode {
+                    "showcase".to_string()
+                } else if state.frame_start == state.frame_end {
                     format!("{}f", state.frame_start)
                 } else {
                     format!("{}f~{}f", state.frame_start, state.frame_end)
@@ -247,11 +256,26 @@ fn render_content(
                     .replace("_f", "-1")
                     .replace("_c", "-2")
                     .replace("_s", "-3");
+                
+                let prefix_display = if state.showcase_mode {
+                     let p: Vec<&str> = clean_prefix.split('.').collect();
+                     if !p.is_empty() {
+                         format!("{}.showcase", p[0])
+                     } else {
+                         "unit.showcase".to_string()
+                     }
+                } else {
+                    clean_prefix.clone()
+                };
 
-                let hint_str = if clean_prefix.is_empty() {
+                let hint_str = if prefix_display.is_empty() {
                     "animation".to_string()
                 } else {
-                    format!("{}.{}", clean_prefix, range_part)
+                    if state.showcase_mode {
+                        prefix_display
+                    } else {
+                        format!("{}.{}", prefix_display, range_part)
+                    }
                 };
                 
                 let name_hint = egui::RichText::new(&hint_str).color(egui::Color32::GRAY);
@@ -313,7 +337,8 @@ fn render_content(
                 start_export(state);
             }
         });
-
+        
+        // ... (Progress bar logic same as before) ...
         ui.add_space(5.0);
 
         let count = (state.frame_end - state.frame_start).abs() + 1;
@@ -357,9 +382,21 @@ fn start_export(state: &mut ExporterState) {
     state.current_progress = 0;
     state.completion_time = None; 
     
-    // Use the dynamic name if file_name is empty
+    // [CRITICAL FIX] Enforce Showcase constraints immediately before starting
+    if state.showcase_mode {
+        state.frame_start = 0;
+        // Ensure we have at least 1000 frames so export doesn't quit early.
+        // The real length will be calculated by AnimViewer in the first few frames.
+        if state.frame_end < 1000 {
+            state.frame_end = 1000;
+        }
+    }
+
     let file_name = if state.file_name.trim().is_empty() {
-        let range_part = if state.frame_start == state.frame_end {
+        // ... (Naming logic same as previous) ...
+        let range_part = if state.showcase_mode {
+            "showcase".to_string()
+        } else if state.frame_start == state.frame_end {
             format!("{}f", state.frame_start)
         } else {
             format!("{}f~{}f", state.frame_start, state.frame_end)
@@ -371,10 +408,25 @@ fn start_export(state: &mut ExporterState) {
             .replace("_c", "-2")
             .replace("_s", "-3");
 
-        if clean_prefix.is_empty() {
+        let prefix_display = if state.showcase_mode {
+             let p: Vec<&str> = clean_prefix.split('.').collect();
+             if !p.is_empty() {
+                 format!("{}.showcase", p[0])
+             } else {
+                 "unit.showcase".to_string()
+             }
+        } else {
+            clean_prefix.clone()
+        };
+
+        if prefix_display.is_empty() {
             "animation".to_string()
         } else {
-            format!("{}.{}", clean_prefix, range_part)
+            if state.showcase_mode {
+                prefix_display
+            } else {
+                format!("{}.{}", prefix_display, range_part)
+            }
         }
     } else {
         state.file_name.clone()
@@ -430,6 +482,7 @@ pub fn process_frame(
     anim: &Animation,
     sheet: &SpriteSheet,
     renderer_ref: Arc<Mutex<Option<GlowRenderer>>>,
+    current_time: f32, // CHANGED: Explicit time, decoupled from state.current_progress logic
 ) {
     if state.tx.is_none() { return; }
 
@@ -442,17 +495,12 @@ pub fn process_frame(
         return;
     }
 
-    let start = state.frame_start;
-    let end = state.frame_end;
-    let step = if start < end { 1 } else { -1 };
-    
-    let f = start + (state.current_progress * step);
     let frame_delay = 1000.0 / state.fps as f32;
 
     let parts = if state.interpolation {
-        smooth::animate(model, anim, f as f32)
+        smooth::animate(model, anim, current_time)
     } else {
-        animator::animate(model, anim, f as f32)
+        animator::animate(model, anim, current_time)
     };
     
     let world_parts = transform::solve_hierarchy(&parts, model);
