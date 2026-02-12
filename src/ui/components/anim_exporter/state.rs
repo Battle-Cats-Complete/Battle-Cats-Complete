@@ -21,11 +21,14 @@ pub struct ExporterState {
     
     // Output
     pub file_name: String,
-    pub name_prefix: String, // ADDED: Stores "334-2.attack" part
+    pub name_prefix: String,
     pub format: ExportFormat,
     pub quality: QualityLevel,
     pub interpolation: bool,
     
+    // Showcase Feature
+    pub showcase_mode: bool,
+
     // Processing State
     pub is_processing: bool,
     pub current_progress: i32,
@@ -55,11 +58,13 @@ impl Default for ExporterState {
             region_h: 300.0,
             
             file_name: String::new(),
-            name_prefix: String::new(), // ADDED
+            name_prefix: String::new(),
             format: ExportFormat::Gif,
             quality: QualityLevel::High,
             interpolation: false,
             
+            showcase_mode: false, // Default off
+
             is_processing: false,
             current_progress: 0,
             tx: None,

@@ -51,6 +51,9 @@ pub struct AnimViewer {
     pub export_selection_start: Option<egui::Pos2>,
     pub export_state: ExporterState,
     pub show_export_popup: bool,
+    
+    // Helper to track cached attack length for showcase
+    pub showcase_attack_len_cache: i32,
 }
 
 impl Default for AnimViewer {
@@ -92,24 +95,33 @@ impl Default for AnimViewer {
             export_selection_start: None,
             export_state: ExporterState::default(),
             show_export_popup: false,
+            showcase_attack_len_cache: 0,
         }
     }
 }
 
 impl AnimViewer {
     fn update_export_state(&mut self) {
-        // Handle Frame limits (safe for None anim)
-        if let Some(anim) = &self.current_anim {
-            self.export_state.max_frame = anim.max_frame;
-            self.export_state.frame_start = 0;
-            self.export_state.frame_end = anim.max_frame;
+        // [CRITICAL FIX]
+        // If Showcase Mode is active, we MUST NOT overwrite frame limits with the 
+        // currently loaded animation's limits. The frames are controlled by the 
+        // showcase logic (fixed 1000 buffer or calculated total).
+        if self.export_state.showcase_mode {
+             // We still update the name prefix below, but we skip frame resets.
         } else {
-            self.export_state.max_frame = 0;
-            self.export_state.frame_start = 0;
-            self.export_state.frame_end = 0;
+            // Standard Mode: Sync frames to current animation
+            if let Some(anim) = &self.current_anim {
+                self.export_state.max_frame = anim.max_frame;
+                self.export_state.frame_start = 0;
+                self.export_state.frame_end = anim.max_frame;
+            } else {
+                self.export_state.max_frame = 0;
+                self.export_state.frame_start = 0;
+                self.export_state.frame_end = 0;
+            }
+            self.export_state.frame_start_str.clear(); 
+            self.export_state.frame_end_str.clear();
         }
-        self.export_state.frame_start_str.clear(); 
-        self.export_state.frame_end_str.clear();
 
         // 1. Determine Animation Type String
         let type_str = match self.loaded_anim_index {
@@ -313,7 +325,6 @@ impl AnimViewer {
         if self.is_selecting_export_region {
             ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(50));
 
-            // CHANGED: Use Tooltip layer via a layer_painter so it sits physically above the Foreground Expanded Viewer
             let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("anim_export_tip")));
 
             let tip_text = "Right click & drag to set camera";
@@ -334,7 +345,6 @@ impl AnimViewer {
                 egui::Stroke::new(1.0, egui::Color32::from_gray(180))
             );
             
-            // Note: If egui version requires color, supply it.
             painter.galley(tip_rect.min + egui::vec2(bg_margin, bg_margin), galley, egui::Color32::WHITE);
 
             if let Some(pos) = hover_pos {
@@ -377,22 +387,116 @@ impl AnimViewer {
             }
         }
 
-        if self.export_state.is_processing {
-            if let (Some(model), Some(anim), Some(sheet)) = (&self.held_model, &self.current_anim, &self.held_sheet) {
-                anim_exporter::process_frame(
-                    ui, 
-                    rect,
-                    &mut self.export_state, 
-                    model, 
-                    anim, 
-                    sheet, 
-                    self.renderer.clone()
-                );
-                ui.ctx().request_repaint();
+        // =====================================================================================
+        // PHASE 1: PRE-RENDER UPDATES (Mutable Self Access)
+        // Handle Showcase Logic & Animation Switching
+        // =====================================================================================
+        let mut showcase_render_time = 0.0;
+        let mut showcase_active_anim_idx = self.loaded_anim_index;
+
+        if self.export_state.is_processing && self.export_state.showcase_mode {
+            let walk_dur = 90;
+            let idle_dur = 90;
+            let kb_dur = 90;
+            
+            let p = self.export_state.current_progress;
+            
+            let mut target_index = anim_controls::IDX_WALK; // Default
+            
+            // Determine Phase
+            if p < walk_dur {
+                target_index = anim_controls::IDX_WALK;
+                showcase_render_time = (p % walk_dur) as f32; // Loop walk
+            } else if p < walk_dur + idle_dur {
+                target_index = anim_controls::IDX_IDLE;
+                showcase_render_time = ((p - walk_dur) % idle_dur) as f32;
+            } else {
+                // Attack / KB Phase
+                let attack_start = walk_dur + idle_dur;
+                let rel_p = p - attack_start;
+
+                if self.showcase_attack_len_cache > 0 {
+                    if rel_p < self.showcase_attack_len_cache {
+                        target_index = anim_controls::IDX_ATTACK;
+                        showcase_render_time = rel_p as f32;
+                    } else {
+                        target_index = anim_controls::IDX_KB;
+                        let kb_rel = rel_p - self.showcase_attack_len_cache;
+                        showcase_render_time = (kb_rel % kb_dur) as f32;
+                    }
+                } else {
+                    // Unknown length -> Assume Attack to load it
+                    target_index = anim_controls::IDX_ATTACK;
+                    showcase_render_time = rel_p as f32;
+                }
             }
+
+            // Perform Animation Switch
+            if self.loaded_anim_index != target_index {
+                if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == target_index) {
+                     self.load_anim(path);
+                     self.loaded_anim_index = target_index; 
+                     
+                     // Cache attack length if we just loaded it
+                     if target_index == anim_controls::IDX_ATTACK {
+                         if let Some(anim) = &self.current_anim {
+                             self.showcase_attack_len_cache = anim.max_frame;
+                             let total_frames = walk_dur + idle_dur + anim.max_frame + kb_dur;
+                             
+                             // Update export limit to exact value
+                             self.export_state.frame_end = total_frames;
+                             self.export_state.max_frame = total_frames;
+                         }
+                     }
+                }
+            }
+            showcase_active_anim_idx = target_index;
         }
 
-        if let (Some(model), Some(sprite_sheet)) = (&self.held_model, &self.held_sheet) {
+        // =====================================================================================
+        // PHASE 2: RENDER (Immutable Self Access)
+        // =====================================================================================
+        if let (Some(model), Some(sheet)) = (&self.held_model, &self.held_sheet) {
+            
+            if self.export_state.is_processing {
+                let time_to_use = if self.export_state.showcase_mode {
+                    if let Some(anim) = &self.current_anim {
+                        if showcase_active_anim_idx == anim_controls::IDX_WALK || showcase_active_anim_idx == anim_controls::IDX_IDLE || showcase_active_anim_idx == anim_controls::IDX_KB {
+                            let max = if anim.max_frame == 0 { 1 } else { anim.max_frame };
+                            showcase_render_time % (max as f32)
+                        } else {
+                            // Attack (One shot)
+                            if showcase_render_time > anim.max_frame as f32 {
+                                anim.max_frame as f32
+                            } else {
+                                showcase_render_time
+                            }
+                        }
+                    } else {
+                        0.0
+                    }
+                } else {
+                     let start = self.export_state.frame_start;
+                     let step = if self.export_state.frame_start < self.export_state.frame_end { 1 } else { -1 };
+                     (start + (self.export_state.current_progress * step)) as f32
+                };
+
+                if let Some(anim) = &self.current_anim {
+                     anim_exporter::process_frame(
+                        ui, 
+                        rect,
+                        &mut self.export_state, 
+                        model, 
+                        anim, 
+                        sheet, 
+                        self.renderer.clone(),
+                        time_to_use
+                    );
+                }
+                ui.ctx().request_repaint();
+            }
+
+            // Viewport Rendering
             let parts_to_draw = if let Some(anim) = &self.current_anim {
                 let render_frame = self.current_frame;
 
@@ -409,12 +513,12 @@ impl AnimViewer {
             };
 
             let sheet_arc = Arc::new(SpriteSheet {
-                texture_handle: sprite_sheet.texture_handle.clone(),
-                image_data: sprite_sheet.image_data.clone(),
-                cuts_map: sprite_sheet.cuts_map.clone(),
-                is_loading_active: sprite_sheet.is_loading_active,
+                texture_handle: sheet.texture_handle.clone(),
+                image_data: sheet.image_data.clone(),
+                cuts_map: sheet.cuts_map.clone(),
+                is_loading_active: sheet.is_loading_active,
                 data_receiver: None, 
-                sheet_name: sprite_sheet.sheet_name.clone(),
+                sheet_name: sheet.sheet_name.clone(),
             });
 
             canvas::paint(ui, rect, self.renderer.clone(), sheet_arc, parts_to_draw, self.pan_offset, self.zoom_level, allow_update);
