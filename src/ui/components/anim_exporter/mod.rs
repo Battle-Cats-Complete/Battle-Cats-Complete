@@ -33,22 +33,77 @@ pub fn show_popup(
     let mut open_local = *is_open;
     let allow_drag = state.drag_guard.update(&ctx);
 
-    egui::Window::new("Export Animation")
+    // STYLE HACK: Disable side resize grabs to prevent "pushing" the window position
+    let saved_style = ctx.style();
+    let mut style = (*saved_style).clone();
+    style.interaction.resize_grab_radius_side = 0.0;
+    ctx.set_style(style);
+
+    // MANUAL CLAMP LOGIC:
+    // We check where the window was last frame. If the header is off-screen,
+    // we force it back onto the screen for this frame.
+    // This gives us "Walls" without the "Bouncy" resizing of .constrain(true).
+    let window_id = egui::Id::new("Export Animation");
+    let mut fixed_pos = None;
+
+    if let Some(rect) = ctx.memory(|mem| mem.area_rect(window_id)) {
+        let screen_rect = ctx.screen_rect();
+        let mut new_pos = rect.min;
+        let mut changed = false;
+
+        // 1. Top Constraint (The most important one)
+        // Prevent header from going above the screen
+        if new_pos.y < screen_rect.top() {
+            new_pos.y = screen_rect.top();
+            changed = true;
+        }
+
+        // 2. Bottom Constraint 
+        // Ensure at least the header (approx 30px) is visible at the bottom
+        if new_pos.y > screen_rect.bottom() - 30.0 {
+            new_pos.y = screen_rect.bottom() - 30.0;
+            changed = true;
+        }
+
+        // 3. Horizontal Constraints
+        // Ensure at least 50px of the window is visible horizontally
+        if new_pos.x + rect.width() - 50.0 < screen_rect.left() {
+            new_pos.x = screen_rect.left() - rect.width() + 50.0;
+            changed = true;
+        }
+        if new_pos.x + 50.0 > screen_rect.right() {
+            new_pos.x = screen_rect.right() - 50.0;
+            changed = true;
+        }
+
+        if changed {
+            fixed_pos = Some(new_pos);
+        }
+    }
+
+    let mut window = egui::Window::new("Export Animation")
+        .id(window_id) // IMPORTANT: We must explicitly set ID to match our memory lookup
         .open(&mut open_local)
-        // CHANGED: Foreground -> Tooltip. 
-        // This ensures the popup appears ABOVE the expanded viewer (which is now Foreground).
         .order(egui::Order::Tooltip) 
-        .constrain(true)             
+        .constrain(false) // Keep false to allow smooth bottom-right resizing
         .movable(allow_drag)         
         .collapsible(false)
-        .resizable(false)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.screen_rect().center())
-        .fixed_size(egui::vec2(400.0, 520.0))
-        .show(&ctx, |ui| {
-            render_content(ui, state, model, anim, sheet, is_open, start_region_selection);
-        });
+        .resizable(true) 
+        .min_size(egui::vec2(250.0, 300.0)) 
+        .default_size(egui::vec2(400.0, 520.0)) 
+        .default_pos(ctx.screen_rect().center() - egui::vec2(200.0, 260.0));
+
+    // Apply the clamped position if we calculated one
+    if let Some(pos) = fixed_pos {
+        window = window.current_pos(pos);
+    }
+        
+    window.show(&ctx, |ui| {
+        render_content(ui, state, model, anim, sheet, is_open, start_region_selection);
+    });
     
+    ctx.set_style(saved_style);
+
     if !open_local {
         *is_open = false;
     }
@@ -67,7 +122,6 @@ fn render_content(
         if let Some(a) = anim {
             let full_length = a.max_frame;
             state.max_frame = full_length;
-            // Default to max_frame if input is empty
             if state.frame_end_str.is_empty() {
                 state.frame_end = full_length;
             }
@@ -75,7 +129,6 @@ fn render_content(
         state.anim_name = "Animation".to_string(); 
     }
     
-    // Check for encoder status
     if state.is_processing {
         if let Ok(rx_opt) = STATUS_RX.lock() {
             if let Some(rx) = rx_opt.as_ref() {
@@ -240,7 +293,6 @@ fn render_content(
                 });
             
             ui.horizontal(|ui| {
-                // FIXED: Now we have the import for this function
                 toggle_ui(ui, &mut state.interpolation);
                 ui.label("Interpolation");
             });
