@@ -84,7 +84,7 @@ pub fn show_popup(
     let mut window = egui::Window::new("Export Animation")
         .id(window_id) // IMPORTANT: We must explicitly set ID to match our memory lookup
         .open(&mut open_local)
-        .order(egui::Order::Tooltip) 
+        .order(egui::Order::Foreground) 
         .constrain(false) // Keep false to allow smooth bottom-right resizing
         .movable(allow_drag)         
         .collapsible(false)

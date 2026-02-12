@@ -206,7 +206,9 @@ impl eframe::App for BattleCatsApp {
             egui::Area::new("sidebar_area".into())
                 .constrain(false)
                 .fixed_pos(egui::pos2(sidebar_x, 0.0))
-                .order(egui::Order::Middle) 
+                // CHANGED: Middle -> Background.
+                // This allows the "Middle" Fullscreen Viewer to cover it.
+                .order(egui::Order::Background) 
                 .show(ctx, |ui| {
                     egui::Frame::none()
                         .fill(egui::Color32::from_rgb(20, 20, 20))
@@ -237,7 +239,7 @@ impl eframe::App for BattleCatsApp {
 
         egui::Area::new("toggle_btn".into())
             .fixed_pos(egui::pos2(button_x, 2.5))
-            .order(egui::Order::Middle)
+            .order(egui::Order::Background)
             .show(ctx, |ui| {
                 let arrow = if self.sidebar_open { "▶" } else { "◀" };
                 let btn = egui::Button::new(egui::RichText::new(arrow).size(20.0).strong())
