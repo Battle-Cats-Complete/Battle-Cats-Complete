@@ -47,12 +47,10 @@ pub fn show_popup(
             new_pos.y = screen_rect.top();
             changed = true;
         }
-
         if new_pos.y > screen_rect.bottom() - 30.0 {
             new_pos.y = screen_rect.bottom() - 30.0;
             changed = true;
         }
-
         if new_pos.x + rect.width() - 50.0 < screen_rect.left() {
             new_pos.x = screen_rect.left() - rect.width() + 50.0;
             changed = true;
@@ -61,7 +59,6 @@ pub fn show_popup(
             new_pos.x = screen_rect.right() - 50.0;
             changed = true;
         }
-
         if changed {
             fixed_pos = Some(new_pos);
         }
@@ -145,54 +142,69 @@ fn render_content(
 
             // Showcase Toggle
             ui.horizontal(|ui| {
+                 let old_mode = state.showcase_mode;
                  if toggle_ui(ui, &mut state.showcase_mode).changed() {
-                     if state.showcase_mode {
+                     if state.showcase_mode && !old_mode {
+                         state.showcase_walk_str.clear();
+                         state.showcase_idle_str.clear();
+                         state.showcase_kb_str.clear();
                          state.frame_start = 0;
-                         state.frame_start_str = "0".to_string();
-                         // Initialize with high buffer so it doesn't auto-finish before AnimViewer calculates total
-                         state.frame_end = 1000; 
-                         state.frame_end_str = "Auto".to_string();
                      }
                  }
-                 ui.label("Showcase Mode").on_hover_text("Walk (3s) -> Idle (3s) -> Attack -> Knockback (3s)");
+                 ui.label("Showcase Mode").on_hover_text("Exports a sequence: Walk -> Idle -> Attack -> Knockback");
             });
             ui.add_space(5.0);
 
-            ui.horizontal(|ui| {
-                ui.label("Frames");
-                
-                let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
-                
-                ui.add_enabled(!state.showcase_mode, egui::TextEdit::singleline(&mut state.frame_start_str)
-                    .hint_text(start_hint)
-                    .desired_width(40.0));
-                
-                if !state.showcase_mode {
-                    if state.frame_start_str.is_empty() {
-                        state.frame_start = 0;
-                    } else if let Ok(val) = state.frame_start_str.parse::<i32>() {
-                        state.frame_start = val;
+            if !state.showcase_mode {
+                // Standard UI
+                ui.horizontal(|ui| {
+                    ui.label("Frames");
+                    let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
+                    ui.add(egui::TextEdit::singleline(&mut state.frame_start_str).hint_text(start_hint).desired_width(40.0));
+                    
+                    if state.frame_start_str.is_empty() { state.frame_start = 0; } 
+                    else if let Ok(val) = state.frame_start_str.parse::<i32>() { state.frame_start = val; }
+
+                    ui.label("to");
+                    let end_hint = egui::RichText::new(state.max_frame.to_string()).color(egui::Color32::GRAY);
+                    ui.add(egui::TextEdit::singleline(&mut state.frame_end_str).hint_text(end_hint).desired_width(40.0));
+
+                    if state.frame_end_str.is_empty() { state.frame_end = state.max_frame; } 
+                    else if let Ok(val) = state.frame_end_str.parse::<i32>() { state.frame_end = val; }
+                });
+            } else {
+                // Showcase UI
+                let hint_90 = egui::RichText::new("90").color(egui::Color32::GRAY);
+
+                egui::Grid::new("showcase_grid").spacing([10.0, 4.0]).show(ui, |ui| {
+                    ui.label("Walk Frames");
+                    if ui.add(egui::TextEdit::singleline(&mut state.showcase_walk_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
+                        state.showcase_walk_len = state.showcase_walk_str.parse().unwrap_or(if state.showcase_walk_str.is_empty() { 90 } else { 0 });
                     }
-                }
+                    if state.showcase_walk_str.is_empty() { state.showcase_walk_len = 90; }
+                    ui.end_row();
 
-                ui.label("to");
-                
-                let end_hint = egui::RichText::new(state.max_frame.to_string()).color(egui::Color32::GRAY);
-                ui.add_enabled(!state.showcase_mode, egui::TextEdit::singleline(&mut state.frame_end_str)
-                    .hint_text(end_hint)
-                    .desired_width(40.0));
-
-                if !state.showcase_mode {
-                    if state.frame_end_str.is_empty() {
-                        state.frame_end = state.max_frame;
-                    } else if let Ok(val) = state.frame_end_str.parse::<i32>() {
-                        state.frame_end = val;
+                    ui.label("Idle Frames");
+                    if ui.add(egui::TextEdit::singleline(&mut state.showcase_idle_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
+                        state.showcase_idle_len = state.showcase_idle_str.parse().unwrap_or(if state.showcase_idle_str.is_empty() { 90 } else { 0 });
                     }
-                }
-            });
+                    if state.showcase_idle_str.is_empty() { state.showcase_idle_len = 90; }
+                    ui.end_row();
 
-            // ... (Camera and Output Sections remain same) ...
-            
+                    ui.label("Attack Frames");
+                    let atk_len_str = if state.showcase_attack_len > 0 { state.showcase_attack_len.to_string() } else { "?".to_string() };
+                    ui.add_enabled(false, egui::TextEdit::singleline(&mut atk_len_str.clone()).desired_width(50.0));
+                    ui.end_row();
+
+                    ui.label("Knockback");
+                    if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
+                        state.showcase_kb_len = state.showcase_kb_str.parse().unwrap_or(if state.showcase_kb_str.is_empty() { 90 } else { 0 });
+                    }
+                    if state.showcase_kb_str.is_empty() { state.showcase_kb_len = 90; }
+                    ui.end_row();
+                });
+            }
+
             ui.add_space(20.0);
             ui.heading("Camera"); 
             ui.add_space(5.0);
@@ -202,7 +214,6 @@ fn render_content(
                     *start_region_selection = true;
                     *is_open = false; 
                 }
-                
                 if ui.button("Reset").clicked() {
                     state.region_x = -150.0;
                     state.region_y = -150.0;
@@ -211,29 +222,18 @@ fn render_content(
                     state.zoom = 1.0;
                 }
             });
-            
             ui.add_space(5.0);
-            
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label("X"); 
-                ui.add(egui::DragValue::new(&mut state.region_x).speed(1.0));
-                
+                ui.label("X"); ui.add(egui::DragValue::new(&mut state.region_x).speed(1.0));
                 ui.add_space(10.0);
-                
-                ui.label("Y"); 
-                ui.add(egui::DragValue::new(&mut state.region_y).speed(1.0));
+                ui.label("Y"); ui.add(egui::DragValue::new(&mut state.region_y).speed(1.0));
             });
-            
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label("W"); 
-                ui.add(egui::DragValue::new(&mut state.region_w).range(1.0..=2000.0).speed(1.0));
-                
+                ui.label("W"); ui.add(egui::DragValue::new(&mut state.region_w).range(1.0..=2000.0).speed(1.0));
                 ui.add_space(8.0);
-                
-                ui.label("H"); 
-                ui.add(egui::DragValue::new(&mut state.region_h).range(1.0..=2000.0).speed(1.0));
+                ui.label("H"); ui.add(egui::DragValue::new(&mut state.region_h).range(1.0..=2000.0).speed(1.0));
             });
 
             ui.add_space(20.0);
@@ -243,12 +243,18 @@ fn render_content(
             ui.horizontal(|ui| {
                 ui.label("Name");
                 
-                let range_part = if state.showcase_mode {
-                    "showcase".to_string()
-                } else if state.frame_start == state.frame_end {
-                    format!("{}f", state.frame_start)
+                // GENERATE NAME HINT
+                let (disp_start, disp_end) = if state.showcase_mode {
+                     let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
+                     (0, total)
                 } else {
-                    format!("{}f~{}f", state.frame_start, state.frame_end)
+                     (state.frame_start, state.frame_end)
+                };
+
+                let range_part = if disp_start == disp_end {
+                    format!("{}f", disp_start)
+                } else {
+                    format!("{}f~{}f", disp_start, disp_end)
                 };
 
                 let clean_prefix = state.name_prefix
@@ -259,36 +265,19 @@ fn render_content(
                 
                 let prefix_display = if state.showcase_mode {
                      let p: Vec<&str> = clean_prefix.split('.').collect();
-                     if !p.is_empty() {
-                         format!("{}.showcase", p[0])
-                     } else {
-                         "unit.showcase".to_string()
-                     }
+                     if !p.is_empty() { format!("{}.showcase", p[0]) } else { "unit.showcase".to_string() }
                 } else {
                     clean_prefix.clone()
                 };
 
-                let hint_str = if prefix_display.is_empty() {
-                    "animation".to_string()
-                } else {
-                    if state.showcase_mode {
-                        prefix_display
-                    } else {
-                        format!("{}.{}", prefix_display, range_part)
-                    }
+                let hint_str = if prefix_display.is_empty() { "animation".to_string() } else {
+                    format!("{}.{}", prefix_display, range_part)
                 };
                 
-                let name_hint = egui::RichText::new(&hint_str).color(egui::Color32::GRAY);
-                
-                ui.add(egui::TextEdit::singleline(&mut state.file_name)
-                    .hint_text(name_hint)
-                    .desired_width(120.0));
+                ui.add(egui::TextEdit::singleline(&mut state.file_name).hint_text(egui::RichText::new(&hint_str).color(egui::Color32::GRAY)).desired_width(120.0));
             });
 
-            egui::Grid::new("out_grid")
-                .num_columns(2)
-                .spacing([10.0, 8.0]) 
-                .show(ui, |ui| {
+            egui::Grid::new("out_grid").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
                     ui.label("Format");
                     egui::ComboBox::from_id_salt("fmt_combo")
                         .selected_text(match state.format {
@@ -306,15 +295,13 @@ fn render_content(
                     ui.end_row();
 
                     ui.label("Quality");
-                    egui::ComboBox::from_id_salt("qual_combo")
-                        .selected_text(format!("{:?}", state.quality))
-                        .show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("qual_combo").selected_text(format!("{:?}", state.quality)).show_ui(ui, |ui| {
                             ui.selectable_value(&mut state.quality, QualityLevel::Low, "Low");
                             ui.selectable_value(&mut state.quality, QualityLevel::Medium, "Medium");
                             ui.selectable_value(&mut state.quality, QualityLevel::High, "High");
                         });
                     ui.end_row();
-                });
+            });
             
             ui.horizontal(|ui| {
                 toggle_ui(ui, &mut state.interpolation);
@@ -338,11 +325,10 @@ fn render_content(
             }
         });
         
-        // ... (Progress bar logic same as before) ...
         ui.add_space(5.0);
 
         let count = (state.frame_end - state.frame_start).abs() + 1;
-        let ratio = if count == 0 { 0.0 } else { state.current_progress as f32 / count as f32 };
+        let ratio = if count == 0 { 0.0 } else { (state.current_progress as f32 / count as f32).min(1.0) };
 
         let (progress_val, label_text) = if state.is_processing {
             (ratio, format!("Rendering... {:.0}% ({}/{})", ratio * 100.0, state.current_progress, count))
@@ -359,11 +345,7 @@ fn render_content(
                     }
                 },
                 None => {
-                    if ratio > 0.0 && ratio < 1.0 {
-                         (ratio, "Paused".to_string())
-                    } else {
-                         (1.0, "Ready".to_string()) 
-                    }
+                    if ratio > 0.0 && ratio < 1.0 { (ratio, "Paused".to_string()) } else { (1.0, "Ready".to_string()) }
                 }
             }
         };
@@ -382,70 +364,53 @@ fn start_export(state: &mut ExporterState) {
     state.current_progress = 0;
     state.completion_time = None; 
     
-    // [CRITICAL FIX] Enforce Showcase constraints immediately before starting
     if state.showcase_mode {
         state.frame_start = 0;
-        // Ensure we have at least 1000 frames so export doesn't quit early.
-        // The real length will be calculated by AnimViewer in the first few frames.
-        if state.frame_end < 1000 {
-            state.frame_end = 1000;
-        }
+        let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
+        state.frame_end = if total > 0 { total } else { 100 }; 
     }
 
     let file_name = if state.file_name.trim().is_empty() {
-        // ... (Naming logic same as previous) ...
-        let range_part = if state.showcase_mode {
-            "showcase".to_string()
-        } else if state.frame_start == state.frame_end {
-            format!("{}f", state.frame_start)
+        let (disp_start, disp_end) = if state.showcase_mode {
+             let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
+             (0, total)
         } else {
-            format!("{}f~{}f", state.frame_start, state.frame_end)
+             (state.frame_start, state.frame_end)
         };
 
-        let clean_prefix = state.name_prefix
-            .replace("_0", "")
-            .replace("_f", "-1")
-            .replace("_c", "-2")
-            .replace("_s", "-3");
+        let range_part = if disp_start == disp_end {
+            format!("{}f", disp_start)
+        } else {
+            format!("{}f~{}f", disp_start, disp_end)
+        };
 
+        let clean_prefix = state.name_prefix.replace("_0", "").replace("_f", "-1").replace("_c", "-2").replace("_s", "-3");
         let prefix_display = if state.showcase_mode {
              let p: Vec<&str> = clean_prefix.split('.').collect();
-             if !p.is_empty() {
-                 format!("{}.showcase", p[0])
-             } else {
-                 "unit.showcase".to_string()
-             }
-        } else {
-            clean_prefix.clone()
-        };
+             if !p.is_empty() { format!("{}.showcase", p[0]) } else { "unit.showcase".to_string() }
+        } else { clean_prefix.clone() };
 
-        if prefix_display.is_empty() {
-            "animation".to_string()
-        } else {
-            if state.showcase_mode {
-                prefix_display
-            } else {
-                format!("{}.{}", prefix_display, range_part)
-            }
+        if prefix_display.is_empty() { "animation".to_string() } else {
+            format!("{}.{}", prefix_display, range_part)
         }
-    } else {
-        state.file_name.clone()
-    };
+    } else { state.file_name.clone() };
 
     let mut output_path = std::env::current_dir().unwrap_or(PathBuf::from("."));
     output_path.push("exports");
-    output_path.push(file_name);
     
+    // FIX: Manually append extension to avoid overwriting the filename's last part (e.g. .0f~90f)
+    let mut final_name = file_name;
     if let Some(ext) = match state.format {
         ExportFormat::Gif => Some("gif"),
         ExportFormat::WebP => Some("webp"),
         ExportFormat::Avif => Some("avif"),
-        ExportFormat::PngSequence => Some("png"),
+        ExportFormat::PngSequence => None,
     } {
-            if state.format != ExportFormat::PngSequence {
-                output_path.set_extension(ext);
-            }
+        if !final_name.to_lowercase().ends_with(&format!(".{}", ext)) {
+             final_name = format!("{}.{}", final_name, ext);
+        }
     }
+    output_path.push(final_name);
 
     let config = ExportConfig {
         width: state.region_w as u32,
@@ -464,13 +429,8 @@ fn start_export(state: &mut ExporterState) {
 
     let (tx, rx) = mpsc::channel();
     let (status_tx, status_rx) = mpsc::channel();
-    
-    if let Ok(mut lock) = STATUS_RX.lock() {
-        *lock = Some(status_rx);
-    }
-
+    if let Ok(mut lock) = STATUS_RX.lock() { *lock = Some(status_rx); }
     state.tx = Some(tx);
-    
     export::start_encoding_thread(config, rx, status_tx);
 }
 
@@ -482,12 +442,13 @@ pub fn process_frame(
     anim: &Animation,
     sheet: &SpriteSheet,
     renderer_ref: Arc<Mutex<Option<GlowRenderer>>>,
-    current_time: f32, // CHANGED: Explicit time, decoupled from state.current_progress logic
+    current_time: f32, 
 ) {
     if state.tx.is_none() { return; }
 
     let count = (state.frame_end - state.frame_start).abs() + 1;
     
+    // Check if we are done
     if state.current_progress >= count {
         if let Some(tx) = state.tx.take() {
             let _ = tx.send(EncoderMessage::Finish);
@@ -496,49 +457,22 @@ pub fn process_frame(
     }
 
     let frame_delay = 1000.0 / state.fps as f32;
-
-    let parts = if state.interpolation {
-        smooth::animate(model, anim, current_time)
-    } else {
-        animator::animate(model, anim, current_time)
-    };
-    
+    let parts = if state.interpolation { smooth::animate(model, anim, current_time) } else { animator::animate(model, anim, current_time) };
     let world_parts = transform::solve_hierarchy(&parts, model);
-
-    let pan_x = -state.region_x - (state.region_w as f32 / (2.0 * state.zoom));
-    let pan_y = -state.region_y - (state.region_h as f32 / (2.0 * state.zoom));
-    let pan = egui::vec2(pan_x, pan_y);
-
-    let bg_color = if state.format == ExportFormat::Gif {
-        [50, 50, 50, 255]
-    } else {
-        [0, 0, 0, 0]
-    };
+    let pan = egui::vec2(-state.region_x - (state.region_w as f32 / (2.0 * state.zoom)), -state.region_y - (state.region_h as f32 / (2.0 * state.zoom)));
+    let bg_color = if state.format == ExportFormat::Gif { [50, 50, 50, 255] } else { [0, 0, 0, 0] };
 
     let renderer_arc = renderer_ref.clone();
     let sheet_arc = Arc::new(sheet.clone()); 
     let tx = if let Some(t) = state.tx.as_ref() { t.clone() } else { return };
-    
-    let w = state.region_w;
-    let h = state.region_h;
-    let z = state.zoom;
+    let (w, h, z) = (state.region_w, state.region_h, state.zoom);
     
     ui.painter().add(egui::PaintCallback {
         rect, 
         callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |_, painter| {
             let mut lock = renderer_arc.lock().unwrap();
             if let Some(renderer) = lock.as_mut() {
-                let img = export::render_frame(
-                    renderer,
-                    painter.gl(), 
-                    w as u32, h as u32, 
-                    &world_parts, 
-                    &sheet_arc, 
-                    pan,
-                    z,
-                    bg_color
-                );
-                
+                let img = export::render_frame(renderer, painter.gl(), w as u32, h as u32, &world_parts, &sheet_arc, pan, z, bg_color);
                 let _ = tx.send(EncoderMessage::Frame(img, frame_delay as u32));
             }
         })),
