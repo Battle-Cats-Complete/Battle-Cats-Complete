@@ -30,8 +30,8 @@ pub fn show(
         (IDX_WALK, "Walk"), 
         (IDX_IDLE, "Idle"), 
         (IDX_ATTACK, "Attack"), 
-        (IDX_KB, "Knockback"),
-        (IDX_BURROW, "Burrow"),
+        (IDX_KB, "Knockback"), 
+        (IDX_BURROW, "Burrow"), 
         (IDX_SURFACE, "Surface")
     ];
     
@@ -243,7 +243,10 @@ pub fn show(
     if anim_viewer.is_expanded {
         egui::Area::new("expanded_anim_viewer_area".into())
             .fixed_pos(egui::pos2(0.0, 0.0))
-            .order(egui::Order::Tooltip) 
+            // CHANGED: Tooltip -> Foreground.
+            // This is Layer 2. It covers the Sidebar (Middle - Layer 1).
+            // But it is below Popups (Tooltip - Layer 3).
+            .order(egui::Order::Foreground) 
             .show(ctx, |ui| {
                 let screen_rect = ctx.screen_rect();
                 egui::Frame::window(&ctx.style())

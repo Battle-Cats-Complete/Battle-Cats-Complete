@@ -311,13 +311,11 @@ impl AnimViewer {
         }
 
         if self.is_selecting_export_region {
-            // Keep background dimming on the standard layer
             ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(50));
 
-            // FIX: Use Foreground Painter to ensure the tooltip is physically above the GL canvas
-            let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("anim_export_tip")));
+            // CHANGED: Use Tooltip layer via a layer_painter so it sits physically above the Foreground Expanded Viewer
+            let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("anim_export_tip")));
 
-            // Styled Overlay for Instructions
             let tip_text = "Right click & drag to set camera";
             let font_id = egui::FontId::proportional(13.0);
             let galley = painter.layout_no_wrap(tip_text.to_string(), font_id, egui::Color32::WHITE);
@@ -326,7 +324,6 @@ impl AnimViewer {
             let bg_w = galley.size().x + bg_margin * 2.0;
             let bg_h = galley.size().y + bg_margin * 2.0;
             
-            // Position at top center with some padding
             let top_center = rect.center_top() + egui::vec2(0.0, 30.0);
             let tip_rect = egui::Rect::from_center_size(top_center, egui::vec2(bg_w, bg_h));
             
@@ -337,6 +334,7 @@ impl AnimViewer {
                 egui::Stroke::new(1.0, egui::Color32::from_gray(180))
             );
             
+            // Note: If egui version requires color, supply it.
             painter.galley(tip_rect.min + egui::vec2(bg_margin, bg_margin), galley, egui::Color32::WHITE);
 
             if let Some(pos) = hover_pos {
