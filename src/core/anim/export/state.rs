@@ -1,5 +1,5 @@
 use std::sync::mpsc::Sender;
-use crate::core::anim::export::{ExportFormat, QualityLevel, EncoderMessage};
+use crate::core::anim::export::encoding::{ExportFormat, QualityLevel, EncoderMessage};
 use crate::core::utils::DragGuard;
 
 pub struct ExporterState {
@@ -14,14 +14,14 @@ pub struct ExporterState {
     pub showcase_mode: bool,
     pub showcase_walk_str: String,
     pub showcase_idle_str: String,
-    pub showcase_attack_str: String, // NEW: Input string for Attack
+    pub showcase_attack_str: String,
     pub showcase_kb_str: String,
     
     // Showcase Data (Parsed/Calculated)
     pub showcase_walk_len: i32,
     pub showcase_idle_len: i32,
-    pub detected_attack_len: i32, // NEW: Stores the auto-scanned length
-    pub showcase_attack_len: i32, // The final used length (User Input OR Detected)
+    pub detected_attack_len: i32,
+    pub showcase_attack_len: i32,
     pub showcase_kb_len: i32,
 
     pub fps: i32,
@@ -63,12 +63,12 @@ impl Default for ExporterState {
             showcase_mode: false,
             showcase_walk_str: String::new(),
             showcase_idle_str: String::new(),
-            showcase_attack_str: String::new(), // Default Empty
+            showcase_attack_str: String::new(), 
             showcase_kb_str: String::new(),
             
             showcase_walk_len: 90,
             showcase_idle_len: 90,
-            detected_attack_len: 0, // Default 0 until scanned
+            detected_attack_len: 0, 
             showcase_attack_len: 0, 
             showcase_kb_len: 90,
 

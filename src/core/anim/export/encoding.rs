@@ -18,7 +18,7 @@ use crate::data::global::imgcut::SpriteSheet;
 use crate::core::anim::transform::WorldTransform;
 
 // ==================================================================================
-// SECTION 1: CONFIGURATION & TYPES
+// CONFIGURATION & TYPES
 // ==================================================================================
 
 #[derive(Clone, Debug)]
@@ -65,7 +65,7 @@ pub enum EncoderStatus {
 }
 
 // ==================================================================================
-// SECTION 2: RENDERER BRIDGE
+// RENDERER BRIDGE
 // ==================================================================================
 
 pub fn render_frame(
@@ -123,9 +123,6 @@ pub fn render_frame(
         let mut pixels = vec![0u8; (width * height * 4) as usize];
         gl.read_pixels(0, 0, width as i32, height as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(&mut pixels));
 
-        // FIX: Just un-premultiply! 
-        // The shader now guarantees that "Glow" parts have correct alpha,
-        // so we treat everything uniformly.
         for chunk in pixels.chunks_exact_mut(4) {
             let alpha = chunk[3];
             if alpha > 0 && alpha < 255 {
@@ -152,7 +149,7 @@ pub fn render_frame(
 }
 
 // ==================================================================================
-// SECTION 3: ENCODER LOGIC
+// ENCODER LOGIC
 // ==================================================================================
 
 pub fn start_encoding_thread(
@@ -168,14 +165,11 @@ pub fn start_encoding_thread(
         match config.format {
             ExportFormat::Gif => {
                 let mut buffer = Vec::new();
-                
                 {
                     let mut writer = Cursor::new(&mut buffer);
                     let mut encoder = match GifEncoder::new(&mut writer, config.width as u16, config.height as u16, &[]) {
-                        Ok(e) => e,
-                        Err(_) => { return; }
+                        Ok(e) => e, Err(_) => { return; }
                     };
-
                     let _ = encoder.set_repeat(GifRepeat::Infinite);
 
                     while let Ok(msg) = rx.recv() {
@@ -183,16 +177,11 @@ pub fn start_encoding_thread(
                             EncoderMessage::Frame(img, delay_ms) => {
                                 let mut ticks = (delay_ms as f32 / 10.0).round() as u16;
                                 if ticks < 3 { ticks = 3; } 
-
                                 let mut pixels = img.into_vec();
                                 let mut frame = GifFrame::from_rgba(config.width as u16, config.height as u16, &mut pixels);
-                                
                                 frame.dispose = DisposalMethod::Any;
                                 frame.delay = ticks;
-
-                                if encoder.write_frame(&frame).is_err() {
-                                    break;
-                                }
+                                if encoder.write_frame(&frame).is_err() { break; }
                             },
                             EncoderMessage::Finish => {
                                 let _ = status_tx.send(EncoderStatus::Encoding);
@@ -201,10 +190,8 @@ pub fn start_encoding_thread(
                         }
                     }
                 } 
-                
                 let _ = fs::write(&config.output_path, &buffer);
             },
-
             ExportFormat::WebP => {
                 let mut encoder = WebpEncoder::new((config.width, config.height)).expect("Failed WebP");
                 let mut timestamp_ms = 0;
@@ -225,15 +212,9 @@ pub fn start_encoding_thread(
                     let _ = std::fs::write(&config.output_path, data);
                 }
             },
-
             ExportFormat::Avif => {
-                 let avif_path = match get_avifenc_path() {
-                    Ok(p) => p,
-                    Err(_) => { return; }
-                };
-                let speed_arg = match config.quality {
-                    QualityLevel::Low => "8", QualityLevel::Medium => "4", QualityLevel::High => "2",  
-                };
+                 let avif_path = match get_avifenc_path() { Ok(p) => p, Err(_) => { return; } };
+                let speed_arg = match config.quality { QualityLevel::Low => "8", QualityLevel::Medium => "4", QualityLevel::High => "2" };
                 
                 let mut child = Command::new(avif_path)
                     .args(&["--stdin", "--stdin-format", "raw", "--width", &config.width.to_string(), "--height", &config.height.to_string(), "--depth", "8", "--fps", &config.fps.to_string(), "--speed", speed_arg, "-o", &config.output_path.to_string_lossy()])
@@ -244,16 +225,12 @@ pub fn start_encoding_thread(
                     while let Ok(msg) = rx.recv() {
                         match msg {
                             EncoderMessage::Frame(img, _) => { let _ = stdin.write_all(&img.into_vec()); },
-                            EncoderMessage::Finish => {
-                                let _ = status_tx.send(EncoderStatus::Encoding);
-                                break;
-                            }
+                            EncoderMessage::Finish => { let _ = status_tx.send(EncoderStatus::Encoding); break; }
                         }
                     }
                 }
                 let _ = child.wait();
             },
-
             ExportFormat::PngSequence => {
                 let mut frame_idx = 0;
                 while let Ok(msg) = rx.recv() {
@@ -272,13 +249,12 @@ pub fn start_encoding_thread(
                 }
             }
         }
-        
         let _ = status_tx.send(EncoderStatus::Finished);
     })
 }
 
 // ==================================================================================
-// SECTION 4: DRIVER LOGIC
+// DRIVER LOGIC
 // ==================================================================================
 
 #[cfg(target_os = "windows")]
@@ -298,52 +274,31 @@ const TOOL_BINARY_NAME: &str = "avifenc";
 
 pub fn get_avifenc_path() -> Result<PathBuf, String> {
     let tool_dir = env::temp_dir().join("battle_cats_manager_tools");
-    
     if !tool_dir.exists() {
         fs::create_dir_all(&tool_dir).map_err(|e| format!("Failed to create tool dir: {}", e))?;
     }
-
     let binary_path = tool_dir.join(TOOL_BINARY_NAME);
-
-    if binary_path.exists() {
-        return Ok(binary_path);
-    }
+    if binary_path.exists() { return Ok(binary_path); }
 
     download_and_extract_tool(TOOL_URL, &tool_dir, TOOL_BINARY_NAME)?;
 
-    if binary_path.exists() {
-        Ok(binary_path)
-    } else {
-        Err("Download finished but binary was not found.".to_string())
-    }
+    if binary_path.exists() { Ok(binary_path) } else { Err("Download finished but binary was not found.".to_string()) }
 }
 
 fn download_and_extract_tool(url: &str, dest_dir: &PathBuf, binary_name: &str) -> Result<(), String> {
-    let response = reqwest::blocking::get(url)
-        .map_err(|e| format!("Failed to download tool: {}", e))?;
-    
-    let bytes = response.bytes()
-        .map_err(|e| format!("Failed to read bytes: {}", e))?;
-
+    let response = reqwest::blocking::get(url).map_err(|e| format!("Failed to download tool: {}", e))?;
+    let bytes = response.bytes().map_err(|e| format!("Failed to read bytes: {}", e))?;
     let reader = Cursor::new(bytes);
-    let mut archive = ZipArchive::new(reader)
-        .map_err(|e| format!("Failed to open zip: {}", e))?;
+    let mut archive = ZipArchive::new(reader).map_err(|e| format!("Failed to open zip: {}", e))?;
 
     let mut found = false;
-    
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-        
         if let Some(name) = file.enclosed_name() {
              if name.file_name().map(|n| n.to_str()).flatten() == Some(binary_name) {
-                
                 let out_path = dest_dir.join(binary_name);
-                let mut out_file = fs::File::create(&out_path)
-                    .map_err(|e| format!("Failed to create file: {}", e))?;
-                
-                io::copy(&mut file, &mut out_file)
-                    .map_err(|e| format!("Failed to extract: {}", e))?;
-
+                let mut out_file = fs::File::create(&out_path).map_err(|e| format!("Failed to create file: {}", e))?;
+                io::copy(&mut file, &mut out_file).map_err(|e| format!("Failed to extract: {}", e))?;
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -353,16 +308,10 @@ fn download_and_extract_tool(url: &str, dest_dir: &PathBuf, binary_name: &str) -
                         let _ = fs::set_permissions(&out_path, perms);
                     }
                 }
-
                 found = true;
                 break;
              }
         }
     }
-
-    if found {
-        Ok(())
-    } else {
-        Err(format!("Could not find '{}' in the zip.", binary_name))
-    }
+    if found { Ok(()) } else { Err(format!("Could not find '{}' in the zip.", binary_name)) }
 }
