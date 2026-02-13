@@ -4,8 +4,7 @@ use std::sync::{Arc, Mutex};
 use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
-use crate::core::anim::{animator, smooth, canvas, transform, center, controls};
-// UPDATED IMPORTS
+use crate::core::anim::{animator, smooth, canvas, transform, controls, bounds}; // REMOVED: center
 use crate::ui::components::anim::controls::{self as anim_controls};
 use crate::core::anim::export::state::ExporterState;
 use crate::core::anim::export::process;
@@ -109,6 +108,17 @@ impl AnimViewer {
             self.export_state.frame_end_str.clear();
         }
 
+        // Use Bounds to calculate Default Tight Camera for export
+        if let (Some(m), Some(s)) = (&self.held_model, &self.held_sheet) {
+            if let Some(bounds) = bounds::calculate_tight_bounds(m, self.current_anim.as_ref(), s) {
+                self.export_state.region_x = bounds.min.x;
+                self.export_state.region_y = bounds.min.y;
+                self.export_state.region_w = bounds.width();
+                self.export_state.region_h = bounds.height();
+                self.export_state.zoom = 1.0;
+            }
+        }
+
         let type_str = match self.loaded_anim_index {
             anim_controls::IDX_WALK => "walk",
             anim_controls::IDX_IDLE => "idle",
@@ -195,8 +205,8 @@ impl AnimViewer {
             if self.pending_initial_center {
                 if centering_behavior == 0 { 
                     if !model.parts.is_empty() {
-                        if let Some((offset, bounds)) = center::calculate_center_offset(model, self.current_anim.as_ref(), sheet) {
-                            let fit_zoom = center::calculate_zoom_fit(bounds, ui.available_size(), 0.75);
+                        // REPLACED: center::calculate_center_offset -> bounds::calculate_initial_view
+                        if let Some((offset, fit_zoom)) = bounds::calculate_initial_view(model, self.current_anim.as_ref(), sheet, ui.available_size()) {
                             new_center = Some((offset, fit_zoom));
                         }
                     }
@@ -274,8 +284,6 @@ impl AnimViewer {
             if let Some(pos) = hover_pos {
                 if right_down {
                     if self.export_selection_start.is_none() { 
-                        // [FIX] Strict check: Start is only valid if inside rect AND button was just pressed this frame.
-                        // This prevents dragging from outside the window into the viewer.
                         if rect.contains(pos) && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
                             self.export_selection_start = Some(pos); 
                         }
@@ -404,9 +412,8 @@ impl AnimViewer {
         let bg_fill = if self.is_expanded { egui::Color32::from_rgb(31, 106, 165) } else { egui::Color32::from_gray(60) };
         let btn_response = ui.put(btn_rect, |ui: &mut egui::Ui| {
              let btn = egui::Button::new(egui::RichText::new("⛶").size(20.0).color(egui::Color32::WHITE)).fill(bg_fill).stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60))).rounding(4.0);
-            let response = ui.add_sized(btn_size, btn);
-            if response.clicked() { self.is_expanded = !self.is_expanded; }
-            response
+            if ui.add_sized(btn_size, btn).clicked() { self.is_expanded = !self.is_expanded; }
+            ui.interact(btn_rect, ui.id().with("expand_btn"), egui::Sense::click())
         });
 
         let controls_hovered = anim_controls::render_controls_overlay(ui, rect, self, available_anims, spirit_available, base_assets_available, is_loading_new, spirit_sheet_id, form_viewer_id, spirit_pack, interpolation, native_fps);

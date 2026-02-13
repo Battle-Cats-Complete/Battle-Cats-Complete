@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use crate::data::global::imgcut::SpriteSheet;
 use super::transform::WorldTransform;
 
-// Shaders
+// Shaders - MATCHING JS SOURCE OF TRUTH (Simplified)
 const VERTEX_SHADER_SOURCE: &str = r#"
     precision lowp float;
     attribute vec2 a_position;
@@ -83,17 +83,14 @@ impl GlowRenderer {
 
     fn upload_texture(&mut self, gl_context: &glow::Context, sheet: &SpriteSheet, allow_update: bool) {
         unsafe {
-            // Cache Check
             if self.last_sheet_name == sheet.sheet_name && self.texture.is_some() {
                 return;
             }
 
-            // Safety Lock
             if !allow_update {
                 if self.texture.is_some() { return; }
             }
 
-            // Data Check
             let img = match &sheet.image_data {
                 Some(data) => data,
                 None => {
@@ -102,17 +99,13 @@ impl GlowRenderer {
                 },
             };
 
-            // Texture Recycling
             let tex_id = if let Some(existing_tex) = self.texture {
-                // Bind the existing texture ID
                 gl_context.bind_texture(glow::TEXTURE_2D, Some(existing_tex));
                 existing_tex
             } else {
-                // First time only
                 let new_tex = gl_context.create_texture().expect("Failed to create texture");
                 gl_context.bind_texture(glow::TEXTURE_2D, Some(new_tex));
                 
-                // Set parameters only on creation
                 gl_context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
                 gl_context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
                 gl_context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
@@ -121,10 +114,10 @@ impl GlowRenderer {
                 new_tex
             };
 
-            // Convert & Upload Pixels
             let pixels = &img.pixels;
             let mut data: Vec<u8> = Vec::with_capacity(pixels.len() * 4);
             
+            // Standard gamma correction and premultiplication
             let gamma: f32 = 1.883;
             let inv_gamma = 1.0 / gamma;
             let to_linear = |byte_val: u8| -> f32 { (byte_val as f32 / 255.0).powf(gamma) };
@@ -140,6 +133,7 @@ impl GlowRenderer {
                     let b_lin = to_linear(pixel.b());
                     let a_lin = a_byte as f32 / 255.0; 
 
+                    // Premultiply Alpha
                     let r_pre = r_lin * a_lin;
                     let g_pre = g_lin * a_lin;
                     let b_pre = b_lin * a_lin;
@@ -177,6 +171,14 @@ impl GlowRenderer {
             
             if self.texture.is_none() { return; }
 
+            // --- CRITICAL FIX: RENDER STATE ---
+            // 1. Disable Depth Testing: Fixes z-fighting on duplicate layers (450_c)
+            gl_context.disable(glow::DEPTH_TEST);
+            gl_context.depth_mask(false);
+            
+            // 2. Disable Culling: Fixes missing parts with negative scale (flipped parts)
+            gl_context.disable(glow::CULL_FACE);
+
             gl_context.use_program(Some(self.program));
             gl_context.bind_vertex_array(Some(self.vertex_array));
             gl_context.active_texture(glow::TEXTURE0);
@@ -205,24 +207,22 @@ impl GlowRenderer {
             let u_transform = gl_context.get_uniform_location(self.program, "u_transform");
             let u_opacity = gl_context.get_uniform_location(self.program, "u_opacity");
             let u_texture = gl_context.get_uniform_location(self.program, "u_texture");
-            // CHANGED: Get location for glow toggle
-            let u_is_glow = gl_context.get_uniform_location(self.program, "u_is_glow");
             
             gl_context.uniform_1_i32(u_texture.as_ref(), 0);
 
+            // Enable Blending once
             gl_context.enable(glow::BLEND);
 
             for part in parts {
                 if part.hidden || part.opacity < 0.005 { continue; }
 
-                // CHANGED: Set uniform and standardize blending
-                gl_context.uniform_1_i32(u_is_glow.as_ref(), if part.glow > 0 { 1 } else { 0 });
-
+                // --- CRITICAL FIX: BLENDING ---
+                // Match JS: "Glow" parts use Additive blending (ONE, ONE). 
+                // Normal parts use Premultiplied Alpha (ONE, ONE_MINUS_SRC_ALPHA).
                 if part.glow > 0 {
-                    // Since the shader handles the alpha now, we use standard blending
-                    gl_context.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
+                     gl_context.blend_func(glow::ONE, glow::ONE);
                 } else {
-                    gl_context.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
+                     gl_context.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
                 }
 
                 if let Some(cut) = sheet.cuts_map.get(&part.sprite_index) {
@@ -267,6 +267,7 @@ impl GlowRenderer {
                 }
             }
             
+            // Reset to default blend for safety
             gl_context.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
         }
     }
