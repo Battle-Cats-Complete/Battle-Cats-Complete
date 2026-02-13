@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
-use crate::core::anim::{animator, smooth, canvas, transform, controls, bounds}; // REMOVED: center
+use crate::core::anim::{animator, smooth, canvas, transform, controls, bounds}; 
 use crate::ui::components::anim::controls::{self as anim_controls};
 use crate::core::anim::export::state::ExporterState;
 use crate::core::anim::export::process;
@@ -46,6 +46,7 @@ pub struct AnimViewer {
     pub export_state: ExporterState,
     pub show_export_popup: bool,
     pub has_scanned_attack: bool,
+    pub was_export_popup_open: bool, // Added to track popup state transitions
 }
 
 impl Default for AnimViewer {
@@ -86,6 +87,7 @@ impl Default for AnimViewer {
             export_state: ExporterState::default(),
             show_export_popup: false,
             has_scanned_attack: false,
+            was_export_popup_open: false, // Default to false
         }
     }
 }
@@ -109,13 +111,17 @@ impl AnimViewer {
         }
 
         // Use Bounds to calculate Default Tight Camera for export
-        if let (Some(m), Some(s)) = (&self.held_model, &self.held_sheet) {
-            if let Some(bounds) = bounds::calculate_tight_bounds(m, self.current_anim.as_ref(), s) {
-                self.export_state.region_x = bounds.min.x;
-                self.export_state.region_y = bounds.min.y;
-                self.export_state.region_w = bounds.width();
-                self.export_state.region_h = bounds.height();
-                self.export_state.zoom = 1.0;
+        // OPTIMIZATION: Only calculate bounds if the export window is currently open.
+        // This prevents heavy calculations when simply browsing animations.
+        if self.show_export_popup {
+            if let (Some(m), Some(s)) = (&self.held_model, &self.held_sheet) {
+                if let Some(bounds) = bounds::calculate_tight_bounds(m, self.current_anim.as_ref(), s) {
+                    self.export_state.region_x = bounds.min.x;
+                    self.export_state.region_y = bounds.min.y;
+                    self.export_state.region_w = bounds.width();
+                    self.export_state.region_h = bounds.height();
+                    self.export_state.zoom = 1.0;
+                }
             }
         }
 
@@ -205,7 +211,6 @@ impl AnimViewer {
             if self.pending_initial_center {
                 if centering_behavior == 0 { 
                     if !model.parts.is_empty() {
-                        // REPLACED: center::calculate_center_offset -> bounds::calculate_initial_view
                         if let Some((offset, fit_zoom)) = bounds::calculate_initial_view(model, self.current_anim.as_ref(), sheet, ui.available_size()) {
                             new_center = Some((offset, fit_zoom));
                         }
@@ -418,6 +423,21 @@ impl AnimViewer {
 
         let controls_hovered = anim_controls::render_controls_overlay(ui, rect, self, available_anims, spirit_available, base_assets_available, is_loading_new, spirit_sheet_id, form_viewer_id, spirit_pack, interpolation, native_fps);
         self.is_pointer_over_controls = controls_hovered || btn_response.hovered();
+
+        // --- EXPORT POPUP TRIGGER LOGIC ---
+        // If the popup just opened this frame, force a bounding box calculation.
+        if self.show_export_popup && !self.was_export_popup_open {
+             if let (Some(m), Some(s)) = (&self.held_model, &self.held_sheet) {
+                if let Some(bounds) = bounds::calculate_tight_bounds(m, self.current_anim.as_ref(), s) {
+                    self.export_state.region_x = bounds.min.x;
+                    self.export_state.region_y = bounds.min.y;
+                    self.export_state.region_w = bounds.width();
+                    self.export_state.region_h = bounds.height();
+                    self.export_state.zoom = 1.0;
+                }
+            }
+        }
+        self.was_export_popup_open = self.show_export_popup;
 
         let state = &mut self.export_state;
         let show_popup = &mut self.show_export_popup;
