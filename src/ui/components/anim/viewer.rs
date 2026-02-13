@@ -412,13 +412,23 @@ impl AnimViewer {
         let border_color = egui::Color32::from_rgb(31, 106, 165); 
         ui.painter().rect_stroke(border_rect, egui::Rounding::same(5.0), egui::Stroke::new(4.0, border_color));
 
+        // Replace the previous expansion button block with this:
         let btn_size = egui::vec2(30.0, 30.0);
         let btn_rect = egui::Rect::from_min_size(rect.min + egui::vec2(8.0, 8.0), btn_size);
         let bg_fill = if self.is_expanded { egui::Color32::from_rgb(31, 106, 165) } else { egui::Color32::from_gray(60) };
+
         let btn_response = ui.put(btn_rect, |ui: &mut egui::Ui| {
-             let btn = egui::Button::new(egui::RichText::new("⛶").size(20.0).color(egui::Color32::WHITE)).fill(bg_fill).stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60))).rounding(4.0);
-            if ui.add_sized(btn_size, btn).clicked() { self.is_expanded = !self.is_expanded; }
-            ui.interact(btn_rect, ui.id().with("expand_btn"), egui::Sense::click())
+            let btn = egui::Button::new(egui::RichText::new("⛶").size(20.0).color(egui::Color32::WHITE))
+                .fill(bg_fill)
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
+                .rounding(4.0);
+            
+            // Capture response directly to handle the click event
+            let response = ui.add_sized(btn_size, btn);
+            if response.clicked() { 
+                self.is_expanded = !self.is_expanded; 
+            }
+            response
         });
 
         let controls_hovered = anim_controls::render_controls_overlay(ui, rect, self, available_anims, spirit_available, base_assets_available, is_loading_new, spirit_sheet_id, form_viewer_id, spirit_pack, interpolation, native_fps);
