@@ -273,11 +273,17 @@ impl AnimViewer {
 
             if let Some(pos) = hover_pos {
                 if right_down {
-                    if self.export_selection_start.is_none() { self.export_selection_start = Some(pos); }
+                    if self.export_selection_start.is_none() { 
+                        // [FIX] Strict check: Start is only valid if inside rect AND button was just pressed this frame.
+                        // This prevents dragging from outside the window into the viewer.
+                        if rect.contains(pos) && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+                            self.export_selection_start = Some(pos); 
+                        }
+                    }
                     if let Some(start) = self.export_selection_start {
                         let r = egui::Rect::from_two_pos(start, pos);
-                        ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(2.0, egui::Color32::YELLOW));
-                        ui.painter().rect_filled(r, 0.0, egui::Color32::from_rgba_unmultiplied(255, 255, 0, 30));
+                        ui.painter().with_clip_rect(rect).rect_stroke(r, 0.0, egui::Stroke::new(2.0, egui::Color32::YELLOW));
+                        ui.painter().with_clip_rect(rect).rect_filled(r, 0.0, egui::Color32::from_rgba_unmultiplied(255, 255, 0, 30));
                     }
                 } else if self.export_selection_start.is_some() {
                     let start = self.export_selection_start.take().unwrap();
@@ -385,7 +391,7 @@ impl AnimViewer {
                  let to_screen = |wx: f32, wy: f32| -> egui::Pos2 { let world_pos = egui::vec2(wx, wy); center_screen + (world_pos + self.pan_offset) * self.zoom_level };
                  let min = to_screen(self.export_state.region_x, self.export_state.region_y);
                  let max = to_screen(self.export_state.region_x + self.export_state.region_w, self.export_state.region_y + self.export_state.region_h);
-                 ui.painter().rect_stroke(egui::Rect::from_min_max(min, max), 0.0, egui::Stroke::new(1.0, egui::Color32::YELLOW));
+                 ui.painter().with_clip_rect(rect).rect_stroke(egui::Rect::from_min_max(min, max), 0.0, egui::Stroke::new(1.0, egui::Color32::YELLOW));
             }
         } else { ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgb(20, 20, 20)); }
 
@@ -396,19 +402,10 @@ impl AnimViewer {
         let btn_size = egui::vec2(30.0, 30.0);
         let btn_rect = egui::Rect::from_min_size(rect.min + egui::vec2(8.0, 8.0), btn_size);
         let bg_fill = if self.is_expanded { egui::Color32::from_rgb(31, 106, 165) } else { egui::Color32::from_gray(60) };
-        
         let btn_response = ui.put(btn_rect, |ui: &mut egui::Ui| {
-            let btn = egui::Button::new(egui::RichText::new("⛶").size(20.0).color(egui::Color32::WHITE))
-                .fill(bg_fill)
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
-                .rounding(4.0);
-            
-            // Fix: Capture response, check click, and return response.
-            // Removed ui.interact which was blocking the button.
+             let btn = egui::Button::new(egui::RichText::new("⛶").size(20.0).color(egui::Color32::WHITE)).fill(bg_fill).stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60))).rounding(4.0);
             let response = ui.add_sized(btn_size, btn);
-            if response.clicked() { 
-                self.is_expanded = !self.is_expanded; 
-            }
+            if response.clicked() { self.is_expanded = !self.is_expanded; }
             response
         });
 
