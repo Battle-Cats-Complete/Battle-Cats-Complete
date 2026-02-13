@@ -6,6 +6,7 @@ use crate::core::anim::export::encoding::{ExportFormat, QualityLevel, EncoderSta
 use crate::core::anim::export::state::ExporterState;
 use crate::core::anim::export::process::{start_export, STATUS_RX};
 use crate::ui::views::settings::toggle_ui; 
+use crate::core::anim::bounds;
 
 pub fn show_popup(
     ui: &mut egui::Ui,
@@ -30,7 +31,6 @@ pub fn show_popup(
     let window_id = egui::Id::new("Export Animation");
     let mut fixed_pos = None;
 
-    // Window positioning logic
     if let Some(rect) = ctx.memory(|mem| mem.area_rect(window_id)) {
         let screen_rect = ctx.screen_rect();
         let mut new_pos = rect.min;
@@ -59,9 +59,9 @@ pub fn show_popup(
 fn render_content(
     ui: &mut egui::Ui,
     state: &mut ExporterState,
-    _model: Option<&Model>,
+    model: Option<&Model>,
     anim: Option<&Animation>,
-    _sheet: Option<&SpriteSheet>,
+    sheet: Option<&SpriteSheet>,
     is_open: &mut bool,
     start_region_selection: &mut bool,
 ) {
@@ -74,7 +74,6 @@ fn render_content(
         state.anim_name = "Animation".to_string(); 
     }
     
-    // Poll Status
     if state.is_processing {
         if let Ok(rx_opt) = STATUS_RX.lock() {
             if let Some(rx) = rx_opt.as_ref() {
@@ -163,7 +162,29 @@ fn render_content(
 
             ui.horizontal(|ui| {
                 if ui.button("Set Region").on_hover_text("Right-click and drag on the viewport to select area").clicked() { *start_region_selection = true; *is_open = false; }
-                if ui.button("Reset").clicked() { state.region_x = -150.0; state.region_y = -150.0; state.region_w = 300.0; state.region_h = 300.0; state.zoom = 1.0; }
+                
+                // [FIX] Reset now uses min_y (Top) again, BUT the limits are removed below
+                if ui.button("Reset").clicked() { 
+                    let mut calculated = false;
+                    if let (Some(m), Some(s)) = (model, sheet) {
+                        if let Some(bounds) = bounds::calculate_tight_bounds(m, anim, s) {
+                            state.region_x = bounds.min.x;
+                            state.region_y = bounds.min.y;
+                            state.region_w = bounds.width();
+                            state.region_h = bounds.height();
+                            state.zoom = 1.0;
+                            calculated = true;
+                        }
+                    }
+
+                    if !calculated {
+                        state.region_x = -150.0; 
+                        state.region_y = -150.0; 
+                        state.region_w = 300.0; 
+                        state.region_h = 300.0; 
+                        state.zoom = 1.0; 
+                    }
+                }
             });
             ui.add_space(5.0);
             ui.horizontal(|ui| {
@@ -174,9 +195,10 @@ fn render_content(
             });
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label("W"); ui.add(egui::DragValue::new(&mut state.region_w).range(1.0..=2000.0).speed(1.0));
+                // [FIX] Increased max range from 2000 to 10000 to support huge units
+                ui.label("W"); ui.add(egui::DragValue::new(&mut state.region_w).range(1.0..=10000.0).speed(1.0));
                 ui.add_space(8.0);
-                ui.label("H"); ui.add(egui::DragValue::new(&mut state.region_h).range(1.0..=2000.0).speed(1.0));
+                ui.label("H"); ui.add(egui::DragValue::new(&mut state.region_h).range(1.0..=10000.0).speed(1.0));
             });
 
             ui.add_space(20.0);
