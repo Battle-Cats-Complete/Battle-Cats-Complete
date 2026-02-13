@@ -8,7 +8,7 @@ use crate::data::global::img015;
 use crate::core::settings::Settings;
 use crate::core::cat::talents as talent_logic; 
 use crate::data::global::mamodel::Model;
-use crate::ui::components::anim_viewer::AnimViewer;
+use crate::ui::components::anim::viewer::AnimViewer;
 
 mod header;
 mod stats;

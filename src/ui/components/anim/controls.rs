@@ -1,6 +1,6 @@
 use eframe::egui;
 use std::path::PathBuf;
-use crate::ui::components::anim_viewer::AnimViewer;
+use crate::ui::components::anim::viewer::AnimViewer;
 
 const TILE_HEIGHT: f32 = 28.0; 
 const GAP: f32 = 4.0;
@@ -53,7 +53,6 @@ pub fn render_controls_overlay(
         .max_rect(clip_rect)
         .layout(egui::Layout::bottom_up(egui::Align::Min));
     
-    // We capture the InnerResponse to check the rect later
     let res = ui.allocate_new_ui(builder, |ui| {
         egui::Frame::window(ui.style())
             .fill(egui::Color32::from_black_alpha(160)) 
@@ -63,45 +62,18 @@ pub fn render_controls_overlay(
             .rounding(8.0)
             .show(ui, |ui| {
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                    render_internal_ui(
-                        ui, 
-                        anim_viewer, 
-                        available_anims, 
-                        spirit_available, 
-                        base_assets_available, 
-                        is_loading_new,
-                        spirit_sheet_id,
-                        form_viewer_id,
-                        spirit_pack,
-                        interpolation,
-                        native_fps
-                    );
-
-                    let width_to_use = if anim_viewer.cached_controls_width > 1.0 {
-                        anim_viewer.cached_controls_width
-                    } else {
-                        ui.available_width()
-                    };
-
+                    render_internal_ui(ui, anim_viewer, available_anims, spirit_available, base_assets_available, is_loading_new, spirit_sheet_id, form_viewer_id, spirit_pack, interpolation, native_fps);
+                    let width_to_use = if anim_viewer.cached_controls_width > 1.0 { anim_viewer.cached_controls_width } else { ui.available_width() };
                     ui.add_sized(egui::vec2(width_to_use, 1.0), egui::Separator::default().horizontal());
-                    
                     let icon = if anim_viewer.is_controls_expanded { "▼" } else { "▲" };
-                    let btn = egui::Button::new(egui::RichText::new(icon).strong().size(14.0))
-                        .fill(egui::Color32::TRANSPARENT)
-                        .stroke(egui::Stroke::NONE);
-
-                    if ui.add_sized(egui::vec2(width_to_use, 18.0), btn).clicked() {
-                        anim_viewer.is_controls_expanded = !anim_viewer.is_controls_expanded;
-                    }
+                    let btn = egui::Button::new(egui::RichText::new(icon).strong().size(14.0)).fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE);
+                    if ui.add_sized(egui::vec2(width_to_use, 18.0), btn).clicked() { anim_viewer.is_controls_expanded = !anim_viewer.is_controls_expanded; }
                 });
             })
     });
 
-    // Check if pointer is over the panel's rect
     if let Some(pointer_pos) = ui.ctx().pointer_latest_pos() {
-        if res.inner.response.rect.contains(pointer_pos) {
-            return true;
-        }
+        if res.inner.response.rect.contains(pointer_pos) { return true; }
     }
     
     false
@@ -315,7 +287,6 @@ fn render_internal_ui(
             }).inner;
             
             if btn_resp.clicked() { 
-                // We use the AnimViewer struct passed into this function to trigger the popup
                 anim_viewer.show_export_popup = true;
             }
 
