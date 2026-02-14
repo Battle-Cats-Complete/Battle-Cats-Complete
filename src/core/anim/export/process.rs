@@ -3,7 +3,7 @@ use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::data::global::imgcut::SpriteSheet;
 use crate::core::anim::export::encoding::{self, ExportConfig, ExportFormat, EncoderMessage, EncoderStatus};
-use crate::core::anim::export::state::ExporterState;
+use crate::core::anim::export::state::{ExporterState, ExportMode};
 use crate::core::anim::{animator, smooth, transform}; 
 use crate::core::anim::canvas::GlowRenderer;
 use std::sync::{Arc, Mutex, mpsc};
@@ -21,7 +21,7 @@ pub fn start_export(state: &mut ExporterState) {
     state.completion_time = None; 
     
     // Calculate accurate Total Frame Count
-    if state.showcase_mode {
+    if state.export_mode == ExportMode::Showcase {
         state.frame_start = 0;
         let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
         state.frame_end = if total > 0 { total - 1 } else { 0 }; 
@@ -29,7 +29,7 @@ pub fn start_export(state: &mut ExporterState) {
 
     // Name Generation Logic
     let (base_name, file_name) = if state.file_name.trim().is_empty() {
-        let (disp_start, disp_end) = if state.showcase_mode {
+        let (disp_start, disp_end) = if state.export_mode == ExportMode::Showcase {
              let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
              let end_disp = if total > 0 { total - 1 } else { 0 };
              (0, end_disp)
@@ -40,7 +40,7 @@ pub fn start_export(state: &mut ExporterState) {
         let range_part = if disp_start == disp_end { format!("{}f", disp_start) } else { format!("{}f~{}f", disp_start, disp_end) };
         let clean_prefix = state.name_prefix.replace("_0", "").replace("_f", "-1").replace("_c", "-2").replace("_s", "-3");
         
-        let prefix_display = if state.showcase_mode {
+        let prefix_display = if state.export_mode == ExportMode::Showcase {
              let p: Vec<&str> = clean_prefix.split('.').collect();
              if !p.is_empty() { format!("{}.showcase", p[0]) } else { "unit.showcase".to_string() }
         } else { clean_prefix.clone() };

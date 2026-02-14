@@ -1,6 +1,22 @@
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Sender, Receiver};
+use std::sync::{Arc, atomic::AtomicBool};
 use crate::core::anim::export::encoding::{ExportFormat, QualityLevel, EncoderMessage};
 use crate::core::utils::DragGuard;
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum ExportMode {
+    Manual,
+    Loop,
+    Showcase,
+}
+
+#[derive(Clone, Debug)]
+pub enum LoopStatus {
+    Searching(usize),
+    Found(i32, i32),
+    NotFound,
+    Error(String),
+}
 
 pub struct ExporterState {
     // Input
@@ -10,8 +26,17 @@ pub struct ExporterState {
     pub frame_start_str: String,
     pub frame_end_str: String,
 
+    // Modes
+    pub export_mode: ExportMode,
+    pub loop_supported: bool, // New flag
+
+    // Loop Mode Inputs
+    pub loop_tolerance: i32,
+    pub loop_tolerance_str: String,
+    pub loop_min: i32,
+    pub loop_min_str: String,
+
     // Showcase Inputs
-    pub showcase_mode: bool,
     pub showcase_walk_str: String,
     pub showcase_idle_str: String,
     pub showcase_attack_str: String,
@@ -46,6 +71,12 @@ pub struct ExporterState {
     pub encoded_frames: i32,   // Encoded frames (RAM -> Disk)
     pub tx: Option<Sender<EncoderMessage>>,
     
+    // Loop Finding Runtime
+    pub is_loop_searching: bool,
+    pub loop_frames_searched: usize,
+    pub loop_rx: Option<Receiver<LoopStatus>>,
+    pub loop_abort: Option<Arc<AtomicBool>>,
+
     // UI Helpers
     pub drag_guard: DragGuard,
     pub anim_name: String,
@@ -61,7 +92,14 @@ impl Default for ExporterState {
             frame_start_str: String::new(),
             frame_end_str: String::new(),
 
-            showcase_mode: false,
+            export_mode: ExportMode::Manual,
+            loop_supported: false,
+
+            loop_tolerance: 30,
+            loop_tolerance_str: String::new(),
+            loop_min: 15,
+            loop_min_str: String::new(),
+
             showcase_walk_str: String::new(),
             showcase_idle_str: String::new(),
             showcase_attack_str: String::new(), 
@@ -91,8 +129,13 @@ impl Default for ExporterState {
             current_progress: 0,
             encoded_frames: 0,
             tx: None,
+
+            is_loop_searching: false,
+            loop_frames_searched: 0,
+            loop_rx: None,
+            loop_abort: None,
             
-            drag_guard: DragGuard::default(), // FIXED: Changed new() to default()
+            drag_guard: DragGuard::default(),
             anim_name: String::new(),
             completion_time: None,
         }

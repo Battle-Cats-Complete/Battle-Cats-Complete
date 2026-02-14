@@ -1,11 +1,13 @@
 use eframe::egui;
 use std::time::Duration;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::data::global::imgcut::SpriteSheet;
 use crate::core::anim::export::encoding::{ExportFormat, QualityLevel, EncoderStatus};
-use crate::core::anim::export::state::ExporterState;
+use crate::core::anim::export::state::{ExporterState, ExportMode, LoopStatus};
 use crate::core::anim::export::process::{start_export, STATUS_RX};
+use crate::core::anim::export::findloop;
 use crate::ui::views::settings::toggle_ui; 
 use crate::core::anim::bounds;
 
@@ -19,17 +21,11 @@ pub fn show_popup(
     start_region_selection: &mut bool,
 ) {
     // --- SETUP ---
-    // Persistent flag to track if we need to yell at the user
     let attention_latch_id = egui::Id::new("export_needs_critical_attention");
 
-    // --- STATUS POLLING LOOP ---
-    // This runs unconditionally, even if the window is hidden/minimized
+    // --- EXPORT STATUS POLLING ---
     if state.is_processing {
-        // Polite Wake-up: Ask the loop to check back in 100ms.
-        // This replaces the heavy thread. It ensures we catch the "Finished" signal
-        // reasonably quickly without burning CPU.
         ui.ctx().request_repaint_after(Duration::from_millis(100));
-
         if let Ok(rx_opt) = STATUS_RX.lock() {
             if let Some(rx) = rx_opt.as_ref() {
                 while let Ok(msg) = rx.try_recv() {
@@ -39,12 +35,7 @@ pub fn show_popup(
                         EncoderStatus::Finished => { 
                             state.is_processing = false; 
                             state.completion_time = Some(ui.input(|i| i.time));
-                            
-                            // ACTIVATE LATCH
-                            // We set this flag to TRUE and leave it there.
                             ui.ctx().data_mut(|d| d.insert_temp(attention_latch_id, true));
-
-                            // Reset "seen" flag
                             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("export_done_seen"), false));
                         }
                     }
@@ -53,19 +44,48 @@ pub fn show_popup(
         }
     }
 
-    // --- LATCH EXECUTION ---
-    // If the latch is ON, we spam the attention signal until the user focuses the window.
-    let needs_attention = ui.ctx().data(|d| d.get_temp(attention_latch_id).unwrap_or(false));
+    // --- LOOP SEARCH STATUS POLLING ---
+    let mut loop_finished = false;
     
+    if state.is_loop_searching {
+        ui.ctx().request_repaint_after(Duration::from_millis(50));
+        
+        if let Some(rx) = &state.loop_rx {
+            while let Ok(msg) = rx.try_recv() {
+                match msg {
+                    LoopStatus::Searching(n) => { state.loop_frames_searched = n; },
+                    LoopStatus::Found(start, end) => {
+                        state.frame_start = start;
+                        state.frame_end = end;
+                        state.frame_start_str = start.to_string();
+                        state.frame_end_str = end.to_string();
+                        loop_finished = true;
+                    },
+                    LoopStatus::NotFound => {
+                        loop_finished = true;
+                    },
+                    LoopStatus::Error(_) => {
+                        loop_finished = true;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Cleanup outside the borrow scope
+    if loop_finished {
+        state.is_loop_searching = false;
+        state.loop_rx = None;
+        state.loop_abort = None;
+    }
+
+    // --- LATCH EXECUTION ---
+    let needs_attention = ui.ctx().data(|d| d.get_temp(attention_latch_id).unwrap_or(false));
     if needs_attention {
         if ui.input(|i| i.focused) {
-            // User is looking -> Turn off the latch
             ui.ctx().data_mut(|d| d.insert_temp(attention_latch_id, false));
         } else {
-            // User is NOT looking -> Scream for attention
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Critical));
-            
-            // Keep the loop running fast (200ms) so we keep flashing
             ui.ctx().request_repaint_after(Duration::from_millis(200));
         }
     }
@@ -99,7 +119,7 @@ pub fn show_popup(
     let mut window = egui::Window::new("Export Animation")
         .id(window_id).open(&mut open_local).order(egui::Order::Foreground)
         .constrain(false).movable(allow_drag).collapsible(false).resizable(true)
-        .min_size(egui::vec2(250.0, 300.0)).default_size(egui::vec2(400.0, 520.0))
+        .min_size(egui::vec2(250.0, 300.0)).default_size(egui::vec2(400.0, 560.0))
         .default_pos(ctx.screen_rect().center() - egui::vec2(200.0, 260.0));
 
     if let Some(pos) = fixed_pos { window = window.current_pos(pos); }
@@ -138,79 +158,164 @@ fn render_content(
             ui.heading("Input"); 
             ui.add_space(5.0);
 
+            // Export Mode Dropdown
             ui.horizontal(|ui| {
-                 let old_mode = state.showcase_mode;
-                 if toggle_ui(ui, &mut state.showcase_mode).changed() {
-                     if state.showcase_mode && !old_mode {
+                 ui.label("Export Mode:");
+                 let mut mode = state.export_mode.clone();
+                 egui::ComboBox::from_id_salt("ex_mode").selected_text(match mode {
+                     ExportMode::Manual => "Manual",
+                     ExportMode::Loop => "Loop",
+                     ExportMode::Showcase => "Showcase",
+                 }).show_ui(ui, |ui| {
+                     ui.selectable_value(&mut mode, ExportMode::Manual, "Manual");
+                     
+                     if state.loop_supported {
+                         ui.selectable_value(&mut mode, ExportMode::Loop, "Loop");
+                     } else {
+                         let r = ui.add_enabled(false, egui::SelectableLabel::new(false, "Loop"));
+                         r.on_disabled_hover_text("Walk and Idle only");
+                     }
+                     
+                     ui.selectable_value(&mut mode, ExportMode::Showcase, "Showcase");
+                 });
+                 if mode != state.export_mode {
+                     // Mode Switch Logic
+                     if mode == ExportMode::Showcase {
                          state.showcase_walk_str.clear();
                          state.showcase_idle_str.clear();
                          state.showcase_attack_str.clear();
                          state.showcase_kb_str.clear();
                          state.frame_start = 0;
-                         state.completion_time = None; 
-                         state.current_progress = 0;
-                         state.encoded_frames = 0;
                      }
+                     if mode == ExportMode::Manual && state.export_mode == ExportMode::Loop {
+                        state.frame_start = 0;
+                        state.frame_end = 0;
+                        state.frame_start_str.clear();
+                        state.frame_end_str.clear();
+                     }
+                     
+                     state.completion_time = None; 
+                     state.current_progress = 0;
+                     state.encoded_frames = 0;
+                     state.export_mode = mode;
                  }
-                 ui.label("Showcase Mode").on_hover_text("Exports a sequence: Walk -> Idle -> Attack -> Knockback");
             });
             ui.add_space(5.0);
 
-            if !state.showcase_mode {
-                ui.horizontal(|ui| {
-                    ui.label("Frames");
-                    let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
-                    let r1 = ui.add(egui::TextEdit::singleline(&mut state.frame_start_str).hint_text(start_hint).desired_width(40.0));
-                    if state.frame_start_str.trim().is_empty() { state.frame_start = 0; } else if let Ok(val) = state.frame_start_str.trim().parse::<i32>() { state.frame_start = val; }
+            match state.export_mode {
+                ExportMode::Manual => {
+                    ui.horizontal(|ui| {
+                        ui.label("Frames");
+                        let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
+                        let r1 = ui.add(egui::TextEdit::singleline(&mut state.frame_start_str).hint_text(start_hint).desired_width(40.0));
+                        if state.frame_start_str.trim().is_empty() { state.frame_start = 0; } else if let Ok(val) = state.frame_start_str.trim().parse::<i32>() { state.frame_start = val; }
+                        
+                        ui.label("to");
+                        let hint_val = anim.map_or(0, |a| a.max_frame);
+                        let end_hint = egui::RichText::new(hint_val.to_string()).color(egui::Color32::GRAY);
+                        let r2 = ui.add(egui::TextEdit::singleline(&mut state.frame_end_str).hint_text(end_hint).desired_width(40.0));
+                        if state.frame_end_str.trim().is_empty() { state.frame_end = hint_val; } else if let Ok(val) = state.frame_end_str.trim().parse::<i32>() { state.frame_end = val; }
+    
+                        if r1.changed() || r2.changed() {
+                            state.completion_time = None;
+                            state.current_progress = 0;
+                            state.encoded_frames = 0;
+                        }
+                    });
+                },
+                ExportMode::Loop => {
+                    ui.horizontal(|ui| {
+                        ui.label("Loop Tolerance");
+                        let hint = egui::RichText::new("30").color(egui::Color32::GRAY);
+                        if ui.add(egui::TextEdit::singleline(&mut state.loop_tolerance_str).hint_text(hint).desired_width(40.0)).changed() {
+                            if let Ok(v) = state.loop_tolerance_str.parse::<i32>() { state.loop_tolerance = v; }
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Loop Minimum");
+                        let hint = egui::RichText::new("15").color(egui::Color32::GRAY);
+                        if ui.add(egui::TextEdit::singleline(&mut state.loop_min_str).hint_text(hint).desired_width(40.0)).changed() {
+                             if let Ok(v) = state.loop_min_str.parse::<i32>() { state.loop_min = v; }
+                        }
+                    });
+
+                    // Locked Frames Fields
+                    ui.add_space(5.0);
+                    ui.horizontal(|ui| {
+                        ui.add_enabled(false, egui::Label::new("Frames"));
+                        let mut start = state.frame_start.to_string();
+                        let mut end = state.frame_end.to_string();
+                        ui.add_enabled(false, egui::TextEdit::singleline(&mut start).desired_width(40.0));
+                        ui.add_enabled(false, egui::Label::new("to"));
+                        ui.add_enabled(false, egui::TextEdit::singleline(&mut end).desired_width(40.0));
+                    });
                     
-                    ui.label("to");
-                    let hint_val = anim.map_or(0, |a| a.max_frame);
-                    let end_hint = egui::RichText::new(hint_val.to_string()).color(egui::Color32::GRAY);
-                    let r2 = ui.add(egui::TextEdit::singleline(&mut state.frame_end_str).hint_text(end_hint).desired_width(40.0));
-                    if state.frame_end_str.trim().is_empty() { state.frame_end = hint_val; } else if let Ok(val) = state.frame_end_str.trim().parse::<i32>() { state.frame_end = val; }
+                    ui.add_space(5.0);
+                    if state.is_loop_searching {
+                         let btn = egui::Button::new("Abort Loop").fill(egui::Color32::from_rgb(180, 50, 50));
+                         if ui.add_sized(egui::vec2(ui.available_width(), 24.0), btn).clicked() {
+                             if let Some(flag) = &state.loop_abort {
+                                 flag.store(true, Ordering::Relaxed);
+                             }
+                         }
+                    } else {
+                        if ui.add_sized(egui::vec2(ui.available_width(), 24.0), egui::Button::new("Find Loop")).clicked() {
+                             if let (Some(m), Some(a)) = (model, anim) {
+                                 let use_tol = if state.loop_tolerance_str.is_empty() { 30 } else { state.loop_tolerance_str.parse().unwrap_or(30) };
+                                 let use_min = if state.loop_min_str.is_empty() { 15 } else { state.loop_min_str.parse().unwrap_or(15) };
+                                 
+                                 state.loop_tolerance = use_tol;
+                                 state.loop_min = use_min;
 
-                    if r1.changed() || r2.changed() {
-                        state.completion_time = None;
-                        state.current_progress = 0;
-                        state.encoded_frames = 0;
+                                 let (tx, rx) = std::sync::mpsc::channel();
+                                 state.loop_rx = Some(rx);
+                                 state.is_loop_searching = true;
+                                 state.loop_frames_searched = 0;
+                                 let abort = Arc::new(AtomicBool::new(false));
+                                 state.loop_abort = Some(abort.clone());
+                                 
+                                 findloop::start_search(m.clone(), a.clone(), use_tol, use_min, tx, abort);
+                             }
+                        }
                     }
-                });
-            } else {
-                let hint_90 = egui::RichText::new("90").color(egui::Color32::GRAY);
-                egui::Grid::new("showcase_grid").spacing([10.0, 4.0]).show(ui, |ui| {
-                    ui.label("Walk Frames");
-                    if ui.add(egui::TextEdit::singleline(&mut state.showcase_walk_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                        state.showcase_walk_len = state.showcase_walk_str.trim().parse().unwrap_or(if state.showcase_walk_str.trim().is_empty() { 90 } else { 0 });
-                        state.completion_time = None;
-                    }
-                    if state.showcase_walk_str.trim().is_empty() { state.showcase_walk_len = 90; }
-                    ui.end_row();
-
-                    ui.label("Idle Frames");
-                    if ui.add(egui::TextEdit::singleline(&mut state.showcase_idle_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                        state.showcase_idle_len = state.showcase_idle_str.trim().parse().unwrap_or(if state.showcase_idle_str.trim().is_empty() { 90 } else { 0 });
-                        state.completion_time = None;
-                    }
-                    if state.showcase_idle_str.trim().is_empty() { state.showcase_idle_len = 90; }
-                    ui.end_row();
-
-                    ui.label("Attack Frames");
-                    let hint_atk = egui::RichText::new(state.detected_attack_len.to_string()).color(egui::Color32::GRAY);
-                    if ui.add(egui::TextEdit::singleline(&mut state.showcase_attack_str).hint_text(hint_atk).desired_width(50.0)).changed() {
-                        state.showcase_attack_len = state.showcase_attack_str.trim().parse().unwrap_or(if state.showcase_attack_str.trim().is_empty() { state.detected_attack_len } else { 0 });
-                        state.completion_time = None;
-                    }
-                    if state.showcase_attack_str.trim().is_empty() { state.showcase_attack_len = state.detected_attack_len; }
-                    ui.end_row();
-
-                    ui.label("Knockback");
-                    if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                        state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { 90 } else { 0 });
-                        state.completion_time = None;
-                    }
-                    if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = 90; }
-                    ui.end_row();
-                });
+                },
+                ExportMode::Showcase => {
+                    let hint_90 = egui::RichText::new("90").color(egui::Color32::GRAY);
+                    egui::Grid::new("showcase_grid").spacing([10.0, 4.0]).show(ui, |ui| {
+                        ui.label("Walk Frames");
+                        if ui.add(egui::TextEdit::singleline(&mut state.showcase_walk_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
+                            state.showcase_walk_len = state.showcase_walk_str.trim().parse().unwrap_or(if state.showcase_walk_str.trim().is_empty() { 90 } else { 0 });
+                            state.completion_time = None;
+                        }
+                        if state.showcase_walk_str.trim().is_empty() { state.showcase_walk_len = 90; }
+                        ui.end_row();
+    
+                        ui.label("Idle Frames");
+                        if ui.add(egui::TextEdit::singleline(&mut state.showcase_idle_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
+                            state.showcase_idle_len = state.showcase_idle_str.trim().parse().unwrap_or(if state.showcase_idle_str.trim().is_empty() { 90 } else { 0 });
+                            state.completion_time = None;
+                        }
+                        if state.showcase_idle_str.trim().is_empty() { state.showcase_idle_len = 90; }
+                        ui.end_row();
+    
+                        ui.label("Attack Frames");
+                        let hint_atk = egui::RichText::new(state.detected_attack_len.to_string()).color(egui::Color32::GRAY);
+                        if ui.add(egui::TextEdit::singleline(&mut state.showcase_attack_str).hint_text(hint_atk).desired_width(50.0)).changed() {
+                            state.showcase_attack_len = state.showcase_attack_str.trim().parse().unwrap_or(if state.showcase_attack_str.trim().is_empty() { state.detected_attack_len } else { 0 });
+                            state.completion_time = None;
+                        }
+                        if state.showcase_attack_str.trim().is_empty() { state.showcase_attack_len = state.detected_attack_len; }
+                        ui.end_row();
+    
+                        ui.label("Knockback");
+                        if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
+                            state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { 90 } else { 0 });
+                            state.completion_time = None;
+                        }
+                        if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = 90; }
+                        ui.end_row();
+                    });
+                }
             }
 
             ui.add_space(20.0);
@@ -262,7 +367,7 @@ fn render_content(
 
             ui.horizontal(|ui| {
                 ui.label("Name");
-                let (disp_start, disp_end) = if state.showcase_mode {
+                let (disp_start, disp_end) = if state.export_mode == ExportMode::Showcase {
                      let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
                      let end_disp = if total > 0 { total - 1 } else { 0 };
                      (0, end_disp)
@@ -270,7 +375,7 @@ fn render_content(
 
                 let range_part = if disp_start == disp_end { format!("{}f", disp_start) } else { format!("{}f~{}f", disp_start, disp_end) };
                 let clean_prefix = state.name_prefix.replace("_0", "").replace("_f", "-1").replace("_c", "-2").replace("_s", "-3");
-                let prefix_display = if state.showcase_mode {
+                let prefix_display = if state.export_mode == ExportMode::Showcase {
                      let p: Vec<&str> = clean_prefix.split('.').collect();
                      if !p.is_empty() { format!("{}.showcase", p[0]) } else { "unit.showcase".to_string() }
                 } else { clean_prefix.clone() };
@@ -306,7 +411,7 @@ fn render_content(
 
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
         ui.add_space(5.0); 
-        ui.add_enabled_ui(!state.is_processing, |ui| {
+        ui.add_enabled_ui(!state.is_processing && !state.is_loop_searching, |ui| {
             let is_valid = state.region_w > 0.1 && state.region_h > 0.1;
             let btn_text = if is_valid { "Begin Export" } else { "No Camera Set" };
             
@@ -319,7 +424,11 @@ fn render_content(
         ui.add_space(5.0);
         
         let count = (state.frame_end - state.frame_start).abs() + 1;
-        let (progress_val, label_text) = if state.is_processing {
+        let (progress_val, label_text) = if state.is_loop_searching {
+            // Hijacked Status
+            let p_anim = (ui.input(|i| i.time) % 1.0) as f32; // Indeterminate pulse
+            (p_anim, format!("Searching | {} frames", state.loop_frames_searched))
+        } else if state.is_processing {
             if state.current_progress < count {
                 let ratio = if count == 0 { 0.0 } else { (state.current_progress as f32 / count as f32).min(1.0) };
                 let percent = (ratio * 100.0) as i32;
@@ -334,14 +443,11 @@ fn render_content(
                 Some(done_time) => {
                     let is_focused = ui.input(|i| i.focused);
                     let seen_id = egui::Id::new("export_done_seen");
-                    
                     let mut has_seen = ui.ctx().data(|d| d.get_temp(seen_id).unwrap_or(false));
 
-                    if is_focused {
-                        if !has_seen {
-                            has_seen = true;
-                            ui.ctx().data_mut(|d| d.insert_temp(seen_id, true));
-                        }
+                    if is_focused && !has_seen {
+                        has_seen = true;
+                        ui.ctx().data_mut(|d| d.insert_temp(seen_id, true));
                     }
 
                     if !has_seen && !is_focused {

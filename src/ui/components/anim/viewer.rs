@@ -6,7 +6,7 @@ use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::core::anim::{animator, smooth, canvas, transform, controls, bounds}; 
 use crate::ui::components::anim::controls::{self as anim_controls};
-use crate::core::anim::export::state::ExporterState;
+use crate::core::anim::export::state::{ExporterState, ExportMode};
 use crate::core::anim::export::process;
 use crate::ui::components::anim::export;
 
@@ -96,7 +96,10 @@ impl Default for AnimViewer {
 
 impl AnimViewer {
     fn update_export_state(&mut self) {
-        if self.export_state.showcase_mode {
+        // Set Loop Compatibility
+        self.export_state.loop_supported = self.loaded_anim_index == anim_controls::IDX_WALK || self.loaded_anim_index == anim_controls::IDX_IDLE;
+
+        if self.export_state.export_mode == ExportMode::Showcase {
              // Do not overwrite frame limits
         } else {
             if let Some(anim) = &self.current_anim {
@@ -200,10 +203,10 @@ impl AnimViewer {
             self.pending_initial_center = true;
             
             // Fix 1: Preserve Showcase Mode status across unit resets
-            let prev_showcase = self.export_state.showcase_mode;
+            let prev_mode = self.export_state.export_mode.clone();
             
             self.export_state = ExporterState::default();
-            self.export_state.showcase_mode = prev_showcase; // Restore it
+            self.export_state.export_mode = prev_mode; // Restore it
             
             self.update_export_state();
 
@@ -219,6 +222,17 @@ impl AnimViewer {
                     // Ensure the input field string is empty so the hint is visible
                     self.export_state.showcase_attack_str.clear();
                 }
+            }
+        }
+
+        // Loop Mode Fallback Check
+        if self.export_state.export_mode == ExportMode::Loop {
+            if !self.export_state.loop_supported {
+                self.export_state.export_mode = ExportMode::Manual;
+                self.export_state.frame_start = 0;
+                self.export_state.frame_end = 0;
+                self.export_state.frame_start_str.clear();
+                self.export_state.frame_end_str.clear();
             }
         }
 
@@ -338,7 +352,7 @@ impl AnimViewer {
             }
         }
 
-        if self.show_export_popup && self.export_state.showcase_mode && !self.has_scanned_attack {
+        if self.show_export_popup && self.export_state.export_mode == ExportMode::Showcase && !self.has_scanned_attack {
              if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_ATTACK) {
                  if let Some(anim) = Animation::load(path) {
                      self.export_state.detected_attack_len = anim.max_frame;
@@ -353,7 +367,7 @@ impl AnimViewer {
         // Showcase Animation Switching
         let mut showcase_render_time = 0.0;
 
-        if self.export_state.is_processing && self.export_state.showcase_mode {
+        if self.export_state.is_processing && self.export_state.export_mode == ExportMode::Showcase {
             let walk_dur = self.export_state.showcase_walk_len;
             let idle_dur = self.export_state.showcase_idle_len;
             let attack_dur = self.export_state.showcase_attack_len;
@@ -387,7 +401,7 @@ impl AnimViewer {
         if let (Some(model), Some(sheet)) = (&self.held_model, &self.held_sheet) {
             
             if self.export_state.is_processing {
-                let time_to_use = if self.export_state.showcase_mode {
+                let time_to_use = if self.export_state.export_mode == ExportMode::Showcase {
                     if let Some(anim) = &self.current_anim {
                         let max = if anim.max_frame == 0 { 1 } else { anim.max_frame };
                         showcase_render_time % (max as f32)
