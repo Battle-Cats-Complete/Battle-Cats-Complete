@@ -67,9 +67,10 @@ fn render_content(
 ) {
     if state.anim_name.is_empty() {
         if let Some(a) = anim {
-            let full_length = a.max_frame;
-            state.max_frame = full_length;
-            if state.frame_end_str.is_empty() { state.frame_end = full_length; }
+            if state.max_frame == 0 || state.max_frame == 100 {
+                state.max_frame = a.max_frame;
+            }
+            if state.frame_end_str.is_empty() { state.frame_end = a.max_frame; }
         }
         state.anim_name = "Animation".to_string(); 
     }
@@ -89,7 +90,6 @@ fn render_content(
         }
     }
 
-    // FIX 1: Increased bottom_height from 90.0 to 120.0 to account for text-above-bar layout
     let bottom_height = 114.0; 
     let available_height = ui.available_height() - bottom_height;
 
@@ -125,9 +125,10 @@ fn render_content(
                     if state.frame_start_str.is_empty() { state.frame_start = 0; } else if let Ok(val) = state.frame_start_str.parse::<i32>() { state.frame_start = val; }
                     
                     ui.label("to");
-                    let end_hint = egui::RichText::new(state.max_frame.to_string()).color(egui::Color32::GRAY);
+                    let hint_val = anim.map_or(0, |a| a.max_frame);
+                    let end_hint = egui::RichText::new(hint_val.to_string()).color(egui::Color32::GRAY);
                     let r2 = ui.add(egui::TextEdit::singleline(&mut state.frame_end_str).hint_text(end_hint).desired_width(40.0));
-                    if state.frame_end_str.is_empty() { state.frame_end = state.max_frame; } else if let Ok(val) = state.frame_end_str.parse::<i32>() { state.frame_end = val; }
+                    if state.frame_end_str.is_empty() { state.frame_end = hint_val; } else if let Ok(val) = state.frame_end_str.parse::<i32>() { state.frame_end = val; }
 
                     if r1.changed() || r2.changed() {
                         state.completion_time = None;
@@ -294,7 +295,6 @@ fn render_content(
                 Some(done_time) => {
                     let elapsed = ui.input(|i| i.time) - done_time;
                     if elapsed < 5.0 { ui.ctx().request_repaint(); (1.0, "Done".to_string()) } 
-                    // FIX 2: Set progress to 1.0 when done/ready to keep bar full
                     else { state.completion_time = None; (1.0, "Ready".to_string()) }
                 },
                 None => {
@@ -303,7 +303,6 @@ fn render_content(
                          let percent = (ratio * 100.0) as i32;
                         (ratio, format!("Paused | {}f/{}f ({}%)", state.current_progress, count, percent)) 
                     } else { 
-                        // FIX 3: Default "Ready" state is full bar (1.0)
                         (1.0, "Ready".to_string()) 
                     }
                 }
