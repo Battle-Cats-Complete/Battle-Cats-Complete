@@ -137,8 +137,11 @@ pub fn process_frame(
         callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |_, painter| {
             let mut lock = renderer_arc.lock().unwrap();
             if let Some(renderer) = lock.as_mut() {
-                let img = encoding::render_frame(renderer, painter.gl(), w as u32, h as u32, &world_parts, &sheet_arc, pan, z, bg_color);
-                let _ = tx.send(EncoderMessage::Frame(img, frame_delay as u32));
+                // Returns Vec<u8> (raw bytes) instead of RgbaImage to keep UI thread fast
+                let raw_pixels = encoding::render_frame(renderer, painter.gl(), w as u32, h as u32, &world_parts, &sheet_arc, pan, z, bg_color);
+                
+                // Send raw data to background thread for heavy processing (alpha unmultiply, flip)
+                let _ = tx.send(EncoderMessage::Frame(raw_pixels, w as u32, h as u32, frame_delay as u32));
             }
         })),
     });

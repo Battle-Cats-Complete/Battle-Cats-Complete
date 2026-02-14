@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::io::{self, Cursor, Write};
+use std::io::{self, Cursor, Write, BufWriter};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -56,7 +56,8 @@ pub enum QualityLevel {
 }
 
 pub enum EncoderMessage {
-    Frame(RgbaImage, u32),
+    // raw_pixels, width, height, delay_ms
+    Frame(Vec<u8>, u32, u32, u32),
     Finish,
 }
 
@@ -81,7 +82,7 @@ pub fn render_frame(
     pan: egui::Vec2,
     zoom: f32,
     bg_color: [u8; 4],
-) -> RgbaImage {
+) -> Vec<u8> {
     unsafe {
         gl.disable(glow::SCISSOR_TEST);
 
@@ -124,17 +125,10 @@ pub fn render_frame(
 
         gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
         let mut pixels = vec![0u8; (width * height * 4) as usize];
+        
+        // Blocking GPU read, but necessary. 
+        // We defer alpha-unmultiply and flip to the background thread.
         gl.read_pixels(0, 0, width as i32, height as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(&mut pixels));
-
-        for chunk in pixels.chunks_exact_mut(4) {
-            let alpha = chunk[3];
-            if alpha > 0 && alpha < 255 {
-                let a = alpha as f32 / 255.0;
-                chunk[0] = (chunk[0] as f32 / a).min(255.0) as u8;
-                chunk[1] = (chunk[1] as f32 / a).min(255.0) as u8;
-                chunk[2] = (chunk[2] as f32 / a).min(255.0) as u8;
-            }
-        }
 
         gl.bind_framebuffer(glow::FRAMEBUFFER, None);
         gl.delete_framebuffer(fbo);
@@ -143,11 +137,26 @@ pub fn render_frame(
         gl.enable(glow::SCISSOR_TEST);
         gl.pixel_store_i32(glow::PACK_ALIGNMENT, 4);
 
-        if let Some(img) = RgbaImage::from_raw(width, height, pixels) {
-            image::imageops::flip_vertical(&img)
-        } else {
-            RgbaImage::new(width, height)
+        pixels
+    }
+}
+
+// CPU-intensive tasks moved here
+fn prepare_image(mut pixels: Vec<u8>, width: u32, height: u32) -> RgbaImage {
+    for chunk in pixels.chunks_exact_mut(4) {
+        let alpha = chunk[3];
+        if alpha > 0 && alpha < 255 {
+            let a = alpha as f32 / 255.0;
+            chunk[0] = (chunk[0] as f32 / a).min(255.0) as u8;
+            chunk[1] = (chunk[1] as f32 / a).min(255.0) as u8;
+            chunk[2] = (chunk[2] as f32 / a).min(255.0) as u8;
         }
+    }
+
+    if let Some(img) = RgbaImage::from_raw(width, height, pixels) {
+        image::imageops::flip_vertical(&img)
+    } else {
+        RgbaImage::new(width, height)
     }
 }
 
@@ -165,6 +174,8 @@ pub fn start_encoding_thread(
             let _ = fs::create_dir_all(parent);
         }
 
+        // Use a temporary file path during writing to ensure atomicity
+        let temp_path = config.output_path.with_extension("tmp");
         let mut frames_processed = 0;
 
         match config.format {
@@ -179,7 +190,8 @@ pub fn start_encoding_thread(
 
                     while let Ok(msg) = rx.recv() {
                         match msg {
-                            EncoderMessage::Frame(img, delay_ms) => {
+                            EncoderMessage::Frame(raw_pixels, w, h, delay_ms) => {
+                                let img = prepare_image(raw_pixels, w, h);
                                 let mut ticks = (delay_ms as f32 / 10.0).round() as u16;
                                 if ticks < 3 { ticks = 3; } 
                                 let mut pixels = img.into_vec();
@@ -198,14 +210,15 @@ pub fn start_encoding_thread(
                         }
                     }
                 } 
-                let _ = fs::write(&config.output_path, &buffer);
+                let _ = fs::write(&temp_path, &buffer);
             },
             ExportFormat::WebP => {
                 let mut encoder = WebpEncoder::new((config.width, config.height)).expect("Failed WebP");
                 let mut timestamp_ms = 0;
                 while let Ok(msg) = rx.recv() {
                     match msg {
-                        EncoderMessage::Frame(img, delay_ms) => {
+                        EncoderMessage::Frame(raw_pixels, w, h, delay_ms) => {
+                            let img = prepare_image(raw_pixels, w, h);
                             let raw = img.into_vec();
                             let _ = encoder.add_frame(&raw, timestamp_ms);
                             timestamp_ms += delay_ms as i32;
@@ -217,7 +230,7 @@ pub fn start_encoding_thread(
                     }
                 }
                 if let Ok(data) = encoder.finalize(timestamp_ms) {
-                    let _ = std::fs::write(&config.output_path, data);
+                    let _ = std::fs::write(&temp_path, data);
                 }
             },
             ExportFormat::Avif => {
@@ -225,14 +238,15 @@ pub fn start_encoding_thread(
                 let speed_arg = match config.quality { QualityLevel::Low => "8", QualityLevel::Medium => "4", QualityLevel::High => "2" };
                 
                 let mut child = Command::new(avif_path)
-                    .args(&["--stdin", "--stdin-format", "raw", "--width", &config.width.to_string(), "--height", &config.height.to_string(), "--depth", "8", "--fps", &config.fps.to_string(), "--speed", speed_arg, "-o", &config.output_path.to_string_lossy()])
+                    .args(&["--stdin", "--stdin-format", "raw", "--width", &config.width.to_string(), "--height", &config.height.to_string(), "--depth", "8", "--fps", &config.fps.to_string(), "--speed", speed_arg, "-o", &temp_path.to_string_lossy()])
                     .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::inherit())
                     .spawn().expect("Failed avifenc");
 
                 if let Some(mut stdin) = child.stdin.take() {
                     while let Ok(msg) = rx.recv() {
                         match msg {
-                            EncoderMessage::Frame(img, _) => { 
+                            EncoderMessage::Frame(raw_pixels, w, h, _) => { 
+                                let img = prepare_image(raw_pixels, w, h);
                                 let _ = stdin.write_all(&img.into_vec()); 
                                 frames_processed += 1;
                                 let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
@@ -249,48 +263,59 @@ pub fn start_encoding_thread(
                 let is_zip = config.output_path.extension().map_or(false, |e| e.eq_ignore_ascii_case("zip"));
 
                 if is_zip {
-                     let mut memory_buffer = Cursor::new(Vec::new());
-                     
-                     {
-                         let mut zip = zip::ZipWriter::new(&mut memory_buffer);
-                         let options = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    
-                         while let Ok(msg) = rx.recv() {
-                            match msg {
-                                EncoderMessage::Frame(img, _) => {
-                                    let current_frame = config.start_frame + (frame_idx as i32 * step);
-                                    let entry_name = format!("{}.{}f.png", config.base_name, current_frame);
-                                    
-                                    let _ = zip.start_file(entry_name, options);
-                                    
-                                    let mut img_buffer = Cursor::new(Vec::new());
-                                    let _ = img.write_to(&mut img_buffer, image::ImageFormat::Png);
-                                    let _ = zip.write_all(img_buffer.get_ref());
-                                    
-                                    frame_idx += 1;
-                                    frames_processed += 1;
-                                    let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
-                                },
-                                EncoderMessage::Finish => break,
-                            }
+                     // WRITE TO TEMP FILE
+                     match fs::File::create(&temp_path) {
+                         Ok(file) => {
+                             let buf_writer = BufWriter::new(file);
+                             let mut zip = zip::ZipWriter::new(buf_writer);
+                             let options = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        
+                             while let Ok(msg) = rx.recv() {
+                                match msg {
+                                    EncoderMessage::Frame(raw_pixels, w, h, _) => {
+                                        let img = prepare_image(raw_pixels, w, h);
+                                        let current_frame = config.start_frame + (frame_idx as i32 * step);
+                                        let entry_name = format!("{}.{}f.png", config.base_name, current_frame);
+                                        
+                                        let _ = zip.start_file(entry_name, options);
+                                        
+                                        // FIX: Write to intermediate buffer because ZipWriter doesn't implement Seek
+                                        let mut buffer = Cursor::new(Vec::new());
+                                        if let Ok(_) = img.write_to(&mut buffer, image::ImageFormat::Png) {
+                                            let _ = zip.write_all(buffer.get_ref());
+                                        }
+
+                                        frame_idx += 1;
+                                        frames_processed += 1;
+                                        let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
+                                    },
+                                    EncoderMessage::Finish => break,
+                                }
+                             }
+                             let _ = zip.finish();
+                         },
+                         Err(e) => {
+                             eprintln!("Failed to create temp zip file: {}", e);
                          }
-                         let _ = zip.finish();
                      }
-
-                     let _ = fs::write(&config.output_path, memory_buffer.into_inner());
-
                 } else {
                     while let Ok(msg) = rx.recv() {
                         match msg {
-                            EncoderMessage::Frame(img, _) => {
-                                 let path = config.output_path.clone();
-                                 let mut file = std::fs::File::create(&path)
+                            EncoderMessage::Frame(raw_pixels, w, h, _) => {
+                                 let img = prepare_image(raw_pixels, w, h);
+                                 // For single image, we write directly to the final path? 
+                                 // No, user requested NO visible files. Use temp path logic here too?
+                                 // NOTE: This block is usually for "PngSequence" which implies multiple files,
+                                 // but without ZIP it would spam the folder.
+                                 // If the user selected PNG Sequence but frame_count == 1, it lands here as a single PNG.
+                                 // We will write to temp_path then rename.
+                                 
+                                 let mut file = std::fs::File::create(&temp_path)
                                      .expect("Failed to create single png file");
                                      
                                  img.write_to(&mut file, image::ImageFormat::Png)
                                      .expect("Failed to write single png data");
                                      
-                                 // frame_idx not needed for single file mode
                                  frames_processed += 1;
                                  let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
                             },
@@ -300,6 +325,12 @@ pub fn start_encoding_thread(
                 }
             }
         }
+        
+        // Finalize: Rename temp file to real file
+        if temp_path.exists() {
+            let _ = fs::rename(&temp_path, &config.output_path);
+        }
+        
         let _ = status_tx.send(EncoderStatus::Finished);
     })
 }
