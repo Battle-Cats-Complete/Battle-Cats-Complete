@@ -308,8 +308,14 @@ impl AnimViewer {
                         self.export_state.region_x = min_w.x; self.export_state.region_y = min_w.y;
                         self.export_state.region_w = (max_w.x - min_w.x).abs(); self.export_state.region_h = (max_w.y - min_w.y).abs();
                         self.export_state.zoom = 1.0; 
-                        self.is_selecting_export_region = false; self.show_export_popup = true;
-                    } else { self.is_selecting_export_region = false; self.show_export_popup = true; }
+                        self.is_selecting_export_region = false; 
+                        self.show_export_popup = true;
+                        self.was_export_popup_open = true; // FIX: Prevent auto-recalc of bounds
+                    } else { 
+                        self.is_selecting_export_region = false; 
+                        self.show_export_popup = true; 
+                        self.was_export_popup_open = true; // FIX: Prevent auto-recalc of bounds
+                    }
                 }
             }
         }
