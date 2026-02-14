@@ -132,6 +132,10 @@ impl Animation {
         let mut found_looping_part = false;
         
         for curve in &self.curves {
+            if curve.loop_count == 1 {
+                return None;
+            }
+
             if curve.loop_count != 1 {
                 if let (Some(first_keyframe), Some(last_keyframe)) = (curve.keyframes.first(), curve.keyframes.last()) {
                     let duration = (last_keyframe.frame - first_keyframe.frame) as i32; 
