@@ -17,7 +17,7 @@ pub fn start_export(state: &mut ExporterState) {
     
     state.is_processing = true;
     state.current_progress = 0;
-    state.encoded_frames = 0; // RESET
+    state.encoded_frames = 0; 
     state.completion_time = None; 
     
     // Calculate accurate Total Frame Count
@@ -50,7 +50,6 @@ pub fn start_export(state: &mut ExporterState) {
         
         (base, full)
     } else {
-        // User custom name
         let path = Path::new(&state.file_name);
         let base = path.file_stem().unwrap_or(path.as_os_str()).to_string_lossy().to_string();
         (base, state.file_name.clone())
@@ -59,11 +58,9 @@ pub fn start_export(state: &mut ExporterState) {
     let mut output_path = std::env::current_dir().unwrap_or(PathBuf::from("."));
     output_path.push("exports");
     
-    // Non-destructive extension check
     let mut final_name = file_name;
     let frame_count = (state.frame_end - state.frame_start).abs() + 1;
 
-    // Determine extension
     if let Some(ext) = match state.format {
         ExportFormat::Gif => Some("gif"), 
         ExportFormat::WebP => Some("webp"), 
@@ -102,13 +99,12 @@ pub fn process_frame(
     anim: Option<&Animation>,
     sheet: &SpriteSheet,
     renderer_ref: Arc<Mutex<Option<GlowRenderer>>>,
-    current_time: f32, 
+    _current_time: f32, 
 ) {
     if state.tx.is_none() { return; }
 
     let count = (state.frame_end - state.frame_start).abs() + 1;
     
-    // Stop condition
     if state.current_progress >= count {
         if let Some(tx) = state.tx.take() { let _ = tx.send(EncoderMessage::Finish); }
         return;
@@ -117,7 +113,18 @@ pub fn process_frame(
     let frame_delay = 1000.0 / state.fps as f32;
     
     let parts = if let Some(a) = anim {
-        if state.interpolation { smooth::animate(model, a, current_time) } else { animator::animate(model, a, current_time) }
+        // FIX: Match viewer math. Wrap frame via rem_euclid for seamless loops.
+        let start = state.frame_start;
+        let step = if state.frame_start < state.frame_end { 1 } else { -1 };
+        let raw_f = (start + (state.current_progress * step)) as f32;
+        
+        let frame_to_render = if state.max_frame > 0 {
+            raw_f.rem_euclid(state.max_frame as f32 + 1.0) 
+        } else {
+            raw_f
+        };
+
+        if state.interpolation { smooth::animate(model, a, frame_to_render) } else { animator::animate(model, a, frame_to_render) }
     } else {
         model.parts.clone()
     };
@@ -131,16 +138,12 @@ pub fn process_frame(
     let tx = if let Some(t) = state.tx.as_ref() { t.clone() } else { return };
     let (w, h, z) = (state.region_w, state.region_h, state.zoom);
     
-    // Render Command
     ui.painter().add(egui::PaintCallback {
         rect, 
         callback: Arc::new(eframe::egui_glow::CallbackFn::new(move |_, painter| {
             let mut lock = renderer_arc.lock().unwrap();
             if let Some(renderer) = lock.as_mut() {
-                // Returns Vec<u8> (raw bytes) instead of RgbaImage to keep UI thread fast
                 let raw_pixels = encoding::render_frame(renderer, painter.gl(), w as u32, h as u32, &world_parts, &sheet_arc, pan, z, bg_color);
-                
-                // Send raw data to background thread for heavy processing (alpha unmultiply, flip)
                 let _ = tx.send(EncoderMessage::Frame(raw_pixels, w as u32, h as u32, frame_delay as u32));
             }
         })),
