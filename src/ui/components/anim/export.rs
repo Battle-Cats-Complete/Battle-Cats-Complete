@@ -1,4 +1,5 @@
 use eframe::egui;
+use std::time::Duration;
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::data::global::imgcut::SpriteSheet;
@@ -17,6 +18,59 @@ pub fn show_popup(
     is_open: &mut bool,
     start_region_selection: &mut bool,
 ) {
+    // --- SETUP ---
+    // Persistent flag to track if we need to yell at the user
+    let attention_latch_id = egui::Id::new("export_needs_critical_attention");
+
+    // --- STATUS POLLING LOOP ---
+    // This runs unconditionally, even if the window is hidden/minimized
+    if state.is_processing {
+        // Polite Wake-up: Ask the loop to check back in 100ms.
+        // This replaces the heavy thread. It ensures we catch the "Finished" signal
+        // reasonably quickly without burning CPU.
+        ui.ctx().request_repaint_after(Duration::from_millis(100));
+
+        if let Ok(rx_opt) = STATUS_RX.lock() {
+            if let Some(rx) = rx_opt.as_ref() {
+                while let Ok(msg) = rx.try_recv() {
+                    match msg {
+                        EncoderStatus::Encoding => { },
+                        EncoderStatus::Progress(p) => { state.encoded_frames = p as i32; },
+                        EncoderStatus::Finished => { 
+                            state.is_processing = false; 
+                            state.completion_time = Some(ui.input(|i| i.time));
+                            
+                            // ACTIVATE LATCH
+                            // We set this flag to TRUE and leave it there.
+                            ui.ctx().data_mut(|d| d.insert_temp(attention_latch_id, true));
+
+                            // Reset "seen" flag
+                            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("export_done_seen"), false));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- LATCH EXECUTION ---
+    // If the latch is ON, we spam the attention signal until the user focuses the window.
+    let needs_attention = ui.ctx().data(|d| d.get_temp(attention_latch_id).unwrap_or(false));
+    
+    if needs_attention {
+        if ui.input(|i| i.focused) {
+            // User is looking -> Turn off the latch
+            ui.ctx().data_mut(|d| d.insert_temp(attention_latch_id, false));
+        } else {
+            // User is NOT looking -> Scream for attention
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Critical));
+            
+            // Keep the loop running fast (200ms) so we keep flashing
+            ui.ctx().request_repaint_after(Duration::from_millis(200));
+        }
+    }
+
+    // --- UI RENDERING ---
     if !*is_open { return; }
 
     let ctx = ui.ctx().clone();
@@ -74,21 +128,6 @@ fn render_content(
         }
         state.anim_name = "Animation".to_string(); 
     }
-    
-    // Status polling
-    if state.is_processing {
-        if let Ok(rx_opt) = STATUS_RX.lock() {
-            if let Some(rx) = rx_opt.as_ref() {
-                while let Ok(msg) = rx.try_recv() {
-                    match msg {
-                        EncoderStatus::Encoding => { },
-                        EncoderStatus::Progress(p) => { state.encoded_frames = p as i32; },
-                        EncoderStatus::Finished => { state.is_processing = false; state.completion_time = Some(ui.input(|i| i.time)); }
-                    }
-                }
-            }
-        }
-    }
 
     let bottom_height = 114.0; 
     let available_height = ui.available_height() - bottom_height;
@@ -122,14 +161,12 @@ fn render_content(
                     ui.label("Frames");
                     let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
                     let r1 = ui.add(egui::TextEdit::singleline(&mut state.frame_start_str).hint_text(start_hint).desired_width(40.0));
-                    // Fix: Trim to prevent parsing errors that force start to 0
                     if state.frame_start_str.trim().is_empty() { state.frame_start = 0; } else if let Ok(val) = state.frame_start_str.trim().parse::<i32>() { state.frame_start = val; }
                     
                     ui.label("to");
                     let hint_val = anim.map_or(0, |a| a.max_frame);
                     let end_hint = egui::RichText::new(hint_val.to_string()).color(egui::Color32::GRAY);
                     let r2 = ui.add(egui::TextEdit::singleline(&mut state.frame_end_str).hint_text(end_hint).desired_width(40.0));
-                    // Fix: Trim here too
                     if state.frame_end_str.trim().is_empty() { state.frame_end = hint_val; } else if let Ok(val) = state.frame_end_str.trim().parse::<i32>() { state.frame_end = val; }
 
                     if r1.changed() || r2.changed() {
@@ -295,9 +332,33 @@ fn render_content(
         } else {
             match state.completion_time {
                 Some(done_time) => {
-                    let elapsed = ui.input(|i| i.time) - done_time;
-                    if elapsed < 5.0 { ui.ctx().request_repaint(); (1.0, "Done".to_string()) } 
-                    else { state.completion_time = None; (1.0, "Ready".to_string()) }
+                    let is_focused = ui.input(|i| i.focused);
+                    let seen_id = egui::Id::new("export_done_seen");
+                    
+                    let mut has_seen = ui.ctx().data(|d| d.get_temp(seen_id).unwrap_or(false));
+
+                    if is_focused {
+                        if !has_seen {
+                            has_seen = true;
+                            ui.ctx().data_mut(|d| d.insert_temp(seen_id, true));
+                        }
+                    }
+
+                    if !has_seen && !is_focused {
+                        state.completion_time = Some(ui.input(|i| i.time));
+                        ui.ctx().request_repaint(); 
+                        (1.0, "Done".to_string())
+                    } else {
+                        let elapsed = ui.input(|i| i.time) - done_time;
+                        if elapsed < 3.0 { 
+                            ui.ctx().request_repaint(); 
+                            (1.0, "Done".to_string()) 
+                        } 
+                        else { 
+                            state.completion_time = None; 
+                            (1.0, "Ready".to_string()) 
+                        }
+                    }
                 },
                 None => {
                     let ratio = if count == 0 { 0.0 } else { (state.current_progress as f32 / count as f32).min(1.0) };

@@ -198,12 +198,28 @@ impl AnimViewer {
         if self.loaded_id != self.last_loaded_id {
             self.last_loaded_id = self.loaded_id.clone();
             self.pending_initial_center = true;
-            self.has_scanned_attack = false;
-            self.export_state.detected_attack_len = 0; 
-            self.export_state.showcase_attack_len = 0; 
+            
+            // Fix 1: Preserve Showcase Mode status across unit resets
+            let prev_showcase = self.export_state.showcase_mode;
             
             self.export_state = ExporterState::default();
+            self.export_state.showcase_mode = prev_showcase; // Restore it
+            
             self.update_export_state();
+
+            // Fix 2: Scan Attack animation to populate default/hint, but CLEAR the string input
+            self.has_scanned_attack = true; 
+            
+            if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_ATTACK) {
+                if let Some(anim) = Animation::load(path) {
+                    // Update the "detected" len which controls the hint text
+                    self.export_state.detected_attack_len = anim.max_frame;
+                    // Update the actual length used by the logic (default behavior)
+                    self.export_state.showcase_attack_len = anim.max_frame;
+                    // Ensure the input field string is empty so the hint is visible
+                    self.export_state.showcase_attack_str.clear();
+                }
+            }
         }
 
         let mut new_center: Option<(egui::Vec2, f32)> = None;
