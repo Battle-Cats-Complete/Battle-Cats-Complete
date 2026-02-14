@@ -122,13 +122,15 @@ fn render_content(
                     ui.label("Frames");
                     let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
                     let r1 = ui.add(egui::TextEdit::singleline(&mut state.frame_start_str).hint_text(start_hint).desired_width(40.0));
-                    if state.frame_start_str.is_empty() { state.frame_start = 0; } else if let Ok(val) = state.frame_start_str.parse::<i32>() { state.frame_start = val; }
+                    // Fix: Trim to prevent parsing errors that force start to 0
+                    if state.frame_start_str.trim().is_empty() { state.frame_start = 0; } else if let Ok(val) = state.frame_start_str.trim().parse::<i32>() { state.frame_start = val; }
                     
                     ui.label("to");
                     let hint_val = anim.map_or(0, |a| a.max_frame);
                     let end_hint = egui::RichText::new(hint_val.to_string()).color(egui::Color32::GRAY);
                     let r2 = ui.add(egui::TextEdit::singleline(&mut state.frame_end_str).hint_text(end_hint).desired_width(40.0));
-                    if state.frame_end_str.is_empty() { state.frame_end = hint_val; } else if let Ok(val) = state.frame_end_str.parse::<i32>() { state.frame_end = val; }
+                    // Fix: Trim here too
+                    if state.frame_end_str.trim().is_empty() { state.frame_end = hint_val; } else if let Ok(val) = state.frame_end_str.trim().parse::<i32>() { state.frame_end = val; }
 
                     if r1.changed() || r2.changed() {
                         state.completion_time = None;
@@ -141,35 +143,35 @@ fn render_content(
                 egui::Grid::new("showcase_grid").spacing([10.0, 4.0]).show(ui, |ui| {
                     ui.label("Walk Frames");
                     if ui.add(egui::TextEdit::singleline(&mut state.showcase_walk_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                        state.showcase_walk_len = state.showcase_walk_str.parse().unwrap_or(if state.showcase_walk_str.is_empty() { 90 } else { 0 });
+                        state.showcase_walk_len = state.showcase_walk_str.trim().parse().unwrap_or(if state.showcase_walk_str.trim().is_empty() { 90 } else { 0 });
                         state.completion_time = None;
                     }
-                    if state.showcase_walk_str.is_empty() { state.showcase_walk_len = 90; }
+                    if state.showcase_walk_str.trim().is_empty() { state.showcase_walk_len = 90; }
                     ui.end_row();
 
                     ui.label("Idle Frames");
                     if ui.add(egui::TextEdit::singleline(&mut state.showcase_idle_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                        state.showcase_idle_len = state.showcase_idle_str.parse().unwrap_or(if state.showcase_idle_str.is_empty() { 90 } else { 0 });
+                        state.showcase_idle_len = state.showcase_idle_str.trim().parse().unwrap_or(if state.showcase_idle_str.trim().is_empty() { 90 } else { 0 });
                         state.completion_time = None;
                     }
-                    if state.showcase_idle_str.is_empty() { state.showcase_idle_len = 90; }
+                    if state.showcase_idle_str.trim().is_empty() { state.showcase_idle_len = 90; }
                     ui.end_row();
 
                     ui.label("Attack Frames");
                     let hint_atk = egui::RichText::new(state.detected_attack_len.to_string()).color(egui::Color32::GRAY);
                     if ui.add(egui::TextEdit::singleline(&mut state.showcase_attack_str).hint_text(hint_atk).desired_width(50.0)).changed() {
-                        state.showcase_attack_len = state.showcase_attack_str.parse().unwrap_or(if state.showcase_attack_str.is_empty() { state.detected_attack_len } else { 0 });
+                        state.showcase_attack_len = state.showcase_attack_str.trim().parse().unwrap_or(if state.showcase_attack_str.trim().is_empty() { state.detected_attack_len } else { 0 });
                         state.completion_time = None;
                     }
-                    if state.showcase_attack_str.is_empty() { state.showcase_attack_len = state.detected_attack_len; }
+                    if state.showcase_attack_str.trim().is_empty() { state.showcase_attack_len = state.detected_attack_len; }
                     ui.end_row();
 
                     ui.label("Knockback");
                     if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                        state.showcase_kb_len = state.showcase_kb_str.parse().unwrap_or(if state.showcase_kb_str.is_empty() { 90 } else { 0 });
+                        state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { 90 } else { 0 });
                         state.completion_time = None;
                     }
-                    if state.showcase_kb_str.is_empty() { state.showcase_kb_len = 90; }
+                    if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = 90; }
                     ui.end_row();
                 });
             }
