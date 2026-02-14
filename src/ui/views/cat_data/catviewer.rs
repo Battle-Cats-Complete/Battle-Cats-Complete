@@ -4,11 +4,9 @@ use std::path::{Path, PathBuf};
 use crate::core::cat::scanner::CatEntry;
 use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model;
-// UPDATED IMPORT
 use crate::ui::components::anim::viewer::AnimViewer;
 use crate::core::settings::Settings;
 use crate::paths::cat::{self, AnimType};
-// UPDATED IMPORT
 use crate::ui::components::anim::controls::{
     IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_SPIRIT, IDX_MODEL, IDX_BURROW, IDX_SURFACE, IDX_NONE
 };
@@ -268,6 +266,7 @@ pub fn show(
                                 &form_viewer_id,
                                 &spirit_pack,
                                 settings.native_fps, 
+                                settings.auto_set_camera_region, // PASSED HERE
                             );
                             ui.allocate_rect(rect, egui::Sense::hover())
                         });
@@ -298,6 +297,7 @@ pub fn show(
                     &form_viewer_id,
                     &spirit_pack,
                     settings.native_fps, 
+                    settings.auto_set_camera_region, // AND HERE
                 );
                 ui.allocate_rect(rect, egui::Sense::hover())
             });

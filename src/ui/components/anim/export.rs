@@ -74,12 +74,14 @@ fn render_content(
         state.anim_name = "Animation".to_string(); 
     }
     
+    // Status polling
     if state.is_processing {
         if let Ok(rx_opt) = STATUS_RX.lock() {
             if let Some(rx) = rx_opt.as_ref() {
                 while let Ok(msg) = rx.try_recv() {
                     match msg {
                         EncoderStatus::Encoding => { },
+                        EncoderStatus::Progress(p) => { state.encoded_frames = p as i32; },
                         EncoderStatus::Finished => { state.is_processing = false; state.completion_time = Some(ui.input(|i| i.time)); }
                     }
                 }
@@ -87,7 +89,8 @@ fn render_content(
         }
     }
 
-    let bottom_height = 90.0; 
+    // FIX 1: Increased bottom_height from 90.0 to 120.0 to account for text-above-bar layout
+    let bottom_height = 114.0; 
     let available_height = ui.available_height() - bottom_height;
 
     ui.add_enabled_ui(!state.is_processing, |ui| {
@@ -105,6 +108,9 @@ fn render_content(
                          state.showcase_attack_str.clear();
                          state.showcase_kb_str.clear();
                          state.frame_start = 0;
+                         state.completion_time = None; 
+                         state.current_progress = 0;
+                         state.encoded_frames = 0;
                      }
                  }
                  ui.label("Showcase Mode").on_hover_text("Exports a sequence: Walk -> Idle -> Attack -> Knockback");
@@ -115,12 +121,19 @@ fn render_content(
                 ui.horizontal(|ui| {
                     ui.label("Frames");
                     let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
-                    ui.add(egui::TextEdit::singleline(&mut state.frame_start_str).hint_text(start_hint).desired_width(40.0));
+                    let r1 = ui.add(egui::TextEdit::singleline(&mut state.frame_start_str).hint_text(start_hint).desired_width(40.0));
                     if state.frame_start_str.is_empty() { state.frame_start = 0; } else if let Ok(val) = state.frame_start_str.parse::<i32>() { state.frame_start = val; }
+                    
                     ui.label("to");
                     let end_hint = egui::RichText::new(state.max_frame.to_string()).color(egui::Color32::GRAY);
-                    ui.add(egui::TextEdit::singleline(&mut state.frame_end_str).hint_text(end_hint).desired_width(40.0));
+                    let r2 = ui.add(egui::TextEdit::singleline(&mut state.frame_end_str).hint_text(end_hint).desired_width(40.0));
                     if state.frame_end_str.is_empty() { state.frame_end = state.max_frame; } else if let Ok(val) = state.frame_end_str.parse::<i32>() { state.frame_end = val; }
+
+                    if r1.changed() || r2.changed() {
+                        state.completion_time = None;
+                        state.current_progress = 0;
+                        state.encoded_frames = 0;
+                    }
                 });
             } else {
                 let hint_90 = egui::RichText::new("90").color(egui::Color32::GRAY);
@@ -128,6 +141,7 @@ fn render_content(
                     ui.label("Walk Frames");
                     if ui.add(egui::TextEdit::singleline(&mut state.showcase_walk_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
                         state.showcase_walk_len = state.showcase_walk_str.parse().unwrap_or(if state.showcase_walk_str.is_empty() { 90 } else { 0 });
+                        state.completion_time = None;
                     }
                     if state.showcase_walk_str.is_empty() { state.showcase_walk_len = 90; }
                     ui.end_row();
@@ -135,6 +149,7 @@ fn render_content(
                     ui.label("Idle Frames");
                     if ui.add(egui::TextEdit::singleline(&mut state.showcase_idle_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
                         state.showcase_idle_len = state.showcase_idle_str.parse().unwrap_or(if state.showcase_idle_str.is_empty() { 90 } else { 0 });
+                        state.completion_time = None;
                     }
                     if state.showcase_idle_str.is_empty() { state.showcase_idle_len = 90; }
                     ui.end_row();
@@ -143,6 +158,7 @@ fn render_content(
                     let hint_atk = egui::RichText::new(state.detected_attack_len.to_string()).color(egui::Color32::GRAY);
                     if ui.add(egui::TextEdit::singleline(&mut state.showcase_attack_str).hint_text(hint_atk).desired_width(50.0)).changed() {
                         state.showcase_attack_len = state.showcase_attack_str.parse().unwrap_or(if state.showcase_attack_str.is_empty() { state.detected_attack_len } else { 0 });
+                        state.completion_time = None;
                     }
                     if state.showcase_attack_str.is_empty() { state.showcase_attack_len = state.detected_attack_len; }
                     ui.end_row();
@@ -150,6 +166,7 @@ fn render_content(
                     ui.label("Knockback");
                     if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
                         state.showcase_kb_len = state.showcase_kb_str.parse().unwrap_or(if state.showcase_kb_str.is_empty() { 90 } else { 0 });
+                        state.completion_time = None;
                     }
                     if state.showcase_kb_str.is_empty() { state.showcase_kb_len = 90; }
                     ui.end_row();
@@ -161,10 +178,9 @@ fn render_content(
             ui.add_space(5.0);
 
             ui.horizontal(|ui| {
-                if ui.button("Set Region").on_hover_text("Right-click and drag on the viewport to select area").clicked() { *start_region_selection = true; *is_open = false; }
+                if ui.button("Set Camera").on_hover_text("Right-click and drag on the viewport to select area").clicked() { *start_region_selection = true; *is_open = false; }
                 
-                // [FIX] Reset now uses min_y (Top) again, BUT the limits are removed below
-                if ui.button("Reset").clicked() { 
+                if ui.button("Use Bounds").on_hover_text("Auto-calculate camera from unit size").clicked() { 
                     let mut calculated = false;
                     if let (Some(m), Some(s)) = (model, sheet) {
                         if let Some(bounds) = bounds::calculate_tight_bounds(m, anim, s) {
@@ -195,10 +211,9 @@ fn render_content(
             });
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                // [FIX] Increased max range from 2000 to 10000 to support huge units
-                ui.label("W"); ui.add(egui::DragValue::new(&mut state.region_w).range(1.0..=10000.0).speed(1.0));
+                ui.label("W"); ui.add(egui::DragValue::new(&mut state.region_w).range(0.0..=10000.0).speed(1.0));
                 ui.add_space(8.0);
-                ui.label("H"); ui.add(egui::DragValue::new(&mut state.region_h).range(1.0..=10000.0).speed(1.0));
+                ui.label("H"); ui.add(egui::DragValue::new(&mut state.region_h).range(0.0..=10000.0).speed(1.0));
             });
 
             ui.add_space(20.0);
@@ -252,23 +267,52 @@ fn render_content(
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
         ui.add_space(5.0); 
         ui.add_enabled_ui(!state.is_processing, |ui| {
-            if ui.add_sized(egui::vec2(ui.available_width(), 30.0), egui::Button::new("Begin Export")).clicked() { start_export(state); }
+            let is_valid = state.region_w > 0.1 && state.region_h > 0.1;
+            let btn_text = if is_valid { "Begin Export" } else { "No Camera Set" };
+            
+            if ui.add_enabled_ui(is_valid, |ui| {
+                ui.add_sized(egui::vec2(ui.available_width(), 30.0), egui::Button::new(btn_text))
+            }).inner.clicked() { 
+                start_export(state); 
+            }
         });
         ui.add_space(5.0);
+        
         let count = (state.frame_end - state.frame_start).abs() + 1;
-        let ratio = if count == 0 { 0.0 } else { (state.current_progress as f32 / count as f32).min(1.0) };
         let (progress_val, label_text) = if state.is_processing {
-            (ratio, format!("Rendering... {:.0}% ({}/{})", ratio * 100.0, state.current_progress, count))
+            if state.current_progress < count {
+                let ratio = if count == 0 { 0.0 } else { (state.current_progress as f32 / count as f32).min(1.0) };
+                let percent = (ratio * 100.0) as i32;
+                (ratio, format!("Rendering | {}f/{}f ({}%)", state.current_progress, count, percent))
+            } else {
+                let ratio = if count == 0 { 0.0 } else { (state.encoded_frames as f32 / count as f32).min(1.0) };
+                let percent = (ratio * 100.0) as i32;
+                (ratio, format!("Encoding | {}f/{}f ({}%)", state.encoded_frames, count, percent))
+            }
         } else {
             match state.completion_time {
                 Some(done_time) => {
                     let elapsed = ui.input(|i| i.time) - done_time;
-                    if elapsed < 5.0 { ui.ctx().request_repaint(); (1.0, "Done".to_string()) } else { state.completion_time = None; (1.0, "Ready".to_string()) }
+                    if elapsed < 5.0 { ui.ctx().request_repaint(); (1.0, "Done".to_string()) } 
+                    // FIX 2: Set progress to 1.0 when done/ready to keep bar full
+                    else { state.completion_time = None; (1.0, "Ready".to_string()) }
                 },
-                None => { if ratio > 0.0 && ratio < 1.0 { (ratio, "Paused".to_string()) } else { (1.0, "Ready".to_string()) } }
+                None => {
+                    let ratio = if count == 0 { 0.0 } else { (state.current_progress as f32 / count as f32).min(1.0) };
+                    if ratio > 0.0 && ratio < 1.0 { 
+                         let percent = (ratio * 100.0) as i32;
+                        (ratio, format!("Paused | {}f/{}f ({}%)", state.current_progress, count, percent)) 
+                    } else { 
+                        // FIX 3: Default "Ready" state is full bar (1.0)
+                        (1.0, "Ready".to_string()) 
+                    }
+                }
             }
         };
-        ui.add(egui::ProgressBar::new(progress_val).text(label_text).animate(state.is_processing));
+
+        ui.label(label_text);
+        ui.add(egui::ProgressBar::new(progress_val));
+        
         ui.add_space(5.0); ui.separator(); 
     });
 }

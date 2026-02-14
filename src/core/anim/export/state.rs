@@ -40,9 +40,10 @@ pub struct ExporterState {
     pub quality: QualityLevel,
     pub interpolation: bool,
     
-    // Processing State
+    // Runtime
     pub is_processing: bool,
-    pub current_progress: i32,
+    pub current_progress: i32, // Rendered frames (GPU -> RAM)
+    pub encoded_frames: i32,   // Encoded frames (RAM -> Disk)
     pub tx: Option<Sender<EncoderMessage>>,
     
     // UI Helpers
@@ -83,16 +84,17 @@ impl Default for ExporterState {
             file_name: String::new(),
             name_prefix: String::new(),
             format: ExportFormat::Gif,
-            quality: QualityLevel::High,
+            quality: QualityLevel::Medium,
             interpolation: false,
             
             is_processing: false,
             current_progress: 0,
+            encoded_frames: 0,
             tx: None,
             
-            drag_guard: DragGuard::default(), 
+            drag_guard: DragGuard::default(), // FIXED: Changed new() to default()
             anim_name: String::new(),
-            completion_time: None, 
+            completion_time: None,
         }
     }
 }
