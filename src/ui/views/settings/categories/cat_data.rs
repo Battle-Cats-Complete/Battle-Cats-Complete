@@ -107,6 +107,12 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
             });
             
             ui.horizontal(|ui| {
+                let tooltip_cam = "Automatically calculates a Units tight bounding box when exporting\nThis setting may cause lag spikes on some devices";
+                toggle_ui(ui, &mut settings.auto_set_camera_region).on_hover_text(tooltip_cam);
+                ui.label("Auto-Set Camera Region").on_hover_text(tooltip_cam);
+            });
+            
+            ui.horizontal(|ui| {
                 ui.label("Centering Behavior:");
                 egui::ComboBox::from_id_salt("centering_behavior")
                     .selected_text(match settings.centering_behavior {

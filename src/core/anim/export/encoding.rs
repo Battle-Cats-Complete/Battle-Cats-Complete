@@ -10,6 +10,7 @@ use eframe::egui;
 use eframe::glow::{self, HasContext};
 use image::RgbaImage;
 use zip::ZipArchive;
+use zip::write::FileOptions;
 use webp_animation::Encoder as WebpEncoder;
 use gif::{Encoder as GifEncoder, Frame as GifFrame, Repeat as GifRepeat, DisposalMethod};
 
@@ -36,6 +37,7 @@ pub struct ExportConfig {
     pub end_frame: i32,
     pub interpolation: bool,
     pub output_path: PathBuf,
+    pub base_name: String, 
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -60,7 +62,8 @@ pub enum EncoderMessage {
 
 #[derive(Debug, Clone)]
 pub enum EncoderStatus {
-    Encoding,
+    Encoding, 
+    Progress(u32),
     Finished,
 }
 
@@ -162,6 +165,8 @@ pub fn start_encoding_thread(
             let _ = fs::create_dir_all(parent);
         }
 
+        let mut frames_processed = 0;
+
         match config.format {
             ExportFormat::Gif => {
                 let mut buffer = Vec::new();
@@ -182,6 +187,9 @@ pub fn start_encoding_thread(
                                 frame.dispose = DisposalMethod::Any;
                                 frame.delay = ticks;
                                 if encoder.write_frame(&frame).is_err() { break; }
+                                
+                                frames_processed += 1;
+                                let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
                             },
                             EncoderMessage::Finish => {
                                 let _ = status_tx.send(EncoderStatus::Encoding);
@@ -201,11 +209,11 @@ pub fn start_encoding_thread(
                             let raw = img.into_vec();
                             let _ = encoder.add_frame(&raw, timestamp_ms);
                             timestamp_ms += delay_ms as i32;
+
+                            frames_processed += 1;
+                            let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
                         },
-                        EncoderMessage::Finish => {
-                             let _ = status_tx.send(EncoderStatus::Encoding);
-                             break;
-                        }
+                        EncoderMessage::Finish => break
                     }
                 }
                 if let Ok(data) = encoder.finalize(timestamp_ms) {
@@ -224,8 +232,12 @@ pub fn start_encoding_thread(
                 if let Some(mut stdin) = child.stdin.take() {
                     while let Ok(msg) = rx.recv() {
                         match msg {
-                            EncoderMessage::Frame(img, _) => { let _ = stdin.write_all(&img.into_vec()); },
-                            EncoderMessage::Finish => { let _ = status_tx.send(EncoderStatus::Encoding); break; }
+                            EncoderMessage::Frame(img, _) => { 
+                                let _ = stdin.write_all(&img.into_vec()); 
+                                frames_processed += 1;
+                                let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
+                            },
+                            EncoderMessage::Finish => break
                         }
                     }
                 }
@@ -233,18 +245,57 @@ pub fn start_encoding_thread(
             },
             ExportFormat::PngSequence => {
                 let mut frame_idx = 0;
-                while let Ok(msg) = rx.recv() {
-                    match msg {
-                        EncoderMessage::Frame(img, _) => {
-                             let mut path = config.output_path.clone();
-                             if let Some(stem) = path.file_stem() {
-                                let new_name = format!("{}_{:03}.png", stem.to_string_lossy(), frame_idx);
-                                path.set_file_name(new_name);
-                             }
-                             let _ = img.save(path);
-                             frame_idx += 1;
-                        },
-                        EncoderMessage::Finish => break,
+                let step = if config.start_frame <= config.end_frame { 1 } else { -1 };
+                let is_zip = config.output_path.extension().map_or(false, |e| e.eq_ignore_ascii_case("zip"));
+
+                if is_zip {
+                     let mut memory_buffer = Cursor::new(Vec::new());
+                     
+                     {
+                         let mut zip = zip::ZipWriter::new(&mut memory_buffer);
+                         let options = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    
+                         while let Ok(msg) = rx.recv() {
+                            match msg {
+                                EncoderMessage::Frame(img, _) => {
+                                    let current_frame = config.start_frame + (frame_idx as i32 * step);
+                                    let entry_name = format!("{}.{}f.png", config.base_name, current_frame);
+                                    
+                                    let _ = zip.start_file(entry_name, options);
+                                    
+                                    let mut img_buffer = Cursor::new(Vec::new());
+                                    let _ = img.write_to(&mut img_buffer, image::ImageFormat::Png);
+                                    let _ = zip.write_all(img_buffer.get_ref());
+                                    
+                                    frame_idx += 1;
+                                    frames_processed += 1;
+                                    let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
+                                },
+                                EncoderMessage::Finish => break,
+                            }
+                         }
+                         let _ = zip.finish();
+                     }
+
+                     let _ = fs::write(&config.output_path, memory_buffer.into_inner());
+
+                } else {
+                    while let Ok(msg) = rx.recv() {
+                        match msg {
+                            EncoderMessage::Frame(img, _) => {
+                                 let path = config.output_path.clone();
+                                 let mut file = std::fs::File::create(&path)
+                                     .expect("Failed to create single png file");
+                                     
+                                 img.write_to(&mut file, image::ImageFormat::Png)
+                                     .expect("Failed to write single png data");
+                                     
+                                 // frame_idx not needed for single file mode
+                                 frames_processed += 1;
+                                 let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
+                            },
+                            EncoderMessage::Finish => break,
+                        }
                     }
                 }
             }

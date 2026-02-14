@@ -46,7 +46,8 @@ pub struct AnimViewer {
     pub export_state: ExporterState,
     pub show_export_popup: bool,
     pub has_scanned_attack: bool,
-    pub was_export_popup_open: bool, // Added to track popup state transitions
+    pub was_export_popup_open: bool, 
+    pub auto_set_camera: bool, 
 }
 
 impl Default for AnimViewer {
@@ -87,7 +88,8 @@ impl Default for AnimViewer {
             export_state: ExporterState::default(),
             show_export_popup: false,
             has_scanned_attack: false,
-            was_export_popup_open: false, // Default to false
+            was_export_popup_open: false,
+            auto_set_camera: false, 
         }
     }
 }
@@ -110,10 +112,7 @@ impl AnimViewer {
             self.export_state.frame_end_str.clear();
         }
 
-        // Use Bounds to calculate Default Tight Camera for export
-        // OPTIMIZATION: Only calculate bounds if the export window is currently open.
-        // This prevents heavy calculations when simply browsing animations.
-        if self.show_export_popup {
+        if self.show_export_popup && self.auto_set_camera {
             if let (Some(m), Some(s)) = (&self.held_model, &self.held_sheet) {
                 if let Some(bounds) = bounds::calculate_tight_bounds(m, self.current_anim.as_ref(), s) {
                     self.export_state.region_x = bounds.min.x;
@@ -187,9 +186,12 @@ impl AnimViewer {
         spirit_sheet_id: &str,
         form_viewer_id: &str,
         spirit_pack: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
-        native_fps: f32, 
+        native_fps: f32,
+        auto_set_camera: bool,
     ) {
         let dt = ui.input(|i| i.stable_dt);
+        
+        self.auto_set_camera = auto_set_camera; 
 
         if !form_viewer_id.is_empty() { self.summoner_id = form_viewer_id.to_string(); }
 
@@ -310,11 +312,11 @@ impl AnimViewer {
                         self.export_state.zoom = 1.0; 
                         self.is_selecting_export_region = false; 
                         self.show_export_popup = true;
-                        self.was_export_popup_open = true; // FIX: Prevent auto-recalc of bounds
+                        self.was_export_popup_open = true; 
                     } else { 
                         self.is_selecting_export_region = false; 
                         self.show_export_popup = true; 
-                        self.was_export_popup_open = true; // FIX: Prevent auto-recalc of bounds
+                        self.was_export_popup_open = true; 
                     }
                 }
             }
@@ -334,7 +336,6 @@ impl AnimViewer {
 
         // Showcase Animation Switching
         let mut showcase_render_time = 0.0;
-        let mut showcase_active_anim_idx = self.loaded_anim_index;
 
         if self.export_state.is_processing && self.export_state.showcase_mode {
             let walk_dur = self.export_state.showcase_walk_len;
@@ -344,22 +345,20 @@ impl AnimViewer {
             
             let p = self.export_state.current_progress;
             
-            let mut target_index = anim_controls::IDX_WALK;
-            
-            if p < walk_dur {
-                target_index = anim_controls::IDX_WALK;
+            let target_index = if p < walk_dur {
                 showcase_render_time = (p % (if walk_dur < 1 { 1 } else { walk_dur })) as f32; 
+                anim_controls::IDX_WALK
             } else if p < walk_dur + idle_dur {
-                target_index = anim_controls::IDX_IDLE;
                 showcase_render_time = ((p - walk_dur) % (if idle_dur < 1 { 1 } else { idle_dur })) as f32;
+                anim_controls::IDX_IDLE
             } else if p < walk_dur + idle_dur + attack_dur {
-                target_index = anim_controls::IDX_ATTACK;
                 showcase_render_time = (p - (walk_dur + idle_dur)) as f32;
+                anim_controls::IDX_ATTACK
             } else {
-                target_index = anim_controls::IDX_KB;
                 let kb_rel = p - (walk_dur + idle_dur + attack_dur);
                 showcase_render_time = (kb_rel % (if kb_dur < 1 { 1 } else { kb_dur })) as f32;
-            }
+                anim_controls::IDX_KB
+            };
 
             if self.loaded_anim_index != target_index {
                 if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == target_index) {
@@ -367,7 +366,6 @@ impl AnimViewer {
                      self.loaded_anim_index = target_index; 
                 }
             }
-            showcase_active_anim_idx = target_index;
         }
 
         if let (Some(model), Some(sheet)) = (&self.held_model, &self.held_sheet) {
@@ -384,9 +382,8 @@ impl AnimViewer {
                      (start + (self.export_state.current_progress * step)) as f32
                 };
 
-                if let Some(anim) = &self.current_anim {
-                     process::process_frame(ui, rect, &mut self.export_state, model, anim, sheet, self.renderer.clone(), time_to_use);
-                }
+                process::process_frame(ui, rect, &mut self.export_state, model, self.current_anim.as_ref(), sheet, self.renderer.clone(), time_to_use);
+                
                 ui.ctx().request_repaint();
             }
 
@@ -406,11 +403,13 @@ impl AnimViewer {
                 ui.painter().line_segment([center - egui::vec2(0.0, s), center + egui::vec2(0.0, s)], stk);
             }
             if self.show_export_popup {
-                 let center_screen = rect.center();
-                 let to_screen = |wx: f32, wy: f32| -> egui::Pos2 { let world_pos = egui::vec2(wx, wy); center_screen + (world_pos + self.pan_offset) * self.zoom_level };
-                 let min = to_screen(self.export_state.region_x, self.export_state.region_y);
-                 let max = to_screen(self.export_state.region_x + self.export_state.region_w, self.export_state.region_y + self.export_state.region_h);
-                 ui.painter().with_clip_rect(rect).rect_stroke(egui::Rect::from_min_max(min, max), 0.0, egui::Stroke::new(1.0, egui::Color32::YELLOW));
+                 if self.export_state.region_w > 0.1 && self.export_state.region_h > 0.1 {
+                     let center_screen = rect.center();
+                     let to_screen = |wx: f32, wy: f32| -> egui::Pos2 { let world_pos = egui::vec2(wx, wy); center_screen + (world_pos + self.pan_offset) * self.zoom_level };
+                     let min = to_screen(self.export_state.region_x, self.export_state.region_y);
+                     let max = to_screen(self.export_state.region_x + self.export_state.region_w, self.export_state.region_y + self.export_state.region_h);
+                     ui.painter().with_clip_rect(rect).rect_stroke(egui::Rect::from_min_max(min, max), 0.0, egui::Stroke::new(1.0, egui::Color32::YELLOW));
+                 }
             }
         } else { ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgb(20, 20, 20)); }
 
@@ -418,7 +417,6 @@ impl AnimViewer {
         let border_color = egui::Color32::from_rgb(31, 106, 165); 
         ui.painter().rect_stroke(border_rect, egui::Rounding::same(5.0), egui::Stroke::new(4.0, border_color));
 
-        // Replace the previous expansion button block with this:
         let btn_size = egui::vec2(30.0, 30.0);
         let btn_rect = egui::Rect::from_min_size(rect.min + egui::vec2(8.0, 8.0), btn_size);
         let bg_fill = if self.is_expanded { egui::Color32::from_rgb(31, 106, 165) } else { egui::Color32::from_gray(60) };
@@ -429,7 +427,6 @@ impl AnimViewer {
                 .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
                 .rounding(4.0);
             
-            // Capture response directly to handle the click event
             let response = ui.add_sized(btn_size, btn);
             if response.clicked() { 
                 self.is_expanded = !self.is_expanded; 
@@ -440,18 +437,23 @@ impl AnimViewer {
         let controls_hovered = anim_controls::render_controls_overlay(ui, rect, self, available_anims, spirit_available, base_assets_available, is_loading_new, spirit_sheet_id, form_viewer_id, spirit_pack, interpolation, native_fps);
         self.is_pointer_over_controls = controls_hovered || btn_response.hovered();
 
-        // --- EXPORT POPUP TRIGGER LOGIC ---
-        // If the popup just opened this frame, force a bounding box calculation.
         if self.show_export_popup && !self.was_export_popup_open {
-             if let (Some(m), Some(s)) = (&self.held_model, &self.held_sheet) {
-                if let Some(bounds) = bounds::calculate_tight_bounds(m, self.current_anim.as_ref(), s) {
-                    self.export_state.region_x = bounds.min.x;
-                    self.export_state.region_y = bounds.min.y;
-                    self.export_state.region_w = bounds.width();
-                    self.export_state.region_h = bounds.height();
-                    self.export_state.zoom = 1.0;
+             if self.auto_set_camera {
+                 if let (Some(m), Some(s)) = (&self.held_model, &self.held_sheet) {
+                    if let Some(bounds) = bounds::calculate_tight_bounds(m, self.current_anim.as_ref(), s) {
+                        self.export_state.region_x = bounds.min.x;
+                        self.export_state.region_y = bounds.min.y;
+                        self.export_state.region_w = bounds.width();
+                        self.export_state.region_h = bounds.height();
+                        self.export_state.zoom = 1.0;
+                    }
                 }
-            }
+             } else {
+                self.export_state.region_w = 0.0;
+                self.export_state.region_h = 0.0;
+                self.export_state.region_x = 0.0;
+                self.export_state.region_y = 0.0;
+             }
         }
         self.was_export_popup_open = self.show_export_popup;
 
