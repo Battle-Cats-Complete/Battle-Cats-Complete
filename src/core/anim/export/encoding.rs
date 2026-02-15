@@ -1,8 +1,7 @@
 use std::fs;
 use std::io::{Cursor, Write, BufWriter};
 use std::path::PathBuf;
-use std::sync::mpsc;
-use std::thread;
+use std::sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}};
 
 use eframe::egui;
 use eframe::glow::{self, HasContext};
@@ -14,11 +13,8 @@ use gif::{Encoder as GifEncoder, Frame as GifFrame, Repeat as GifRepeat, Disposa
 use crate::core::anim::canvas::GlowRenderer;
 use crate::data::global::imgcut::SpriteSheet;
 use crate::core::anim::transform::WorldTransform;
-use crate::core::addons::toolpaths::{self, Presence};
 
-use crate::core::addons::avifenc::encoding as avif_addon;
-use crate::core::addons::ffmpeg::encoding as ffmpeg_addon;
-
+// SHARED DATA STRUCTURES
 #[derive(Clone, Debug)]
 pub struct ExportConfig {
     pub width: u32,
@@ -38,7 +34,16 @@ pub struct ExportConfig {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum ExportFormat { Gif, WebP, Avif, PngSequence }
+pub enum ExportFormat { 
+    Gif, 
+    WebP, 
+    Avif, 
+    Png,
+    Mp4, 
+    Mkv,
+    Webm,
+    Zip
+}
 
 pub enum EncoderMessage {
     Frame(Vec<u8>, u32, u32, u32),
@@ -47,197 +52,111 @@ pub enum EncoderMessage {
 
 #[derive(Debug, Clone)]
 pub enum EncoderStatus {
-    Encoding, 
+    #[allow(dead_code)] Encoding, 
     Progress(u32),
     Finished,
 }
 
-pub fn start_encoding_thread(
+// NATIVE WORKER
+pub fn encode_native(
     config: ExportConfig, 
-    rx: mpsc::Receiver<EncoderMessage>,
-    status_tx: mpsc::Sender<EncoderStatus>
-) -> thread::JoinHandle<()> {
-    thread::spawn(move || {
-        if let Some(parent) = config.output_path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
+    rx: mpsc::Receiver<EncoderMessage>, 
+    status_tx: mpsc::Sender<EncoderStatus>, 
+    temp_path: &PathBuf, 
+    abort: Arc<AtomicBool>
+) -> bool {
+    let mut frames_processed = 0;
+    let mut success = false;
 
-        let ext = match config.format {
-            ExportFormat::Gif => "gif",
-            ExportFormat::WebP => "webp",
-            ExportFormat::Avif => "avif",
-            ExportFormat::PngSequence => "png", 
-        };
-        
-        let file_stem = config.output_path.file_stem().unwrap_or_default().to_string_lossy();
-        let temp_filename = format!("{}.{}.tmp", file_stem, ext);
-        let temp_path = config.output_path.with_file_name(temp_filename);
-        
-        let final_path = config.output_path.clone();
-        let final_tx = status_tx.clone();
-
-        // --- 1. FFMPEG (GIF) ---
-        if toolpaths::ffmpeg_status() == Presence::Installed && config.format == ExportFormat::Gif {
-            if ffmpeg_addon::encode(config, rx, status_tx, &temp_path) {
-                finalize_export(&temp_path, &final_path, &final_tx);
-            }
-            return;
-        }
-
-        // --- 2. AVIF PIPE ---
-        if toolpaths::avifenc_status() == Presence::Installed && toolpaths::ffmpeg_status() == Presence::Installed && config.format == ExportFormat::Avif {
-            if avif_addon::encode(config, rx, status_tx, &temp_path) {
-                finalize_export(&temp_path, &final_path, &final_tx);
-            }
-            return;
-        }
-
-        // --- 3. NATIVE FALLBACK ---
-        let mut frames_processed = 0;
-        let mut success = false;
-
-        match config.format {
-            ExportFormat::Gif => {
-                if let Ok(file) = fs::File::create(&temp_path) {
-                    let mut writer = BufWriter::new(file);
-                    if let Ok(mut encoder) = GifEncoder::new(&mut writer, config.width as u16, config.height as u16, &[]) {
-                        let _ = encoder.set_repeat(GifRepeat::Infinite);
-
-                        while let Ok(msg) = rx.recv() {
-                            match msg {
-                                EncoderMessage::Frame(raw_pixels, w, h, delay_ms) => {
-                                    let img = prepare_image(raw_pixels, w, h);
-                                    let mut ticks = (delay_ms as f32 / 10.0).round() as u16;
-                                    if ticks < 2 { ticks = 2; } 
-                                    
-                                    let mut pixels = img.into_vec();
-                                    for chunk in pixels.chunks_exact_mut(4) {
-                                        if chunk[3] < 127 { chunk[0]=0; chunk[1]=0; chunk[2]=0; chunk[3]=0; } 
-                                        else { chunk[3]=255; }
-                                    }
-
-                                    let mut frame = GifFrame::from_rgba(config.width as u16, config.height as u16, &mut pixels);
-                                    frame.dispose = DisposalMethod::Background;
-                                    frame.delay = ticks;
-                                    
-                                    if encoder.write_frame(&frame).is_err() { break; }
-                                    
-                                    frames_processed += 1;
-                                    if status_tx.send(EncoderStatus::Progress(frames_processed)).is_err() { break; }
-                                },
-                                EncoderMessage::Finish => {
-                                    let _ = status_tx.send(EncoderStatus::Encoding);
-                                    success = true;
-                                    break;
+    match config.format {
+        ExportFormat::Gif => {
+            if let Ok(file) = fs::File::create(temp_path) {
+                let mut writer = BufWriter::new(file);
+                if let Ok(mut encoder) = GifEncoder::new(&mut writer, config.width as u16, config.height as u16, &[]) {
+                    let _ = encoder.set_repeat(GifRepeat::Infinite);
+                    while let Ok(msg) = rx.recv() {
+                        if abort.load(Ordering::Relaxed) { return false; }
+                        match msg {
+                            EncoderMessage::Frame(raw_pixels, w, h, delay_ms) => {
+                                let img = prepare_image(raw_pixels, w, h);
+                                let mut ticks = (delay_ms as f32 / 10.0).round() as u16;
+                                if ticks < 2 { ticks = 2; } 
+                                let mut pixels = img.into_vec();
+                                for chunk in pixels.chunks_exact_mut(4) {
+                                    if chunk[3] < 127 { chunk[0]=0; chunk[1]=0; chunk[2]=0; chunk[3]=0; } 
+                                    else { chunk[3]=255; }
                                 }
-                            }
+                                let mut frame = GifFrame::from_rgba(config.width as u16, config.height as u16, &mut pixels);
+                                frame.dispose = DisposalMethod::Background;
+                                frame.delay = ticks;
+                                if encoder.write_frame(&frame).is_err() { break; }
+                                frames_processed += 1;
+                                let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
+                            },
+                            EncoderMessage::Finish => { success = true; break; }
                         }
                     }
                 }
-            },
-            ExportFormat::WebP => {
-                let mut encoder = WebpEncoder::new((config.width, config.height)).expect("Failed WebP");
+            }
+        },
+        ExportFormat::WebP => {
+            if let Ok(mut encoder) = WebpEncoder::new((config.width, config.height)) {
                 let mut timestamp_ms = 0;
                 while let Ok(msg) = rx.recv() {
+                    if abort.load(Ordering::Relaxed) { return false; }
                     match msg {
                         EncoderMessage::Frame(raw_pixels, w, h, delay_ms) => {
                             let img = prepare_image(raw_pixels, w, h);
                             let _ = encoder.add_frame(&img.into_vec(), timestamp_ms);
                             timestamp_ms += delay_ms as i32;
-
                             frames_processed += 1;
-                            if status_tx.send(EncoderStatus::Progress(frames_processed)).is_err() { break; }
+                            let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
                         },
-                        EncoderMessage::Finish => {
-                            success = true;
-                            break;
-                        }
+                        EncoderMessage::Finish => { success = true; break; }
                     }
                 }
-                if success {
+                if success && !abort.load(Ordering::Relaxed) {
                     if let Ok(data) = encoder.finalize(timestamp_ms) {
-                        let _ = std::fs::write(&temp_path, data);
+                        success = fs::write(temp_path, data).is_ok();
                     } else { success = false; }
                 }
-            },
-            ExportFormat::PngSequence => {
-                let mut frame_idx = 0;
-                let step = if config.start_frame <= config.end_frame { 1 } else { -1 };
-                let is_zip = config.output_path.extension().map_or(false, |e| e.eq_ignore_ascii_case("zip"));
-
-                if is_zip {
-                     if let Ok(file) = fs::File::create(&temp_path) {
-                         let mut zip = zip::ZipWriter::new(BufWriter::new(file));
-                         let method = if config.compression_percent == 0 { zip::CompressionMethod::Stored } else { zip::CompressionMethod::Deflated };
-                         let options = FileOptions::default().compression_method(method);
-        
-                         while let Ok(msg) = rx.recv() {
-                            match msg {
-                                EncoderMessage::Frame(raw_pixels, w, h, _) => {
-                                    let img = prepare_image(raw_pixels, w, h);
-                                    let current_frame = config.start_frame + (frame_idx as i32 * step);
-                                    let entry_name = format!("{}.{}f.png", config.base_name, current_frame);
-                                    let _ = zip.start_file(entry_name, options);
-                                    let mut buffer = Cursor::new(Vec::new());
-                                    if img.write_to(&mut buffer, image::ImageFormat::Png).is_ok() {
-                                        let _ = zip.write_all(buffer.get_ref());
-                                    }
-                                    frame_idx += 1;
-                                    frames_processed += 1;
-                                    let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
-                                },
-                                EncoderMessage::Finish => break,
-                            }
-                         }
-                         let _ = zip.finish();
-                     }
-                } else {
-                    // Direct file write (no temp logic for sequence)
-                    let parent = config.output_path.parent().unwrap_or(std::path::Path::new("."));
-                    while let Ok(msg) = rx.recv() {
-                        match msg {
-                            EncoderMessage::Frame(raw_pixels, w, h, _) => {
-                                 let img = prepare_image(raw_pixels, w, h);
-                                 let current_frame = config.start_frame + (frame_idx as i32 * step);
-                                 let filename = format!("{}.{}f.png", config.base_name, current_frame);
-                                 let path = parent.join(filename);
-                                 
-                                 if let Ok(mut file) = std::fs::File::create(path) {
-                                     let _ = img.write_to(&mut file, image::ImageFormat::Png);
-                                 }
-                                 frames_processed += 1;
-                                 let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
-                            },
-                            EncoderMessage::Finish => break,
-                        }
-                    }
-                    let _ = status_tx.send(EncoderStatus::Finished);
-                    return; 
-                }
-            },
-            ExportFormat::Avif => {
-                let _ = status_tx.send(EncoderStatus::Finished);
-                return;
             }
-        }
-        
-        if success {
-            finalize_export(&temp_path, &final_path, &final_tx);
-        } else {
-            if temp_path.exists() { let _ = fs::remove_file(temp_path); }
-        }
-    })
-}
-
-fn finalize_export(temp: &PathBuf, output: &PathBuf, status_tx: &mpsc::Sender<EncoderStatus>) {
-    if temp.exists() {
-        if output.exists() { let _ = fs::remove_file(output); }
-        let _ = fs::rename(temp, output);
+        },
+        ExportFormat::Zip => {
+            let mut frame_idx = 0;
+            let step = if config.start_frame <= config.end_frame { 1 } else { -1 };
+            
+            // Native ZIP creation
+            if let Ok(file) = fs::File::create(temp_path) {
+                let mut zip = zip::ZipWriter::new(BufWriter::new(file));
+                let method = if config.compression_percent == 0 { zip::CompressionMethod::Stored } else { zip::CompressionMethod::Deflated };
+                let options = FileOptions::default().compression_method(method);
+                while let Ok(msg) = rx.recv() {
+                    if abort.load(Ordering::Relaxed) { return false; }
+                    match msg {
+                        EncoderMessage::Frame(raw_pixels, w, h, _) => {
+                            let img = prepare_image(raw_pixels, w, h);
+                            let current_frame = config.start_frame + (frame_idx as i32 * step);
+                            let entry_name = format!("{}.{}f.png", config.base_name, current_frame);
+                            let _ = zip.start_file(entry_name, options);
+                            let mut buffer = Cursor::new(Vec::new());
+                            if img.write_to(&mut buffer, image::ImageFormat::Png).is_ok() {
+                                let _ = zip.write_all(buffer.get_ref());
+                            }
+                            frame_idx += 1; frames_processed += 1;
+                            let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
+                        },
+                        EncoderMessage::Finish => { success = true; break; },
+                    }
+                }
+                let _ = zip.finish();
+            }
+        },
+        _ => {}
     }
-    let _ = status_tx.send(EncoderStatus::Finished);
+    success
 }
 
-// ... (render_frame and prepare_image unchanged)
 pub fn render_frame(
     renderer: &mut GlowRenderer,
     gl: &glow::Context,

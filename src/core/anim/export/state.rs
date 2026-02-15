@@ -73,14 +73,16 @@ pub struct ExporterState {
     pub compression_percent_str: String,
 
     // Options
-    pub background: bool, // New Toggle
+    pub background: bool,
+    pub user_bg_preference: bool,
     pub interpolation: bool,
     
     // Runtime
     pub is_processing: bool,
-    pub current_progress: i32, // Rendered frames (GPU -> RAM)
-    pub encoded_frames: i32,   // Encoded frames (RAM -> Disk)
+    pub current_progress: i32, 
+    pub encoded_frames: i32,   
     pub tx: Option<Sender<EncoderMessage>>,
+    pub abort: Option<Arc<AtomicBool>>, 
     
     // Loop Finding Runtime
     pub is_loop_searching: bool,
@@ -129,7 +131,6 @@ impl Default for ExporterState {
             fps: 30,
             zoom: 1.0,
             
-            // Default to 0.0 to trigger "No Camera Set" logic
             region_x: 0.0,
             region_y: 0.0,
             region_w: 0.0,
@@ -144,13 +145,15 @@ impl Default for ExporterState {
             compression_percent: 0,
             compression_percent_str: String::new(),
 
-            background: false, // Default false
+            background: false,
+            user_bg_preference: false,
             interpolation: false,
             
             is_processing: false,
             current_progress: 0,
             encoded_frames: 0,
             tx: None,
+            abort: None, 
 
             is_loop_searching: false,
             loop_frames_searched: 0,

@@ -1,6 +1,5 @@
 use eframe::egui;
 use crate::core::settings::Settings;
-// Updated import to point to the new tabs file
 use super::tabs::toggle_ui;
 
 pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
@@ -18,7 +17,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
                 let tooltip_text = "Skip the deletion of the \"game/app\" directory after emulator import";
                 label_response.on_hover_text(tooltip_text);
 
-                // Updated reference
                 let toggle_response = toggle_ui(ui, &mut settings.app_folder_persistence)
                     .on_hover_text(tooltip_text);
 
@@ -40,7 +38,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
                 
                 label_response.on_hover_text(tooltip_text);
 
-                // Updated reference
                 let toggle_response = toggle_ui(ui, &mut settings.enable_ultra_compression)
                     .on_hover_text(tooltip_text);
 

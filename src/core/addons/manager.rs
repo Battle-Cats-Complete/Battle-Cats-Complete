@@ -37,7 +37,6 @@ fn download_thread(tx: Sender<AddonStatus>, config: DownloadConfig) -> Result<()
     
     let _ = tx.send(AddonStatus::Downloading(0.1, "Connecting...".to_string()));
     
-    // GitHub releases require a User-Agent or they may return 502/403 errors
     let client = reqwest::blocking::Client::builder()
         .user_agent("BattleCatsComplete/0.8.0")
         .build()

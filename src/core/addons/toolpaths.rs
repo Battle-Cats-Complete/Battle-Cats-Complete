@@ -5,7 +5,7 @@ use std::fs;
 pub enum AddonStatus {
     NotInstalled,
     Installed,
-    Downloading(f32, String), // Progress (0.0-1.0), Status Text
+    Downloading(f32, String),
     Error(String),
 }
 
@@ -15,7 +15,7 @@ pub enum Presence {
     Missing,
 }
 
-// --- BINARY NAMES ---
+// BINARY NAMES
 #[cfg(target_os = "windows")]
 pub const ADB_BIN: &str = "adb.exe";
 #[cfg(not(target_os = "windows"))]
@@ -45,7 +45,7 @@ pub fn get_tools_dir() -> PathBuf {
     base_dir
 }
 
-// --- STATUS TRACKING ---
+// STATUS TRACKING
 
 pub fn adb_status() -> Presence {
     if get_tools_dir().join("adb").join(ADB_BIN).exists() { Presence::Installed } else { Presence::Missing }

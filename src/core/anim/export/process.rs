@@ -6,10 +6,10 @@ use crate::core::anim::export::encoding::{self, ExportConfig, ExportFormat, Enco
 use crate::core::anim::export::state::{ExporterState, ExportMode};
 use crate::core::anim::{animator, smooth, transform}; 
 use crate::core::anim::canvas::GlowRenderer;
-use std::sync::{Arc, Mutex, mpsc};
+use crate::core::anim::export::leader;
+use std::sync::{Arc, Mutex, mpsc, atomic::{AtomicBool, Ordering}};
 use std::path::{PathBuf, Path};
 
-// Global status receiver
 pub static STATUS_RX: Mutex<Option<mpsc::Receiver<EncoderStatus>>> = Mutex::new(None);
 
 pub fn start_export(state: &mut ExporterState) {
@@ -20,22 +20,22 @@ pub fn start_export(state: &mut ExporterState) {
     state.encoded_frames = 0; 
     state.completion_time = None; 
     
-    // Calculate accurate Total Frame Count
+    // Initialize the abort signal
+    let abort_signal = Arc::new(AtomicBool::new(false));
+    state.abort = Some(abort_signal.clone());
+
     if state.export_mode == ExportMode::Showcase {
         state.frame_start = 0;
         let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
         state.frame_end = if total > 0 { total - 1 } else { 0 }; 
     }
 
-    // Name Generation Logic
     let (base_name, file_name) = if state.file_name.trim().is_empty() {
         let (disp_start, disp_end) = if state.export_mode == ExportMode::Showcase {
              let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
              let end_disp = if total > 0 { total - 1 } else { 0 };
              (0, end_disp)
-        } else {
-             (state.frame_start, state.frame_end)
-        };
+        } else { (state.frame_start, state.frame_end) };
 
         let range_part = if disp_start == disp_end { format!("{}f", disp_start) } else { format!("{}f~{}f", disp_start, disp_end) };
         let clean_prefix = state.name_prefix.replace("_0", "").replace("_f", "-1").replace("_c", "-2").replace("_s", "-3");
@@ -47,7 +47,6 @@ pub fn start_export(state: &mut ExporterState) {
 
         let base = if prefix_display.is_empty() { "animation".to_string() } else { prefix_display };
         let full = format!("{}.{}", base, range_part);
-        
         (base, full)
     } else {
         let path = Path::new(&state.file_name);
@@ -59,15 +58,16 @@ pub fn start_export(state: &mut ExporterState) {
     output_path.push("exports");
     
     let mut final_name = file_name;
-    let frame_count = (state.frame_end - state.frame_start).abs() + 1;
-
+    
     if let Some(ext) = match state.format {
         ExportFormat::Gif => Some("gif"), 
         ExportFormat::WebP => Some("webp"), 
         ExportFormat::Avif => Some("avif"), 
-        ExportFormat::PngSequence => {
-            if frame_count > 1 { Some("zip") } else { Some("png") }
-        },
+        ExportFormat::Png => Some("png"), 
+        ExportFormat::Mp4 => Some("mp4"),
+        ExportFormat::Mkv => Some("mkv"),
+        ExportFormat::Webm => Some("webm"),
+        ExportFormat::Zip => Some("zip"),
     } {
         if !final_name.to_lowercase().ends_with(&format!(".{}", ext)) { final_name = format!("{}.{}", final_name, ext); }
     }
@@ -77,10 +77,8 @@ pub fn start_export(state: &mut ExporterState) {
         width: state.region_w as u32, height: state.region_h as u32,
         camera_x: state.region_x, camera_y: state.region_y, camera_zoom: state.zoom,
         format: state.format.clone(), 
-        
         quality_percent: state.quality_percent as u32,
         compression_percent: state.compression_percent as u32,
-        
         fps: state.fps as u32,
         start_frame: state.frame_start, end_frame: state.frame_end, interpolation: state.interpolation,
         output_path,
@@ -93,7 +91,8 @@ pub fn start_export(state: &mut ExporterState) {
     if let Ok(mut lock) = STATUS_RX.lock() { *lock = Some(status_rx); }
     
     state.tx = Some(tx);
-    encoding::start_encoding_thread(config, rx, status_tx);
+    // Pass the abort signal into the encoding thread
+    leader::start_encoding_thread(config, rx, status_tx, abort_signal);
 }
 
 pub fn process_frame(
@@ -108,35 +107,32 @@ pub fn process_frame(
 ) {
     if state.tx.is_none() { return; }
 
+    // CHECK ABORT SIGNAL BEFORE PROCESSING
+    if let Some(abort) = &state.abort {
+        if abort.load(Ordering::Relaxed) {
+            state.tx = None;
+            state.abort = None;
+            return;
+        }
+    }
+
     let count = (state.frame_end - state.frame_start).abs() + 1;
-    
     if state.current_progress >= count {
         if let Some(tx) = state.tx.take() { let _ = tx.send(EncoderMessage::Finish); }
         return;
     }
 
     let frame_delay = 1000.0 / state.fps as f32;
-    
     let parts = if let Some(a) = anim {
         let start = state.frame_start;
         let step = if state.frame_start < state.frame_end { 1 } else { -1 };
         let raw_f = (start + (state.current_progress * step)) as f32;
-        
-        let frame_to_render = if state.max_frame > 0 {
-            raw_f.rem_euclid(state.max_frame as f32 + 1.0) 
-        } else {
-            raw_f
-        };
-
+        let frame_to_render = if state.max_frame > 0 { raw_f.rem_euclid(state.max_frame as f32 + 1.0) } else { raw_f };
         if state.interpolation { smooth::animate(model, a, frame_to_render) } else { animator::animate(model, a, frame_to_render) }
-    } else {
-        model.parts.clone()
-    };
+    } else { model.parts.clone() };
     
     let world_parts = transform::solve_hierarchy(&parts, model);
     let pan = egui::vec2(-state.region_x - (state.region_w as f32 / (2.0 * state.zoom)), -state.region_y - (state.region_h as f32 / (2.0 * state.zoom)));
-    
-    // Updated Logic: Use state.background toggle instead of format check.
     let bg_color = if state.background { [50, 50, 50, 255] } else { [0, 0, 0, 0] };
 
     let renderer_arc = renderer_ref.clone();
