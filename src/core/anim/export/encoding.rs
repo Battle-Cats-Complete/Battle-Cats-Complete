@@ -27,7 +27,7 @@ pub struct ExportConfig {
     #[allow(dead_code)] pub camera_y: f32,
     #[allow(dead_code)] pub camera_zoom: f32,
     pub format: ExportFormat,
-    pub quality_percent: u32, 
+    #[allow(dead_code)] pub quality_percent: u32, 
     pub compression_percent: u32,
     pub fps: u32,
     pub start_frame: i32,
@@ -161,8 +161,59 @@ pub fn start_encoding_thread(
                 }
             },
             ExportFormat::PngSequence => {
-                let _ = status_tx.send(EncoderStatus::Finished);
-                return;
+                let mut frame_idx = 0;
+                let step = if config.start_frame <= config.end_frame { 1 } else { -1 };
+                let is_zip = config.output_path.extension().map_or(false, |e| e.eq_ignore_ascii_case("zip"));
+
+                if is_zip {
+                     if let Ok(file) = fs::File::create(&temp_path) {
+                         let mut zip = zip::ZipWriter::new(BufWriter::new(file));
+                         let method = if config.compression_percent == 0 { zip::CompressionMethod::Stored } else { zip::CompressionMethod::Deflated };
+                         let options = FileOptions::default().compression_method(method);
+        
+                         while let Ok(msg) = rx.recv() {
+                            match msg {
+                                EncoderMessage::Frame(raw_pixels, w, h, _) => {
+                                    let img = prepare_image(raw_pixels, w, h);
+                                    let current_frame = config.start_frame + (frame_idx as i32 * step);
+                                    let entry_name = format!("{}.{}f.png", config.base_name, current_frame);
+                                    let _ = zip.start_file(entry_name, options);
+                                    let mut buffer = Cursor::new(Vec::new());
+                                    if img.write_to(&mut buffer, image::ImageFormat::Png).is_ok() {
+                                        let _ = zip.write_all(buffer.get_ref());
+                                    }
+                                    frame_idx += 1;
+                                    frames_processed += 1;
+                                    let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
+                                },
+                                EncoderMessage::Finish => break,
+                            }
+                         }
+                         let _ = zip.finish();
+                     }
+                } else {
+                    // Direct file write (no temp logic for sequence)
+                    let parent = config.output_path.parent().unwrap_or(std::path::Path::new("."));
+                    while let Ok(msg) = rx.recv() {
+                        match msg {
+                            EncoderMessage::Frame(raw_pixels, w, h, _) => {
+                                 let img = prepare_image(raw_pixels, w, h);
+                                 let current_frame = config.start_frame + (frame_idx as i32 * step);
+                                 let filename = format!("{}.{}f.png", config.base_name, current_frame);
+                                 let path = parent.join(filename);
+                                 
+                                 if let Ok(mut file) = std::fs::File::create(path) {
+                                     let _ = img.write_to(&mut file, image::ImageFormat::Png);
+                                 }
+                                 frames_processed += 1;
+                                 let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
+                            },
+                            EncoderMessage::Finish => break,
+                        }
+                    }
+                    let _ = status_tx.send(EncoderStatus::Finished);
+                    return; 
+                }
             },
             ExportFormat::Avif => {
                 let _ = status_tx.send(EncoderStatus::Finished);
