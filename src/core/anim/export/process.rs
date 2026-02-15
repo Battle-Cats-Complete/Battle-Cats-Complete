@@ -76,7 +76,12 @@ pub fn start_export(state: &mut ExporterState) {
     let config = ExportConfig {
         width: state.region_w as u32, height: state.region_h as u32,
         camera_x: state.region_x, camera_y: state.region_y, camera_zoom: state.zoom,
-        format: state.format.clone(), quality: state.quality.clone(), fps: state.fps as u32,
+        format: state.format.clone(), 
+        
+        quality_percent: state.quality_percent as u32,
+        compression_percent: state.compression_percent as u32,
+        
+        fps: state.fps as u32,
         start_frame: state.frame_start, end_frame: state.frame_end, interpolation: state.interpolation,
         output_path,
         base_name, 
@@ -113,7 +118,6 @@ pub fn process_frame(
     let frame_delay = 1000.0 / state.fps as f32;
     
     let parts = if let Some(a) = anim {
-        // FIX: Match viewer math. Wrap frame via rem_euclid for seamless loops.
         let start = state.frame_start;
         let step = if state.frame_start < state.frame_end { 1 } else { -1 };
         let raw_f = (start + (state.current_progress * step)) as f32;
@@ -131,7 +135,9 @@ pub fn process_frame(
     
     let world_parts = transform::solve_hierarchy(&parts, model);
     let pan = egui::vec2(-state.region_x - (state.region_w as f32 / (2.0 * state.zoom)), -state.region_y - (state.region_h as f32 / (2.0 * state.zoom)));
-    let bg_color = if state.format == ExportFormat::Gif { [50, 50, 50, 255] } else { [0, 0, 0, 0] };
+    
+    // Updated Logic: Use state.background toggle instead of format check.
+    let bg_color = if state.background { [50, 50, 50, 255] } else { [0, 0, 0, 0] };
 
     let renderer_arc = renderer_ref.clone();
     let sheet_arc = Arc::new(sheet.clone()); 

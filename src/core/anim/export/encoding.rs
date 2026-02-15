@@ -31,7 +31,11 @@ pub struct ExportConfig {
     pub camera_y: f32,
     pub camera_zoom: f32,
     pub format: ExportFormat,
-    pub quality: QualityLevel,
+    
+    // Percentages (0-100)
+    pub quality_percent: u32, 
+    pub compression_percent: u32,
+
     pub fps: u32,
     pub start_frame: i32,
     pub end_frame: i32,
@@ -46,13 +50,6 @@ pub enum ExportFormat {
     WebP,
     Avif,
     PngSequence,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum QualityLevel {
-    Low,
-    Medium,
-    High,
 }
 
 pub enum EncoderMessage {
@@ -126,8 +123,6 @@ pub fn render_frame(
         gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
         let mut pixels = vec![0u8; (width * height * 4) as usize];
         
-        // Blocking GPU read, but necessary. 
-        // We defer alpha-unmultiply and flip to the background thread.
         gl.read_pixels(0, 0, width as i32, height as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(&mut pixels));
 
         gl.bind_framebuffer(glow::FRAMEBUFFER, None);
@@ -141,8 +136,9 @@ pub fn render_frame(
     }
 }
 
-// CPU-intensive tasks moved here
 fn prepare_image(mut pixels: Vec<u8>, width: u32, height: u32) -> RgbaImage {
+    // We KEEP this loop to fix premultiplied alpha from OpenGL.
+    // Without this, colors look dark/wrong.
     for chunk in pixels.chunks_exact_mut(4) {
         let alpha = chunk[3];
         if alpha > 0 && alpha < 255 {
@@ -174,7 +170,6 @@ pub fn start_encoding_thread(
             let _ = fs::create_dir_all(parent);
         }
 
-        // Use a temporary file path during writing to ensure atomicity
         let temp_path = config.output_path.with_extension("tmp");
         let mut frames_processed = 0;
 
@@ -193,12 +188,29 @@ pub fn start_encoding_thread(
                             EncoderMessage::Frame(raw_pixels, w, h, delay_ms) => {
                                 let img = prepare_image(raw_pixels, w, h);
                                 let mut ticks = (delay_ms as f32 / 10.0).round() as u16;
-                                if ticks < 3 { ticks = 3; } 
+                                if ticks < 2 { ticks = 2; } 
+                                
                                 let mut pixels = img.into_vec();
+
+                                // FIX: Hard Alpha Threshold for GIF Transparency
+                                // This removes semi-transparent fringes that cause "thick black lines"
+                                for chunk in pixels.chunks_exact_mut(4) {
+                                    // 127 is the 50% cutoff
+                                    if chunk[3] < 127 {
+                                        // Force full transparent
+                                        chunk[0] = 0; chunk[1] = 0; chunk[2] = 0; chunk[3] = 0;
+                                    } else {
+                                        // Force full opaque
+                                        chunk[3] = 255;
+                                    }
+                                }
+
                                 let mut frame = GifFrame::from_rgba(config.width as u16, config.height as u16, &mut pixels);
-                                frame.dispose = DisposalMethod::Any;
+                                frame.dispose = DisposalMethod::Background; // Clears prev frame for transparency
                                 frame.delay = ticks;
-                                if encoder.write_frame(&frame).is_err() { break; }
+                                
+                                // We ignore errors to prevent partial exports from crashing the loop
+                                let _ = encoder.write_frame(&frame);
                                 
                                 frames_processed += 1;
                                 let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
@@ -234,11 +246,26 @@ pub fn start_encoding_thread(
                 }
             },
             ExportFormat::Avif => {
-                 let avif_path = match get_avifenc_path() { Ok(p) => p, Err(_) => { return; } };
-                let speed_arg = match config.quality { QualityLevel::Low => "8", QualityLevel::Medium => "4", QualityLevel::High => "2" };
+                let avif_path = match get_avifenc_path() { Ok(p) => p, Err(_) => { return; } };
                 
+                let speed_val = 10 - (config.compression_percent as f32 / 10.0).round() as u32;
+                let speed_arg = speed_val.clamp(0, 10).to_string();
+
+                let q_val = 63 - ((config.quality_percent as f32 / 100.0) * 63.0).round() as u32;
+                let q_arg = q_val.clamp(0, 63).to_string();
+
                 let mut child = Command::new(avif_path)
-                    .args(&["--stdin", "--stdin-format", "raw", "--width", &config.width.to_string(), "--height", &config.height.to_string(), "--depth", "8", "--fps", &config.fps.to_string(), "--speed", speed_arg, "-o", &temp_path.to_string_lossy()])
+                    .args(&[
+                        "--stdin", "--stdin-format", "raw", 
+                        "--width", &config.width.to_string(), 
+                        "--height", &config.height.to_string(), 
+                        "--depth", "8", 
+                        "--fps", &config.fps.to_string(), 
+                        "--speed", &speed_arg,
+                        "--min", &q_arg, 
+                        "--max", &q_arg,
+                        "-o", &temp_path.to_string_lossy()
+                    ])
                     .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::inherit())
                     .spawn().expect("Failed avifenc");
 
@@ -263,12 +290,18 @@ pub fn start_encoding_thread(
                 let is_zip = config.output_path.extension().map_or(false, |e| e.eq_ignore_ascii_case("zip"));
 
                 if is_zip {
-                     // WRITE TO TEMP FILE
                      match fs::File::create(&temp_path) {
                          Ok(file) => {
                              let buf_writer = BufWriter::new(file);
                              let mut zip = zip::ZipWriter::new(buf_writer);
-                             let options = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+                             
+                             let method = if config.compression_percent == 0 {
+                                 zip::CompressionMethod::Stored
+                             } else {
+                                 zip::CompressionMethod::Deflated
+                             };
+                             
+                             let options = FileOptions::default().compression_method(method);
         
                              while let Ok(msg) = rx.recv() {
                                 match msg {
@@ -279,7 +312,6 @@ pub fn start_encoding_thread(
                                         
                                         let _ = zip.start_file(entry_name, options);
                                         
-                                        // FIX: Write to intermediate buffer because ZipWriter doesn't implement Seek
                                         let mut buffer = Cursor::new(Vec::new());
                                         if let Ok(_) = img.write_to(&mut buffer, image::ImageFormat::Png) {
                                             let _ = zip.write_all(buffer.get_ref());
@@ -303,19 +335,8 @@ pub fn start_encoding_thread(
                         match msg {
                             EncoderMessage::Frame(raw_pixels, w, h, _) => {
                                  let img = prepare_image(raw_pixels, w, h);
-                                 // For single image, we write directly to the final path? 
-                                 // No, user requested NO visible files. Use temp path logic here too?
-                                 // NOTE: This block is usually for "PngSequence" which implies multiple files,
-                                 // but without ZIP it would spam the folder.
-                                 // If the user selected PNG Sequence but frame_count == 1, it lands here as a single PNG.
-                                 // We will write to temp_path then rename.
-                                 
-                                 let mut file = std::fs::File::create(&temp_path)
-                                     .expect("Failed to create single png file");
-                                     
-                                 img.write_to(&mut file, image::ImageFormat::Png)
-                                     .expect("Failed to write single png data");
-                                     
+                                 let mut file = std::fs::File::create(&temp_path).expect("Failed to create single png file");
+                                 img.write_to(&mut file, image::ImageFormat::Png).expect("Failed to write single png data");
                                  frames_processed += 1;
                                  let _ = status_tx.send(EncoderStatus::Progress(frames_processed));
                             },
@@ -326,7 +347,6 @@ pub fn start_encoding_thread(
             }
         }
         
-        // Finalize: Rename temp file to real file
         if temp_path.exists() {
             let _ = fs::rename(&temp_path, &config.output_path);
         }

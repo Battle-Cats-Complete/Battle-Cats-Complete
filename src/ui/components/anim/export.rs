@@ -4,12 +4,17 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::data::global::imgcut::SpriteSheet;
-use crate::core::anim::export::encoding::{ExportFormat, QualityLevel, EncoderStatus};
+use crate::core::anim::export::encoding::{ExportFormat, EncoderStatus};
 use crate::core::anim::export::state::{ExporterState, ExportMode, LoopStatus};
 use crate::core::anim::export::process::{start_export, STATUS_RX};
 use crate::core::anim::export::findloop;
 use crate::ui::views::settings::toggle_ui; 
 use crate::core::anim::bounds;
+
+// Tweak this value to fine-tune spacing between inputs and unit labels
+const EXPORT_MODE_SPACING: f32 = 2.0; 
+// Tweak this to control the width of the X/Y/W/H columns
+const CAMERA_COLUMN_WIDTH: f32 = 5.0;
 
 pub fn show_popup(
     ui: &mut egui::Ui,
@@ -59,12 +64,24 @@ pub fn show_popup(
                         state.frame_end = end;
                         state.frame_start_str = start.to_string();
                         state.frame_end_str = end.to_string();
+                        
+                        // Grab Attention on Success
+                        ui.ctx().data_mut(|d| d.insert_temp(attention_latch_id, true));
+                        
                         loop_finished = true;
                     },
                     LoopStatus::NotFound => {
                         loop_finished = true;
                     },
-                    LoopStatus::Error(_) => {
+                    LoopStatus::Error(e) => {
+                        if e.contains("Timed out") {
+                            state.loop_result_msg = Some("Loop Search Timeout (180s)".to_string());
+                            state.completion_time = Some(ui.input(|i| i.time));
+                            
+                            // Grab Attention on Timeout
+                            ui.ctx().data_mut(|d| d.insert_temp(attention_latch_id, true));
+                            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("export_done_seen"), false));
+                        }
                         loop_finished = true;
                     }
                 }
@@ -118,15 +135,23 @@ pub fn show_popup(
 
     let mut window = egui::Window::new("Export Animation")
         .id(window_id).open(&mut open_local).order(egui::Order::Foreground)
-        .constrain(false).movable(allow_drag).collapsible(false).resizable(true)
-        .min_size(egui::vec2(250.0, 300.0)).default_size(egui::vec2(400.0, 560.0))
+        .constrain(false).movable(allow_drag).collapsible(false)
+        .resizable(false) 
         .default_pos(ctx.screen_rect().center() - egui::vec2(200.0, 260.0));
 
     if let Some(pos) = fixed_pos { window = window.current_pos(pos); }
         
-    window.show(&ctx, |ui| { render_content(ui, state, model, anim, sheet, is_open, start_region_selection); });
+    window.show(&ctx, |ui| { 
+        egui::Resize::default()
+            .id(egui::Id::new("export_resize_area"))
+            .default_size([400.0, 560.0])
+            .min_size([250.0, 300.0])
+            .with_stroke(false) 
+            .show(ui, |ui| {
+                render_content(ui, state, model, anim, sheet, is_open, start_region_selection); 
+            });
+    });
     
-    ctx.set_style(saved_style);
     if !open_local { *is_open = false; }
 }
 
@@ -152,15 +177,19 @@ fn render_content(
     let bottom_height = 114.0; 
     let available_height = ui.available_height() - bottom_height;
 
-    ui.add_enabled_ui(!state.is_processing, |ui| {
-        egui::ScrollArea::vertical().max_height(available_height).auto_shrink([false, false]).show(ui, |ui| {
-            ui.add_space(5.0);
-            ui.heading("Input"); 
-            ui.add_space(5.0);
+    // We no longer wrap the entire scroll area in add_enabled_ui to allow scrolling while "locked".
+    // Instead, we use `ui_locked` to selectively disable inputs.
+    let ui_locked = state.is_processing || state.is_loop_searching;
 
-            // Export Mode Dropdown
+    egui::ScrollArea::vertical().max_height(available_height).auto_shrink([false, false]).show(ui, |ui| {
+        ui.add_space(5.0);
+        ui.heading("Input"); 
+        ui.add_space(5.0);
+
+        // Export Mode Dropdown
+        ui.add_enabled_ui(!ui_locked, |ui| {
             ui.horizontal(|ui| {
-                 ui.label("Export Mode:");
+                 ui.label("Mode");
                  let mut mode = state.export_mode.clone();
                  egui::ComboBox::from_id_salt("ex_mode").selected_text(match mode {
                      ExportMode::Manual => "Manual",
@@ -200,21 +229,30 @@ fn render_content(
                      state.export_mode = mode;
                  }
             });
-            ui.add_space(5.0);
+        });
+        ui.add_space(5.0);
 
-            match state.export_mode {
-                ExportMode::Manual => {
+        match state.export_mode {
+            ExportMode::Manual => {
+                ui.add_enabled_ui(!ui_locked, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Frames");
+                        ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
+
                         let start_hint = egui::RichText::new("0").color(egui::Color32::GRAY);
                         let r1 = ui.add(egui::TextEdit::singleline(&mut state.frame_start_str).hint_text(start_hint).desired_width(40.0));
                         if state.frame_start_str.trim().is_empty() { state.frame_start = 0; } else if let Ok(val) = state.frame_start_str.trim().parse::<i32>() { state.frame_start = val; }
                         
-                        ui.label("to");
+                        ui.label("f");
+                        ui.add_space(5.0); 
+                        ui.label("~");
+                        ui.add_space(5.0); 
+                        
                         let hint_val = anim.map_or(0, |a| a.max_frame);
                         let end_hint = egui::RichText::new(hint_val.to_string()).color(egui::Color32::GRAY);
                         let r2 = ui.add(egui::TextEdit::singleline(&mut state.frame_end_str).hint_text(end_hint).desired_width(40.0));
                         if state.frame_end_str.trim().is_empty() { state.frame_end = hint_val; } else if let Ok(val) = state.frame_end_str.trim().parse::<i32>() { state.frame_end = val; }
+                        
+                        ui.label("f");
     
                         if r1.changed() || r2.changed() {
                             state.completion_time = None;
@@ -222,106 +260,168 @@ fn render_content(
                             state.encoded_frames = 0;
                         }
                     });
-                },
-                ExportMode::Loop => {
-                    ui.horizontal(|ui| {
+                });
+            },
+            ExportMode::Loop => {
+                // Settings - Locked when locked
+                ui.add_enabled_ui(!ui_locked, |ui| {
+                    egui::Grid::new("loop_settings_grid").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
+                        // Row 1: Tolerance
                         ui.label("Loop Tolerance");
-                        let hint = egui::RichText::new("30").color(egui::Color32::GRAY);
-                        if ui.add(egui::TextEdit::singleline(&mut state.loop_tolerance_str).hint_text(hint).desired_width(40.0)).changed() {
-                            if let Ok(v) = state.loop_tolerance_str.parse::<i32>() { state.loop_tolerance = v; }
-                        }
-                    });
-                    ui.horizontal(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
+                            let hint = egui::RichText::new("30").color(egui::Color32::GRAY);
+                            if ui.add(egui::TextEdit::singleline(&mut state.loop_tolerance_str).hint_text(hint).desired_width(40.0)).changed() {
+                                if let Ok(v) = state.loop_tolerance_str.parse::<i32>() { state.loop_tolerance = v; }
+                            }
+                            ui.label("%");
+                        });
+                        ui.end_row();
+                        
+                        // Row 2: Minimum
                         ui.label("Loop Minimum");
-                        let hint = egui::RichText::new("15").color(egui::Color32::GRAY);
-                        if ui.add(egui::TextEdit::singleline(&mut state.loop_min_str).hint_text(hint).desired_width(40.0)).changed() {
-                             if let Ok(v) = state.loop_min_str.parse::<i32>() { state.loop_min = v; }
-                        }
-                    });
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
+                            let hint = egui::RichText::new("15").color(egui::Color32::GRAY);
+                            if ui.add(egui::TextEdit::singleline(&mut state.loop_min_str).hint_text(hint).desired_width(40.0)).changed() {
+                                 if let Ok(v) = state.loop_min_str.parse::<i32>() { state.loop_min = v; }
+                            }
+                            ui.label("f");
+                        });
+                        ui.end_row();
 
-                    // Locked Frames Fields
-                    ui.add_space(5.0);
+                        // Row 3: Maximum
+                        ui.label("Loop Maximum");
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
+                            let hint = egui::RichText::new("None").color(egui::Color32::GRAY);
+                            if ui.add(egui::TextEdit::singleline(&mut state.loop_max_str).hint_text(hint).desired_width(40.0)).changed() {
+                                 if state.loop_max_str.trim().is_empty() {
+                                     state.loop_max = None;
+                                 } else if let Ok(v) = state.loop_max_str.parse::<i32>() { 
+                                     state.loop_max = Some(v); 
+                                 }
+                            }
+                            ui.label("f");
+                        });
+                        ui.end_row();
+                    });
+                });
+
+                // Locked Frames Fields
+                ui.add_space(5.0);
+                ui.add_enabled_ui(!ui_locked, |ui| {
                     ui.horizontal(|ui| {
-                        ui.add_enabled(false, egui::Label::new("Frames"));
+                        ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
                         let mut start = state.frame_start.to_string();
                         let mut end = state.frame_end.to_string();
                         ui.add_enabled(false, egui::TextEdit::singleline(&mut start).desired_width(40.0));
-                        ui.add_enabled(false, egui::Label::new("to"));
+                        ui.add_enabled(false, egui::Label::new("f"));
+                        ui.add_space(5.0);
+                        ui.add_enabled(false, egui::Label::new("~"));
+                        ui.add_space(5.0);
                         ui.add_enabled(false, egui::TextEdit::singleline(&mut end).desired_width(40.0));
+                        ui.add_enabled(false, egui::Label::new("f"));
                     });
-                    
-                    ui.add_space(5.0);
-                    if state.is_loop_searching {
-                         let btn = egui::Button::new("Abort Loop").fill(egui::Color32::from_rgb(180, 50, 50));
-                         if ui.add_sized(egui::vec2(ui.available_width(), 24.0), btn).clicked() {
-                             if let Some(flag) = &state.loop_abort {
-                                 flag.store(true, Ordering::Relaxed);
-                             }
-                         }
-                    } else {
-                        if ui.add_sized(egui::vec2(ui.available_width(), 24.0), egui::Button::new("Find Loop")).clicked() {
-                             if let (Some(m), Some(a)) = (model, anim) {
-                                 let use_tol = if state.loop_tolerance_str.is_empty() { 30 } else { state.loop_tolerance_str.parse().unwrap_or(30) };
-                                 let use_min = if state.loop_min_str.is_empty() { 15 } else { state.loop_min_str.parse().unwrap_or(15) };
-                                 
-                                 state.loop_tolerance = use_tol;
-                                 state.loop_min = use_min;
-
-                                 let (tx, rx) = std::sync::mpsc::channel();
-                                 state.loop_rx = Some(rx);
-                                 state.is_loop_searching = true;
-                                 state.loop_frames_searched = 0;
-                                 let abort = Arc::new(AtomicBool::new(false));
-                                 state.loop_abort = Some(abort.clone());
-                                 
-                                 findloop::start_search(m.clone(), a.clone(), use_tol, use_min, tx, abort);
-                             }
+                });
+                
+                ui.add_space(5.0);
+                if state.is_loop_searching {
+                        let btn = egui::Button::new("Abort Loop").fill(egui::Color32::from_rgb(180, 50, 50));
+                        if ui.add_sized(egui::vec2(ui.available_width(), 24.0), btn).clicked() {
+                            if let Some(flag) = &state.loop_abort {
+                                flag.store(true, Ordering::Relaxed);
+                            }
                         }
-                    }
-                },
-                ExportMode::Showcase => {
+                } else {
+                    ui.add_enabled_ui(!state.is_processing, |ui| {
+                        if ui.add_sized(egui::vec2(ui.available_width(), 24.0), egui::Button::new("Find Loop")).clicked() {
+                                if let (Some(m), Some(a)) = (model, anim) {
+                                    let use_tol = if state.loop_tolerance_str.is_empty() { 30 } else { state.loop_tolerance_str.parse().unwrap_or(30) };
+                                    let use_min = if state.loop_min_str.is_empty() { 15 } else { state.loop_min_str.parse().unwrap_or(15) };
+                                    let use_max = state.loop_max; 
+
+                                    state.loop_tolerance = use_tol;
+                                    state.loop_min = use_min;
+
+                                    let (tx, rx) = std::sync::mpsc::channel();
+                                    state.loop_rx = Some(rx);
+                                    state.is_loop_searching = true;
+                                    
+                                    state.loop_frames_searched = 0;
+                                    state.loop_search_start_time = Some(ui.input(|i| i.time));
+                                    
+                                    let abort = Arc::new(AtomicBool::new(false));
+                                    state.loop_abort = Some(abort.clone());
+                                    
+                                    findloop::start_search(m.clone(), a.clone(), use_tol, use_min, use_max, tx, abort);
+                                }
+                        }
+                    });
+                }
+            },
+            ExportMode::Showcase => {
+                ui.add_enabled_ui(!ui_locked, |ui| {
                     let hint_90 = egui::RichText::new("90").color(egui::Color32::GRAY);
                     egui::Grid::new("showcase_grid").spacing([10.0, 4.0]).show(ui, |ui| {
-                        ui.label("Walk Frames");
-                        if ui.add(egui::TextEdit::singleline(&mut state.showcase_walk_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                            state.showcase_walk_len = state.showcase_walk_str.trim().parse().unwrap_or(if state.showcase_walk_str.trim().is_empty() { 90 } else { 0 });
-                            state.completion_time = None;
-                        }
-                        if state.showcase_walk_str.trim().is_empty() { state.showcase_walk_len = 90; }
+                        ui.label("Walk");
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
+                            if ui.add(egui::TextEdit::singleline(&mut state.showcase_walk_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
+                                state.showcase_walk_len = state.showcase_walk_str.trim().parse().unwrap_or(if state.showcase_walk_str.trim().is_empty() { 90 } else { 0 });
+                                state.completion_time = None;
+                            }
+                            if state.showcase_walk_str.trim().is_empty() { state.showcase_walk_len = 90; }
+                            ui.label("f");
+                        });
                         ui.end_row();
     
-                        ui.label("Idle Frames");
-                        if ui.add(egui::TextEdit::singleline(&mut state.showcase_idle_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                            state.showcase_idle_len = state.showcase_idle_str.trim().parse().unwrap_or(if state.showcase_idle_str.trim().is_empty() { 90 } else { 0 });
-                            state.completion_time = None;
-                        }
-                        if state.showcase_idle_str.trim().is_empty() { state.showcase_idle_len = 90; }
+                        ui.label("Idle");
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
+                            if ui.add(egui::TextEdit::singleline(&mut state.showcase_idle_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
+                                state.showcase_idle_len = state.showcase_idle_str.trim().parse().unwrap_or(if state.showcase_idle_str.trim().is_empty() { 90 } else { 0 });
+                                state.completion_time = None;
+                            }
+                            if state.showcase_idle_str.trim().is_empty() { state.showcase_idle_len = 90; }
+                            ui.label("f");
+                        });
                         ui.end_row();
     
-                        ui.label("Attack Frames");
-                        let hint_atk = egui::RichText::new(state.detected_attack_len.to_string()).color(egui::Color32::GRAY);
-                        if ui.add(egui::TextEdit::singleline(&mut state.showcase_attack_str).hint_text(hint_atk).desired_width(50.0)).changed() {
-                            state.showcase_attack_len = state.showcase_attack_str.trim().parse().unwrap_or(if state.showcase_attack_str.trim().is_empty() { state.detected_attack_len } else { 0 });
-                            state.completion_time = None;
-                        }
-                        if state.showcase_attack_str.trim().is_empty() { state.showcase_attack_len = state.detected_attack_len; }
+                        ui.label("Attack");
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
+                            let hint_atk = egui::RichText::new(state.detected_attack_len.to_string()).color(egui::Color32::GRAY);
+                            if ui.add(egui::TextEdit::singleline(&mut state.showcase_attack_str).hint_text(hint_atk).desired_width(50.0)).changed() {
+                                state.showcase_attack_len = state.showcase_attack_str.trim().parse().unwrap_or(if state.showcase_attack_str.trim().is_empty() { state.detected_attack_len } else { 0 });
+                                state.completion_time = None;
+                            }
+                            if state.showcase_attack_str.trim().is_empty() { state.showcase_attack_len = state.detected_attack_len; }
+                            ui.label("f");
+                        });
                         ui.end_row();
     
                         ui.label("Knockback");
-                        if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                            state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { 90 } else { 0 });
-                            state.completion_time = None;
-                        }
-                        if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = 90; }
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
+                            if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
+                                state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { 90 } else { 0 });
+                                state.completion_time = None;
+                            }
+                            if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = 90; }
+                            ui.label("f");
+                        });
                         ui.end_row();
                     });
-                }
+                });
             }
+        }
 
-            ui.add_space(20.0);
-            ui.heading("Camera"); 
-            ui.add_space(5.0);
+        ui.add_space(20.0);
+        ui.heading("Camera"); 
+        ui.add_space(5.0);
 
+        ui.add_enabled_ui(!ui_locked, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Set Camera").on_hover_text("Right-click and drag on the viewport to select area").clicked() { *start_region_selection = true; *is_open = false; }
                 
@@ -339,94 +439,150 @@ fn render_content(
                     }
 
                     if !calculated {
-                        state.region_x = -150.0; 
-                        state.region_y = -150.0; 
-                        state.region_w = 300.0; 
-                        state.region_h = 300.0; 
+                        state.region_x = 0.0; 
+                        state.region_y = 0.0; 
+                        state.region_w = 0.0; 
+                        state.region_h = 0.0; 
                         state.zoom = 1.0; 
                     }
                 }
             });
             ui.add_space(5.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label("X"); ui.add(egui::DragValue::new(&mut state.region_x).speed(1.0));
-                ui.add_space(10.0);
-                ui.label("Y"); ui.add(egui::DragValue::new(&mut state.region_y).speed(1.0));
-            });
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label("W"); ui.add(egui::DragValue::new(&mut state.region_w).range(0.0..=10000.0).speed(1.0));
-                ui.add_space(8.0);
-                ui.label("H"); ui.add(egui::DragValue::new(&mut state.region_h).range(0.0..=10000.0).speed(1.0));
-            });
+            
+            // Camera Grid
+            egui::Grid::new("camera_grid")
+                .num_columns(4)
+                .spacing([10.0, 4.0])
+                .min_col_width(CAMERA_COLUMN_WIDTH) 
+                .show(ui, |ui| {
+                    ui.label("X"); ui.add(egui::DragValue::new(&mut state.region_x).speed(1.0));
+                    ui.label("Y"); ui.add(egui::DragValue::new(&mut state.region_y).speed(1.0));
+                    ui.end_row();
 
-            ui.add_space(20.0);
-            ui.heading("Output"); 
-            ui.add_space(5.0);
+                    ui.label("W"); ui.add(egui::DragValue::new(&mut state.region_w).range(0.0..=10000.0).speed(1.0));
+                    ui.label("H"); ui.add(egui::DragValue::new(&mut state.region_h).range(0.0..=10000.0).speed(1.0));
+                    ui.end_row();
+                });
+        });
 
-            ui.horizontal(|ui| {
-                ui.label("Name");
-                let (disp_start, disp_end) = if state.export_mode == ExportMode::Showcase {
-                     let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
-                     let end_disp = if total > 0 { total - 1 } else { 0 };
-                     (0, end_disp)
-                } else { (state.frame_start, state.frame_end) };
+        ui.add_space(20.0);
+        ui.heading("Output"); 
+        ui.add_space(5.0);
 
-                let range_part = if disp_start == disp_end { format!("{}f", disp_start) } else { format!("{}f~{}f", disp_start, disp_end) };
-                let clean_prefix = state.name_prefix.replace("_0", "").replace("_f", "-1").replace("_c", "-2").replace("_s", "-3");
-                let prefix_display = if state.export_mode == ExportMode::Showcase {
-                     let p: Vec<&str> = clean_prefix.split('.').collect();
-                     if !p.is_empty() { format!("{}.showcase", p[0]) } else { "unit.showcase".to_string() }
-                } else { clean_prefix.clone() };
-
-                let hint_str = if prefix_display.is_empty() { "animation".to_string() } else { format!("{}.{}", prefix_display, range_part) };
-                ui.add(egui::TextEdit::singleline(&mut state.file_name).hint_text(egui::RichText::new(&hint_str).color(egui::Color32::GRAY)).desired_width(120.0));
-            });
-
+        ui.add_enabled_ui(!ui_locked, |ui| {
             egui::Grid::new("out_grid").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
+                    // 1. NAME
+                    ui.label("Name");
+                    let (disp_start, disp_end) = if state.export_mode == ExportMode::Showcase {
+                         let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
+                         let end_disp = if total > 0 { total - 1 } else { 0 };
+                         (0, end_disp)
+                    } else { (state.frame_start, state.frame_end) };
+    
+                    let range_part = if disp_start == disp_end { format!("{}f", disp_start) } else { format!("{}f~{}f", disp_start, disp_end) };
+                    let clean_prefix = state.name_prefix.replace("_0", "").replace("_f", "-1").replace("_c", "-2").replace("_s", "-3");
+                    let prefix_display = if state.export_mode == ExportMode::Showcase {
+                         let p: Vec<&str> = clean_prefix.split('.').collect();
+                         if !p.is_empty() { format!("{}.showcase", p[0]) } else { "unit.showcase".to_string() }
+                    } else { clean_prefix.clone() };
+    
+                    let hint_str = if prefix_display.is_empty() { "animation".to_string() } else { format!("{}.{}", prefix_display, range_part) };
+                    ui.add(egui::TextEdit::singleline(&mut state.file_name).hint_text(egui::RichText::new(&hint_str).color(egui::Color32::GRAY)).desired_width(120.0));
+                    ui.end_row();
+
+                    // 2. FORMAT
                     ui.label("Format");
-                    egui::ComboBox::from_id_salt("fmt_combo").selected_text(match state.format {
-                            ExportFormat::Gif => "GIF", ExportFormat::WebP => "WebP (Animated)", ExportFormat::Avif => "AVIF (Animated)", ExportFormat::PngSequence => "PNG Sequence",
+                    egui::ComboBox::from_id_salt("fmt_combo")
+                        .width(60.0) 
+                        .selected_text(match state.format {
+                            ExportFormat::Gif => "GIF", 
+                            ExportFormat::WebP => "WebP", 
+                            ExportFormat::Avif => "AVIF", 
+                            ExportFormat::PngSequence => "PNG",
                         }).show_ui(ui, |ui| {
                             ui.selectable_value(&mut state.format, ExportFormat::Gif, "GIF");
-                            ui.selectable_value(&mut state.format, ExportFormat::WebP, "WebP (Animated)");
-                            ui.selectable_value(&mut state.format, ExportFormat::Avif, "AVIF (Animated)");
-                            ui.selectable_value(&mut state.format, ExportFormat::PngSequence, "PNG Sequence");
+                            ui.selectable_value(&mut state.format, ExportFormat::WebP, "WebP");
+                            ui.selectable_value(&mut state.format, ExportFormat::Avif, "AVIF");
+                            ui.selectable_value(&mut state.format, ExportFormat::PngSequence, "PNG");
                         });
                     ui.end_row();
-                    ui.label("Quality");
-                    egui::ComboBox::from_id_salt("qual_combo").selected_text(format!("{:?}", state.quality)).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut state.quality, QualityLevel::Low, "Low");
-                            ui.selectable_value(&mut state.quality, QualityLevel::Medium, "Medium");
-                            ui.selectable_value(&mut state.quality, QualityLevel::High, "High");
-                        });
+
+                    // 3. QUALITY
+                    let supports_quality = state.format == ExportFormat::Avif; 
+                    let quality_tip = "Quality percentage dictates image quality, with lower quality correlating with lower file size";
+                    
+                    if supports_quality {
+                        ui.label("Quality").on_hover_text(quality_tip);
+                    } else {
+                        ui.add_enabled(false, egui::Label::new("Quality")).on_disabled_hover_text("This setting is not available for this File Type");
+                    }
+                    
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
+                        if supports_quality {
+                            let hint = egui::RichText::new("100").color(egui::Color32::GRAY);
+                            if ui.add(egui::TextEdit::singleline(&mut state.quality_percent_str).hint_text(hint).desired_width(40.0)).on_hover_text(quality_tip).changed() {
+                                if let Ok(v) = state.quality_percent_str.parse::<i32>() { 
+                                    state.quality_percent = v.clamp(0, 100); 
+                                }
+                            }
+                            ui.label("%").on_hover_text(quality_tip);
+                        } else {
+                            let mut na = "N/A".to_string();
+                            ui.add_enabled(false, egui::TextEdit::singleline(&mut na).desired_width(40.0))
+                                .on_disabled_hover_text("This setting is not available for this File Type");
+                        }
+                    });
+                    ui.end_row();
+
+                    // 4. COMPRESSION
+                    let supports_comp = state.format == ExportFormat::Avif || state.format == ExportFormat::PngSequence;
+                    let comp_tip = "Compression percentage dictates file size, with higher compression correlating with slower encoding speeds";
+
+                    if supports_comp {
+                        ui.label("Compression").on_hover_text(comp_tip);
+                    } else {
+                        ui.add_enabled(false, egui::Label::new("Compression")).on_disabled_hover_text("This setting is not available for this File Type");
+                    }
+                    
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
+                        if supports_comp {
+                            let hint = egui::RichText::new("0").color(egui::Color32::GRAY);
+                            if ui.add(egui::TextEdit::singleline(&mut state.compression_percent_str).hint_text(hint).desired_width(40.0)).on_hover_text(comp_tip).changed() {
+                                if let Ok(v) = state.compression_percent_str.parse::<i32>() { 
+                                    state.compression_percent = v.clamp(0, 100); 
+                                }
+                            }
+                            ui.label("%").on_hover_text(comp_tip); 
+                        } else {
+                            let mut na = "N/A".to_string();
+                            ui.add_enabled(false, egui::TextEdit::singleline(&mut na).desired_width(40.0))
+                                .on_disabled_hover_text("This setting is not available for this File Type");
+                        }
+                    });
                     ui.end_row();
             });
             
+            ui.horizontal(|ui| { 
+                toggle_ui(ui, &mut state.background); 
+                ui.label("Background").on_hover_text("Adds a gray background to the image"); 
+            });
             ui.horizontal(|ui| { toggle_ui(ui, &mut state.interpolation); ui.label("Interpolation"); });
-            ui.add_space(20.0); ui.heading("OPET"); ui.add_space(5.0); ui.label("Optional Performance Enhancing Tools"); ui.add_space(5.0);
         });
+
+        ui.add_space(20.0); ui.heading("OPET"); ui.add_space(5.0); ui.label("Optional Performance Enhancing Tools"); ui.add_space(5.0);
     });
 
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
         ui.add_space(5.0); 
-        ui.add_enabled_ui(!state.is_processing && !state.is_loop_searching, |ui| {
-            let is_valid = state.region_w > 0.1 && state.region_h > 0.1;
-            let btn_text = if is_valid { "Begin Export" } else { "No Camera Set" };
-            
-            if ui.add_enabled_ui(is_valid, |ui| {
-                ui.add_sized(egui::vec2(ui.available_width(), 30.0), egui::Button::new(btn_text))
-            }).inner.clicked() { 
-                start_export(state); 
-            }
-        });
-        ui.add_space(5.0);
         
         let count = (state.frame_end - state.frame_start).abs() + 1;
+        
         let (progress_val, label_text) = if state.is_loop_searching {
             // Hijacked Status
-            let p_anim = (ui.input(|i| i.time) % 1.0) as f32; // Indeterminate pulse
+            let start = state.loop_search_start_time.unwrap_or(0.0);
+            let p_anim = ((ui.input(|i| i.time) - start) % 1.0) as f32;
             (p_anim, format!("Searching | {} frames", state.loop_frames_searched))
         } else if state.is_processing {
             if state.current_progress < count {
@@ -450,18 +606,22 @@ fn render_content(
                         ui.ctx().data_mut(|d| d.insert_temp(seen_id, true));
                     }
 
+                    // Prioritize specific result message if exists, else "Done"
+                    let label = state.loop_result_msg.clone().unwrap_or_else(|| "Done".to_string());
+
                     if !has_seen && !is_focused {
                         state.completion_time = Some(ui.input(|i| i.time));
                         ui.ctx().request_repaint(); 
-                        (1.0, "Done".to_string())
+                        (1.0, label)
                     } else {
                         let elapsed = ui.input(|i| i.time) - done_time;
                         if elapsed < 3.0 { 
                             ui.ctx().request_repaint(); 
-                            (1.0, "Done".to_string()) 
+                            (1.0, label) 
                         } 
                         else { 
                             state.completion_time = None; 
+                            state.loop_result_msg = None;
                             (1.0, "Ready".to_string()) 
                         }
                     }
@@ -478,8 +638,36 @@ fn render_content(
             }
         };
 
-        ui.label(label_text);
+        // Add Bar First (Bottom)
         ui.add(egui::ProgressBar::new(progress_val));
+        // Add Label Second (Top) - Reordered
+        ui.label(label_text);
+        
+        ui.add_space(5.0); 
+        
+        if state.is_processing {
+             // Abort Export Button
+             let btn = egui::Button::new("Abort Export").fill(egui::Color32::from_rgb(180, 50, 50));
+             if ui.add_sized(egui::vec2(ui.available_width(), 30.0), btn).clicked() {
+                 state.is_processing = false; 
+                 // Reset status logic to make it look "Ready"
+                 state.current_progress = 0; 
+                 state.encoded_frames = 0;
+                 state.completion_time = None;
+             }
+        } else {
+            // Begin Export Button - Always Visible, but disabled during loop search or invalid camera
+            let is_valid = state.region_w > 0.1 && state.region_h > 0.1;
+            let enabled = !state.is_loop_searching && is_valid;
+            
+            let btn_text = if is_valid { "Begin Export" } else { "No Camera Set" };
+            
+            if ui.add_enabled_ui(enabled, |ui| {
+                ui.add_sized(egui::vec2(ui.available_width(), 30.0), egui::Button::new(btn_text))
+            }).inner.clicked() { 
+                start_export(state); 
+            }
+        }
         
         ui.add_space(5.0); ui.separator(); 
     });
