@@ -14,6 +14,7 @@ pub fn start_search(
     anim: Animation,
     tolerance: i32,
     min_loop: i32,
+    max_loop: Option<i32>, // New Parameter
     status_tx: mpsc::Sender<LoopStatus>,
     abort_flag: Arc<AtomicBool>
 ) {
@@ -53,7 +54,14 @@ pub fn start_search(
 
             for (past_frame_idx, past_state) in frame_states.iter().enumerate() {
                 let loop_len = current_frame - past_frame_idx as i32;
+                
+                // Min Loop Check
                 if loop_len < min_loop { continue; }
+                
+                // Max Loop Check
+                if let Some(max) = max_loop {
+                    if loop_len > max { continue; }
+                }
 
                 let mut diff_sum = 0.0;
                 

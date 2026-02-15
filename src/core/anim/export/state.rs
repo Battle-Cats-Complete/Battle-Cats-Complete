@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::{Arc, atomic::AtomicBool};
-use crate::core::anim::export::encoding::{ExportFormat, QualityLevel, EncoderMessage};
+use crate::core::anim::export::encoding::{ExportFormat, EncoderMessage};
 use crate::core::utils::DragGuard;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -11,6 +11,7 @@ pub enum ExportMode {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)] 
 pub enum LoopStatus {
     Searching(usize),
     Found(i32, i32),
@@ -28,13 +29,15 @@ pub struct ExporterState {
 
     // Modes
     pub export_mode: ExportMode,
-    pub loop_supported: bool, // New flag
+    pub loop_supported: bool,
 
     // Loop Mode Inputs
     pub loop_tolerance: i32,
     pub loop_tolerance_str: String,
     pub loop_min: i32,
     pub loop_min_str: String,
+    pub loop_max: Option<i32>,    
+    pub loop_max_str: String,     
 
     // Showcase Inputs
     pub showcase_walk_str: String,
@@ -62,7 +65,15 @@ pub struct ExporterState {
     pub file_name: String,
     pub name_prefix: String,
     pub format: ExportFormat,
-    pub quality: QualityLevel,
+    
+    // New Percentage Settings
+    pub quality_percent: i32,
+    pub quality_percent_str: String,
+    pub compression_percent: i32,      
+    pub compression_percent_str: String,
+
+    // Options
+    pub background: bool, // New Toggle
     pub interpolation: bool,
     
     // Runtime
@@ -76,6 +87,8 @@ pub struct ExporterState {
     pub loop_frames_searched: usize,
     pub loop_rx: Option<Receiver<LoopStatus>>,
     pub loop_abort: Option<Arc<AtomicBool>>,
+    pub loop_search_start_time: Option<f64>,
+    pub loop_result_msg: Option<String>,
 
     // UI Helpers
     pub drag_guard: DragGuard,
@@ -99,6 +112,8 @@ impl Default for ExporterState {
             loop_tolerance_str: String::new(),
             loop_min: 15,
             loop_min_str: String::new(),
+            loop_max: None,              
+            loop_max_str: String::new(), 
 
             showcase_walk_str: String::new(),
             showcase_idle_str: String::new(),
@@ -114,15 +129,22 @@ impl Default for ExporterState {
             fps: 30,
             zoom: 1.0,
             
-            region_x: -150.0,
-            region_y: -150.0,
-            region_w: 300.0,
-            region_h: 300.0,
+            // Default to 0.0 to trigger "No Camera Set" logic
+            region_x: 0.0,
+            region_y: 0.0,
+            region_w: 0.0,
+            region_h: 0.0,
             
             file_name: String::new(),
             name_prefix: String::new(),
             format: ExportFormat::Gif,
-            quality: QualityLevel::Medium,
+            
+            quality_percent: 100,
+            quality_percent_str: String::new(),
+            compression_percent: 0,
+            compression_percent_str: String::new(),
+
+            background: false, // Default false
             interpolation: false,
             
             is_processing: false,
@@ -134,6 +156,8 @@ impl Default for ExporterState {
             loop_frames_searched: 0,
             loop_rx: None,
             loop_abort: None,
+            loop_search_start_time: None,
+            loop_result_msg: None,
             
             drag_guard: DragGuard::default(),
             anim_name: String::new(),
