@@ -10,6 +10,7 @@ const RELEASE_TAG: &str = "tools";
 const REPO_OWNER: &str = "WonderMOMOCO";
 const REPO_NAME: &str = "Battle-Cats-Complete";
 
+#[allow(dead_code)]
 pub struct DownloadConfig {
     pub folder_name: String,
     pub asset_name: String,
@@ -36,7 +37,16 @@ fn download_thread(tx: Sender<AddonStatus>, config: DownloadConfig) -> Result<()
     
     let _ = tx.send(AddonStatus::Downloading(0.1, "Connecting...".to_string()));
     
-    let response = reqwest::blocking::get(&url).map_err(|e| format!("Network error: {}", e))?;
+    // GitHub releases require a User-Agent or they may return 502/403 errors
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("BattleCatsComplete/0.8.0")
+        .build()
+        .map_err(|e| format!("Client error: {}", e))?;
+
+    let response = client.get(&url)
+        .send()
+        .map_err(|e| format!("Network error: {}", e))?;
+
     if !response.status().is_success() {
         return Err(format!("Download failed: Status {}", response.status()));
     }
