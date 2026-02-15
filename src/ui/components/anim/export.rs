@@ -10,6 +10,7 @@ use crate::core::anim::export::process::{start_export, STATUS_RX};
 use crate::core::anim::export::findloop;
 use crate::ui::views::settings::toggle_ui; 
 use crate::core::anim::bounds;
+use crate::core::addons::toolpaths::{self, Presence};
 
 // Tweak this value to fine-tune spacing between inputs and unit labels
 const EXPORT_MODE_SPACING: f32 = 2.0; 
@@ -177,8 +178,6 @@ fn render_content(
     let bottom_height = 114.0; 
     let available_height = ui.available_height() - bottom_height;
 
-    // We no longer wrap the entire scroll area in add_enabled_ui to allow scrolling while "locked".
-    // Instead, we use `ui_locked` to selectively disable inputs.
     let ui_locked = state.is_processing || state.is_loop_searching;
 
     egui::ScrollArea::vertical().max_height(available_height).auto_shrink([false, false]).show(ui, |ui| {
@@ -502,7 +501,16 @@ fn render_content(
                         }).show_ui(ui, |ui| {
                             ui.selectable_value(&mut state.format, ExportFormat::Gif, "GIF");
                             ui.selectable_value(&mut state.format, ExportFormat::WebP, "WebP");
-                            ui.selectable_value(&mut state.format, ExportFormat::Avif, "AVIF");
+                            
+                            let avif_installed = toolpaths::avifenc_status() == Presence::Installed;
+                            let avif_btn = ui.add_enabled(avif_installed, egui::SelectableLabel::new(state.format == ExportFormat::Avif, "AVIF"));
+                            if avif_btn.clicked() {
+                                state.format = ExportFormat::Avif;
+                            }
+                            if !avif_installed {
+                                avif_btn.on_disabled_hover_text("Encoding AVIF files requires the Add-On AVIFENC\nInstall at Settings > Add-Ons > AVIFENC");
+                            }
+
                             ui.selectable_value(&mut state.format, ExportFormat::PngSequence, "PNG");
                         });
                     ui.end_row();
@@ -571,7 +579,54 @@ fn render_content(
             ui.horizontal(|ui| { toggle_ui(ui, &mut state.interpolation); ui.label("Interpolation"); });
         });
 
-        ui.add_space(20.0); ui.heading("OPET"); ui.add_space(5.0); ui.label("Optional Performance Enhancing Tools"); ui.add_space(5.0);
+        ui.add_space(20.0);
+        ui.heading("OPET");
+        ui.add_space(5.0);
+        ui.label("Optional Performance Enhancing Tools");
+        ui.add_space(8.0);
+
+        // --- AVIFENC Status ---
+        let avif_installed = toolpaths::avifenc_status() == Presence::Installed;
+        let avif_text = if avif_installed { "AVIFENC Installed" } else { "AVIFENC Missing" };
+        let avif_color = if avif_installed { egui::Color32::from_rgb(40, 160, 40) } else { egui::Color32::from_rgb(180, 50, 50) };
+        
+        // FIXED: Non-clickable indicators using Frame
+        let avif_resp = egui::Frame::none()
+            .fill(avif_color)
+            .rounding(egui::Rounding::same(5.0))
+            .show(ui, |ui| {
+                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
+                    ui.set_min_height(24.0);
+                    ui.label(egui::RichText::new(avif_text).color(egui::Color32::WHITE).strong());
+                });
+            }).response;
+            
+        if !avif_installed {
+            avif_resp.on_hover_text("Download at Settings > Add-Ons > AVIFENC");
+        }
+        
+        ui.add_space(5.0);
+
+        // --- FFMPEG Status ---
+        let ffmpeg_installed = toolpaths::ffmpeg_status() == Presence::Installed;
+        let ffmpeg_text = if ffmpeg_installed { "FFMPEG Installed" } else { "FFMPEG Missing" };
+        let ffmpeg_color = if ffmpeg_installed { egui::Color32::from_rgb(40, 160, 40) } else { egui::Color32::from_rgb(180, 50, 50) };
+
+        let ffmpeg_resp = egui::Frame::none()
+            .fill(ffmpeg_color)
+            .rounding(egui::Rounding::same(5.0))
+            .show(ui, |ui| {
+                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
+                    ui.set_min_height(24.0);
+                    ui.label(egui::RichText::new(ffmpeg_text).color(egui::Color32::WHITE).strong());
+                });
+            }).response;
+            
+        if !ffmpeg_installed {
+            ffmpeg_resp.on_hover_text("Download at Settings > Add-Ons > FFMPEG");
+        }
+
+        ui.add_space(5.0);
     });
 
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
@@ -580,7 +635,6 @@ fn render_content(
         let count = (state.frame_end - state.frame_start).abs() + 1;
         
         let (progress_val, label_text) = if state.is_loop_searching {
-            // Hijacked Status
             let start = state.loop_search_start_time.unwrap_or(0.0);
             let p_anim = ((ui.input(|i| i.time) - start) % 1.0) as f32;
             (p_anim, format!("Searching | {} frames", state.loop_frames_searched))
@@ -606,7 +660,6 @@ fn render_content(
                         ui.ctx().data_mut(|d| d.insert_temp(seen_id, true));
                     }
 
-                    // Prioritize specific result message if exists, else "Done"
                     let label = state.loop_result_msg.clone().unwrap_or_else(|| "Done".to_string());
 
                     if !has_seen && !is_focused {
@@ -638,25 +691,20 @@ fn render_content(
             }
         };
 
-        // Add Bar First (Bottom)
         ui.add(egui::ProgressBar::new(progress_val));
-        // Add Label Second (Top) - Reordered
         ui.label(label_text);
         
         ui.add_space(5.0); 
         
         if state.is_processing {
-             // Abort Export Button
              let btn = egui::Button::new("Abort Export").fill(egui::Color32::from_rgb(180, 50, 50));
              if ui.add_sized(egui::vec2(ui.available_width(), 30.0), btn).clicked() {
                  state.is_processing = false; 
-                 // Reset status logic to make it look "Ready"
                  state.current_progress = 0; 
                  state.encoded_frames = 0;
                  state.completion_time = None;
              }
         } else {
-            // Begin Export Button - Always Visible, but disabled during loop search or invalid camera
             let is_valid = state.region_w > 0.1 && state.region_h > 0.1;
             let enabled = !state.is_loop_searching && is_valid;
             

@@ -1,8 +1,8 @@
 use eframe::egui;
 use crate::core::settings::Settings;
-use crate::core::addons::adb::adbdownload::AdbManager;
-use crate::core::addons::avifenc::avifencdownload::AvifManager;
-use crate::core::addons::ffmpeg::ffmpegdownload::FfmpegManager;
+use crate::core::addons::adb::download::AdbManager;
+use crate::core::addons::avifenc::download::AvifManager;
+use crate::core::addons::ffmpeg::download::FfmpegManager;
 use crate::core::addons::toolpaths::AddonStatus;
 use std::sync::Mutex;
 

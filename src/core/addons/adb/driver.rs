@@ -1,8 +1,8 @@
 use std::process::Command;
-use super::adbdownload;
+use super::download;
 
 pub fn get_adb_command() -> Result<std::path::PathBuf, String> {
-    if let Some(path) = adbdownload::get_adb_path() {
+    if let Some(path) = download::get_adb_path() {
         Ok(path)
     } else {
         Err("ADB not found. Please download it in Settings > Add-Ons.".to_string())
