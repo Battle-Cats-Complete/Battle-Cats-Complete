@@ -4,8 +4,8 @@ use crate::data::global::maanim::Animation;
 use crate::data::global::imgcut::SpriteSheet;
 use crate::core::anim::{animator, transform};
 
-/// Calculates a tight bounding box using the exact renderer logic for the ENTIRE animation.
-/// Uses "Smart Filtering" to ignore faint effects while keeping giant solid limbs.
+// Calculates a tight bounding box using the exact renderer logic for the ENTIRE animation
+// Uses "Smart Filtering" to ignore faint effects while keeping giant solid limbs
 pub fn calculate_tight_bounds(
     model: &Model,
     anim: Option<&Animation>,
@@ -22,8 +22,8 @@ pub fn calculate_tight_bounds(
     scan_bounds(model, anim, sheet, false, None)
 }
 
-/// Calculates the initial Camera Pan and Zoom to fit the unit in the viewport.
-/// Uses only Frame 0 (or static pose) to determine the resting position.
+// Calculates the initial Camera Pan and Zoom to fit the unit in the viewport
+// Uses only Frame 0 (or static pose) to determine the resting position
 pub fn calculate_initial_view(
     model: &Model,
     anim: Option<&Animation>,
@@ -34,17 +34,17 @@ pub fn calculate_initial_view(
     // We only scan Frame 0 for the initial centering
     let frame_zero = Some((0, 0));
 
-    // Try Strict Scan first (ignore auras/effects)
+    // Try Strict Scan first
     let bounds = scan_bounds(model, anim, sheet, true, frame_zero)
         .or_else(|| scan_bounds(model, anim, sheet, false, frame_zero));
 
     if let Some(b) = bounds {
-        // 1. Calculate Pan (Center the bounding box)
+        // Calculate Pan
         // We invert the center because pan_offset moves the camera, not the object.
         let center = b.center();
         let pan = egui::vec2(-center.x, -center.y);
 
-        // 2. Calculate Zoom Fit
+        // Calculate Zoom Fit
         // Prevent divide by zero or tiny bounds
         let w = b.width().max(1.0);
         let h = b.height().max(1.0);
@@ -52,9 +52,7 @@ pub fn calculate_initial_view(
         let scale_x = viewport_size.x / w;
         let scale_y = viewport_size.y / h;
 
-        // "Breathing Room" Factor:
-        // 0.75 (75%) felt too cramped. 
-        // 0.45 (45%) allows for significantly more negative space around the unit.
+        // "Breathing Room" Factor
         let breathing_room = 0.45;
 
         // Clamp to reasonable limits to prevent micro-units from exploding
@@ -96,17 +94,15 @@ fn scan_bounds(
 
         for part in world_parts {
             
-            // --- STRICT MODE FILTERING ---
+            // STRICT MODE FILTERING
             if strict_mode {
-                // 1. Minimum Opacity Floor
-                // Ignore faint smoke/dust. Raised to 0.25 (25%).
+                // Minimum Opacity Floor
                 if part.opacity < 0.25 { continue; }
 
-                // 2. Faint Glow Filter
-                // Additive effects (auras) must be VERY dense to count as "Body".
+                // Faint Glow Filter
                 if part.glow > 0 && part.opacity < 0.75 { continue; }
 
-                // 3. SCALE HEURISTIC
+                // SCALE HEURISTIC
                 let scale_x = (part.matrix[0].powi(2) + part.matrix[1].powi(2)).sqrt();
                 let scale_y = (part.matrix[3].powi(2) + part.matrix[4].powi(2)).sqrt();
                 let max_scale = scale_x.max(scale_y);
@@ -117,7 +113,7 @@ fn scan_bounds(
                     }
                 }
             } else {
-                // Loose Mode: Just check visibility
+                // Just check visibility
                 if part.opacity <= 0.01 || part.hidden { continue; }
             }
 
@@ -153,7 +149,7 @@ fn scan_bounds(
                 }
 
                 if strict_mode {
-                    // 4. BEAM FILTER (Geometric)
+                    // BEAM FILTER
                     // If visually taller than 1000px AND narrow (H > W*2).
                     let part_h = p_max_y - p_min_y;
                     let part_w = p_max_x - p_min_x;
@@ -162,7 +158,7 @@ fn scan_bounds(
                         continue; 
                     }
 
-                    // 5. SKY FILTER
+                    // SKY FILTER
                     if p_max_y < -1200.0 {
                         continue;
                     }

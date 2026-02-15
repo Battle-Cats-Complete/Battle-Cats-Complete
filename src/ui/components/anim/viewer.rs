@@ -202,15 +202,13 @@ impl AnimViewer {
             self.last_loaded_id = self.loaded_id.clone();
             self.pending_initial_center = true;
             
-            // Fix 1: Preserve Showcase Mode status across unit resets
             let prev_mode = self.export_state.export_mode.clone();
             
             self.export_state = ExporterState::default();
-            self.export_state.export_mode = prev_mode; // Restore it
+            self.export_state.export_mode = prev_mode;
             
             self.update_export_state();
 
-            // Fix 2: Scan Attack animation to populate default/hint, but CLEAR the string input
             self.has_scanned_attack = true; 
             
             if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_ATTACK) {

@@ -181,8 +181,7 @@ impl eframe::App for BattleCatsApp {
                 crate::core::cat::show(ctx, &mut self.cat_list_state, &self.settings);
             },
             Page::Settings => {
-                // Call show directly; tab list is now internal to tabs.rs
-                let refresh_needed = crate::ui::views::settings::show(ctx, &mut self.settings);
+                let refresh_needed = crate::ui::views::settings::show(ctx, &mut self.settings, &mut self.drag_guard);
                 
                 if refresh_needed {
                     self.cat_list_state.cat_list.clear_cache();

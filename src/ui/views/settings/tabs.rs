@@ -1,7 +1,8 @@
 use eframe::egui;
 use crate::core::settings::Settings;
+use crate::core::utils::DragGuard;
 
-pub fn show(ctx: &egui::Context, settings: &mut Settings) -> bool {
+pub fn show(ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) -> bool {
     settings.update_language_list();
 
     let mut refresh_needed = false;
@@ -42,9 +43,6 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings) -> bool {
         ui.add_space(10.0);
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            // FIX: Clone the string here.
-            // This prevents "settings" from being borrowed immutably (for the ID)
-            // and mutably (for the closure) at the same time.
             let current_tab = settings.active_tab.clone();
 
             ui.push_id(&current_tab, |ui| {
@@ -53,7 +51,7 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings) -> bool {
                     "Cat Data" => super::cat_data::show(ui, settings),
                     "Game Data" => super::game_data::show(ui, settings),
                     "Anim View" => super::anim_view::show(ui, settings),
-                    "Add-Ons" => super::addons::show(ui, settings),
+                    "Add-Ons" => super::addons::show(ui, settings, drag_guard), 
                     _ => {
                         ui.vertical_centered(|ui| {
                             ui.add_space(50.0);

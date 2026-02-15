@@ -63,9 +63,6 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
                 continue; 
             }
 
-            // --- SHUTDOWN ADB PROCESS ---
-            // We have finished pulling files from the emulator for this region.
-            // Kill server now so the process doesn't hang in the background.
             let _ = driver::run_command(&["kill-server"]);
 
             let _ = tx.send(AdbEvent::Status("Starting Decryption...".to_string()));

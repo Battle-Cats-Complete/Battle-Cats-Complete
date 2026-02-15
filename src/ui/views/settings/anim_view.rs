@@ -3,7 +3,6 @@ use crate::core::settings::Settings;
 use super::tabs::toggle_ui;
 
 pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
-    // FIXED: Removed 'mut' as this variable is not mutated in this specific view
     let refresh_needed = false;
 
     egui::ScrollArea::vertical()
@@ -14,7 +13,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
             ui.heading("Viewer");
             ui.add_space(5.0);
 
-            // Centering Behavior (On Top, Width 80.0)
             ui.horizontal(|ui| {
                 ui.label("Centering Behavior:");
                 egui::ComboBox::from_id_salt("centering_behavior")
@@ -35,7 +33,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
                     });
             });
 
-            // Native Refresh Rate
             ui.horizontal(|ui| {
                 let tooltip = "Switches from 30fps to your monitors native refresh rate\nAllows animations to be smooth but quite buggy, so expect them\nWhile this feature is supported, it is of low importance";
                 
@@ -56,7 +53,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
                 }
             });
 
-            // Debug View
             ui.horizontal(|ui| {
                 if toggle_ui(ui, &mut settings.animation_debug).changed() {
                     ui.ctx().request_repaint();
@@ -68,7 +64,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
             ui.heading("Exporter");
             ui.add_space(10.0);
 
-            // Auto-Set Camera Region
             ui.horizontal(|ui| {
                 let tooltip_cam = "Automatically calculates a Units tight bounding box when exporting\nThis setting may cause lag spikes on some devices";
                 toggle_ui(ui, &mut settings.auto_set_camera_region).on_hover_text(tooltip_cam);

@@ -17,7 +17,7 @@ pub fn run_command(args: &[&str]) -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.creation_flags(0x08000000);
     }
 
     let output = cmd.output().map_err(|e| e.to_string())?;

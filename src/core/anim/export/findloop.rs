@@ -14,7 +14,7 @@ pub fn start_search(
     anim: Animation,
     tolerance: i32,
     min_loop: i32,
-    max_loop: Option<i32>, // New Parameter
+    max_loop: Option<i32>,
     status_tx: mpsc::Sender<LoopStatus>,
     abort_flag: Arc<AtomicBool>
 ) {
@@ -26,7 +26,7 @@ pub fn start_search(
         let mut current_frame = 0;
         
         loop {
-            // 1. Check Abort or Timeout
+            // Check Abort or Timeout
             if abort_flag.load(Ordering::Relaxed) {
                 let _ = status_tx.send(LoopStatus::Error("Aborted".to_string()));
                 break;
@@ -36,20 +36,20 @@ pub fn start_search(
                 break;
             }
 
-            // 2. Solve current frame
+            // Solve current frame
             let f = current_frame as f32;
             let parts = animator::animate(&model, &anim, f);
             let world_parts = transform::solve_hierarchy(&parts, &model);
             
-            // 3. Extract comparable state (Matrix + Opacity)
+            // Extract comparable state (Matrix + Opacity)
             // We compare indices 0,1,3,4 (Scale/Rot/Shear) and 6,7 (Translation X/Y)
             let mut current_state = Vec::with_capacity(world_parts.len());
             for part in &world_parts {
                 current_state.push((part.matrix, part.opacity));
             }
 
-            // 4. Compare against history
-            // We look backwards to find the first frame 'p' that matches 'current'
+            // Compare against history
+            // We look backwards to find the first frame that matches current
             let mut found_match = None;
 
             for (past_frame_idx, past_state) in frame_states.iter().enumerate() {
@@ -67,19 +67,17 @@ pub fn start_search(
                 
                 for (i, (c_mat, c_op)) in current_state.iter().enumerate() {
                     if let Some((p_mat, p_op)) = past_state.get(i) {
-                        // Compare Matrix Elements (Position, Scale, Rotation combined)
-                        // Indices 6 and 7 are Position X and Y
+                        // Compare Matrix Elements
                         diff_sum += (c_mat[6] - p_mat[6]).abs();
                         diff_sum += (c_mat[7] - p_mat[7]).abs();
 
-                        // Indices 0, 1, 3, 4 represent Scale and Rotation
                         // We weight these higher (x100) because small changes in scale/rot are very visible
                         diff_sum += (c_mat[0] - p_mat[0]).abs() * 100.0;
                         diff_sum += (c_mat[1] - p_mat[1]).abs() * 100.0;
                         diff_sum += (c_mat[3] - p_mat[3]).abs() * 100.0;
                         diff_sum += (c_mat[4] - p_mat[4]).abs() * 100.0;
 
-                        // Opacity (0.0 to 1.0), weight by 255 for "alpha byte" roughly
+                        // Opacity, weight by 255 for "alpha byte" roughly
                         diff_sum += (c_op - p_op).abs() * 255.0;
                     }
                 }
@@ -95,7 +93,7 @@ pub fn start_search(
                 break;
             }
 
-            // 5. Save state and continue
+            // Save state and continue
             frame_states.push(current_state);
             current_frame += 1;
 

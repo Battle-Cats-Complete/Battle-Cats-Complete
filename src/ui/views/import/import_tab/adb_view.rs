@@ -1,13 +1,12 @@
 use eframe::egui;
 use crate::core::import::{ImportState, AdbImportType, AdbRegion};
 use crate::core::addons::adb::bridge;
-use crate::core::addons::toolpaths::{self, Presence}; // Updated import
+use crate::core::addons::toolpaths::{self, Presence};
 use crate::core::settings::Settings;
 use std::sync::mpsc;
 use std::path::PathBuf;
 
 pub fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &Settings) {
-    // FIXED: Using toolpaths central check
     let is_present = toolpaths::adb_status() == Presence::Installed;
     let busy = state.is_adb_busy;
     

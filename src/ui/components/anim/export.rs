@@ -12,9 +12,7 @@ use crate::ui::views::settings::toggle_ui;
 use crate::core::anim::bounds;
 use crate::core::addons::toolpaths::{self, Presence};
 
-// Tweak this value to fine-tune spacing between inputs and unit labels
 const EXPORT_MODE_SPACING: f32 = 2.0; 
-// Tweak this to control the width of the X/Y/W/H columns
 const CAMERA_COLUMN_WIDTH: f32 = 5.0;
 
 pub fn show_popup(
@@ -26,10 +24,10 @@ pub fn show_popup(
     is_open: &mut bool,
     start_region_selection: &mut bool,
 ) {
-    // --- SETUP ---
+    // SETUP
     let attention_latch_id = egui::Id::new("export_needs_critical_attention");
 
-    // --- EXPORT STATUS POLLING ---
+    // EXPORT STATUS POLLING
     if state.is_processing {
         ui.ctx().request_repaint_after(Duration::from_millis(100));
         if let Ok(rx_opt) = STATUS_RX.lock() {
@@ -50,7 +48,7 @@ pub fn show_popup(
         }
     }
 
-    // --- LOOP SEARCH STATUS POLLING ---
+    // LOOP SEARCH STATUS POLLING
     let mut loop_finished = false;
     
     if state.is_loop_searching {
@@ -97,7 +95,7 @@ pub fn show_popup(
         state.loop_abort = None;
     }
 
-    // --- LATCH EXECUTION ---
+    // LATCH EXECUTION
     let needs_attention = ui.ctx().data(|d| d.get_temp(attention_latch_id).unwrap_or(false));
     if needs_attention {
         if ui.input(|i| i.focused) {
@@ -108,7 +106,7 @@ pub fn show_popup(
         }
     }
 
-    // --- UI RENDERING ---
+    // UI RENDERING
     if !*is_open { return; }
 
     let ctx = ui.ctx().clone();
@@ -262,7 +260,7 @@ fn render_content(
                 });
             },
             ExportMode::Loop => {
-                // Settings - Locked when locked
+                // Locked when locked
                 ui.add_enabled_ui(!ui_locked, |ui| {
                     egui::Grid::new("loop_settings_grid").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
                         // Row 1: Tolerance
@@ -271,7 +269,8 @@ fn render_content(
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
                             let hint = egui::RichText::new("30").color(egui::Color32::GRAY);
                             if ui.add(egui::TextEdit::singleline(&mut state.loop_tolerance_str).hint_text(hint).desired_width(40.0)).changed() {
-                                if let Ok(v) = state.loop_tolerance_str.parse::<i32>() { state.loop_tolerance = v; }
+                                if state.loop_tolerance_str.trim().is_empty() { state.loop_tolerance = 30; }
+                                else if let Ok(v) = state.loop_tolerance_str.parse::<i32>() { state.loop_tolerance = v; }
                             }
                             ui.label("%");
                         });
@@ -283,7 +282,8 @@ fn render_content(
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
                             let hint = egui::RichText::new("15").color(egui::Color32::GRAY);
                             if ui.add(egui::TextEdit::singleline(&mut state.loop_min_str).hint_text(hint).desired_width(40.0)).changed() {
-                                 if let Ok(v) = state.loop_min_str.parse::<i32>() { state.loop_min = v; }
+                                if state.loop_min_str.trim().is_empty() { state.loop_min = 15; }
+                                else if let Ok(v) = state.loop_min_str.parse::<i32>() { state.loop_min = v; }
                             }
                             ui.label("f");
                         });
@@ -470,7 +470,7 @@ fn render_content(
 
         ui.add_enabled_ui(!ui_locked, |ui| {
             egui::Grid::new("out_grid").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
-                    // 1. NAME
+                    // NAME
                     ui.label("Name");
                     let (disp_start, disp_end) = if state.export_mode == ExportMode::Showcase {
                          let total = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
@@ -489,7 +489,7 @@ fn render_content(
                     ui.add(egui::TextEdit::singleline(&mut state.file_name).hint_text(egui::RichText::new(&hint_str).color(egui::Color32::GRAY)).desired_width(120.0));
                     ui.end_row();
 
-                    // 2. FORMAT
+                    // FORMAT
                     ui.label("Format");
                     egui::ComboBox::from_id_salt("fmt_combo")
                         .width(60.0) 
@@ -497,117 +497,155 @@ fn render_content(
                             ExportFormat::Gif => "GIF", 
                             ExportFormat::WebP => "WebP", 
                             ExportFormat::Avif => "AVIF", 
-                            ExportFormat::PngSequence => "PNG",
+                            ExportFormat::Png => "PNG", 
+                            ExportFormat::Mp4 => "MP4",
+                            ExportFormat::Mkv => "MKV",
+                            ExportFormat::Webm => "WebM",
+                            ExportFormat::Zip => "ZIP",
                         }).show_ui(ui, |ui| {
+                            // GIF
                             ui.selectable_value(&mut state.format, ExportFormat::Gif, "GIF");
+                            // WebP
                             ui.selectable_value(&mut state.format, ExportFormat::WebP, "WebP");
-                            
+                            // AVIF
                             let avif_installed = toolpaths::avifenc_status() == Presence::Installed;
                             let avif_btn = ui.add_enabled(avif_installed, egui::SelectableLabel::new(state.format == ExportFormat::Avif, "AVIF"));
-                            if avif_btn.clicked() {
-                                state.format = ExportFormat::Avif;
-                            }
-                            if !avif_installed {
-                                avif_btn.on_disabled_hover_text("Encoding AVIF files requires the Add-On AVIFENC\nInstall at Settings > Add-Ons > AVIFENC");
-                            }
+                            if avif_btn.clicked() { state.format = ExportFormat::Avif; }
+                            if !avif_installed { avif_btn.on_disabled_hover_text("Requires AVIFENC Add-On"); }
+                            
+                            // PNG
+                            let ffmpeg_installed = toolpaths::ffmpeg_status() == Presence::Installed;
+                            let png_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(state.format == ExportFormat::Png, "PNG"));
+                            if png_btn.clicked() { state.format = ExportFormat::Png; }
+                            if !ffmpeg_installed { png_btn.on_disabled_hover_text("Requires FFMPEG Add-On"); }
 
-                            ui.selectable_value(&mut state.format, ExportFormat::PngSequence, "PNG");
+                            // VIDEO
+                            let mp4_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(state.format == ExportFormat::Mp4, "MP4"));
+                            if mp4_btn.clicked() { state.format = ExportFormat::Mp4; }
+                            if !ffmpeg_installed { mp4_btn.on_disabled_hover_text("Requires FFMPEG Add-On"); }
+
+                            let mkv_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(state.format == ExportFormat::Mkv, "MKV"));
+                            if mkv_btn.clicked() { state.format = ExportFormat::Mkv; }
+                            if !ffmpeg_installed { mkv_btn.on_disabled_hover_text("Requires FFMPEG Add-On"); }
+
+                            let webm_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(state.format == ExportFormat::Webm, "WebM"));
+                            if webm_btn.clicked() { state.format = ExportFormat::Webm; }
+                            if !ffmpeg_installed { webm_btn.on_disabled_hover_text("Requires FFMPEG Add-On"); }
+
+                            // ZIP
+                            ui.selectable_value(&mut state.format, ExportFormat::Zip, "ZIP");
                         });
                     ui.end_row();
 
-                    // 3. QUALITY
-                    let supports_quality = state.format == ExportFormat::Avif; 
-                    let quality_tip = "Quality percentage dictates image quality, with lower quality correlating with lower file size";
+                    // CHECK INSTALLED TOOLS
+                    let ffmpeg_installed = toolpaths::ffmpeg_status() == Presence::Installed;
+                    let avif_installed = toolpaths::avifenc_status() == Presence::Installed;
+
+                    // QUALITY
+                    let qual_tip = "Quality percentage dictates image quality, with lower quality correlating with lower file size";
+                    let (qual_enabled, qual_reason) = match state.format {
+                        ExportFormat::WebP | ExportFormat::Gif | ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm => 
+                            (ffmpeg_installed, if !ffmpeg_installed { "Requires FFMPEG (Settings > Add-Ons)" } else { qual_tip }),
+                        ExportFormat::Avif => 
+                            (avif_installed, if !avif_installed { "Requires AVIFENC (Settings > Add-Ons)" } else { qual_tip }),
+                        _ => (false, "Not available for this File Type"),
+                    };
                     
-                    if supports_quality {
-                        ui.label("Quality").on_hover_text(quality_tip);
+                    if qual_enabled {
+                        ui.label("Quality").on_hover_text(qual_reason);
                     } else {
-                        ui.add_enabled(false, egui::Label::new("Quality")).on_disabled_hover_text("This setting is not available for this File Type");
+                        ui.add_enabled(false, egui::Label::new("Quality")).on_disabled_hover_text(qual_reason);
                     }
                     
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
-                        if supports_quality {
+                        if qual_enabled {
                             let hint = egui::RichText::new("100").color(egui::Color32::GRAY);
-                            if ui.add(egui::TextEdit::singleline(&mut state.quality_percent_str).hint_text(hint).desired_width(40.0)).on_hover_text(quality_tip).changed() {
-                                if let Ok(v) = state.quality_percent_str.parse::<i32>() { 
+                            if ui.add(egui::TextEdit::singleline(&mut state.quality_percent_str).hint_text(hint).desired_width(40.0)).on_hover_text(qual_reason).changed() {
+                                if state.quality_percent_str.trim().is_empty() {
+                                    state.quality_percent = 100;
+                                } else if let Ok(v) = state.quality_percent_str.parse::<i32>() { 
                                     state.quality_percent = v.clamp(0, 100); 
                                 }
                             }
-                            ui.label("%").on_hover_text(quality_tip);
+                            ui.label("%").on_hover_text(qual_reason);
                         } else {
                             let mut na = "N/A".to_string();
-                            ui.add_enabled(false, egui::TextEdit::singleline(&mut na).desired_width(40.0))
-                                .on_disabled_hover_text("This setting is not available for this File Type");
+                            ui.add_enabled(false, egui::TextEdit::singleline(&mut na).desired_width(40.0)).on_disabled_hover_text(qual_reason);
                         }
                     });
                     ui.end_row();
 
-                    // 4. COMPRESSION
-                    let supports_comp = state.format == ExportFormat::Avif || state.format == ExportFormat::PngSequence;
+                    // COMPRESSION
                     let comp_tip = "Compression percentage dictates file size, with higher compression correlating with slower encoding speeds";
+                    let (comp_enabled, comp_reason) = match state.format {
+                        ExportFormat::WebP | ExportFormat::Gif | ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm => 
+                            (ffmpeg_installed, if !ffmpeg_installed { "Requires FFMPEG (Settings > Add-Ons)" } else { comp_tip }),
+                        ExportFormat::Avif => 
+                            (avif_installed, if !avif_installed { "Requires AVIFENC (Settings > Add-Ons)" } else { comp_tip }),
+                        ExportFormat::Zip => (true, comp_tip),
+                        _ => (false, "Not available for this File Type"),
+                    };
 
-                    if supports_comp {
-                        ui.label("Compression").on_hover_text(comp_tip);
+                    if comp_enabled {
+                        ui.label("Compression").on_hover_text(comp_reason);
                     } else {
-                        ui.add_enabled(false, egui::Label::new("Compression")).on_disabled_hover_text("This setting is not available for this File Type");
+                        ui.add_enabled(false, egui::Label::new("Compression")).on_disabled_hover_text(comp_reason);
                     }
                     
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
-                        if supports_comp {
+                        if comp_enabled {
                             let hint = egui::RichText::new("0").color(egui::Color32::GRAY);
-                            if ui.add(egui::TextEdit::singleline(&mut state.compression_percent_str).hint_text(hint).desired_width(40.0)).on_hover_text(comp_tip).changed() {
-                                if let Ok(v) = state.compression_percent_str.parse::<i32>() { 
+                            if ui.add(egui::TextEdit::singleline(&mut state.compression_percent_str).hint_text(hint).desired_width(40.0)).on_hover_text(comp_reason).changed() {
+                                if state.compression_percent_str.trim().is_empty() {
+                                    state.compression_percent = 0;
+                                } else if let Ok(v) = state.compression_percent_str.parse::<i32>() { 
                                     state.compression_percent = v.clamp(0, 100); 
                                 }
                             }
-                            ui.label("%").on_hover_text(comp_tip); 
+                            ui.label("%").on_hover_text(comp_reason); 
                         } else {
                             let mut na = "N/A".to_string();
-                            ui.add_enabled(false, egui::TextEdit::singleline(&mut na).desired_width(40.0))
-                                .on_disabled_hover_text("This setting is not available for this File Type");
+                            ui.add_enabled(false, egui::TextEdit::singleline(&mut na).desired_width(40.0)).on_disabled_hover_text(comp_reason);
                         }
                     });
                     ui.end_row();
             });
             
+            // BACKGROUND LOGIC
             ui.horizontal(|ui| { 
-                toggle_ui(ui, &mut state.background); 
+                let is_forced_opaque = matches!(state.format, ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm);
+                
+                if is_forced_opaque {
+                    if !state.background { state.background = true; }
+                    let mut dummy = true;
+                    ui.add_enabled_ui(false, |ui| {
+                        toggle_ui(ui, &mut dummy);
+                    }).response.on_disabled_hover_text("This video format requires a background");
+                } else {
+                    if toggle_ui(ui, &mut state.background).changed() {
+                        state.user_bg_preference = state.background;
+                    }
+                    if state.background && !state.user_bg_preference {
+                        state.background = false;
+                    }
+                }
+                
                 ui.label("Background").on_hover_text("Adds a gray background to the image"); 
             });
-            ui.horizontal(|ui| { toggle_ui(ui, &mut state.interpolation); ui.label("Interpolation"); });
+            
+            // It doesnt do anything rn, honestly interpolation looks buggy, why would you want to export it?
+            // ui.horizontal(|ui| { toggle_ui(ui, &mut state.interpolation); ui.label("Interpolation"); });
         });
 
         ui.add_space(20.0);
-        ui.heading("OPET");
+        ui.heading("Add-Ons");
         ui.add_space(5.0);
-        ui.label("Optional Performance Enhancing Tools");
+        ui.label("Tools that enhance the Exporters functionality");
         ui.add_space(8.0);
 
-        // --- AVIFENC Status ---
-        let avif_installed = toolpaths::avifenc_status() == Presence::Installed;
-        let avif_text = if avif_installed { "AVIFENC Installed" } else { "AVIFENC Missing" };
-        let avif_color = if avif_installed { egui::Color32::from_rgb(40, 160, 40) } else { egui::Color32::from_rgb(180, 50, 50) };
-        
-        // FIXED: Non-clickable indicators using Frame
-        let avif_resp = egui::Frame::none()
-            .fill(avif_color)
-            .rounding(egui::Rounding::same(5.0))
-            .show(ui, |ui| {
-                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
-                    ui.set_min_height(24.0);
-                    ui.label(egui::RichText::new(avif_text).color(egui::Color32::WHITE).strong());
-                });
-            }).response;
-            
-        if !avif_installed {
-            avif_resp.on_hover_text("Download at Settings > Add-Ons > AVIFENC");
-        }
-        
-        ui.add_space(5.0);
-
-        // --- FFMPEG Status ---
+        // FFMPEG Status
         let ffmpeg_installed = toolpaths::ffmpeg_status() == Presence::Installed;
         let ffmpeg_text = if ffmpeg_installed { "FFMPEG Installed" } else { "FFMPEG Missing" };
         let ffmpeg_color = if ffmpeg_installed { egui::Color32::from_rgb(40, 160, 40) } else { egui::Color32::from_rgb(180, 50, 50) };
@@ -627,6 +665,27 @@ fn render_content(
         }
 
         ui.add_space(5.0);
+        // AVIFENC Status
+        let avif_installed = toolpaths::avifenc_status() == Presence::Installed;
+        let avif_text = if avif_installed { "AVIFENC Installed" } else { "AVIFENC Missing" };
+        let avif_color = if avif_installed { egui::Color32::from_rgb(40, 160, 40) } else { egui::Color32::from_rgb(180, 50, 50) };
+        
+        let avif_resp = egui::Frame::none()
+            .fill(avif_color)
+            .rounding(egui::Rounding::same(5.0))
+            .show(ui, |ui| {
+                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
+                    ui.set_min_height(24.0);
+                    ui.label(egui::RichText::new(avif_text).color(egui::Color32::WHITE).strong());
+                });
+            }).response;
+            
+        if !avif_installed {
+            avif_resp.on_hover_text("Download at Settings > Add-Ons > AVIFENC");
+        }
+        
+        ui.add_space(5.0);
+
     });
 
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
@@ -699,6 +758,11 @@ fn render_content(
         if state.is_processing {
              let btn = egui::Button::new("Abort Export").fill(egui::Color32::from_rgb(180, 50, 50));
              if ui.add_sized(egui::vec2(ui.available_width(), 30.0), btn).clicked() {
+                 // ACTIVATE THE SIGNAL
+                 if let Some(abort) = &state.abort {
+                     abort.store(true, Ordering::Relaxed);
+                 }
+                 
                  state.is_processing = false; 
                  state.current_progress = 0; 
                  state.encoded_frames = 0;
