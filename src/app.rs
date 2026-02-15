@@ -181,14 +181,8 @@ impl eframe::App for BattleCatsApp {
                 crate::core::cat::show(ctx, &mut self.cat_list_state, &self.settings);
             },
             Page::Settings => {
-                let mut tabs = vec!["General"];
-                for (page_enum, label) in PAGES {
-                    if *page_enum != Page::MainMenu && *page_enum != Page::Settings {
-                        tabs.push(label);
-                    }
-                }
-                
-                let refresh_needed = crate::ui::views::settings::show(ctx, &mut self.settings, &tabs);
+                // Call show directly; tab list is now internal to tabs.rs
+                let refresh_needed = crate::ui::views::settings::show(ctx, &mut self.settings);
                 
                 if refresh_needed {
                     self.cat_list_state.cat_list.clear_cache();
@@ -206,8 +200,6 @@ impl eframe::App for BattleCatsApp {
             egui::Area::new("sidebar_area".into())
                 .constrain(false)
                 .fixed_pos(egui::pos2(sidebar_x, 0.0))
-                // CHANGED: Middle -> Background.
-                // This allows the "Middle" Fullscreen Viewer to cover it.
                 .order(egui::Order::Background) 
                 .show(ctx, |ui| {
                     egui::Frame::none()
