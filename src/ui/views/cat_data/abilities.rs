@@ -1,5 +1,4 @@
 use eframe::egui;
-use crate::core::utils;
 use crate::core::cat::scanner::CatEntry;
 use crate::core::cat::stats::{self, CatRaw};
 use crate::core::cat::abilities::{self, AbilityItem};
@@ -23,12 +22,10 @@ pub fn render(
     talent_data: Option<&TalentRaw>,
     talent_levels: Option<&HashMap<u8, u8>>
 ) {
-    if render_traits(ui, s, sheet, settings, talent_data, talent_levels) {
-        ui.add_space(settings.trait_padding_y);
-    }
-
     let curve = cat.curve.as_ref();
-    let (grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(
+    
+    // Updated to unpack 6 groups (Traits are now grp_trait)
+    let (grp_trait, grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(
         s, level, curve, multihit_tex, kamikaze_tex, boss_wave_tex, settings, false,
         talent_data,
         talent_levels
@@ -37,7 +34,14 @@ pub fn render(
     let mut previous_content = false;
     let main_border = egui::Color32::BLACK;
 
+    // Render Traits (New Registry Group)
+    if !grp_trait.is_empty() {
+        render_icon_row(ui, &grp_trait, sheet, settings, main_border);
+        previous_content = true;
+    }
+
     if !grp_hl1.is_empty() { 
+        if previous_content { ui.add_space(settings.ability_padding_y); }
         render_icon_row(ui, &grp_hl1, sheet, settings, main_border); 
         previous_content = true;
     }
@@ -62,149 +66,6 @@ pub fn render(
             ui.add_space(settings.ability_padding_y);
         }
         render_icon_row(ui, &grp_footer, sheet, settings, main_border); 
-    }
-}
-
-fn render_traits(
-    ui: &mut egui::Ui, 
-    s: &CatRaw, 
-    sheet: &SpriteSheet, 
-    settings: &Settings,
-    talent_data: Option<&TalentRaw>,
-    talent_levels: Option<&HashMap<u8, u8>>
-) -> bool {
-    let has_any_trait = s.target_red > 0 || s.target_floating > 0 || s.target_black > 0 ||
-        s.target_metal > 0 || s.target_angel > 0 || s.target_alien > 0 ||
-        s.target_zombie > 0 || s.target_relic > 0 || s.target_aku > 0 ||
-        s.target_traitless > 0;
-
-    if !has_any_trait { return false; }
-
-    let mut talented_traits = Vec::new();
-    if let (Some(data), Some(levels)) = (talent_data, talent_levels) {
-        for (idx, group) in data.groups.iter().enumerate() {
-            let lv = *levels.get(&(idx as u8)).unwrap_or(&0);
-            if lv > 0 {
-                if group.name_id != -1 {
-                    if let Some(icon) = map_trait_index_to_icon(group.name_id as u16) {
-                        talented_traits.push(icon);
-                    }
-                    if data.type_id > 0 {
-                        for i in 0..12 {
-                            if (data.type_id & (1 << i)) != 0 {
-                                if let Some(icon) = map_trait_index_to_icon(i) {
-                                    talented_traits.push(icon);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                match group.ability_id {
-                    33 => talented_traits.push(img015::ICON_TRAIT_RED),
-                    34 => talented_traits.push(img015::ICON_TRAIT_FLOATING),
-                    35 => talented_traits.push(img015::ICON_TRAIT_BLACK),
-                    36 => talented_traits.push(img015::ICON_TRAIT_METAL),
-                    37 => talented_traits.push(img015::ICON_TRAIT_ANGEL),
-                    38 => talented_traits.push(img015::ICON_TRAIT_ALIEN),
-                    39 => talented_traits.push(img015::ICON_TRAIT_ZOMBIE),
-                    40 => talented_traits.push(img015::ICON_TRAIT_RELIC),
-                    41 => talented_traits.push(img015::ICON_TRAIT_TRAITLESS),
-                    57 => talented_traits.push(img015::ICON_TRAIT_AKU),
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    ui.spacing_mut().item_spacing = egui::vec2(settings.ability_padding_x, settings.ability_padding_y);
-    
-    ui.horizontal_wrapped(|ui| {
-        for &line_num in utils::UI_TRAIT_ORDER {
-            let has_trait = check_trait(s, line_num);
-            if has_trait {
-                let tooltip = get_trait_tooltip(line_num);
-                
-                let border_sprite_id = if talented_traits.contains(&line_num) {
-                    Some(img015::BORDER_GOLD)
-                } else {
-                    None
-                };
-
-                let size = egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE);
-                let r = if let Some(cut) = sheet.cuts_map.get(&line_num) {
-                    let resp = if let Some(tex) = &sheet.texture_handle {
-                         ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(cut.uv_coordinates))
-                    } else {
-                         ui.allocate_response(size, egui::Sense::hover())
-                    };
-                    
-                    if let Some(bid) = border_sprite_id {
-                        if let Some(b_cut) = sheet.cuts_map.get(&bid) {
-                            if let Some(tex) = &sheet.texture_handle {
-                                ui.put(resp.rect, egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(b_cut.uv_coordinates));
-                            }
-                        }
-                    }
-                    resp
-                } else {
-                    let alt = img015::img015_alt(line_num);
-                    render_fallback_icon(ui, alt, egui::Color32::BLACK)
-                };
-                if !tooltip.is_empty() { r.on_hover_text(tooltip); }
-            }
-        }
-    });
-    
-    ui.add_space(settings.ability_padding_y);
-    true
-}
-
-fn map_trait_index_to_icon(idx: u16) -> Option<usize> {
-    match idx {
-        0 => Some(img015::ICON_TRAIT_RED),
-        1 => Some(img015::ICON_TRAIT_FLOATING),
-        2 => Some(img015::ICON_TRAIT_BLACK),
-        3 => Some(img015::ICON_TRAIT_METAL),
-        4 => Some(img015::ICON_TRAIT_ANGEL),
-        5 => Some(img015::ICON_TRAIT_ALIEN),
-        6 => Some(img015::ICON_TRAIT_ZOMBIE),
-        7 => Some(img015::ICON_TRAIT_RELIC),
-        8 => Some(img015::ICON_TRAIT_TRAITLESS),
-        11 => Some(img015::ICON_TRAIT_AKU),
-        _ => None,
-    }
-}
-
-fn check_trait(s: &CatRaw, line: usize) -> bool {
-    match line {
-        img015::ICON_TRAIT_RED => s.target_red > 0,
-        img015::ICON_TRAIT_FLOATING => s.target_floating > 0,
-        img015::ICON_TRAIT_BLACK => s.target_black > 0,
-        img015::ICON_TRAIT_METAL => s.target_metal > 0,
-        img015::ICON_TRAIT_ANGEL => s.target_angel > 0,
-        img015::ICON_TRAIT_ALIEN => s.target_alien > 0,
-        img015::ICON_TRAIT_ZOMBIE => s.target_zombie > 0,
-        img015::ICON_TRAIT_RELIC => s.target_relic > 0,
-        img015::ICON_TRAIT_AKU => s.target_aku > 0,
-        img015::ICON_TRAIT_TRAITLESS => s.target_traitless > 0,
-        _ => false,
-    }
-}
-
-fn get_trait_tooltip(line: usize) -> &'static str {
-    match line {
-        img015::ICON_TRAIT_RED => "Targets Red Enemies",
-        img015::ICON_TRAIT_FLOATING => "Targets Floating Enemies",
-        img015::ICON_TRAIT_BLACK => "Targets Black Enemies",
-        img015::ICON_TRAIT_METAL => "Targets Metal Enemies",
-        img015::ICON_TRAIT_ANGEL => "Targets Angel Enemies",
-        img015::ICON_TRAIT_ALIEN => "Targets Alien Enemies",
-        img015::ICON_TRAIT_ZOMBIE => "Targets Zombie Enemies",
-        img015::ICON_TRAIT_RELIC => "Targets Relic Enemies",
-        img015::ICON_TRAIT_AKU => "Targets Aku Enemies",
-        img015::ICON_TRAIT_TRAITLESS => "Targets Traitless Enemies",
-        _ => "",
     }
 }
 
@@ -360,12 +221,14 @@ fn render_conjure_details(
             
             ui.add_space(settings.ability_padding_y);
 
-            let (spirit_head_1, spirit_head_2, spirit_body_1, spirit_body_2, spirit_footer) = abilities::collect_ability_data(
+            // Added spirit_traits unpacking here as well
+            let (spirit_traits, spirit_head_1, spirit_head_2, spirit_body_1, spirit_body_2, spirit_footer) = abilities::collect_ability_data(
                 conjure_stats, level, curve, multihit_tex, kamikaze_tex, boss_wave_tex, settings, true,
                 None, // Spirits don't have talents
                 None  // No level map for spirit
             );
             
+            if !spirit_traits.is_empty() { render_icon_row(ui, &spirit_traits, sheet, settings, spirit_border); }
             if !spirit_head_1.is_empty() { render_icon_row(ui, &spirit_head_1, sheet, settings, spirit_border); }
             if !spirit_head_2.is_empty() { render_icon_row(ui, &spirit_head_2, sheet, settings, spirit_border); }
             
