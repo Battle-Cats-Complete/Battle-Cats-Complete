@@ -61,7 +61,7 @@ pub fn calculate_talent_display(
     match group.ability_id {
         // State Talents
         5 | 6 | 7 | 12 | 14 | 16 | 23 | 29 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 
-        44 | 45 | 46 | 47 | 48 | 49 | 53 | 55 | 57 | 63 | 66 | 92 => {
+        44 | 45 | 46 | 47 | 48 | 49 | 53 | 55 | 57 | 63 | 66 | 68 | 92 => {
             return Some(fmt_state(talent_level));
         },
 
@@ -473,6 +473,9 @@ pub fn apply_talent_stats(base_stats: &CatRaw, talent_data: &TalentRaw, levels: 
                 stats.explosion_spawn_anchor = group.min_2 as i32 / 4; 
                 stats.explosion_spawn_span = group.min_3 as i32 / 4;
             },
+
+            // Counter Surge
+            68 => stats.counter_surge = 1,
             
             // Immunities
             23 => stats.wave_immune = 1,
