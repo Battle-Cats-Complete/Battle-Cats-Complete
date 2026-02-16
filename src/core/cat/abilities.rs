@@ -92,7 +92,7 @@ pub fn collect_ability_data(
     push_ability(&mut group_headline_2, cat_stats.zombie_killer > 0, img015::ICON_ZOMBIE_KILLER, "Prevents Zombies from reviving".into(), 14);
     push_ability(&mut group_headline_2, cat_stats.soulstrike > 0, img015::ICON_SOULSTRIKE, "Will attack Zombie corpses".into(), 59);
     push_ability(&mut group_headline_2, cat_stats.wave_block > 0, img015::ICON_WAVE_BLOCK, "When hit with a Wave Attack, nullifies its Damage and prevents its advancement".into(), 0);
-    push_ability(&mut group_headline_2, cat_stats.counter_surge > 0, img015::ICON_COUNTER_SURGE, "When hit with a Surge Attack, create a surge of equal Level and Range".into(), 0);
+    push_ability(&mut group_headline_2, cat_stats.counter_surge > 0, img015::ICON_COUNTER_SURGE, "When hit with a Surge Attack, create a surge of equal Level and Range".into(), 68);
     push_ability(&mut group_headline_2, cat_stats.colossus_slayer > 0, img015::ICON_COLOSSUS_SLAYER, "Deals 1.6× Damage to and takes 0.7× Damage from Colossus Enemies".into(), 63);
     
     if cat_stats.behemoth_slayer > 0 {

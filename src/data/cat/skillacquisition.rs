@@ -141,6 +141,7 @@ pub fn map_ability_to_icon(ability_id: u8) -> Option<usize> {
         65 => Some(img015::ICON_MINI_SURGE),
         66 => Some(img015::ICON_SAGE_SLAYER),
         67 => Some(img015::ICON_EXPLOSION),
+        68 => Some(img015::ICON_COUNTER_SURGE),
         _ => None
     }
 }
