@@ -58,7 +58,6 @@ fn encode_via_pipe(
         "--qalpha".to_string(), q_val.to_string()
     ];
 
-    // --stdin MUST be last
     args.push("--stdin".to_string());
 
     let mut avif_cmd = cmd.args(&args)
@@ -200,7 +199,7 @@ fn encode_via_folder(
         if abort.load(Ordering::Relaxed) {
             let _ = child.kill();
             let _ = child.wait();
-            let _ = fs::remove_dir_all(&work_dir); // WIPE FOLDER
+            let _ = fs::remove_dir_all(&work_dir);
             return false;
         }
 
