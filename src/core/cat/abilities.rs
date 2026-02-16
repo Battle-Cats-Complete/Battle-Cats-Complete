@@ -78,6 +78,36 @@ pub fn collect_ability_data(
 
     let target_label = if is_conjure_unit { "Enemies" } else { "Target Traits" };
 
+    
+    // Multi-Hit
+    if cat_stats.attack_2 > 0 {
+        let damage_hit_1 = level_curve.map_or(cat_stats.attack_1, |curve| curve.calculate_stat(cat_stats.attack_1, current_level));
+        let damage_hit_2 = level_curve.map_or(cat_stats.attack_2, |curve| curve.calculate_stat(cat_stats.attack_2, current_level));
+        let damage_hit_3 = level_curve.map_or(cat_stats.attack_3, |curve| curve.calculate_stat(cat_stats.attack_3, current_level));
+        
+        let ability_flag_1 = if cat_stats.attack_1_abilities > 0 { "True" } else { "False" };
+        let ability_flag_2 = if cat_stats.attack_2_abilities > 0 { "True" } else { "False" };
+        let ability_flag_3 = if cat_stats.attack_3 > 0 { if cat_stats.attack_3_abilities > 0 { " / True" } else { " / False" } } else { "" };
+        
+        let damage_string = if cat_stats.attack_3 > 0 { 
+            format!("{} / {} / {}", damage_hit_1, damage_hit_2, damage_hit_3) 
+        } else { 
+            format!("{} / {}", damage_hit_1, damage_hit_2) 
+        };
+        let multihit_description = format!("Damage split {}\nAbility split {} / {}{}", damage_string, ability_flag_1, ability_flag_2, ability_flag_3);
+        let effective_multihit_texture = if settings.game_language == "--" { None } else { multihit_texture.as_ref().map(|t| t.id()) };
+
+        group_body_1.push(AbilityItem { icon_id: img015::ICON_MULTIHIT, text: multihit_description, custom_tex: effective_multihit_texture, border_id: None });
+    }
+
+    // Range (Long Distance / Omni Strike)
+    range_logic(cat_stats, &mut group_body_1);
+
+    if !is_conjure_unit && cat_stats.conjure_unit_id > 0 {
+        push_custom(&mut group_body_1, &None, "Conjures a Spirit to the battlefield when tapped\nThis Cat may only be deployed one at a time".to_string());
+    }
+
+    // REGISTRY LOOP
     for def in cat::ABILITY_REGISTRY {
         if is_conjure_unit {
             if def.group == DisplayGroup::Trait || def.group == DisplayGroup::Headline1 { continue; } 
@@ -116,32 +146,6 @@ pub fn collect_ability_data(
              let item = AbilityItem { icon_id: 0, text: "Unit disappears after a single attack".into(), custom_tex: Some(tex.id()), border_id: None };
              group_headline_2.push(item);
         }
-    }
-
-    if cat_stats.attack_2 > 0 {
-        let damage_hit_1 = level_curve.map_or(cat_stats.attack_1, |curve| curve.calculate_stat(cat_stats.attack_1, current_level));
-        let damage_hit_2 = level_curve.map_or(cat_stats.attack_2, |curve| curve.calculate_stat(cat_stats.attack_2, current_level));
-        let damage_hit_3 = level_curve.map_or(cat_stats.attack_3, |curve| curve.calculate_stat(cat_stats.attack_3, current_level));
-        
-        let ability_flag_1 = if cat_stats.attack_1_abilities > 0 { "True" } else { "False" };
-        let ability_flag_2 = if cat_stats.attack_2_abilities > 0 { "True" } else { "False" };
-        let ability_flag_3 = if cat_stats.attack_3 > 0 { if cat_stats.attack_3_abilities > 0 { " / True" } else { " / False" } } else { "" };
-        
-        let damage_string = if cat_stats.attack_3 > 0 { 
-            format!("{} / {} / {}", damage_hit_1, damage_hit_2, damage_hit_3) 
-        } else { 
-            format!("{} / {}", damage_hit_1, damage_hit_2) 
-        };
-        let multihit_description = format!("Damage split {}\nAbility split {} / {}{}", damage_string, ability_flag_1, ability_flag_2, ability_flag_3);
-        let effective_multihit_texture = if settings.game_language == "--" { None } else { multihit_texture.as_ref().map(|t| t.id()) };
-
-        group_body_1.push(AbilityItem { icon_id: img015::ICON_MULTIHIT, text: multihit_description, custom_tex: effective_multihit_texture, border_id: None });
-    }
-
-    range_logic(cat_stats, &mut group_body_1);
-
-    if !is_conjure_unit && cat_stats.conjure_unit_id > 0 {
-        push_custom(&mut group_body_1, &None, "Conjures a Spirit to the battlefield when tapped\nThis Cat may only be deployed one at a time".to_string());
     }
 
     if let (Some(t_data), Some(levels)) = (talent_data, talent_levels) {
