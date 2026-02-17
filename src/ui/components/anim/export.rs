@@ -11,7 +11,7 @@ use crate::core::anim::export::findloop;
 use crate::ui::views::settings::toggle_ui; 
 use crate::core::anim::bounds;
 use crate::core::addons::toolpaths::{self, Presence};
-use crate::core::anim::export::state::{DEFAULT_WALK_LEN, DEFAULT_IDLE_LEN, DEFAULT_KB_LEN};
+use crate::core::anim::export::state::DEFAULT_KB_LEN;
 
 const EXPORT_MODE_SPACING: f32 = 2.0; 
 const CAMERA_COLUMN_WIDTH: f32 = 5.0;
@@ -415,8 +415,9 @@ fn render_content(
             },
             ExportMode::Showcase => {
                 ui.add_enabled_ui(!ui_locked, |ui| {
-                    let hint_walk = egui::RichText::new(DEFAULT_WALK_LEN.to_string()).color(egui::Color32::GRAY);
-                    let hint_idle = egui::RichText::new(DEFAULT_IDLE_LEN.to_string()).color(egui::Color32::GRAY);
+                    // Use dynamic hints from the state
+                    let hint_walk = egui::RichText::new(state.detected_walk_len.to_string()).color(egui::Color32::GRAY);
+                    let hint_idle = egui::RichText::new(state.detected_idle_len.to_string()).color(egui::Color32::GRAY);
                     let hint_kb = egui::RichText::new(DEFAULT_KB_LEN.to_string()).color(egui::Color32::GRAY);
                     
                     egui::Grid::new("showcase_grid").spacing([10.0, 4.0]).show(ui, |ui| {
@@ -424,10 +425,10 @@ fn render_content(
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
                             if ui.add(egui::TextEdit::singleline(&mut state.showcase_walk_str).hint_text(hint_walk).desired_width(50.0)).changed() {
-                                state.showcase_walk_len = state.showcase_walk_str.trim().parse().unwrap_or(if state.showcase_walk_str.trim().is_empty() { DEFAULT_WALK_LEN } else { 0 });
+                                state.showcase_walk_len = state.showcase_walk_str.trim().parse().unwrap_or(if state.showcase_walk_str.trim().is_empty() { state.detected_walk_len } else { 0 });
                                 state.completion_time = None;
                             }
-                            if state.showcase_walk_str.trim().is_empty() { state.showcase_walk_len = DEFAULT_WALK_LEN; }
+                            if state.showcase_walk_str.trim().is_empty() { state.showcase_walk_len = state.detected_walk_len; }
                             ui.label("f");
                         });
                         ui.end_row();
@@ -436,10 +437,10 @@ fn render_content(
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
                             if ui.add(egui::TextEdit::singleline(&mut state.showcase_idle_str).hint_text(hint_idle).desired_width(50.0)).changed() {
-                                state.showcase_idle_len = state.showcase_idle_str.trim().parse().unwrap_or(if state.showcase_idle_str.trim().is_empty() { DEFAULT_IDLE_LEN } else { 0 });
+                                state.showcase_idle_len = state.showcase_idle_str.trim().parse().unwrap_or(if state.showcase_idle_str.trim().is_empty() { state.detected_idle_len } else { 0 });
                                 state.completion_time = None;
                             }
-                            if state.showcase_idle_str.trim().is_empty() { state.showcase_idle_len = DEFAULT_IDLE_LEN; }
+                            if state.showcase_idle_str.trim().is_empty() { state.showcase_idle_len = state.detected_idle_len; }
                             ui.label("f");
                         });
                         ui.end_row();

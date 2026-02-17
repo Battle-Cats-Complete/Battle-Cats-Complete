@@ -57,6 +57,10 @@ pub struct ExporterState {
     pub detected_attack_len: i32,
     pub showcase_attack_len: i32,
     pub showcase_kb_len: i32,
+    
+    // Dynamic Defaults
+    pub detected_walk_len: i32,
+    pub detected_idle_len: i32,
 
     pub fps: i32,
     pub zoom: f32,
@@ -134,6 +138,9 @@ impl Default for ExporterState {
             detected_attack_len: 0, 
             showcase_attack_len: 0, 
             showcase_kb_len: DEFAULT_KB_LEN,
+            
+            detected_walk_len: DEFAULT_WALK_LEN,
+            detected_idle_len: DEFAULT_IDLE_LEN,
 
             fps: 30,
             zoom: 1.0,
