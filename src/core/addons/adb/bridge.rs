@@ -21,8 +21,8 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
         thread::sleep(Duration::from_millis(500));
         let _ = driver::run_command(&["start-server"]);
 
-        let _ = tx.send(AdbEvent::Status("Connecting to emulator...".to_string()));
-        if let Err(connection_error) = driver::connect_to_emulator() {
+        let _ = tx.send(AdbEvent::Status("Detecting device...".to_string()));
+        if let Err(connection_error) = driver::connect_to_device() {
             let _ = tx.send(AdbEvent::Error(format!("Connection failed: {}", connection_error)));
             return;
         }
@@ -63,7 +63,7 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
                 continue; 
             }
 
-            let _ = driver::run_command(&["kill-server"]);
+            // NOTE: Do NOT kill-server here, or you lose connection for the next region in the loop.
 
             let _ = tx.send(AdbEvent::Status("Starting Decryption...".to_string()));
             let region_code = match suffix { "" => "ja", "kr" => "ko", other => other };
@@ -102,6 +102,10 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
             thread::sleep(Duration::from_secs(1));
         }
 
+        // Cleanup: Kill server at the very end so it doesn't hang in background
+        let _ = tx.send(AdbEvent::Status("Stopping ADB Server...".to_string()));
+        let _ = driver::run_command(&["kill-server"]);
+
         let _ = tx.send(AdbEvent::Success("All Operations Complete!".to_string()));
     });
 }
@@ -109,8 +113,11 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
 fn process_single_region_adb(_tx: &Sender<AdbEvent>, serial: &str, pkg: &str, output_dir: &PathBuf, mode: AdbImportType) -> Result<(), String> {
     if mode == AdbImportType::All {
         let _ = driver::run_command(&["-s", serial, "root"]);
-        thread::sleep(Duration::from_secs(1)); 
-        let _ = driver::connect_to_emulator(); 
+        thread::sleep(Duration::from_secs(2)); 
+        
+        // Re-establish connection because 'adb root' restarts the daemon on the device
+        // causing emulators (especially TCP ones) to disconnect.
+        let _ = driver::connect_to_device(); 
 
         let whoami = driver::run_command(&["-s", serial, "shell", "whoami"]).unwrap_or_default();
         let remote_src = format!("/data/data/{}/files", pkg);
@@ -118,14 +125,19 @@ fn process_single_region_adb(_tx: &Sender<AdbEvent>, serial: &str, pkg: &str, ou
 
         let _ = driver::run_command(&["-s", serial, "shell", "rm", "-rf", remote_stage_target]); 
         let mut success = false;
+        
+        // Try direct root copy
         if whoami.contains("root") {
             success = driver::run_command(&["-s", serial, "shell", "cp", "-r", &remote_src, "/data/local/tmp"]).is_ok();
         }
+        
+        // Try su copy (for rooted phones)
         if !success {
             let cmd = format!("'cp -r {} /data/local/tmp'", remote_src);
             success = driver::run_command(&["-s", serial, "shell", "su", "-c", &cmd]).is_ok();
         }
-        if !success { return Err("Root Copy Failed.".to_string()); }
+        
+        if !success { return Err("Root Copy Failed. Ensure device is rooted.".to_string()); }
 
         let _ = driver::run_command(&["-s", serial, "shell", "chmod", "-R", "777", remote_stage_target]);
         if !output_dir.exists() { std::fs::create_dir_all(&output_dir).unwrap(); }
