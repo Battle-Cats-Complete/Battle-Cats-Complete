@@ -157,6 +157,7 @@ impl AnimViewer {
     }
 
     pub fn load_anim(&mut self, path: &Path) {
+        // Only loading logic, we do NOT reset execution state here to prevent Showcase suicide
         if let Some(anim) = Animation::load(path) {
             self.current_frame = 0.0;
             self.loop_range = (None, None);
@@ -202,22 +203,56 @@ impl AnimViewer {
             self.last_loaded_id = self.loaded_id.clone();
             self.pending_initial_center = true;
             
+            // TERMINATION PERSISTENCE (With Separate Channels)
+            // If switching units while active, we kill the process but persist the state info for the UI
+            
+            let mut preserved_loop_msg: Option<String> = None;
+            let mut preserved_export_msg: Option<String> = None;
+            let mut preserved_time: Option<f64> = None;
+            
+            if self.export_state.is_loop_searching {
+                if let Some(abort) = &self.export_state.loop_abort {
+                    abort.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                preserved_loop_msg = Some("Loop Terminated!".to_string());
+                preserved_time = Some(ui.input(|i| i.time));
+            }
+
+            if self.export_state.is_processing {
+                if let Some(abort) = &self.export_state.abort {
+                    abort.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                preserved_export_msg = Some("Export Terminated!".to_string());
+                preserved_time = Some(ui.input(|i| i.time));
+            }
+
             let prev_mode = self.export_state.export_mode.clone();
             
+            // RESET STATE
             self.export_state = ExporterState::default();
             self.export_state.export_mode = prev_mode;
             
+            // APPLY PERSISTED TERMINATION
+            if let Some(msg) = preserved_loop_msg {
+                self.export_state.loop_result_msg = Some(msg);
+                self.export_state.completion_time = preserved_time;
+            }
+            if let Some(msg) = preserved_export_msg {
+                self.export_state.export_result_msg = Some(msg);
+                self.export_state.completion_time = preserved_time;
+            }
+
             self.update_export_state();
 
             self.has_scanned_attack = true; 
             
+            // Initial Attack Scan for Defaults (If available)
             if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_ATTACK) {
                 if let Some(anim) = Animation::load(path) {
-                    // Update the "detected" len which controls the hint text
-                    self.export_state.detected_attack_len = anim.max_frame;
-                    // Update the actual length used by the logic (default behavior)
-                    self.export_state.showcase_attack_len = anim.max_frame;
-                    // Ensure the input field string is empty so the hint is visible
+                    // +1 to encompass the full animation duration (0-index fix)
+                    let total = anim.max_frame + 1;
+                    self.export_state.detected_attack_len = total;
+                    self.export_state.showcase_attack_len = total;
                     self.export_state.showcase_attack_str.clear();
                 }
             }
@@ -351,14 +386,47 @@ impl AnimViewer {
         }
 
         if self.show_export_popup && self.export_state.export_mode == ExportMode::Showcase && !self.has_scanned_attack {
+             // AUTO-SCAN LOGIC FOR SHOWCASE DEFAULTS
+             
+             // 1. Scan Attack for length (Max Frame + 1 for Total)
              if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_ATTACK) {
                  if let Some(anim) = Animation::load(path) {
-                     self.export_state.detected_attack_len = anim.max_frame;
+                     let total = anim.max_frame + 1;
+                     self.export_state.detected_attack_len = total;
                      if self.export_state.showcase_attack_str.is_empty() {
-                         self.export_state.showcase_attack_len = anim.max_frame;
+                         self.export_state.showcase_attack_len = total;
                      }
                  }
              }
+
+             // 2. Scan Walk for 0/1 frame skip (Static image check)
+             if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_WALK) {
+                 let set_zero = if let Some(anim) = Animation::load(path) {
+                     anim.max_frame <= 0
+                 } else {
+                     true // Fallback if scan (load) fails
+                 };
+
+                 if set_zero {
+                     self.export_state.showcase_walk_len = 0;
+                     self.export_state.showcase_walk_str = "0".to_string();
+                 }
+             }
+
+             // 3. Scan Idle for 0/1 frame skip
+             if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_IDLE) {
+                 let set_zero = if let Some(anim) = Animation::load(path) {
+                     anim.max_frame <= 0
+                 } else {
+                     true // Fallback if scan (load) fails
+                 };
+
+                 if set_zero {
+                     self.export_state.showcase_idle_len = 0;
+                     self.export_state.showcase_idle_str = "0".to_string();
+                 }
+             }
+
              self.has_scanned_attack = true; 
         }
 
@@ -401,8 +469,7 @@ impl AnimViewer {
             if self.export_state.is_processing {
                 let time_to_use = if self.export_state.export_mode == ExportMode::Showcase {
                     if let Some(anim) = &self.current_anim {
-                        let max = if anim.max_frame == 0 { 1 } else { anim.max_frame };
-                        showcase_render_time % (max as f32)
+                         if anim.max_frame == 0 { 0.0 } else { showcase_render_time }
                     } else { 0.0 }
                 } else {
                      let start = self.export_state.frame_start;
