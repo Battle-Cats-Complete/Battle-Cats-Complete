@@ -1,4 +1,6 @@
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 use super::download;
 
 pub fn get_adb_command() -> Result<std::path::PathBuf, String> {
@@ -29,33 +31,97 @@ pub fn run_command(args: &[&str]) -> Result<String, String> {
     }
 }
 
-pub fn connect_to_device() -> Result<String, String> {
-    let ports = [7555, 5555, 62001, 21503, 16384]; 
-    
-    // 1. Priority: Check if ANY device is already connected and ready.
-    // This covers USB phones and emulators that are already running.
+// --- PRIORITY 1: USB ---
+// Returns Serial if found
+pub fn find_usb_device() -> Option<String> {
     if let Ok(devices_out) = run_command(&["devices"]) {
         for line in devices_out.lines().skip(1) {
             if line.trim().is_empty() { continue; }
-            if let Some((_, status)) = line.split_once('\t') {
-                // If we see 'device', we are good. No need to mess with IPs.
+            if let Some((serial, status)) = line.split_once('\t') {
+                // USB devices do not have IPs (colon) and are not 'emulator-xxxx'
+                if status == "device" && !serial.contains(":") && !serial.starts_with("emulator") {
+                    return Some(serial.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+// --- PRIORITY 2: MANUAL IP ---
+// Returns Connected IP if successful
+pub fn connect_manual_ip(ip: &str) -> Result<String, String> {
+    let target = if ip.contains(":") { ip.to_string() } else { format!("{}:5555", ip) };
+    
+    let out = run_command(&["connect", &target])?;
+    if out.contains("connected") {
+        Ok(target)
+    } else {
+        Err(out)
+    }
+}
+
+// --- PRIORITY 3: EMULATOR ---
+// Returns Emulator Serial if found
+pub fn find_emulator() -> Option<String> {
+    let ports = [7555, 5555, 62001, 21503, 16384]; 
+    
+    // 1. Check if an emulator is ALREADY connected
+    if let Ok(devices_out) = run_command(&["devices"]) {
+        for line in devices_out.lines().skip(1) {
+            if line.trim().is_empty() { continue; }
+            if let Some((serial, status)) = line.split_once('\t') {
                 if status == "device" {
-                    return Ok("Device already connected".to_string());
+                    // "emulator-5554" OR "127.0.0.1:5555" are emulators
+                    if serial.starts_with("emulator") || serial.contains("127.0.0.1") || serial.contains("localhost") {
+                        return Some(serial.to_string());
+                    }
                 }
             }
         }
     }
 
-    // 2. Fallback: No active device found. Try connecting to known emulator ports.
-    // This handles BlueStacks/Nox/etc if they haven't auto-registered.
+    // 2. Scan ports
     for port in ports {
         let addr = format!("127.0.0.1:{}", port);
         if let Ok(out) = run_command(&["connect", &addr]) {
             if out.contains("connected") {
-                return Ok(format!("Connected to {}", addr));
+                return Some(addr);
             }
         }
     }
+    None
+}
 
-    Err("No device found. Please connect a phone via USB or launch an emulator.".to_string())
+// --- UTILS ---
+
+pub fn get_wlan_ip(serial: &str) -> Option<String> {
+    if let Ok(output) = run_command(&["-s", serial, "shell", "ip", "route"]) {
+        for line in output.lines() {
+            if line.contains("wlan0") && line.contains("src") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if let Some(pos) = parts.iter().position(|&x| x == "src") {
+                    if let Some(ip) = parts.get(pos + 1) {
+                        return Some(ip.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn enable_wireless_fallback(serial: &str) -> Option<String> {
+    // If it's already wireless/emulator, no fallback needed
+    if serial.contains(":") || serial.starts_with("emulator") { return None; }
+    
+    let ip = get_wlan_ip(serial)?;
+    let _ = run_command(&["-s", serial, "tcpip", "5555"]);
+    thread::sleep(Duration::from_secs(2)); 
+    Some(format!("{}:5555", ip))
+}
+
+pub fn connect_wireless(ip: &str) -> Result<(), String> {
+    let out = run_command(&["connect", ip])?;
+    if out.contains("connected") { Ok(()) } else { Err(out) }
 }
