@@ -124,8 +124,6 @@ pub fn process_frame(
 
     let frame_delay = 1000.0 / state.fps as f32;
     let parts = if let Some(a) = anim {
-        // Fix for Showcase Mode: Use the calculated time from Viewer (which handles the sequence logic)
-        // instead of the linear progress calculation used for standard exports.
         let raw_f = if state.export_mode == ExportMode::Showcase {
             _current_time
         } else {

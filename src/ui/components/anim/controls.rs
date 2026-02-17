@@ -99,10 +99,7 @@ fn render_internal_ui(
     let btn_w = 70.0;
     let grid_gap = 5.0;
     let btn_size = egui::vec2(btn_w, 25.0);
-
-    // SAFETY LOCK
     let is_locked = anim_viewer.export_state.is_processing || anim_viewer.export_state.is_loop_searching;
-
     let display_multiplier = if interpolation { native_fps / 30.0 } else { 1.0 };
 
     let (lcm_result, max_frame_val) = if let Some(anim) = &anim_viewer.current_anim {
@@ -171,7 +168,6 @@ fn render_internal_ui(
 
         // Column 2
         ui.vertical(|ui| {
-            // [FIX] Locked the entire scrubber/timeline area when exporting/searching
             ui.add_enabled_ui(!is_locked, |ui| {
                 ui.allocate_ui(egui::vec2(COL2_W, TILE_HEIGHT), |ui| {
                     ui.horizontal(|ui| {

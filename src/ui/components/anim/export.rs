@@ -11,7 +11,7 @@ use crate::core::anim::export::findloop;
 use crate::ui::views::settings::toggle_ui; 
 use crate::core::anim::bounds;
 use crate::core::addons::toolpaths::{self, Presence};
-use crate::core::anim::export::state::DEFAULT_KB_LEN;
+use crate::core::settings::Settings;
 
 const EXPORT_MODE_SPACING: f32 = 2.0; 
 const CAMERA_COLUMN_WIDTH: f32 = 5.0;
@@ -24,6 +24,7 @@ pub fn show_popup(
     sheet: Option<&SpriteSheet>,
     is_open: &mut bool,
     start_region_selection: &mut bool,
+    settings: &mut Settings,
 ) {
     // TOOL VALIDATION CHECK
     let ffmpeg_missing = toolpaths::ffmpeg_status() != Presence::Installed;
@@ -170,7 +171,7 @@ pub fn show_popup(
             .min_size([250.0, 300.0])
             .with_stroke(false) 
             .show(ui, |ui| {
-                render_content(ui, state, model, anim, sheet, is_open, start_region_selection); 
+                render_content(ui, state, model, anim, sheet, is_open, start_region_selection, settings); 
             });
     });
     
@@ -185,6 +186,7 @@ fn render_content(
     sheet: Option<&SpriteSheet>,
     is_open: &mut bool,
     start_region_selection: &mut bool,
+    settings: &mut Settings,
 ) {
     if state.anim_name.is_empty() {
         if let Some(a) = anim {
@@ -354,7 +356,6 @@ fn render_content(
                             if let Some(flag) = &state.loop_abort {
                                 flag.store(true, Ordering::Relaxed);
                             }
-                            // [FIX]: Set loop-specific msg, NOT export msg
                             state.loop_result_msg = Some("Loop Terminated!".to_string());
                             state.completion_time = Some(ui.input(|i| i.time));
                         }
@@ -418,7 +419,7 @@ fn render_content(
                     // Use dynamic hints from the state
                     let hint_walk = egui::RichText::new(state.detected_walk_len.to_string()).color(egui::Color32::GRAY);
                     let hint_idle = egui::RichText::new(state.detected_idle_len.to_string()).color(egui::Color32::GRAY);
-                    let hint_kb = egui::RichText::new(DEFAULT_KB_LEN.to_string()).color(egui::Color32::GRAY);
+                    let hint_kb = egui::RichText::new(settings.default_showcase_kb.to_string()).color(egui::Color32::GRAY);
                     
                     egui::Grid::new("showcase_grid").spacing([10.0, 4.0]).show(ui, |ui| {
                         ui.label("Walk");
@@ -462,10 +463,10 @@ fn render_content(
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
                             if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_kb).desired_width(50.0)).changed() {
-                                state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { DEFAULT_KB_LEN } else { 0 });
+                                state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { settings.default_showcase_kb } else { 0 });
                                 state.completion_time = None;
                             }
-                            if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = DEFAULT_KB_LEN; }
+                            if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = settings.default_showcase_kb; }
                             ui.label("f");
                         });
                         ui.end_row();
@@ -549,9 +550,11 @@ fn render_content(
 
                     // FORMAT
                     ui.label("Format");
+                    let mut format = state.format.clone();
+                    
                     egui::ComboBox::from_id_salt("fmt_combo")
                         .width(60.0) 
-                        .selected_text(match state.format {
+                        .selected_text(match format {
                             ExportFormat::Gif => "GIF", 
                             ExportFormat::WebP => "WebP", 
                             ExportFormat::Avif => "AVIF", 
@@ -562,37 +565,52 @@ fn render_content(
                             ExportFormat::Zip => "ZIP",
                         }).show_ui(ui, |ui| {
                             // GIF
-                            ui.selectable_value(&mut state.format, ExportFormat::Gif, "GIF");
+                            ui.selectable_value(&mut format, ExportFormat::Gif, "GIF");
                             // WebP
-                            ui.selectable_value(&mut state.format, ExportFormat::WebP, "WebP");
+                            ui.selectable_value(&mut format, ExportFormat::WebP, "WebP");
                             // AVIF
                             let avif_installed = toolpaths::avifenc_status() == Presence::Installed;
-                            let avif_btn = ui.add_enabled(avif_installed, egui::SelectableLabel::new(state.format == ExportFormat::Avif, "AVIF"));
-                            if avif_btn.clicked() { state.format = ExportFormat::Avif; }
+                            let avif_btn = ui.add_enabled(avif_installed, egui::SelectableLabel::new(format == ExportFormat::Avif, "AVIF"));
+                            if avif_btn.clicked() { format = ExportFormat::Avif; }
                             if !avif_installed { avif_btn.on_disabled_hover_text("Requires AVIFENC Add-On"); }
                             
                             // PNG
                             let ffmpeg_installed = toolpaths::ffmpeg_status() == Presence::Installed;
-                            let png_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(state.format == ExportFormat::Png, "PNG"));
-                            if png_btn.clicked() { state.format = ExportFormat::Png; }
+                            let png_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(format == ExportFormat::Png, "PNG"));
+                            if png_btn.clicked() { format = ExportFormat::Png; }
                             if !ffmpeg_installed { png_btn.on_disabled_hover_text("Requires FFMPEG Add-On"); }
 
                             // VIDEO
-                            let mp4_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(state.format == ExportFormat::Mp4, "MP4"));
-                            if mp4_btn.clicked() { state.format = ExportFormat::Mp4; }
+                            let mp4_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(format == ExportFormat::Mp4, "MP4"));
+                            if mp4_btn.clicked() { format = ExportFormat::Mp4; }
                             if !ffmpeg_installed { mp4_btn.on_disabled_hover_text("Requires FFMPEG Add-On"); }
 
-                            let mkv_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(state.format == ExportFormat::Mkv, "MKV"));
-                            if mkv_btn.clicked() { state.format = ExportFormat::Mkv; }
+                            let mkv_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(format == ExportFormat::Mkv, "MKV"));
+                            if mkv_btn.clicked() { format = ExportFormat::Mkv; }
                             if !ffmpeg_installed { mkv_btn.on_disabled_hover_text("Requires FFMPEG Add-On"); }
 
-                            let webm_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(state.format == ExportFormat::Webm, "WebM"));
-                            if webm_btn.clicked() { state.format = ExportFormat::Webm; }
+                            let webm_btn = ui.add_enabled(ffmpeg_installed, egui::SelectableLabel::new(format == ExportFormat::Webm, "WebM"));
+                            if webm_btn.clicked() { format = ExportFormat::Webm; }
                             if !ffmpeg_installed { webm_btn.on_disabled_hover_text("Requires FFMPEG Add-On"); }
 
                             // ZIP
-                            ui.selectable_value(&mut state.format, ExportFormat::Zip, "ZIP");
+                            ui.selectable_value(&mut format, ExportFormat::Zip, "ZIP");
                         });
+                        
+                    if format != state.format {
+                        state.format = format.clone();
+                        // SAVE PREFERENCE
+                        settings.last_export_format = match format {
+                            ExportFormat::Gif => 0,
+                            ExportFormat::WebP => 1,
+                            ExportFormat::Avif => 2,
+                            ExportFormat::Png => 3,
+                            ExportFormat::Mp4 => 4,
+                            ExportFormat::Mkv => 5,
+                            ExportFormat::Webm => 6,
+                            ExportFormat::Zip => 7,
+                        };
+                    }
                     ui.end_row();
 
                     // CHECK INSTALLED TOOLS
@@ -749,12 +767,7 @@ fn render_content(
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
         ui.add_space(5.0); 
         
-        let count = (state.frame_end - state.frame_start).abs() + 1;
-        
-        // STATUS LABEL LOGIC
-        // If terminated, we hide the "Terminated" text here and just show "Ready" 
-        // because the Red Button handles the visual feedback.
-        
+        let count = (state.frame_end - state.frame_start).abs() + 1;        
         let (progress_val, label_text) = if state.is_loop_searching {
             let start = state.loop_search_start_time.unwrap_or(0.0);
             let p_anim = ((ui.input(|i| i.time) - start) % 1.0) as f32;
@@ -788,8 +801,6 @@ fn render_content(
                             ui.ctx().data_mut(|d| d.insert_temp(seen_id, true));
                         }
     
-                        // Use loop_result_msg for success message if present, else "Done"
-                        // Note: export_result_msg is only for errors currently
                         let label = state.loop_result_msg.clone().unwrap_or_else(|| "Done".to_string());
     
                         if !has_seen && !is_focused {

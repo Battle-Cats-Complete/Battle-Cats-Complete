@@ -25,7 +25,7 @@ pub struct AbilityDef {
     pub talent_desc_func: Option<fn(val1: i32, val2: i32, stats: &CatRaw, curve: Option<&CatLevelCurve>, unit_level: i32, group: &TalentGroupRaw, talent_level: u8) -> String>,
 }
 
-// --- Formatters ---
+// Formatters
 fn fmt_time(frames: i32) -> String {
     format!("{:.2}s^{}f", frames as f32 / 30.0, frames)
 }
@@ -64,7 +64,7 @@ fn get_dur_val(v1: i32, v2: i32) -> i32 {
 }
 
 pub const ABILITY_REGISTRY: &[AbilityDef] = &[
-    // TRAITS
+    // --- TRAITS ---
     AbilityDef {
         name: "Target Red",
         icon_id: img015::ICON_TRAIT_RED,
@@ -1005,7 +1005,7 @@ pub const ABILITY_REGISTRY: &[AbilityDef] = &[
         talent_desc_func: None
     },
 
-    // Resistances
+    // RESISTANCES
     AbilityDef {
         name: "Resist Weaken",
         icon_id: img015::ICON_RESIST_WEAKEN,
@@ -1106,7 +1106,7 @@ pub const ABILITY_REGISTRY: &[AbilityDef] = &[
         talent_desc_func: Some(|v1,_,_,_,_,_,_| fmt_additive(0, v1, "%"))
     },
 
-    // --- STATS ---
+    // STATS
     AbilityDef {
         name: "Cost Down",
         icon_id: img015::ICON_COST_DOWN,
@@ -1133,8 +1133,7 @@ pub const ABILITY_REGISTRY: &[AbilityDef] = &[
         formatter: |_,_,_,_| "".into(),
         apply_func: Some(|c, v1, _, _| c.cooldown = c.cooldown.saturating_sub(v1)),
         talent_desc_func: Some(|v1, _, c, _, _, _, _| {
-            // Forward: Base -> Base - Reduction
-            let base_eff = c.effective_cooldown(); // Calculated on current stats
+            let base_eff = c.effective_cooldown();
             let new_eff = (c.cooldown - v1 - 264).max(60);
             let diff = base_eff - new_eff;
             format!("{}f (-{}f) -> {}f", base_eff, diff, new_eff)

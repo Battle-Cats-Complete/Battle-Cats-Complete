@@ -3,11 +3,9 @@ use std::sync::{Arc, atomic::AtomicBool};
 use crate::core::anim::export::encoding::{ExportFormat, EncoderMessage};
 use crate::core::utils::DragGuard;
 
-// --- CONFIGURATION CONSTANTS ---
 pub const DEFAULT_WALK_LEN: i32 = 90;
 pub const DEFAULT_IDLE_LEN: i32 = 90;
-pub const DEFAULT_KB_LEN: i32 = 75; // User requested 75
-// -------------------------------
+pub const DEFAULT_KB_LEN: i32 = 60;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum ExportMode {
@@ -61,6 +59,11 @@ pub struct ExporterState {
     // Dynamic Defaults
     pub detected_walk_len: i32,
     pub detected_idle_len: i32,
+    
+    // State Tracking for Settings Updates
+    pub last_known_walk_default: i32,
+    pub last_known_idle_default: i32,
+    pub last_known_kb_default: i32,
 
     pub fps: i32,
     pub zoom: f32,
@@ -141,6 +144,11 @@ impl Default for ExporterState {
             
             detected_walk_len: DEFAULT_WALK_LEN,
             detected_idle_len: DEFAULT_IDLE_LEN,
+            
+            // Initialize with hardcoded constants first
+            last_known_walk_default: DEFAULT_WALK_LEN,
+            last_known_idle_default: DEFAULT_IDLE_LEN,
+            last_known_kb_default: DEFAULT_KB_LEN,
 
             fps: 30,
             zoom: 1.0,
