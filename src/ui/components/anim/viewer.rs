@@ -6,7 +6,7 @@ use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::core::anim::{animator, smooth, canvas, transform, controls, bounds}; 
 use crate::ui::components::anim::controls::{self as anim_controls};
-use crate::core::anim::export::state::{ExporterState, ExportMode};
+use crate::core::anim::export::state::{ExporterState, ExportMode, DEFAULT_WALK_LEN, DEFAULT_IDLE_LEN};
 use crate::core::anim::export::process;
 use crate::ui::components::anim::export;
 
@@ -45,7 +45,7 @@ pub struct AnimViewer {
     pub export_selection_start: Option<egui::Pos2>,
     pub export_state: ExporterState,
     pub show_export_popup: bool,
-    pub has_scanned_attack: bool,
+    pub has_scanned_showcase: bool,
     pub was_export_popup_open: bool, 
     pub auto_set_camera: bool, 
 }
@@ -87,7 +87,7 @@ impl Default for AnimViewer {
             export_selection_start: None,
             export_state: ExporterState::default(),
             show_export_popup: false,
-            has_scanned_attack: false,
+            has_scanned_showcase: false,
             was_export_popup_open: false,
             auto_set_camera: false, 
         }
@@ -244,18 +244,7 @@ impl AnimViewer {
 
             self.update_export_state();
 
-            self.has_scanned_attack = true; 
-            
-            // Initial Attack Scan for Defaults (If available)
-            if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_ATTACK) {
-                if let Some(anim) = Animation::load(path) {
-                    // +1 to encompass the full animation duration (0-index fix)
-                    let total = anim.max_frame + 1;
-                    self.export_state.detected_attack_len = total;
-                    self.export_state.showcase_attack_len = total;
-                    self.export_state.showcase_attack_str.clear();
-                }
-            }
+            self.has_scanned_showcase = false; 
         }
 
         // Loop Mode Fallback Check
@@ -385,7 +374,7 @@ impl AnimViewer {
             }
         }
 
-        if self.show_export_popup && self.export_state.export_mode == ExportMode::Showcase && !self.has_scanned_attack {
+        if self.show_export_popup && self.export_state.export_mode == ExportMode::Showcase && !self.has_scanned_showcase {
              // AUTO-SCAN LOGIC FOR SHOWCASE DEFAULTS
              
              // 1. Scan Attack for length (Max Frame + 1 for Total)
@@ -401,33 +390,38 @@ impl AnimViewer {
 
              // 2. Scan Walk for 0/1 frame skip (Static image check)
              if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_WALK) {
-                 let set_zero = if let Some(anim) = Animation::load(path) {
-                     anim.max_frame <= 0
-                 } else {
-                     true // Fallback if scan (load) fails
-                 };
-
-                 if set_zero {
-                     self.export_state.showcase_walk_len = 0;
-                     self.export_state.showcase_walk_str = "0".to_string();
+                 if let Some(anim) = Animation::load(path) {
+                     let len = anim.calculate_true_loop().unwrap_or(anim.max_frame);
+                     
+                     let is_short = len <= 1;
+                     let new_len = if is_short { 0 } else { DEFAULT_WALK_LEN };
+                     self.export_state.detected_walk_len = new_len;
+                     
+                     // Only overwrite if it matches the OLD default or is empty, to preserve user edits
+                     if self.export_state.showcase_walk_str.is_empty() || self.export_state.showcase_walk_len == DEFAULT_WALK_LEN {
+                        self.export_state.showcase_walk_len = new_len;
+                     }
                  }
              }
 
              // 3. Scan Idle for 0/1 frame skip
              if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_IDLE) {
-                 let set_zero = if let Some(anim) = Animation::load(path) {
-                     anim.max_frame <= 0
-                 } else {
-                     true // Fallback if scan (load) fails
-                 };
+                 if let Some(anim) = Animation::load(path) {
+                     let len = anim.calculate_true_loop().unwrap_or(anim.max_frame);
+                     
+                     let is_short = len <= 1;
+                     let new_len = if is_short { 0 } else { DEFAULT_IDLE_LEN };
+                     
+                     self.export_state.detected_idle_len = new_len;
 
-                 if set_zero {
-                     self.export_state.showcase_idle_len = 0;
-                     self.export_state.showcase_idle_str = "0".to_string();
+                     // Only overwrite if it matches the OLD default or is empty, to preserve user edits
+                     if self.export_state.showcase_idle_str.is_empty() || self.export_state.showcase_idle_len == DEFAULT_IDLE_LEN {
+                        self.export_state.showcase_idle_len = new_len;
+                     }
                  }
              }
 
-             self.has_scanned_attack = true; 
+             self.has_scanned_showcase = true;
         }
 
         // Showcase Animation Switching
