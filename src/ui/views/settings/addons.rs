@@ -3,7 +3,6 @@ use crate::core::settings::Settings;
 use crate::core::addons::adb::download::AdbManager;
 use crate::core::addons::avifenc::download::AvifManager;
 use crate::core::addons::ffmpeg::download::FfmpegManager;
-// Import the new OEM manager
 use crate::core::addons::oem::download::{OemManager, OemDriver}; 
 use crate::core::addons::toolpaths::AddonStatus;
 use crate::core::utils::DragGuard;
@@ -18,7 +17,6 @@ pub struct AddonDeleteState {
 static ADB_MANAGER: Mutex<Option<AdbManager>> = Mutex::new(None);
 static AVIF_MANAGER: Mutex<Option<AvifManager>> = Mutex::new(None);
 static FFMPEG_MANAGER: Mutex<Option<FfmpegManager>> = Mutex::new(None);
-// New State for the Dropdown
 static OEM_MANAGER: Mutex<Option<OemManager>> = Mutex::new(None);
 
 pub fn show(ui: &mut egui::Ui, _settings: &mut Settings, drag_guard: &mut DragGuard) -> bool {
@@ -27,7 +25,6 @@ pub fn show(ui: &mut egui::Ui, _settings: &mut Settings, drag_guard: &mut DragGu
         let adb_manager = adb_lock.get_or_insert_with(AdbManager::default);
         adb_manager.update();
 
-        // Lock OEM Manager
         let mut oem_lock = OEM_MANAGER.lock().unwrap();
         let oem_manager = oem_lock.get_or_insert_with(OemManager::default);
 
@@ -43,7 +40,6 @@ pub fn show(ui: &mut egui::Ui, _settings: &mut Settings, drag_guard: &mut DragGu
             .id_salt("addons_scroll")
             .auto_shrink([false, true])
             .show(ui, |ui| {
-                // --- ANDROID BRIDGE SECTION ---
                 ui.heading("Android Bridge");
                 ui.add_space(5.0);
                 ui.label("Enables \"Android\" option for Game Data Import\nRequired for connecting to phones\nBase Add-On supports emulators only");
@@ -52,7 +48,6 @@ pub fn show(ui: &mut egui::Ui, _settings: &mut Settings, drag_guard: &mut DragGu
                 let adb_status = adb_manager.status.clone(); 
                 render_addon_controls(ui, &adb_status, "ADB", || adb_manager.install(), "adb_delete");
 
-                // --- OEM DRIVER SECTION ---
                 ui.add_space(20.0);
                 ui.heading(egui::RichText::new("ADB OEM Drivers").strong());
                 ui.label("Allows \"Android\" export to connect to a real Android device for game files\nWindows only, requires Android Bridge Add-On, and manual set-up\nRequires USB Debugging to be enabled on your Android device");
@@ -71,7 +66,6 @@ pub fn show(ui: &mut egui::Ui, _settings: &mut Settings, drag_guard: &mut DragGu
                         }
                     });
 
-                    // Action Button
                     let btn_text = if oem_manager.selected == OemDriver::Universal {
                         "Download Installer"
                     } else {
@@ -84,7 +78,6 @@ pub fn show(ui: &mut egui::Ui, _settings: &mut Settings, drag_guard: &mut DragGu
                 });
                 ui.add_space(20.0);
 
-                // --- FFMPEG SECTION ---
                 ui.heading("FFMPEG");
                 ui.add_space(5.0);
                 ui.label("Optimizes encoding speed for most file formats\nEnables most export formats");
@@ -94,7 +87,6 @@ pub fn show(ui: &mut egui::Ui, _settings: &mut Settings, drag_guard: &mut DragGu
 
                 ui.add_space(20.0);
 
-                // --- AVIFENC SECTION ---
                 ui.heading("AVIFENC");
                 ui.add_space(5.0);
                 ui.label("Optimizes encoding for the AVIF format specifically\nEnables AVIF export format");

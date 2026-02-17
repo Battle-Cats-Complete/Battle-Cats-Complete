@@ -6,9 +6,11 @@ use crate::data::global::mamodel::Model;
 use crate::data::global::maanim::Animation;
 use crate::core::anim::{animator, smooth, canvas, transform, controls, bounds}; 
 use crate::ui::components::anim::controls::{self as anim_controls};
-use crate::core::anim::export::state::{ExporterState, ExportMode, DEFAULT_WALK_LEN, DEFAULT_IDLE_LEN};
+use crate::core::anim::export::state::{ExporterState, ExportMode};
+use crate::core::anim::export::encoding::ExportFormat;
 use crate::core::anim::export::process;
 use crate::ui::components::anim::export;
+use crate::core::settings::Settings;
 
 pub struct AnimViewer {
     pub zoom_level: f32,
@@ -157,7 +159,6 @@ impl AnimViewer {
     }
 
     pub fn load_anim(&mut self, path: &Path) {
-        // Only loading logic, we do NOT reset execution state here to prevent Showcase suicide
         if let Some(anim) = Animation::load(path) {
             self.current_frame = 0.0;
             self.loop_range = (None, None);
@@ -192,6 +193,7 @@ impl AnimViewer {
         spirit_pack: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
         native_fps: f32,
         auto_set_camera: bool,
+        settings: &mut Settings,
     ) {
         let dt = ui.input(|i| i.stable_dt);
         
@@ -202,10 +204,7 @@ impl AnimViewer {
         if self.loaded_id != self.last_loaded_id {
             self.last_loaded_id = self.loaded_id.clone();
             self.pending_initial_center = true;
-            
-            // TERMINATION PERSISTENCE (With Separate Channels)
             // If switching units while active, we kill the process but persist the state info for the UI
-            
             let mut preserved_loop_msg: Option<String> = None;
             let mut preserved_export_msg: Option<String> = None;
             let mut preserved_time: Option<f64> = None;
@@ -231,6 +230,18 @@ impl AnimViewer {
             // RESET STATE
             self.export_state = ExporterState::default();
             self.export_state.export_mode = prev_mode;
+
+            // Re-apply the persistent format choice from Settings immediately
+            self.export_state.format = match settings.last_export_format {
+                1 => ExportFormat::WebP,
+                2 => ExportFormat::Avif,
+                3 => ExportFormat::Png,
+                4 => ExportFormat::Mp4,
+                5 => ExportFormat::Mkv,
+                6 => ExportFormat::Webm,
+                7 => ExportFormat::Zip,
+                _ => ExportFormat::Gif,
+            };
             
             // APPLY PERSISTED TERMINATION
             if let Some(msg) = preserved_loop_msg {
@@ -374,10 +385,72 @@ impl AnimViewer {
             }
         }
 
+        if self.show_export_popup && !self.was_export_popup_open {
+             // Logic moved to top of block during unit switch, 
+             // but we perform a safety restore here if it's the first time opening the popup
+             if self.export_state.format == ExportFormat::Gif && settings.last_export_format != 0 {
+                 self.export_state.format = match settings.last_export_format {
+                     1 => ExportFormat::WebP,
+                     2 => ExportFormat::Avif,
+                     3 => ExportFormat::Png,
+                     4 => ExportFormat::Mp4,
+                     5 => ExportFormat::Mkv,
+                     6 => ExportFormat::Webm,
+                     7 => ExportFormat::Zip,
+                     _ => ExportFormat::Gif,
+                 };
+             }
+
+             if self.auto_set_camera {
+                 if let (Some(m), Some(s)) = (&self.held_model, &self.held_sheet) {
+                    if let Some(bounds) = bounds::calculate_tight_bounds(m, self.current_anim.as_ref(), s) {
+                        self.export_state.region_x = bounds.min.x;
+                        self.export_state.region_y = bounds.min.y;
+                        self.export_state.region_w = bounds.width();
+                        self.export_state.region_h = bounds.height();
+                        self.export_state.zoom = 1.0;
+                    }
+                }
+             } else {
+                self.export_state.region_w = 0.0;
+                self.export_state.region_h = 0.0;
+                self.export_state.region_x = 0.0;
+                self.export_state.region_y = 0.0;
+             }
+        }
+        self.was_export_popup_open = self.show_export_popup;
+
+        // LIVE SETTINGS SYNC
+        // Check for mismatches between export state and global settings
+        let walk_mismatch = self.export_state.last_known_walk_default != settings.default_showcase_walk;
+        let idle_mismatch = self.export_state.last_known_idle_default != settings.default_showcase_idle;
+        let kb_mismatch = self.export_state.last_known_kb_default != settings.default_showcase_kb;
+
+        if walk_mismatch || idle_mismatch || kb_mismatch {
+            // Update last known trackers
+            self.export_state.last_known_walk_default = settings.default_showcase_walk;
+            self.export_state.last_known_idle_default = settings.default_showcase_idle;
+            self.export_state.last_known_kb_default = settings.default_showcase_kb;
+
+            // Apply defaults to the current lengths if the user hasn't typed an override
+            if self.export_state.showcase_walk_str.is_empty() {
+                self.export_state.showcase_walk_len = settings.default_showcase_walk;
+            }
+            if self.export_state.showcase_idle_str.is_empty() {
+                self.export_state.showcase_idle_len = settings.default_showcase_idle;
+            }
+            if self.export_state.showcase_kb_str.is_empty() {
+                self.export_state.showcase_kb_len = settings.default_showcase_kb;
+            }
+
+            // Force scan logic to reload dynamic unit-specific info (like 0-frame skip checks)
+            self.has_scanned_showcase = false;
+        }
+        
+        // Scan logic (Runs once per popup open or when settings change)
         if self.show_export_popup && self.export_state.export_mode == ExportMode::Showcase && !self.has_scanned_showcase {
              // AUTO-SCAN LOGIC FOR SHOWCASE DEFAULTS
-             
-             // 1. Scan Attack for length (Max Frame + 1 for Total)
+             // Scan Attack for length (Max Frame + 1 for Total)
              if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_ATTACK) {
                  if let Some(anim) = Animation::load(path) {
                      let total = anim.max_frame + 1;
@@ -388,34 +461,34 @@ impl AnimViewer {
                  }
              }
 
-             // 2. Scan Walk for 0/1 frame skip (Static image check)
+             // Scan Walk for 0/1 frame skip (Static image check)
              if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_WALK) {
                  if let Some(anim) = Animation::load(path) {
                      let len = anim.calculate_true_loop().unwrap_or(anim.max_frame);
                      
                      let is_short = len <= 1;
-                     let new_len = if is_short { 0 } else { DEFAULT_WALK_LEN };
+                     let new_len = if is_short { 0 } else { settings.default_showcase_walk };
                      self.export_state.detected_walk_len = new_len;
                      
                      // Only overwrite if it matches the OLD default or is empty, to preserve user edits
-                     if self.export_state.showcase_walk_str.is_empty() || self.export_state.showcase_walk_len == DEFAULT_WALK_LEN {
+                     if self.export_state.showcase_walk_str.is_empty() || self.export_state.showcase_walk_len == settings.default_showcase_walk {
                         self.export_state.showcase_walk_len = new_len;
                      }
                  }
              }
 
-             // 3. Scan Idle for 0/1 frame skip
+             // Scan Idle for 0/1 frame skip
              if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_IDLE) {
                  if let Some(anim) = Animation::load(path) {
                      let len = anim.calculate_true_loop().unwrap_or(anim.max_frame);
                      
                      let is_short = len <= 1;
-                     let new_len = if is_short { 0 } else { DEFAULT_IDLE_LEN };
+                     let new_len = if is_short { 0 } else { settings.default_showcase_idle };
                      
                      self.export_state.detected_idle_len = new_len;
 
                      // Only overwrite if it matches the OLD default or is empty, to preserve user edits
-                     if self.export_state.showcase_idle_str.is_empty() || self.export_state.showcase_idle_len == DEFAULT_IDLE_LEN {
+                     if self.export_state.showcase_idle_str.is_empty() || self.export_state.showcase_idle_len == settings.default_showcase_idle {
                         self.export_state.showcase_idle_len = new_len;
                      }
                  }
@@ -527,31 +600,14 @@ impl AnimViewer {
         self.is_pointer_over_controls = controls_hovered || btn_response.hovered();
 
         if self.show_export_popup && !self.was_export_popup_open {
-             if self.auto_set_camera {
-                 if let (Some(m), Some(s)) = (&self.held_model, &self.held_sheet) {
-                    if let Some(bounds) = bounds::calculate_tight_bounds(m, self.current_anim.as_ref(), s) {
-                        self.export_state.region_x = bounds.min.x;
-                        self.export_state.region_y = bounds.min.y;
-                        self.export_state.region_w = bounds.width();
-                        self.export_state.region_h = bounds.height();
-                        self.export_state.zoom = 1.0;
-                    }
-                }
-             } else {
-                self.export_state.region_w = 0.0;
-                self.export_state.region_h = 0.0;
-                self.export_state.region_x = 0.0;
-                self.export_state.region_y = 0.0;
-             }
         }
-        self.was_export_popup_open = self.show_export_popup;
-
+        
         let state = &mut self.export_state;
         let show_popup = &mut self.show_export_popup;
         let model = self.held_model.as_ref();
         let anim = self.current_anim.as_ref();
         let sheet = self.held_sheet.as_ref();
         let start_select = &mut self.is_selecting_export_region;
-        export::show_popup(ui, state, model, anim, sheet, show_popup, start_select);
+        export::show_popup(ui, state, model, anim, sheet, show_popup, start_select, settings);
     }
 }

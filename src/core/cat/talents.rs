@@ -87,7 +87,7 @@ pub fn apply_talent_stats(base_stats: &CatRaw, talent_data: &TalentRaw, levels: 
         let val1 = calculate_talent_value(group.min_1, group.max_1, current_level, group.max_level);
         let val2 = calculate_talent_value(group.min_2, group.max_2, current_level, group.max_level);
 
-        // Registry Lookup - NOW passing the raw group for advanced access
+        // Registry Lookup
         if let Some(def) = cat::get_by_talent_id(group.ability_id) {
             if let Some(apply) = def.apply_func {
                 apply(&mut stats, val1, val2, group);
