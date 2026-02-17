@@ -3,6 +3,12 @@ use std::sync::{Arc, atomic::AtomicBool};
 use crate::core::anim::export::encoding::{ExportFormat, EncoderMessage};
 use crate::core::utils::DragGuard;
 
+// --- CONFIGURATION CONSTANTS ---
+pub const DEFAULT_WALK_LEN: i32 = 90;
+pub const DEFAULT_IDLE_LEN: i32 = 90;
+pub const DEFAULT_KB_LEN: i32 = 75; // User requested 75
+// -------------------------------
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum ExportMode {
     Manual,
@@ -83,6 +89,7 @@ pub struct ExporterState {
     pub encoded_frames: i32,   
     pub tx: Option<Sender<EncoderMessage>>,
     pub abort: Option<Arc<AtomicBool>>, 
+    pub export_result_msg: Option<String>, // Separate msg for Export
     
     // Loop Finding Runtime
     pub is_loop_searching: bool,
@@ -90,7 +97,7 @@ pub struct ExporterState {
     pub loop_rx: Option<Receiver<LoopStatus>>,
     pub loop_abort: Option<Arc<AtomicBool>>,
     pub loop_search_start_time: Option<f64>,
-    pub loop_result_msg: Option<String>,
+    pub loop_result_msg: Option<String>, // Separate msg for Loop
 
     // UI Helpers
     pub drag_guard: DragGuard,
@@ -122,11 +129,11 @@ impl Default for ExporterState {
             showcase_attack_str: String::new(), 
             showcase_kb_str: String::new(),
             
-            showcase_walk_len: 90,
-            showcase_idle_len: 90,
+            showcase_walk_len: DEFAULT_WALK_LEN,
+            showcase_idle_len: DEFAULT_IDLE_LEN,
             detected_attack_len: 0, 
             showcase_attack_len: 0, 
-            showcase_kb_len: 90,
+            showcase_kb_len: DEFAULT_KB_LEN,
 
             fps: 30,
             zoom: 1.0,
@@ -154,6 +161,7 @@ impl Default for ExporterState {
             encoded_frames: 0,
             tx: None,
             abort: None, 
+            export_result_msg: None,
 
             is_loop_searching: false,
             loop_frames_searched: 0,

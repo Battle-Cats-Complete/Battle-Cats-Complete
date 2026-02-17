@@ -11,6 +11,7 @@ use crate::core::anim::export::findloop;
 use crate::ui::views::settings::toggle_ui; 
 use crate::core::anim::bounds;
 use crate::core::addons::toolpaths::{self, Presence};
+use crate::core::anim::export::state::{DEFAULT_WALK_LEN, DEFAULT_IDLE_LEN, DEFAULT_KB_LEN};
 
 const EXPORT_MODE_SPACING: f32 = 2.0; 
 const CAMERA_COLUMN_WIDTH: f32 = 5.0;
@@ -90,14 +91,19 @@ pub fn show_popup(
                         loop_finished = true;
                     },
                     LoopStatus::Error(e) => {
+                        // Mark as done but with error message
                         if e.contains("Timed out") {
                             state.loop_result_msg = Some("Loop Search Timeout (180s)".to_string());
-                            state.completion_time = Some(ui.input(|i| i.time));
-                            
-                            // Grab Attention on Timeout
-                            ui.ctx().data_mut(|d| d.insert_temp(attention_latch_id, true));
-                            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("export_done_seen"), false));
+                        } else {
+                             state.loop_result_msg = Some(e);
                         }
+                        
+                        state.completion_time = Some(ui.input(|i| i.time));
+                        
+                        // Grab Attention
+                        ui.ctx().data_mut(|d| d.insert_temp(attention_latch_id, true));
+                        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("export_done_seen"), false));
+                        
                         loop_finished = true;
                     }
                 }
@@ -348,46 +354,80 @@ fn render_content(
                             if let Some(flag) = &state.loop_abort {
                                 flag.store(true, Ordering::Relaxed);
                             }
+                            // [FIX]: Set loop-specific msg, NOT export msg
+                            state.loop_result_msg = Some("Loop Terminated!".to_string());
+                            state.completion_time = Some(ui.input(|i| i.time));
                         }
                 } else {
                     ui.add_enabled_ui(!state.is_processing, |ui| {
-                        if ui.add_sized(egui::vec2(ui.available_width(), 24.0), egui::Button::new("Find Loop")).clicked() {
-                                if let (Some(m), Some(a)) = (model, anim) {
-                                    let use_tol = if state.loop_tolerance_str.is_empty() { 30 } else { state.loop_tolerance_str.parse().unwrap_or(30) };
-                                    let use_min = if state.loop_min_str.is_empty() { 15 } else { state.loop_min_str.parse().unwrap_or(15) };
-                                    let use_max = state.loop_max; 
-
-                                    state.loop_tolerance = use_tol;
-                                    state.loop_min = use_min;
-
-                                    let (tx, rx) = std::sync::mpsc::channel();
-                                    state.loop_rx = Some(rx);
-                                    state.is_loop_searching = true;
-                                    
-                                    state.loop_frames_searched = 0;
-                                    state.loop_search_start_time = Some(ui.input(|i| i.time));
-                                    
-                                    let abort = Arc::new(AtomicBool::new(false));
-                                    state.loop_abort = Some(abort.clone());
-                                    
-                                    findloop::start_search(m.clone(), a.clone(), use_tol, use_min, use_max, tx, abort);
+                        // CHECK FOR LOOP TERMINATION
+                        let mut is_loop_terminated = false;
+                        if let Some(msg) = &state.loop_result_msg {
+                            if msg.contains("Terminated") || msg.contains("Aborted") {
+                                if let Some(done_time) = state.completion_time {
+                                    if ui.input(|i| i.time) - done_time < 3.0 {
+                                        is_loop_terminated = true;
+                                    }
                                 }
+                            }
+                        }
+
+                        // Define Action Logic Closure
+                        let mut trigger_search = |ui: &mut egui::Ui| {
+                            if let (Some(m), Some(a)) = (model, anim) {
+                                let use_tol = if state.loop_tolerance_str.is_empty() { 30 } else { state.loop_tolerance_str.parse().unwrap_or(30) };
+                                let use_min = if state.loop_min_str.is_empty() { 15 } else { state.loop_min_str.parse().unwrap_or(15) };
+                                let use_max = state.loop_max; 
+    
+                                state.loop_tolerance = use_tol;
+                                state.loop_min = use_min;
+    
+                                let (tx, rx) = std::sync::mpsc::channel();
+                                state.loop_rx = Some(rx);
+                                state.is_loop_searching = true;
+                                
+                                state.loop_frames_searched = 0;
+                                state.loop_search_start_time = Some(ui.input(|i| i.time));
+                                
+                                let abort = Arc::new(AtomicBool::new(false));
+                                state.loop_abort = Some(abort.clone());
+                                
+                                findloop::start_search(m.clone(), a.clone(), use_tol, use_min, use_max, tx, abort);
+                                
+                                // Reset termination msg
+                                state.loop_result_msg = None;
+                                state.completion_time = None;
+                            }
+                        };
+
+                        if is_loop_terminated {
+                            let btn = egui::Button::new("Loop Terminated!").fill(egui::Color32::from_rgb(180, 50, 50));
+                            if ui.add_sized(egui::vec2(ui.available_width(), 24.0), btn).clicked() {
+                                trigger_search(ui);
+                            }
+                        } else {
+                            if ui.add_sized(egui::vec2(ui.available_width(), 24.0), egui::Button::new("Find Loop")).clicked() {
+                                trigger_search(ui);
+                            }
                         }
                     });
                 }
             },
             ExportMode::Showcase => {
                 ui.add_enabled_ui(!ui_locked, |ui| {
-                    let hint_90 = egui::RichText::new("90").color(egui::Color32::GRAY);
+                    let hint_walk = egui::RichText::new(DEFAULT_WALK_LEN.to_string()).color(egui::Color32::GRAY);
+                    let hint_idle = egui::RichText::new(DEFAULT_IDLE_LEN.to_string()).color(egui::Color32::GRAY);
+                    let hint_kb = egui::RichText::new(DEFAULT_KB_LEN.to_string()).color(egui::Color32::GRAY);
+                    
                     egui::Grid::new("showcase_grid").spacing([10.0, 4.0]).show(ui, |ui| {
                         ui.label("Walk");
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
-                            if ui.add(egui::TextEdit::singleline(&mut state.showcase_walk_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                                state.showcase_walk_len = state.showcase_walk_str.trim().parse().unwrap_or(if state.showcase_walk_str.trim().is_empty() { 90 } else { 0 });
+                            if ui.add(egui::TextEdit::singleline(&mut state.showcase_walk_str).hint_text(hint_walk).desired_width(50.0)).changed() {
+                                state.showcase_walk_len = state.showcase_walk_str.trim().parse().unwrap_or(if state.showcase_walk_str.trim().is_empty() { DEFAULT_WALK_LEN } else { 0 });
                                 state.completion_time = None;
                             }
-                            if state.showcase_walk_str.trim().is_empty() { state.showcase_walk_len = 90; }
+                            if state.showcase_walk_str.trim().is_empty() { state.showcase_walk_len = DEFAULT_WALK_LEN; }
                             ui.label("f");
                         });
                         ui.end_row();
@@ -395,11 +435,11 @@ fn render_content(
                         ui.label("Idle");
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
-                            if ui.add(egui::TextEdit::singleline(&mut state.showcase_idle_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                                state.showcase_idle_len = state.showcase_idle_str.trim().parse().unwrap_or(if state.showcase_idle_str.trim().is_empty() { 90 } else { 0 });
+                            if ui.add(egui::TextEdit::singleline(&mut state.showcase_idle_str).hint_text(hint_idle).desired_width(50.0)).changed() {
+                                state.showcase_idle_len = state.showcase_idle_str.trim().parse().unwrap_or(if state.showcase_idle_str.trim().is_empty() { DEFAULT_IDLE_LEN } else { 0 });
                                 state.completion_time = None;
                             }
-                            if state.showcase_idle_str.trim().is_empty() { state.showcase_idle_len = 90; }
+                            if state.showcase_idle_str.trim().is_empty() { state.showcase_idle_len = DEFAULT_IDLE_LEN; }
                             ui.label("f");
                         });
                         ui.end_row();
@@ -420,11 +460,11 @@ fn render_content(
                         ui.label("Knockback");
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
-                            if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_90.clone()).desired_width(50.0)).changed() {
-                                state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { 90 } else { 0 });
+                            if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_kb).desired_width(50.0)).changed() {
+                                state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { DEFAULT_KB_LEN } else { 0 });
                                 state.completion_time = None;
                             }
-                            if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = 90; }
+                            if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = DEFAULT_KB_LEN; }
                             ui.label("f");
                         });
                         ui.end_row();
@@ -710,6 +750,10 @@ fn render_content(
         
         let count = (state.frame_end - state.frame_start).abs() + 1;
         
+        // STATUS LABEL LOGIC
+        // If terminated, we hide the "Terminated" text here and just show "Ready" 
+        // because the Red Button handles the visual feedback.
+        
         let (progress_val, label_text) = if state.is_loop_searching {
             let start = state.loop_search_start_time.unwrap_or(0.0);
             let p_anim = ((ui.input(|i| i.time) - start) % 1.0) as f32;
@@ -725,43 +769,54 @@ fn render_content(
                 (ratio, format!("Encoding | {}f/{}f ({}%)", state.encoded_frames, count, percent))
             }
         } else {
-            match state.completion_time {
-                Some(done_time) => {
-                    let is_focused = ui.input(|i| i.focused);
-                    let seen_id = egui::Id::new("export_done_seen");
-                    let mut has_seen = ui.ctx().data(|d| d.get_temp(seen_id).unwrap_or(false));
-
-                    if is_focused && !has_seen {
-                        has_seen = true;
-                        ui.ctx().data_mut(|d| d.insert_temp(seen_id, true));
-                    }
-
-                    let label = state.loop_result_msg.clone().unwrap_or_else(|| "Done".to_string());
-
-                    if !has_seen && !is_focused {
-                        state.completion_time = Some(ui.input(|i| i.time));
-                        ui.ctx().request_repaint(); 
-                        (1.0, label)
-                    } else {
-                        let elapsed = ui.input(|i| i.time) - done_time;
-                        if elapsed < 3.0 { 
+            // Check for termination messages to suppress "Done" if it was actually an abort
+            let is_term_loop = state.loop_result_msg.as_ref().map(|m| m.contains("Terminated") || m.contains("Aborted")).unwrap_or(false);
+            let is_term_export = state.export_result_msg.as_ref().map(|m| m.contains("Terminated") || m.contains("Aborted")).unwrap_or(false);
+            
+            if is_term_loop || is_term_export {
+                (1.0, "Ready".to_string())
+            } else {
+                match state.completion_time {
+                    Some(done_time) => {
+                        let is_focused = ui.input(|i| i.focused);
+                        let seen_id = egui::Id::new("export_done_seen");
+                        let mut has_seen = ui.ctx().data(|d| d.get_temp(seen_id).unwrap_or(false));
+    
+                        if is_focused && !has_seen {
+                            has_seen = true;
+                            ui.ctx().data_mut(|d| d.insert_temp(seen_id, true));
+                        }
+    
+                        // Use loop_result_msg for success message if present, else "Done"
+                        // Note: export_result_msg is only for errors currently
+                        let label = state.loop_result_msg.clone().unwrap_or_else(|| "Done".to_string());
+    
+                        if !has_seen && !is_focused {
+                            state.completion_time = Some(ui.input(|i| i.time));
                             ui.ctx().request_repaint(); 
-                            (1.0, label) 
-                        } 
-                        else { 
-                            state.completion_time = None; 
-                            state.loop_result_msg = None;
+                            (1.0, label)
+                        } else {
+                            let elapsed = ui.input(|i| i.time) - done_time;
+                            if elapsed < 3.0 { 
+                                ui.ctx().request_repaint(); 
+                                (1.0, label) 
+                            } 
+                            else { 
+                                state.completion_time = None; 
+                                state.loop_result_msg = None;
+                                state.export_result_msg = None;
+                                (1.0, "Ready".to_string()) 
+                            }
+                        }
+                    },
+                    None => {
+                        let ratio = if count == 0 { 0.0 } else { (state.current_progress as f32 / count as f32).min(1.0) };
+                        if ratio > 0.0 && ratio < 1.0 { 
+                             let percent = (ratio * 100.0) as i32;
+                            (ratio, format!("Paused | {}f/{}f ({}%)", state.current_progress, count, percent)) 
+                        } else { 
                             (1.0, "Ready".to_string()) 
                         }
-                    }
-                },
-                None => {
-                    let ratio = if count == 0 { 0.0 } else { (state.current_progress as f32 / count as f32).min(1.0) };
-                    if ratio > 0.0 && ratio < 1.0 { 
-                         let percent = (ratio * 100.0) as i32;
-                        (ratio, format!("Paused | {}f/{}f ({}%)", state.current_progress, count, percent)) 
-                    } else { 
-                        (1.0, "Ready".to_string()) 
                     }
                 }
             }
@@ -780,21 +835,54 @@ fn render_content(
                      abort.store(true, Ordering::Relaxed);
                  }
                  
+                 // Set specific export termination message
+                 state.export_result_msg = Some("Export Terminated!".to_string());
+                 state.completion_time = Some(ui.input(|i| i.time));
+
                  state.is_processing = false; 
                  state.current_progress = 0; 
                  state.encoded_frames = 0;
-                 state.completion_time = None;
              }
         } else {
             let is_valid = state.region_w > 0.1 && state.region_h > 0.1;
             let enabled = !state.is_loop_searching && is_valid;
             
-            let btn_text = if is_valid { "Begin Export" } else { "No Camera Set" };
+            // CHECK FOR TERMINATION STATE (Separate Check for Export Button)
+            let mut is_export_terminated = false;
+             if let Some(msg) = &state.export_result_msg {
+                if msg.contains("Terminated") || msg.contains("Aborted") {
+                    if let Some(done_time) = state.completion_time {
+                        if ui.input(|i| i.time) - done_time < 3.0 {
+                            is_export_terminated = true;
+                        }
+                    }
+                }
+            }
             
-            if ui.add_enabled_ui(enabled, |ui| {
-                ui.add_sized(egui::vec2(ui.available_width(), 30.0), egui::Button::new(btn_text))
-            }).inner.clicked() { 
-                start_export(state); 
+            // ACTION TRIGGER (Shared logic for normal and terminated states)
+            let mut trigger_export = || {
+                start_export(state);
+                state.export_result_msg = None;
+                state.completion_time = None;
+            };
+
+            if is_export_terminated {
+                // RED BUTTON - Same Functionality
+                let btn = egui::Button::new("Export Terminated!").fill(egui::Color32::from_rgb(180, 50, 50));
+                
+                // We use add_enabled_ui based on validity just like the normal button
+                if ui.add_enabled_ui(enabled, |ui| {
+                    ui.add_sized(egui::vec2(ui.available_width(), 30.0), btn)
+                }).inner.clicked() {
+                    trigger_export();
+                }
+            } else {
+                let btn_text = if is_valid { "Begin Export" } else { "No Camera Set" };
+                if ui.add_enabled_ui(enabled, |ui| {
+                    ui.add_sized(egui::vec2(ui.available_width(), 30.0), egui::Button::new(btn_text))
+                }).inner.clicked() { 
+                    trigger_export();
+                }
             }
         }
         
