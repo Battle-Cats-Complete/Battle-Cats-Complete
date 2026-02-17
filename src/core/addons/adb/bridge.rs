@@ -20,10 +20,6 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
         let _ = driver::run_command(&["kill-server"]);
         thread::sleep(Duration::from_millis(500));
         let _ = driver::run_command(&["start-server"]);
-
-        // =========================================================
-        //                 DEVICE SELECTION WATERFALL
-        // =========================================================
         
         let mut current_serial: String;
         let mut fallback_ip: Option<String> = None;
@@ -43,22 +39,23 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
         } 
         // --- PRIORITY 2: MANUAL IP (If set) ---
         else if !config.manual_ip.is_empty() {
-             let _ = tx.send(AdbEvent::Status(format!("No USB. Trying Manual IP: {}", config.manual_ip)));
+             let _ = tx.send(AdbEvent::Status(format!("Connecting to Manual IP: {}", config.manual_ip)));
+             
              match driver::connect_manual_ip(&config.manual_ip) {
                  Ok(ip) => {
                      let _ = tx.send(AdbEvent::Status("Connected to Manual IP.".to_string()));
                      current_serial = ip;
                  },
                  Err(e) => {
-                     // If manual IP fails, log and FALL THROUGH to Emulator check
-                     let _ = tx.send(AdbEvent::Status(format!("Manual IP Failed ({}). Checking Emulators...", e)));
+                     let _ = tx.send(AdbEvent::Status(format!("Manual IP Connection Failed ({}). Switching to Auto-Detect...", e)));
+                     
                      match driver::find_emulator() {
                         Some(emu) => {
                              let _ = tx.send(AdbEvent::Status(format!("Emulator Found: {}", emu)));
                              current_serial = emu;
                         },
                         None => {
-                            let _ = tx.send(AdbEvent::Error("No USB, Manual IP unreachable, and No Emulator found.".to_string()));
+                            let _ = tx.send(AdbEvent::Error("No USB, Manual IP failed, and No Emulator found.".to_string()));
                             return;
                         }
                      }
@@ -67,6 +64,7 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
         }
         // --- PRIORITY 3: EMULATOR AUTO-DETECT ---
         else {
+             let _ = tx.send(AdbEvent::Status("Scanning for Emulators...".to_string()));
              match driver::find_emulator() {
                 Some(emu) => {
                      let _ = tx.send(AdbEvent::Status(format!("Emulator Found: {}", emu)));
@@ -79,8 +77,6 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
              }
         }
 
-        // =========================================================
-
         if mode == AdbImportType::All {
             let _ = tx.send(AdbEvent::Status("Requesting Root Access...".to_string()));
             let _ = driver::run_command(&["-s", &current_serial, "root"]);
@@ -88,10 +84,8 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
             
             // Re-acquire connection if root caused a drop
             if !current_serial.contains(":") {
-                 // USB re-check
                  if let Some(new_s) = driver::find_usb_device() { current_serial = new_s; }
             } else {
-                 // Wireless/Emulator re-connect
                  let _ = driver::connect_wireless(&current_serial);
             }
         }
@@ -119,9 +113,8 @@ pub fn spawn_full_import(tx: Sender<AdbEvent>, base_output_dir: PathBuf, mode: A
             
             if let Err(e) = process_single_region_adb(&tx, &current_serial, &pkg, &target_dir, mode) {
                 
-                // Rescue only if we have a fallback IP (implies we are on USB)
                 if let Some(ref rescue_ip) = fallback_ip {
-                    let _ = tx.send(AdbEvent::Status(format!("USB Error: {}. Engaging Wireless Rescue...", e)));
+                    let _ = tx.send(AdbEvent::Status(format!("USB Error: {} Engaging Wireless Rescue...", e)));
                     let _ = tx.send(AdbEvent::Status(format!("Connecting to {}...", rescue_ip)));
 
                     if driver::connect_wireless(rescue_ip).is_ok() {
@@ -204,6 +197,11 @@ fn process_single_region_adb(_tx: &Sender<AdbEvent>, serial: &str, pkg: &str, ou
         let _ = driver::run_command(&["-s", serial, "shell", "chmod", "-R", "777", remote_stage_target]);
         if !output_dir.exists() { std::fs::create_dir_all(&output_dir).unwrap(); }
 
+        // Windows cannot handle files with ":" in the name
+        // We delete them from the staging area on the device BEFORE pulling
+        let _ = driver::run_command(&["-s", serial, "shell", "find", remote_stage_target, "-name", "*:*", "-delete"]);
+
+        // --- PULL & VERIFY ---
         let pull_res = driver::run_command(&["-s", serial, "pull", remote_stage_target, output_dir.to_str().unwrap()]);
         
         if pull_res.is_err() {

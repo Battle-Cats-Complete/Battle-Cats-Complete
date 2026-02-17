@@ -66,7 +66,7 @@ pub fn connect_manual_ip(ip: &str) -> Result<String, String> {
 pub fn find_emulator() -> Option<String> {
     let ports = [7555, 5555, 62001, 21503, 16384]; 
     
-    // 1. Check if an emulator is ALREADY connected
+    // \Check if an emulator is ALREADY connected
     if let Ok(devices_out) = run_command(&["devices"]) {
         for line in devices_out.lines().skip(1) {
             if line.trim().is_empty() { continue; }
@@ -81,7 +81,7 @@ pub fn find_emulator() -> Option<String> {
         }
     }
 
-    // 2. Scan ports
+    // Scan ports
     for port in ports {
         let addr = format!("127.0.0.1:{}", port);
         if let Ok(out) = run_command(&["connect", &addr]) {

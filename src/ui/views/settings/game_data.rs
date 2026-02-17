@@ -12,16 +12,14 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
             ui.heading("Android");
             ui.add_space(5.0);
 
-            // --- IP ADDRESS SECTION ---
             ui.horizontal(|ui| {
-                let tooltip = "Attempt to connect to this IP Address Wirelessly when using Android import method";
+                let tooltip = "Attempt to connect to this IP Address Wirelessly when using Android import method\nMake sure you have \"USB Debugging\" enabled in your devices developer settings\nRequires ABD OEM Drivers Add-On to function";
                 
-                ui.label("IP Address").on_hover_text(tooltip);
+                ui.label("Host IP Address").on_hover_text(tooltip);
                 
                 ui.spacing_mut().item_spacing.x = 4.0; 
 
-                // Fixed size container to prevent vertical jumping
-                ui.allocate_ui(egui::vec2(110.0, 20.0), |ui| {
+                ui.allocate_ui(egui::vec2(100.0, 20.0), |ui| {
                     ui.centered_and_justified(|ui| {
                         if settings.show_ip_field {
                             let hint = egui::RichText::new("192.168.X.X").color(egui::Color32::GRAY);
@@ -43,7 +41,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
 
                 ui.add_space(2.0);
 
-                // Eye Button
                 if ui.button("👁").on_hover_text("Toggle Visibility").clicked() {
                     settings.show_ip_field = !settings.show_ip_field;
                 }
@@ -72,8 +69,8 @@ pub fn show(ui: &mut egui::Ui, settings: &mut Settings) -> bool {
             ui.horizontal(|ui| {
                 let label_response = ui.label("Enable Ultra Compression");
                 
-                let tooltip_text = "Allows compression levels up to 21.\n\
-                                    WARNING: Levels above 15 require significant RAM and time.";
+                let tooltip_text = "Allows compression levels up to 21\n\
+                                    WARNING: Levels above 15 require significant RAM and time";
                 
                 label_response.on_hover_text(tooltip_text);
 
