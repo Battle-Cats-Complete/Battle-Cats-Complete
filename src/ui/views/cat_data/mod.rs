@@ -9,6 +9,7 @@ use crate::core::settings::Settings;
 use crate::core::cat::talents as talent_logic; 
 use crate::data::global::mamodel::Model;
 use crate::ui::components::anim::viewer::AnimViewer;
+use crate::data::cat::skilllevel::TalentCost;
 
 mod header;
 mod stats;
@@ -43,12 +44,13 @@ pub fn show(
     skill_descriptions: Option<&Vec<String>>, 
     settings: &mut Settings,
     talent_levels: &mut HashMap<u8, u8>,
+    talent_costs: &HashMap<u8, TalentCost>,
     cache_version: u64,
 ) {
     img015::ensure_loaded(ctx, icon_sheet, settings);
 
     header::render(
-        ctx, ui, cat_entry, current_form, current_tab, current_level, level_input, texture_cache, current_key, settings
+        ctx, ui, cat_entry, current_form, current_tab, current_level, level_input, texture_cache, current_key, settings, talent_levels, talent_costs
     );
 
     ui.separator(); 
@@ -122,7 +124,7 @@ pub fn show(
         },
         DetailTab::Talents => {
              if let Some(raw) = &cat_entry.talent_data {
-                talents::render(ui, raw, icon_sheet, talent_name_cache, skill_descriptions, settings, base_stats, cat_entry.curve.as_ref(), *current_level, talent_levels, cat_entry.id);
+                talents::render(ui, raw, icon_sheet, talent_name_cache, skill_descriptions, settings, base_stats, cat_entry.curve.as_ref(), *current_level, talent_levels, cat_entry.id, talent_costs);
              }
         },
         DetailTab::Details => {

@@ -1,11 +1,13 @@
 use eframe::egui;
 use std::path::Path;
+use std::collections::HashMap;
 use crate::core::cat::scanner::CatEntry;
 use crate::core::cat::DetailTab;
 use crate::core::settings::Settings;
 use crate::core::utils::autocrop; 
 use crate::ui::components::name_box;
 use crate::paths::cat::{self, AssetType};
+use crate::data::cat::skilllevel::TalentCost;
 
 pub fn render(
     ctx: &egui::Context,
@@ -18,6 +20,8 @@ pub fn render(
     texture_cache: &mut Option<egui::TextureHandle>,
     current_key: &mut String,
     _settings: &Settings,
+    talent_levels: &mut HashMap<u8, u8>,
+    talent_costs: &HashMap<u8, TalentCost>,
 ) {
     ui.vertical(|ui| {
         render_form_buttons(ui, cat, current_form, current_tab);
@@ -28,7 +32,69 @@ pub fn render(
             render_cat_icon(ctx, ui, cat, *current_form, current_key, texture_cache);
             ui.add_space(3.0);
             render_info_box(ui, cat, *current_form, level_input, current_level);
+
+            if *current_tab == DetailTab::Talents {
+                if let Some(talent_data) = &cat.talent_data {
+                    ui.add_space(15.0);
+                    
+                    // Manually draw the separator to prevent infinite vertical stretching
+                    let separator_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(1.0, 85.0), egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 0.0, separator_color);
+                    
+                    ui.add_space(15.0);
+                    render_talent_controls(ui, talent_data, talent_levels, talent_costs);
+                }
+            }
         });
+    });
+}
+
+fn render_talent_controls(
+    ui: &mut egui::Ui,
+    talent_data: &crate::data::cat::skillacquisition::TalentRaw,
+    talent_levels: &mut HashMap<u8, u8>,
+    talent_costs: &HashMap<u8, TalentCost>
+) {
+    ui.vertical(|ui| {
+        let total_np = crate::core::cat::talents::get_total_np_cost(talent_data, talent_levels, talent_costs);
+        ui.label(egui::RichText::new(format!("Total NP: {}", total_np)).strong().color(egui::Color32::from_rgb(255, 215, 0)));
+        
+        ui.add_space(8.0);
+
+        let mut has_normal_enabled = false;
+        let mut has_ultra_enabled = false;
+        let mut has_ultra_talents = false;
+
+        for (index, group) in talent_data.groups.iter().enumerate() {
+            let lvl = *talent_levels.get(&(index as u8)).unwrap_or(&0);
+            if group.limit == 1 {
+                has_ultra_talents = true;
+                if lvl > 0 { has_ultra_enabled = true; }
+            } else {
+                if lvl > 0 { has_normal_enabled = true; }
+            }
+        }
+
+        let normal_btn_text = if has_normal_enabled { "No Talents" } else { "All Talents" };
+        if ui.button(normal_btn_text).clicked() {
+            for (index, group) in talent_data.groups.iter().enumerate() {
+                if group.limit != 1 {
+                    let new_lvl = if has_normal_enabled { 0 } else { group.max_level.max(1) };
+                    talent_levels.insert(index as u8, new_lvl);
+                }
+            }
+        }
+
+        let ultra_btn_text = if has_ultra_enabled { "No Ultra" } else { "All Ultra" };
+        if ui.add_enabled(has_ultra_talents, egui::Button::new(ultra_btn_text)).clicked() {
+            for (index, group) in talent_data.groups.iter().enumerate() {
+                if group.limit == 1 {
+                    let new_lvl = if has_ultra_enabled { 0 } else { group.max_level.max(1) };
+                    talent_levels.insert(index as u8, new_lvl);
+                }
+            }
+        }
     });
 }
 
@@ -42,13 +108,11 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
                 let exists = cat.forms.get(index).copied().unwrap_or(false);
                 let is_selected = *current_form == index;
 
-                // Style logic: Selected vs Exists vs Disabled
                 let (fill, stroke, text) = if is_selected {
                     (egui::Color32::from_rgb(0, 100, 200), egui::Stroke::new(2.0, egui::Color32::WHITE), egui::Color32::WHITE)
                 } else if exists {
                     (egui::Color32::from_gray(40), egui::Stroke::new(1.0, egui::Color32::from_gray(100)), egui::Color32::from_gray(200))
                 } else {
-                    // Disabled style
                     (egui::Color32::from_gray(15), egui::Stroke::new(1.0, egui::Color32::from_gray(50)), egui::Color32::from_gray(120))
                 };
                 
@@ -77,7 +141,6 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
             ];
 
             for (tab_enum, label) in tabs {
-                // Determine availability
                 let is_talents = tab_enum == DetailTab::Talents;
                 let enabled = if is_talents {
                     *current_form >= 2 && cat.talent_data.is_some()
@@ -87,7 +150,6 @@ fn render_form_buttons(ui: &mut egui::Ui, cat: &CatEntry, current_form: &mut usi
 
                 let is_selected = *current_tab == tab_enum;
                 
-                // Style logic
                 let (fill, stroke, text) = if is_selected {
                     (egui::Color32::from_rgb(0, 100, 200), egui::Stroke::new(2.0, egui::Color32::WHITE), egui::Color32::WHITE)
                 } else if enabled {
