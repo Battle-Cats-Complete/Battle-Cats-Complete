@@ -20,6 +20,7 @@ use crate::data::global::imgcut::SpriteSheet;
 use crate::data::global::mamodel::Model; 
 use crate::ui::components::anim::viewer::AnimViewer;
 use crate::data::cat::skilldescriptions; 
+use crate::data::cat::skilllevel; 
 
 use crate::data::cat::unitlevel::CatLevelCurve;
 use crate::data::cat::unitbuy::UnitBuyRow;
@@ -58,6 +59,8 @@ pub struct CatListState {
     pub cached_unit_buy: Option<HashMap<u32, UnitBuyRow>>,
     #[serde(skip)]
     pub cached_talents: Option<HashMap<u16, TalentRaw>>,
+    #[serde(skip)]
+    pub cached_talent_costs: Option<HashMap<u8, skilllevel::TalentCost>>,
     #[serde(skip)]
     pub cached_evolve_text: Option<HashMap<u32, [Vec<String>; 4]>>,
 
@@ -134,6 +137,7 @@ impl Default for CatListState {
             cached_level_curves: None,
             cached_unit_buy: None,
             cached_talents: None,
+            cached_talent_costs: None,
             cached_evolve_text: None,
             selected_cat: None,
             cat_list: CatList::default(),
@@ -202,9 +206,12 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut crate:
         ctx.request_repaint(); 
     }
 
+    let path = std::path::Path::new("game/cats");
     if state.skill_descriptions.is_none() {
-        let path = std::path::Path::new("game/cats");
         state.skill_descriptions = Some(skilldescriptions::load(path, &settings.game_language));
+    }
+    if state.cached_talent_costs.is_none() {
+        state.cached_talent_costs = Some(skilllevel::load(path));
     }
 
     egui::SidePanel::left("cat_list_panel")
@@ -327,7 +334,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut crate:
             state.skill_descriptions.as_ref(), 
             settings,
             talent_map,
-            state.texture_cache_version
+            state.cached_talent_costs.as_ref().unwrap(),
+            state.texture_cache_version,
         );
 
         // Check if form changed during the render

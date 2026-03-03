@@ -610,9 +610,11 @@ pub const ABILITY_REGISTRY: &[AbilityDef] = &[
                  c.strengthen_boost += if v1 != 0 { v1 } else { v2 };
              }
         }),
-        talent_desc_func: Some(|v1, v2, c, _, _, _, _| {
+        talent_desc_func: Some(|v1, v2, c, _, _, g, _| {
              if c.strengthen_boost == 0 {
-                 format!("+{}% Atk\nTrigger at: {}% HP", v2, 100 - v1)
+                 let threshold_val = resolve_stat(v1, g.min_1, g.max_1);
+                 let boost_val = resolve_stat(v2, g.min_2, g.max_2);
+                 format!("Boost: {}\nThreshold: {}% HP", fmt_additive(0, boost_val, "%"), 100 - threshold_val)
              } else {
                  fmt_additive(c.strengthen_boost, if v1 != 0 { v1 } else { v2 }, "%")
              }
@@ -886,7 +888,7 @@ pub const ABILITY_REGISTRY: &[AbilityDef] = &[
     AbilityDef {
         name: "Immune Wave",
         icon_id: img015::ICON_IMMUNE_WAVE,
-        talent_id: 23,
+        talent_id: 48,
         group: DisplayGroup::Footer,
         getter: |c| c.wave_immune,
         duration_getter: None,

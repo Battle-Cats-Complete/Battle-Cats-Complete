@@ -8,7 +8,8 @@ use crate::core::settings::Settings;
 use crate::data::cat::unitid::CatRaw; 
 use crate::data::cat::unitlevel::CatLevelCurve;
 use crate::core::cat::talents;
-use crate::paths::cat; 
+use crate::paths::cat;
+use crate::data::cat::skilllevel::TalentCost;
 
 pub fn render(
     ui: &mut egui::Ui,
@@ -22,6 +23,7 @@ pub fn render(
     unit_level: i32,
     talent_levels: &mut HashMap<u8, u8>, 
     cat_id: u32,                         
+    talent_costs: &HashMap<u8, TalentCost>,
 ) {
     ui.add_space(5.0);
     
@@ -47,7 +49,8 @@ pub fn render(
                         curve, 
                         unit_level, 
                         talent_levels, 
-                        sidebar_pad
+                        sidebar_pad,
+                        talent_costs
                     );
                 }
             });
@@ -68,6 +71,7 @@ fn render_talent_group(
     unit_level: i32,
     talent_levels: &mut HashMap<u8, u8>,
     sidebar_pad: f32,
+    talent_costs: &HashMap<u8, TalentCost>,
 ) {
     let bg_color = if group.limit == 1 {
         egui::Color32::from_rgb(120, 20, 20) 
@@ -103,7 +107,8 @@ fn render_talent_group(
                         talent_levels, 
                         current_stats, 
                         curve, 
-                        unit_level
+                        unit_level,
+                        talent_costs
                     );
                 }
             });
@@ -175,6 +180,7 @@ fn render_body(
     current_stats: Option<&CatRaw>,
     curve: Option<&CatLevelCurve>,
     unit_level: i32,
+    talent_costs: &HashMap<u8, TalentCost>,
 ) {
     ui.add_space(6.0);
 
@@ -207,6 +213,12 @@ fn render_body(
             ui.vertical(|ui| {
                 let effective_max = if group.max_level == 0 { 1 } else { group.max_level };
                 let current_level = talent_levels.entry(index as u8).or_insert(0);
+
+                let np_cost = crate::core::cat::talents::get_talent_np_cost(group.cost_id, *current_level, talent_costs);
+                
+                // Unconditionally render the NP cost label
+                ui.label(egui::RichText::new(format!("NP: {}", np_cost)).strong().color(egui::Color32::from_rgb(255, 215, 0)));
+                ui.add_space(2.0);
 
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 5.0;
