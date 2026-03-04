@@ -10,10 +10,12 @@ use crate::data::cat::unitlevel::CatLevelCurve;
 use crate::core::cat::talents;
 use crate::paths::cat;
 use crate::data::cat::skilllevel::TalentCost;
+use crate::ui::components::shared::render_fallback_icon;
 
 pub const TALENT_NP_ICON_SIZE: f32 = 20.0;
 pub const TALENT_NP_TEXT_SIZE: f32 = 18.0;
-pub const TALENT_SECTION_SPACING: f32 = 0.0;
+
+pub const TALENT_SECTION_SPACING: f32 = 2.0;
 
 pub fn render(
     ui: &mut egui::Ui,
@@ -140,25 +142,33 @@ fn render_header(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             
-            if let Some(icon_id) = crate::core::registries::cat::get_by_talent_id(group.ability_id).map(|def| def.icon_id) {
+            if let Some(def) = crate::core::registries::cat::get_by_talent_id(group.ability_id) {
                 let size = egui::vec2(40.0, 40.0);
                 
-                let drawn = if let Some(cut) = sheet.cuts_map.get(&icon_id) {
-                    if let Some(tex) = &sheet.texture_handle {
-                        ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(cut.uv_coordinates));
-                        true
-                    } else { false }
-                } else { false };
+                let force_fallback = settings.game_language == "--";
+                let mut drawn = false;
+                
+                if !force_fallback {
+                    if let Some(cut) = sheet.cuts_map.get(&def.icon_id) {
+                        if let Some(tex) = &sheet.texture_handle {
+                            ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(cut.uv_coordinates));
+                            drawn = true;
+                        }
+                    }
+                }
 
                 if !drawn {
-                    ui.label(egui::RichText::new("?").strong());
+                    render_fallback_icon(ui, def.fallback, egui::Color32::BLACK);
                 }
             } else {
                 ui.label(egui::RichText::new("?").weak());
             }
 
-            if let Some(texture) = get_or_load_skill_name(ui, group, settings, name_cache) {
-                ui.image((texture.id(), texture.size_vec2()));
+            let force_fallback = settings.game_language == "--";
+            if !force_fallback {
+                if let Some(texture) = get_or_load_skill_name(ui, group, settings, name_cache) {
+                    ui.image((texture.id(), texture.size_vec2()));
+                }
             }
         });
 

@@ -20,17 +20,17 @@ pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Se
     let base_dir = global::img022_folder(std::path::Path::new(""));
     let current_language = &settings.game_language;
     
-    let codes_to_try: Vec<String> = if current_language.is_empty() {
-        crate::core::utils::LANGUAGE_PRIORITY
-            .iter()
-            .map(|language_code| language_code.to_string())
-            .collect()
-    } else {
-        vec![current_language.clone()]
-    };
+    let mut codes_to_try = Vec::new();
+    if !current_language.is_empty() {
+        codes_to_try.push(current_language.clone());
+    }
+    
+    for code in crate::core::utils::LANGUAGE_PRIORITY {
+        codes_to_try.push(code.to_string());
+    }
 
     for code in codes_to_try {
-        let (png_filename, imgcut_filename) = if code.is_empty() {
+        let (png_filename, imgcut_filename) = if code == "--" || code.is_empty() {
             ("img022.png".to_string(), "img022.imgcut".to_string())
         } else {
             (format!("img022_{}.png", code), format!("img022_{}.imgcut", code))
@@ -43,13 +43,5 @@ pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Se
             sheet.load(ctx, &png_path, &imgcut_path, format!("img022_{}", code));
             return;
         }
-    }
-    
-    // Fallback to English (which we now know is the base APK version) if the regional one is missing
-    let fallback_png = base_dir.join("img022_en.png");
-    let fallback_cut = base_dir.join("img022_en.imgcut");
-    
-    if fallback_png.exists() && fallback_cut.exists() {
-        sheet.load(ctx, &fallback_png, &fallback_cut, "img022_en".to_string());
     }
 }
