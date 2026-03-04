@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use rayon::prelude::*;
 use zip::ZipArchive;
 
-pub fn import_from_folder(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
+pub fn import_standard_folder(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
     let source = Path::new(path_str);
     let game_root = Path::new("game");
     let raw_dir = game_root.join("raw");
@@ -89,7 +89,7 @@ pub fn import_from_folder(path_str: &str, tx: Sender<String>) -> Result<bool, St
     Ok(true)
 }
 
-pub fn import_from_archive(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
+pub fn import_standard_archive(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
     if path_str.to_lowercase().ends_with(".zip") {
         import_legacy_zip(path_str, tx)
     } else {

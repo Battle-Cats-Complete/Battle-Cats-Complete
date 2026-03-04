@@ -2,7 +2,7 @@
 use eframe::egui;
 use crate::features::settings::logic::Settings;
 use super::imgcut::SpriteSheet;
-use crate::global_data::paths;
+use crate::global::paths;
 
 // Traits
 pub const ICON_TRAIT_RED: usize = 219;
