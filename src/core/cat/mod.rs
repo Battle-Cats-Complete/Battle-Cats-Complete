@@ -94,6 +94,8 @@ pub struct CatListState {
     #[serde(skip)]
     pub icon_sheet: SpriteSheet,   
     #[serde(skip)]
+    pub img022_sheet: SpriteSheet, 
+    #[serde(skip)]
     pub sprite_sheet: SpriteSheet, 
     
     #[serde(skip)]
@@ -153,6 +155,7 @@ impl Default for CatListState {
             detail_key: String::new(),
             
             icon_sheet: SpriteSheet::default(), 
+            img022_sheet: SpriteSheet::default(),
             sprite_sheet: SpriteSheet::default(), 
             
             model_data: None,
@@ -323,6 +326,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut crate:
             &mut state.detail_texture, 
             &mut state.detail_key,
             &mut state.icon_sheet,
+            &mut state.img022_sheet, 
             &mut state.sprite_sheet,
             &mut state.model_data,
             &mut state.anim_viewer,

@@ -8,6 +8,13 @@ use crate::core::utils::autocrop;
 use crate::ui::components::name_box;
 use crate::paths::cat::{self, AssetType};
 use crate::data::cat::skilllevel::TalentCost;
+use crate::data::global::imgcut::SpriteSheet;
+
+pub const HEADER_NP_ICON_SIZE: f32 = 24.0;
+pub const HEADER_NP_TEXT_SIZE: f32 = 20.0;
+
+pub const TALENT_BTN_WIDTH: f32 = 100.0;
+pub const TALENT_BTN_HEIGHT: f32 = 23.0;
 
 pub fn render(
     ctx: &egui::Context,
@@ -19,9 +26,10 @@ pub fn render(
     level_input: &mut String,
     texture_cache: &mut Option<egui::TextureHandle>,
     current_key: &mut String,
-    _settings: &Settings,
+    settings: &Settings,
     talent_levels: &mut HashMap<u8, u8>,
     talent_costs: &HashMap<u8, TalentCost>,
+    img022_sheet: &SpriteSheet,
 ) {
     ui.vertical(|ui| {
         render_form_buttons(ui, cat, current_form, current_tab);
@@ -37,13 +45,12 @@ pub fn render(
                 if let Some(talent_data) = &cat.talent_data {
                     ui.add_space(15.0);
                     
-                    // Manually draw the separator to prevent infinite vertical stretching
                     let separator_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
                     let (rect, _) = ui.allocate_exact_size(egui::vec2(1.0, 85.0), egui::Sense::hover());
                     ui.painter().rect_filled(rect, 0.0, separator_color);
                     
                     ui.add_space(15.0);
-                    render_talent_controls(ui, talent_data, talent_levels, talent_costs);
+                    render_talent_controls(ui, talent_data, talent_levels, talent_costs, img022_sheet, settings);
                 }
             }
         });
@@ -54,13 +61,36 @@ fn render_talent_controls(
     ui: &mut egui::Ui,
     talent_data: &crate::data::cat::skillacquisition::TalentRaw,
     talent_levels: &mut HashMap<u8, u8>,
-    talent_costs: &HashMap<u8, TalentCost>
+    talent_costs: &HashMap<u8, TalentCost>,
+    img022_sheet: &SpriteSheet,
+    settings: &Settings,
 ) {
     ui.vertical(|ui| {
         let total_np = crate::core::cat::talents::get_total_np_cost(talent_data, talent_levels, talent_costs);
-        ui.label(egui::RichText::new(format!("Total NP: {}", total_np)).strong().color(egui::Color32::from_rgb(255, 215, 0)));
         
-        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            
+            let mut drawn = false;
+            if settings.game_language != "--" {
+                if let Some(cut) = img022_sheet.cuts_map.get(&crate::data::global::img022::ICON_NP_COST) {
+                    if let Some(tex) = &img022_sheet.texture_handle {
+                        let aspect = cut.original_size.x / cut.original_size.y;
+                        let size = egui::vec2(HEADER_NP_ICON_SIZE * aspect, HEADER_NP_ICON_SIZE);
+                        ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(cut.uv_coordinates));
+                        drawn = true;
+                    }
+                }
+            }
+            
+            if !drawn {
+                ui.label(egui::RichText::new("Total NP").size(HEADER_NP_TEXT_SIZE).strong().color(egui::Color32::WHITE));
+            }
+            
+            ui.label(egui::RichText::new(format!("{}", total_np)).size(HEADER_NP_TEXT_SIZE).strong().color(egui::Color32::WHITE));
+        });
+        
+        ui.spacing_mut().item_spacing.y = 5.0;
 
         let mut has_normal_enabled = false;
         let mut has_ultra_enabled = false;
@@ -77,7 +107,7 @@ fn render_talent_controls(
         }
 
         let normal_btn_text = if has_normal_enabled { "No Talents" } else { "All Talents" };
-        if ui.button(normal_btn_text).clicked() {
+        if ui.add_sized([TALENT_BTN_WIDTH, TALENT_BTN_HEIGHT], egui::Button::new(normal_btn_text)).clicked() {
             for (index, group) in talent_data.groups.iter().enumerate() {
                 if group.limit != 1 {
                     let new_lvl = if has_normal_enabled { 0 } else { group.max_level.max(1) };
@@ -87,14 +117,16 @@ fn render_talent_controls(
         }
 
         let ultra_btn_text = if has_ultra_enabled { "No Ultra" } else { "All Ultra" };
-        if ui.add_enabled(has_ultra_talents, egui::Button::new(ultra_btn_text)).clicked() {
-            for (index, group) in talent_data.groups.iter().enumerate() {
-                if group.limit == 1 {
-                    let new_lvl = if has_ultra_enabled { 0 } else { group.max_level.max(1) };
-                    talent_levels.insert(index as u8, new_lvl);
+        ui.add_enabled_ui(has_ultra_talents, |ui| {
+            if ui.add_sized([TALENT_BTN_WIDTH, TALENT_BTN_HEIGHT], egui::Button::new(ultra_btn_text)).clicked() {
+                for (index, group) in talent_data.groups.iter().enumerate() {
+                    if group.limit == 1 {
+                        let new_lvl = if has_ultra_enabled { 0 } else { group.max_level.max(1) };
+                        talent_levels.insert(index as u8, new_lvl);
+                    }
                 }
             }
-        }
+        });
     });
 }
 
