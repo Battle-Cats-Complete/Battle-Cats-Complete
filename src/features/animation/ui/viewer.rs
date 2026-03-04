@@ -5,7 +5,7 @@ use crate::global_data::imgcut::SpriteSheet;
 use crate::global_data::mamodel::Model;
 use crate::global_data::maanim::Animation;
 use crate::features::animation::logic::{animator, smooth, canvas, transform, controls, bounds}; 
-use crate::features::animation::ui::controls::{self as anim_controls};
+use crate::features::animation::ui::controls::{self as anim_controls, IDX_NONE, IDX_MODEL, IDX_SPIRIT, IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE};
 use crate::features::animation::export::state::{ExporterState, ExportMode};
 use crate::features::animation::export::encoding::ExportFormat;
 use crate::features::animation::export::process;
@@ -98,12 +98,9 @@ impl Default for AnimViewer {
 
 impl AnimViewer {
     fn update_export_state(&mut self) {
-        // Set Loop Compatibility
         self.export_state.loop_supported = self.loaded_anim_index == anim_controls::IDX_WALK || self.loaded_anim_index == anim_controls::IDX_IDLE;
 
-        if self.export_state.export_mode == ExportMode::Showcase {
-             // Do not overwrite frame limits
-        } else {
+        if self.export_state.export_mode != ExportMode::Showcase {
             if let Some(anim) = &self.current_anim {
                 self.export_state.max_frame = anim.max_frame;
                 self.export_state.frame_start = 0;
@@ -177,34 +174,252 @@ impl AnimViewer {
         }
     }
 
-    pub fn render(
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        primary_id: &str,
+        secondary_id: &str,
+        available_anims: &[(usize, PathBuf)],
+        primary_assets: Option<(PathBuf, PathBuf, PathBuf)>, 
+        secondary_assets: Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
+        model_data_sync: &mut Option<Model>,
+        anim_sheet_sync: &mut SpriteSheet,
+        settings: &mut Settings,
+    ) {
+        let base_assets_available = primary_assets.is_some();
+        let secondary_available = secondary_assets.is_some();
+
+        // Validation & Fallback Logic
+        let current_idx = self.loaded_anim_index;
+        let mut valid_idx = current_idx;
+
+        let is_current_valid = if current_idx == IDX_NONE {
+            false 
+        } else if current_idx == IDX_SPIRIT {
+            secondary_available
+        } else if current_idx == IDX_MODEL {
+            base_assets_available
+        } else {
+            base_assets_available && available_anims.iter().any(|(i, _)| *i == current_idx)
+        };
+
+        if !is_current_valid {
+            valid_idx = IDX_NONE; 
+
+            if base_assets_available {
+                let priority_list = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
+                for check_idx in priority_list {
+                    if available_anims.iter().any(|(i, _)| *i == check_idx) {
+                        valid_idx = check_idx;
+                        break;
+                    }
+                }
+            }
+
+            if valid_idx == IDX_NONE && secondary_available { valid_idx = IDX_SPIRIT; }
+            if valid_idx == IDX_NONE && base_assets_available { valid_idx = IDX_MODEL; }
+        }
+
+        if valid_idx != current_idx {
+            self.loaded_anim_index = valid_idx;
+            if valid_idx == IDX_NONE {
+                self.current_anim = None;
+                self.held_model = None;
+                self.held_sheet = None; 
+                *model_data_sync = None;
+                *anim_sheet_sync = SpriteSheet::default();
+            }
+            if current_idx == IDX_NONE && valid_idx != IDX_NONE {
+                self.loaded_id.clear();
+            }
+        }
+        
+        // Loading State Calculation
+        let target_viewer_id = if self.loaded_anim_index == IDX_SPIRIT {
+            secondary_id.to_string()
+        } else {
+            primary_id.to_string()
+        };
+
+        let is_stable = self.loaded_id == target_viewer_id;
+        let is_loading_new = !is_stable && (self.staging_model.is_some() || self.staging_sheet.is_some());
+        let is_first_launch = self.held_model.is_none() && model_data_sync.is_none();
+        let mut just_swapped = false;
+
+        if valid_idx == IDX_NONE && !is_stable {
+            self.loaded_id = target_viewer_id.clone();
+        }
+
+        if is_stable {
+            if let Some(m) = model_data_sync {
+                self.held_model = Some(m.clone());
+            }
+            self.held_sheet = Some((*anim_sheet_sync).clone());
+        }
+
+        // Start Transition
+        if !is_stable && !is_loading_new && !is_first_launch && valid_idx != IDX_NONE {
+            let (resolved_png, resolved_cut, resolved_model, _) = resolve_paths(valid_idx, &primary_assets, &secondary_assets, available_anims);
+            
+            let mut load_success = false;
+            if let (Some(png), Some(cut), Some(model_path)) = (resolved_png, resolved_cut, resolved_model) {
+                let mut new_sheet = SpriteSheet::default();
+                new_sheet.load(ctx, png, cut, target_viewer_id.clone());
+                
+                if let Some(loaded_model) = Model::load(model_path) {
+                    self.staging_sheet = Some(new_sheet);
+                    self.staging_model = Some(loaded_model);
+                    load_success = true;
+                }
+            }
+            
+            if !load_success {
+                self.loaded_id = target_viewer_id.clone();
+                self.held_model = None;
+                self.held_sheet = None;
+            }
+        }
+
+        // First Launch
+        if is_first_launch && valid_idx != IDX_NONE {
+            let (resolved_png, resolved_cut, resolved_model, resolved_anim) = resolve_paths(valid_idx, &primary_assets, &secondary_assets, available_anims);
+
+            let mut load_success = false;
+            if let (Some(png), Some(cut), Some(model_path)) = (resolved_png, resolved_cut, resolved_model) {
+                 anim_sheet_sync.image_data = None; 
+                 anim_sheet_sync.load(ctx, png, cut, target_viewer_id.clone());
+                 if let Some(loaded_model) = Model::load(model_path) {
+                     self.held_model = Some(loaded_model.clone());
+                     self.held_sheet = Some((*anim_sheet_sync).clone());
+                     *model_data_sync = Some(loaded_model);
+                     
+                     self.loaded_id = target_viewer_id.clone();
+                     self.pending_initial_center = true; 
+                     load_success = true;
+                 }
+            }
+            
+            if !load_success {
+                self.loaded_id = target_viewer_id.clone();
+            } else {
+                if let Some(anim_path) = resolved_anim { 
+                    self.load_anim(anim_path); 
+                } else { 
+                    self.current_anim = None; 
+                }
+            }
+        }
+
+        // Completion
+        if is_loading_new {
+            if let Some(staging_sheet) = &mut self.staging_sheet {
+                staging_sheet.update(ctx);
+
+                let texture_is_ready = staging_sheet.sheet_name == target_viewer_id 
+                                    && !staging_sheet.is_loading_active 
+                                    && staging_sheet.image_data.is_some();
+
+                if texture_is_ready {
+                    if let (Some(new_model), Some(new_sheet)) = (self.staging_model.take(), self.staging_sheet.take()) {
+                        self.held_model = Some(new_model.clone());
+                        self.held_sheet = Some(new_sheet.clone());
+                        *model_data_sync = Some(new_model);
+                        *anim_sheet_sync = new_sheet; 
+                        self.loaded_id = target_viewer_id.clone();
+                        
+                        let (_, _, _, resolved_anim) = resolve_paths(valid_idx, &primary_assets, &secondary_assets, available_anims);
+                        
+                        if let Some(anim_path) = resolved_anim { 
+                            self.load_anim(anim_path); 
+                        } else { 
+                            self.current_anim = None; 
+                        }
+                        
+                        self.pending_initial_center = true;
+                        just_swapped = true;
+                        ctx.request_repaint();
+                    }
+                }
+            }
+        } else {
+            anim_sheet_sync.update(ctx);
+        }
+
+        // UI Layout
+        let allow_texture_update = !is_loading_new || just_swapped;
+
+        if self.is_expanded {
+            egui::Area::new("expanded_anim_viewer_area".into())
+                .fixed_pos(egui::pos2(0.0, 0.0))
+                .order(egui::Order::Middle) 
+                .show(ctx, |ui| {
+                    let screen_rect = ctx.screen_rect();
+                    egui::Frame::window(&ctx.style())
+                        .inner_margin(0.0)
+                        .shadow(egui::epaint::Shadow::NONE)
+                        .show(ui, |ui| {
+                            ui.set_min_size(screen_rect.size());
+                            ui.set_max_size(screen_rect.size());
+                            let (rect, _response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+                            ui.put(rect, |ui: &mut egui::Ui| {
+                                self.draw_viewport(
+                                    ui, rect, available_anims, base_assets_available, is_loading_new, 
+                                    primary_id, secondary_id, &secondary_assets, allow_texture_update, settings
+                                );
+                                ui.allocate_rect(rect, egui::Sense::hover())
+                            });
+                        });
+                });
+
+            ui.vertical_centered(|ui| {
+                ui.add_space(50.0);
+                ui.label(egui::RichText::new("Animation Expanded").size(16.0).weak());
+                if ui.button("Restore View").clicked() {
+                    self.is_expanded = false;
+                }
+            });
+
+        } else {
+            ui.vertical(|ui| {
+                let (rect, _response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+                ui.put(rect, |ui: &mut egui::Ui| {
+                    self.draw_viewport(
+                        ui, rect, available_anims, base_assets_available, is_loading_new, 
+                        primary_id, secondary_id, &secondary_assets, allow_texture_update, settings
+                    );
+                    ui.allocate_rect(rect, egui::Sense::hover())
+                });
+            });
+        }
+    }
+
+    fn draw_viewport(
         &mut self, 
         ui: &mut egui::Ui, 
-        interpolation: bool,
-        debug_show_info: bool,
-        centering_behavior: usize,
-        allow_update: bool,
-        available_anims: &Vec<(usize, &str, PathBuf)>,
-        spirit_available: bool,
+        rect: egui::Rect,
+        available_anims: &[(usize, PathBuf)],
         base_assets_available: bool,
         is_loading_new: bool,
-        spirit_sheet_id: &str,
-        form_viewer_id: &str,
-        spirit_pack: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
-        native_fps: f32,
-        auto_set_camera: bool,
+        primary_id: &str,
+        secondary_id: &str,
+        secondary_assets: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
+        allow_update: bool,
         settings: &mut Settings,
     ) {
         let dt = ui.input(|i| i.stable_dt);
+        let interpolation = settings.animation_interpolation;
+        let debug_show_info = settings.animation_debug;
+        let centering_behavior = settings.centering_behavior;
+        let native_fps = settings.native_fps;
         
-        self.auto_set_camera = auto_set_camera; 
-
-        if !form_viewer_id.is_empty() { self.summoner_id = form_viewer_id.to_string(); }
+        self.auto_set_camera = settings.auto_set_camera_region; 
+        if !primary_id.is_empty() { self.summoner_id = primary_id.to_string(); }
 
         if self.loaded_id != self.last_loaded_id {
             self.last_loaded_id = self.loaded_id.clone();
             self.pending_initial_center = true;
-            // If switching units while active, we kill the process but persist the state info for the UI
+
             let mut preserved_loop_msg: Option<String> = None;
             let mut preserved_export_msg: Option<String> = None;
             let mut preserved_time: Option<f64> = None;
@@ -227,11 +442,9 @@ impl AnimViewer {
 
             let prev_mode = self.export_state.export_mode.clone();
             
-            // RESET STATE
             self.export_state = ExporterState::default();
             self.export_state.export_mode = prev_mode;
 
-            // Re-apply the persistent format choice from Settings immediately
             self.export_state.format = match settings.last_export_format {
                 1 => ExportFormat::WebP,
                 2 => ExportFormat::Avif,
@@ -243,7 +456,6 @@ impl AnimViewer {
                 _ => ExportFormat::Gif,
             };
             
-            // APPLY PERSISTED TERMINATION
             if let Some(msg) = preserved_loop_msg {
                 self.export_state.loop_result_msg = Some(msg);
                 self.export_state.completion_time = preserved_time;
@@ -258,7 +470,6 @@ impl AnimViewer {
             self.has_scanned_showcase = false; 
         }
 
-        // Loop Mode Fallback Check
         if self.export_state.export_mode == ExportMode::Loop {
             if !self.export_state.loop_supported {
                 self.export_state.export_mode = ExportMode::Manual;
@@ -327,7 +538,7 @@ impl AnimViewer {
             }
         }
 
-        let (rect, response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
+        let (rect_alloc, response) = ui.allocate_exact_size(rect.size(), egui::Sense::drag());
         let (hover_pos, right_down, left_down) = ui.input(|i| (i.pointer.hover_pos(), i.pointer.secondary_down(), i.pointer.primary_down()));
         
         let block_input = self.is_pointer_over_controls || (self.is_selecting_export_region && right_down);
@@ -338,7 +549,7 @@ impl AnimViewer {
         }
 
         if self.is_selecting_export_region {
-            ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(50));
+            ui.painter().rect_filled(rect_alloc, 0.0, egui::Color32::from_black_alpha(50));
             let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("anim_export_tip")));
             let tip_text = "Right click & drag to set camera";
             let font_id = egui::FontId::proportional(13.0);
@@ -346,7 +557,7 @@ impl AnimViewer {
             let bg_margin = 6.0;
             let bg_w = galley.size().x + bg_margin * 2.0;
             let bg_h = galley.size().y + bg_margin * 2.0;
-            let top_center = rect.center_top() + egui::vec2(0.0, 30.0);
+            let top_center = rect_alloc.center_top() + egui::vec2(0.0, 30.0);
             let tip_rect = egui::Rect::from_center_size(top_center, egui::vec2(bg_w, bg_h));
             painter.rect(tip_rect, 4.0, egui::Color32::from_black_alpha(180), egui::Stroke::new(1.0, egui::Color32::from_gray(180)));
             painter.galley(tip_rect.min + egui::vec2(bg_margin, bg_margin), galley, egui::Color32::WHITE);
@@ -354,20 +565,20 @@ impl AnimViewer {
             if let Some(pos) = hover_pos {
                 if right_down {
                     if self.export_selection_start.is_none() { 
-                        if rect.contains(pos) && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+                        if rect_alloc.contains(pos) && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
                             self.export_selection_start = Some(pos); 
                         }
                     }
                     if let Some(start) = self.export_selection_start {
                         let r = egui::Rect::from_two_pos(start, pos);
-                        ui.painter().with_clip_rect(rect).rect_stroke(r, 0.0, egui::Stroke::new(2.0, egui::Color32::YELLOW));
-                        ui.painter().with_clip_rect(rect).rect_filled(r, 0.0, egui::Color32::from_rgba_unmultiplied(255, 255, 0, 30));
+                        ui.painter().with_clip_rect(rect_alloc).rect_stroke(r, 0.0, egui::Stroke::new(2.0, egui::Color32::YELLOW));
+                        ui.painter().with_clip_rect(rect_alloc).rect_filled(r, 0.0, egui::Color32::from_rgba_unmultiplied(255, 255, 0, 30));
                     }
                 } else if self.export_selection_start.is_some() {
                     let start = self.export_selection_start.take().unwrap();
                     let r = egui::Rect::from_two_pos(start, pos);
                     if r.width() * r.height() > 25.0 {
-                        let center_screen = rect.center();
+                        let center_screen = rect_alloc.center();
                         let to_world = |p: egui::Pos2| -> egui::Vec2 { ((p - center_screen) / self.zoom_level) - self.pan_offset };
                         let min_w = to_world(r.min); let max_w = to_world(r.max);
                         self.export_state.region_x = min_w.x; self.export_state.region_y = min_w.y;
@@ -386,8 +597,6 @@ impl AnimViewer {
         }
 
         if self.show_export_popup && !self.was_export_popup_open {
-             // Logic moved to top of block during unit switch, 
-             // but we perform a safety restore here if it's the first time opening the popup
              if self.export_state.format == ExportFormat::Gif && settings.last_export_format != 0 {
                  self.export_state.format = match settings.last_export_format {
                      1 => ExportFormat::WebP,
@@ -420,19 +629,15 @@ impl AnimViewer {
         }
         self.was_export_popup_open = self.show_export_popup;
 
-        // LIVE SETTINGS SYNC
-        // Check for mismatches between export state and global settings
         let walk_mismatch = self.export_state.last_known_walk_default != settings.default_showcase_walk;
         let idle_mismatch = self.export_state.last_known_idle_default != settings.default_showcase_idle;
         let kb_mismatch = self.export_state.last_known_kb_default != settings.default_showcase_kb;
 
         if walk_mismatch || idle_mismatch || kb_mismatch {
-            // Update last known trackers
             self.export_state.last_known_walk_default = settings.default_showcase_walk;
             self.export_state.last_known_idle_default = settings.default_showcase_idle;
             self.export_state.last_known_kb_default = settings.default_showcase_kb;
 
-            // Apply defaults to the current lengths if the user hasn't typed an override
             if self.export_state.showcase_walk_str.is_empty() {
                 self.export_state.showcase_walk_len = settings.default_showcase_walk;
             }
@@ -443,15 +648,11 @@ impl AnimViewer {
                 self.export_state.showcase_kb_len = settings.default_showcase_kb;
             }
 
-            // Force scan logic to reload dynamic unit-specific info (like 0-frame skip checks)
             self.has_scanned_showcase = false;
         }
         
-        // Scan logic (Runs once per popup open or when settings change)
         if self.show_export_popup && self.export_state.export_mode == ExportMode::Showcase && !self.has_scanned_showcase {
-             // AUTO-SCAN LOGIC FOR SHOWCASE DEFAULTS
-             // Scan Attack for length (Max Frame + 1 for Total)
-             if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_ATTACK) {
+             if let Some((_, path)) = available_anims.iter().find(|(i, _)| *i == anim_controls::IDX_ATTACK) {
                  if let Some(anim) = Animation::load(path) {
                      let total = anim.max_frame + 1;
                      self.export_state.detected_attack_len = total;
@@ -461,8 +662,7 @@ impl AnimViewer {
                  }
              }
 
-             // Scan Walk for 0/1 frame skip (Static image check)
-             if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_WALK) {
+             if let Some((_, path)) = available_anims.iter().find(|(i, _)| *i == anim_controls::IDX_WALK) {
                  if let Some(anim) = Animation::load(path) {
                      let len = anim.calculate_true_loop().unwrap_or(anim.max_frame);
                      
@@ -470,15 +670,13 @@ impl AnimViewer {
                      let new_len = if is_short { 0 } else { settings.default_showcase_walk };
                      self.export_state.detected_walk_len = new_len;
                      
-                     // Only overwrite if it matches the OLD default or is empty, to preserve user edits
                      if self.export_state.showcase_walk_str.is_empty() || self.export_state.showcase_walk_len == settings.default_showcase_walk {
                         self.export_state.showcase_walk_len = new_len;
                      }
                  }
              }
 
-             // Scan Idle for 0/1 frame skip
-             if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == anim_controls::IDX_IDLE) {
+             if let Some((_, path)) = available_anims.iter().find(|(i, _)| *i == anim_controls::IDX_IDLE) {
                  if let Some(anim) = Animation::load(path) {
                      let len = anim.calculate_true_loop().unwrap_or(anim.max_frame);
                      
@@ -487,7 +685,6 @@ impl AnimViewer {
                      
                      self.export_state.detected_idle_len = new_len;
 
-                     // Only overwrite if it matches the OLD default or is empty, to preserve user edits
                      if self.export_state.showcase_idle_str.is_empty() || self.export_state.showcase_idle_len == settings.default_showcase_idle {
                         self.export_state.showcase_idle_len = new_len;
                      }
@@ -497,7 +694,6 @@ impl AnimViewer {
              self.has_scanned_showcase = true;
         }
 
-        // Showcase Animation Switching
         let mut showcase_render_time = 0.0;
 
         if self.export_state.is_processing && self.export_state.export_mode == ExportMode::Showcase {
@@ -524,7 +720,7 @@ impl AnimViewer {
             };
 
             if self.loaded_anim_index != target_index {
-                if let Some((_, _, path)) = available_anims.iter().find(|(i, _, _)| *i == target_index) {
+                if let Some((_, path)) = available_anims.iter().find(|(i, _)| *i == target_index) {
                      self.load_anim(path);
                      self.loaded_anim_index = target_index; 
                 }
@@ -544,7 +740,7 @@ impl AnimViewer {
                      (start + (self.export_state.current_progress * step)) as f32
                 };
 
-                process::process_frame(ui, rect, &mut self.export_state, model, self.current_anim.as_ref(), sheet, self.renderer.clone(), time_to_use);
+                process::process_frame(ui, rect_alloc, &mut self.export_state, model, self.current_anim.as_ref(), sheet, self.renderer.clone(), time_to_use);
                 
                 ui.ctx().request_repaint();
             }
@@ -556,31 +752,31 @@ impl AnimViewer {
             } else { transform::solve_hierarchy(&model.parts, model) };
 
             let sheet_arc = Arc::new(SpriteSheet { texture_handle: sheet.texture_handle.clone(), image_data: sheet.image_data.clone(), cuts_map: sheet.cuts_map.clone(), is_loading_active: sheet.is_loading_active, data_receiver: None, sheet_name: sheet.sheet_name.clone() });
-            canvas::paint(ui, rect, self.renderer.clone(), sheet_arc, parts_to_draw, self.pan_offset, self.zoom_level, allow_update);
+            canvas::paint(ui, rect_alloc, self.renderer.clone(), sheet_arc, parts_to_draw, self.pan_offset, self.zoom_level, allow_update);
             
             if debug_show_info {
-                let center = rect.center() + self.pan_offset * self.zoom_level;
+                let center = rect_alloc.center() + self.pan_offset * self.zoom_level;
                 let s = 15.0; let c = egui::Color32::GREEN; let stk = egui::Stroke::new(2.0, c);
                 ui.painter().line_segment([center - egui::vec2(s, 0.0), center + egui::vec2(s, 0.0)], stk);
                 ui.painter().line_segment([center - egui::vec2(0.0, s), center + egui::vec2(0.0, s)], stk);
             }
             if self.show_export_popup {
                  if self.export_state.region_w > 0.1 && self.export_state.region_h > 0.1 {
-                     let center_screen = rect.center();
+                     let center_screen = rect_alloc.center();
                      let to_screen = |wx: f32, wy: f32| -> egui::Pos2 { let world_pos = egui::vec2(wx, wy); center_screen + (world_pos + self.pan_offset) * self.zoom_level };
                      let min = to_screen(self.export_state.region_x, self.export_state.region_y);
                      let max = to_screen(self.export_state.region_x + self.export_state.region_w, self.export_state.region_y + self.export_state.region_h);
-                     ui.painter().with_clip_rect(rect).rect_stroke(egui::Rect::from_min_max(min, max), 0.0, egui::Stroke::new(1.0, egui::Color32::YELLOW));
+                     ui.painter().with_clip_rect(rect_alloc).rect_stroke(egui::Rect::from_min_max(min, max), 0.0, egui::Stroke::new(1.0, egui::Color32::YELLOW));
                  }
             }
-        } else { ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgb(20, 20, 20)); }
+        } else { ui.painter().rect_filled(rect_alloc, 0.0, egui::Color32::from_rgb(20, 20, 20)); }
 
-        let border_rect = rect.shrink(2.0);
+        let border_rect = rect_alloc.shrink(2.0);
         let border_color = egui::Color32::from_rgb(31, 106, 165); 
         ui.painter().rect_stroke(border_rect, egui::Rounding::same(5.0), egui::Stroke::new(4.0, border_color));
 
         let btn_size = egui::vec2(30.0, 30.0);
-        let btn_rect = egui::Rect::from_min_size(rect.min + egui::vec2(8.0, 8.0), btn_size);
+        let btn_rect = egui::Rect::from_min_size(rect_alloc.min + egui::vec2(8.0, 8.0), btn_size);
         let bg_fill = if self.is_expanded { egui::Color32::from_rgb(31, 106, 165) } else { egui::Color32::from_gray(60) };
 
         let btn_response = ui.put(btn_rect, |ui: &mut egui::Ui| {
@@ -596,18 +792,37 @@ impl AnimViewer {
             response
         });
 
-        let controls_hovered = anim_controls::render_controls_overlay(ui, rect, self, available_anims, spirit_available, base_assets_available, is_loading_new, spirit_sheet_id, form_viewer_id, spirit_pack, interpolation, native_fps);
+        let controls_hovered = anim_controls::render_controls_overlay(ui, rect_alloc, self, available_anims, base_assets_available, is_loading_new, secondary_id, primary_id, secondary_assets, interpolation, native_fps);
         self.is_pointer_over_controls = controls_hovered || btn_response.hovered();
 
-        if self.show_export_popup && !self.was_export_popup_open {
-        }
-        
+        // Pass everything to the export popup safely
         let state = &mut self.export_state;
         let show_popup = &mut self.show_export_popup;
         let model = self.held_model.as_ref();
         let anim = self.current_anim.as_ref();
         let sheet = self.held_sheet.as_ref();
         let start_select = &mut self.is_selecting_export_region;
+        
         export::show_popup(ui, state, model, anim, sheet, show_popup, start_select, settings);
     }
+}
+
+// Safely resolves which assets to load based on the button selected
+fn resolve_paths<'a>(
+    idx: usize,
+    primary_assets: &'a Option<(PathBuf, PathBuf, PathBuf)>,
+    secondary_assets: &'a Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
+    available_anims: &'a [(usize, PathBuf)]
+) -> (Option<&'a PathBuf>, Option<&'a PathBuf>, Option<&'a PathBuf>, Option<&'a PathBuf>) {
+    if idx == IDX_SPIRIT {
+        if let Some((s_png, s_cut, s_model, s_anim)) = secondary_assets {
+            return (Some(s_png), Some(s_cut), Some(s_model), Some(s_anim));
+        }
+    } else {
+        let anim_path = available_anims.iter().find(|(i, _)| *i == idx).map(|(_, p)| p);
+        if let Some((p_png, p_cut, p_model)) = primary_assets {
+            return (Some(p_png), Some(p_cut), Some(p_model), anim_path);
+        }
+    }
+    (None, None, None, None)
 }

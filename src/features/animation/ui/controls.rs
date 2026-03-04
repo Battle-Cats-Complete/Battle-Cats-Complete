@@ -27,13 +27,12 @@ pub fn render_controls_overlay(
     ui: &mut egui::Ui,
     rect: egui::Rect, 
     anim_viewer: &mut AnimViewer,
-    available_anims: &Vec<(usize, &str, PathBuf)>,
-    spirit_available: bool,
+    available_anims: &[(usize, PathBuf)],
     base_assets_available: bool,
     is_loading_new: bool,
-    spirit_sheet_id: &str,
-    form_viewer_id: &str,
-    spirit_pack: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
+    secondary_id: &str,
+    primary_id: &str,
+    secondary_pack: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
     interpolation: bool, 
     native_fps: f32,
 ) -> bool {
@@ -62,7 +61,7 @@ pub fn render_controls_overlay(
             .rounding(8.0)
             .show(ui, |ui| {
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                    render_internal_ui(ui, anim_viewer, available_anims, spirit_available, base_assets_available, is_loading_new, spirit_sheet_id, form_viewer_id, spirit_pack, interpolation, native_fps);
+                    render_internal_ui(ui, anim_viewer, available_anims, base_assets_available, is_loading_new, secondary_id, primary_id, secondary_pack, interpolation, native_fps);
                     let width_to_use = if anim_viewer.cached_controls_width > 1.0 { anim_viewer.cached_controls_width } else { ui.available_width() };
                     ui.add_sized(egui::vec2(width_to_use, 1.0), egui::Separator::default().horizontal());
                     let icon = if anim_viewer.is_controls_expanded { "▼" } else { "▲" };
@@ -82,13 +81,12 @@ pub fn render_controls_overlay(
 fn render_internal_ui(
     ui: &mut egui::Ui,
     anim_viewer: &mut AnimViewer,
-    available_anims: &Vec<(usize, &str, PathBuf)>,
-    spirit_available: bool,
+    available_anims: &[(usize, PathBuf)],
     base_assets_available: bool,
     is_loading_new: bool,
-    spirit_sheet_id: &str,
-    form_viewer_id: &str,
-    spirit_pack: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
+    secondary_id: &str,
+    primary_id: &str,
+    secondary_pack: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
     interpolation: bool,
     native_fps: f32,
 ) {
@@ -353,15 +351,20 @@ fn render_internal_ui(
                         }
                     };
 
-                    let has_walk = available_anims.iter().any(|(i, _, _)| *i == IDX_WALK); draw_anim_btn(ui, "Walk", IDX_WALK, has_walk);
-                    let has_idle = available_anims.iter().any(|(i, _, _)| *i == IDX_IDLE); draw_anim_btn(ui, "Idle", IDX_IDLE, has_idle);
-                    let has_atk = available_anims.iter().any(|(i, _, _)| *i == IDX_ATTACK); draw_anim_btn(ui, "Attack", IDX_ATTACK, has_atk);
-                    let has_kb = available_anims.iter().any(|(i, _, _)| *i == IDX_KB); draw_anim_btn(ui, "Knockback", IDX_KB, has_kb);
+                    // ALL animations are checked against the generic path list supplied by the caller
+                    let has_walk = available_anims.iter().any(|(i, _)| *i == IDX_WALK); draw_anim_btn(ui, "Walk", IDX_WALK, has_walk);
+                    let has_idle = available_anims.iter().any(|(i, _)| *i == IDX_IDLE); draw_anim_btn(ui, "Idle", IDX_IDLE, has_idle);
+                    let has_atk = available_anims.iter().any(|(i, _)| *i == IDX_ATTACK); draw_anim_btn(ui, "Attack", IDX_ATTACK, has_atk);
+                    let has_kb = available_anims.iter().any(|(i, _)| *i == IDX_KB); draw_anim_btn(ui, "Knockback", IDX_KB, has_kb);
                     ui.end_row();
 
-                    let has_burrow = available_anims.iter().any(|(i, _, _)| *i == IDX_BURROW); draw_anim_btn(ui, "Burrow", IDX_BURROW, has_burrow);
-                    let has_surface = available_anims.iter().any(|(i, _, _)| *i == IDX_SURFACE); draw_anim_btn(ui, "Surface", IDX_SURFACE, has_surface);
-                    draw_anim_btn(ui, "Spirit", IDX_SPIRIT, spirit_available);
+                    let has_burrow = available_anims.iter().any(|(i, _)| *i == IDX_BURROW); draw_anim_btn(ui, "Burrow", IDX_BURROW, has_burrow);
+                    let has_surface = available_anims.iter().any(|(i, _)| *i == IDX_SURFACE); draw_anim_btn(ui, "Surface", IDX_SURFACE, has_surface);
+                    
+                    // Spirit / Secondary Pack validation
+                    let secondary_available = secondary_pack.is_some();
+                    draw_anim_btn(ui, "Spirit", IDX_SPIRIT, secondary_available);
+                    
                     draw_anim_btn(ui, "Model", IDX_MODEL, base_assets_available);
                     ui.end_row();
                 });
@@ -378,10 +381,11 @@ fn render_internal_ui(
     if let Some(target_idx) = clicked_index {
         if !is_loading_new {
             anim_viewer.loaded_anim_index = target_idx;
-            let intended_target_id = if target_idx == IDX_SPIRIT { spirit_sheet_id.to_string() } else { form_viewer_id.to_string() };
+            let intended_target_id = if target_idx == IDX_SPIRIT { secondary_id.to_string() } else { primary_id.to_string() };
             if anim_viewer.loaded_id == intended_target_id {
-                let anim_path = if target_idx == IDX_SPIRIT { spirit_pack.as_ref().map(|(_, _, _, a)| a) }
-                else { available_anims.iter().find(|(i, _, _)| *i == target_idx).map(|(_, _, p)| p) };
+                let anim_path = if target_idx == IDX_SPIRIT { secondary_pack.as_ref().map(|(_, _, _, a)| a) }
+                else { available_anims.iter().find(|(i, _)| *i == target_idx).map(|(_, p)| p) };
+                
                 if let Some(a_path) = anim_path { 
                     anim_viewer.load_anim(a_path); 
                 } else if target_idx == IDX_MODEL { 
@@ -389,7 +393,7 @@ fn render_internal_ui(
                     anim_viewer.current_frame = 0.0;
                     anim_viewer.single_frame_str = "0".to_string();
 
-                    anim_viewer.export_state.name_prefix = format!("{}.model", form_viewer_id);
+                    anim_viewer.export_state.name_prefix = format!("{}.model", primary_id);
                     anim_viewer.export_state.anim_name = "Model".to_string();
                     anim_viewer.export_state.max_frame = 0;
                     anim_viewer.export_state.frame_start = 0;
