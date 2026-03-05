@@ -20,6 +20,12 @@ use crate::features::cat::data::unitbuy::UnitBuyRow;
 use crate::features::cat::data::skillacquisition::TalentRaw;
 use crate::features::settings::logic::handle::ScannerConfig;
 use crate::features::settings::logic::Settings;
+use crate::core::utils::DragGuard; 
+
+pub const TOP_PANEL_PADDING: f32 = 2.5;
+pub const SEARCH_FILTER_GAP: f32 = 5.0;
+pub const SPACE_BEFORE_SEPARATOR: f32 = 2.0;
+pub const SPACE_AFTER_SEPARATOR: f32 = 2.0;
 
 #[derive(Deserialize, Serialize, PartialEq, Clone, Copy)]
 pub enum DetailTab {
@@ -72,6 +78,8 @@ pub struct CatListState {
     #[serde(skip)] pub initialized: bool,
     pub talent_levels: HashMap<u32, HashMap<u8, u8>>,
     pub talent_history: VecDeque<u32>, 
+    #[serde(skip)] pub filter_state: crate::features::cat::ui::filter::CatFilterState,
+    #[serde(skip)] pub drag_guard: DragGuard,
     #[serde(skip)] pub saved_pre_ultra_level: Option<(i32, String)>,
     #[serde(skip)] pub is_in_ultra_state: bool,
 }
@@ -115,6 +123,8 @@ impl Default for CatListState {
             initialized: false, 
             talent_levels: HashMap::new(),
             talent_history: VecDeque::new(),
+            filter_state: crate::features::cat::ui::filter::CatFilterState::default(),
+            drag_guard: DragGuard::default(),
             saved_pre_ultra_level: None,
             is_in_ultra_state: false,
         }
@@ -167,31 +177,60 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
         .resizable(false)
         .default_width(160.0)
         .show(ctx, |ui| {
-            ui.add_space(12.0); 
-            ui.vertical_centered(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut state.search_query)
-                    .hint_text("Search Cat...")
-                    .desired_width(140.0));
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                
+                ui.add_space(TOP_PANEL_PADDING); 
+                
+                ui.vertical_centered(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    
+                    let search_response = ui.add(egui::TextEdit::singleline(&mut state.search_query)
+                        .hint_text(egui::RichText::new("Search Cat...").color(egui::Color32::GRAY))
+                        .desired_width(140.0));
+                    
+                    ui.add_space(SEARCH_FILTER_GAP); 
+                    
+                    let btn_size = egui::vec2(140.0, search_response.rect.height());
+                    let filter_active = state.filter_state.is_active();
+                    let mut filter_btn = egui::Button::new("Filter");
+                    
+                    if filter_active {
+                        filter_btn = filter_btn.fill(egui::Color32::from_rgb(31, 106, 165));
+                    }
+
+                    if ui.add_sized(btn_size, filter_btn).clicked() {
+                        state.filter_state.is_open = !state.filter_state.is_open;
+                    }
+                });
+                
+                ui.add_space(SPACE_BEFORE_SEPARATOR); 
+                ui.separator();
+                ui.add_space(SPACE_AFTER_SEPARATOR);
             });
-            ui.add_space(5.81); 
-            ui.separator();
 
             let old_selection_id = state.selected_cat;
             
             if !state.cats.is_empty() {
-                state.cat_list.show(ctx, ui, &state.cats, &mut state.selected_cat, &state.search_query, settings.high_banner_quality);
+                state.cat_list.show(
+                    ctx, 
+                    ui, 
+                    &state.cats, 
+                    &mut state.selected_cat, 
+                    &state.search_query, 
+                    &state.filter_state, 
+                    settings.high_banner_quality
+                );
             } else if state.scan_receiver.is_some() {
                 ui.centered_and_justified(|ui| { ui.spinner(); });
             }
             
-            // Cat Change Logic
             if state.selected_cat != old_selection_id {
                 state.detail_texture = None; 
                 state.detail_key.clear();
                 state.sprite_sheet = SpriteSheet::default();
                 state.model_data = None;
                 
-                // Clear any leftover memory of the last unit's ultra state
                 state.saved_pre_ultra_level = None;
                 state.is_in_ultra_state = false;
 
@@ -222,7 +261,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
                             }
                         }
 
-                        // SMART DEFAULT LEVEL CALCULATION
                         if settings.auto_level_calculations {
                             let base_max = new_cat.unit_buy.level_cap_standard;
                             let plus_max = new_cat.unit_buy.level_cap_plus;
@@ -285,8 +323,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
         };
         
         let talent_map = state.talent_levels.entry(selected_id).or_default();
-        
-        // Capture previous form state
         let prev_form = state.selected_form;
 
         cat_detail::show(
@@ -316,7 +352,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
             state.texture_cache_version,
         );
 
-        // ULTRA STATE DYNAMIC LEVELING
         let mut current_ultra_state = state.selected_form == 3;
         
         if let Some(levels) = state.talent_levels.get(&selected_id) {
@@ -327,21 +362,14 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
 
         if settings.bump_ultra_60 {
             if !state.is_in_ultra_state && current_ultra_state {
-                // Edge 1: Just entered an Ultra State. Save their current level and format string
                 state.saved_pre_ultra_level = Some((state.current_level, state.level_input.clone()));
-                
-                // Only bump if they are currently below 60
                 if state.current_level < 60 {
                     state.current_level = 60;
                     state.level_input = "60".to_string();
                 }
-                
             } else if state.is_in_ultra_state && !current_ultra_state {
-                // Edge 2: Just exited an Ultra State. 
                 if let Some((saved_lvl, saved_str)) = state.saved_pre_ultra_level.take() {
                     let expected_ultra_level = if saved_lvl < 60 { 60 } else { saved_lvl };
-                    
-                    // Restore only if the level remains exactly what we expected the Ultra state to be
                     if state.current_level == expected_ultra_level {
                         state.current_level = saved_lvl;
                         state.level_input = saved_str;
@@ -350,16 +378,24 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
             }
             state.is_in_ultra_state = current_ultra_state;
         } else {
-            // Keep tracking the state cleanly just in case they toggle the setting back on mid-view
             state.is_in_ultra_state = current_ultra_state;
             state.saved_pre_ultra_level = None;
         }
 
-        // Check if form changed during the render
         if state.selected_form != prev_form {
-            // Reset Animation Data
             state.sprite_sheet = SpriteSheet::default();
             state.model_data = None;
         }
     });
+    
+    crate::features::cat::ui::filter::show_popup(
+        ctx,
+        &mut state.filter_state,
+        &mut state.icon_sheet,
+        &state.multihit_texture,
+        &state.kamikaze_texture,
+        &state.boss_wave_immune_texture,
+        settings,
+        &mut state.drag_guard,
+    );
 }
