@@ -7,7 +7,7 @@ use std::time::Duration;
 use image::imageops;
 
 use crate::features::cat::logic::scanner::CatEntry; 
-use crate::features::cat::ui::filter::{self, CatFilterState};
+use crate::features::cat::logic::filter::{entity_passes_filter, CatFilterState};
 
 struct LoadedImage {
     id: u32,
@@ -267,7 +267,7 @@ impl CatList {
         let is_empty = query.is_empty();
 
         for (i, unit) in units.iter().enumerate() {
-            if !filter::entity_passes_filter(unit, filter_state) {
+            if !entity_passes_filter(unit, filter_state) {
                 continue;
             }
 
