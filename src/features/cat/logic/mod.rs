@@ -6,5 +6,6 @@ pub mod watcher;
 pub mod loader;
 pub mod state;
 pub mod filter;
+pub mod exporter;
 
 pub use state::{CatListState, DetailTab, show};
