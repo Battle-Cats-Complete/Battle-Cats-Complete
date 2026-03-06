@@ -32,6 +32,9 @@ webp-animation = "0.9.0"
 gif = "0.13"
 directories = "5.0"
 open = "5"
+imageproc = "0.25.0"
+ab_glyph = "0.2"
+arboard = "3.4.0"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

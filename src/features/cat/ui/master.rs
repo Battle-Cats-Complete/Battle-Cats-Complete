@@ -14,6 +14,7 @@ use crate::features::cat::data::skilllevel::TalentCost;
 
 // Bring sibling modules into scope
 use super::{header, stats, abilities, talents, details, viewer};
+use super::header::ExportAction;
 
 pub fn show(
     ctx: &egui::Context, 
@@ -47,9 +48,19 @@ pub fn show(
     img015::ensure_loaded(ctx, icon_sheet, settings);
     img022::ensure_loaded(ctx, img022_sheet, settings); 
 
-    header::render(
+    let export_action = header::render(
         ctx, ui, cat_entry, current_form, current_tab, current_level, level_input, texture_cache, current_key, settings, talent_levels, talent_costs, img022_sheet
     );
+
+    match export_action {
+        ExportAction::Copy => {
+            crate::features::cat::logic::exporter::generate_and_copy_statblock(ctx.clone(), settings.game_language.clone());
+        },
+        ExportAction::Save => {
+            crate::features::cat::logic::exporter::generate_and_save_statblock(ctx.clone(), settings.game_language.clone(), cat_entry.id, *current_form);
+        },
+        ExportAction::None => {}
+    }
 
     ui.separator(); 
     ui.add_space(0.0);

@@ -16,6 +16,13 @@ pub const HEADER_NP_TEXT_SIZE: f32 = 20.0;
 pub const TALENT_BTN_WIDTH: f32 = 100.0;
 pub const TALENT_BTN_HEIGHT: f32 = 23.0;
 
+#[derive(PartialEq)]
+pub enum ExportAction {
+    None,
+    Copy,
+    Save,
+}
+
 pub fn render(
     ctx: &egui::Context,
     ui: &mut egui::Ui,
@@ -30,7 +37,9 @@ pub fn render(
     talent_levels: &mut HashMap<u8, u8>,
     talent_costs: &HashMap<u8, TalentCost>,
     img022_sheet: &SpriteSheet,
-) {
+) -> ExportAction {
+    let mut export_action = ExportAction::None;
+
     ui.vertical(|ui| {
         render_form_buttons(ui, cat, current_form, current_tab);
         ui.separator();
@@ -53,8 +62,73 @@ pub fn render(
                     render_talent_controls(ui, talent_data, talent_levels, talent_costs, img022_sheet, settings);
                 }
             }
+
+            // --- EXPORT IMAGE BUTTONS (Only visible on Abilities Tab) ---
+            if *current_tab == DetailTab::Abilities {
+                ui.add_space(15.0);
+                let separator_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(1.0, 85.0), egui::Sense::hover());
+                ui.painter().rect_filled(rect, 0.0, separator_color);
+                ui.add_space(15.0);
+
+                ui.vertical(|ui| {
+                    let btn_h = 24.0;
+                    let btn_w = 100.0;
+                    let gap = 6.0;
+                    
+                    // Mathematical centering inside the horizontal_top layout!
+                    // (85px separator height - (24px + 6px + 24px) content height) / 2 = 15.5px margin
+                    ui.add_space(15.5);
+                    
+                    ui.spacing_mut().item_spacing.y = gap;
+                    
+                    let current_time = ui.input(|i| i.time);
+                    
+                    let copy_time = ctx.data(|d| d.get_temp::<f64>(egui::Id::new("export_copy_time"))).unwrap_or(-10.0);
+                    let copy_res = ctx.data(|d| d.get_temp::<bool>(egui::Id::new("export_copy_res"))).unwrap_or(false);
+                    let in_copy_cooldown = (current_time - copy_time) < 2.0;
+
+                    let save_time = ctx.data(|d| d.get_temp::<f64>(egui::Id::new("export_save_time"))).unwrap_or(-10.0);
+                    let save_res = ctx.data(|d| d.get_temp::<bool>(egui::Id::new("export_save_res"))).unwrap_or(false);
+                    let in_save_cooldown = (current_time - save_time) < 2.0;
+
+                    let default_color = egui::Color32::from_rgb(31, 106, 165);
+                    let success_color = egui::Color32::from_rgb(40, 160, 60);
+                    let fail_color = egui::Color32::from_rgb(200, 40, 40);
+
+                    let (copy_text, copy_color) = if in_copy_cooldown {
+                        if copy_res { ("Copied!", success_color) } else { ("Failed!", fail_color) }
+                    } else {
+                        ("Copy Image", default_color)
+                    };
+
+                    let btn_copy = egui::Button::new(egui::RichText::new(copy_text).size(12.0).strong().color(egui::Color32::WHITE))
+                        .fill(copy_color)
+                        .rounding(4.0);
+                    
+                    if ui.add_sized([btn_w, btn_h], btn_copy).on_hover_text("Generate a statblock image and copy it to your clipboard!").clicked() {
+                        export_action = ExportAction::Copy;
+                    }
+
+                    let (save_text, save_color) = if in_save_cooldown {
+                        if save_res { ("Exported!", success_color) } else { ("Failed!", fail_color) }
+                    } else {
+                        ("Export Image", default_color)
+                    };
+
+                    let btn_save = egui::Button::new(egui::RichText::new(save_text).size(12.0).strong().color(egui::Color32::WHITE))
+                        .fill(save_color)
+                        .rounding(4.0);
+                    
+                    if ui.add_sized([btn_w, btn_h], btn_save).on_hover_text("Save a statblock image to the exports folder!").clicked() {
+                        export_action = ExportAction::Save;
+                    }
+                });
+            }
         });
     });
+
+    export_action
 }
 
 fn render_talent_controls(
