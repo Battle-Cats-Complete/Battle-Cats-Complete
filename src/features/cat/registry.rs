@@ -604,11 +604,11 @@ pub const ABILITY_REGISTRY: &[AbilityDef] = &[
         talent_desc_func: Some(|v1, v2, c, _, _, _, _| {
              if c.savage_blow_chance == 0 {
                  let mut s = format!("Chance: {}", fmt_additive(0, v1, "%"));
-                 if v2 > 0 { s.push_str(&format!("\nDamage Boost: +{}%", v2)); }
+                 if v2 > 0 { s.push_str(&format!("\nBoost: +{}%", v2)); }
                  s
              } else {
                  let mut s = format!("Chance: {}", fmt_additive(c.savage_blow_chance, v1, "%"));
-                 if v2 > 0 { s.push_str(&format!("\nDamage Boost: +{}%", v2)); }
+                 if v2 > 0 { s.push_str(&format!("\nBoost: +{}%", v2)); }
                  s
              }
         }),
