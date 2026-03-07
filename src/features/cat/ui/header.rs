@@ -76,18 +76,19 @@ pub fn render(
                     let btn_w = 100.0;
                     let gap = 6.0;
                     
-                    // Mathematical centering inside the horizontal_top layout!
-                    // (85px separator height - (24px + 6px + 24px) content height) / 2 = 15.5px margin
                     ui.add_space(15.5);
-                    
                     ui.spacing_mut().item_spacing.y = gap;
                     
                     let current_time = ui.input(|i| i.time);
                     
+                    // Copy State Handling
+                    let is_copying = ctx.data(|d| d.get_temp::<bool>(egui::Id::new("is_copying"))).unwrap_or(false);
                     let copy_time = ctx.data(|d| d.get_temp::<f64>(egui::Id::new("export_copy_time"))).unwrap_or(-10.0);
                     let copy_res = ctx.data(|d| d.get_temp::<bool>(egui::Id::new("export_copy_res"))).unwrap_or(false);
                     let in_copy_cooldown = (current_time - copy_time) < 2.0;
 
+                    // Export State Handling
+                    let is_exporting = ctx.data(|d| d.get_temp::<bool>(egui::Id::new("is_exporting"))).unwrap_or(false);
                     let save_time = ctx.data(|d| d.get_temp::<f64>(egui::Id::new("export_save_time"))).unwrap_or(-10.0);
                     let save_res = ctx.data(|d| d.get_temp::<bool>(egui::Id::new("export_save_res"))).unwrap_or(false);
                     let in_save_cooldown = (current_time - save_time) < 2.0;
@@ -95,8 +96,11 @@ pub fn render(
                     let default_color = egui::Color32::from_rgb(31, 106, 165);
                     let success_color = egui::Color32::from_rgb(40, 160, 60);
                     let fail_color = egui::Color32::from_rgb(200, 40, 40);
+                    let processing_color = egui::Color32::from_rgb(200, 160, 0); 
 
-                    let (copy_text, copy_color) = if in_copy_cooldown {
+                    let (copy_text, copy_color) = if is_copying {
+                        ("Copying...", processing_color)
+                    } else if in_copy_cooldown {
                         if copy_res { ("Copied!", success_color) } else { ("Failed!", fail_color) }
                     } else {
                         ("Copy Image", default_color)
@@ -107,10 +111,13 @@ pub fn render(
                         .rounding(4.0);
                     
                     if ui.add_sized([btn_w, btn_h], btn_copy).on_hover_text("Generate a statblock image and copy it to your clipboard!").clicked() {
+                        ctx.data_mut(|d| d.insert_temp(egui::Id::new("is_copying"), true));
                         export_action = ExportAction::Copy;
                     }
 
-                    let (save_text, save_color) = if in_save_cooldown {
+                    let (save_text, save_color) = if is_exporting {
+                        ("Exporting...", processing_color)
+                    } else if in_save_cooldown {
                         if save_res { ("Exported!", success_color) } else { ("Failed!", fail_color) }
                     } else {
                         ("Export Image", default_color)
@@ -121,6 +128,7 @@ pub fn render(
                         .rounding(4.0);
                     
                     if ui.add_sized([btn_w, btn_h], btn_save).on_hover_text("Save a statblock image to the exports folder!").clicked() {
+                        ctx.data_mut(|d| d.insert_temp(egui::Id::new("is_exporting"), true));
                         export_action = ExportAction::Save;
                     }
                 });

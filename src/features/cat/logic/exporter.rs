@@ -17,12 +17,6 @@ use crate::global::imgcut::SpriteCut;
 use crate::features::cat::logic::abilities::{collect_ability_data, CustomIcon, AbilityItem};
 use crate::features::settings::logic::Settings;
 
-// --- EXPORT LAYOUT CONSTANTS ---
-const EXPORT_ICON_SIZE: u32 = 40;
-const ICON_GAP_X: i32 = 2;         
-const ICON_GAP_Y: i32 = 2; // Adjusted to your preference (was 2)
-const LIST_TEXT_Y_OFFSET: i32 = 2; 
-
 fn get_icon_image(
     item: &AbilityItem, 
     cuts_map: &HashMap<usize, SpriteCut>,
@@ -30,6 +24,7 @@ fn get_icon_image(
     multihit_base: &RgbaImage,
     kamikaze_base: &RgbaImage,
     bosswave_base: &RgbaImage,
+    export_icon_size: u32,
 ) -> RgbaImage {
     let mut icon = match item.custom_icon {
         CustomIcon::Multihit => multihit_base.clone(),
@@ -48,10 +43,10 @@ fn get_icon_image(
                 if px + pw <= img015_base.width() && py + ph <= img015_base.height() {
                     image::imageops::crop_imm(img015_base, px, py, pw, ph).to_image()
                 } else {
-                    RgbaImage::new(EXPORT_ICON_SIZE, EXPORT_ICON_SIZE)
+                    RgbaImage::new(export_icon_size, export_icon_size)
                 }
             } else {
-                RgbaImage::new(EXPORT_ICON_SIZE, EXPORT_ICON_SIZE)
+                RgbaImage::new(export_icon_size, export_icon_size)
             }
         }
     };
@@ -72,8 +67,8 @@ fn get_icon_image(
         }
     }
     
-    if icon.width() != EXPORT_ICON_SIZE || icon.height() != EXPORT_ICON_SIZE {
-        icon = image::imageops::resize(&icon, EXPORT_ICON_SIZE, EXPORT_ICON_SIZE, image::imageops::FilterType::Lanczos3);
+    if icon.width() != export_icon_size || icon.height() != export_icon_size {
+        icon = image::imageops::resize(&icon, export_icon_size, export_icon_size, image::imageops::FilterType::Lanczos3);
     }
     icon
 }
@@ -149,32 +144,39 @@ fn wrap_text(text: &str, font: &impl ab_glyph::Font, scale: PxScale, max_width: 
 }
 
 fn draw_centered_text(img: &mut RgbaImage, color: Rgba<u8>, rect: Rect, scale: PxScale, font: &impl ab_glyph::Font, text: &str) {
-    let (tw, th) = text_size(scale, font, text);
+    let (tw, _) = text_size(scale, font, text);
+    let visual_h = scale.y * 0.7; 
     let tx = rect.left() + (rect.width() as i32 - tw as i32) / 2;
-    let ty = rect.top() + (rect.height() as i32 - th as i32) / 2;
+    let ty = rect.top() + (rect.height() as i32 - visual_h as i32) / 2;
     draw_text_mut(img, color, tx.max(rect.left()), ty.max(rect.top()), scale, font, text);
 }
 
-fn draw_time_cell(img: &mut RgbaImage, bg: Rgba<u8>, rect: Rect, frames: i32, font: &impl ab_glyph::Font) {
+fn draw_time_cell(img: &mut RgbaImage, bg: Rgba<u8>, rect: Rect, frames: i32, font: &impl ab_glyph::Font, scale_f: f32, scale_i: i32) {
     draw_filled_rect_mut(img, rect, bg);
     
     let sec = frames as f32 / 30.0;
     let sec_str = format!("{:.2}s", sec);
     let f_str = format!("({}f)", frames);
     
-    let scale_sec = PxScale::from(15.0);
-    let scale_f = PxScale::from(12.0); 
+    let scale_sec = PxScale::from(15.0 * scale_f);
+    let scale_f_text = PxScale::from(12.0 * scale_f); 
     
-    let (sec_w, th) = text_size(scale_sec, font, &sec_str);
-    let (f_w, _) = text_size(scale_f, font, &f_str);
+    let (sec_w, _) = text_size(scale_sec, font, &sec_str);
+    let (f_w, _) = text_size(scale_f_text, font, &f_str);
     
-    let gap = 3;
-    let total_w = sec_w + f_w + gap;
+    let gap = 3 * scale_i;
+    let total_w = sec_w + f_w + gap as u32;
+    
+    let visual_h = scale_sec.y * 0.7;
     let start_x = rect.left() + (rect.width() as i32 - total_w as i32) / 2;
-    let start_y = rect.top() + (rect.height() as i32 - th as i32) / 2;
+    let start_y = rect.top() + (rect.height() as i32 - visual_h as i32) / 2;
     
     draw_text_mut(img, Rgba([255, 255, 255, 255]), start_x, start_y, scale_sec, font, &sec_str);
-    draw_text_mut(img, Rgba([150, 150, 150, 255]), start_x + sec_w as i32 + gap as i32, start_y + 2, scale_f, font, &f_str);
+    
+    let f_visual_h = scale_f_text.y * 0.7;
+    let f_y_offset = (visual_h - f_visual_h) / 2.0;
+    
+    draw_text_mut(img, Rgba([150, 150, 150, 255]), start_x + sec_w as i32 + gap, start_y + f_y_offset as i32, scale_f_text, font, &f_str);
 }
 
 fn build_statblock_image(
@@ -186,20 +188,20 @@ fn build_statblock_image(
     cuts_map: HashMap<usize, SpriteCut>,
     talent_levels: Option<HashMap<u8, u8>>
 ) -> RgbaImage {
-    let padding = 8;
-    let col_w = 70;
-    let gap = 2;
-    let canvas_width = (padding * 2) + (col_w * 5) + (gap * 4); // Tight 374px layout
+    // --- SUPERSAMPLING CONSTANTS ---
+    let scale: i32 = 2;
+    let scale_f: f32 = 2.0;
 
-    let mut img = RgbaImage::new(canvas_width as u32, 2000); 
-    let bg_color = Rgba([33, 33, 33, 255]);
-    let separator_color = Rgba([60, 60, 60, 255]);
-    let text_white = Rgba([255, 255, 255, 255]);
-    let text_weak = Rgba([150, 150, 150, 255]);
-    let header_bg = Rgba([50, 50, 50, 255]);
-    let data_bg = Rgba([40, 40, 40, 255]);
-
-    draw_filled_rect_mut(&mut img, Rect::at(0, 0).of_size(canvas_width as u32, 2000), bg_color);
+    let padding = 8 * scale;
+    let col_w = 70 * scale;
+    let gap = 2 * scale;
+    let export_icon_size = 40 * scale;
+    let icon_gap_x = 2 * scale;
+    let icon_gap_y = 2 * scale;
+    let list_text_y_offset = 2 * scale;
+    let list_text_gap_x = 8 * scale;
+    
+    let base_grid_width: f32 = (8.0 * 2.0) + (70.0 * 5.0) + (2.0 * 4.0); // 374 px (unscaled)
 
     let font_data: &[u8] = match language {
         "kr" => include_bytes!("../../../assets/NotoSansKR-Regular.ttf"),
@@ -208,6 +210,57 @@ fn build_statblock_image(
         _ => include_bytes!("../../../assets/NotoSansJP-Regular.ttf"), 
     };
     let font = FontRef::try_from_slice(font_data).expect("Failed to load font");
+
+    let mut dummy_settings = Settings::default();
+    dummy_settings.game_language = language.to_string();
+
+    let (traits, h1, h2, b1, b2, footer) = collect_ability_data(
+        stats, level, cat.curve.as_ref(), &dummy_settings, false, 
+        cat.talent_data.as_ref(), talent_levels.as_ref()
+    );
+
+    // --- DYNAMIC WIDTH CALCULATION (Pre-pass) ---
+    let mut max_needed_width: f32 = base_grid_width;
+
+    let check_icon_row_width = |items: &Vec<AbilityItem>| -> f32 {
+        if items.is_empty() { return 0.0; }
+        8.0 + (items.len() as f32 * 42.0) - 2.0 + 8.0 
+    };
+
+    let check_list_width = |items: &Vec<AbilityItem>| -> f32 {
+        let mut max_w = 0.0_f32;
+        for item in items {
+            let mut max_line_w = 0.0;
+            // No wrapping! If it has a natural newline, split and measure.
+            for line in item.text.split('\n') {
+                let (tw, _) = text_size(PxScale::from(14.0), &font, line); 
+                if tw as f32 > max_line_w { max_line_w = tw as f32; }
+            }
+            let w = 8.0 + 40.0 + 8.0 + max_line_w + 8.0; 
+            if w > max_w { max_w = w; }
+        }
+        max_w
+    };
+
+    max_needed_width = max_needed_width.max(check_icon_row_width(&traits));
+    max_needed_width = max_needed_width.max(check_icon_row_width(&h1));
+    max_needed_width = max_needed_width.max(check_icon_row_width(&h2));
+    max_needed_width = max_needed_width.max(check_icon_row_width(&footer));
+    max_needed_width = max_needed_width.max(check_list_width(&b1));
+    max_needed_width = max_needed_width.max(check_list_width(&b2));
+
+    let canvas_width = (max_needed_width.ceil() as i32) * scale;
+    
+    let mut img = RgbaImage::new(canvas_width as u32, 4000 * scale as u32); 
+    
+    let bg_color = Rgba([33, 33, 33, 255]);
+    let separator_color = Rgba([60, 60, 60, 255]);
+    let text_white = Rgba([255, 255, 255, 255]);
+    let text_weak = Rgba([150, 150, 150, 255]);
+    let header_bg = Rgba([50, 50, 50, 255]);
+    let data_bg = Rgba([40, 40, 40, 255]);
+
+    draw_filled_rect_mut(&mut img, Rect::at(0, 0).of_size(canvas_width as u32, 4000 * scale as u32), bg_color);
 
     let img015_folder = crate::global::paths::img015_folder(Path::new(""));
     
@@ -239,8 +292,10 @@ fn build_statblock_image(
     if let Some(path) = icon_path {
         if let Ok(icon_img) = image::open(path) {
             let mut rgba = autocrop(icon_img.to_rgba8());
-            if rgba.width() != 110 || rgba.height() != 85 {
-                rgba = image::imageops::resize(&rgba, 110, 85, image::imageops::FilterType::Lanczos3);
+            let target_w = 110 * scale as u32;
+            let target_h = 85 * scale as u32;
+            if rgba.width() != target_w || rgba.height() != target_h {
+                rgba = image::imageops::resize(&rgba, target_w, target_h, image::imageops::FilterType::Lanczos3);
             }
             image::imageops::overlay(&mut img, &rgba, padding as i64, padding as i64);
         }
@@ -249,44 +304,45 @@ fn build_statblock_image(
     let form_num = form + 1;
     let disp_name = if cat.names[form].is_empty() { format!("{:03}-{}", cat.id, form_num) } else { cat.names[form].clone() };
 
-    let text_x = padding + 110 + 12;
-    let max_name_width = canvas_width as f32 - text_x as f32 - padding as f32;
+    let text_x = padding + 110 * scale + 12 * scale;
     
-    // Dynamic Name Scaling & Wrapping
+    // Tighter unscaled bounds so text wraps similar to UI box
+    let max_name_width = 200.0 * scale_f;
+    // Increased height to 48px to allow two full lines of 20px text without triggering the shrink mechanism!
+    let name_box_height = 48.0 * scale_f; 
+    
     let mut name_scale = 20.0;
-    let mut name_lines = vec![disp_name.clone()];
-    let (mut w, _) = text_size(PxScale::from(name_scale), &font, &disp_name);
+    
+    // WRAP FIRST: Wrap text freely at standard size
+    let mut name_lines = wrap_text(&disp_name, &font, PxScale::from(name_scale * scale_f), max_name_width);
+    let mut line_height = (name_scale * scale_f) as i32 + (2 * scale);
+    let mut total_text_h = name_lines.len() as i32 * line_height;
 
-    while w as f32 > max_name_width && name_scale > 14.0 {
+    // SHRINK LATER: Only shrink if the wrapped lines burst out of the vertical container height
+    while total_text_h > name_box_height as i32 && name_scale > 10.0 {
         name_scale -= 1.0;
-        w = text_size(PxScale::from(name_scale), &font, &disp_name).0;
+        name_lines = wrap_text(&disp_name, &font, PxScale::from(name_scale * scale_f), max_name_width);
+        line_height = (name_scale * scale_f) as i32 + (2 * scale);
+        total_text_h = name_lines.len() as i32 * line_height;
     }
 
-    if w as f32 > max_name_width {
-        name_lines = wrap_text(&disp_name, &font, PxScale::from(name_scale), max_name_width);
-    }
+    let base_box_y = padding + 8 * scale;
+    let mut current_name_y = base_box_y + ((name_box_height as i32 - total_text_h) / 2).max(0);
 
-    // DRAW NAME FROM THE TOP DOWN
-    let mut current_name_y = padding + 12;
     for line in &name_lines {
-        draw_text_mut(&mut img, text_white, text_x, current_name_y, PxScale::from(name_scale), &font, line);
-        current_name_y += name_scale as i32 + 2;
+        draw_text_mut(&mut img, text_white, text_x, current_name_y, PxScale::from(name_scale * scale_f), &font, line);
+        current_name_y += line_height;
     }
 
-    // STATIC ANCHOR FOR ID AND LEVEL (Restores the UI formatting exactly)
-    let id_y = padding + 52;
-    let level_y = padding + 70;
+    let final_id_y = padding + 52 * scale;
+    let final_level_y = padding + 70 * scale;
 
-    // Only push down if a massive multi-line wrapped name physically collides with them
-    let final_id_y = id_y.max(current_name_y);
-    let final_level_y = level_y + (final_id_y - id_y);
+    draw_text_mut(&mut img, text_weak, text_x, final_id_y, PxScale::from(14.0 * scale_f), &font, &format!("ID: {:03}-{}", cat.id, form_num));
+    draw_text_mut(&mut img, text_white, text_x, final_level_y, PxScale::from(16.0 * scale_f), &font, &format!("Level: {}", level));
 
-    draw_text_mut(&mut img, text_weak, text_x, final_id_y, PxScale::from(14.0), &font, &format!("ID: {:03}-{}", cat.id, form_num));
-    draw_text_mut(&mut img, text_white, text_x, final_level_y, PxScale::from(16.0), &font, &format!("Level: {}", level));
-
-    let mut cursor_y = std::cmp::max(padding + 85, final_level_y + 18) + 12;
-    draw_filled_rect_mut(&mut img, Rect::at(padding, cursor_y).of_size((canvas_width - (padding * 2)) as u32, 1), separator_color);
-    cursor_y += 10;
+    let mut cursor_y = std::cmp::max(padding + 85 * scale, final_level_y + 18 * scale) + 12 * scale;
+    draw_filled_rect_mut(&mut img, Rect::at(padding, cursor_y).of_size(canvas_width as u32 - (padding * 2) as u32, 1 * scale as u32), separator_color);
+    cursor_y += 10 * scale;
 
 
     // === STAT GRID ===
@@ -318,95 +374,87 @@ fn build_statblock_image(
         format!("{}¢", stats.eoc1_cost * 3 / 2)
     ];
 
-    let row_h = 24;
+    let row_h = 24 * scale;
 
     for col in 0..5 {
         let x = padding + (col * (col_w + gap));
         
         let h1_rect = Rect::at(x, cursor_y).of_size(col_w as u32, row_h as u32);
         draw_filled_rect_mut(&mut img, h1_rect, header_bg);
-        draw_centered_text(&mut img, text_white, h1_rect, PxScale::from(14.0), &font, stat_headers_1[col as usize]);
+        draw_centered_text(&mut img, text_white, h1_rect, PxScale::from(14.0 * scale_f), &font, stat_headers_1[col as usize]);
         
         let d1_rect = Rect::at(x, cursor_y + row_h).of_size(col_w as u32, row_h as u32);
         if col == 3 {
-            draw_time_cell(&mut img, data_bg, d1_rect, cycle, &font);
+            draw_time_cell(&mut img, data_bg, d1_rect, cycle, &font, scale_f, scale);
         } else {
             draw_filled_rect_mut(&mut img, d1_rect, data_bg);
-            draw_centered_text(&mut img, text_white, d1_rect, PxScale::from(15.0), &font, &stat_data_1[col as usize]);
+            draw_centered_text(&mut img, text_white, d1_rect, PxScale::from(15.0 * scale_f), &font, &stat_data_1[col as usize]);
         }
         
         let h2_rect = Rect::at(x, cursor_y + (row_h * 2) + gap).of_size(col_w as u32, row_h as u32);
         draw_filled_rect_mut(&mut img, h2_rect, header_bg);
-        draw_centered_text(&mut img, text_white, h2_rect, PxScale::from(14.0), &font, stat_headers_2[col as usize]);
+        draw_centered_text(&mut img, text_white, h2_rect, PxScale::from(14.0 * scale_f), &font, stat_headers_2[col as usize]);
         
         let d2_rect = Rect::at(x, cursor_y + (row_h * 3) + gap).of_size(col_w as u32, row_h as u32);
         if col == 3 {
-            draw_time_cell(&mut img, data_bg, d2_rect, cd_val, &font);
+            draw_time_cell(&mut img, data_bg, d2_rect, cd_val, &font, scale_f, scale);
         } else {
             draw_filled_rect_mut(&mut img, d2_rect, data_bg);
-            draw_centered_text(&mut img, text_white, d2_rect, PxScale::from(15.0), &font, &stat_data_2[col as usize]);
+            draw_centered_text(&mut img, text_white, d2_rect, PxScale::from(15.0 * scale_f), &font, &stat_data_2[col as usize]);
         }
     }
 
-    cursor_y += (row_h * 4) + gap + 15;
-    draw_filled_rect_mut(&mut img, Rect::at(padding, cursor_y).of_size((canvas_width - (padding * 2)) as u32, 1), separator_color);
-    cursor_y += 10;
+    cursor_y += (row_h * 4) + gap + 15 * scale;
+    draw_filled_rect_mut(&mut img, Rect::at(padding, cursor_y).of_size(canvas_width as u32 - (padding * 2) as u32, 1 * scale as u32), separator_color);
+    cursor_y += 10 * scale;
 
 
     // === ABILITIES ===
-    let mut dummy_settings = Settings::default();
-    dummy_settings.game_language = language.to_string();
-
-    let (traits, h1, h2, b1, b2, footer) = collect_ability_data(
-        stats, level, cat.curve.as_ref(), &dummy_settings, false, 
-        cat.talent_data.as_ref(), talent_levels.as_ref()
-    );
-
-    let draw_icon_row = |img: &mut RgbaImage, items: &Vec<AbilityItem>, mut y: i32| -> i32 {
+    let draw_icon_row = |img: &mut RgbaImage, items: &Vec<AbilityItem>, y: i32| -> i32 {
         if items.is_empty() { return y; }
         let mut x = padding;
+        
         for item in items {
-            if x + EXPORT_ICON_SIZE as i32 > canvas_width as i32 - padding {
-                x = padding;
-                y += EXPORT_ICON_SIZE as i32 + ICON_GAP_Y;
-            }
-            let icon = get_icon_image(item, &cuts_map, &img015_base, &multihit_base, &kamikaze_base, &bosswave_base);
+            let icon = get_icon_image(item, &cuts_map, &img015_base, &multihit_base, &kamikaze_base, &bosswave_base, export_icon_size as u32);
             image::imageops::overlay(img, &icon, x as i64, y as i64);
-            x += EXPORT_ICON_SIZE as i32 + ICON_GAP_X; 
+            x += export_icon_size + icon_gap_x; 
         }
-        y + EXPORT_ICON_SIZE as i32 + ICON_GAP_Y 
+        y + export_icon_size 
     };
 
     let draw_list = |img: &mut RgbaImage, items: &Vec<AbilityItem>, mut y: i32| -> i32 {
         if items.is_empty() { return y; }
-        
-        let max_text_width = canvas_width as f32 - padding as f32 - EXPORT_ICON_SIZE as f32 - 8.0 - padding as f32;
 
-        for item in items {
-            let icon = get_icon_image(item, &cuts_map, &img015_base, &multihit_base, &kamikaze_base, &bosswave_base);
+        for (i, item) in items.iter().enumerate() {
+            let icon = get_icon_image(item, &cuts_map, &img015_base, &multihit_base, &kamikaze_base, &bosswave_base, export_icon_size as u32);
             image::imageops::overlay(img, &icon, padding as i64, y as i64);
             
-            let lines = wrap_text(&item.text, &font, PxScale::from(14.0), max_text_width);
-            let total_text_h = lines.len() as i32 * 18;
+            // NO dynamic wrapping. Split on explicit localization line breaks \n
+            let lines: Vec<&str> = item.text.split('\n').collect();
+            let line_height = 18 * scale;
+            let total_text_h = lines.len() as i32 * line_height;
             
             let mut text_y = y;
-            if total_text_h < EXPORT_ICON_SIZE as i32 {
-                text_y += (EXPORT_ICON_SIZE as i32 - total_text_h) / 2 + LIST_TEXT_Y_OFFSET; 
+            if total_text_h < export_icon_size as i32 {
+                text_y += (export_icon_size as i32 - total_text_h) / 2 + list_text_y_offset; 
             }
 
             for line in lines {
-                draw_text_mut(img, text_white, padding + EXPORT_ICON_SIZE as i32 + 8, text_y, PxScale::from(14.0), &font, &line);
-                text_y += 18;
+                draw_text_mut(img, text_white, padding + export_icon_size as i32 + list_text_gap_x, text_y, PxScale::from(14.0 * scale_f), &font, line);
+                text_y += line_height;
             }
             
-            y += (EXPORT_ICON_SIZE as i32).max(total_text_h) + ICON_GAP_Y; 
+            y += (export_icon_size as i32).max(total_text_h);
+            if i < items.len() - 1 {
+                y += icon_gap_y;
+            }
         }
-        y
+        y 
     };
 
     let mut last_was_trait = false;
     let mut previously_drew = false;
-    let section_gap = 5;
+    let section_gap = 5 * scale;
 
     if !traits.is_empty() { 
         cursor_y = draw_icon_row(&mut img, &traits, cursor_y); 
@@ -415,37 +463,52 @@ fn build_statblock_image(
     }
     
     if !h1.is_empty() { 
-        if previously_drew { cursor_y += if last_was_trait { section_gap } else { ICON_GAP_Y }; }
+        if previously_drew { cursor_y += if last_was_trait { section_gap } else { icon_gap_y }; }
         cursor_y = draw_icon_row(&mut img, &h1, cursor_y); 
         last_was_trait = false;
         previously_drew = true;
     }
     
     if !h2.is_empty() { 
-        if previously_drew { cursor_y += if last_was_trait { section_gap } else { ICON_GAP_Y }; }
+        if previously_drew { cursor_y += if last_was_trait { section_gap } else { icon_gap_y }; }
         cursor_y = draw_icon_row(&mut img, &h2, cursor_y); 
         last_was_trait = false;
         previously_drew = true;
     }
 
     if !b1.is_empty() || !b2.is_empty() {
-        if previously_drew { cursor_y += if last_was_trait { section_gap } else { ICON_GAP_Y }; }
+        if previously_drew { cursor_y += if last_was_trait { section_gap } else { icon_gap_y }; }
         
-        cursor_y = draw_list(&mut img, &b1, cursor_y);
-        if !b1.is_empty() && !b2.is_empty() { cursor_y += ICON_GAP_Y; }
-        cursor_y = draw_list(&mut img, &b2, cursor_y);
+        if !b1.is_empty() {
+            cursor_y = draw_list(&mut img, &b1, cursor_y);
+        }
+        if !b1.is_empty() && !b2.is_empty() { 
+            cursor_y += icon_gap_y; 
+        }
+        if !b2.is_empty() {
+            cursor_y = draw_list(&mut img, &b2, cursor_y);
+        }
         
+        last_was_trait = false;
         previously_drew = true;
     }
 
     if !footer.is_empty() { 
-        if previously_drew { cursor_y += ICON_GAP_Y; } 
+        if previously_drew { cursor_y += icon_gap_y; } 
         cursor_y = draw_icon_row(&mut img, &footer, cursor_y); 
     }
 
-    // Tightly cropped final canvas!
-    let final_height = cursor_y + 5;
-    image::imageops::crop_imm(&img, 0, 0, canvas_width as u32, final_height as u32).to_image()
+    // Tightly crop the massive scaled canvas
+    let final_height = cursor_y + padding;
+    let final_cropped = image::imageops::crop_imm(&img, 0, 0, canvas_width as u32, final_height as u32).to_image();
+    
+    // Mathematically downsample using Lanczos3 for perfect Anti-Aliased edges
+    image::imageops::resize(
+        &final_cropped, 
+        final_cropped.width() / scale as u32, 
+        final_cropped.height() / scale as u32, 
+        image::imageops::FilterType::Lanczos3
+    )
 }
 
 pub fn generate_and_copy_statblock(
@@ -479,6 +542,7 @@ pub fn generate_and_copy_statblock(
         ctx.data_mut(|d| {
             d.insert_temp(egui::Id::new("export_copy_time"), current_time);
             d.insert_temp(egui::Id::new("export_copy_res"), success);
+            d.insert_temp(egui::Id::new("is_copying"), false);
         });
         ctx.request_repaint();
 
@@ -522,6 +586,7 @@ pub fn generate_and_save_statblock(
         ctx.data_mut(|d| {
             d.insert_temp(egui::Id::new("export_save_time"), current_time);
             d.insert_temp(egui::Id::new("export_save_res"), success);
+            d.insert_temp(egui::Id::new("is_exporting"), false);
         });
         ctx.request_repaint();
 
