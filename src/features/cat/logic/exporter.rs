@@ -16,6 +16,60 @@ use crate::core::utils::autocrop;
 use crate::global::imgcut::SpriteCut;
 use crate::features::cat::logic::abilities::{collect_ability_data, CustomIcon, AbilityItem};
 use crate::features::settings::logic::Settings;
+use crate::features::cat::ui::abilities::{ABILITY_X, ABILITY_Y, TRAIT_Y};
+
+// --- EXPORT LAYOUT CONSTANTS ---
+const NAME_BOX_WIDTH: f32 = 185.0;
+const NAME_BOX_HEIGHT: f32 = 50.0;
+
+const SUPERSCRIPT_SCALE: f32 = 0.75;
+const SUPERSCRIPT_OFFSET_Y: f32 = 0.15;
+
+const SPIRIT_PADDING_X: f32 = 8.0;
+
+fn draw_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgba<u8>) {
+    if r <= 0 {
+        draw_filled_rect_mut(img, rect, color);
+        return;
+    }
+    let w = rect.width() as i32;
+    let h = rect.height() as i32;
+    let x = rect.left();
+    let y = rect.top();
+
+    let r = r.min(w / 2).min(h / 2);
+
+    draw_filled_rect_mut(img, Rect::at(x + r, y).of_size((w - 2 * r) as u32, h as u32), color);
+    draw_filled_rect_mut(img, Rect::at(x, y + r).of_size(w as u32, (h - 2 * r) as u32), color);
+
+    imageproc::drawing::draw_filled_circle_mut(img, (x + r, y + r), r, color);
+    imageproc::drawing::draw_filled_circle_mut(img, (x + w - 1 - r, y + r), r, color);
+    imageproc::drawing::draw_filled_circle_mut(img, (x + r, y + h - 1 - r), r, color);
+    imageproc::drawing::draw_filled_circle_mut(img, (x + w - 1 - r, y + h - 1 - r), r, color);
+}
+
+fn draw_bottom_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgba<u8>) {
+    if r <= 0 {
+        draw_filled_rect_mut(img, rect, color);
+        return;
+    }
+    let w = rect.width() as i32;
+    let h = rect.height() as i32;
+    let x = rect.left();
+    let y = rect.top();
+
+    let r = r.min(w / 2).min(h);
+
+    // Top part (no rounding)
+    draw_filled_rect_mut(img, Rect::at(x, y).of_size(w as u32, (h - r) as u32), color);
+    // Bottom part between corners
+    draw_filled_rect_mut(img, Rect::at(x + r, y + h - r).of_size((w - 2 * r) as u32, r as u32), color);
+
+    // Bottom left corner
+    imageproc::drawing::draw_filled_circle_mut(img, (x + r, y + h - 1 - r), r, color);
+    // Bottom right corner
+    imageproc::drawing::draw_filled_circle_mut(img, (x + w - 1 - r, y + h - 1 - r), r, color);
+}
 
 fn get_icon_image(
     item: &AbilityItem, 
@@ -73,6 +127,41 @@ fn get_icon_image(
     icon
 }
 
+fn measure_text_with_superscript(scale: PxScale, font: &impl ab_glyph::Font, text: &str) -> u32 {
+    let parts: Vec<&str> = text.split('^').collect();
+    let mut total_w = 0;
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_empty() { continue; }
+        let current_scale = if i % 2 == 0 { scale } else { PxScale::from(scale.y * SUPERSCRIPT_SCALE) };
+        let (w, _) = text_size(current_scale, font, part);
+        total_w += w;
+    }
+    total_w
+}
+
+fn draw_text_with_superscript(
+    img: &mut RgbaImage,
+    color: Rgba<u8>,
+    mut x: i32,
+    y: i32,
+    base_scale: PxScale,
+    font: &impl ab_glyph::Font,
+    text: &str,
+) {
+    let parts: Vec<&str> = text.split('^').collect();
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_empty() { continue; }
+        let (current_scale, current_y) = if i % 2 == 0 {
+            (base_scale, y)
+        } else {
+            (PxScale::from(base_scale.y * SUPERSCRIPT_SCALE), y - (base_scale.y * SUPERSCRIPT_OFFSET_Y) as i32)
+        };
+        draw_text_mut(img, color, x, current_y, current_scale, font, part);
+        let (w, _) = text_size(current_scale, font, part);
+        x += w as i32;
+    }
+}
+
 fn wrap_text(text: &str, font: &impl ab_glyph::Font, scale: PxScale, max_width: f32) -> Vec<String> {
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {
@@ -88,7 +177,7 @@ fn wrap_text(text: &str, font: &impl ab_glyph::Font, scale: PxScale, max_width: 
                 if !current_word.is_empty() {
                     let sep = if current_line.is_empty() { "" } else { " " };
                     let test_line = format!("{}{}{}", current_line, sep, current_word);
-                    let (w, _) = text_size(scale, font, &test_line);
+                    let w = measure_text_with_superscript(scale, font, &test_line);
                     
                     if w as f32 > max_width {
                         if !current_line.is_empty() {
@@ -106,7 +195,7 @@ fn wrap_text(text: &str, font: &impl ab_glyph::Font, scale: PxScale, max_width: 
                 
                 if is_cjk {
                     let test_line = if current_line.is_empty() { c.to_string() } else { format!("{}{}", current_line, c) };
-                    let (w, _) = text_size(scale, font, &test_line);
+                    let w = measure_text_with_superscript(scale, font, &test_line);
                     if w as f32 > max_width {
                         if !current_line.is_empty() {
                             lines.push(current_line.clone());
@@ -124,7 +213,7 @@ fn wrap_text(text: &str, font: &impl ab_glyph::Font, scale: PxScale, max_width: 
         if !current_word.is_empty() {
             let sep = if current_line.is_empty() { "" } else { " " };
             let test_line = format!("{}{}{}", current_line, sep, current_word);
-            let (w, _) = text_size(scale, font, &test_line);
+            let w = measure_text_with_superscript(scale, font, &test_line);
             if w as f32 > max_width {
                 if !current_line.is_empty() {
                     lines.push(current_line.clone());
@@ -145,18 +234,19 @@ fn wrap_text(text: &str, font: &impl ab_glyph::Font, scale: PxScale, max_width: 
 
 fn draw_centered_text(img: &mut RgbaImage, color: Rgba<u8>, rect: Rect, scale: PxScale, font: &impl ab_glyph::Font, text: &str) {
     let (tw, _) = text_size(scale, font, text);
-    let visual_h = scale.y * 0.7; 
+    // Using scale.y ignores massive CJK bounding box descenders, perfectly centering the optical text baseline!
     let tx = rect.left() + (rect.width() as i32 - tw as i32) / 2;
-    let ty = rect.top() + (rect.height() as i32 - visual_h as i32) / 2;
+    let ty = rect.top() + (rect.height() as i32 - scale.y as i32) / 2;
+    
     draw_text_mut(img, color, tx.max(rect.left()), ty.max(rect.top()), scale, font, text);
 }
 
-fn draw_time_cell(img: &mut RgbaImage, bg: Rgba<u8>, rect: Rect, frames: i32, font: &impl ab_glyph::Font, scale_f: f32, scale_i: i32) {
-    draw_filled_rect_mut(img, rect, bg);
+fn draw_time_cell(img: &mut RgbaImage, bg: Rgba<u8>, rect: Rect, frames: i32, font: &impl ab_glyph::Font, scale_f: f32, scale_i: i32, radius: i32) {
+    draw_rounded_rect_mut(img, rect, radius, bg);
     
     let sec = frames as f32 / 30.0;
     let sec_str = format!("{:.2}s", sec);
-    let f_str = format!("({}f)", frames);
+    let f_str = format!("{}f", frames); 
     
     let scale_sec = PxScale::from(15.0 * scale_f);
     let scale_f_text = PxScale::from(12.0 * scale_f); 
@@ -164,19 +254,16 @@ fn draw_time_cell(img: &mut RgbaImage, bg: Rgba<u8>, rect: Rect, frames: i32, fo
     let (sec_w, _) = text_size(scale_sec, font, &sec_str);
     let (f_w, _) = text_size(scale_f_text, font, &f_str);
     
-    let gap = 3 * scale_i;
-    let total_w = sec_w + f_w + gap as u32;
-    
-    let visual_h = scale_sec.y * 0.7;
+    let gap = 3 * scale_i as u32;
+    let total_w = sec_w + f_w + gap;
+
     let start_x = rect.left() + (rect.width() as i32 - total_w as i32) / 2;
-    let start_y = rect.top() + (rect.height() as i32 - visual_h as i32) / 2;
+    let start_y = rect.top() + (rect.height() as i32 - scale_sec.y as i32) / 2;
     
     draw_text_mut(img, Rgba([255, 255, 255, 255]), start_x, start_y, scale_sec, font, &sec_str);
     
-    let f_visual_h = scale_f_text.y * 0.7;
-    let f_y_offset = (visual_h - f_visual_h) / 2.0;
-    
-    draw_text_mut(img, Rgba([150, 150, 150, 255]), start_x + sec_w as i32 + gap, start_y + f_y_offset as i32, scale_f_text, font, &f_str);
+    let f_y_offset = (scale_sec.y - scale_f_text.y) * 0.75;
+    draw_text_mut(img, Rgba([150, 150, 150, 255]), start_x + sec_w as i32 + gap as i32, start_y + f_y_offset as i32, scale_f_text, font, &f_str);
 }
 
 fn build_statblock_image(
@@ -186,22 +273,24 @@ fn build_statblock_image(
     form: usize,
     level: i32,
     cuts_map: HashMap<usize, SpriteCut>,
-    talent_levels: Option<HashMap<u8, u8>>
+    talent_levels: Option<HashMap<u8, u8>>,
+    is_conjure_expanded: bool
 ) -> RgbaImage {
     // --- SUPERSAMPLING CONSTANTS ---
     let scale: i32 = 2;
     let scale_f: f32 = 2.0;
 
     let padding = 8 * scale;
-    let col_w = 70 * scale;
-    let gap = 2 * scale;
+    let col_w = 66 * scale; 
+    let gap = 4 * scale;
     let export_icon_size = 40 * scale;
-    let icon_gap_x = 2 * scale;
-    let icon_gap_y = 2 * scale;
+    let icon_gap_x = (ABILITY_X * scale_f).round() as i32;
+    let icon_gap_y = (ABILITY_Y * scale_f).round() as i32;
+    let trait_gap_y = (TRAIT_Y * scale_f).round() as i32;
     let list_text_y_offset = 2 * scale;
     let list_text_gap_x = 8 * scale;
     
-    let base_grid_width: f32 = (8.0 * 2.0) + (70.0 * 5.0) + (2.0 * 4.0); // 374 px (unscaled)
+    let base_grid_width: f32 = (8.0 * 2.0) + (66.0 * 5.0) + (4.0 * 4.0); // 362 px (unscaled)
 
     let font_data: &[u8] = match language {
         "kr" => include_bytes!("../../../assets/NotoSansKR-Regular.ttf"),
@@ -224,30 +313,60 @@ fn build_statblock_image(
 
     let check_icon_row_width = |items: &Vec<AbilityItem>| -> f32 {
         if items.is_empty() { return 0.0; }
-        8.0 + (items.len() as f32 * 42.0) - 2.0 + 8.0 
+        8.0 + (items.len() as f32 * (40.0 + ABILITY_X)) - ABILITY_X + 8.0 
     };
 
-    let check_list_width = |items: &Vec<AbilityItem>| -> f32 {
-        let mut max_w = 0.0_f32;
-        for item in items {
-            let mut max_line_w = 0.0;
-            // No wrapping! If it has a natural newline, split and measure.
-            for line in item.text.split('\n') {
-                let (tw, _) = text_size(PxScale::from(14.0), &font, line); 
-                if tw as f32 > max_line_w { max_line_w = tw as f32; }
-            }
-            let w = 8.0 + 40.0 + 8.0 + max_line_w + 8.0; 
-            if w > max_w { max_w = w; }
+    let mut list_max_w = 0.0_f32;
+    for item in b1.iter().chain(b2.iter()) {
+        let mut max_line_w = 0.0;
+        for line in item.text.split('\n') {
+            let tw = measure_text_with_superscript(PxScale::from(14.0), &font, line); 
+            if tw as f32 > max_line_w { max_line_w = tw as f32; }
         }
-        max_w
-    };
+        let mut w = 8.0 + 40.0 + 8.0 + max_line_w + 8.0; 
+        
+        if item.icon_id == crate::global::img015::ICON_CONJURE && is_conjure_expanded {
+            if let Some(c_vec) = crate::features::cat::logic::stats::load_from_id(stats.conjure_unit_id) {
+                if let Some(c_stats) = c_vec.first() {
+                    let (s_traits, s_h1, s_h2, s_b1, s_b2, s_footer) = collect_ability_data(c_stats, level, cat.curve.as_ref(), &dummy_settings, true, None, None);
+                    let mut spirit_max = 0.0_f32;
+                    
+                    let dmg_text = format!("Damage: {}\nRange: {}", 999999, c_stats.standing_range); 
+                    for l in dmg_text.split('\n') {
+                        let tw = measure_text_with_superscript(PxScale::from(14.0), &font, l);
+                        let sw = 8.0 + 40.0 + 8.0 + tw as f32;
+                        if sw > spirit_max { spirit_max = sw; }
+                    }
+                    
+                    for s_item in s_b1.iter().chain(s_b2.iter()) {
+                        let mut s_line_w = 0.0;
+                        for l in s_item.text.split('\n') {
+                            let tw = measure_text_with_superscript(PxScale::from(14.0), &font, l);
+                            if tw as f32 > s_line_w { s_line_w = tw as f32; }
+                        }
+                        let sw = 8.0 + 40.0 + 8.0 + s_line_w;
+                        if sw > spirit_max { spirit_max = sw; }
+                    }
+
+                    for s_items in [&s_traits, &s_h1, &s_h2, &s_footer] {
+                        if !s_items.is_empty() {
+                            let ic_w = 8.0 + (s_items.len() as f32 * (40.0 + ABILITY_X)) - ABILITY_X;
+                            if ic_w > spirit_max { spirit_max = ic_w; }
+                        }
+                    }
+
+                    w = w.max(8.0 + spirit_max + SPIRIT_PADDING_X); 
+                }
+            }
+        }
+        if w > list_max_w { list_max_w = w; }
+    }
+    max_needed_width = max_needed_width.max(list_max_w);
 
     max_needed_width = max_needed_width.max(check_icon_row_width(&traits));
     max_needed_width = max_needed_width.max(check_icon_row_width(&h1));
     max_needed_width = max_needed_width.max(check_icon_row_width(&h2));
     max_needed_width = max_needed_width.max(check_icon_row_width(&footer));
-    max_needed_width = max_needed_width.max(check_list_width(&b1));
-    max_needed_width = max_needed_width.max(check_list_width(&b2));
 
     let canvas_width = (max_needed_width.ceil() as i32) * scale;
     
@@ -257,8 +376,9 @@ fn build_statblock_image(
     let separator_color = Rgba([60, 60, 60, 255]);
     let text_white = Rgba([255, 255, 255, 255]);
     let text_weak = Rgba([150, 150, 150, 255]);
-    let header_bg = Rgba([50, 50, 50, 255]);
-    let data_bg = Rgba([40, 40, 40, 255]);
+    
+    let header_bg = Rgba([15, 15, 15, 255]);
+    let data_bg = Rgba([45, 45, 45, 255]);
 
     draw_filled_rect_mut(&mut img, Rect::at(0, 0).of_size(canvas_width as u32, 4000 * scale as u32), bg_color);
 
@@ -306,19 +426,15 @@ fn build_statblock_image(
 
     let text_x = padding + 110 * scale + 12 * scale;
     
-    // Tighter unscaled bounds so text wraps similar to UI box
-    let max_name_width = 200.0 * scale_f;
-    // Increased height to 48px to allow two full lines of 20px text without triggering the shrink mechanism!
-    let name_box_height = 48.0 * scale_f; 
+    let max_name_width = NAME_BOX_WIDTH * scale_f;
+    let name_box_height = NAME_BOX_HEIGHT * scale_f; 
     
     let mut name_scale = 20.0;
     
-    // WRAP FIRST: Wrap text freely at standard size
     let mut name_lines = wrap_text(&disp_name, &font, PxScale::from(name_scale * scale_f), max_name_width);
     let mut line_height = (name_scale * scale_f) as i32 + (2 * scale);
     let mut total_text_h = name_lines.len() as i32 * line_height;
 
-    // SHRINK LATER: Only shrink if the wrapped lines burst out of the vertical container height
     while total_text_h > name_box_height as i32 && name_scale > 10.0 {
         name_scale -= 1.0;
         name_lines = wrap_text(&disp_name, &font, PxScale::from(name_scale * scale_f), max_name_width);
@@ -343,7 +459,6 @@ fn build_statblock_image(
     let mut cursor_y = std::cmp::max(padding + 85 * scale, final_level_y + 18 * scale) + 12 * scale;
     draw_filled_rect_mut(&mut img, Rect::at(padding, cursor_y).of_size(canvas_width as u32 - (padding * 2) as u32, 1 * scale as u32), separator_color);
     cursor_y += 10 * scale;
-
 
     // === STAT GRID ===
     let curve = cat.curve.as_ref();
@@ -375,51 +490,61 @@ fn build_statblock_image(
     ];
 
     let row_h = 24 * scale;
+    let cell_radius = 4 * scale;
+    
+    let r1_hy = cursor_y;
+    let r1_dy = cursor_y + row_h + gap;
+    let r2_hy = cursor_y + (row_h * 2) + (gap * 2);
+    let r2_dy = cursor_y + (row_h * 3) + (gap * 3);
 
     for col in 0..5 {
         let x = padding + (col * (col_w + gap));
         
-        let h1_rect = Rect::at(x, cursor_y).of_size(col_w as u32, row_h as u32);
-        draw_filled_rect_mut(&mut img, h1_rect, header_bg);
+        let h1_rect = Rect::at(x, r1_hy).of_size(col_w as u32, row_h as u32);
+        draw_rounded_rect_mut(&mut img, h1_rect, cell_radius, header_bg);
         draw_centered_text(&mut img, text_white, h1_rect, PxScale::from(14.0 * scale_f), &font, stat_headers_1[col as usize]);
         
-        let d1_rect = Rect::at(x, cursor_y + row_h).of_size(col_w as u32, row_h as u32);
+        let d1_rect = Rect::at(x, r1_dy).of_size(col_w as u32, row_h as u32);
         if col == 3 {
-            draw_time_cell(&mut img, data_bg, d1_rect, cycle, &font, scale_f, scale);
+            draw_time_cell(&mut img, data_bg, d1_rect, cycle, &font, scale_f, scale, cell_radius);
         } else {
-            draw_filled_rect_mut(&mut img, d1_rect, data_bg);
+            draw_rounded_rect_mut(&mut img, d1_rect, cell_radius, data_bg);
             draw_centered_text(&mut img, text_white, d1_rect, PxScale::from(15.0 * scale_f), &font, &stat_data_1[col as usize]);
         }
         
-        let h2_rect = Rect::at(x, cursor_y + (row_h * 2) + gap).of_size(col_w as u32, row_h as u32);
-        draw_filled_rect_mut(&mut img, h2_rect, header_bg);
+        let h2_rect = Rect::at(x, r2_hy).of_size(col_w as u32, row_h as u32);
+        draw_rounded_rect_mut(&mut img, h2_rect, cell_radius, header_bg);
         draw_centered_text(&mut img, text_white, h2_rect, PxScale::from(14.0 * scale_f), &font, stat_headers_2[col as usize]);
         
-        let d2_rect = Rect::at(x, cursor_y + (row_h * 3) + gap).of_size(col_w as u32, row_h as u32);
+        let d2_rect = Rect::at(x, r2_dy).of_size(col_w as u32, row_h as u32);
         if col == 3 {
-            draw_time_cell(&mut img, data_bg, d2_rect, cd_val, &font, scale_f, scale);
+            draw_time_cell(&mut img, data_bg, d2_rect, cd_val, &font, scale_f, scale, cell_radius);
         } else {
-            draw_filled_rect_mut(&mut img, d2_rect, data_bg);
+            draw_rounded_rect_mut(&mut img, d2_rect, cell_radius, data_bg);
             draw_centered_text(&mut img, text_white, d2_rect, PxScale::from(15.0 * scale_f), &font, &stat_data_2[col as usize]);
         }
     }
 
-    cursor_y += (row_h * 4) + gap + 15 * scale;
+    cursor_y += (row_h * 4) + (gap * 3) + 15 * scale;
     draw_filled_rect_mut(&mut img, Rect::at(padding, cursor_y).of_size(canvas_width as u32 - (padding * 2) as u32, 1 * scale as u32), separator_color);
     cursor_y += 10 * scale;
 
-
     // === ABILITIES ===
-    let draw_icon_row = |img: &mut RgbaImage, items: &Vec<AbilityItem>, y: i32| -> i32 {
+    let draw_icon_row = |img: &mut RgbaImage, items: &Vec<AbilityItem>, y: i32, x_start: i32| -> i32 {
         if items.is_empty() { return y; }
-        let mut x = padding;
+        let mut x = x_start;
+        let mut cur_y = y;
         
         for item in items {
+            if x + export_icon_size > canvas_width - padding {
+                x = x_start;
+                cur_y += export_icon_size + icon_gap_y;
+            }
             let icon = get_icon_image(item, &cuts_map, &img015_base, &multihit_base, &kamikaze_base, &bosswave_base, export_icon_size as u32);
-            image::imageops::overlay(img, &icon, x as i64, y as i64);
+            image::imageops::overlay(img, &icon, x as i64, cur_y as i64);
             x += export_icon_size + icon_gap_x; 
         }
-        y + export_icon_size 
+        cur_y + export_icon_size 
     };
 
     let draw_list = |img: &mut RgbaImage, items: &Vec<AbilityItem>, mut y: i32| -> i32 {
@@ -429,7 +554,6 @@ fn build_statblock_image(
             let icon = get_icon_image(item, &cuts_map, &img015_base, &multihit_base, &kamikaze_base, &bosswave_base, export_icon_size as u32);
             image::imageops::overlay(img, &icon, padding as i64, y as i64);
             
-            // NO dynamic wrapping. Split on explicit localization line breaks \n
             let lines: Vec<&str> = item.text.split('\n').collect();
             let line_height = 18 * scale;
             let total_text_h = lines.len() as i32 * line_height;
@@ -440,11 +564,155 @@ fn build_statblock_image(
             }
 
             for line in lines {
-                draw_text_mut(img, text_white, padding + export_icon_size as i32 + list_text_gap_x, text_y, PxScale::from(14.0 * scale_f), &font, line);
+                draw_text_with_superscript(img, text_white, padding + export_icon_size as i32 + list_text_gap_x, text_y, PxScale::from(14.0 * scale_f), &font, line);
                 text_y += line_height;
             }
             
             y += (export_icon_size as i32).max(total_text_h);
+
+            // --- SPIRIT CARD RENDER BLOCK ---
+            if item.icon_id == crate::global::img015::ICON_CONJURE && is_conjure_expanded {
+                if let Some(c_vec) = crate::features::cat::logic::stats::load_from_id(stats.conjure_unit_id) {
+                    if let Some(c_stats) = c_vec.first() {
+                        y += icon_gap_y; 
+
+                        let (s_traits, s_h1, s_h2, s_b1, s_b2, s_footer) = collect_ability_data(c_stats, level, cat.curve.as_ref(), &dummy_settings, true, None, None);
+                        
+                        let sx = 8 * scale;
+                        let mut spirit_content_w = 0;
+                        
+                        let dmg = cat.curve.as_ref().map_or(c_stats.attack_1, |c| c.calculate_stat(c_stats.attack_1, level));
+                        let dmg_text = format!("Damage: {}\nRange: {}", dmg, c_stats.standing_range);
+                        let dmg_lines: Vec<&str> = dmg_text.split('\n').collect();
+
+                        for l in &dmg_lines {
+                            let tw = measure_text_with_superscript(PxScale::from(14.0 * scale_f), &font, l);
+                            spirit_content_w = spirit_content_w.max(sx + export_icon_size as i32 + list_text_gap_x + tw as i32);
+                        }
+                        
+                        for s_item in s_b1.iter().chain(s_b2.iter()) {
+                            for l in s_item.text.split('\n') {
+                                let tw = measure_text_with_superscript(PxScale::from(14.0 * scale_f), &font, l);
+                                spirit_content_w = spirit_content_w.max(sx + export_icon_size as i32 + list_text_gap_x + tw as i32);
+                            }
+                        }
+                        
+                        for s_items in [&s_traits, &s_h1, &s_h2, &s_footer] {
+                            if !s_items.is_empty() {
+                                let ic_w = sx + (s_items.len() as i32 * (export_icon_size as i32 + icon_gap_x)) - icon_gap_x;
+                                spirit_content_w = spirit_content_w.max(ic_w);
+                            }
+                        }
+
+                        let spirit_w = spirit_content_w + (SPIRIT_PADDING_X * scale_f) as i32;
+
+                        let mut final_h = 8 * scale;
+                        let dmg_total_h = dmg_lines.len() as i32 * 18 * scale;
+                        final_h += (export_icon_size as i32).max(dmg_total_h) + icon_gap_y;
+                        
+                        let mut prev = false;
+                        let mut last_was_trait_s = false;
+                        
+                        if !s_traits.is_empty() { final_h += export_icon_size as i32; prev = true; last_was_trait_s = true; }
+                        if !s_h1.is_empty() { if prev { final_h += if last_was_trait_s { trait_gap_y } else { icon_gap_y }; last_was_trait_s = false; } final_h += export_icon_size as i32; prev = true; }
+                        if !s_h2.is_empty() { if prev { final_h += if last_was_trait_s { trait_gap_y } else { icon_gap_y }; last_was_trait_s = false; } final_h += export_icon_size as i32; prev = true; }
+                        if !s_b1.is_empty() || !s_b2.is_empty() {
+                            if prev { final_h += if last_was_trait_s { trait_gap_y } else { icon_gap_y }; last_was_trait_s = false; }
+                            if !s_b1.is_empty() {
+                                for (idx, it) in s_b1.iter().enumerate() {
+                                    let th = it.text.split('\n').count() as i32 * 18 * scale;
+                                    final_h += (export_icon_size as i32).max(th);
+                                    if idx < s_b1.len() - 1 { final_h += icon_gap_y; }
+                                }
+                            }
+                            if !s_b1.is_empty() && !s_b2.is_empty() { final_h += icon_gap_y; }
+                            if !s_b2.is_empty() {
+                                for (idx, it) in s_b2.iter().enumerate() {
+                                    let th = it.text.split('\n').count() as i32 * 18 * scale;
+                                    final_h += (export_icon_size as i32).max(th);
+                                    if idx < s_b2.len() - 1 { final_h += icon_gap_y; }
+                                }
+                            }
+                            prev = true;
+                        }
+                        if !s_footer.is_empty() { if prev { final_h += if last_was_trait_s { trait_gap_y } else { icon_gap_y }; } final_h += export_icon_size as i32; }
+                        final_h += 8 * scale;
+
+                        // 1. Draw perfectly rounded solid background DIRECTLY onto the main image for pristine text quality
+                        let spirit_rect = Rect::at(padding as i32, y).of_size(spirit_w as u32, final_h as u32);
+                        draw_bottom_rounded_rect_mut(img, spirit_rect, 8 * scale, Rgba([8, 8, 8, 255]));
+
+                        // 2. Draw perfectly opaque crisp text & icons matching the regular UI exactly
+                        let mut sy = y + 8 * scale;
+                        let sx_abs = padding as i32 + 8 * scale;
+
+                        let area_item = AbilityItem { icon_id: crate::global::img015::ICON_AREA_ATTACK, border_id: None, custom_icon: CustomIcon::None, text: String::new() };
+                        let area_icon = get_icon_image(&area_item, &cuts_map, &img015_base, &multihit_base, &kamikaze_base, &bosswave_base, export_icon_size as u32);
+                        image::imageops::overlay(img, &area_icon, sx_abs as i64, sy as i64);
+
+                        let mut sty = sy;
+                        if dmg_total_h < export_icon_size as i32 {
+                            sty += (export_icon_size as i32 - dmg_total_h) / 2 + list_text_y_offset; 
+                        }
+
+                        for line in dmg_lines {
+                            draw_text_with_superscript(img, text_white, sx_abs + export_icon_size as i32 + list_text_gap_x, sty, PxScale::from(14.0 * scale_f), &font, line);
+                            sty += 18 * scale;
+                        }
+                        sy += (export_icon_size as i32).max(dmg_total_h) + icon_gap_y;
+
+                        let draw_s_icons = |s_img: &mut RgbaImage, s_items: &[AbilityItem], cy: i32| -> i32 {
+                            if s_items.is_empty() { return cy; }
+                            let mut cx = sx_abs;
+                            for it in s_items {
+                                let ic = get_icon_image(it, &cuts_map, &img015_base, &multihit_base, &kamikaze_base, &bosswave_base, export_icon_size as u32);
+                                image::imageops::overlay(s_img, &ic, cx as i64, cy as i64);
+                                cx += export_icon_size as i32 + icon_gap_x;
+                            }
+                            cy + export_icon_size as i32
+                        };
+
+                        let draw_s_list = |s_img: &mut RgbaImage, s_items: &[AbilityItem], mut cy: i32| -> i32 {
+                            if s_items.is_empty() { return cy; }
+                            for (idx, it) in s_items.iter().enumerate() {
+                                let ic = get_icon_image(it, &cuts_map, &img015_base, &multihit_base, &kamikaze_base, &bosswave_base, export_icon_size as u32);
+                                image::imageops::overlay(s_img, &ic, sx_abs as i64, cy as i64);
+                                
+                                let lns: Vec<&str> = it.text.split('\n').collect();
+                                let mut t_y = cy;
+                                let th = lns.len() as i32 * (18 * scale);
+                                if th < export_icon_size as i32 { t_y += (export_icon_size as i32 - th) / 2 + list_text_y_offset; }
+                                
+                                for ln in lns {
+                                    draw_text_with_superscript(s_img, text_white, sx_abs + export_icon_size as i32 + list_text_gap_x, t_y, PxScale::from(14.0 * scale_f), &font, ln);
+                                    t_y += 18 * scale;
+                                }
+                                cy += (export_icon_size as i32).max(th);
+                                if idx < s_items.len() - 1 { cy += icon_gap_y; }
+                            }
+                            cy
+                        };
+
+                        let mut prev_b = false;
+                        let mut last_was_trait_b = false;
+                        
+                        if !s_traits.is_empty() { sy = draw_s_icons(img, &s_traits, sy); prev_b = true; last_was_trait_b = true; }
+                        if !s_h1.is_empty() { if prev_b { sy += if last_was_trait_b { trait_gap_y } else { icon_gap_y }; last_was_trait_b = false; } sy = draw_s_icons(img, &s_h1, sy); prev_b = true; }
+                        if !s_h2.is_empty() { if prev_b { sy += if last_was_trait_b { trait_gap_y } else { icon_gap_y }; last_was_trait_b = false; } sy = draw_s_icons(img, &s_h2, sy); prev_b = true; }
+                        if !s_b1.is_empty() || !s_b2.is_empty() {
+                            if prev_b { sy += if last_was_trait_b { trait_gap_y } else { icon_gap_y }; last_was_trait_b = false; }
+                            if !s_b1.is_empty() { sy = draw_s_list(img, &s_b1, sy); }
+                            if !s_b1.is_empty() && !s_b2.is_empty() { sy += icon_gap_y; }
+                            if !s_b2.is_empty() { draw_s_list(img, &s_b2, sy); }
+                            prev_b = true;
+                        }
+                        if !s_footer.is_empty() { if prev_b { sy += if last_was_trait_b { trait_gap_y } else { icon_gap_y }; } draw_s_icons(img, &s_footer, sy); }
+
+                        y += final_h;
+                    }
+                }
+            }
+
             if i < items.len() - 1 {
                 y += icon_gap_y;
             }
@@ -452,32 +720,29 @@ fn build_statblock_image(
         y 
     };
 
-    let mut last_was_trait = false;
     let mut previously_drew = false;
-    let section_gap = 5 * scale;
+    let mut last_was_trait_main = false;
 
     if !traits.is_empty() { 
-        cursor_y = draw_icon_row(&mut img, &traits, cursor_y); 
-        last_was_trait = true; 
+        cursor_y = draw_icon_row(&mut img, &traits, cursor_y, padding); 
         previously_drew = true;
+        last_was_trait_main = true;
     }
     
     if !h1.is_empty() { 
-        if previously_drew { cursor_y += if last_was_trait { section_gap } else { icon_gap_y }; }
-        cursor_y = draw_icon_row(&mut img, &h1, cursor_y); 
-        last_was_trait = false;
+        if previously_drew { cursor_y += if last_was_trait_main { trait_gap_y } else { icon_gap_y }; last_was_trait_main = false; }
+        cursor_y = draw_icon_row(&mut img, &h1, cursor_y, padding); 
         previously_drew = true;
     }
     
     if !h2.is_empty() { 
-        if previously_drew { cursor_y += if last_was_trait { section_gap } else { icon_gap_y }; }
-        cursor_y = draw_icon_row(&mut img, &h2, cursor_y); 
-        last_was_trait = false;
+        if previously_drew { cursor_y += if last_was_trait_main { trait_gap_y } else { icon_gap_y }; last_was_trait_main = false; }
+        cursor_y = draw_icon_row(&mut img, &h2, cursor_y, padding); 
         previously_drew = true;
     }
 
     if !b1.is_empty() || !b2.is_empty() {
-        if previously_drew { cursor_y += if last_was_trait { section_gap } else { icon_gap_y }; }
+        if previously_drew { cursor_y += if last_was_trait_main { trait_gap_y } else { icon_gap_y }; last_was_trait_main = false; }
         
         if !b1.is_empty() {
             cursor_y = draw_list(&mut img, &b1, cursor_y);
@@ -489,20 +754,17 @@ fn build_statblock_image(
             cursor_y = draw_list(&mut img, &b2, cursor_y);
         }
         
-        last_was_trait = false;
         previously_drew = true;
     }
 
     if !footer.is_empty() { 
-        if previously_drew { cursor_y += icon_gap_y; } 
-        cursor_y = draw_icon_row(&mut img, &footer, cursor_y); 
+        if previously_drew { cursor_y += if last_was_trait_main { trait_gap_y } else { icon_gap_y }; } 
+        cursor_y = draw_icon_row(&mut img, &footer, cursor_y, padding); 
     }
 
-    // Tightly crop the massive scaled canvas
     let final_height = cursor_y + padding;
     let final_cropped = image::imageops::crop_imm(&img, 0, 0, canvas_width as u32, final_height as u32).to_image();
     
-    // Mathematically downsample using Lanczos3 for perfect Anti-Aliased edges
     image::imageops::resize(
         &final_cropped, 
         final_cropped.width() / scale as u32, 
@@ -519,10 +781,13 @@ pub fn generate_and_copy_statblock(
     form: usize,
     level: i32,
     cuts_map: HashMap<usize, SpriteCut>,
-    talent_levels: Option<HashMap<u8, u8>>
+    talent_levels: Option<HashMap<u8, u8>>,
+    is_conjure_expanded: bool,
 ) {
+    let ctx_clone = ctx.clone();
+
     std::thread::spawn(move || {
-        let img = build_statblock_image(&language, &cat, &stats, form, level, cuts_map, talent_levels);
+        let img = build_statblock_image(&language, &cat, &stats, form, level, cuts_map, talent_levels, is_conjure_expanded);
         
         let (width, height) = img.dimensions();
         let raw_pixels = img.into_raw();
@@ -537,16 +802,15 @@ pub fn generate_and_copy_statblock(
             Err(_) => false,
         };
 
-        let current_time = ctx.input(|i| i.time);
+        let current_time = ctx_clone.input(|i| i.time);
         
-        ctx.data_mut(|d| {
+        ctx_clone.data_mut(|d| {
             d.insert_temp(egui::Id::new("export_copy_time"), current_time);
             d.insert_temp(egui::Id::new("export_copy_res"), success);
             d.insert_temp(egui::Id::new("is_copying"), false);
         });
-        ctx.request_repaint();
+        ctx_clone.request_repaint();
 
-        let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs_f32(2.1));
             ctx_clone.request_repaint();
@@ -562,10 +826,13 @@ pub fn generate_and_save_statblock(
     form: usize,
     level: i32,
     cuts_map: HashMap<usize, SpriteCut>,
-    talent_levels: Option<HashMap<u8, u8>>
+    talent_levels: Option<HashMap<u8, u8>>,
+    is_conjure_expanded: bool,
 ) {
+    let ctx_clone = ctx.clone();
+
     std::thread::spawn(move || {
-        let img = build_statblock_image(&language, &cat, &stats, form, level, cuts_map, talent_levels);
+        let img = build_statblock_image(&language, &cat, &stats, form, level, cuts_map, talent_levels, is_conjure_expanded);
         
         let export_dir = Path::new("exports");
         let mut success = true;
@@ -581,16 +848,15 @@ pub fn generate_and_save_statblock(
             success = img.save(filename).is_ok();
         }
         
-        let current_time = ctx.input(|i| i.time);
+        let current_time = ctx_clone.input(|i| i.time);
         
-        ctx.data_mut(|d| {
+        ctx_clone.data_mut(|d| {
             d.insert_temp(egui::Id::new("export_save_time"), current_time);
             d.insert_temp(egui::Id::new("export_save_res"), success);
             d.insert_temp(egui::Id::new("is_exporting"), false);
         });
-        ctx.request_repaint();
+        ctx_clone.request_repaint();
 
-        let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs_f32(2.1));
             ctx_clone.request_repaint();
