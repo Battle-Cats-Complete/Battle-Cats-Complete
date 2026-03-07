@@ -70,17 +70,19 @@ pub fn show(
                 let stats_clone = stats.clone();
                 let lang_clone = settings.game_language.clone();
                 let cuts_clone = icon_sheet.cuts_map.clone(); 
-                
-                // master.rs receives ONLY the u8 map for this specific cat, so we just clone it directly!
                 let levels_clone = Some(talent_levels.clone()); 
+                
+                // Fetch the persistent state from the UI exactly as the app renders it!
+                let id = egui::Id::new(format!("conjure_expand_{}", cat_entry.id));
+                let is_conjure_expanded = ctx.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.expand_spirit_details));
                 
                 if export_action == ExportAction::Copy {
                     crate::features::cat::logic::exporter::generate_and_copy_statblock(
-                        ctx.clone(), lang_clone, cat_clone, stats_clone, *current_form, *current_level, cuts_clone, levels_clone
+                        ctx.clone(), lang_clone, cat_clone, stats_clone, *current_form, *current_level, cuts_clone, levels_clone, is_conjure_expanded
                     );
                 } else {
                     crate::features::cat::logic::exporter::generate_and_save_statblock(
-                        ctx.clone(), lang_clone, cat_clone, stats_clone, *current_form, *current_level, cuts_clone, levels_clone
+                        ctx.clone(), lang_clone, cat_clone, stats_clone, *current_form, *current_level, cuts_clone, levels_clone, is_conjure_expanded
                     );
                 }
             }

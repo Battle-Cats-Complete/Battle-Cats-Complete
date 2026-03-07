@@ -9,9 +9,9 @@ use crate::global::img015;
 use crate::features::cat::data::skillacquisition::TalentRaw;
 use std::collections::HashMap;
 
-const ABILITY_X: f32 = 3.0;
-const ABILITY_Y: f32 = 5.0;
-const TRAIT_Y: f32 = 7.0;
+pub const ABILITY_X: f32 = 3.0;
+pub const ABILITY_Y: f32 = 5.0;
+pub const TRAIT_Y: f32 = 7.0;
 
 pub fn render(
     ui: &mut egui::Ui, 
@@ -158,7 +158,7 @@ pub fn render_list_view(
 ) {
     for (i, item) in items.iter().enumerate() {
         let is_conjure = item.icon_id == img015::ICON_CONJURE;
-        let id = ui.make_persistent_id(format!("conjure_expand_{}", cat_id));
+        let id = egui::Id::new(format!("conjure_expand_{}", cat_id));
         
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0; 
