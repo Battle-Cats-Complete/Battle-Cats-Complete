@@ -4,3 +4,4 @@ pub mod img022;
 pub mod mamodel;
 pub mod maanim;
 pub mod paths;
+pub mod patterns;

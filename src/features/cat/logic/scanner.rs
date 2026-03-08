@@ -5,7 +5,7 @@ use std::sync::{Arc, mpsc::{self, Receiver}};
 use rayon::prelude::*;
 use regex::Regex; 
 use image::GenericImageView; 
-use crate::core::patterns; 
+use crate::features::cat::patterns; 
 use crate::features::cat::data::unitid::CatRaw;
 use crate::features::cat::data::unitbuy::{self, UnitBuyRow};
 use crate::features::cat::data::unitlevel::{self, CatLevelCurve};

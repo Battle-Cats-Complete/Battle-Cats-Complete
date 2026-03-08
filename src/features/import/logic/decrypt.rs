@@ -7,7 +7,7 @@ use std::io::{Read, Seek, SeekFrom};
 use rayon::prelude::*;
 use zip::ZipArchive;
 use crate::features::import::logic::keys; 
-use crate::core::patterns; 
+use crate::global::patterns;
 
 pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(), String> {
     let source_dir = Path::new(folder_path);

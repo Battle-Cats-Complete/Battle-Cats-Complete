@@ -97,9 +97,6 @@ impl Default for ImportState {
 }
 
 impl ImportState {
-    pub fn set_decrypt_path(&mut self, path: String) {
-        self.decrypt_path = path;
-    }
 
     pub fn update(&mut self, ctx: &egui::Context, settings: &mut Settings) -> bool {
         let mut finished_just_now = false;
@@ -164,7 +161,7 @@ impl ImportState {
     }
 }
 
-fn censor_path(path: &str) -> String {
+pub fn censor_path(path: &str) -> String {
     if path.is_empty() || path == "No source selected" { return String::new(); }
     let mut clean = path.to_string();
     if let Ok(user) = env::var("USERNAME").or_else(|_| env::var("USER")) {
