@@ -77,7 +77,6 @@ pub fn collect_ability_data(
     let target_label = if is_conjure_unit { "Enemies" } else { "Target Traits" };
 
     if final_stats.attack_2 > 0 {
-        // Reads directly from the fully leveled and buffed final_stats
         let damage_hit_1 = final_stats.attack_1;
         let damage_hit_2 = final_stats.attack_2;
         let damage_hit_3 = final_stats.attack_3;
@@ -151,7 +150,6 @@ pub fn collect_ability_data(
                     let v1 = crate::features::cat::logic::talents::calculate_talent_value(group.min_1, group.max_1, lv, group.max_level);
                     let v2 = crate::features::cat::logic::talents::calculate_talent_value(group.min_2, group.max_2, lv, group.max_level);
                     
-                    // We explicitly pass the UNLEVELED base_stats to the tooltip generator so it can calculate the pure Base -> Buff
                     let text = desc_gen(v1, v2, base_stats, level_curve, current_level, group, lv);
                     
                     match group.ability_id {
@@ -168,9 +166,10 @@ pub fn collect_ability_data(
                 }
             }
         }
-        let mut new_h2 = talent_headline;
-        new_h2.append(&mut group_headline_2);
-        group_headline_2 = new_h2;
+        
+        // By pushing the stat talents to the existing group_headline_2 list, 
+        // they will natively appear at the end of the row!
+        group_headline_2.append(&mut talent_headline);
     }
 
     (group_trait, group_headline_1, group_headline_2, group_body_1, group_body_2, group_footer)

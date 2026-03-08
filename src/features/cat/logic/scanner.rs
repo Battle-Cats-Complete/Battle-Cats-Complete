@@ -89,6 +89,7 @@ pub fn process_cat_entry(
 
     let ub_row = unit_buys.get(&cat_id)?;
 
+    let _is_hidden = ub_row.guide_order == -1;
     let is_egg_unit = ub_row.egg_id_normal != -1;
     let is_summon = ub_row.level_cap_standard == 1 && ub_row.level_cap_plus == 0 && ub_row.purchase_cost == 0;
 

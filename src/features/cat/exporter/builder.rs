@@ -20,7 +20,7 @@ use crate::features::cat::ui::abilities::{ABILITY_X, ABILITY_Y, TRAIT_Y};
 use super::draw::*;
 
 // --- EXPORT LAYOUT CONSTANTS ---
-const NAME_BOX_WIDTH: f32 = 150.0;
+const NAME_BOX_WIDTH: f32 = 130.0;
 const NAME_BOX_HEIGHT: f32 = 50.0;
 const HEADER_PADDING_Y: i32 = 10;
 const STAT_GRID_PADDING_Y: i32 = 14;
