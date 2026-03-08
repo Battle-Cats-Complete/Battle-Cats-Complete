@@ -63,7 +63,6 @@ pub fn render(
                 }
             }
 
-            // --- EXPORT IMAGE BUTTONS (Only visible on Abilities Tab) ---
             if *current_tab == DetailTab::Abilities {
                 ui.add_space(15.0);
                 let separator_color = ui.visuals().widgets.noninteractive.bg_stroke.color;

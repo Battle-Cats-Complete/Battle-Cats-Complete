@@ -5,7 +5,6 @@ use crate::features::cat::data::skillacquisition::TalentRaw;
 use std::collections::HashMap;
 use crate::features::cat::registry::{self, DisplayGroup};
 
-// NEW: Enum to decouple GUI from Logic!
 #[derive(Clone, PartialEq, Default)]
 pub enum CustomIcon {
     #[default] None,

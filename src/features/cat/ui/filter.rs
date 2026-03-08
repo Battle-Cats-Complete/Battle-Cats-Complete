@@ -10,7 +10,6 @@ use crate::features::settings::logic::Settings;
 pub use crate::features::cat::logic::filter::{CatFilterState, MatchMode, TalentFilterMode};
 use crate::features::cat::logic::filter::{get_adv_attributes, get_icon_name, ATTACK_TYPE_ICONS};
 
-// --- UI Layout Constants ---
 pub const WINDOW_WIDTH: f32 = 500.0;
 pub const WINDOW_HEIGHT: f32 = 580.0;
 pub const TILDE_SPACING: f32 = 5.0; 

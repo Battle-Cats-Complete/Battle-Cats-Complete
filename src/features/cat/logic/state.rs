@@ -358,9 +358,23 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
 
         let mut current_ultra_state = state.selected_form == 3;
         
-        if let Some(levels) = state.talent_levels.get(&selected_id) {
-            if levels.iter().any(|(&idx, &lvl)| idx >= 5 && lvl > 0) {
-                current_ultra_state = true;
+        // Only evaluate Ultra Talents if the current form actually allows talents (True Form or higher)
+        if state.selected_form >= 2 {
+            if let Some(levels) = state.talent_levels.get(&selected_id) {
+                if let Some(t_data) = &cat_entry.talent_data {
+                    for (idx, group) in t_data.groups.iter().enumerate() {
+                        if group.limit == 1 { // Limit 1 indicates this is an Ultra Talent
+                            if let Some(&lvl) = levels.get(&(idx as u8)) {
+                                if lvl > 0 {
+                                    current_ultra_state = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } else if levels.iter().any(|(&idx, &lvl)| idx >= 5 && lvl > 0) {
+                    current_ultra_state = true;
+                }
             }
         }
 
