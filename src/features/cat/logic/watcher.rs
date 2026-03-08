@@ -7,7 +7,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 use super::CatListState;
 use super::loader;
-use crate::core::patterns;
+use crate::features::cat::patterns;
+use crate::global::patterns::CHECK_LINE_FILES;
 use crate::features::cat::data::unitbuy;
 use crate::features::cat::data::unitevolve;
 use crate::global::imgcut::SpriteSheet;
@@ -125,8 +126,7 @@ pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBu
     
     let cats_dir = Path::new(paths::DIR_CATS);
 
-    if patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || patterns::CHECK_LINE_FILES.contains(&file_name) {
-        loader::restart_scan(state, config);
+if patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || CHECK_LINE_FILES.contains(&file_name) {
         ctx.request_repaint();
         return;
     }
