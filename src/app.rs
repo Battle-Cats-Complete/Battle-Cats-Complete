@@ -4,6 +4,7 @@ use crate::updater;
 use crate::ui::main_menu;
 use crate::features::import::logic::ImportState;
 use crate::features::cat::logic::CatListState;
+use crate::features::enemy::logic::state::EnemyListState;
 use crate::features::settings::logic::{Settings, upd::UpdateMode};
 use std::path::PathBuf;
 
@@ -12,12 +13,14 @@ enum Page {
     MainMenu,
     ImportData,
     CatData,
+    EnemyData,
     Settings,
 }
 
 const PAGES: &[(Page, &str)] = &[
     (Page::MainMenu, "Main Menu"),
     (Page::CatData, "Cat Data"),
+    (Page::EnemyData, "Enemy Data"),
     (Page::ImportData, "Game Data"),
     (Page::Settings, "Settings"),
 ];
@@ -39,6 +42,7 @@ pub struct BattleCatsApp {
     drag_guard: utils::DragGuard,
     
     cat_list_state: CatListState,
+    enemy_list_state: EnemyListState,
     pub settings: Settings,
 }
 
@@ -49,6 +53,7 @@ impl Default for BattleCatsApp {
             sidebar_open: false,
             import_state: ImportState::default(),
             cat_list_state: CatListState::default(),
+            enemy_list_state: EnemyListState::default(),
             settings: Settings::default(),
             updater: updater::Updater::default(),
             drag_guard: utils::DragGuard::default(),
@@ -71,6 +76,7 @@ impl BattleCatsApp {
         }
 
         app.cat_list_state.restart_scan(app.settings.scanner_config());
+        app.enemy_list_state.load_enemies(&app.settings.scanner_config());
 
         updater::cleanup_temp_files();
 
@@ -185,6 +191,8 @@ impl eframe::App for BattleCatsApp {
             Page::CatData => {
                 crate::features::cat::logic::show(ctx, &mut self.cat_list_state, &mut self.settings);
             },
+            Page::EnemyData => {
+                crate::features::enemy::logic::state::show(ctx, &mut self.enemy_list_state, &mut self.settings);            },
             Page::Settings => {
                 let refresh_needed = crate::features::settings::ui::show(ctx, &mut self.settings, &mut self.drag_guard);
                 
