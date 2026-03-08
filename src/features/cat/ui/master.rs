@@ -78,11 +78,11 @@ pub fn show(
                 
                 if export_action == ExportAction::Copy {
                     crate::features::cat::logic::exporter::generate_and_copy_statblock(
-                        ctx.clone(), lang_clone, cat_clone, stats_clone, *current_form, *current_level, cuts_clone, levels_clone, is_conjure_expanded
+                        ctx.clone(), lang_clone, cat_clone, stats_clone, *current_form, *current_level, level_input.clone(), cuts_clone, levels_clone, is_conjure_expanded
                     );
                 } else {
                     crate::features::cat::logic::exporter::generate_and_save_statblock(
-                        ctx.clone(), lang_clone, cat_clone, stats_clone, *current_form, *current_level, cuts_clone, levels_clone, is_conjure_expanded
+                        ctx.clone(), lang_clone, cat_clone, stats_clone, *current_form, *current_level, level_input.clone(), cuts_clone, levels_clone, is_conjure_expanded
                     );
                 }
             }

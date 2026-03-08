@@ -264,8 +264,12 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
                         if settings.auto_level_calculations {
                             let base_max = new_cat.unit_buy.level_cap_standard;
                             let plus_max = new_cat.unit_buy.level_cap_plus;
+                            let is_legend_rare = new_cat.unit_buy.rarity == 5;
                             
-                            if base_max == 1 || (plus_max >= 5 && plus_max <= 65) {
+                            if is_legend_rare {
+                                state.current_level = 50;
+                                state.level_input = "50".to_string();
+                            } else if base_max == 1 || (plus_max >= 5 && plus_max <= 65) {
                                 state.current_level = base_max + plus_max;
                                 if plus_max > 0 {
                                     state.level_input = format!("{}+{}", base_max, plus_max);
