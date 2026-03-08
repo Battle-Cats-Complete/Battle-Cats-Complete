@@ -23,7 +23,8 @@ pub const CHECK_LINE_FILES: &[&str] = &[
     "SkillLevel.csv",
     "unitbuy.csv",
     "unitevolve.csv",
-    "unitlevel.csv"
+    "unitlevel.csv",
+    "t_unit.csv"
 ];
 
 // Files that have regional variants
@@ -33,4 +34,5 @@ pub const REGION_SENSITIVE_FILES: &[&str] = &[
     "Skill_name",
     "GatyaitemName",
     "unitevolve",
+    "Enemyname",
 ];
