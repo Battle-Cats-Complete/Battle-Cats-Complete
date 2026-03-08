@@ -12,7 +12,6 @@ use crate::global::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
 use crate::features::cat::data::skilllevel::TalentCost;
 
-// Bring sibling modules into scope
 use super::{header, stats, abilities, talents, details, viewer};
 use super::header::ExportAction;
 
@@ -62,7 +61,6 @@ pub fn show(
     } else { None };
     let current_stats = patched_stats_owned.as_ref().or(base_stats);
 
-    // --- TRIGGER EXPORT ---
     match export_action {
         ExportAction::Copy | ExportAction::Save => {
             if let Some(stats) = current_stats {
@@ -72,16 +70,16 @@ pub fn show(
                 let cuts_clone = icon_sheet.cuts_map.clone(); 
                 let levels_clone = Some(talent_levels.clone()); 
                 
-                // Fetch the persistent state from the UI exactly as the app renders it!
+                // Fetch the persistent state from the UI exactly as the app renders it
                 let id = egui::Id::new(format!("conjure_expand_{}", cat_entry.id));
                 let is_conjure_expanded = ctx.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.expand_spirit_details));
                 
                 if export_action == ExportAction::Copy {
-                    crate::features::cat::logic::exporter::generate_and_copy_statblock(
+                    crate::features::cat::exporter::generate_and_copy_statblock(
                         ctx.clone(), lang_clone, cat_clone, stats_clone, *current_form, *current_level, level_input.clone(), cuts_clone, levels_clone, is_conjure_expanded
                     );
                 } else {
-                    crate::features::cat::logic::exporter::generate_and_save_statblock(
+                    crate::features::cat::exporter::generate_and_save_statblock(
                         ctx.clone(), lang_clone, cat_clone, stats_clone, *current_form, *current_level, level_input.clone(), cuts_clone, levels_clone, is_conjure_expanded
                     );
                 }
