@@ -3,13 +3,16 @@ use std::io::{self, BufRead};
 use std::path::Path;
 use std::sync::mpsc::Sender;
 
-use crate::global::patterns; 
+use crate::features::cat::patterns as cat_patterns; 
+use crate::global::patterns as global_patterns;
 use super::{cat, global, enemy};
 
 pub fn count_lines(path: &Path) -> usize {
     if let Some(ext) = path.extension() {
         let s = ext.to_string_lossy();
-        if s == "png" || s == "imgcut" || s == "mamodel" { return 0; }
+        // Removed imgcut and mamodel from this exclusion so they can use 
+        // line-counting to verify actual richness over placeholders.
+        if s == "png" { return 0; } 
     }
 
     if let Ok(f) = fs::File::open(path) {
@@ -25,6 +28,7 @@ pub fn move_if_bigger(src: &Path, dest: &Path) -> std::io::Result<bool> {
         let src_lines = count_lines(src);
         let dest_lines = count_lines(dest);
 
+        // Files with more defined parts/lines will replace the dummy files
         if src_lines > dest_lines {
             let _ = fs::remove_file(dest);
             fs::rename(src, dest)?;
@@ -81,6 +85,19 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             None => continue,
         };
 
+        if cat_patterns::CAT_UNIVERSAL_FILES.contains(&name) {
+            let dest = cats_dir.join(name);
+            
+            if global_patterns::CHECK_LINE_FILES.contains(&name) {
+                if let Ok(moved) = move_if_bigger(&path, &dest) {
+                    if moved { count += 1; }
+                }
+            } else {
+                if move_fast(&path, &dest).is_ok() { count += 1; }
+            }
+            continue; 
+        }
+
         let dest_folder = global_matcher.get_dest(name, assets_dir)
             .or_else(|| cat_matcher.get_dest(name, cats_dir))
             .or_else(|| enemy_matcher.get_dest(name, enemy_dir));
@@ -89,9 +106,10 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             if !folder.exists() { 
                 let _ = fs::create_dir_all(&folder); 
             }
+            
             let dest = folder.join(name);
 
-            if patterns::CHECK_LINE_FILES.contains(&name) {
+            if global_patterns::CHECK_LINE_FILES.contains(&name) {
                 if let Ok(moved) = move_if_bigger(&path, &dest) {
                     if moved { count += 1; }
                 }
