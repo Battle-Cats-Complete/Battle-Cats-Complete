@@ -16,7 +16,8 @@ pub const GATYA_ITEM_NAME_PATTERN: &str = r"^GatyaitemName(?:_([a-z]{2}))?\.csv$
 pub const GLOBAL_CODES: &[&str] = &["de", "en", "es", "fr", "it", "th"];
 pub const REGION_CODES: &[&str] = &["en", "jp", "kr", "tw"];
 
-// Files that use line-count checks instead of simple overwrites
+// Files that go by "if line count is higher" logic
+// instead of "if file size is larger" logic
 pub const CHECK_LINE_FILES: &[&str] = &[
     "SkillDescriptions.csv",
     "SkillAcquisition.csv",
@@ -27,12 +28,15 @@ pub const CHECK_LINE_FILES: &[&str] = &[
     "t_unit.csv"
 ];
 
-// Files that have regional variants
+// Files that have regional variants but no
+// Country Codes within their source
 pub const REGION_SENSITIVE_FILES: &[&str] = &[
-    "Unit_Explanation",
-    "SkillDescriptions",
-    "Skill_name",
-    "GatyaitemName",
-    "unitevolve",
-    "Enemyname",
+    "img015.imgcut", 
+    "img015.png",
+    "img022.imgcut",
+    "img022.png",
+    "SkillDescriptions.csv",
+    "Skill_name_",
+    "GatyaitemName.csv",
+    "Enemyname.tsv"
 ];

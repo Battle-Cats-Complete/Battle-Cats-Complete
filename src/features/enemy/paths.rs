@@ -59,8 +59,9 @@ pub fn maanim(root: &Path, id: u32, index: usize) -> PathBuf {
     folder.join(format!("{}{:02}.maanim", filename, index))
 }
 
-// Retrieves paths specifically for zombie burrow Maanim files (_zombie00, _zombie01, _zombie02)
-pub fn maanim_zombie(root: &Path, id: u32, index: usize) -> PathBuf {
+// Retrieves paths specifically for zombie Maanim files (00, 01, 02)
+pub fn zombie_maanim(root: &Path, id: u32, index: usize) -> PathBuf {
     let folder = anim_folder(root, id);
-    folder.join(format!("{:03}_e_zombie{:02}.maanim", id, index))
+    let filename = anim_base_filename(id);
+    folder.join(format!("{}_zombie{:02}.maanim", filename, index))
 }

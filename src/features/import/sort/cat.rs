@@ -50,9 +50,7 @@ impl CatMatcher {
         if self.universal.is_match(name) {
             return Some(cats_dir.join("unitevolve"));
         }
-        if patterns::CAT_UNIVERSAL_FILES.contains(&name) {
-            return Some(cats_dir.to_path_buf()); 
-        }
+        
         if let Some(caps) = self.stats.captures(name) {
             if let Ok(id) = caps[1].parse::<u32>() {
                 if id > 0 { return Some(cats_dir.join(format!("{:03}", id - 1))); }

@@ -5,6 +5,8 @@ use crate::features::settings::logic::Settings;
 use crate::features::settings::logic::handle::ScannerConfig;
 use crate::features::enemy::ui::list::EnemyList;
 use crate::features::enemy::ui::master;
+use crate::global::mamodel::Model;
+use crate::features::animation::ui::viewer::AnimViewer;
 
 pub const TOP_PANEL_PADDING: f32 = 2.5;
 pub const SEARCH_FILTER_GAP: f32 = 5.0;
@@ -13,13 +15,13 @@ pub const SPACE_AFTER_SEPARATOR: f32 = 2.0;
 
 #[derive(Deserialize, Serialize, PartialEq, Clone, Copy)]
 pub enum EnemyDetailTab {
-    Stats,
-    Description,
+    Abilities,
+    Details,
     Animation,
 }
 
 impl Default for EnemyDetailTab {
-    fn default() -> Self { Self::Stats }
+    fn default() -> Self { Self::Abilities }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -29,8 +31,22 @@ pub struct EnemyListState {
     pub selected_enemy: Option<u32>,
     pub search_query: String,
     pub selected_tab: EnemyDetailTab,
+    pub mag_input: String,
+    pub magnification: i32,
     #[serde(skip)] pub list_ui: EnemyList,
     #[serde(skip)] pub initialized: bool,
+    #[serde(skip)] pub detail_texture: Option<egui::TextureHandle>,
+    #[serde(skip)] pub detail_key: String,
+    #[serde(skip)] pub icon_sheet: crate::global::imgcut::SpriteSheet,   
+    #[serde(skip)] pub anim_sheet: crate::global::imgcut::SpriteSheet, // Added for animations
+    #[serde(skip)] pub model_data: Option<Model>,                      // Added for animations
+    #[serde(skip)] pub anim_viewer: AnimViewer,                        // Added for animations
+    #[serde(skip)] pub multihit_texture: Option<egui::TextureHandle>,
+    #[serde(skip)] pub kamikaze_texture: Option<egui::TextureHandle>,
+    #[serde(skip)] pub base_texture: Option<egui::TextureHandle>,
+    #[serde(skip)] pub starred_alien_texture: Option<egui::TextureHandle>,
+    #[serde(skip)] pub burrow_texture: Option<egui::TextureHandle>,
+    #[serde(skip)] pub revive_texture: Option<egui::TextureHandle>,
 }
 
 impl Default for EnemyListState {
@@ -40,8 +56,22 @@ impl Default for EnemyListState {
             selected_enemy: None,
             search_query: String::new(),
             selected_tab: EnemyDetailTab::default(),
+            mag_input: "100".to_string(),
+            magnification: 100,
             list_ui: EnemyList::default(),
             initialized: false,
+            detail_texture: None,
+            detail_key: String::new(),
+            icon_sheet: crate::global::imgcut::SpriteSheet::default(), 
+            anim_sheet: crate::global::imgcut::SpriteSheet::default(), 
+            model_data: None,
+            anim_viewer: AnimViewer::default(),
+            multihit_texture: None,
+            kamikaze_texture: None,
+            base_texture: None,
+            starred_alien_texture: None,
+            burrow_texture: None,
+            revive_texture: None,
         }
     }
 }
@@ -61,6 +91,8 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
         }
     }
 
+    let old_selection_id = state.selected_enemy;
+
     egui::SidePanel::left("enemy_list_panel")
         .resizable(false)
         .default_width(160.0)
@@ -68,13 +100,11 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
             ui.scope(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 ui.add_space(TOP_PANEL_PADDING);
-                
                 ui.vertical_centered(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut state.search_query)
                         .hint_text(egui::RichText::new("Search Enemy...").color(egui::Color32::GRAY))
                         .desired_width(140.0));
                 });
-                
                 ui.add_space(SPACE_BEFORE_SEPARATOR + SEARCH_FILTER_GAP);
                 ui.separator();
                 ui.add_space(SPACE_AFTER_SEPARATOR);
@@ -87,6 +117,13 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
             }
         });
 
+    if state.selected_enemy != old_selection_id {
+        state.detail_texture = None;
+        state.detail_key.clear();
+        state.anim_sheet = crate::global::imgcut::SpriteSheet::default(); // Clear anim data on switch
+        state.model_data = None;                                          // Clear model data on switch
+    }
+
     egui::CentralPanel::default().show(ctx, |ui| {
         if state.entries.is_empty() {
             ui.centered_and_justified(|ui| { ui.heading("No Enemy Data Found"); });
@@ -98,10 +135,28 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
             return;
         };
 
-        let Some(enemy_entry) = state.entries.iter().find(|e| e.id == selected_id) else {
-            return;
-        };
+        let Some(enemy_entry) = state.entries.iter().find(|e| e.id == selected_id) else { return; };
 
-        master::show(ctx, ui, enemy_entry, &mut state.selected_tab, settings);
+        master::show(
+            ctx, 
+            ui, 
+            enemy_entry, 
+            &mut state.selected_tab, 
+            &mut state.mag_input,
+            &mut state.magnification,
+            settings,
+            &mut state.icon_sheet,
+            &mut state.anim_sheet,      // Passed anim_sheet
+            &mut state.model_data,      // Passed model_data
+            &mut state.anim_viewer,     // Passed anim_viewer
+            &mut state.multihit_texture,
+            &mut state.kamikaze_texture,
+            &mut state.base_texture,
+            &mut state.starred_alien_texture,
+            &mut state.burrow_texture,
+            &mut state.revive_texture,
+            &mut state.detail_texture,
+            &mut state.detail_key,
+        );
     });
 }

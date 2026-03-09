@@ -12,9 +12,11 @@ use crate::global::imgcut::SpriteSheet;
 
 pub const HEADER_NP_ICON_SIZE: f32 = 24.0;
 pub const HEADER_NP_TEXT_SIZE: f32 = 20.0;
-
 pub const TALENT_BTN_WIDTH: f32 = 100.0;
 pub const TALENT_BTN_HEIGHT: f32 = 23.0;
+
+// Unified spacing for the input fields
+pub const INPUT_SPACING: f32 = 4.0;
 
 #[derive(PartialEq)]
 pub enum ExportAction {
@@ -360,6 +362,7 @@ fn render_info_box(ui: &mut egui::Ui, cat: &CatEntry, form: usize, level_input: 
         ui.add_space(3.0);
 
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = INPUT_SPACING;
             ui.label("Level:");
             if ui.add(egui::TextEdit::singleline(level_input).desired_width(40.0)).changed() {
                 let sum: i32 = level_input.split('+').filter_map(|s| s.trim().parse::<i32>().ok()).sum();

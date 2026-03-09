@@ -1,0 +1,195 @@
+use eframe::egui;
+use crate::features::enemy::logic::scanner::EnemyEntry;
+use crate::features::enemy::logic::abilities::{self, EnemyAbilityItem, EnemyCustomIcon};
+use crate::global::imgcut::SpriteSheet;
+use crate::features::settings::logic::Settings;
+use crate::ui::components::shared::{render_fallback_icon, text_with_superscript};
+use crate::global::img015;
+
+pub const ABILITY_X: f32 = 3.0;
+pub const ABILITY_Y: f32 = 5.0;
+pub const TRAIT_Y: f32 = 7.0;
+
+pub fn get_fallback_by_icon(icon_id: usize) -> &'static str {
+    match icon_id {
+        img015::ICON_SINGLE_ATTACK => "Sngl",
+        img015::ICON_AREA_ATTACK => "Area",
+        img015::ICON_OMNI_STRIKE => "Omni",
+        img015::ICON_LONG_DISTANCE => "LD",
+        img015::ICON_MULTIHIT => "Multi",
+        img015::ICON_KAMIKAZE => "Kamik",
+        img015::ICON_BASE => "Base",
+        img015::ICON_STARRED_ALIEN => "Star",
+        img015::ICON_BURROW => "Burro",
+        img015::ICON_REVIVE => "Reviv",
+        _ => crate::features::enemy::registry::ENEMY_ABILITY_REGISTRY
+            .iter()
+            .find(|def| def.icon_id == icon_id)
+            .map(|def| def.fallback)
+            .unwrap_or("???")
+    }
+}
+
+pub fn render(
+    ui: &mut egui::Ui, 
+    enemy: &EnemyEntry, 
+    sheet: &SpriteSheet, 
+    multihit_tex: &Option<egui::TextureHandle>, 
+    kamikaze_tex: &Option<egui::TextureHandle>,
+    base_tex: &Option<egui::TextureHandle>,
+    starred_alien_tex: &Option<egui::TextureHandle>,
+    burrow_tex: &Option<egui::TextureHandle>,
+    revive_tex: &Option<egui::TextureHandle>,
+    settings: &Settings,
+    magnification: i32,
+) {
+    ui.spacing_mut().item_spacing.y = 0.0;
+
+    let (grp_trait, grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(
+        &enemy.stats, settings, magnification,
+    );
+    
+    let mut previous_content = false;
+    let mut last_was_trait = false;
+    let main_border = egui::Color32::BLACK;
+
+    if !grp_trait.is_empty() {
+        render_icon_row(ui, &grp_trait, sheet, settings, main_border, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex);
+        previous_content = true;
+        last_was_trait = true;
+    }
+
+    if !grp_hl1.is_empty() { 
+        if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
+        render_icon_row(ui, &grp_hl1, sheet, settings, main_border, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex); 
+        previous_content = true;
+    }
+    
+    if !grp_hl2.is_empty() { 
+        if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
+        render_icon_row(ui, &grp_hl2, sheet, settings, main_border, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex); 
+        previous_content = true;
+    }
+
+    let has_body = !grp_b1.is_empty() || !grp_b2.is_empty();
+    if has_body {
+       if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
+       
+       render_list_view(ui, &grp_b1, sheet, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex, settings, main_border);
+       
+       if !grp_b1.is_empty() && !grp_b2.is_empty() { ui.add_space(ABILITY_Y); }
+
+       render_list_view(ui, &grp_b2, sheet, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex, settings, main_border);
+       previous_content = true;
+    }
+
+    if !grp_footer.is_empty() {
+        if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); }
+        render_icon_row(ui, &grp_footer, sheet, settings, main_border, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex); 
+    }
+}
+
+pub fn render_icon_row(
+    ui: &mut egui::Ui, 
+    items: &Vec<EnemyAbilityItem>, 
+    sheet: &SpriteSheet, 
+    settings: &Settings, 
+    border_color: egui::Color32,
+    multihit_tex: &Option<egui::TextureHandle>,
+    kamikaze_tex: &Option<egui::TextureHandle>,
+    base_tex: &Option<egui::TextureHandle>,
+    starred_alien_tex: &Option<egui::TextureHandle>,
+    burrow_tex: &Option<egui::TextureHandle>,
+    revive_tex: &Option<egui::TextureHandle>,
+) {
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(ABILITY_X, ABILITY_Y);
+        ui.horizontal_wrapped(|ui| {
+            for item in items {
+                let r = render_single_icon(ui, item, sheet, settings, border_color, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex);
+                r.on_hover_ui(|ui| text_with_superscript(ui, &item.text));
+            }
+        });
+    });
+}
+
+fn render_single_icon(
+    ui: &mut egui::Ui, 
+    item: &EnemyAbilityItem, 
+    sheet: &SpriteSheet, 
+    settings: &Settings, 
+    border: egui::Color32,
+    multihit_tex: &Option<egui::TextureHandle>,
+    kamikaze_tex: &Option<egui::TextureHandle>,
+    base_tex: &Option<egui::TextureHandle>,
+    starred_alien_tex: &Option<egui::TextureHandle>,
+    burrow_tex: &Option<egui::TextureHandle>,
+    revive_tex: &Option<egui::TextureHandle>,
+) -> egui::Response {
+    let size = egui::vec2(40.0, 40.0);
+    let force_fallback = settings.game_language == "--";
+
+    let custom_texture = match item.icon_id {
+        img015::ICON_BASE => base_tex.as_ref(),
+        img015::ICON_STARRED_ALIEN => starred_alien_tex.as_ref(),
+        img015::ICON_BURROW => burrow_tex.as_ref(),
+        img015::ICON_REVIVE => revive_tex.as_ref(),
+        _ => match item.custom_icon {
+            EnemyCustomIcon::Multihit => multihit_tex.as_ref(),
+            EnemyCustomIcon::Kamikaze => kamikaze_tex.as_ref(),
+            _ => None,
+        }
+    };
+
+    let response = if !force_fallback && custom_texture.is_some() {
+        ui.add(egui::Image::new(egui::load::SizedTexture::new(custom_texture.unwrap().id(), size)))
+    } else if !force_fallback && sheet.cuts_map.contains_key(&item.icon_id) {
+        let cut = sheet.cuts_map.get(&item.icon_id).unwrap();
+        if let Some(tex) = &sheet.texture_handle {
+             ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(cut.uv_coordinates))
+        } else {
+             ui.allocate_response(size, egui::Sense::hover())
+        }
+    } else {
+        let alt = get_fallback_by_icon(item.icon_id);
+        render_fallback_icon(ui, alt, border)
+    };
+
+    if !force_fallback {
+        if let Some(border_id) = item.border_id {
+            if let Some(b_cut) = sheet.cuts_map.get(&border_id) {
+                if let Some(tex) = &sheet.texture_handle {
+                    ui.put(response.rect, egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(b_cut.uv_coordinates));
+                }
+            }
+        }
+    }
+
+    response
+}
+
+pub fn render_list_view(
+    ui: &mut egui::Ui, 
+    items: &Vec<EnemyAbilityItem>, 
+    sheet: &SpriteSheet,
+    multihit_tex: &Option<egui::TextureHandle>,
+    kamikaze_tex: &Option<egui::TextureHandle>,
+    base_tex: &Option<egui::TextureHandle>,
+    starred_alien_tex: &Option<egui::TextureHandle>,
+    burrow_tex: &Option<egui::TextureHandle>,
+    revive_tex: &Option<egui::TextureHandle>,
+    settings: &Settings, 
+    border_color: egui::Color32,
+) {
+    for (i, item) in items.iter().enumerate() {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0; 
+            render_single_icon(ui, item, sheet, settings, border_color, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex); 
+            text_with_superscript(ui, &item.text);
+        }); 
+
+        if i < items.len() - 1 {
+            ui.add_space(ABILITY_Y);
+        }
+    }
+}

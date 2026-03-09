@@ -1,0 +1,548 @@
+use crate::global::img015;
+use crate::features::enemy::data::t_unit::EnemyRaw;
+
+#[derive(PartialEq, Clone, Copy)]
+pub enum DisplayGroup {
+    Type,      // Traits like Red, Black, etc.
+    Headline1, // Major unit categories (Base, Starred Alien, Colossus, Sage, etc.)
+    Headline2, // Universal offensive roles (Base Destroyer)
+    Body1,     // Attack Procs (Waves, Surges, etc.)
+    Body2,     // Detailed Mechanics (Revive, Burrow, CC)
+    Footer,    // Immunities
+}
+
+pub struct EnemyAbilityDef {
+    pub name: &'static str,
+    pub fallback: &'static str,
+    pub icon_id: usize,
+    pub group: DisplayGroup,
+    pub getter: fn(&EnemyRaw) -> i32,
+    pub duration_getter: Option<fn(&EnemyRaw) -> i32>,
+    pub formatter: fn(val: i32, stats: &EnemyRaw, duration_frames: i32, magnification: i32) -> String,
+}
+
+// --- Formatters ---
+fn fmt_time(frames: i32) -> String {
+    format!("{:.2}s^{}f", frames as f32 / 30.0, frames)
+}
+
+fn fmt_range(min: i32, max: i32) -> String {
+    if min == max { format!("at {}", min) } else { format!("between {}~{}", min, max) }
+}
+
+fn fmt_count(val: i32) -> String {
+    match val {
+        -1 => "infinitely".to_string(),
+        1 => "1 time".to_string(),
+        _ => format!("{} times", val),
+    }
+}
+
+pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
+    // --- TYPES ---
+    EnemyAbilityDef {
+        name: "Red",
+        fallback: "Red",
+        icon_id: img015::ICON_TRAIT_RED,
+        group: DisplayGroup::Type,
+        getter: |e| e.type_red,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Red".into(),
+    },
+    EnemyAbilityDef {
+        name: "Floating",
+        fallback: "Float",
+        icon_id: img015::ICON_TRAIT_FLOATING,
+        group: DisplayGroup::Type,
+        getter: |e| e.type_floating,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Floating".into(),
+    },
+    EnemyAbilityDef {
+        name: "Black",
+        fallback: "Black",
+        icon_id: img015::ICON_TRAIT_BLACK,
+        group: DisplayGroup::Type,
+        getter: |e| e.type_black,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Black".into(),
+    },
+    EnemyAbilityDef {
+        name: "Metal",
+        fallback: "Metal",
+        icon_id: img015::ICON_TRAIT_METAL,
+        group: DisplayGroup::Type,
+        getter: |e| e.type_metal,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Metal".into(),
+    },
+    EnemyAbilityDef {
+        name: "Angel",
+        fallback: "Angel",
+        icon_id: img015::ICON_TRAIT_ANGEL,
+        group: DisplayGroup::Type,
+        getter: |e| e.type_angel,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Angel".into(),
+    },
+    EnemyAbilityDef {
+        name: "Alien",
+        fallback: "Alien",
+        icon_id: img015::ICON_TRAIT_ALIEN,
+        group: DisplayGroup::Type,
+        getter: |e| e.type_alien,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Alien".into(),
+    },
+    EnemyAbilityDef {
+        name: "Zombie",
+        fallback: "Zomb",
+        icon_id: img015::ICON_TRAIT_ZOMBIE,
+        group: DisplayGroup::Type,
+        getter: |e| e.type_zombie,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Zombie".into(),
+    },
+    EnemyAbilityDef {
+        name: "Relic",
+        fallback: "Relic",
+        icon_id: img015::ICON_TRAIT_RELIC,
+        group: DisplayGroup::Type,
+        getter: |e| e.type_relic,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Relic".into(),
+    },
+    EnemyAbilityDef {
+        name: "Aku",
+        fallback: "Aku",
+        icon_id: img015::ICON_TRAIT_AKU,
+        group: DisplayGroup::Type,
+        getter: |e| e.type_aku,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Aku".into(),
+    },
+    EnemyAbilityDef {
+        name: "Traitless",
+        fallback: "White",
+        icon_id: img015::ICON_TRAIT_TRAITLESS,
+        group: DisplayGroup::Type,
+        getter: |e| e.type_traitless,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Traitless".into(),
+    },
+
+    // --- HEADLINE 1 (Special Units) ---
+    EnemyAbilityDef {
+        name: "Dojo",
+        fallback: "Dojo",
+        icon_id: img015::ICON_BASE,
+        group: DisplayGroup::Headline1,
+        getter: |e| e.type_dojo,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Dojo".into(),
+    },
+    EnemyAbilityDef {
+        name: "Starred Alien",
+        fallback: "Star",
+        icon_id: img015::ICON_STARRED_ALIEN, 
+        group: DisplayGroup::Headline1,
+        getter: |e| e.type_starred_alien,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Starred Alien".into(),
+    },
+    EnemyAbilityDef {
+        name: "Colossus",
+        fallback: "Colos",
+        icon_id: img015::ICON_COLOSSUS,
+        group: DisplayGroup::Headline1,
+        getter: |e| e.type_colossus,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Colossus Enemy".into(),
+    },
+    EnemyAbilityDef {
+        name: "Behemoth",
+        fallback: "Behem",
+        icon_id: img015::ICON_BEHEMOTH,
+        group: DisplayGroup::Headline1,
+        getter: |e| e.type_behemoth,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Behemoth Enemy".into(),
+    },
+    EnemyAbilityDef {
+        name: "Sage",
+        fallback: "Sage",
+        icon_id: img015::ICON_SAGE,
+        group: DisplayGroup::Headline1,
+        getter: |e| e.type_sage,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Sage Enemy".into(),
+    },
+    EnemyAbilityDef {
+        name: "Supervillain",
+        fallback: "Villn",
+        icon_id: img015::ICON_SUPERVILLIAN,
+        group: DisplayGroup::Headline1,
+        getter: |e| e.type_supervillain,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Supervillain Enemy".into(),
+    },
+    EnemyAbilityDef {
+        name: "Witch",
+        fallback: "Witch",
+        icon_id: img015::ICON_WITCH,
+        group: DisplayGroup::Headline1,
+        getter: |e| e.type_witch,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Witch Enemy".into(),
+    },
+    EnemyAbilityDef {
+        name: "EVA Angel",
+        fallback: "EVA",
+        icon_id: img015::ICON_EVA,
+        group: DisplayGroup::Headline1,
+        getter: |e| e.type_eva,
+        duration_getter: None,
+        formatter: |_, _, _, _| "EVA Angel".into(),
+    },
+
+    // --- HEADLINE 2 ---
+    EnemyAbilityDef {
+        name: "Base Destroyer",
+        fallback: "BaseD",
+        icon_id: img015::ICON_BASE_DESTROYER,
+        group: DisplayGroup::Headline2,
+        getter: |e| e.base_destroyer,
+        duration_getter: None,
+        formatter: |_, _, _, _| "Deals 4× Damage to the Cat Base".into(),
+    },
+
+    // --- BODY 1 (Attack Procs) ---
+    EnemyAbilityDef {
+        name: "Wave Attack",
+        fallback: "Wave",
+        icon_id: img015::ICON_WAVE,
+        group: DisplayGroup::Body1,
+        getter: |e| if e.mini_wave == 0 { e.wave_chance } else { 0 },
+        duration_getter: None,
+        formatter: |val, e, _, _| {
+            let range = 467.5 + ((e.wave_level - 1) as f32 * 200.0);
+            format!("{}% Chance to create a Level {} Wave reaching {} Range", val, e.wave_level, range)
+        },
+    },
+    EnemyAbilityDef {
+        name: "Mini-Wave",
+        fallback: "MiniW",
+        icon_id: img015::ICON_MINI_WAVE,
+        group: DisplayGroup::Body1,
+        getter: |e| if e.mini_wave > 0 { e.wave_chance } else { 0 },
+        duration_getter: None,
+        formatter: |val, e, _, _| {
+            let range = 332.5 + ((e.wave_level - 1) as f32 * 200.0);
+            format!("{}% Chance to create a Level {} Mini-Wave reaching {} Range", val, e.wave_level, range)
+        },
+    },
+    EnemyAbilityDef {
+        name: "Surge Attack",
+        fallback: "Surge",
+        icon_id: img015::ICON_SURGE,
+        group: DisplayGroup::Body1,
+        getter: |e| if e.mini_surge == 0 { e.surge_chance } else { 0 },
+        duration_getter: None,
+        formatter: |val, e, _, _| {
+            let start = e.surge_spawn_min;
+            let end = e.surge_spawn_min + e.surge_spawn_max;
+            let (min, max) = if start < end { (start, end) } else { (end, start) };
+            format!("{}% Chance to create a Level {} Surge {} Range", val, e.surge_level, fmt_range(min, max))
+        },
+    },
+    EnemyAbilityDef {
+        name: "Mini-Surge",
+        fallback: "MiniS",
+        icon_id: img015::ICON_MINI_SURGE,
+        group: DisplayGroup::Body1,
+        getter: |e| if e.mini_surge > 0 { e.surge_chance } else { 0 },
+        duration_getter: None,
+        formatter: |val, e, _, _| {
+            let start = e.surge_spawn_min;
+            let end = e.surge_spawn_min + e.surge_spawn_max;
+            let (min, max) = if start < end { (start, end) } else { (end, start) };
+            format!("{}% Chance to create a Level {} Mini-Surge {} Range", val, e.surge_level, fmt_range(min, max))
+        },
+    },
+    EnemyAbilityDef {
+        name: "Death Surge",
+        fallback: "DSurg",
+        icon_id: img015::ICON_DEATH_SURGE,
+        group: DisplayGroup::Body1,
+        getter: |e| e.death_surge_chance,
+        duration_getter: None,
+        formatter: |val, e, _, _| {
+            let start = e.death_surge_spawn_min;
+            let end = e.death_surge_spawn_min + e.death_surge_spawn_max;
+            let (min, max) = if start < end { (start, end) } else { (end, start) };
+            format!("{}% Chance to create a Level {} Surge {} Range upon death", val, e.death_surge_level, fmt_range(min, max))
+        },
+    },
+    EnemyAbilityDef {
+        name: "Explosion",
+        fallback: "Expl",
+        icon_id: img015::ICON_EXPLOSION,
+        group: DisplayGroup::Body1,
+        getter: |e| e.explosion_chance,
+        duration_getter: None,
+        formatter: |val, e, _, _| {
+            let start = e.explosion_anchor;
+            let end = e.explosion_anchor + e.explosion_span;
+            let (min, max) = if start < end { (start, end) } else { (end, start) };
+            format!("{}% Chance to create an Explosion {} Range", val, fmt_range(min, max))
+        },
+    },
+    EnemyAbilityDef {
+        name: "Critical Hit",
+        fallback: "Crit",
+        icon_id: img015::ICON_CRITICAL_HIT,
+        group: DisplayGroup::Body1,
+        getter: |e| e.critical_chance,
+        duration_getter: None,
+        formatter: |val, _, _, _| format!("{}% Chance to perform a Critical Hit dealing 2× Damage", val),
+    },
+    EnemyAbilityDef {
+        name: "Savage Blow",
+        fallback: "Savge",
+        icon_id: img015::ICON_SAVAGE_BLOW,
+        group: DisplayGroup::Body1,
+        getter: |e| e.savage_blow_chance,
+        duration_getter: None,
+        formatter: |val, e, _, _| {
+            let mult = (e.savage_blow_boost as f32 + 100.0) / 100.0;
+            format!("{}% Chance to perform a Savage Blow dealing {}× Damage", val, mult)
+        },
+    },
+    EnemyAbilityDef {
+        name: "Strengthen",
+        fallback: "Str+",
+        icon_id: img015::ICON_STRENGTHEN,
+        group: DisplayGroup::Body1,
+        getter: |e| e.strengthen_threshold,
+        duration_getter: None,
+        formatter: |_, e, _, _| format!("Damage dealt increases by +{}% when reduced to {}% HP", e.strengthen_boost, e.strengthen_threshold),
+    },
+    EnemyAbilityDef {
+        name: "Survive",
+        fallback: "Surv",
+        icon_id: img015::ICON_SURVIVE,
+        group: DisplayGroup::Body1,
+        getter: |e| e.survive_chance,
+        duration_getter: None,
+        formatter: |val, _, _, _| format!("{}% Chance to Survive a lethal strike", val),
+    },
+
+    // --- BODY 2 (Detailed Mechanics & CC) ---
+    EnemyAbilityDef {
+        name: "Barrier",
+        fallback: "Barri",
+        icon_id: img015::ICON_BARRIER,
+        group: DisplayGroup::Body2,
+        getter: |e| e.barrier_hitpoints,
+        duration_getter: None,
+        formatter: |val, _, _, _| format!("Has a Barrier with {} HP", val), // Normal barriers do not scale with mag!
+    },
+    EnemyAbilityDef {
+        name: "Aku Shield",
+        fallback: "Shiel",
+        icon_id: img015::ICON_SHIELD,
+        group: DisplayGroup::Body2,
+        getter: |e| e.shield_hitpoints,
+        duration_getter: None,
+        formatter: |val, e, _, mag| {
+            let scaled_hp = (val as f32 * (mag as f32 / 100.0)).round() as i32;
+            if e.shield_regen > 0 {
+                format!("Has a Shield with {} HP\nRegenerates {}% of its HP when knocked back", scaled_hp, e.shield_regen)
+            } else {
+                format!("Has a Shield with {} HP", scaled_hp)
+            }
+        },
+    },
+    EnemyAbilityDef {
+        name: "Burrow",
+        fallback: "Burro",
+        icon_id: img015::ICON_BURROW, 
+        group: DisplayGroup::Body2,
+        getter: |e| e.burrow_amount,
+        duration_getter: None,
+        formatter: |val, e, _, _| format!("Burrows {} Range {}", e.burrow_distance, fmt_count(val)),
+    },
+    EnemyAbilityDef {
+        name: "Revive",
+        fallback: "Reviv",
+        icon_id: img015::ICON_REVIVE, 
+        group: DisplayGroup::Body2,
+        getter: |e| e.revive_count,
+        duration_getter: None,
+        formatter: |val, e, _, _| format!("Revives with {}% HP after {} {} unless Z-Killed", e.revive_hp, fmt_time(e.revive_time), fmt_count(val)),
+    },
+    EnemyAbilityDef {
+        name: "Toxic",
+        fallback: "Toxic",
+        icon_id: img015::ICON_TOXIC,
+        group: DisplayGroup::Body2,
+        getter: |e| e.toxic_chance,
+        duration_getter: None,
+        formatter: |val, e, _, _| format!("{}% Chance to deal {}% of a Cat's Max HP in additional damage", val, e.toxic_damage),
+    },
+    EnemyAbilityDef {
+        name: "Dodge",
+        fallback: "Dodge",
+        icon_id: img015::ICON_DODGE,
+        group: DisplayGroup::Body2,
+        getter: |e| e.dodge_chance,
+        duration_getter: Some(|e| e.dodge_duration),
+        formatter: |val, _, dur, _| format!("{}% Chance to Dodge attacks for {}", val, fmt_time(dur)),
+    },
+    EnemyAbilityDef {
+        name: "Weaken",
+        fallback: "Weak",
+        icon_id: img015::ICON_WEAKEN,
+        group: DisplayGroup::Body2,
+        getter: |e| e.weaken_chance,
+        duration_getter: Some(|e| e.weaken_duration),
+        formatter: |val, e, dur, _| format!("{}% Chance to weaken Cats to {}% Attack Power for {}", val, e.weaken_percent, fmt_time(dur)),
+    },
+    EnemyAbilityDef {
+        name: "Freeze",
+        fallback: "Freez",
+        icon_id: img015::ICON_FREEZE,
+        group: DisplayGroup::Body2,
+        getter: |e| e.freeze_chance,
+        duration_getter: Some(|e| e.freeze_duration),
+        formatter: |val, _, dur, _| format!("{}% Chance to Freeze Cats for {}", val, fmt_time(dur)),
+    },
+    EnemyAbilityDef {
+        name: "Slow",
+        fallback: "Slow",
+        icon_id: img015::ICON_SLOW,
+        group: DisplayGroup::Body2,
+        getter: |e| e.slow_chance,
+        duration_getter: Some(|e| e.slow_duration),
+        formatter: |val, _, dur, _| format!("{}% Chance to Slow Cats for {}", val, fmt_time(dur)),
+    },
+    EnemyAbilityDef {
+        name: "Knockback",
+        fallback: "KB",
+        icon_id: img015::ICON_KNOCKBACK,
+        group: DisplayGroup::Body2,
+        getter: |e| e.knockback_chance,
+        duration_getter: None,
+        formatter: |val, _, _, _| format!("{}% Chance to Knockback Cats", val),
+    },
+    EnemyAbilityDef {
+        name: "Curse",
+        fallback: "Curse",
+        icon_id: img015::ICON_CURSE,
+        group: DisplayGroup::Body2,
+        getter: |e| e.curse_chance,
+        duration_getter: Some(|e| e.curse_duration),
+        formatter: |val, _, dur, _| format!("{}% Chance to Curse Cats for {}", val, fmt_time(dur)),
+    },
+    EnemyAbilityDef {
+        name: "Warp",
+        fallback: "Warp",
+        icon_id: img015::ICON_WARP,
+        group: DisplayGroup::Body2,
+        getter: |e| e.warp_chance,
+        duration_getter: Some(|e| e.warp_duration),
+        formatter: |val, e, dur, _| format!("{}% Chance to Warp Cats {}~{} Range for {}", val, e.warp_distance_min, e.warp_distance_max, fmt_time(dur)),
+    },
+    
+    // --- FOOTER (Immunities) ---
+    EnemyAbilityDef { 
+        name: "Immune Wave", 
+        fallback: "NoWav", 
+        icon_id: img015::ICON_IMMUNE_WAVE, 
+        group: DisplayGroup::Footer, 
+        getter: |e| e.wave_immune, 
+        duration_getter: None, 
+        formatter: |_, _, _, _| "Immune to Wave Attacks".into(),
+    },
+    EnemyAbilityDef { 
+        name: "Immune Surge", 
+        fallback: "NoSrg", 
+        icon_id: img015::ICON_IMMUNE_SURGE, 
+        group: DisplayGroup::Footer, 
+        getter: |e| e.surge_immune, 
+        duration_getter: None, 
+        formatter: |_, _, _, _| "Immune to Surge Attacks".into(), 
+    },
+    EnemyAbilityDef { 
+        name: "Immune Explosion", 
+        fallback: "NoExp", 
+        icon_id: img015::ICON_IMMUNE_EXPLOSION, 
+        group: DisplayGroup::Footer, 
+        getter: |e| e.explosion_immune, 
+        duration_getter: None, 
+        formatter: |_, _, _, _| "Immune to Explosions".into(), 
+    },
+    EnemyAbilityDef { 
+        name: "Immune Weaken", 
+        fallback: "NoWk", 
+        icon_id: img015::ICON_IMMUNE_WEAKEN, 
+        group: DisplayGroup::Footer, 
+        getter: |e| e.weaken_immune, 
+        duration_getter: None, 
+        formatter: |_, _, _, _| "Immune to Weaken".into(), 
+    },
+    EnemyAbilityDef { 
+        name: "Immune Freeze", 
+        fallback: "NoFrz", 
+        icon_id: img015::ICON_IMMUNE_FREEZE, 
+        group: DisplayGroup::Footer, 
+        getter: |e| e.freeze_immune, 
+        duration_getter: None, 
+        formatter: |_, _, _, _| "Immune to Freeze".into(), 
+    },
+    EnemyAbilityDef { 
+        name: "Immune Slow", 
+        fallback: "NoSlw", 
+        icon_id: img015::ICON_IMMUNE_SLOW, 
+        group: DisplayGroup::Footer, 
+        getter: |e| e.slow_immune, 
+        duration_getter: None, 
+        formatter: |_, _, _, _| "Immune to Slow".into(), 
+    },
+    EnemyAbilityDef { 
+        name: "Immune Knockback", 
+        fallback: "NoKB", 
+        icon_id: img015::ICON_IMMUNE_KNOCKBACK, 
+        group: DisplayGroup::Footer, 
+        getter: |e| e.knockback_immune, 
+        duration_getter: None, 
+        formatter: |_, _, _, _| "Immune to Knockback".into(), 
+    },
+    EnemyAbilityDef { 
+        name: "Immune Curse", 
+        fallback: "NoCur", 
+        icon_id: img015::ICON_IMMUNE_CURSE, 
+        group: DisplayGroup::Footer, 
+        getter: |e| e.curse_immune, 
+        duration_getter: None, 
+        formatter: |_, _, _, _| "Immune to Curse".into(), 
+    },
+    EnemyAbilityDef { 
+        name: "Immune Warp", 
+        fallback: "NoWrp", 
+        icon_id: img015::ICON_IMMUNE_WARP, 
+        group: DisplayGroup::Footer, 
+        getter: |e| e.warp_immune, 
+        duration_getter: None, 
+        formatter: |_, _, _, _| "Immune to Warp".into(), 
+    },
+    EnemyAbilityDef {
+        name: "Counter Surge",
+        fallback: "C-Srg",
+        icon_id: img015::ICON_COUNTER_SURGE,
+        group: DisplayGroup::Footer,
+        getter: |e| e.counter_surge,
+        duration_getter: None,
+        formatter: |_,_,_, _| "When hit with a Surge Attack, create a Surge of equal Type, Level, and Range".into(),
+    },
+];
