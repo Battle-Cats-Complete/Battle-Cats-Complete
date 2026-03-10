@@ -5,6 +5,7 @@ use crate::global::imgcut::SpriteSheet;
 use crate::features::settings::logic::Settings;
 use crate::ui::components::shared::{render_fallback_icon, text_with_superscript};
 use crate::global::img015;
+use crate::global::assets::CustomAssets; // Ensure this is imported
 
 pub const ABILITY_X: f32 = 3.0;
 pub const ABILITY_Y: f32 = 5.0;
@@ -34,12 +35,7 @@ pub fn render(
     ui: &mut egui::Ui, 
     enemy: &EnemyEntry, 
     sheet: &SpriteSheet, 
-    multihit_tex: &Option<egui::TextureHandle>, 
-    kamikaze_tex: &Option<egui::TextureHandle>,
-    base_tex: &Option<egui::TextureHandle>,
-    starred_alien_tex: &Option<egui::TextureHandle>,
-    burrow_tex: &Option<egui::TextureHandle>,
-    revive_tex: &Option<egui::TextureHandle>,
+    assets: &CustomAssets,
     settings: &Settings,
     magnification: i32,
 ) {
@@ -54,20 +50,20 @@ pub fn render(
     let main_border = egui::Color32::BLACK;
 
     if !grp_trait.is_empty() {
-        render_icon_row(ui, &grp_trait, sheet, settings, main_border, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex);
+        render_icon_row(ui, &grp_trait, sheet, settings, main_border, assets);
         previous_content = true;
         last_was_trait = true;
     }
 
     if !grp_hl1.is_empty() { 
         if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
-        render_icon_row(ui, &grp_hl1, sheet, settings, main_border, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex); 
+        render_icon_row(ui, &grp_hl1, sheet, settings, main_border, assets); 
         previous_content = true;
     }
     
     if !grp_hl2.is_empty() { 
         if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
-        render_icon_row(ui, &grp_hl2, sheet, settings, main_border, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex); 
+        render_icon_row(ui, &grp_hl2, sheet, settings, main_border, assets); 
         previous_content = true;
     }
 
@@ -75,17 +71,17 @@ pub fn render(
     if has_body {
        if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
        
-       render_list_view(ui, &grp_b1, sheet, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex, settings, main_border);
+       render_list_view(ui, &grp_b1, sheet, assets, settings, main_border);
        
        if !grp_b1.is_empty() && !grp_b2.is_empty() { ui.add_space(ABILITY_Y); }
 
-       render_list_view(ui, &grp_b2, sheet, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex, settings, main_border);
+       render_list_view(ui, &grp_b2, sheet, assets, settings, main_border);
        previous_content = true;
     }
 
     if !grp_footer.is_empty() {
         if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); }
-        render_icon_row(ui, &grp_footer, sheet, settings, main_border, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex); 
+        render_icon_row(ui, &grp_footer, sheet, settings, main_border, assets); 
     }
 }
 
@@ -95,18 +91,13 @@ pub fn render_icon_row(
     sheet: &SpriteSheet, 
     settings: &Settings, 
     border_color: egui::Color32,
-    multihit_tex: &Option<egui::TextureHandle>,
-    kamikaze_tex: &Option<egui::TextureHandle>,
-    base_tex: &Option<egui::TextureHandle>,
-    starred_alien_tex: &Option<egui::TextureHandle>,
-    burrow_tex: &Option<egui::TextureHandle>,
-    revive_tex: &Option<egui::TextureHandle>,
+    assets: &CustomAssets,
 ) {
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(ABILITY_X, ABILITY_Y);
         ui.horizontal_wrapped(|ui| {
             for item in items {
-                let r = render_single_icon(ui, item, sheet, settings, border_color, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex);
+                let r = render_single_icon(ui, item, sheet, settings, border_color, assets);
                 r.on_hover_ui(|ui| text_with_superscript(ui, &item.text));
             }
         });
@@ -119,24 +110,20 @@ fn render_single_icon(
     sheet: &SpriteSheet, 
     settings: &Settings, 
     border: egui::Color32,
-    multihit_tex: &Option<egui::TextureHandle>,
-    kamikaze_tex: &Option<egui::TextureHandle>,
-    base_tex: &Option<egui::TextureHandle>,
-    starred_alien_tex: &Option<egui::TextureHandle>,
-    burrow_tex: &Option<egui::TextureHandle>,
-    revive_tex: &Option<egui::TextureHandle>,
+    assets: &CustomAssets,
 ) -> egui::Response {
     let size = egui::vec2(40.0, 40.0);
     let force_fallback = settings.game_language == "--";
 
+    // Map the IDs and Enum to the centralized assets struct
     let custom_texture = match item.icon_id {
-        img015::ICON_BASE => base_tex.as_ref(),
-        img015::ICON_STARRED_ALIEN => starred_alien_tex.as_ref(),
-        img015::ICON_BURROW => burrow_tex.as_ref(),
-        img015::ICON_REVIVE => revive_tex.as_ref(),
+        img015::ICON_BASE => Some(&assets.base),
+        img015::ICON_STARRED_ALIEN => Some(&assets.starred_alien),
+        img015::ICON_BURROW => Some(&assets.burrow),
+        img015::ICON_REVIVE => Some(&assets.revive),
         _ => match item.custom_icon {
-            EnemyCustomIcon::Multihit => multihit_tex.as_ref(),
-            EnemyCustomIcon::Kamikaze => kamikaze_tex.as_ref(),
+            EnemyCustomIcon::Multihit => Some(&assets.multihit),
+            EnemyCustomIcon::Kamikaze => Some(&assets.kamikaze),
             _ => None,
         }
     };
@@ -172,19 +159,14 @@ pub fn render_list_view(
     ui: &mut egui::Ui, 
     items: &Vec<EnemyAbilityItem>, 
     sheet: &SpriteSheet,
-    multihit_tex: &Option<egui::TextureHandle>,
-    kamikaze_tex: &Option<egui::TextureHandle>,
-    base_tex: &Option<egui::TextureHandle>,
-    starred_alien_tex: &Option<egui::TextureHandle>,
-    burrow_tex: &Option<egui::TextureHandle>,
-    revive_tex: &Option<egui::TextureHandle>,
+    assets: &CustomAssets,
     settings: &Settings, 
     border_color: egui::Color32,
 ) {
     for (i, item) in items.iter().enumerate() {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0; 
-            render_single_icon(ui, item, sheet, settings, border_color, multihit_tex, kamikaze_tex, base_tex, starred_alien_tex, burrow_tex, revive_tex); 
+            render_single_icon(ui, item, sheet, settings, border_color, assets); 
             text_with_superscript(ui, &item.text);
         }); 
 

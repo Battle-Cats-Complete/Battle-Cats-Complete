@@ -29,12 +29,15 @@ pub fn load(lang_dir: &Path, target_lang: &str) -> Vec<String> {
             for (i, line) in content.lines().enumerate() {
                 let name = line.split(sep).next().unwrap_or("").trim().to_string();
                 
-                // If this is a new ID we haven't reached yet, push it
+                // NEW: Treat "ダミー" as invalid/empty, similar to the "仮" logic in descriptions
+                let is_invalid = name.is_empty() || name == "ダミー";
+
+                // If this is a new ID we haven't reached yet, push the name or an empty string if invalid
                 if i >= names.len() {
-                    names.push(name);
+                    names.push(if is_invalid { String::new() } else { name });
                 } 
-                // If we already have this ID but it was empty, and this language has it, overwrite
-                else if names[i].is_empty() && !name.is_empty() {
+                // If we already have this ID but it was empty/invalid, and this language has a valid name, overwrite
+                else if names[i].is_empty() && !is_invalid {
                     names[i] = name;
                 }
             }

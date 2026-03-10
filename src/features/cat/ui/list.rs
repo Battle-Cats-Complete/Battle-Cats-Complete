@@ -45,11 +45,7 @@ impl Default for CatList {
         let (tx_result, rx_result) = mpsc::channel::<LoadedImage>();
 
         thread::spawn(move || {
-            let bg_cache = {
-                const BG_BYTES: &[u8] = include_bytes!("../../../assets/udi_f.png");
-                image::load_from_memory(BG_BYTES).ok().map(|img| img.to_rgba8())
-            };
-            
+            let bg_cache = image::load_from_memory(crate::global::assets::UDI_F).ok().map(|img| img.to_rgba8());
             let bg_cache = std::sync::Arc::new(bg_cache);
 
             while let Ok(req) = rx_request.recv() {
@@ -118,8 +114,7 @@ impl CatList {
         high_banner_quality: bool
     ) {
         if self.placeholder_texture.is_none() {
-            const BG_BYTES: &[u8] = include_bytes!("../../../assets/udi_f.png");
-            if let Ok(img) = image::load_from_memory(BG_BYTES) {
+            if let Ok(img) = image::load_from_memory(crate::global::assets::UDI_F) {
                 let rgba = img.to_rgba8();
                 let size = [rgba.width() as usize, rgba.height() as usize];
                 let pixels = rgba.as_flat_samples();
@@ -293,21 +288,12 @@ fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
     });
 
     let labels = ["Normal", "Evolved", "True", "Ultra"];
-    let mut previous_name = "";
-
+    
     for i in 0..4 {
         if !unit.forms[i] { continue; }
 
-        let raw_name = &unit.names[i];
-        let is_duplicate = i > 0 && raw_name == previous_name && !raw_name.is_empty();
-
-        let display_name = if raw_name.is_empty() || is_duplicate {
-            format!("{:03}-{}", unit.id, i + 1)
-        } else {
-            raw_name.clone()
-        };
-
-        if !raw_name.is_empty() { previous_name = raw_name; }
+        // Use centralized naming logic for tooltips
+        let display_name = unit.display_name(i);
 
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(format!("[{}]", labels[i])).weak());

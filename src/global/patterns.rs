@@ -30,7 +30,7 @@ pub const CHECK_LINE_FILES: &[&str] = &[
 
 // Files that have regional variants but no
 // Country Codes within their source
-pub const REGION_SENSITIVE_FILES: &[&str] = &[
+pub const LANGUAGE_SENSITIVE_FILES: &[&str] = &[
     "img015.imgcut", 
     "img015.png",
     "img022.imgcut",

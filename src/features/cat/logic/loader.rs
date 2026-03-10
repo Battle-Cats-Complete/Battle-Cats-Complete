@@ -35,12 +35,20 @@ pub fn refresh_cat(state: &mut CatListState, id: u32, config: ScannerConfig) {
     let cats_dir = Path::new(paths::DIR_CATS);
     let unit_folder = cats_dir.join(format!("{:03}", id));
 
+    // CRASH-PROOFING: Safely extract variables
+    // If the files are currently being written to/locked by the decryptor,
+    // we simply return and wait for the next watcher tick.
+    let curves = match &state.cached_level_curves { Some(c) => c, None => return };
+    let buy = match &state.cached_unit_buy { Some(b) => b, None => return };
+    let talents = match &state.cached_talents { Some(t) => t, None => return };
+    let evolve = match &state.cached_evolve_text { Some(e) => e, None => return };
+
     let new_entry = scanner::process_cat_entry(
         &unit_folder,
-        state.cached_level_curves.as_ref().unwrap(),
-        state.cached_unit_buy.as_ref().unwrap(),
-        state.cached_talents.as_ref().unwrap(),
-        state.cached_evolve_text.as_ref().unwrap(),
+        curves, 
+        buy,
+        talents,
+        evolve,
         &config 
     );
 
@@ -165,9 +173,8 @@ pub fn restart_scan(state: &mut CatListState, config: ScannerConfig) {
     state.texture_cache_version += 1;
 
     state.sprite_sheet = SpriteSheet::default();
-    state.multihit_texture = None;
-    state.kamikaze_texture = None;
-    state.boss_wave_immune_texture = None;
+
+    state.custom_assets = None;
 
     state.selected_cat = current_selection_id;
     state.selected_form = current_form;

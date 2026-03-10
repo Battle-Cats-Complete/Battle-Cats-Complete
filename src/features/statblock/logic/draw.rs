@@ -4,7 +4,7 @@ use ab_glyph::PxScale;
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use imageproc::rect::Rect;
 
-use crate::features::cat::logic::abilities::{AbilityItem, CustomIcon};
+use crate::global::abilities::{AbilityItem, CustomIcon};
 use crate::global::imgcut::SpriteCut;
 
 pub const SUPERSCRIPT_SCALE: f32 = 0.75;
@@ -69,33 +69,32 @@ pub fn get_icon_image(
     item: &AbilityItem, 
     cuts_map: &HashMap<usize, SpriteCut>,
     img015_base: &RgbaImage,
-    multihit_base: &RgbaImage,
-    kamikaze_base: &RgbaImage,
-    bosswave_base: &RgbaImage,
+    custom_assets: &HashMap<CustomIcon, RgbaImage>, // Replaces the 3 individual image arguments
     export_icon_size: u32,
 ) -> RgbaImage {
-    let mut icon = match item.custom_icon {
-        CustomIcon::Multihit => multihit_base.clone(),
-        CustomIcon::Kamikaze => kamikaze_base.clone(),
-        CustomIcon::BossWave => bosswave_base.clone(),
-        CustomIcon::None => {
-            if let Some(cut) = cuts_map.get(&item.icon_id) {
-                let w = img015_base.width() as f32;
-                let h = img015_base.height() as f32;
-                
-                let px = (cut.uv_coordinates.min.x * w).round() as u32;
-                let py = (cut.uv_coordinates.min.y * h).round() as u32;
-                let pw = cut.original_size.x.round() as u32;
-                let ph = cut.original_size.y.round() as u32;
-                
-                if px + pw <= img015_base.width() && py + ph <= img015_base.height() {
-                    image::imageops::crop_imm(img015_base, px, py, pw, ph).to_image()
-                } else {
-                    RgbaImage::new(export_icon_size, export_icon_size)
-                }
+    let mut icon = if item.custom_icon != CustomIcon::None {
+        if let Some(custom_img) = custom_assets.get(&item.custom_icon) {
+            custom_img.clone()
+        } else {
+            RgbaImage::new(export_icon_size, export_icon_size)
+        }
+    } else {
+        if let Some(cut) = cuts_map.get(&item.icon_id) {
+            let w = img015_base.width() as f32;
+            let h = img015_base.height() as f32;
+            
+            let px = (cut.uv_coordinates.min.x * w).round() as u32;
+            let py = (cut.uv_coordinates.min.y * h).round() as u32;
+            let pw = cut.original_size.x.round() as u32;
+            let ph = cut.original_size.y.round() as u32;
+            
+            if px + pw <= img015_base.width() && py + ph <= img015_base.height() {
+                image::imageops::crop_imm(img015_base, px, py, pw, ph).to_image()
             } else {
                 RgbaImage::new(export_icon_size, export_icon_size)
             }
+        } else {
+            RgbaImage::new(export_icon_size, export_icon_size)
         }
     };
 
@@ -131,7 +130,6 @@ pub fn measure_text_with_superscript(scale: PxScale, font: &impl ab_glyph::Font,
     let mut total_w = 0;
     let mut parts = text.split('^');
     
-    // First part is always normal text
     if let Some(first) = parts.next() {
         if !first.is_empty() {
             let (w, _) = text_size(scale, font, first);
@@ -139,11 +137,10 @@ pub fn measure_text_with_superscript(scale: PxScale, font: &impl ab_glyph::Font,
         }
     }
 
-    // Subsequent parts start as superscript, and return to normal after a space
     for part in parts {
         if let Some(space_idx) = part.find(' ') {
             let super_str = &part[..space_idx];
-            let normal_str = &part[space_idx..]; // Includes the space
+            let normal_str = &part[space_idx..]; 
 
             if !super_str.is_empty() {
                 let super_scale = PxScale::from(scale.y * SUPERSCRIPT_SCALE);
@@ -156,7 +153,6 @@ pub fn measure_text_with_superscript(scale: PxScale, font: &impl ab_glyph::Font,
                 total_w += w;
             }
         } else {
-            // No spaces found, the whole rest of the word is superscript
             if !part.is_empty() {
                 let super_scale = PxScale::from(scale.y * SUPERSCRIPT_SCALE);
                 let (w, _) = text_size(super_scale, font, part);

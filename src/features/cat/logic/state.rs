@@ -11,7 +11,8 @@ use super::{watcher, loader};
 use crate::features::cat::ui::list::CatList; 
 use crate::features::cat::ui as cat_detail;
 use crate::global::imgcut::SpriteSheet; 
-use crate::global::mamodel::Model; 
+use crate::global::mamodel::Model;
+use crate::global::assets::CustomAssets;
 use crate::features::animation::ui::viewer::AnimViewer;
 use crate::features::cat::data::skilldescriptions; 
 use crate::features::cat::data::skilllevel; 
@@ -68,9 +69,9 @@ pub struct CatListState {
     #[serde(skip)] pub sprite_sheet: SpriteSheet, 
     #[serde(skip)] pub model_data: Option<Model>,
     #[serde(skip)] pub anim_viewer: AnimViewer,
-    #[serde(skip)] pub multihit_texture: Option<egui::TextureHandle>,
-    #[serde(skip)] pub kamikaze_texture: Option<egui::TextureHandle>,
-    #[serde(skip)] pub boss_wave_immune_texture: Option<egui::TextureHandle>,
+    
+    #[serde(skip)] pub custom_assets: Option<CustomAssets>,
+    
     #[serde(skip)] pub talent_name_textures: HashMap<String, egui::TextureHandle>, 
     #[serde(skip)] pub gatya_item_textures: HashMap<i32, Option<egui::TextureHandle>>,
     #[serde(skip)] pub texture_cache_version: u64,
@@ -113,9 +114,7 @@ impl Default for CatListState {
             sprite_sheet: SpriteSheet::default(), 
             model_data: None,
             anim_viewer: AnimViewer::default(),
-            multihit_texture: None,
-            kamikaze_texture: None,
-            boss_wave_immune_texture: None,
+            custom_assets: None,
             talent_name_textures: HashMap::new(),
             gatya_item_textures: HashMap::new(), 
             texture_cache_version: 0, 
@@ -150,6 +149,13 @@ impl CatListState {
 }
 
 pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settings) {
+    // --- FIX: BREAK THE BORROW CHAIN ---
+    if state.custom_assets.is_none() {
+        state.custom_assets = Some(CustomAssets::new(ctx));
+    }
+    // Clone handles to release the borrow on 'state' immediately
+    let assets = state.custom_assets.as_ref().unwrap().clone();
+
     if !state.initialized {
         state.initialized = true;
         state.init_watcher(ctx); 
@@ -179,46 +185,33 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
         .show(ctx, |ui| {
             ui.scope(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                
                 ui.add_space(TOP_PANEL_PADDING); 
-                
                 ui.vertical_centered(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    
                     let search_response = ui.add(egui::TextEdit::singleline(&mut state.search_query)
                         .hint_text(egui::RichText::new("Search Cat...").color(egui::Color32::GRAY))
                         .desired_width(140.0));
-                    
                     ui.add_space(SEARCH_FILTER_GAP); 
-                    
                     let btn_size = egui::vec2(140.0, search_response.rect.height());
                     let filter_active = state.filter_state.is_active();
                     let mut filter_btn = egui::Button::new("Filter");
-                    
                     if filter_active {
                         filter_btn = filter_btn.fill(egui::Color32::from_rgb(31, 106, 165));
                     }
-
                     if ui.add_sized(btn_size, filter_btn).clicked() {
                         state.filter_state.is_open = !state.filter_state.is_open;
                     }
                 });
-                
                 ui.add_space(SPACE_BEFORE_SEPARATOR); 
                 ui.separator();
                 ui.add_space(SPACE_AFTER_SEPARATOR);
             });
 
             let old_selection_id = state.selected_cat;
-            
             if !state.cats.is_empty() {
                 state.cat_list.show(
-                    ctx, 
-                    ui, 
-                    &state.cats, 
-                    &mut state.selected_cat, 
-                    &state.search_query, 
-                    &state.filter_state, 
+                    ctx, ui, &state.cats, &mut state.selected_cat, 
+                    &state.search_query, &state.filter_state, 
                     settings.high_banner_quality
                 );
             } else if state.scan_receiver.is_some() {
@@ -230,7 +223,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
                 state.detail_key.clear();
                 state.sprite_sheet = SpriteSheet::default();
                 state.model_data = None;
-                
                 state.saved_pre_ultra_level = None;
                 state.is_in_ultra_state = false;
 
@@ -331,44 +323,27 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
         let prev_form = state.selected_form;
 
         cat_detail::show(
-            ctx, 
-            ui, 
-            cat_entry, 
-            &mut state.selected_form,
-            &mut state.selected_detail_tab,
-            &mut state.level_input,   
-            &mut state.current_level, 
-            &mut state.detail_texture, 
-            &mut state.detail_key,
-            &mut state.icon_sheet,
-            &mut state.img022_sheet, 
-            &mut state.sprite_sheet,
-            &mut state.model_data,
-            &mut state.anim_viewer,
-            &mut state.multihit_texture,
-            &mut state.kamikaze_texture,
-            &mut state.boss_wave_immune_texture,
-            &mut state.talent_name_textures,
-            &mut state.gatya_item_textures, 
-            state.skill_descriptions.as_ref(), 
-            settings,
-            talent_map,
+            ctx, ui, cat_entry, 
+            &mut state.selected_form, &mut state.selected_detail_tab,
+            &mut state.level_input, &mut state.current_level, 
+            &mut state.detail_texture, &mut state.detail_key,
+            &mut state.icon_sheet, &mut state.img022_sheet, &mut state.sprite_sheet,
+            &mut state.model_data, &mut state.anim_viewer,
+            &assets, // Pass local reference
+            &mut state.talent_name_textures, &mut state.gatya_item_textures, 
+            state.skill_descriptions.as_ref(), settings, talent_map,
             state.cached_talent_costs.as_ref().unwrap(),
             state.texture_cache_version,
         );
 
         let mut current_ultra_state = state.selected_form == 3;
-        
         if state.selected_form >= 2 {
             if let Some(levels) = state.talent_levels.get(&selected_id) {
                 if let Some(t_data) = &cat_entry.talent_data {
                     for (idx, group) in t_data.groups.iter().enumerate() {
                         if group.limit == 1 { 
                             if let Some(&lvl) = levels.get(&(idx as u8)) {
-                                if lvl > 0 {
-                                    current_ultra_state = true;
-                                    break;
-                                }
+                                if lvl > 0 { current_ultra_state = true; break; }
                             }
                         }
                     }
@@ -407,13 +382,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
     });
     
     crate::features::cat::ui::filter::show_popup(
-        ctx,
-        &mut state.filter_state,
-        &mut state.icon_sheet,
-        &state.multihit_texture,
-        &state.kamikaze_texture,
-        &state.boss_wave_immune_texture,
-        settings,
-        &mut state.drag_guard,
+        ctx, &mut state.filter_state, &mut state.icon_sheet,
+        &assets, // Pass local reference
+        settings, &mut state.drag_guard,
     );
 }

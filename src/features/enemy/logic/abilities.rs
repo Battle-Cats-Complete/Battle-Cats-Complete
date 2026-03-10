@@ -3,13 +3,14 @@ use crate::features::settings::logic::Settings;
 use crate::features::enemy::data::t_unit::EnemyRaw;
 use crate::features::enemy::registry::{self, DisplayGroup};
 
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Default, Debug)]
 pub enum EnemyCustomIcon {
     #[default] None,
     Multihit,
     Kamikaze,
 }
 
+#[derive(Clone, Debug)]
 pub struct EnemyAbilityItem {
     pub icon_id: usize,
     pub text: String,

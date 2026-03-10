@@ -5,3 +5,5 @@ pub mod mamodel;
 pub mod maanim;
 pub mod paths;
 pub mod patterns;
+pub mod abilities;
+pub mod assets;

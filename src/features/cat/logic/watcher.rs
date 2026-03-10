@@ -58,31 +58,36 @@ impl CatWatchers {
     }
 }
 
-// Dedicated Debounce Logic
+// Dedicated Dual-Stage Debounce Logic
 fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>, ctx: egui::Context) {
     let mut pending_paths: HashSet<PathBuf> = HashSet::new();
     let mut deadline: Option<Instant> = None;
-    // Wait this long after the last file change to trigger update
-    let buffer_duration = Duration::from_millis(200); 
+    let mut max_deadline: Option<Instant> = None;
+
+    // Wait 500ms of silence for safety (allows file handles to close)
+    let buffer_duration = Duration::from_millis(500); 
+    // Force a UI update every 2 seconds during a massive import so it still looks dynamic!
+    let max_duration = Duration::from_secs(2); 
 
     loop {
         // Determine how long to wait for next message
-        let timeout = if let Some(d) = deadline {
+        let timeout = if let (Some(d), Some(md)) = (deadline, max_deadline) {
             let now = Instant::now();
-            if now >= d {
-                // Flush pending paths
+            let effective_deadline = d.min(md); // Whichever comes first
+            
+            if now >= effective_deadline {
+                // Flush pending paths safely
                 if !pending_paths.is_empty() {
-                    // Send unique paths
                     for path in pending_paths.drain() {
                         let _ = final_sender.send(path);
                     }
                     ctx.request_repaint();
                 }
                 deadline = None;
-                // Go back to infinite sleep
+                max_deadline = None;
                 Duration::from_millis(u64::MAX)
             } else {
-                d - now
+                effective_deadline.saturating_duration_since(now)
             }
         } else {
             Duration::from_millis(u64::MAX)
@@ -93,8 +98,14 @@ fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>, ctx: egui
             Ok(path) => {
                 // New event received
                 pending_paths.insert(path);
-                // Reset/Extend the deadline
-                deadline = Some(Instant::now() + buffer_duration);
+                let now = Instant::now();
+                
+                // Reset the silence deadline
+                deadline = Some(now + buffer_duration);
+                // Set the max deadline if it doesn't exist yet
+                if max_deadline.is_none() {
+                    max_deadline = Some(now + max_duration);
+                }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 // Timeout handled by top of loop
@@ -126,7 +137,7 @@ pub fn handle_event(state: &mut CatListState, ctx: &egui::Context, path: &PathBu
     
     let cats_dir = Path::new(paths::DIR_CATS);
 
-if patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || CHECK_LINE_FILES.contains(&file_name) {
+    if patterns::CAT_UNIVERSAL_FILES.contains(&file_name) || CHECK_LINE_FILES.contains(&file_name) {
         ctx.request_repaint();
         return;
     }
