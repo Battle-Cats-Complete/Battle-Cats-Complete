@@ -1,4 +1,5 @@
 use eframe::egui;
+use crate::global::abilities::CustomIcon;
 
 // --- RAW BYTES (Embedded in Binary) ---
 pub const MULTIHIT: &[u8] = include_bytes!("../assets/multihit.png");
@@ -15,6 +16,16 @@ pub const FONT_JP: &[u8] = include_bytes!("../assets/NotoSansJP-Regular.ttf");
 pub const FONT_KR: &[u8] = include_bytes!("../assets/NotoSansKR-Regular.ttf");
 pub const FONT_TC: &[u8] = include_bytes!("../assets/NotoSansTC-Regular.ttf");
 pub const FONT_TH: &[u8] = include_bytes!("../assets/NotoSansThai-Regular.ttf");
+
+pub const CUSTOM_ICON_DATA: &[(CustomIcon, &[u8])] = &[
+    (CustomIcon::Multihit, MULTIHIT),
+    (CustomIcon::Kamikaze, KAMIKAZE),
+    (CustomIcon::BossWave, BOSS_WAVE),
+    (CustomIcon::Base, BASE),
+    (CustomIcon::StarredAlien, STARRED_ALIEN),
+    (CustomIcon::Burrow, BURROW),
+    (CustomIcon::Revive, REVIVE),
+];
 
 // --- TEXTURE MANAGER ---
 

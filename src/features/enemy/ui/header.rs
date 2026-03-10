@@ -94,7 +94,7 @@ pub fn render(
                 ui.spacing_mut().item_spacing.y = 0.0;
                 
                 ui.add_space(10.0);
-                ui.label(egui::RichText::new(format!("ID: {:03}", enemy.id)).color(egui::Color32::from_gray(100)).size(12.0));
+                ui.label(egui::RichText::new(format!("ID: {:03}-E", enemy.id)).color(egui::Color32::from_gray(100)).size(12.0));
                 
                 ui.add_space(3.0); // Exact space as Cat ID -> Row below
 

@@ -69,9 +69,10 @@ pub fn get_icon_image(
     item: &AbilityItem, 
     cuts_map: &HashMap<usize, SpriteCut>,
     img015_base: &RgbaImage,
-    custom_assets: &HashMap<CustomIcon, RgbaImage>, // Replaces the 3 individual image arguments
+    custom_assets: &HashMap<CustomIcon, RgbaImage>,
     export_icon_size: u32,
 ) -> RgbaImage {
+    // 1. Check if the item is explicitly marked as a CustomIcon (Multihit/Kamikaze)
     let mut icon = if item.custom_icon != CustomIcon::None {
         if let Some(custom_img) = custom_assets.get(&item.custom_icon) {
             custom_img.clone()
@@ -79,10 +80,20 @@ pub fn get_icon_image(
             RgbaImage::new(export_icon_size, export_icon_size)
         }
     } else {
-        if let Some(cut) = cuts_map.get(&item.icon_id) {
+        // 2. NEW: Detect enemy status effects by ID and redirect to high-res custom assets
+        let auto_custom_key = if item.icon_id == crate::global::img015::ICON_BASE { Some(CustomIcon::Base) }
+            else if item.icon_id == crate::global::img015::ICON_STARRED_ALIEN { Some(CustomIcon::StarredAlien) }
+            else if item.icon_id == crate::global::img015::ICON_BURROW { Some(CustomIcon::Burrow) }
+            else if item.icon_id == crate::global::img015::ICON_REVIVE { Some(CustomIcon::Revive) }
+            else { None };
+
+        if let Some(key) = auto_custom_key {
+            custom_assets.get(&key).cloned().unwrap_or_else(|| RgbaImage::new(export_icon_size, export_icon_size))
+        } 
+        // 3. Fallback to standard sprite sheet cropping
+        else if let Some(cut) = cuts_map.get(&item.icon_id) {
             let w = img015_base.width() as f32;
             let h = img015_base.height() as f32;
-            
             let px = (cut.uv_coordinates.min.x * w).round() as u32;
             let py = (cut.uv_coordinates.min.y * h).round() as u32;
             let pw = cut.original_size.x.round() as u32;

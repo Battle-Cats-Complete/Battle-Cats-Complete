@@ -1,27 +1,26 @@
 use eframe::egui;
 use crate::features::enemy::logic::scanner::EnemyEntry;
 use crate::ui::components::stat_grid::{grid_cell, grid_cell_custom, render_frames};
+use crate::features::enemy::registry::{get_enemy_stat, format_enemy_stat};
 
 pub fn render(ui: &mut egui::Ui, enemy: &EnemyEntry, magnification: i32) {
     let stats = &enemy.stats;
-    let mag_f = magnification as f32 / 100.0;
+    let frames = enemy.atk_anim_frames;
 
-    let hp = (stats.hitpoints as f32 * mag_f).round() as i32;
-    let atk1 = (stats.attack_1 as f32 * mag_f).round() as i32;
-    let atk2 = (stats.attack_2 as f32 * mag_f).round() as i32;
-    let atk3 = (stats.attack_3 as f32 * mag_f).round() as i32;
+    // Fetch formatted strings directly from the centralized registry!
+    let atk_str = format_enemy_stat("Attack", stats, frames, magnification);
+    let dps_str = format_enemy_stat("Dps", stats, frames, magnification);
+    let range_str = format_enemy_stat("Range", stats, frames, magnification);
+    let atk_type = format_enemy_stat("Atk Type", stats, frames, magnification);
+    
+    let hp_str = format_enemy_stat("Hitpoints", stats, frames, magnification);
+    let kb_str = format_enemy_stat("Knockbacks", stats, frames, magnification);
+    let speed_str = format_enemy_stat("Speed", stats, frames, magnification);
+    let endure_str = format_enemy_stat("Endure", stats, frames, magnification);
+    let cash_str = format_enemy_stat("Cash Drop", stats, frames, magnification);
 
-    let total_atk = atk1 + atk2 + atk3;
-    let cycle = stats.attack_cycle(enemy.atk_anim_frames);
-    let dps = if cycle > 0 { (total_atk as f32 * 30.0 / cycle as f32) as i32 } else { 0 };
-    let atk_type = if stats.area_attack == 0 { "Single" } else { "Area" };
-
-    // Calculate Endure (HP per Knockback). Safe fallback to full HP if KB is 0.
-    let endure = if stats.knockbacks > 0 {
-        (hp as f32 / stats.knockbacks as f32).round() as i32
-    } else {
-        hp
-    };
+    // Fetch raw values for custom UI elements
+    let cycle = (get_enemy_stat("Atk Cycle").get_value)(stats, frames, magnification);
 
     let cell_w = 60.0;
 
@@ -30,35 +29,35 @@ pub fn render(ui: &mut egui::Ui, enemy: &EnemyEntry, magnification: i32) {
             .min_col_width(cell_w)
             .spacing([4.0, 4.0])
             .show(ui, |ui| {
-                grid_cell(ui, "Atk", true);
-                grid_cell(ui, "Dps", true);
-                grid_cell(ui, "Range", true);
-                grid_cell(ui, "Atk Cycle", true);
-                grid_cell(ui, "Atk Type", true); 
+                grid_cell(ui, get_enemy_stat("Attack").display_name, true);
+                grid_cell(ui, get_enemy_stat("Dps").display_name, true);
+                grid_cell(ui, get_enemy_stat("Range").display_name, true);
+                grid_cell(ui, get_enemy_stat("Atk Cycle").display_name, true);
+                grid_cell(ui, get_enemy_stat("Atk Type").display_name, true); 
                 ui.end_row();
                 
-                grid_cell(ui, &total_atk.to_string(), false); 
-                grid_cell(ui, &dps.to_string(), false); 
-                grid_cell(ui, &stats.standing_range.to_string(), false);
+                grid_cell(ui, &atk_str, false); 
+                grid_cell(ui, &dps_str, false); 
+                grid_cell(ui, &range_str, false);
                 grid_cell_custom(ui, false, 
                     Some(Box::new(move |ui| { ui.vertical_centered(|ui| render_frames(ui, cycle, f32::INFINITY)); })), 
                     |ui| render_frames(ui, cycle, cell_w)
                 ); 
-                grid_cell(ui, atk_type, false); 
+                grid_cell(ui, &atk_type, false); 
                 ui.end_row();
 
-                grid_cell(ui, "Hp", true);
-                grid_cell(ui, "Kb", true);
-                grid_cell(ui, "Speed", true);
-                grid_cell(ui, "Endure", true); 
-                grid_cell(ui, "Cash Drop", true);
+                grid_cell(ui, get_enemy_stat("Hitpoints").display_name, true);
+                grid_cell(ui, get_enemy_stat("Knockbacks").display_name, true);
+                grid_cell(ui, get_enemy_stat("Speed").display_name, true);
+                grid_cell(ui, get_enemy_stat("Endure").display_name, true); 
+                grid_cell(ui, get_enemy_stat("Cash Drop").display_name, true);
                 ui.end_row();
                 
-                grid_cell(ui, &hp.to_string(), false); 
-                grid_cell(ui, &stats.knockbacks.to_string(), false); 
-                grid_cell(ui, &stats.speed.to_string(), false);
-                grid_cell(ui, &endure.to_string(), false); 
-                grid_cell(ui, &format!("{}¢", stats.cash_drop), false); 
+                grid_cell(ui, &hp_str, false); 
+                grid_cell(ui, &kb_str, false); 
+                grid_cell(ui, &speed_str, false);
+                grid_cell(ui, &endure_str, false); 
+                grid_cell(ui, &cash_str, false); 
                 ui.end_row();
             });
     });

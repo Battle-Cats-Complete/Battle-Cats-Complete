@@ -65,3 +65,20 @@ pub fn zombie_maanim(root: &Path, id: u32, index: usize) -> PathBuf {
     let filename = anim_base_filename(id);
     folder.join(format!("{}_zombie{:02}.maanim", filename, index))
 }
+
+// Dynamic text file path helpers to remove hardcoding
+pub fn enemy_name(root: &Path, lang: &str) -> PathBuf {
+    if lang.is_empty() || lang == "--" { 
+        root.join("Enemyname.tsv") 
+    } else { 
+        root.join(format!("Enemyname_{}.tsv", lang)) 
+    }
+}
+
+pub fn enemy_picture_book(root: &Path, lang: &str) -> PathBuf {
+    if lang.is_empty() || lang == "--" { 
+        root.join("EnemyPictureBook.csv") 
+    } else { 
+        root.join(format!("EnemyPictureBook_{}.csv", lang)) 
+    }
+}

@@ -1,35 +1,17 @@
 use eframe::egui;
 use crate::features::enemy::logic::scanner::EnemyEntry;
-use crate::features::enemy::logic::abilities::{self, EnemyAbilityItem, EnemyCustomIcon};
+use crate::features::enemy::logic::abilities;
 use crate::global::imgcut::SpriteSheet;
 use crate::features::settings::logic::Settings;
 use crate::ui::components::shared::{render_fallback_icon, text_with_superscript};
 use crate::global::img015;
-use crate::global::assets::CustomAssets; // Ensure this is imported
+use crate::global::assets::CustomAssets;
+use crate::global::abilities::{AbilityItem, CustomIcon};
+use crate::features::enemy::registry;
 
 pub const ABILITY_X: f32 = 3.0;
 pub const ABILITY_Y: f32 = 5.0;
 pub const TRAIT_Y: f32 = 7.0;
-
-pub fn get_fallback_by_icon(icon_id: usize) -> &'static str {
-    match icon_id {
-        img015::ICON_SINGLE_ATTACK => "Sngl",
-        img015::ICON_AREA_ATTACK => "Area",
-        img015::ICON_OMNI_STRIKE => "Omni",
-        img015::ICON_LONG_DISTANCE => "LD",
-        img015::ICON_MULTIHIT => "Multi",
-        img015::ICON_KAMIKAZE => "Kamik",
-        img015::ICON_BASE => "Base",
-        img015::ICON_STARRED_ALIEN => "Star",
-        img015::ICON_BURROW => "Burro",
-        img015::ICON_REVIVE => "Reviv",
-        _ => crate::features::enemy::registry::ENEMY_ABILITY_REGISTRY
-            .iter()
-            .find(|def| def.icon_id == icon_id)
-            .map(|def| def.fallback)
-            .unwrap_or("???")
-    }
-}
 
 pub fn render(
     ui: &mut egui::Ui, 
@@ -87,7 +69,7 @@ pub fn render(
 
 pub fn render_icon_row(
     ui: &mut egui::Ui, 
-    items: &Vec<EnemyAbilityItem>, 
+    items: &Vec<AbilityItem>, 
     sheet: &SpriteSheet, 
     settings: &Settings, 
     border_color: egui::Color32,
@@ -106,7 +88,7 @@ pub fn render_icon_row(
 
 fn render_single_icon(
     ui: &mut egui::Ui, 
-    item: &EnemyAbilityItem, 
+    item: &AbilityItem, 
     sheet: &SpriteSheet, 
     settings: &Settings, 
     border: egui::Color32,
@@ -115,15 +97,14 @@ fn render_single_icon(
     let size = egui::vec2(40.0, 40.0);
     let force_fallback = settings.game_language == "--";
 
-    // Map the IDs and Enum to the centralized assets struct
     let custom_texture = match item.icon_id {
         img015::ICON_BASE => Some(&assets.base),
         img015::ICON_STARRED_ALIEN => Some(&assets.starred_alien),
         img015::ICON_BURROW => Some(&assets.burrow),
         img015::ICON_REVIVE => Some(&assets.revive),
         _ => match item.custom_icon {
-            EnemyCustomIcon::Multihit => Some(&assets.multihit),
-            EnemyCustomIcon::Kamikaze => Some(&assets.kamikaze),
+            CustomIcon::Multihit => Some(&assets.multihit),
+            CustomIcon::Kamikaze => Some(&assets.kamikaze),
             _ => None,
         }
     };
@@ -138,7 +119,7 @@ fn render_single_icon(
              ui.allocate_response(size, egui::Sense::hover())
         }
     } else {
-        let alt = get_fallback_by_icon(item.icon_id);
+        let alt = registry::get_fallback_by_icon(item.icon_id);
         render_fallback_icon(ui, alt, border)
     };
 
@@ -157,7 +138,7 @@ fn render_single_icon(
 
 pub fn render_list_view(
     ui: &mut egui::Ui, 
-    items: &Vec<EnemyAbilityItem>, 
+    items: &Vec<AbilityItem>, 
     sheet: &SpriteSheet,
     assets: &CustomAssets,
     settings: &Settings, 
