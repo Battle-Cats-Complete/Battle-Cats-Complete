@@ -47,6 +47,10 @@ impl CatEntry {
             raw_name
         }
     }
+    
+    pub fn base_id_str(&self) -> String {
+    format!("{:03}", self.id)
+}
 }
 
 pub fn start_scan(config: ScannerConfig) -> Receiver<CatEntry> {

@@ -71,8 +71,7 @@ pub fn show(
     let secondary_id = String::new();
     
     // 4. Formatting IDs
-    let primary_id = format!("enemy_{}_{}", enemy_entry.id, anim_viewer.texture_version);
-
+    let primary_id = format!("{}_{}", enemy_entry.id_str(), anim_viewer.texture_version);
     // 5. Hand over to the modular AnimViewer
     anim_viewer.show(
         ui,

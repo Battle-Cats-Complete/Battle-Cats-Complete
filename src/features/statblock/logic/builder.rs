@@ -210,14 +210,11 @@ fn build_statblock_image(
     
     // --- LOAD ALL CUSTOM ASSETS INTO A HASHMAP ---
     let mut custom_assets = HashMap::new();
-    if let Ok(img) = image::load_from_memory(assets::MULTIHIT) { custom_assets.insert(CustomIcon::Multihit, img.to_rgba8()); }
-    if let Ok(img) = image::load_from_memory(assets::KAMIKAZE) { custom_assets.insert(CustomIcon::Kamikaze, img.to_rgba8()); }
-    if let Ok(img) = image::load_from_memory(assets::BOSS_WAVE) { custom_assets.insert(CustomIcon::BossWave, img.to_rgba8()); }
-    if let Ok(img) = image::load_from_memory(assets::BASE) { custom_assets.insert(CustomIcon::Base, img.to_rgba8()); }
-    if let Ok(img) = image::load_from_memory(assets::STARRED_ALIEN) { custom_assets.insert(CustomIcon::StarredAlien, img.to_rgba8()); }
-    if let Ok(img) = image::load_from_memory(assets::BURROW) { custom_assets.insert(CustomIcon::Burrow, img.to_rgba8()); }
-    if let Ok(img) = image::load_from_memory(assets::REVIVE) { custom_assets.insert(CustomIcon::Revive, img.to_rgba8()); }
-
+    for (variant, bytes) in assets::CUSTOM_ICON_DATA {
+        if let Ok(img) = image::load_from_memory(bytes) {
+            custom_assets.insert(variant.clone(), img.to_rgba8());
+        }
+    }
     // === HEADER ===
     if let Some(path) = &data.icon_path {
         if let Ok(icon_img) = image::open(path) {
@@ -697,7 +694,7 @@ pub fn generate_and_save(
             }
 
             if success {
-                let safe_val_str = val_str.replace(|c: char| !c.is_alphanumeric() && c != '+', "_");
+                let safe_val_str = val_str.replace(|c: char| !c.is_alphanumeric() && c != '+', "");
                 let filename = export_dir.join(format!("{}.{}.statblock.png", id_str, safe_val_str));
                 success = img.save(filename).is_ok();
             }

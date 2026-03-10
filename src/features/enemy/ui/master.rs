@@ -6,26 +6,13 @@ use crate::global::imgcut::SpriteSheet;
 use crate::global::img015;
 use crate::global::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
-use crate::global::assets::CustomAssets; // Import CustomAssets
+use crate::global::assets::CustomAssets;
 
 use crate::features::statblock::logic::builder::{StatblockData, generate_and_copy, generate_and_save};
-use crate::global::abilities::{AbilityItem, CustomIcon};
+use crate::features::enemy::registry::{get_enemy_stat, format_enemy_stat};
 
 use super::{header, stats, abilities, details, viewer}; 
 use super::header::ExportAction;
-
-fn map_enemy_abilities(items: Vec<crate::features::enemy::logic::abilities::EnemyAbilityItem>) -> Vec<AbilityItem> {
-    items.into_iter().map(|item| AbilityItem {
-        icon_id: item.icon_id,
-        text: item.text,
-        custom_icon: match item.custom_icon {
-            crate::features::enemy::logic::abilities::EnemyCustomIcon::None => CustomIcon::None,
-            crate::features::enemy::logic::abilities::EnemyCustomIcon::Multihit => CustomIcon::Multihit,
-            crate::features::enemy::logic::abilities::EnemyCustomIcon::Kamikaze => CustomIcon::Kamikaze,
-        },
-        border_id: item.border_id,
-    }).collect()
-}
 
 pub fn show(
     ctx: &egui::Context, 
@@ -39,10 +26,7 @@ pub fn show(
     anim_sheet: &mut SpriteSheet,
     model_data: &mut Option<Model>,
     anim_viewer: &mut AnimViewer,
-    
-    // REFACTORED: One struct replaces 6 textures
     assets: &CustomAssets, 
-    
     detail_texture: &mut Option<egui::TextureHandle>,
     detail_key: &mut String,
 ) {
@@ -63,27 +47,12 @@ pub fn show(
     match export_action {
         ExportAction::Copy | ExportAction::Save => {
             
-            let (e_traits, e_h1, e_h2, e_b1, e_b2, e_footer) = crate::features::enemy::logic::abilities::collect_ability_data(
+            let (traits, h1, h2, b1, b2, footer) = crate::features::enemy::logic::abilities::collect_ability_data(
                 &enemy_entry.stats, settings, *magnification
             );
 
-            let traits = map_enemy_abilities(e_traits);
-            let h1 = map_enemy_abilities(e_h1);
-            let h2 = map_enemy_abilities(e_h2);
-            let b1 = map_enemy_abilities(e_b1);
-            let b2 = map_enemy_abilities(e_b2);
-            let footer = map_enemy_abilities(e_footer);
-
-            let total_atk = enemy_entry.stats.attack_1 + enemy_entry.stats.attack_2 + enemy_entry.stats.attack_3;
-            let mag_f = *magnification as f32 / 100.0;
-            let final_hp = (enemy_entry.stats.hitpoints as f32 * mag_f) as i32;
-            let final_atk = (total_atk as f32 * mag_f) as i32;
-            
-            let cycle = enemy_entry.stats.attack_cycle(enemy_entry.atk_anim_frames);
-            let dps = if cycle > 0 { (final_atk as f32 * 30.0 / cycle as f32) as i32 } else { 0 };
-            let atk_type = if enemy_entry.stats.area_attack == 0 { "Single" } else { "Area" };
-
-            let endure = if enemy_entry.stats.knockbacks > 0 { final_hp / enemy_entry.stats.knockbacks } else { final_hp };
+            let frames = enemy_entry.atk_anim_frames;
+            let cycle = (get_enemy_stat("Atk Cycle").get_value)(&enemy_entry.stats, frames, *magnification);
 
             let data = StatblockData {
                 id_str: enemy_entry.id_str(),
@@ -92,23 +61,23 @@ pub fn show(
                 top_label: "Magnification:".to_string(),
                 top_value: format!("{}%", magnification),
                 
-                hp: final_hp.to_string(),
-                kb: enemy_entry.stats.knockbacks.to_string(),
-                speed: enemy_entry.stats.speed.to_string(),
+                hp: format_enemy_stat("Hitpoints", &enemy_entry.stats, frames, *magnification),
+                kb: format_enemy_stat("Knockbacks", &enemy_entry.stats, frames, *magnification),
+                speed: format_enemy_stat("Speed", &enemy_entry.stats, frames, *magnification),
                 
-                cd_label: "Endure".to_string(),
-                cd_value: endure.to_string(),
+                cd_label: get_enemy_stat("Endure").display_name.to_string(),
+                cd_value: format_enemy_stat("Endure", &enemy_entry.stats, frames, *magnification),
                 is_cd_time: false, 
                 cd_frames: 0,
                 
-                cost_label: "Cash Drop".to_string(),
-                cost_value: format!("{}¢", enemy_entry.stats.cash_drop),
+                cost_label: get_enemy_stat("Cash Drop").display_name.to_string(),
+                cost_value: format_enemy_stat("Cash Drop", &enemy_entry.stats, frames, *magnification),
                 
-                atk: final_atk.to_string(),
-                dps: dps.to_string(),
-                range: enemy_entry.stats.standing_range.to_string(),
+                atk: format_enemy_stat("Attack", &enemy_entry.stats, frames, *magnification),
+                dps: format_enemy_stat("Dps", &enemy_entry.stats, frames, *magnification),
+                range: format_enemy_stat("Range", &enemy_entry.stats, frames, *magnification),
                 atk_cycle: cycle,
-                atk_type: atk_type.to_string(),
+                atk_type: format_enemy_stat("Atk Type", &enemy_entry.stats, frames, *magnification),
                 
                 traits, h1, h2, b1, b2, footer, spirit_data: None,
             };
@@ -141,7 +110,7 @@ pub fn show(
                         ui, 
                         enemy_entry, 
                         icon_sheet, 
-                        assets, // PASSED: Centralized struct
+                        assets,
                         settings,
                         *magnification
                     );

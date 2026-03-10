@@ -149,7 +149,7 @@ impl EnemyList {
        response.on_hover_ui(|ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("[ID]").weak());
-                ui.label(format!("{:03}", entry.id));
+                ui.label(entry.id_str());
             });
             
             let name = entry.display_name();
@@ -170,7 +170,22 @@ impl EnemyList {
         let is_empty = query.is_empty();
 
         for (i, entry) in entries.iter().enumerate() {
-            if is_empty || format!("{:03}", entry.id).contains(&query_lower) || entry.name.to_lowercase().contains(&query_lower) {
+            if is_empty {
+                self.cached_indices.push(i);
+                continue;
+            }
+
+            // CLEAN: Fully reliant on the scanner.rs methods now!
+            let base_id = entry.base_id_str(); 
+            let full_id = entry.id_str().to_lowercase();
+
+            // Smart search logic: matches '000' or exactly '000-e'
+            if base_id.contains(&query_lower) || full_id == query_lower {
+                self.cached_indices.push(i);
+                continue;
+            }
+
+            if entry.name.to_lowercase().contains(&query_lower) {
                 self.cached_indices.push(i);
             }
         }

@@ -270,7 +270,7 @@ impl CatList {
                 self.cached_indices.push(i);
                 continue;
             }
-            if format!("{:03}", unit.id).contains(&query_lower) {
+            if unit.base_id_str().contains(&query_lower) {
                 self.cached_indices.push(i);
                 continue;
             }
@@ -284,7 +284,7 @@ impl CatList {
 fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("[ID]").weak());
-        ui.label(format!("{:03}", unit.id));
+        ui.label(unit.base_id_str());
     });
 
     let labels = ["Normal", "Evolved", "True", "Ultra"];
