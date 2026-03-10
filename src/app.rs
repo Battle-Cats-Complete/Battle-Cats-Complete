@@ -90,10 +90,10 @@ impl BattleCatsApp {
 
 fn setup_custom_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert("jp_font".to_owned(), egui::FontData::from_static(include_bytes!("assets/NotoSansJP-Regular.ttf")));
-    fonts.font_data.insert("kr_font".to_owned(), egui::FontData::from_static(include_bytes!("assets/NotoSansKR-Regular.ttf")));
-    fonts.font_data.insert("tc_font".to_owned(), egui::FontData::from_static(include_bytes!("assets/NotoSansTC-Regular.ttf")));
-    fonts.font_data.insert("thai_font".to_owned(), egui::FontData::from_static(include_bytes!("assets/NotoSansThai-Regular.ttf")));
+    fonts.font_data.insert("jp_font".to_owned(), egui::FontData::from_static(crate::global::assets::FONT_JP));
+    fonts.font_data.insert("kr_font".to_owned(), egui::FontData::from_static(crate::global::assets::FONT_KR));
+    fonts.font_data.insert("tc_font".to_owned(), egui::FontData::from_static(crate::global::assets::FONT_TC));
+    fonts.font_data.insert("thai_font".to_owned(), egui::FontData::from_static(crate::global::assets::FONT_TH));
 
     let families = [egui::FontFamily::Proportional, egui::FontFamily::Monospace];
     for family in families {

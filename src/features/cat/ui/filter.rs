@@ -2,6 +2,7 @@ use eframe::egui;
 use std::collections::HashSet;
 
 use crate::global::imgcut::SpriteSheet;
+use crate::global::assets::CustomAssets;
 use crate::core::utils::{DragGuard, UI_TRAIT_ORDER};
 use crate::features::cat::registry::{ABILITY_REGISTRY, DisplayGroup};
 use crate::global::img015;
@@ -20,9 +21,7 @@ pub fn show_popup(
     ctx: &egui::Context,
     state: &mut CatFilterState,
     sheet: &mut SpriteSheet,
-    multihit_tex: &Option<egui::TextureHandle>,
-    kamikaze_tex: &Option<egui::TextureHandle>,
-    boss_wave_tex: &Option<egui::TextureHandle>,
+    assets: &CustomAssets,
     settings: &Settings,
     drag_guard: &mut DragGuard,
 ) {
@@ -203,7 +202,7 @@ pub fn show_popup(
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                 for &icon_id in UI_TRAIT_ORDER {
-                    render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, multihit_tex, kamikaze_tex, boss_wave_tex);
+                    render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, assets);
                 }
             });
             ui.add_space(15.0);
@@ -213,7 +212,7 @@ pub fn show_popup(
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                 for &icon_id in ATTACK_TYPE_ICONS {
-                    render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, multihit_tex, kamikaze_tex, boss_wave_tex);
+                    render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, assets);
                 }
             });
             ui.add_space(15.0);
@@ -223,11 +222,11 @@ pub fn show_popup(
 
             let mut rendered_icons = HashSet::new();
 
-            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Headline1, false, true, sheet, multihit_tex, kamikaze_tex, boss_wave_tex);
-            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Headline2, false, true, sheet, multihit_tex, kamikaze_tex, boss_wave_tex);
-            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Body1, true, true, sheet, multihit_tex, kamikaze_tex, boss_wave_tex); 
-            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Body2, true, true, sheet, multihit_tex, kamikaze_tex, boss_wave_tex); 
-            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Footer, false, true, sheet, multihit_tex, kamikaze_tex, boss_wave_tex);
+            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Headline1, false, true, sheet, assets);
+            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Headline2, false, true, sheet, assets);
+            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Body1, true, true, sheet, assets); 
+            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Body2, true, true, sheet, assets); 
+            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Footer, false, true, sheet, assets);
 
             let check_talents = state.talent_mode != TalentFilterMode::Ignore || state.ultra_talent_mode != TalentFilterMode::Ignore;
             if check_talents {
@@ -247,7 +246,7 @@ pub fn show_popup(
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                         for icon_id in talent_icons {
-                            render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, multihit_tex, kamikaze_tex, boss_wave_tex);
+                            render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, assets);
                         }
                     });
                 }
@@ -288,9 +287,7 @@ fn render_display_group(
     is_vertical: bool,
     draw_labels: bool,
     sheet: &SpriteSheet,
-    multihit_tex: &Option<egui::TextureHandle>,
-    kamikaze_tex: &Option<egui::TextureHandle>,
-    boss_wave_tex: &Option<egui::TextureHandle>,
+    assets: &CustomAssets,
 ) {
     let mut icons_in_group = Vec::new();
     
@@ -319,14 +316,14 @@ fn render_display_group(
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
                 for icon_id in icons_in_group {
-                    render_filter_icon_row(ui, state, icon_id, draw_labels, sheet, multihit_tex, kamikaze_tex, boss_wave_tex);
+                    render_filter_icon_row(ui, state, icon_id, draw_labels, sheet, assets);
                 }
             });
         } else {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                 for icon_id in icons_in_group {
-                    render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, multihit_tex, kamikaze_tex, boss_wave_tex);
+                    render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, assets);
                 }
             });
         }
@@ -352,9 +349,7 @@ fn render_filter_icon_row(
     icon_id: usize, 
     draw_labels: bool,
     sheet: &SpriteSheet,
-    multihit_tex: &Option<egui::TextureHandle>,
-    kamikaze_tex: &Option<egui::TextureHandle>,
-    boss_wave_tex: &Option<egui::TextureHandle>,
+    assets: &CustomAssets,
 ) {
     let is_active = state.active_icons.contains(&icon_id);
     let name = get_icon_name(icon_id);
@@ -370,7 +365,7 @@ fn render_filter_icon_row(
         .show(ui, |ui| {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, multihit_tex, kamikaze_tex, boss_wave_tex);
+                    render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, assets);
                     
                     if draw_labels {
                         ui.add_space(10.0); 
@@ -432,9 +427,7 @@ fn render_filter_icon(
     icon_id: usize, 
     active_icons: &mut HashSet<usize>,
     sheet: &SpriteSheet,
-    multihit_tex: &Option<egui::TextureHandle>,
-    kamikaze_tex: &Option<egui::TextureHandle>,
-    boss_wave_tex: &Option<egui::TextureHandle>,
+    assets: &CustomAssets,
 ) {
     let is_active = active_icons.contains(&icon_id);
     let tint = if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(80) };
@@ -442,12 +435,13 @@ fn render_filter_icon(
     let mut drawn = false;
     let lower_name = get_icon_name(icon_id).to_lowercase();
 
+    // REFACTORED: Direct access from centralized assets
     let custom_tex = if icon_id == img015::ICON_MULTIHIT {
-        multihit_tex.as_ref()
+        Some(&assets.multihit)
     } else if icon_id == img015::ICON_KAMIKAZE {
-        kamikaze_tex.as_ref()
+        Some(&assets.kamikaze)
     } else if lower_name.contains("boss") && lower_name.contains("wave") {
-        boss_wave_tex.as_ref() 
+        Some(&assets.boss_wave) 
     } else {
         None
     };

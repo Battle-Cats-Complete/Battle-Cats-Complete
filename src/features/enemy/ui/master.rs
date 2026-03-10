@@ -6,8 +6,26 @@ use crate::global::imgcut::SpriteSheet;
 use crate::global::img015;
 use crate::global::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
+use crate::global::assets::CustomAssets; // Import CustomAssets
+
+use crate::features::statblock::logic::builder::{StatblockData, generate_and_copy, generate_and_save};
+use crate::global::abilities::{AbilityItem, CustomIcon};
 
 use super::{header, stats, abilities, details, viewer}; 
+use super::header::ExportAction;
+
+fn map_enemy_abilities(items: Vec<crate::features::enemy::logic::abilities::EnemyAbilityItem>) -> Vec<AbilityItem> {
+    items.into_iter().map(|item| AbilityItem {
+        icon_id: item.icon_id,
+        text: item.text,
+        custom_icon: match item.custom_icon {
+            crate::features::enemy::logic::abilities::EnemyCustomIcon::None => CustomIcon::None,
+            crate::features::enemy::logic::abilities::EnemyCustomIcon::Multihit => CustomIcon::Multihit,
+            crate::features::enemy::logic::abilities::EnemyCustomIcon::Kamikaze => CustomIcon::Kamikaze,
+        },
+        border_id: item.border_id,
+    }).collect()
+}
 
 pub fn show(
     ctx: &egui::Context, 
@@ -21,70 +39,91 @@ pub fn show(
     anim_sheet: &mut SpriteSheet,
     model_data: &mut Option<Model>,
     anim_viewer: &mut AnimViewer,
-    multihit_texture: &mut Option<egui::TextureHandle>,
-    kamikaze_texture: &mut Option<egui::TextureHandle>,
-    base_texture: &mut Option<egui::TextureHandle>,
-    starred_alien_texture: &mut Option<egui::TextureHandle>,
-    burrow_texture: &mut Option<egui::TextureHandle>,
-    revive_texture: &mut Option<egui::TextureHandle>,
+    
+    // REFACTORED: One struct replaces 6 textures
+    assets: &CustomAssets, 
+    
     detail_texture: &mut Option<egui::TextureHandle>,
     detail_key: &mut String,
 ) {
     img015::ensure_loaded(ctx, icon_sheet, settings);
-    
-    if multihit_texture.is_none() {
-        const MULTIHIT_BYTES: &[u8] = include_bytes!("../../../assets/multihit.png");
-        if let Ok(img) = image::load_from_memory(MULTIHIT_BYTES) {
-            let rgba = img.to_rgba8();
-            *multihit_texture = Some(ctx.load_texture("multihit_icon", egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_flat_samples().as_slice()), egui::TextureOptions::LINEAR));
-        }
-    }
-    if kamikaze_texture.is_none() {
-        const KAMIKAZE_BYTES: &[u8] = include_bytes!("../../../assets/kamikaze.png");
-        if let Ok(img) = image::load_from_memory(KAMIKAZE_BYTES) {
-            let rgba = img.to_rgba8();
-            *kamikaze_texture = Some(ctx.load_texture("kamikaze_icon", egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_flat_samples().as_slice()), egui::TextureOptions::LINEAR));
-        }
-    }
-    if base_texture.is_none() {
-        const BASE_BYTES: &[u8] = include_bytes!("../../../assets/base.png");
-        if let Ok(img) = image::load_from_memory(BASE_BYTES) {
-            let rgba = img.to_rgba8();
-            *base_texture = Some(ctx.load_texture("base_icon", egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_flat_samples().as_slice()), egui::TextureOptions::LINEAR));
-        }
-    }
-    if starred_alien_texture.is_none() {
-        const STARRED_ALIEN_BYTES: &[u8] = include_bytes!("../../../assets/starred_alien.png");
-        if let Ok(img) = image::load_from_memory(STARRED_ALIEN_BYTES) {
-            let rgba = img.to_rgba8();
-            *starred_alien_texture = Some(ctx.load_texture("starred_alien_icon", egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_flat_samples().as_slice()), egui::TextureOptions::LINEAR));
-        }
-    }
-    if burrow_texture.is_none() {
-        const BURROW_BYTES: &[u8] = include_bytes!("../../../assets/burrow.png");
-        if let Ok(img) = image::load_from_memory(BURROW_BYTES) {
-            let rgba = img.to_rgba8();
-            *burrow_texture = Some(ctx.load_texture("burrow_icon", egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_flat_samples().as_slice()), egui::TextureOptions::LINEAR));
-        }
-    }
-    if revive_texture.is_none() {
-        const REVIVE_BYTES: &[u8] = include_bytes!("../../../assets/revive.png");
-        if let Ok(img) = image::load_from_memory(REVIVE_BYTES) {
-            let rgba = img.to_rgba8();
-            *revive_texture = Some(ctx.load_texture("revive_icon", egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_flat_samples().as_slice()), egui::TextureOptions::LINEAR));
-        }
-    }
 
-    header::render(
+    let export_action = header::render(
         ctx,
         ui,
         enemy_entry,
         current_tab,
         mag_input,
         magnification,
-    detail_texture,
-    detail_key,
-);
+        detail_texture,
+        detail_key,
+    );
+
+    // --- TRIGGER EXPORT ---
+    match export_action {
+        ExportAction::Copy | ExportAction::Save => {
+            
+            let (e_traits, e_h1, e_h2, e_b1, e_b2, e_footer) = crate::features::enemy::logic::abilities::collect_ability_data(
+                &enemy_entry.stats, settings, *magnification
+            );
+
+            let traits = map_enemy_abilities(e_traits);
+            let h1 = map_enemy_abilities(e_h1);
+            let h2 = map_enemy_abilities(e_h2);
+            let b1 = map_enemy_abilities(e_b1);
+            let b2 = map_enemy_abilities(e_b2);
+            let footer = map_enemy_abilities(e_footer);
+
+            let total_atk = enemy_entry.stats.attack_1 + enemy_entry.stats.attack_2 + enemy_entry.stats.attack_3;
+            let mag_f = *magnification as f32 / 100.0;
+            let final_hp = (enemy_entry.stats.hitpoints as f32 * mag_f) as i32;
+            let final_atk = (total_atk as f32 * mag_f) as i32;
+            
+            let cycle = enemy_entry.stats.attack_cycle(enemy_entry.atk_anim_frames);
+            let dps = if cycle > 0 { (final_atk as f32 * 30.0 / cycle as f32) as i32 } else { 0 };
+            let atk_type = if enemy_entry.stats.area_attack == 0 { "Single" } else { "Area" };
+
+            let endure = if enemy_entry.stats.knockbacks > 0 { final_hp / enemy_entry.stats.knockbacks } else { final_hp };
+
+            let data = StatblockData {
+                id_str: enemy_entry.id_str(),
+                name: enemy_entry.display_name(),
+                icon_path: enemy_entry.icon_path.clone(),
+                top_label: "Magnification:".to_string(),
+                top_value: format!("{}%", magnification),
+                
+                hp: final_hp.to_string(),
+                kb: enemy_entry.stats.knockbacks.to_string(),
+                speed: enemy_entry.stats.speed.to_string(),
+                
+                cd_label: "Endure".to_string(),
+                cd_value: endure.to_string(),
+                is_cd_time: false, 
+                cd_frames: 0,
+                
+                cost_label: "Cash Drop".to_string(),
+                cost_value: format!("{}¢", enemy_entry.stats.cash_drop),
+                
+                atk: final_atk.to_string(),
+                dps: dps.to_string(),
+                range: enemy_entry.stats.standing_range.to_string(),
+                atk_cycle: cycle,
+                atk_type: atk_type.to_string(),
+                
+                traits, h1, h2, b1, b2, footer, spirit_data: None,
+            };
+
+            let lang_clone = settings.game_language.clone();
+            let cuts_clone = icon_sheet.cuts_map.clone(); 
+
+            if export_action == ExportAction::Copy {
+                generate_and_copy(ctx.clone(), lang_clone, data, cuts_clone);
+            } else {
+                generate_and_save(ctx.clone(), lang_clone, data, cuts_clone);
+            }
+        },
+        ExportAction::None => {}
+    }
 
     ui.separator(); 
     ui.add_space(0.0);
@@ -102,12 +141,7 @@ pub fn show(
                         ui, 
                         enemy_entry, 
                         icon_sheet, 
-                        multihit_texture, 
-                        kamikaze_texture, 
-                        base_texture, 
-                        starred_alien_texture, 
-                        burrow_texture, 
-                        revive_texture, 
+                        assets, // PASSED: Centralized struct
                         settings,
                         *magnification
                     );

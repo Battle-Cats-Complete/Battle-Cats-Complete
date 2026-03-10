@@ -16,6 +16,20 @@ pub struct EnemyEntry {
     pub atk_anim_frames: i32,
 }
 
+impl EnemyEntry {
+    pub fn id_str(&self) -> String {
+        format!("{:03}", self.id)
+    }
+
+    pub fn display_name(&self) -> String {
+        if self.name.is_empty() {
+            format!("Enemy {}", self.id_str())
+        } else {
+            self.name.clone()
+        }
+    }
+}
+
 pub fn scan_all(config: &ScannerConfig) -> Vec<EnemyEntry> {
     let root = Path::new(paths::DIR_ENEMIES);
     

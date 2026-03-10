@@ -345,13 +345,8 @@ fn render_info_box(ui: &mut egui::Ui, cat: &CatEntry, form: usize, level_input: 
         ui.set_width(name_box::NAME_BOX_WIDTH);
 
         let form_num = form + 1;
-        let raw_name = cat.names.get(form).cloned().unwrap_or_default();
-        
-        let disp_name = if raw_name.is_empty() { 
-            format!("{:03}-{}", cat.id, form_num) 
-        } else { 
-            raw_name 
-        };
+        // Use centralized naming logic
+        let disp_name = cat.display_name(form);
 
         ui.add_space(15.0); 
         name_box::render(ui, &disp_name);

@@ -7,6 +7,7 @@ use crate::features::enemy::ui::list::EnemyList;
 use crate::features::enemy::ui::master;
 use crate::global::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
+use crate::global::assets::CustomAssets; // Ensure this is imported
 
 pub const TOP_PANEL_PADDING: f32 = 2.5;
 pub const SEARCH_FILTER_GAP: f32 = 5.0;
@@ -38,15 +39,12 @@ pub struct EnemyListState {
     #[serde(skip)] pub detail_texture: Option<egui::TextureHandle>,
     #[serde(skip)] pub detail_key: String,
     #[serde(skip)] pub icon_sheet: crate::global::imgcut::SpriteSheet,   
-    #[serde(skip)] pub anim_sheet: crate::global::imgcut::SpriteSheet, // Added for animations
-    #[serde(skip)] pub model_data: Option<Model>,                      // Added for animations
-    #[serde(skip)] pub anim_viewer: AnimViewer,                        // Added for animations
-    #[serde(skip)] pub multihit_texture: Option<egui::TextureHandle>,
-    #[serde(skip)] pub kamikaze_texture: Option<egui::TextureHandle>,
-    #[serde(skip)] pub base_texture: Option<egui::TextureHandle>,
-    #[serde(skip)] pub starred_alien_texture: Option<egui::TextureHandle>,
-    #[serde(skip)] pub burrow_texture: Option<egui::TextureHandle>,
-    #[serde(skip)] pub revive_texture: Option<egui::TextureHandle>,
+    #[serde(skip)] pub anim_sheet: crate::global::imgcut::SpriteSheet,
+    #[serde(skip)] pub model_data: Option<Model>,
+    #[serde(skip)] pub anim_viewer: AnimViewer,
+    
+    // REFACTORED: Centralized Asset Manager
+    #[serde(skip)] pub custom_assets: Option<CustomAssets>,
 }
 
 impl Default for EnemyListState {
@@ -66,12 +64,8 @@ impl Default for EnemyListState {
             anim_sheet: crate::global::imgcut::SpriteSheet::default(), 
             model_data: None,
             anim_viewer: AnimViewer::default(),
-            multihit_texture: None,
-            kamikaze_texture: None,
-            base_texture: None,
-            starred_alien_texture: None,
-            burrow_texture: None,
-            revive_texture: None,
+            // FIXED: Correct field name and initialization
+            custom_assets: None, 
         }
     }
 }
@@ -83,6 +77,12 @@ impl EnemyListState {
 }
 
 pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Settings) {
+    // --- BORROW BREAKER ---
+    if state.custom_assets.is_none() {
+        state.custom_assets = Some(CustomAssets::new(ctx));
+    }
+    let assets = state.custom_assets.as_ref().unwrap().clone();
+
     if !state.initialized {
         state.initialized = true;
         if !settings.unit_persistence {
@@ -120,8 +120,8 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
     if state.selected_enemy != old_selection_id {
         state.detail_texture = None;
         state.detail_key.clear();
-        state.anim_sheet = crate::global::imgcut::SpriteSheet::default(); // Clear anim data on switch
-        state.model_data = None;                                          // Clear model data on switch
+        state.anim_sheet = crate::global::imgcut::SpriteSheet::default(); 
+        state.model_data = None; 
     }
 
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -137,6 +137,7 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
 
         let Some(enemy_entry) = state.entries.iter().find(|e| e.id == selected_id) else { return; };
 
+        // UPDATED: Now passing exactly 14 arguments matching the new master signature
         master::show(
             ctx, 
             ui, 
@@ -146,15 +147,10 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
             &mut state.magnification,
             settings,
             &mut state.icon_sheet,
-            &mut state.anim_sheet,      // Passed anim_sheet
-            &mut state.model_data,      // Passed model_data
-            &mut state.anim_viewer,     // Passed anim_viewer
-            &mut state.multihit_texture,
-            &mut state.kamikaze_texture,
-            &mut state.base_texture,
-            &mut state.starred_alien_texture,
-            &mut state.burrow_texture,
-            &mut state.revive_texture,
+            &mut state.anim_sheet,
+            &mut state.model_data,
+            &mut state.anim_viewer,
+            &assets, // Replaces 6 textures
             &mut state.detail_texture,
             &mut state.detail_key,
         );

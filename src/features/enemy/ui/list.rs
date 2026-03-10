@@ -146,12 +146,14 @@ impl EnemyList {
 
         if response.clicked() { *selected_id = Some(entry.id); }
 
-        response.on_hover_ui(|ui| {
+       response.on_hover_ui(|ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("[ID]").weak());
                 ui.label(format!("{:03}", entry.id));
             });
-            let name = if entry.name.is_empty() { format!("Enemy {:03}", entry.id) } else { entry.name.clone() };
+            
+            let name = entry.display_name();
+            
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("[Name]").weak());
                 ui.label(name);
