@@ -20,6 +20,7 @@ struct LoadRequest {
 
 pub struct EnemyList {
     texture_cache: HashMap<u32, egui::TextureHandle>,
+    placeholder_texture: Option<egui::TextureHandle>,
     tx_request: Sender<LoadRequest>,
     rx_result: Receiver<LoadedImage>,
     pending_requests: HashSet<u32>,
@@ -36,12 +37,17 @@ impl Default for EnemyList {
         let (tx_result, rx_result) = mpsc::channel::<LoadedImage>();
 
         thread::spawn(move || {
+            // Load the standard Cat background frame!
+            let bg_cache = image::load_from_memory(crate::global::assets::UDI_F).ok().map(|img| img.to_rgba8());
+            let bg_cache = std::sync::Arc::new(bg_cache);
+
             while let Ok(req) = rx_request.recv() {
                 let tx = tx_result.clone();
                 let ctx = req.ctx.clone(); 
+                let bg = bg_cache.clone();
 
                 rayon::spawn(move || {
-                    let result = process_image(&req.path);
+                    let result = process_image(&req.path, &*bg);
                     let _ = tx.send(LoadedImage { id: req.id, img: result });
                     ctx.request_repaint();
                 });
@@ -50,6 +56,7 @@ impl Default for EnemyList {
 
         Self {
             texture_cache: HashMap::new(),
+            placeholder_texture: None,
             tx_request,
             rx_result,
             pending_requests: HashSet::new(),
@@ -75,6 +82,19 @@ impl EnemyList {
         selected_id: &mut Option<u32>, 
         search_query: &str,
     ) {
+        if self.placeholder_texture.is_none() {
+            if let Ok(img) = image::load_from_memory(crate::global::assets::UDI_F) {
+                let rgba = img.to_rgba8();
+                let size = [rgba.width() as usize, rgba.height() as usize];
+                let pixels = rgba.as_flat_samples();
+                self.placeholder_texture = Some(ctx.load_texture(
+                    "enemy_list_placeholder", 
+                    egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()), 
+                    egui::TextureOptions::LINEAR
+                ));
+            }
+        }
+
         while let Ok(loaded) = self.rx_result.try_recv() {
             if let Some(img) = loaded.img {
                 let texture = ctx.load_texture(
@@ -131,9 +151,11 @@ impl EnemyList {
             }
         }
 
+        let texture = self.texture_cache.get(&entry.id);
+        let tex_to_draw = texture.or(self.placeholder_texture.as_ref());
         let is_selected = Some(entry.id) == *selected_id;
 
-        let response = if let Some(tex) = self.texture_cache.get(&entry.id) {
+        let response = if let Some(tex) = tex_to_draw {
             let size = tex.size_vec2();
             let scale = 50.0 / size.y;
             let btn_size = size * scale;
@@ -146,17 +168,15 @@ impl EnemyList {
 
         if response.clicked() { *selected_id = Some(entry.id); }
 
-       response.on_hover_ui(|ui| {
+        response.on_hover_ui(|ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("[ID]").weak());
                 ui.label(entry.id_str());
             });
             
-            let name = entry.display_name();
-            
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("[Name]").weak());
-                ui.label(name);
+                ui.label(entry.display_name());
             });
         });
     }
@@ -175,16 +195,18 @@ impl EnemyList {
                 continue;
             }
 
-            // CLEAN: Fully reliant on the scanner.rs methods now!
-            let base_id = entry.base_id_str(); 
-            let full_id = entry.id_str().to_lowercase();
+            let full_id = entry.id_str().to_lowercase(); // e.g., "074-e"
 
-            // Smart search logic: matches '000' or exactly '000-e'
-            if base_id.contains(&query_lower) || full_id == query_lower {
+            // Smart Search: If the query starts with a number, allow highly forgiving ID matching.
+            // This safely allows "74", "074-", and "74-e" without letting "-e" match everything!
+            let is_id_search = query_lower.chars().next().map_or(false, |c| c.is_ascii_digit());
+            
+            if is_id_search && full_id.contains(&query_lower) {
                 self.cached_indices.push(i);
                 continue;
             }
 
+            // Fallback to searching by Name
             if entry.name.to_lowercase().contains(&query_lower) {
                 self.cached_indices.push(i);
             }
@@ -192,13 +214,93 @@ impl EnemyList {
     }
 }
 
-fn process_image(path: &PathBuf) -> Option<egui::ColorImage> {
+// --- TWEAKABLE CONSTANTS ---
+const ENEMY_ICON_SCALE_FACTOR: f32 = 2.6; 
+const ENEMY_ICON_OFFSET_X: i64 = 8;       
+// How many pixels at the bottom of the scaled image to ignore (removes shadow bias)
+const ENEMY_SHADOW_MARGIN: u32 = 8;       
+
+fn process_image(path: &PathBuf, bg_cache: &Option<image::RgbaImage>) -> Option<egui::ColorImage> {
     if !path.exists() { return None; }
+    
     if let Ok(image_buffer) = image::open(path) {
-        let final_image = imageops::resize(&image_buffer.to_rgba8(), 50, 50, imageops::FilterType::Lanczos3);
-        let size = [final_image.width() as usize, final_image.height() as usize];
-        let pixels = final_image.as_flat_samples();
-        return Some(egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()));
+        let mut unit_img = image_buffer.to_rgba8();
+        
+        // 1. Scale the enemy up
+        let scaled_w = (unit_img.width() as f32 * ENEMY_ICON_SCALE_FACTOR).round() as u32;
+        let scaled_h = (unit_img.height() as f32 * ENEMY_ICON_SCALE_FACTOR).round() as u32;
+        unit_img = imageops::resize(&unit_img, scaled_w, scaled_h, imageops::FilterType::Lanczos3);
+        
+        if let Some(bg) = bg_cache.as_ref() {
+            let mut final_image = bg.clone();
+            let bg_w = final_image.width() as i64;
+            let bg_h = final_image.height() as i64;
+            
+            let h = unit_img.height(); 
+            let mut min_y = h; let mut max_y = 0;
+            let mut found_solid = false;
+
+            // DENSITY CHECK: Find vertical center of the SOLID body
+            // We subtract the shadow margin from the height so shadows don't pull the center downwards
+            let shadow_cutoff = h.saturating_sub(ENEMY_SHADOW_MARGIN);
+            
+            for (_x, y, pixel) in unit_img.enumerate_pixels() {
+                // Ignore the bottom rows entirely to bypass shadows!
+                if y < shadow_cutoff && pixel[3] > 150 { 
+                    min_y = min_y.min(y);
+                    max_y = max_y.max(y);
+                    found_solid = true;
+                }
+            }
+
+            let center_y = if found_solid {
+                (min_y + max_y) as i64 / 2
+            } else {
+                h as i64 / 2 
+            };
+
+            let offset_y = (bg_h / 2) - center_y;
+
+            // 2. Manual overlay with SMART PIXEL MASKING
+            use image::Pixel; 
+            
+            for (x, y, pixel) in unit_img.enumerate_pixels() {
+                let dest_x = ENEMY_ICON_OFFSET_X + x as i64;
+                let dest_y = offset_y + y as i64;
+
+                // Make sure we are within the background image bounds
+                if dest_x >= 0 && dest_x < bg_w && dest_y >= 0 && dest_y < bg_h {
+                    
+                    let bg_pixel = final_image.get_pixel_mut(dest_x as u32, dest_y as u32);
+                    
+                    // --- SMART CLIPPING ---
+                    // Check if the background pixel is black (the frame border / level box)
+                    let is_black_border = bg_pixel[0] < 25 && bg_pixel[1] < 25 && bg_pixel[2] < 25 && bg_pixel[3] > 200;
+
+                    // Only blend the enemy pixel if we are NOT on top of a black frame pixel
+                    if !is_black_border {
+                        bg_pixel.blend(&pixel);
+                    }
+                }
+            }
+
+            // 3. Shrink down to list UI proportions, perfectly preserving udi_f aspect ratio
+            let target_h = 50; 
+            let ratio = target_h as f32 / final_image.height() as f32;
+            let target_w = (final_image.width() as f32 * ratio) as u32;
+            
+            let final_image = imageops::resize(&final_image, target_w, target_h, imageops::FilterType::Lanczos3);
+            let size = [final_image.width() as usize, final_image.height() as usize];
+            let pixels = final_image.as_flat_samples();
+            
+            return Some(egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()));
+        } else {
+            // Failsafe
+            let final_image = imageops::resize(&unit_img, 50, 50, imageops::FilterType::Lanczos3);
+            let size = [final_image.width() as usize, final_image.height() as usize];
+            let pixels = final_image.as_flat_samples();
+            return Some(egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()));
+        }
     }
     None
 }

@@ -29,7 +29,7 @@ impl EnemyEntry {
 
     pub fn display_name(&self) -> String {
         if self.name.is_empty() {
-            format!("Enemy {}", self.id_str())
+            self.id_str()
         } else {
             self.name.clone()
         }
