@@ -42,7 +42,7 @@ impl CatEntry {
     pub fn display_name(&self, form_index: usize) -> String {
         let raw_name = self.names.get(form_index).cloned().unwrap_or_default();
         if raw_name.is_empty() {
-            format!("Cat {}", self.id_str(form_index)) 
+            self.id_str(form_index)
         } else {
             raw_name
         }

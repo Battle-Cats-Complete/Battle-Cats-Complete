@@ -10,7 +10,7 @@ pub enum DisplayGroup {
     Body1,     
     Body2,     
     Footer,    
-    Hidden,    // NEW: For Filter/UI Hidden stats
+    Hidden,
 }
 
 pub struct EnemyAbilityDef {
@@ -843,7 +843,7 @@ pub const ENEMY_STATS_REGISTRY: &[EnemyStatsDef] = &[
     EnemyStatsDef {
         name: "Cash Drop",
         display_name: "Cash Drop",
-        get_value: |e, _, _| e.cash_drop,
+        get_value: |e, _, _| (e.cash_drop as f32 * 3.95).floor() as i32,
         formatter: |val| format!("{}¢", val),
     },
 ];
