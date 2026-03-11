@@ -50,16 +50,40 @@ impl EnemyWatchers {
         config: &ScannerConfig
     ) {
         while let Ok(path) = receiver.try_recv() {
-            let path_str = path.to_string_lossy().to_string();
+            
+            // Grab the filename, convert it to a string, and make it lowercase so we never miss it!
+            let file_name = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_lowercase();
 
-            if path_str.contains("t_unit") || path_str.contains("EnemyName") || path_str.contains("EnemyPictureBook") {
+            // Check if it's a structural file (Case-Insensitive, Language-Agnostic)
+            let is_structural = file_name.contains("t_unit") ||
+                                file_name.contains("enemyname") ||
+                                file_name.contains("enemypicturebook");
+
+            if is_structural {
+                // Aggressively wipe the UI caches so the new names are forced to draw immediately!
+                state.enemy_list.clear_cache();
+                state.detail_texture = None;
+                state.detail_key.clear();
+                
                 loader::restart_scan(state, config.clone());
                 ctx.request_repaint();
                 continue;
             }
 
-            if let Some(id) = extract_enemy_id(&path_str) {
-                if path_str.contains(".maanim") || path_str.contains(".png") || path_str.contains(".imgcut") || path_str.contains(".mamodel") {
+            // 2. Extract Enemy ID from folder name
+            if let Some(id) = extract_enemy_id(&path) {
+                
+                // Handle animation viewer hot-reloading utilizing AnimType from paths.rs
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                
+                if ext == paths::AnimType::Maanim.ext() || 
+                   ext == paths::AnimType::Png.ext() || 
+                   ext == paths::AnimType::Imgcut.ext() || 
+                   ext == paths::AnimType::Mamodel.ext() 
+                {
                     if state.selected_tab == super::state::EnemyDetailTab::Animation {
                         if state.selected_enemy == Some(id) {
                             state.anim_viewer.loaded_id.clear();
@@ -69,7 +93,8 @@ impl EnemyWatchers {
                     }
                 }
 
-                state.enemy_list.flush_icon(id); // UNIFIED
+                // Flush caches and refresh UI
+                state.enemy_list.flush_icon(id);
                 if state.selected_enemy == Some(id) {
                     state.detail_texture = None; 
                     state.detail_key.clear();
@@ -106,8 +131,8 @@ fn debounce_loop(rx: Receiver<PathBuf>, tx: Sender<PathBuf>, ctx: egui::Context)
     }
 }
 
-fn extract_enemy_id(path_str: &str) -> Option<u32> {
-    let path = Path::new(path_str);
+fn extract_enemy_id(path: &Path) -> Option<u32> {
+    // Check if the parent folder is a 3-digit number (e.g., "000")
     if let Some(parent) = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()) {
         if parent.len() == 3 && parent.chars().all(|c| c.is_ascii_digit()) {
             return parent.parse::<u32>().ok();
