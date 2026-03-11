@@ -51,7 +51,7 @@ pub struct EnemyListState {
     #[serde(skip)] pub model_data: Option<Model>,
     #[serde(skip)] pub anim_viewer: AnimViewer,
     #[serde(skip)] pub custom_assets: Option<CustomAssets>,
-    #[serde(skip)] pub scan_receiver: Option<Receiver<Vec<EnemyEntry>>>,
+    #[serde(skip)] pub scan_receiver: Option<Receiver<EnemyEntry>>,
     #[serde(skip)] pub filter_state: EnemyFilterState,
     #[serde(skip)] pub drag_guard: DragGuard,
 }
