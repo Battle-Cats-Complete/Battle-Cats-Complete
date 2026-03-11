@@ -13,7 +13,7 @@ use crate::features::cat::data::unitbuy;
 use crate::features::cat::data::unitevolve;
 use crate::global::imgcut::SpriteSheet;
 use crate::features::cat::paths;
-use crate::features::settings::logic::handle::ScannerConfig;
+use crate::features::settings::logic::state::ScannerConfig;
 
 pub struct CatWatchers {
     _watcher: RecommendedWatcher,

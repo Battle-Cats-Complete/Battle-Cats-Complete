@@ -155,7 +155,7 @@ fn render_talent_controls(
             ui.spacing_mut().item_spacing.x = 6.0;
             
             let mut drawn = false;
-            if settings.game_language != "--" {
+            if settings.general.game_language != "--" {
                 if let Some(cut) = img022_sheet.cuts_map.get(&crate::global::img022::ICON_NP_COST) {
                     if let Some(tex) = &img022_sheet.texture_handle {
                         let aspect = cut.original_size.x / cut.original_size.y;

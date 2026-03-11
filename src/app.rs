@@ -71,15 +71,15 @@ impl BattleCatsApp {
 
         setup_custom_fonts(&cc.egui_ctx);
         
-        if app.settings.rx_lang.is_none() {
-            app.settings.rx_lang = Some(crate::features::settings::logic::lang::start_scan());
+        if app.settings.runtime.rx_lang.is_none() {
+            app.settings.runtime.rx_lang = Some(crate::features::settings::logic::lang::start_scan());
         }
 
         app.cat_list_state.restart_scan(app.settings.scanner_config());
         app.enemy_list_state.restart_scan(app.settings.scanner_config());
         updater::cleanup_temp_files();
 
-        if app.settings.update_mode != UpdateMode::Ignore {
+        if app.settings.general.update_mode != UpdateMode::Ignore {
             app.updater.check_for_updates();
         }
 
@@ -112,15 +112,15 @@ impl eframe::App for BattleCatsApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.settings.rx_lang.is_some() {
+        if self.settings.runtime.rx_lang.is_some() {
             self.settings.update_language_list();
             ctx.request_repaint(); 
         }
 
         self.updater.update_state();
 
-        if self.settings.manual_check_requested {
-            self.settings.manual_check_requested = false;
+        if self.settings.runtime.manual_check_requested {
+            self.settings.runtime.manual_check_requested = false;
             self.updater.check_for_updates();
         }
 
@@ -234,7 +234,7 @@ impl eframe::App for BattleCatsApp {
                                     if ui.add_sized([ui.available_width(), 45.0], btn).clicked() {
                                         if self.current_page != *page_enum {
                                             self.current_page = *page_enum;
-                                            self.settings.show_ip_field = false;
+                                            self.settings.runtime.show_ip_field = false;
                                         }
                                     }
                                 }

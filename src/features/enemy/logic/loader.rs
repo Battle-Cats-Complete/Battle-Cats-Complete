@@ -1,6 +1,6 @@
 use super::state::EnemyListState;
 use super::scanner;
-use crate::features::settings::logic::handle::ScannerConfig;
+use crate::features::settings::logic::state::ScannerConfig;
 
 pub fn restart_scan(state: &mut EnemyListState, config: ScannerConfig) {
     state.is_cold_scan = state.enemies.is_empty(); 

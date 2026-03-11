@@ -19,7 +19,7 @@ use crate::features::cat::data::skilllevel;
 use crate::features::cat::data::unitlevel::CatLevelCurve;
 use crate::features::cat::data::unitbuy::UnitBuyRow;
 use crate::features::cat::data::skillacquisition::TalentRaw;
-use crate::features::settings::logic::handle::ScannerConfig;
+use crate::features::settings::logic::state::ScannerConfig;
 use crate::features::settings::logic::Settings;
 use crate::core::utils::DragGuard; 
 
@@ -160,7 +160,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
         state.initialized = true;
         state.init_watcher(ctx); 
         
-        if !settings.unit_persistence {
+        if !settings.cat_data.unit_persistence {
             state.selected_cat = None;
             state.cat_list.reset_scroll();
         }
@@ -173,7 +173,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
 
     let path = std::path::Path::new("game/cats");
     if state.skill_descriptions.is_none() {
-        state.skill_descriptions = Some(skilldescriptions::load(path, &settings.game_language));
+        state.skill_descriptions = Some(skilldescriptions::load(path, &settings.general.game_language));
     }
     if state.cached_talent_costs.is_none() {
         state.cached_talent_costs = Some(skilllevel::load(path));
@@ -212,7 +212,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
                 state.cat_list.show(
                     ctx, ui, &state.cats, &mut state.selected_cat, 
                     &state.search_query, &state.filter_state, 
-                    settings.high_banner_quality
+                    settings.cat_data.high_banner_quality
                 );
             } else if state.scan_receiver.is_some() {
                 ui.centered_and_justified(|ui| { ui.spinner(); });
@@ -253,7 +253,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
                             }
                         }
 
-                        if settings.auto_level_calculations {
+                        if settings.cat_data.auto_level_calculations {
                             let base_max = new_cat.unit_buy.level_cap_standard;
                             let plus_max = new_cat.unit_buy.level_cap_plus;
                             let is_legend_rare = new_cat.unit_buy.rarity == 5;
@@ -277,8 +277,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
                                 state.level_input = base_max.to_string();
                             }
                         } else {
-                            state.current_level = settings.default_level;
-                            state.level_input = settings.default_level.to_string();
+                            state.current_level = settings.cat_data.default_level;
+                            state.level_input = settings.cat_data.default_level.to_string();
                         }
                     }
                 }
@@ -353,7 +353,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
             }
         }
 
-        if settings.bump_ultra_60 {
+        if settings.cat_data.bump_ultra_60 {
             if !state.is_in_ultra_state && current_ultra_state {
                 state.saved_pre_ultra_level = Some((state.current_level, state.level_input.clone()));
                 if state.current_level < 60 {

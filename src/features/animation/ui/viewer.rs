@@ -408,17 +408,17 @@ impl AnimViewer {
         settings: &mut Settings,
     ) {
         // --- PRE-SYNC: Grab state from Settings before UI evaluates ---
-        self.is_controls_expanded = settings.global_anim_controls_expanded;
-        self.show_export_popup = settings.global_anim_export_popup;
+        self.is_controls_expanded = settings.animation.controls_expanded;
+        self.show_export_popup = settings.animation.export_popup_open;
         // -------------------------------------------------------------
 
         let dt = ui.input(|i| i.stable_dt);
-        let interpolation = settings.animation_interpolation;
-        let debug_show_info = settings.animation_debug;
-        let centering_behavior = settings.centering_behavior;
-        let native_fps = settings.native_fps;
+        let interpolation = settings.animation.interpolation;
+        let debug_show_info = settings.animation.debug_view;
+        let centering_behavior = settings.animation.centering_behavior;
+        let native_fps = settings.animation.native_fps;
         
-        self.auto_set_camera = settings.auto_set_camera_region; 
+        self.auto_set_camera = settings.animation.auto_set_camera_region; 
         if !primary_id.is_empty() { self.summoner_id = primary_id.to_string(); }
 
         if self.loaded_id != self.last_loaded_id {
@@ -450,7 +450,7 @@ impl AnimViewer {
             self.export_state = ExporterState::default();
             self.export_state.export_mode = prev_mode;
 
-            self.export_state.format = match settings.last_export_format {
+            self.export_state.format = match settings.animation.last_export_format {
                 1 => ExportFormat::WebP,
                 2 => ExportFormat::Avif,
                 3 => ExportFormat::Png,
@@ -593,7 +593,7 @@ impl AnimViewer {
                         
                         // Set the global settings popup to true
                         self.show_export_popup = true;
-                        settings.global_anim_export_popup = true; 
+                        settings.animation.export_popup_open = true; 
                         
                         self.was_export_popup_open = true; 
                     } else { 
@@ -601,7 +601,7 @@ impl AnimViewer {
                         
                         // Set the global settings popup to true
                         self.show_export_popup = true;
-                        settings.global_anim_export_popup = true; 
+                        settings.animation.export_popup_open = true; 
                         
                         self.was_export_popup_open = true; 
                     }
@@ -610,8 +610,8 @@ impl AnimViewer {
         }
 
         if self.show_export_popup && !self.was_export_popup_open {
-             if self.export_state.format == ExportFormat::Gif && settings.last_export_format != 0 {
-                 self.export_state.format = match settings.last_export_format {
+             if self.export_state.format == ExportFormat::Gif && settings.animation.last_export_format != 0 {
+                 self.export_state.format = match settings.animation.last_export_format {
                      1 => ExportFormat::WebP,
                      2 => ExportFormat::Avif,
                      3 => ExportFormat::Png,
@@ -642,23 +642,23 @@ impl AnimViewer {
         }
         self.was_export_popup_open = self.show_export_popup;
 
-        let walk_mismatch = self.export_state.last_known_walk_default != settings.default_showcase_walk;
-        let idle_mismatch = self.export_state.last_known_idle_default != settings.default_showcase_idle;
-        let kb_mismatch = self.export_state.last_known_kb_default != settings.default_showcase_kb;
+        let walk_mismatch = self.export_state.last_known_walk_default != settings.animation.default_showcase_walk;
+        let idle_mismatch = self.export_state.last_known_idle_default != settings.animation.default_showcase_idle;
+        let kb_mismatch = self.export_state.last_known_kb_default != settings.animation.default_showcase_kb;
 
         if walk_mismatch || idle_mismatch || kb_mismatch {
-            self.export_state.last_known_walk_default = settings.default_showcase_walk;
-            self.export_state.last_known_idle_default = settings.default_showcase_idle;
-            self.export_state.last_known_kb_default = settings.default_showcase_kb;
+            self.export_state.last_known_walk_default = settings.animation.default_showcase_walk;
+            self.export_state.last_known_idle_default = settings.animation.default_showcase_idle;
+            self.export_state.last_known_kb_default = settings.animation.default_showcase_kb;
 
             if self.export_state.showcase_walk_str.is_empty() {
-                self.export_state.showcase_walk_len = settings.default_showcase_walk;
+                self.export_state.showcase_walk_len = settings.animation.default_showcase_walk;
             }
             if self.export_state.showcase_idle_str.is_empty() {
-                self.export_state.showcase_idle_len = settings.default_showcase_idle;
+                self.export_state.showcase_idle_len = settings.animation.default_showcase_idle;
             }
             if self.export_state.showcase_kb_str.is_empty() {
-                self.export_state.showcase_kb_len = settings.default_showcase_kb;
+                self.export_state.showcase_kb_len = settings.animation.default_showcase_kb;
             }
 
             self.has_scanned_showcase = false;
@@ -680,10 +680,10 @@ impl AnimViewer {
                      let len = anim.calculate_true_loop().unwrap_or(anim.max_frame);
                      
                      let is_short = len <= 1;
-                     let new_len = if is_short { 0 } else { settings.default_showcase_walk };
+                     let new_len = if is_short { 0 } else { settings.animation.default_showcase_walk };
                      self.export_state.detected_walk_len = new_len;
                      
-                     if self.export_state.showcase_walk_str.is_empty() || self.export_state.showcase_walk_len == settings.default_showcase_walk {
+                     if self.export_state.showcase_walk_str.is_empty() || self.export_state.showcase_walk_len == settings.animation.default_showcase_walk {
                         self.export_state.showcase_walk_len = new_len;
                      }
                  }
@@ -694,11 +694,11 @@ impl AnimViewer {
                      let len = anim.calculate_true_loop().unwrap_or(anim.max_frame);
                      
                      let is_short = len <= 1;
-                     let new_len = if is_short { 0 } else { settings.default_showcase_idle };
+                     let new_len = if is_short { 0 } else { settings.animation.default_showcase_idle };
                      
                      self.export_state.detected_idle_len = new_len;
 
-                     if self.export_state.showcase_idle_str.is_empty() || self.export_state.showcase_idle_len == settings.default_showcase_idle {
+                     if self.export_state.showcase_idle_str.is_empty() || self.export_state.showcase_idle_len == settings.animation.default_showcase_idle {
                         self.export_state.showcase_idle_len = new_len;
                      }
                  }
@@ -820,8 +820,8 @@ impl AnimViewer {
         export::show_popup(ui, state, model, anim, sheet, show_popup, start_select, settings);
         
         // --- POST-SYNC: Save whatever the final states are back to Settings ---
-        settings.global_anim_controls_expanded = self.is_controls_expanded;
-        settings.global_anim_export_popup = self.show_export_popup;
+        settings.animation.controls_expanded = self.is_controls_expanded;
+        settings.animation.export_popup_open = self.show_export_popup;
         // ----------------------------------------------------------------------
     }
 }

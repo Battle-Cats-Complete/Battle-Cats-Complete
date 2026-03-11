@@ -95,7 +95,7 @@ fn render_single_icon(
     assets: &CustomAssets,
 ) -> egui::Response {
     let size = egui::vec2(40.0, 40.0);
-    let force_fallback = settings.game_language == "--";
+    let force_fallback = settings.general.game_language == "--";
 
     let custom_texture = match item.icon_id {
         img015::ICON_BASE => Some(&assets.base),

@@ -145,7 +145,7 @@ fn render_header(
             if let Some(def) = crate::features::cat::registry::get_by_talent_id(group.ability_id) {
                 let size = egui::vec2(40.0, 40.0);
                 
-                let force_fallback = settings.game_language == "--";
+                let force_fallback = settings.general.game_language == "--";
                 let mut drawn = false;
                 
                 if !force_fallback {
@@ -164,7 +164,7 @@ fn render_header(
                 ui.label(egui::RichText::new("?").weak());
             }
 
-            let force_fallback = settings.game_language == "--";
+            let force_fallback = settings.general.game_language == "--";
             if !force_fallback {
                 if let Some(texture) = get_or_load_skill_name(ui, group, settings, name_cache) {
                     ui.image((texture.id(), texture.size_vec2()));
@@ -241,7 +241,7 @@ fn render_body(
                 ui.spacing_mut().item_spacing.x = 4.0;
                 
                 let mut drawn = false;
-                if settings.game_language != "--" {
+                if settings.general.game_language != "--" {
                     if let Some(cut) = img022_sheet.cuts_map.get(&crate::global::img022::ICON_NP_COST) {
                         if let Some(tex) = &img022_sheet.texture_handle {
                             let aspect = cut.original_size.x / cut.original_size.y;
@@ -347,8 +347,8 @@ fn get_or_load_skill_name(
 fn find_skill_image_path(image_id: i16, settings: &Settings) -> Option<PathBuf> {
     let root = Path::new(""); 
 
-    if !settings.game_language.is_empty() {
-        let candidate = paths::skill_icon(root, image_id, &settings.game_language);
+    if !settings.general.game_language.is_empty() {
+        let candidate = paths::skill_icon(root, image_id, &settings.general.game_language);
         if candidate.exists() { return Some(candidate); }
     }
     

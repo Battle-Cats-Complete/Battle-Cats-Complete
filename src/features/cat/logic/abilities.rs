@@ -73,7 +73,7 @@ pub fn collect_ability_data(
             let border = get_talent_border(def.talent_id);
 
             let mut custom_icon = def.custom_icon;
-            if def.name == "Multi-Hit" && settings.game_language == "--" {
+            if def.name == "Multi-Hit" && settings.general.game_language == "--" {
                 custom_icon = CustomIcon::None;
             }
 

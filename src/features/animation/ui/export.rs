@@ -407,7 +407,7 @@ fn render_content(
                     // Use dynamic hints from the state
                     let hint_walk = egui::RichText::new(state.detected_walk_len.to_string()).color(egui::Color32::GRAY);
                     let hint_idle = egui::RichText::new(state.detected_idle_len.to_string()).color(egui::Color32::GRAY);
-                    let hint_kb = egui::RichText::new(settings.default_showcase_kb.to_string()).color(egui::Color32::GRAY);
+                    let hint_kb = egui::RichText::new(settings.animation.default_showcase_kb.to_string()).color(egui::Color32::GRAY);
                     
                     egui::Grid::new("showcase_grid").spacing([10.0, 4.0]).show(ui, |ui| {
                         ui.label("Walk");
@@ -451,10 +451,10 @@ fn render_content(
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
                             if ui.add(egui::TextEdit::singleline(&mut state.showcase_kb_str).hint_text(hint_kb).desired_width(50.0)).changed() {
-                                state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { settings.default_showcase_kb } else { 0 });
+                                state.showcase_kb_len = state.showcase_kb_str.trim().parse().unwrap_or(if state.showcase_kb_str.trim().is_empty() { settings.animation.default_showcase_kb } else { 0 });
                                 state.completion_time = None;
                             }
-                            if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = settings.default_showcase_kb; }
+                            if state.showcase_kb_str.trim().is_empty() { state.showcase_kb_len = settings.animation.default_showcase_kb; }
                             ui.label("f");
                         });
                         ui.end_row();
@@ -588,7 +588,7 @@ fn render_content(
                     if format != state.format {
                         state.format = format.clone();
                         // SAVE PREFERENCE
-                        settings.last_export_format = match format {
+                        settings.animation.last_export_format = match format {
                             ExportFormat::Gif => 0,
                             ExportFormat::WebP => 1,
                             ExportFormat::Avif => 2,

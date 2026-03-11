@@ -111,7 +111,7 @@ pub const ICON_MULTIHIT: usize = 9999;
 pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Settings) {
     sheet.update(ctx);
 
-    if settings.game_language == "--" {
+    if settings.general.game_language == "--" {
         return; 
     }
 
@@ -120,7 +120,7 @@ pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Se
     }
 
     let base_dir = paths::img015_folder(std::path::Path::new(""));
-    let current_language = &settings.game_language;
+    let current_language = &settings.general.game_language;
     
     let codes_to_try: Vec<String> = if current_language.is_empty() {
         crate::core::utils::LANGUAGE_PRIORITY
@@ -132,7 +132,7 @@ pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Se
     };
 
     for code in codes_to_try {
-        let (png_filename, imgcut_filename) = if code.is_empty() {
+        let (png_filename, imgcut_filename) = if (*code).is_empty() {
             ("img015.png".to_string(), "img015.imgcut".to_string())
         } else {
             (format!("img015_{}.png", code), format!("img015_{}.imgcut", code))
