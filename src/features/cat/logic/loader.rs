@@ -10,7 +10,7 @@ use crate::features::cat::data::unitbuy;
 use crate::features::cat::data::skillacquisition;
 use crate::features::cat::data::unitevolve;
 use crate::features::cat::paths;
-use crate::features::settings::logic::handle::ScannerConfig;
+use crate::features::settings::logic::state::ScannerConfig;
 
 pub fn ensure_global_data_loaded(state: &mut CatListState, language_code: &str) {
     let cats_dir = Path::new(paths::DIR_CATS);

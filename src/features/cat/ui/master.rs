@@ -83,7 +83,7 @@ pub fn show(
                 );
 
                 let expand_id = egui::Id::new(format!("conjure_expand_{}", cat_entry.id));
-                let is_conjure_expanded = ctx.data(|d| d.get_temp::<bool>(expand_id).unwrap_or(settings.expand_spirit_details));
+                let is_conjure_expanded = ctx.data(|d| d.get_temp::<bool>(expand_id).unwrap_or(settings.cat_data.expand_spirit_details));
 
                 let (traits, h1, h2, b1, b2, footer) = crate::features::cat::logic::abilities::collect_ability_data(
                     final_s, base_s, *current_level, cat_entry.curve.as_ref(), settings, false,
@@ -148,7 +148,7 @@ pub fn show(
                     traits, h1, h2, b1, b2, footer, spirit_data,
                 };
 
-                let lang_clone = settings.game_language.clone();
+                let lang_clone = settings.general.game_language.clone();
                 let cuts_clone = icon_sheet.cuts_map.clone(); 
 
                 if export_action == ExportAction::Copy {

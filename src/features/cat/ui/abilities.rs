@@ -104,7 +104,7 @@ fn render_single_icon(
     assets: &CustomAssets, // Updated signature
 ) -> egui::Response {
     let size = egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE);
-    let force_fallback = settings.game_language == "--";
+    let force_fallback = settings.general.game_language == "--";
 
     // REFACTORED: Direct access from the struct. No more Options.
     let custom_texture = match item.custom_icon {
@@ -172,7 +172,7 @@ pub fn render_list_view(
             }
         }); 
 
-        let expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.expand_spirit_details));
+        let expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.cat_data.expand_spirit_details));
         if is_conjure && expanded {
             ui.add_space(ABILITY_Y);
             render_conjure_details(ui, s, current_level, curve, sheet, assets, settings);
@@ -187,7 +187,7 @@ pub fn render_list_view(
 fn render_conjure_toggle(ui: &mut egui::Ui, text: &str, id: egui::Id, settings: &Settings) {
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = 7.0;
-        let mut expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.expand_spirit_details));
+        let mut expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.cat_data.expand_spirit_details));
         text_with_superscript(ui, text);
         let btn_text = egui::RichText::new("Details").size(11.0);
         let btn = if expanded {
@@ -243,7 +243,7 @@ fn render_conjure_details(
                 ui.spacing_mut().item_spacing.x = 8.0;
                 let icon = img015::ICON_AREA_ATTACK;
                 let size = egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE);
-                let force_fallback = settings.game_language == "--";
+                let force_fallback = settings.general.game_language == "--";
                 
                 if !force_fallback && sheet.cuts_map.contains_key(&icon) {
                     let cut = sheet.cuts_map.get(&icon).unwrap();

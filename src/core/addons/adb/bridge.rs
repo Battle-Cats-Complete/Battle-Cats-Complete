@@ -7,7 +7,7 @@ use super::driver;
 use crate::features::import::logic::{AdbImportType, AdbRegion};
 use crate::features::import::logic::decrypt;
 use crate::features::import::sort;
-use crate::features::settings::logic::handle::EmulatorConfig;
+use crate::features::settings::logic::state::EmulatorConfig;
 
 pub enum AdbEvent {
     Status(String),

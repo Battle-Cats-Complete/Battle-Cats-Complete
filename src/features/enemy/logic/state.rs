@@ -7,7 +7,7 @@ use std::time::Instant;
 // FIX: Removed the unused `self` import here
 use crate::features::enemy::logic::scanner::EnemyEntry;
 use crate::features::settings::logic::Settings;
-use crate::features::settings::logic::handle::ScannerConfig;
+use crate::features::settings::logic::state::ScannerConfig;
 use crate::features::enemy::ui::list::EnemyList;
 use crate::features::enemy::ui::master;
 use crate::global::mamodel::Model;
@@ -115,7 +115,7 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
         state.initialized = true;
         state.init_watcher(ctx);
         
-        if !settings.unit_persistence {
+        if !settings.cat_data.unit_persistence {
             state.selected_enemy = None;
             state.enemy_list.reset_scroll();
         }

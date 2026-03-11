@@ -5,7 +5,7 @@ use std::io::Read;
 
 use crate::features::enemy::paths;
 use crate::features::enemy::data::{t_unit::{self, EnemyRaw}, enemyname, enemypicturebook};
-use crate::features::settings::logic::handle::ScannerConfig;
+use crate::features::settings::logic::state::ScannerConfig;
 use crate::global::maanim::Animation;
 
 #[derive(Clone, Debug)]

@@ -154,7 +154,7 @@ impl ImportState {
         }
 
         if finished_just_now && (self.status_message.contains("Success") || self.status_message.contains("Complete")) {
-            settings.rx_lang = Some(crate::features::settings::logic::lang::start_scan());
+            settings.runtime.rx_lang = Some(crate::features::settings::logic::lang::start_scan());
         }
 
         finished_just_now

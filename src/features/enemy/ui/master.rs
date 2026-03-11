@@ -75,7 +75,7 @@ pub fn show(
                 traits, h1, h2, b1, b2, footer, spirit_data: None,
             };
 
-            let lang_clone = settings.game_language.clone();
+            let lang_clone = settings.general.game_language.clone();
             let cuts_clone = icon_sheet.cuts_map.clone(); 
 
             if export_action == ExportAction::Copy {

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use super::state::EnemyListState;
 use super::loader;
 use crate::features::enemy::paths;
-use crate::features::settings::logic::handle::ScannerConfig;
+use crate::features::settings::logic::state::ScannerConfig;
 
 pub struct EnemyWatchers {
     _watcher: RecommendedWatcher,
