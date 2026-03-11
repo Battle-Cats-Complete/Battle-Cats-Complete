@@ -47,13 +47,10 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragG
 
             ui.push_id(&current_tab, |ui| {
                 let result = match current_tab.as_str() {
-                    // Look at this! Perfectly clean and isolated!
                     "General" => super::general::show(ui, &mut settings.general, &mut settings.runtime),
                     "Cat Data" => super::cat_data::show(ui, &mut settings.cat_data),
                     "Game Data" => super::game_data::show(ui, &mut settings.game_data, &mut settings.runtime),
                     "Anim View" => super::anim_view::show(ui, &mut settings.animation),
-                    
-                    // Addons doesn't need settings, so we just pass the guard
                     "Add-Ons" => super::addons::show(ui, drag_guard), 
                     _ => {
                         ui.vertical_centered(|ui| {

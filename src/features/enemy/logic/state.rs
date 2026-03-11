@@ -1,20 +1,18 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::Receiver;
-use std::path::PathBuf;
 use std::time::Instant;
-
-// FIX: Removed the unused `self` import here
 use crate::features::enemy::logic::scanner::EnemyEntry;
-use crate::features::settings::logic::Settings;
+use crate::features::settings::logic::state::Settings;
 use crate::features::settings::logic::state::ScannerConfig;
 use crate::features::enemy::ui::list::EnemyList;
 use crate::features::enemy::ui::master;
-use crate::global::mamodel::Model;
+use crate::global::formats::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
 use crate::global::assets::CustomAssets;
-
-use super::{watcher, loader};
+use crate::core::utils::DragGuard;
+use crate::features::enemy::ui::filter::EnemyFilterState; 
+use super::loader;
 
 pub const TOP_PANEL_PADDING: f32 = 2.5;
 pub const SEARCH_FILTER_GAP: f32 = 5.0;
@@ -35,7 +33,7 @@ impl Default for EnemyDetailTab {
 #[derive(Deserialize, Serialize)]
 #[serde(default)]
 pub struct EnemyListState {
-    #[serde(skip)] pub enemies: Vec<EnemyEntry>, // UNIFIED: renamed from entries
+    #[serde(skip)] pub enemies: Vec<EnemyEntry>, 
     #[serde(skip)] pub incoming_enemies: Vec<EnemyEntry>,
     #[serde(skip)] pub is_cold_scan: bool,
     #[serde(skip)] pub last_update_time: Option<Instant>,
@@ -44,18 +42,18 @@ pub struct EnemyListState {
     pub selected_tab: EnemyDetailTab,
     pub mag_input: String,
     pub magnification: i32,
-    #[serde(skip)] pub enemy_list: EnemyList, // UNIFIED: renamed from list_ui
+    #[serde(skip)] pub enemy_list: EnemyList, 
     #[serde(skip)] pub initialized: bool,
     #[serde(skip)] pub detail_texture: Option<egui::TextureHandle>,
     #[serde(skip)] pub detail_key: String,
-    #[serde(skip)] pub icon_sheet: crate::global::imgcut::SpriteSheet,   
-    #[serde(skip)] pub anim_sheet: crate::global::imgcut::SpriteSheet,
+    #[serde(skip)] pub icon_sheet: crate::global::formats::imgcut::SpriteSheet,   
+    #[serde(skip)] pub anim_sheet: crate::global::formats::imgcut::SpriteSheet,
     #[serde(skip)] pub model_data: Option<Model>,
     #[serde(skip)] pub anim_viewer: AnimViewer,
     #[serde(skip)] pub custom_assets: Option<CustomAssets>,
     #[serde(skip)] pub scan_receiver: Option<Receiver<Vec<EnemyEntry>>>,
-    #[serde(skip)] pub watchers: Option<watcher::EnemyWatchers>,
-    #[serde(skip)] pub watch_receiver: Option<Receiver<PathBuf>>,
+    #[serde(skip)] pub filter_state: EnemyFilterState,
+    #[serde(skip)] pub drag_guard: DragGuard,
 }
 
 impl Default for EnemyListState {
@@ -74,28 +72,19 @@ impl Default for EnemyListState {
             initialized: false,
             detail_texture: None,
             detail_key: String::new(),
-            icon_sheet: crate::global::imgcut::SpriteSheet::default(), 
-            anim_sheet: crate::global::imgcut::SpriteSheet::default(), 
+            icon_sheet: crate::global::formats::imgcut::SpriteSheet::default(), 
+            anim_sheet: crate::global::formats::imgcut::SpriteSheet::default(), 
             model_data: None,
             anim_viewer: AnimViewer::default(),
             custom_assets: None, 
             scan_receiver: None,
-            watchers: None,
-            watch_receiver: None,
+            filter_state: EnemyFilterState::default(),
+            drag_guard: DragGuard::default(),
         }
     }
 }
 
 impl EnemyListState {
-    pub fn init_watcher(&mut self, ctx: &egui::Context) {
-        watcher::init(self, ctx);
-    }
-
-    #[allow(dead_code)] // TODO: Remove this once Global Watcher is hooked up
-    pub fn handle_event(&mut self, ctx: &egui::Context, path: &PathBuf, config: ScannerConfig) {
-        watcher::handle_event(self, ctx, path, config);
-    }
-
     pub fn update_data(&mut self) {
         loader::update_data(self);
     }
@@ -113,17 +102,11 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
 
     if !state.initialized {
         state.initialized = true;
-        state.init_watcher(ctx);
         
         if !settings.cat_data.unit_persistence {
             state.selected_enemy = None;
             state.enemy_list.reset_scroll();
         }
-    }
-
-    if let Some(rx) = state.watch_receiver.take() {
-        watcher::EnemyWatchers::handle_events(state, &rx, ctx, &settings.scanner_config());
-        state.watch_receiver = Some(rx); // Put it back immediately!
     }
 
     if state.scan_receiver.is_some() {
@@ -140,18 +123,34 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
             ui.scope(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 ui.add_space(TOP_PANEL_PADDING);
+                
                 ui.vertical_centered(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut state.search_query)
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    let search_response = ui.add(egui::TextEdit::singleline(&mut state.search_query)
                         .hint_text(egui::RichText::new("Search Enemy...").color(egui::Color32::GRAY))
                         .desired_width(140.0));
+                    
+                    ui.add_space(SEARCH_FILTER_GAP); 
+                    
+                    let btn_size = egui::vec2(140.0, search_response.rect.height());
+                    let filter_active = state.filter_state.is_active();
+                    
+                    let mut filter_btn = egui::Button::new("Filter");
+                    if filter_active {
+                        filter_btn = filter_btn.fill(egui::Color32::from_rgb(31, 106, 165));
+                    }
+                    if ui.add_sized(btn_size, filter_btn).clicked() {
+                        state.filter_state.is_open = !state.filter_state.is_open;
+                    }
                 });
-                ui.add_space(SPACE_BEFORE_SEPARATOR + SEARCH_FILTER_GAP);
+                
+                ui.add_space(SPACE_BEFORE_SEPARATOR);
                 ui.separator();
                 ui.add_space(SPACE_AFTER_SEPARATOR);
             });
 
             if !state.enemies.is_empty() {
-                state.enemy_list.show(ctx, ui, &state.enemies, &mut state.selected_enemy, &state.search_query);
+                state.enemy_list.show(ctx, ui, &state.enemies, &mut state.selected_enemy, &state.search_query, &state.filter_state);
             } else if state.scan_receiver.is_some() {
                 ui.centered_and_justified(|ui| { ui.spinner(); });
             } else {
@@ -170,7 +169,7 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
     if state.selected_enemy != old_selection_id {
         state.detail_texture = None;
         state.detail_key.clear();
-        state.anim_sheet = crate::global::imgcut::SpriteSheet::default(); 
+        state.anim_sheet = crate::global::formats::imgcut::SpriteSheet::default(); 
         state.model_data = None; 
     }
 
@@ -197,4 +196,9 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
             &assets, &mut state.detail_texture, &mut state.detail_key,
         );
     });
+
+    crate::features::enemy::ui::filter::show_popup(
+        ctx, &mut state.filter_state, &mut state.icon_sheet,
+        &assets, settings, &mut state.drag_guard,
+    );
 }

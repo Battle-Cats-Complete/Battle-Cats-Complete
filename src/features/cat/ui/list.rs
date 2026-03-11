@@ -292,7 +292,6 @@ fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
     for i in 0..4 {
         if !unit.forms[i] { continue; }
 
-        // Use centralized naming logic for tooltips
         let display_name = unit.display_name(i);
 
         ui.horizontal(|ui| {

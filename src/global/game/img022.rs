@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 use eframe::egui;
 use crate::features::settings::logic::Settings;
-use super::imgcut::SpriteSheet;
-use crate::global::paths;
+use crate::global::formats::imgcut::SpriteSheet;
+use crate::global::io::paths;
 
 pub const ICON_NP_COST: usize = 97; 
 

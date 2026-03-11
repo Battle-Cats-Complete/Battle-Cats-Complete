@@ -1,22 +1,17 @@
 use eframe::egui;
 use std::collections::HashMap;
-
 use crate::features::cat::logic::scanner::CatEntry;
 use crate::features::cat::logic::DetailTab;
-use crate::global::imgcut::SpriteSheet;
-use crate::global::img015;
-use crate::global::img022; 
+use crate::global::formats::imgcut::SpriteSheet;
+use crate::global::game::img015;
+use crate::global::game::img022; 
 use crate::features::settings::logic::Settings;
-use crate::global::mamodel::Model;
+use crate::global::formats::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
 use crate::features::cat::data::skilllevel::TalentCost;
-
-// REFACTORED: Use centralized assets
 use crate::global::assets::CustomAssets;
-
 use crate::features::statblock::logic::builder::{StatblockData, SpiritData, generate_and_copy, generate_and_save};
 use crate::features::cat::registry::{get_cat_stat, format_cat_stat};
-
 use super::{header, stats, abilities, talents, details, viewer};
 use super::header::ExportAction;
 
@@ -30,17 +25,12 @@ pub fn show(
     current_level: &mut i32,    
     texture_cache: &mut Option<egui::TextureHandle>,
     current_key: &mut String,
-    
     icon_sheet: &mut SpriteSheet,   
     img022_sheet: &mut SpriteSheet, 
     anim_sheet: &mut SpriteSheet,   
-    
     model_data: &mut Option<Model>,
     anim_viewer: &mut AnimViewer,
-
-    // DEBULKED: Replaced multihit, kamikaze, and boss_wave textures with assets
     assets: &CustomAssets, 
-    
     talent_name_cache: &mut HashMap<String, egui::TextureHandle>,
     gatya_item_textures: &mut HashMap<i32, Option<egui::TextureHandle>>,
     skill_descriptions: Option<&Vec<String>>, 
@@ -69,7 +59,6 @@ pub fn show(
         ))
     } else { None };
 
-    // --- TRIGGER EXPORT ---
     match export_action {
         ExportAction::Copy | ExportAction::Save => {
             if let (Some(final_s), Some(base_s)) = (final_stats_owned.as_ref(), base_stats) {
@@ -164,8 +153,6 @@ pub fn show(
     ui.separator(); 
     ui.add_space(0.0);
 
-    // REFACTORED: Removed all manual 'if multihit_texture.is_none()' loading blocks
-
     if *current_tab != DetailTab::Animation {
         if !anim_viewer.loaded_id.is_empty() {
              anim_viewer.held_model = None;
@@ -189,7 +176,7 @@ pub fn show(
                     .show(ui, |ui| {
                         abilities::render(
                             ui, final_s, base_s, cat_entry, *current_level, icon_sheet, 
-                            assets, // REFACTORED: Passing centralized assets
+                            assets,
                             settings, 
                             if form_allows_talents { cat_entry.talent_data.as_ref() } else { None },
                             if form_allows_talents { Some(&*talent_levels) } else { None }

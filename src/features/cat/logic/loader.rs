@@ -4,7 +4,7 @@ use std::sync::mpsc::TryRecvError;
 
 use super::CatListState;
 use super::scanner;
-use crate::global::imgcut::SpriteSheet; 
+use crate::global::formats::imgcut::SpriteSheet; 
 use crate::features::cat::data::unitlevel;
 use crate::features::cat::data::unitbuy;
 use crate::features::cat::data::skillacquisition;
@@ -35,9 +35,6 @@ pub fn refresh_cat(state: &mut CatListState, id: u32, config: ScannerConfig) {
     let cats_dir = Path::new(paths::DIR_CATS);
     let unit_folder = cats_dir.join(format!("{:03}", id));
 
-    // CRASH-PROOFING: Safely extract variables
-    // If the files are currently being written to/locked by the decryptor,
-    // we simply return and wait for the next watcher tick.
     let curves = match &state.cached_level_curves { Some(c) => c, None => return };
     let buy = match &state.cached_unit_buy { Some(b) => b, None => return };
     let talents = match &state.cached_talents { Some(t) => t, None => return };

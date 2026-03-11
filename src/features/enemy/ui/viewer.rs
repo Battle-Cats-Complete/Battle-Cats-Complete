@@ -2,8 +2,8 @@ use eframe::egui;
 use std::path::Path;
 
 use crate::features::enemy::logic::scanner::EnemyEntry;
-use crate::global::imgcut::SpriteSheet;
-use crate::global::mamodel::Model;
+use crate::global::formats::imgcut::SpriteSheet;
+use crate::global::formats::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
 use crate::features::settings::logic::Settings;
 use crate::features::enemy::paths::{self, AnimType};
@@ -22,7 +22,6 @@ pub fn show(
 ) {
     let root = Path::new(paths::DIR_ENEMIES);
     
-    // 1. Gather Available Animations
     let mut available_anims = Vec::new();
     
     // Standard animations (00 = Walk, 01 = Idle, 02 = Attack, 03 = Knockback)
@@ -34,7 +33,6 @@ pub fn show(
         }
     }
 
-    // Zombie animations - Swapped per instructions
     // zombie00 = Burrow Down (IDX_BURROW)
     // zombie01 = Underground Idle (Dummy/Generic)
     // zombie02 = Surface / Revive (IDX_SURFACE)
@@ -55,7 +53,7 @@ pub fn show(
         available_anims.push((IDX_SURFACE, z_surface));
     }
 
-    // 2. Base Assets (Png, Imgcut, Mamodel)
+    // Base Assets (Png, Imgcut, Mamodel)
     let base_png = paths::anim(root, enemy_entry.id, AnimType::Png);
     let base_cut = paths::anim(root, enemy_entry.id, AnimType::Imgcut);
     let base_model = paths::anim(root, enemy_entry.id, AnimType::Mamodel);
@@ -66,13 +64,11 @@ pub fn show(
         None
     };
 
-    // 3. Secondary Entity Logic (Not used for enemies)
     let secondary_assets = None;
     let secondary_id = String::new();
     
-    // 4. Formatting IDs
     let primary_id = format!("{}_{}", enemy_entry.id_str(), anim_viewer.texture_version);
-    // 5. Hand over to the modular AnimViewer
+    // Hand over to the AnimViewer
     anim_viewer.show(
         ui,
         ctx,

@@ -2,9 +2,9 @@ use eframe::egui;
 use crate::features::enemy::logic::scanner::EnemyEntry;
 use crate::features::enemy::logic::state::EnemyDetailTab;
 use crate::features::settings::logic::Settings;
-use crate::global::imgcut::SpriteSheet;
-use crate::global::img015;
-use crate::global::mamodel::Model;
+use crate::global::formats::imgcut::SpriteSheet;
+use crate::global::game::img015;
+use crate::global::formats::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
 use crate::global::assets::CustomAssets;
 
@@ -36,7 +36,6 @@ pub fn show(
         ctx, ui, enemy_entry, current_tab, mag_input, magnification, detail_texture, detail_key,
     );
 
-    // --- TRIGGER EXPORT ---
     match export_action {
         ExportAction::Copy | ExportAction::Save => {
             
@@ -90,7 +89,6 @@ pub fn show(
     ui.separator(); 
     ui.add_space(0.0);
 
-    // FIX: Clear animation state if we navigate away from the tab! (Copied from Cat logic)
     if *current_tab != EnemyDetailTab::Animation {
         if !anim_viewer.loaded_id.is_empty() {
              anim_viewer.held_model = None;

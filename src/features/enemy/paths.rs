@@ -66,7 +66,7 @@ pub fn zombie_maanim(root: &Path, id: u32, index: usize) -> PathBuf {
     folder.join(format!("{}_zombie{:02}.maanim", filename, index))
 }
 
-// Dynamic text file path helpers to remove hardcoding
+// Retrieves enemy name path depending on language
 pub fn enemy_name(root: &Path, lang: &str) -> PathBuf {
     if lang.is_empty() || lang == "--" { 
         root.join("Enemyname.tsv") 
@@ -75,6 +75,7 @@ pub fn enemy_name(root: &Path, lang: &str) -> PathBuf {
     }
 }
 
+// Retrieves enemy description path depending on language
 pub fn enemy_picture_book(root: &Path, lang: &str) -> PathBuf {
     if lang.is_empty() || lang == "--" { 
         root.join("EnemyPictureBook.csv") 

@@ -5,7 +5,7 @@ use crate::core::utils;
 pub fn load(lang_dir: &Path, target_lang: &str) -> Vec<Vec<String>> {
     let mut descriptions: Vec<Vec<String>> = Vec::new();
     
-    // 1. Build our priority queue: Target language first, then the global fallbacks
+    // 1. Build our priority queue
     let mut try_langs = vec![target_lang.to_string()];
     for &l in utils::LANGUAGE_PRIORITY {
         if l != target_lang {
@@ -32,7 +32,7 @@ pub fn load(lang_dir: &Path, target_lang: &str) -> Vec<Vec<String>> {
                 
                 for col in cols.into_iter().skip(1) {
                     let text = col.trim();
-                    // Skip empty columns or placeholder ("仮") text
+                    // Skip empty columns or placeholder text
                     if text.is_empty() || text.starts_with("仮") {
                         continue;
                     }

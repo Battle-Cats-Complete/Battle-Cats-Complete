@@ -2,7 +2,7 @@ use eframe::egui;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use crate::features::cat::data::skillacquisition::{TalentRaw, TalentGroupRaw};
-use crate::global::imgcut::SpriteSheet;
+use crate::global::formats::imgcut::SpriteSheet;
 use crate::core::utils::{self, autocrop};
 use crate::features::settings::logic::Settings; 
 use crate::features::cat::data::unitid::CatRaw; 
@@ -225,7 +225,6 @@ fn render_body(
 
     ui.add_space(TALENT_SECTION_SPACING); 
 
-    // Capture values before entering nested scopes to avoid mutable borrow conflicts
     let current_lvl_val = *talent_levels.get(&(index as u8)).unwrap_or(&0);
     let np_cost = crate::features::cat::logic::talents::get_talent_np_cost(group.cost_id, current_lvl_val, talent_costs);
 
@@ -242,7 +241,7 @@ fn render_body(
                 
                 let mut drawn = false;
                 if settings.general.game_language != "--" {
-                    if let Some(cut) = img022_sheet.cuts_map.get(&crate::global::img022::ICON_NP_COST) {
+                    if let Some(cut) = img022_sheet.cuts_map.get(&crate::global::game::img022::ICON_NP_COST) {
                         if let Some(tex) = &img022_sheet.texture_handle {
                             let aspect = cut.original_size.x / cut.original_size.y;
                             let size = egui::vec2(TALENT_NP_ICON_SIZE * aspect, TALENT_NP_ICON_SIZE);

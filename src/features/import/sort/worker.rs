@@ -4,14 +4,12 @@ use std::path::Path;
 use std::sync::mpsc::Sender;
 
 use crate::features::cat::patterns as cat_patterns; 
-use crate::global::patterns as global_patterns;
+use crate::global::io::patterns as global_patterns;
 use super::{cat, global, enemy};
 
 pub fn count_lines(path: &Path) -> usize {
     if let Some(ext) = path.extension() {
         let s = ext.to_string_lossy();
-        // Removed imgcut and mamodel from this exclusion so they can use 
-        // line-counting to verify actual richness over placeholders.
         if s == "png" { return 0; } 
     }
 

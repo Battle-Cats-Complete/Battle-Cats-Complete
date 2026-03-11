@@ -1,8 +1,8 @@
-use crate::global::img015;
+use crate::global::game::img015;
 use crate::features::cat::data::unitid::CatRaw;
 use crate::features::cat::data::unitlevel::CatLevelCurve;
 use crate::features::cat::data::skillacquisition::TalentGroupRaw;
-use crate::global::abilities::CustomIcon;
+use crate::global::game::abilities::CustomIcon;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum DisplayGroup {
@@ -116,8 +116,8 @@ fn fmt_multihit(c: &CatRaw) -> String {
 
 // --- ABILITY REGISTRY ---
 
-pub const ABILITY_REGISTRY: &[CatAbilityDef] = &[
-    // --- SPECIAL HIDDEN (FILTER ONLY) ---
+pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
+    // --- SPECIAL HIDDEN ---
    CatAbilityDef {
         name: "Single Attack",
         fallback: "Sngl",
@@ -1624,9 +1624,9 @@ pub fn format_cat_stat(name: &str, stats: &CatRaw, anim_frames: i32) -> String {
 }
 
 pub fn get_by_talent_id(id: u8) -> Option<&'static CatAbilityDef> {
-    ABILITY_REGISTRY.iter().find(|def| def.talent_id == id)
+    CAT_ABILITY_REGISTRY.iter().find(|def| def.talent_id == id)
 }
 
 pub fn get_fallback_by_icon(icon_id: usize) -> &'static str {
-    ABILITY_REGISTRY.iter().find(|def| def.icon_id == icon_id).map(|def| def.fallback).unwrap_or("???")
+    CAT_ABILITY_REGISTRY.iter().find(|def| def.icon_id == icon_id).map(|def| def.fallback).unwrap_or("???")
 }

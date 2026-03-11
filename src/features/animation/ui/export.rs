@@ -1,9 +1,9 @@
 use eframe::egui;
 use std::time::Duration;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use crate::global::mamodel::Model;
-use crate::global::maanim::Animation;
-use crate::global::imgcut::SpriteSheet;
+use crate::global::formats::mamodel::Model;
+use crate::global::formats::maanim::Animation;
+use crate::global::formats::imgcut::SpriteSheet;
 use crate::features::animation::export::encoding::{ExportFormat, EncoderStatus};
 use crate::features::animation::export::state::{ExporterState, ExportMode, LoopStatus};
 use crate::features::animation::export::process::{start_export, STATUS_RX};
@@ -22,7 +22,6 @@ pub fn show_popup(
     model: Option<&Model>,
     anim: Option<&Animation>,
     sheet: Option<&SpriteSheet>,
-    is_open: &mut bool,
     start_region_selection: &mut bool,
     settings: &mut Settings,
 ) {
@@ -131,10 +130,10 @@ pub fn show_popup(
     }
 
     // UI RENDERING
-    if !*is_open { return; }
+    if !settings.animation.export_popup_open { return; }
 
     let ctx = ui.ctx().clone();
-    let mut open_local = *is_open;
+    let mut open_local = settings.animation.export_popup_open;
 
     let saved_style = ctx.style();
     let mut style = (*saved_style).clone();
@@ -159,11 +158,11 @@ pub fn show_popup(
             .min_size([250.0, 300.0])
             .with_stroke(false) 
             .show(ui, |ui| {
-                render_content(ui, state, model, anim, sheet, is_open, start_region_selection, settings); 
+                render_content(ui, state, model, anim, sheet, start_region_selection, settings); 
             });
     });
     
-    if !open_local { *is_open = false; }
+    if !open_local { settings.animation.export_popup_open = false; }
 }
 
 fn render_content(
@@ -172,7 +171,6 @@ fn render_content(
     model: Option<&Model>,
     anim: Option<&Animation>,
     sheet: Option<&SpriteSheet>,
-    is_open: &mut bool,
     start_region_selection: &mut bool,
     settings: &mut Settings,
 ) {
@@ -469,8 +467,10 @@ fn render_content(
 
         ui.add_enabled_ui(!ui_locked, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("Set Camera").on_hover_text("Right-click and drag on the viewport to select area").clicked() { *start_region_selection = true; *is_open = false; }
-                
+                if ui.button("Set Camera").on_hover_text("Right-click and drag on the viewport to select area").clicked() { 
+                    *start_region_selection = true; 
+                    settings.animation.export_popup_open = false;
+                }                
                 if ui.button("Use Bounds").on_hover_text("Auto-calculate camera from unit size").clicked() { 
                     let mut calculated = false;
                     if let (Some(m), Some(s)) = (model, sheet) {

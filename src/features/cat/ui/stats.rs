@@ -12,7 +12,6 @@ pub fn render(
 ) {
     let anim_frames = cat.atk_anim_frames[form];
 
-    // --- FETCH FORMATTED STRINGS ---
     let atk_str = format_cat_stat("Attack", final_stats, anim_frames);
     let dps_str = format_cat_stat("Dps", final_stats, anim_frames);
     let range_str = format_cat_stat("Range", final_stats, anim_frames);
@@ -23,7 +22,6 @@ pub fn render(
     let speed_str = format_cat_stat("Speed", final_stats, anim_frames);
     let cost_str = format_cat_stat("Cost", final_stats, anim_frames);
 
-    // --- FETCH RAW VALUES (For custom UI elements) ---
     let cycle = (get_cat_stat("Atk Cycle").get_value)(final_stats, anim_frames);
     let cd_val = (get_cat_stat("Cooldown").get_value)(final_stats, anim_frames);
 
@@ -35,7 +33,7 @@ pub fn render(
             .min_col_width(cell_w)
             .spacing([4.0, 4.0])
             .show(ui, |ui| {
-                // Row 1 Header (Dynamic from Registry!)
+                // Row 1 Header
                 grid_cell(ui, get_cat_stat("Attack").display_name, true);
                 grid_cell(ui, get_cat_stat("Dps").display_name, true);
                 grid_cell(ui, get_cat_stat("Range").display_name, true);
@@ -54,7 +52,7 @@ pub fn render(
                 grid_cell(ui, &atk_type, false); 
                 ui.end_row();
 
-                // Row 2 Header (Dynamic from Registry!)
+                // Row 2 Header
                 grid_cell(ui, get_cat_stat("Hitpoints").display_name, true);
                 grid_cell(ui, get_cat_stat("Knockbacks").display_name, true);
                 grid_cell(ui, get_cat_stat("Speed").display_name, true);

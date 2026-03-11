@@ -1,8 +1,8 @@
 use crate::features::settings::logic::Settings;
 use crate::features::enemy::data::t_unit::EnemyRaw;
 use crate::features::enemy::registry::{self, DisplayGroup};
-use crate::global::abilities::{AbilityItem, CustomIcon};
-use crate::global::img015;
+use crate::global::game::abilities::{AbilityItem, CustomIcon};
+use crate::global::game::img015;
 
 pub fn collect_ability_data(
     stats: &EnemyRaw,
@@ -17,7 +17,6 @@ pub fn collect_ability_data(
     let mut group_body_2 = Vec::new();
     let mut group_footer = Vec::new();
 
-    // --- ENTIRELY REGISTRY DRIVEN! ---
     for def in registry::ENEMY_ABILITY_REGISTRY {
         if def.group == DisplayGroup::Hidden { continue; } 
 

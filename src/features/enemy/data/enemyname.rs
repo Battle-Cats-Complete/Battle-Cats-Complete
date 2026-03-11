@@ -29,7 +29,7 @@ pub fn load(lang_dir: &Path, target_lang: &str) -> Vec<String> {
             for (i, line) in content.lines().enumerate() {
                 let name = line.split(sep).next().unwrap_or("").trim().to_string();
                 
-                // NEW: Treat "ダミー" as invalid/empty, similar to the "仮" logic in descriptions
+                // Treat "ダミー" as invalid/empty
                 let is_invalid = name.is_empty() || name == "ダミー";
 
                 // If this is a new ID we haven't reached yet, push the name or an empty string if invalid

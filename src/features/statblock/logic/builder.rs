@@ -10,13 +10,12 @@ use arboard::{Clipboard, ImageData};
 use eframe::egui;
 
 use crate::core::utils::autocrop;
-use crate::global::imgcut::SpriteCut;
-use crate::global::abilities::{CustomIcon, AbilityItem, ABILITY_X, ABILITY_Y, TRAIT_Y};
-use crate::global::assets; // Import our new centralized assets!
+use crate::global::formats::imgcut::SpriteCut;
+use crate::global::game::abilities::{CustomIcon, AbilityItem, ABILITY_X, ABILITY_Y, TRAIT_Y};
+use crate::global::assets;
 
 use super::draw::*;
 
-// --- GENERIC DATA MODELS ---
 #[derive(Clone)]
 pub struct SpiritData {
     pub dmg_text: String,
@@ -64,7 +63,7 @@ pub struct StatblockData {
     pub spirit_data: Option<SpiritData>,
 }
 
-// --- EXPORT LAYOUT CONSTANTS ---
+
 const NAME_BOX_WIDTH: f32 = 130.0;
 const NAME_BOX_HEIGHT: f32 = 50.0;
 const HEADER_PADDING_Y: i32 = 10;
@@ -83,7 +82,6 @@ const ABILITY_FONT_SIZE: f32 = 18.0;
 const ABILITY_LINE_SPACING: i32 = -2; 
 const ABILITY_TEXT_Y_OFFSET: i32 = -1; 
 
-// --- CANVAS BORDER CONSTANTS ---
 const CANVAS_BORDER_THICKNESS: i32 = 5; 
 const CANVAS_BORDER_RADIUS: i32 = 8; 
 const CANVAS_BORDER_INNER_RADIUS: i32 = 8; 
@@ -136,7 +134,7 @@ fn build_statblock_image(
         }
         let mut w = 8.0 + 40.0 + 8.0 + max_line_w + 8.0; 
         
-        if item.icon_id == crate::global::img015::ICON_CONJURE {
+        if item.icon_id == crate::global::game::img015::ICON_CONJURE {
             if let Some(spirit) = &data.spirit_data {
                 let mut spirit_max = 0.0_f32;
                 
@@ -187,7 +185,7 @@ fn build_statblock_image(
     let header_bg = Rgba([20, 20, 20, 255]);
     let data_bg = Rgba([60, 60, 60, 255]);
 
-    let img015_folder = crate::global::paths::img015_folder(Path::new(""));
+    let img015_folder = crate::global::io::paths::img015_folder(Path::new(""));
     
     let codes_to_try: Vec<String> = if language == "--" || language.is_empty() {
         crate::core::utils::LANGUAGE_PRIORITY.iter().map(|s| s.to_string()).collect()
@@ -400,7 +398,7 @@ fn build_statblock_image(
             y += (export_icon_size as i32).max(total_text_h);
 
             // --- SPIRIT CARD RENDER BLOCK ---
-            if item.icon_id == crate::global::img015::ICON_CONJURE {
+            if item.icon_id == crate::global::game::img015::ICON_CONJURE {
                 if let Some(spirit) = &data.spirit_data {
                     y += icon_gap_y; 
 
@@ -468,7 +466,7 @@ fn build_statblock_image(
                     let mut sy = y + 8 * scale;
                     let sx_abs = padding as i32 + 8 * scale;
 
-                    let area_item = AbilityItem { icon_id: crate::global::img015::ICON_AREA_ATTACK, border_id: None, custom_icon: CustomIcon::None, text: String::new() };
+                    let area_item = AbilityItem { icon_id: crate::global::game::img015::ICON_AREA_ATTACK, border_id: None, custom_icon: CustomIcon::None, text: String::new() };
                     let area_icon = get_icon_image(&area_item, &cuts_map, &img015_base, &custom_assets, export_icon_size as u32);
                     image::imageops::overlay(img, &area_icon, sx_abs as i64, sy as i64);
 

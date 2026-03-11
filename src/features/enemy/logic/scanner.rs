@@ -6,7 +6,7 @@ use std::io::Read;
 use crate::features::enemy::paths;
 use crate::features::enemy::data::{t_unit::{self, EnemyRaw}, enemyname, enemypicturebook};
 use crate::features::settings::logic::state::ScannerConfig;
-use crate::global::maanim::Animation;
+use crate::global::formats::maanim::Animation;
 
 #[derive(Clone, Debug)]
 pub struct EnemyEntry {
@@ -36,7 +36,7 @@ impl EnemyEntry {
     }
 }
 
-/// Reads just the first 25 bytes of a PNG to grab the bit-depth instantly
+// Reads just the first 25 bytes of a PNG to grab the bit-depth instantly
 fn is_placeholder_png(path: &Path) -> bool {
     let mut file = match File::open(path) {
         Ok(f) => f,
@@ -57,7 +57,7 @@ fn is_placeholder_png(path: &Path) -> bool {
     // Byte index 24 (the 25th byte) is the Bit Depth in the IHDR chunk
     let bit_depth = buffer[24];
     
-    // If bit depth is less than 8, it's a dummy placeholder!
+    // If bit depth is less than 8, it's a dummy placeholder
     bit_depth < 8
 }
 
@@ -94,7 +94,7 @@ pub fn scan_all(config: &ScannerConfig) -> Vec<EnemyEntry> {
                 return None;
             }
 
-            // Find the attack animation frames (Usually index 2 for attack)
+            // Find the attack animation frames
             let atk_maanim_path = paths::maanim(root, id_u32, 2);
             let mut atk_anim_frames = 0;
             if let Ok(file_content) = std::fs::read_to_string(&atk_maanim_path) {
@@ -102,7 +102,7 @@ pub fn scan_all(config: &ScannerConfig) -> Vec<EnemyEntry> {
                 atk_anim_frames = if duration > 0 { duration + 1 } else { 0 };
             }
 
-            // Safely grab the text (fallback to empty if the TSV/CSV was shorter than t_unit)
+            // Safely grab the text
             let name = names.get(id).cloned().unwrap_or_default();
             let description = descriptions.get(id).cloned().unwrap_or_default();
 

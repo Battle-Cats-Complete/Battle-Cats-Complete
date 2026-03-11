@@ -1,11 +1,11 @@
 use eframe::egui;
-use crate::global::abilities::CustomIcon;
+use crate::global::game::abilities::CustomIcon;
 
-// --- RAW BYTES (Embedded in Binary) ---
+// --- RAW BYTES ---
 pub const MULTIHIT: &[u8] = include_bytes!("../assets/multihit.png");
 pub const KAMIKAZE: &[u8] = include_bytes!("../assets/kamikaze.png");
 pub const BOSS_WAVE: &[u8] = include_bytes!("../assets/boss_wave_immune.png");
-pub const BASE: &[u8] = include_bytes!("../assets/base.png");
+pub const DOJO: &[u8] = include_bytes!("../assets/dojo.png");
 pub const STARRED_ALIEN: &[u8] = include_bytes!("../assets/starred_alien.png");
 pub const BURROW: &[u8] = include_bytes!("../assets/burrow.png");
 pub const REVIVE: &[u8] = include_bytes!("../assets/revive.png");
@@ -21,7 +21,7 @@ pub const CUSTOM_ICON_DATA: &[(CustomIcon, &[u8])] = &[
     (CustomIcon::Multihit, MULTIHIT),
     (CustomIcon::Kamikaze, KAMIKAZE),
     (CustomIcon::BossWave, BOSS_WAVE),
-    (CustomIcon::Base, BASE),
+    (CustomIcon::Dojo, DOJO),
     (CustomIcon::StarredAlien, STARRED_ALIEN),
     (CustomIcon::Burrow, BURROW),
     (CustomIcon::Revive, REVIVE),
@@ -34,7 +34,7 @@ pub struct CustomAssets {
     pub multihit: egui::TextureHandle,
     pub kamikaze: egui::TextureHandle,
     pub boss_wave: egui::TextureHandle,
-    pub base: egui::TextureHandle,
+    pub dojo: egui::TextureHandle,
     pub starred_alien: egui::TextureHandle,
     pub burrow: egui::TextureHandle,
     pub revive: egui::TextureHandle,
@@ -57,7 +57,7 @@ impl CustomAssets {
             multihit: load("multihit", MULTIHIT),
             kamikaze: load("kamikaze", KAMIKAZE),
             boss_wave: load("boss_wave", BOSS_WAVE),
-            base: load("base", BASE),
+            dojo: load("dojo", DOJO),
             starred_alien: load("starred_alien", STARRED_ALIEN),
             burrow: load("burrow", BURROW),
             revive: load("revive", REVIVE),
