@@ -33,14 +33,7 @@ pub fn show(
     img015::ensure_loaded(ctx, icon_sheet, settings);
 
     let export_action = header::render(
-        ctx,
-        ui,
-        enemy_entry,
-        current_tab,
-        mag_input,
-        magnification,
-        detail_texture,
-        detail_key,
+        ctx, ui, enemy_entry, current_tab, mag_input, magnification, detail_texture, detail_key,
     );
 
     // --- TRIGGER EXPORT ---
@@ -96,6 +89,18 @@ pub fn show(
 
     ui.separator(); 
     ui.add_space(0.0);
+
+    // FIX: Clear animation state if we navigate away from the tab! (Copied from Cat logic)
+    if *current_tab != EnemyDetailTab::Animation {
+        if !anim_viewer.loaded_id.is_empty() {
+             anim_viewer.held_model = None;
+             anim_viewer.held_sheet = None;
+             anim_viewer.current_anim = None;
+             anim_viewer.loaded_id.clear();
+             anim_viewer.staging_model = None;
+             anim_viewer.staging_sheet = None;
+        }
+    }
 
     match current_tab {
         EnemyDetailTab::Abilities => {

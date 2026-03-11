@@ -407,6 +407,11 @@ impl AnimViewer {
         allow_update: bool,
         settings: &mut Settings,
     ) {
+        // --- PRE-SYNC: Grab state from Settings before UI evaluates ---
+        self.is_controls_expanded = settings.global_anim_controls_expanded;
+        self.show_export_popup = settings.global_anim_export_popup;
+        // -------------------------------------------------------------
+
         let dt = ui.input(|i| i.stable_dt);
         let interpolation = settings.animation_interpolation;
         let debug_show_info = settings.animation_debug;
@@ -585,11 +590,19 @@ impl AnimViewer {
                         self.export_state.region_w = (max_w.x - min_w.x).abs(); self.export_state.region_h = (max_w.y - min_w.y).abs();
                         self.export_state.zoom = 1.0; 
                         self.is_selecting_export_region = false; 
+                        
+                        // Set the global settings popup to true
                         self.show_export_popup = true;
+                        settings.global_anim_export_popup = true; 
+                        
                         self.was_export_popup_open = true; 
                     } else { 
                         self.is_selecting_export_region = false; 
-                        self.show_export_popup = true; 
+                        
+                        // Set the global settings popup to true
+                        self.show_export_popup = true;
+                        settings.global_anim_export_popup = true; 
+                        
                         self.was_export_popup_open = true; 
                     }
                 }
@@ -792,10 +805,11 @@ impl AnimViewer {
             response
         });
 
+        // The controls toggle might change self.is_controls_expanded internally...
         let controls_hovered = anim_controls::render_controls_overlay(ui, rect_alloc, self, available_anims, base_assets_available, is_loading_new, secondary_id, primary_id, secondary_assets, interpolation, native_fps);
         self.is_pointer_over_controls = controls_hovered || btn_response.hovered();
 
-        // Pass everything to the export popup safely
+        // Let the export popup use our synced flag, and watch to see if it changes!
         let state = &mut self.export_state;
         let show_popup = &mut self.show_export_popup;
         let model = self.held_model.as_ref();
@@ -804,6 +818,11 @@ impl AnimViewer {
         let start_select = &mut self.is_selecting_export_region;
         
         export::show_popup(ui, state, model, anim, sheet, show_popup, start_select, settings);
+        
+        // --- POST-SYNC: Save whatever the final states are back to Settings ---
+        settings.global_anim_controls_expanded = self.is_controls_expanded;
+        settings.global_anim_export_popup = self.show_export_popup;
+        // ----------------------------------------------------------------------
     }
 }
 

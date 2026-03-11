@@ -1,13 +1,20 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
-use crate::features::enemy::logic::scanner::{self, EnemyEntry};
+use std::sync::mpsc::Receiver;
+use std::path::PathBuf;
+use std::time::Instant;
+
+// FIX: Removed the unused `self` import here
+use crate::features::enemy::logic::scanner::EnemyEntry;
 use crate::features::settings::logic::Settings;
 use crate::features::settings::logic::handle::ScannerConfig;
 use crate::features::enemy::ui::list::EnemyList;
 use crate::features::enemy::ui::master;
 use crate::global::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
-use crate::global::assets::CustomAssets; // Ensure this is imported
+use crate::global::assets::CustomAssets;
+
+use super::{watcher, loader};
 
 pub const TOP_PANEL_PADDING: f32 = 2.5;
 pub const SEARCH_FILTER_GAP: f32 = 5.0;
@@ -28,13 +35,16 @@ impl Default for EnemyDetailTab {
 #[derive(Deserialize, Serialize)]
 #[serde(default)]
 pub struct EnemyListState {
-    #[serde(skip)] pub entries: Vec<EnemyEntry>,
+    #[serde(skip)] pub enemies: Vec<EnemyEntry>, // UNIFIED: renamed from entries
+    #[serde(skip)] pub incoming_enemies: Vec<EnemyEntry>,
+    #[serde(skip)] pub is_cold_scan: bool,
+    #[serde(skip)] pub last_update_time: Option<Instant>,
     pub selected_enemy: Option<u32>,
     pub search_query: String,
     pub selected_tab: EnemyDetailTab,
     pub mag_input: String,
     pub magnification: i32,
-    #[serde(skip)] pub list_ui: EnemyList,
+    #[serde(skip)] pub enemy_list: EnemyList, // UNIFIED: renamed from list_ui
     #[serde(skip)] pub initialized: bool,
     #[serde(skip)] pub detail_texture: Option<egui::TextureHandle>,
     #[serde(skip)] pub detail_key: String,
@@ -42,21 +52,25 @@ pub struct EnemyListState {
     #[serde(skip)] pub anim_sheet: crate::global::imgcut::SpriteSheet,
     #[serde(skip)] pub model_data: Option<Model>,
     #[serde(skip)] pub anim_viewer: AnimViewer,
-    
-    // REFACTORED: Centralized Asset Manager
     #[serde(skip)] pub custom_assets: Option<CustomAssets>,
+    #[serde(skip)] pub scan_receiver: Option<Receiver<Vec<EnemyEntry>>>,
+    #[serde(skip)] pub watchers: Option<watcher::EnemyWatchers>,
+    #[serde(skip)] pub watch_receiver: Option<Receiver<PathBuf>>,
 }
 
 impl Default for EnemyListState {
     fn default() -> Self {
         Self {
-            entries: Vec::new(),
+            enemies: Vec::new(),
+            incoming_enemies: Vec::new(),
+            is_cold_scan: false,
+            last_update_time: None,
             selected_enemy: None,
             search_query: String::new(),
             selected_tab: EnemyDetailTab::default(),
             mag_input: "100".to_string(),
             magnification: 100,
-            list_ui: EnemyList::default(),
+            enemy_list: EnemyList::default(),
             initialized: false,
             detail_texture: None,
             detail_key: String::new(),
@@ -64,20 +78,34 @@ impl Default for EnemyListState {
             anim_sheet: crate::global::imgcut::SpriteSheet::default(), 
             model_data: None,
             anim_viewer: AnimViewer::default(),
-            // FIXED: Correct field name and initialization
             custom_assets: None, 
+            scan_receiver: None,
+            watchers: None,
+            watch_receiver: None,
         }
     }
 }
 
 impl EnemyListState {
-    pub fn load_enemies(&mut self, config: &ScannerConfig) {
-        self.entries = scanner::scan_all(config);
+    pub fn init_watcher(&mut self, ctx: &egui::Context) {
+        watcher::init(self, ctx);
+    }
+
+    #[allow(dead_code)] // TODO: Remove this once Global Watcher is hooked up
+    pub fn handle_event(&mut self, ctx: &egui::Context, path: &PathBuf, config: ScannerConfig) {
+        watcher::handle_event(self, ctx, path, config);
+    }
+
+    pub fn update_data(&mut self) {
+        loader::update_data(self);
+    }
+
+    pub fn restart_scan(&mut self, config: ScannerConfig) {
+        loader::restart_scan(self, config);
     }
 }
 
 pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Settings) {
-    // --- BORROW BREAKER ---
     if state.custom_assets.is_none() {
         state.custom_assets = Some(CustomAssets::new(ctx));
     }
@@ -85,10 +113,22 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
 
     if !state.initialized {
         state.initialized = true;
+        state.init_watcher(ctx);
+        
         if !settings.unit_persistence {
             state.selected_enemy = None;
-            state.list_ui.reset_scroll();
+            state.enemy_list.reset_scroll();
         }
+    }
+
+    if let Some(rx) = state.watch_receiver.take() {
+        watcher::EnemyWatchers::handle_events(state, &rx, ctx, &settings.scanner_config());
+        state.watch_receiver = Some(rx); // Put it back immediately!
+    }
+
+    if state.scan_receiver.is_some() {
+        state.update_data();
+        ctx.request_repaint(); 
     }
 
     let old_selection_id = state.selected_enemy;
@@ -110,10 +150,20 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
                 ui.add_space(SPACE_AFTER_SEPARATOR);
             });
 
-            if !state.entries.is_empty() {
-                state.list_ui.show(ctx, ui, &state.entries, &mut state.selected_enemy, &state.search_query);
-            } else {
+            if !state.enemies.is_empty() {
+                state.enemy_list.show(ctx, ui, &state.enemies, &mut state.selected_enemy, &state.search_query);
+            } else if state.scan_receiver.is_some() {
                 ui.centered_and_justified(|ui| { ui.spinner(); });
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.heading("No Data Found");
+                        if ui.button("Retry Scan").clicked() {
+                            state.restart_scan(settings.scanner_config());
+                            ui.ctx().request_repaint();
+                        }
+                    });
+                });
             }
         });
 
@@ -125,7 +175,7 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
     }
 
     egui::CentralPanel::default().show(ctx, |ui| {
-        if state.entries.is_empty() {
+        if state.enemies.is_empty() {
             ui.centered_and_justified(|ui| { ui.heading("No Enemy Data Found"); });
             return;
         }
@@ -135,24 +185,16 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
             return;
         };
 
-        let Some(enemy_entry) = state.entries.iter().find(|e| e.id == selected_id) else { return; };
+        let Some(enemy_entry) = state.enemies.iter().find(|e| e.id == selected_id) else {
+            ui.centered_and_justified(|ui| { ui.spinner(); });
+            return; 
+        };
 
-        // UPDATED: Now passing exactly 14 arguments matching the new master signature
         master::show(
-            ctx, 
-            ui, 
-            enemy_entry, 
-            &mut state.selected_tab, 
-            &mut state.mag_input,
-            &mut state.magnification,
-            settings,
-            &mut state.icon_sheet,
-            &mut state.anim_sheet,
-            &mut state.model_data,
-            &mut state.anim_viewer,
-            &assets, // Replaces 6 textures
-            &mut state.detail_texture,
-            &mut state.detail_key,
+            ctx, ui, enemy_entry, &mut state.selected_tab, &mut state.mag_input,
+            &mut state.magnification, settings, &mut state.icon_sheet,
+            &mut state.anim_sheet, &mut state.model_data, &mut state.anim_viewer,
+            &assets, &mut state.detail_texture, &mut state.detail_key,
         );
     });
 }

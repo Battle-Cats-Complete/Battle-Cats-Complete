@@ -76,8 +76,7 @@ impl BattleCatsApp {
         }
 
         app.cat_list_state.restart_scan(app.settings.scanner_config());
-        app.enemy_list_state.load_enemies(&app.settings.scanner_config());
-
+        app.enemy_list_state.restart_scan(app.settings.scanner_config());
         updater::cleanup_temp_files();
 
         if app.settings.update_mode != UpdateMode::Ignore {
