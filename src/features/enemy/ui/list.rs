@@ -152,6 +152,11 @@ impl EnemyList {
     }
 
     fn render_list_row(&mut self, ui: &mut egui::Ui, entries: &[EnemyEntry], real_index: usize, selected_id: &mut Option<u32>) {
+        if real_index == usize::MAX {
+            ui.add_space(8.0); 
+            return;
+        }
+
         let entry = &entries[real_index];
         let is_cached = self.texture_cache.contains_key(&entry.id);
         let is_missing = self.missing_ids.contains(&entry.id);
@@ -177,7 +182,7 @@ impl EnemyList {
             let size = tex.size_vec2();
             let scale = 50.0 / size.y;
             let btn_size = size * scale;
-            ui.add(egui::ImageButton::new((tex.id(), btn_size)).selected(is_selected))
+            ui.add(egui::ImageButton::new(egui::load::SizedTexture::new(tex.id(), btn_size)).selected(is_selected))
         } else {
             let r = ui.allocate_response(egui::vec2(50.0, 50.0), egui::Sense::click());
             ui.painter().rect_filled(r.rect, 4.0, egui::Color32::from_gray(30));
@@ -191,7 +196,6 @@ impl EnemyList {
                 ui.label(egui::RichText::new("[ID]").weak());
                 ui.label(entry.id_str());
             });
-            
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("[Name]").weak());
                 ui.label(entry.display_name());
@@ -230,6 +234,11 @@ impl EnemyList {
                 self.cached_indices.push(i);
             }
         }
+
+        // We add usize::MAX as a dummy index at the very end of the list
+        if !self.cached_indices.is_empty() {
+            self.cached_indices.push(usize::MAX);
+        }
     }
 }
 
@@ -242,7 +251,6 @@ fn process_image(path: &PathBuf, bg_cache: &Option<image::RgbaImage>) -> Option<
     
     if let Ok(image_buffer) = image::open(path) {
         let mut unit_img = image_buffer.to_rgba8();
-        
         let scaled_w = (unit_img.width() as f32 * ENEMY_ICON_SCALE_FACTOR).round() as u32;
         let scaled_h = (unit_img.height() as f32 * ENEMY_ICON_SCALE_FACTOR).round() as u32;
         unit_img = imageops::resize(&unit_img, scaled_w, scaled_h, imageops::FilterType::Lanczos3);
@@ -251,16 +259,12 @@ fn process_image(path: &PathBuf, bg_cache: &Option<image::RgbaImage>) -> Option<
             let mut final_image = bg.clone();
             let bg_w = final_image.width() as i64;
             let bg_h = final_image.height() as i64;
-            
             let h = unit_img.height(); 
             let mut min_y = h; let mut max_y = 0;
             let mut found_solid = false;
-
-            // DENSITY CHECK: Find vertical center of the SOLID body
             let shadow_cutoff = h.saturating_sub(ENEMY_SHADOW_MARGIN);
             
             for (_x, y, pixel) in unit_img.enumerate_pixels() {
-                // Ignore the bottom rows entirely to bypass shadows!
                 if y < shadow_cutoff && pixel[3] > 150 { 
                     min_y = min_y.min(y);
                     max_y = max_y.max(y);
@@ -268,40 +272,25 @@ fn process_image(path: &PathBuf, bg_cache: &Option<image::RgbaImage>) -> Option<
                 }
             }
 
-            let center_y = if found_solid {
-                (min_y + max_y) as i64 / 2
-            } else {
-                h as i64 / 2 
-            };
-
+            let center_y = if found_solid { (min_y + max_y) as i64 / 2 } else { h as i64 / 2 };
             let offset_y = (bg_h / 2) - center_y;
-
-            // Manual overlay with SMART PIXEL MASKING
             use image::Pixel; 
-            
             for (x, y, pixel) in unit_img.enumerate_pixels() {
                 let dest_x = ENEMY_ICON_OFFSET_X + x as i64;
                 let dest_y = offset_y + y as i64;
-
                 if dest_x >= 0 && dest_x < bg_w && dest_y >= 0 && dest_y < bg_h {
-                    
                     let bg_pixel = final_image.get_pixel_mut(dest_x as u32, dest_y as u32);
                     let is_black_border = bg_pixel[0] < 25 && bg_pixel[1] < 25 && bg_pixel[2] < 25 && bg_pixel[3] > 200;
-
-                    if !is_black_border {
-                        bg_pixel.blend(&pixel);
-                    }
+                    if !is_black_border { bg_pixel.blend(&pixel); }
                 }
             }
 
             let target_h = 50; 
             let ratio = target_h as f32 / final_image.height() as f32;
             let target_w = (final_image.width() as f32 * ratio) as u32;
-            
             let final_image = imageops::resize(&final_image, target_w, target_h, imageops::FilterType::Lanczos3);
             let size = [final_image.width() as usize, final_image.height() as usize];
             let pixels = final_image.as_flat_samples();
-            
             return Some(egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()));
         } else {
             let final_image = imageops::resize(&unit_img, 50, 50, imageops::FilterType::Lanczos3);

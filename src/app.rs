@@ -148,7 +148,9 @@ impl eframe::App for BattleCatsApp {
         self.process_file_events(ctx);
 
         self.cat_list_state.update_data();
-        if self.cat_list_state.scan_receiver.is_some() {
+        self.enemy_list_state.update_data();
+
+        if self.cat_list_state.scan_receiver.is_some() || self.enemy_list_state.scan_receiver.is_some() {
             ctx.request_repaint();
         }
         

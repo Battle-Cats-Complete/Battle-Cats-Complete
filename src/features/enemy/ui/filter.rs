@@ -120,14 +120,20 @@ pub fn show_popup(
                 });
             ui.add_space(15.0);
 
-            ui.heading("Target Traits");
+            let mut rendered_icons = HashSet::new();
+
+            ui.heading("Trait Type");
             ui.add_space(5.0);
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                 for &icon_id in UI_TRAIT_ORDER {
                     render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, assets);
+                    rendered_icons.insert(icon_id); // Track these so they don't double-render
                 }
             });
+
+            ui.add_space(8.0);
+            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Headline1, false, true, sheet, assets);
             ui.add_space(15.0);
 
             ui.heading("Attack Type");
@@ -136,6 +142,7 @@ pub fn show_popup(
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                 for &icon_id in ATTACK_TYPE_ICONS {
                     render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, assets);
+                    rendered_icons.insert(icon_id);
                 }
             });
             ui.add_space(15.0);
@@ -143,14 +150,11 @@ pub fn show_popup(
             ui.heading("Abilities");
             ui.add_space(5.0);
 
-            let mut rendered_icons = HashSet::new();
-
-            render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Headline1, false, true, sheet, assets);
+            // Headline 1 is removed from here
             render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Headline2, false, true, sheet, assets);
             render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Body1, true, true, sheet, assets); 
             render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Body2, true, true, sheet, assets); 
             render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Footer, false, true, sheet, assets);
-
             ui.add_space(50.0); 
         });
         

@@ -56,7 +56,6 @@ impl Default for CatList {
                 rayon::spawn(move || {
                     let result = process_image_robust(req.id, &req.path, &bg, req.high_banner_quality);
                     let _ = tx.send(LoadedImage { id: req.id, img: result });
-                    
                     ctx.request_repaint();
                 });
             }
@@ -128,26 +127,19 @@ impl CatList {
 
         while let Ok(loaded) = self.rx_result.try_recv() {
             if let Some(img) = loaded.img {
-                let texture = ctx.load_texture(
-                    format!("unit_{}", loaded.id),
-                    img,
-                    egui::TextureOptions::LINEAR
-                );
+                let texture = ctx.load_texture(format!("unit_{}", loaded.id), img, egui::TextureOptions::LINEAR);
                 self.texture_cache.insert(loaded.id, texture);
                 self.missing_ids.remove(&loaded.id);
             } else {
                 self.texture_cache.remove(&loaded.id);
                 self.missing_ids.insert(loaded.id);
             }
-            
             self.pending_requests.remove(&loaded.id);
             self.invalidated_ids.remove(&loaded.id); 
-            
         }
 
         if search_query != self.last_search_query || units.len() != self.last_unit_count || filter_state != &self.last_filter_state {
             self.update_search_cache(units, search_query, filter_state);
-            self.last_filter_state = filter_state.clone();
         }
 
         self.render_scroll_area(ctx, ui, units, selected_id, high_banner_quality);
@@ -164,6 +156,7 @@ impl CatList {
             self.scroll_to_top_needed = false;
         }
 
+        // Updated to use the ScrollArea instance directly to avoid static call errors
         let scroll_output = scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
             let mut hovered_this_frame = None;
 
@@ -194,8 +187,12 @@ impl CatList {
     }
 
     fn render_list_row(&mut self, ui: &mut egui::Ui, units: &[CatEntry], real_index: usize, selected_id: &mut Option<u32>, hq: bool, now: f64) -> Option<egui::Id> {
-        let unit = &units[real_index];
+        if real_index == usize::MAX {
+            ui.add_space(8.0);
+            return None;
+        }
 
+        let unit = &units[real_index];
         let is_cached = self.texture_cache.contains_key(&unit.id);
         let is_missing = self.missing_ids.contains(&unit.id);
         let is_invalidated = self.invalidated_ids.contains(&unit.id);
@@ -224,7 +221,8 @@ impl CatList {
             let size = tex.size_vec2();
             let scale = 50.0 / size.y;
             let btn_size = size * scale;
-            ui.add(egui::ImageButton::new((tex.id(), btn_size)).selected(is_selected))
+            // Updated to egui 0.29 syntax
+            ui.add(egui::ImageButton::new(egui::load::SizedTexture::new(tex.id(), btn_size)).selected(is_selected))
         } else {
             let r = ui.allocate_response(egui::vec2(100.0, 50.0), egui::Sense::click());
             ui.painter().rect_filled(r.rect, 4.0, egui::Color32::from_gray(30));
@@ -256,6 +254,7 @@ impl CatList {
     fn update_search_cache(&mut self, units: &[CatEntry], query: &str, filter_state: &CatFilterState) {
         self.last_search_query = query.to_string();
         self.last_unit_count = units.len();
+        self.last_filter_state = filter_state.clone();
         self.cached_indices.clear();
 
         let query_lower = query.to_lowercase();
@@ -278,6 +277,10 @@ impl CatList {
                 self.cached_indices.push(i);
             }
         }
+
+        if !self.cached_indices.is_empty() {
+            self.cached_indices.push(usize::MAX);
+        }
     }
 }
 
@@ -286,14 +289,10 @@ fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
         ui.label(egui::RichText::new("[ID]").weak());
         ui.label(unit.base_id_str());
     });
-
     let labels = ["Normal", "Evolved", "True", "Ultra"];
-    
     for i in 0..4 {
         if !unit.forms[i] { continue; }
-
         let display_name = unit.display_name(i);
-
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(format!("[{}]", labels[i])).weak());
             ui.label(display_name);
@@ -303,10 +302,7 @@ fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
 
 fn process_image_robust(_id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaImage>, high_banner_quality: bool) -> Option<egui::ColorImage> {
     for _ in 0..3 {
-        if !path.exists() {
-            return None; 
-        }
-
+        if !path.exists() { return None; }
         match image::open(path) {
             Ok(image_buffer) => {
                 let mut unit_img = image_buffer.to_rgba8();
@@ -315,9 +311,7 @@ fn process_image_robust(_id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaI
                     let bg_w = final_image.width() as i64;
                     let bg_h = final_image.height() as i64;
                     let (w, h) = unit_img.dimensions();
-                    
                     let is_transparent_unit = w > 311 && h > 2 && unit_img.get_pixel(311, 2)[3] == 0;
-
                     let (x, y) = if is_transparent_unit {
                         (-2, 9)
                     } else {
@@ -326,29 +320,22 @@ fn process_image_robust(_id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaI
                         let unit_h = unit_img.height() as i64;
                         ((bg_w - unit_w) / 2, (bg_h - unit_h) / 2)
                     };
-
                     imageops::overlay(&mut final_image, &unit_img, x, y);
-
                     let (target_h, filter) = if high_banner_quality {
                         (100, imageops::FilterType::Lanczos3)
                     } else {
                         (50, imageops::FilterType::Nearest)
                     };
-
                     let ratio = target_h as f32 / final_image.height() as f32;
                     let target_w = (final_image.width() as f32 * ratio) as u32;
-                    
                     let final_image = imageops::resize(&final_image, target_w, target_h, filter);
                     let size = [final_image.width() as usize, final_image.height() as usize];
                     let pixels = final_image.as_flat_samples();
-                    
                     return Some(egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()));
                 }
                 return None;
             },
-            Err(_) => {
-                thread::sleep(Duration::from_millis(50));
-            }
+            Err(_) => { thread::sleep(Duration::from_millis(50)); }
         }
     }
     None
@@ -358,7 +345,6 @@ fn autocrop(img: image::RgbaImage) -> image::RgbaImage {
     let (width, height) = img.dimensions();
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (width, height, 0, 0);
     let mut found = false;
-
     for (x, y, pixel) in img.enumerate_pixels() {
         if pixel[3] > 0 { 
             min_x = min_x.min(x); min_y = min_y.min(y);

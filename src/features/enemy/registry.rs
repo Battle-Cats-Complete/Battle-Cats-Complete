@@ -22,10 +22,10 @@ pub struct EnemyAbilityDef {
     pub getter: fn(&EnemyRaw) -> i32,
     pub duration_getter: Option<fn(&EnemyRaw) -> i32>,
     pub formatter: fn(val: i32, stats: &EnemyRaw, duration_frames: i32, magnification: i32) -> String,
+    pub minus_one_is_inf: bool,
 }
 
 // --- FORMATTERS ---
-
 fn fmt_time(frames: i32) -> String {
     format!("{:.2}s^{}f", frames as f32 / 30.0, frames)
 }
@@ -100,6 +100,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| if e.area_attack == 0 { 1 } else { 0 },
         duration_getter: None,
         formatter: |_, _, _, _| "".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Area Attack",
@@ -110,6 +111,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| if e.area_attack == 1 { 1 } else { 0 },
         duration_getter: None,
         formatter: |_, _, _, _| "".into(),
+        minus_one_is_inf: false,
     },
 
     // --- TYPES ---
@@ -122,6 +124,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_red,
         duration_getter: None,
         formatter: |_, _, _, _| "Red".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Floating",
@@ -132,6 +135,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_floating,
         duration_getter: None,
         formatter: |_, _, _, _| "Floating".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Black",
@@ -142,6 +146,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_black,
         duration_getter: None,
         formatter: |_, _, _, _| "Black".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Metal",
@@ -152,6 +157,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_metal,
         duration_getter: None,
         formatter: |_, _, _, _| "Metal".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Angel",
@@ -162,6 +168,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_angel,
         duration_getter: None,
         formatter: |_, _, _, _| "Angel".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Alien",
@@ -172,6 +179,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_alien,
         duration_getter: None,
         formatter: |_, _, _, _| "Alien".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Zombie",
@@ -182,6 +190,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_zombie,
         duration_getter: None,
         formatter: |_, _, _, _| "Zombie".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Relic",
@@ -192,6 +201,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_relic,
         duration_getter: None,
         formatter: |_, _, _, _| "Relic".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Aku",
@@ -202,6 +212,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_aku,
         duration_getter: None,
         formatter: |_, _, _, _| "Aku".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Traitless",
@@ -212,6 +223,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_traitless,
         duration_getter: None,
         formatter: |_, _, _, _| "Traitless".into(),
+        minus_one_is_inf: false,
     },
 
     // --- HEADLINE 1 ---
@@ -224,6 +236,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_dojo,
         duration_getter: None,
         formatter: |_, _, _, _| "Dojo".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Starred Alien",
@@ -234,6 +247,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_starred_alien,
         duration_getter: None,
         formatter: |_, _, _, _| "Starred Alien".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Colossus",
@@ -244,6 +258,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_colossus,
         duration_getter: None,
         formatter: |_, _, _, _| "Colossus Enemy".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Behemoth",
@@ -254,6 +269,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_behemoth,
         duration_getter: None,
         formatter: |_, _, _, _| "Behemoth Enemy".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Sage",
@@ -264,6 +280,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_sage,
         duration_getter: None,
         formatter: |_, _, _, _| "Sage Enemy".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Supervillain",
@@ -274,6 +291,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_supervillain,
         duration_getter: None,
         formatter: |_, _, _, _| "Supervillain Enemy".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Witch",
@@ -284,6 +302,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_witch,
         duration_getter: None,
         formatter: |_, _, _, _| "Witch Enemy".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "EVA Angel",
@@ -294,6 +313,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.type_eva,
         duration_getter: None,
         formatter: |_, _, _, _| "EVA Angel".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Kamikaze",
@@ -304,6 +324,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| if e.kamikaze > 0 { 1 } else { 0 },
         duration_getter: None,
         formatter: |_, _, _, _| "Unit disappears after a single attack".into(),
+        minus_one_is_inf: false,
     },
 
     // --- HEADLINE 2 ---
@@ -316,6 +337,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.base_destroyer,
         duration_getter: None,
         formatter: |_, _, _, _| "Deals 4× Damage to the Cat Base".into(),
+        minus_one_is_inf: false,
     },
 
     // --- BODY 1 ---
@@ -328,6 +350,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| if e.attack_2 > 0 { 1 } else { 0 },
         duration_getter: None,
         formatter: |_, e, _, _| fmt_multihit(e),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Long Distance",
@@ -354,6 +377,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         },
         duration_getter: None,
         formatter: |_, e, _, _| fmt_effective_range(e),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Omni Strike",
@@ -378,6 +402,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         },
         duration_getter: None,
         formatter: |_, e, _, _| fmt_effective_range(e),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Wave Attack",
@@ -391,6 +416,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
             let range = 467.5 + ((e.wave_level - 1) as f32 * 200.0);
             format!("{}% Chance to create a Level {} Wave reaching {} Range", val, e.wave_level, range)
         },
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Mini-Wave",
@@ -404,6 +430,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
             let range = 332.5 + ((e.wave_level - 1) as f32 * 200.0);
             format!("{}% Chance to create a Level {} Mini-Wave reaching {} Range", val, e.wave_level, range)
         },
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Surge Attack",
@@ -419,6 +446,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
             let (min, max) = if start < end { (start, end) } else { (end, start) };
             format!("{}% Chance to create a Level {} Surge {} Range", val, e.surge_level, fmt_range(min, max))
         },
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Mini-Surge",
@@ -434,6 +462,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
             let (min, max) = if start < end { (start, end) } else { (end, start) };
             format!("{}% Chance to create a Level {} Mini-Surge {} Range", val, e.surge_level, fmt_range(min, max))
         },
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Death Surge",
@@ -447,8 +476,9 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
             let start = e.death_surge_spawn_min;
             let end = e.death_surge_spawn_min + e.death_surge_spawn_max;
             let (min, max) = if start < end { (start, end) } else { (end, start) };
-            format!("{}% Chance to create a Level {} Surge {} Range upon death", val, e.death_surge_level, fmt_range(min, max))
+            format!("{}% Chance to create a Level {} Surge\n{} Range upon death", val, e.death_surge_level, fmt_range(min, max))
         },
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Explosion",
@@ -464,6 +494,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
             let (min, max) = if start < end { (start, end) } else { (end, start) };
             format!("{}% Chance to create an Explosion {} Range", val, fmt_range(min, max))
         },
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Critical Hit",
@@ -474,6 +505,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.critical_chance,
         duration_getter: None,
         formatter: |val, _, _, _| format!("{}% Chance to perform a Critical Hit dealing 2× Damage", val),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Savage Blow",
@@ -487,6 +519,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
             let mult = (e.savage_blow_boost as f32 + 100.0) / 100.0;
             format!("{}% Chance to perform a Savage Blow dealing {}× Damage", val, mult)
         },
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Strengthen",
@@ -497,6 +530,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.strengthen_threshold,
         duration_getter: None,
         formatter: |_, e, _, _| format!("Damage dealt increases by +{}% when reduced to {}% HP", e.strengthen_boost, e.strengthen_threshold),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Survive",
@@ -507,6 +541,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.survive_chance,
         duration_getter: None,
         formatter: |val, _, _, _| format!("{}% Chance to Survive a lethal strike", val),
+        minus_one_is_inf: false,
     },
 
     // --- BODY 2 ---
@@ -519,6 +554,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.barrier_hitpoints,
         duration_getter: None,
         formatter: |val, _, _, _| format!("Has a Barrier with {} HP", val),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Aku Shield",
@@ -536,6 +572,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
                 format!("Has a Shield with {} HP", scaled_hp)
             }
         },
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Burrow",
@@ -546,6 +583,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.burrow_amount,
         duration_getter: None,
         formatter: |val, e, _, _| format!("Burrows {} Range {}", e.burrow_distance, fmt_count(val)),
+        minus_one_is_inf: true,
     },
     EnemyAbilityDef {
         name: "Revive",
@@ -555,7 +593,8 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         custom_icon: CustomIcon::Revive,
         getter: |e| e.revive_count,
         duration_getter: None,
-        formatter: |val, e, _, _| format!("Revives with {}% HP after {} {} unless Z-Killed", e.revive_hp, fmt_time(e.revive_time), fmt_count(val)),
+        formatter: |val, e, _, _| format!("Revives {} with {}% HP after {} \nDoesn't revive if Z-Killed", fmt_count(val), e.revive_hp, fmt_time(e.revive_time)),
+        minus_one_is_inf: true,
     },
     EnemyAbilityDef {
         name: "Toxic",
@@ -566,6 +605,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.toxic_chance,
         duration_getter: None,
         formatter: |val, e, _, _| format!("{}% Chance to deal {}% of a Cat's Max HP in additional damage", val, e.toxic_damage),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Dodge",
@@ -576,6 +616,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.dodge_chance,
         duration_getter: Some(|e| e.dodge_duration),
         formatter: |val, _, dur, _| format!("{}% Chance to Dodge attacks for {}", val, fmt_time(dur)),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Weaken",
@@ -586,6 +627,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.weaken_chance,
         duration_getter: Some(|e| e.weaken_duration),
         formatter: |val, e, dur, _| format!("{}% Chance to weaken Cats to {}% Attack Power for {}", val, e.weaken_percent, fmt_time(dur)),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Freeze",
@@ -596,6 +638,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.freeze_chance,
         duration_getter: Some(|e| e.freeze_duration),
         formatter: |val, _, dur, _| format!("{}% Chance to Freeze Cats for {}", val, fmt_time(dur)),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Slow",
@@ -606,6 +649,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.slow_chance,
         duration_getter: Some(|e| e.slow_duration),
         formatter: |val, _, dur, _| format!("{}% Chance to Slow Cats for {}", val, fmt_time(dur)),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Knockback",
@@ -616,6 +660,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.knockback_chance,
         duration_getter: None,
         formatter: |val, _, _, _| format!("{}% Chance to Knockback Cats", val),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Curse",
@@ -626,6 +671,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.curse_chance,
         duration_getter: Some(|e| e.curse_duration),
         formatter: |val, _, dur, _| format!("{}% Chance to Curse Cats for {}", val, fmt_time(dur)),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Warp",
@@ -636,6 +682,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.warp_chance,
         duration_getter: Some(|e| e.warp_duration),
         formatter: |val, e, dur, _| format!("{}% Chance to Warp Cats {}~{} Range for {}", val, e.warp_distance_min, e.warp_distance_max, fmt_time(dur)),
+        minus_one_is_inf: false,
     },
     
     // --- FOOTER ---
@@ -648,6 +695,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.wave_immune, 
         duration_getter: None, 
         formatter: |_, _, _, _| "Immune to Wave Attacks".into(),
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef { 
         name: "Immune Surge", 
@@ -658,6 +706,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.surge_immune, 
         duration_getter: None, 
         formatter: |_, _, _, _| "Immune to Surge Attacks".into(), 
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef { 
         name: "Immune Explosion", 
@@ -668,6 +717,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.explosion_immune, 
         duration_getter: None, 
         formatter: |_, _, _, _| "Immune to Explosions".into(), 
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef { 
         name: "Immune Weaken", 
@@ -678,6 +728,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.weaken_immune, 
         duration_getter: None, 
         formatter: |_, _, _, _| "Immune to Weaken".into(), 
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef { 
         name: "Immune Freeze", 
@@ -688,6 +739,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.freeze_immune, 
         duration_getter: None, 
         formatter: |_, _, _, _| "Immune to Freeze".into(), 
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef { 
         name: "Immune Slow", 
@@ -698,6 +750,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.slow_immune, 
         duration_getter: None, 
         formatter: |_, _, _, _| "Immune to Slow".into(), 
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef { 
         name: "Immune Knockback", 
@@ -708,6 +761,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.knockback_immune, 
         duration_getter: None, 
         formatter: |_, _, _, _| "Immune to Knockback".into(), 
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef { 
         name: "Immune Curse", 
@@ -718,6 +772,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.curse_immune, 
         duration_getter: None, 
         formatter: |_, _, _, _| "Immune to Curse".into(), 
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef { 
         name: "Immune Warp", 
@@ -728,6 +783,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.warp_immune, 
         duration_getter: None, 
         formatter: |_, _, _, _| "Immune to Warp".into(), 
+        minus_one_is_inf: false,
     },
     EnemyAbilityDef {
         name: "Counter Surge",
@@ -738,11 +794,11 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         getter: |e| e.counter_surge,
         duration_getter: None,
         formatter: |_,_,_, _| "When hit with a Surge Attack, create a Surge of equal Type, Level, and Range".into(),
+        minus_one_is_inf: false,
     },
 ];
 
 // --- STATS REGISTRY ---
-
 pub struct EnemyStatsDef {
     pub name: &'static str,
     pub display_name: &'static str,
@@ -849,7 +905,6 @@ pub const ENEMY_STATS_REGISTRY: &[EnemyStatsDef] = &[
 ];
 
 // --- REGISTRY HELPER FUNCTIONS ---
-
 pub fn get_enemy_stat(name: &str) -> &'static EnemyStatsDef {
     ENEMY_STATS_REGISTRY.iter().find(|s| s.name == name).expect("Stat not found in registry")
 }

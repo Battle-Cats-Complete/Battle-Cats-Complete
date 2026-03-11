@@ -92,7 +92,7 @@ pub fn get_adv_attributes(name: &str) -> Option<&'static [&'static str]> {
         "Warp" => Some(&["Chance", "Duration (f)", "Min-Distance", "Max-Distance"]),
         "Toxic" => Some(&["Chance", "Damage (%)"]),
         "Burrow" => Some(&["Count", "Distance"]),
-        "Revive" => Some(&["Count", "Time (f)", "HP (%)"]),
+        "Revive" => Some(&["Count", "Duration (f)", "Hitpoints (%)"]),
         _ => None,
     }
 }
@@ -152,14 +152,21 @@ pub fn get_ability_value(s: &EnemyRaw, ability_name: &str, attr: &str) -> i32 {
         ("Burrow", "Count") => s.burrow_amount,
         ("Burrow", "Distance") => s.burrow_distance,
         ("Revive", "Count") => s.revive_count,
-        ("Revive", "Time (f)") => s.revive_time,
-        ("Revive", "HP (%)") => s.revive_hp,
+        ("Revive", "Duration (f)") => s.revive_time,
+        ("Revive", "Hitpoints (%)") => s.revive_hp,
         _ => 0,
     }
 }
 
 pub fn has_trait_or_ability(s: &EnemyRaw, icon_id: usize) -> bool {
-    ENEMY_ABILITY_REGISTRY.iter().find(|d| d.icon_id == icon_id).map_or(false, |def| (def.getter)(s) > 0)
+    ENEMY_ABILITY_REGISTRY.iter().find(|d| d.icon_id == icon_id).map_or(false, |def| {
+        let val = (def.getter)(s);
+        if def.minus_one_is_inf {
+            val != 0 
+        } else {
+            val > 0 
+        }
+    })
 }
 
 pub fn entity_passes_filter(enemy: &EnemyEntry, filter: &EnemyFilterState) -> bool {
@@ -202,13 +209,21 @@ pub fn entity_passes_filter(enemy: &EnemyEntry, filter: &EnemyFilterState) -> bo
             let has_inherent = has_trait_or_ability(stats, icon_id);
             let mut icon_passed = false;
 
+            let ability_def = ENEMY_ABILITY_REGISTRY.iter().find(|d| d.icon_id == icon_id);
+
             if has_inherent {
                 if let Some(adv_map) = filter.adv_ranges.get(&icon_id) {
                     let mut build_passed_all_attrs = true;
                     
                     for (attr, range) in adv_map {
-                        let val = get_ability_value(stats, &name, attr);
+                        let mut val = get_ability_value(stats, &name, attr);
                         
+                        if let Some(def) = ability_def {
+                            if def.minus_one_is_inf && val == -1 {
+                                val = i32::MAX;
+                            }
+                        }
+
                         if let Some(min) = range.min.parse::<i32>().ok() {
                             if val < min {
                                 build_passed_all_attrs = false;
