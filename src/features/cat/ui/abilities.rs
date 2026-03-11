@@ -2,16 +2,14 @@ use eframe::egui;
 use crate::features::cat::logic::scanner::CatEntry;
 use crate::features::cat::logic::stats::{self, CatRaw};
 use crate::features::cat::logic::abilities;
-use crate::global::imgcut::SpriteSheet;
+use crate::global::formats::imgcut::SpriteSheet;
 use crate::features::settings::logic::Settings;
 use crate::ui::components::shared::{render_fallback_icon, text_with_superscript};
-use crate::global::img015;
+use crate::global::game::img015;
 use crate::features::cat::data::skillacquisition::TalentRaw;
 use std::collections::HashMap;
-
-// REFACTORED IMPORTS
-use crate::global::abilities::{ABILITY_X, ABILITY_Y, TRAIT_Y};
-use crate::global::abilities::{AbilityItem, CustomIcon};
+use crate::global::game::abilities::{ABILITY_X, ABILITY_Y, TRAIT_Y};
+use crate::global::game::abilities::AbilityItem;
 use crate::global::assets::CustomAssets;
 
 pub fn render(
@@ -21,7 +19,7 @@ pub fn render(
     cat: &CatEntry, 
     level: i32,
     sheet: &SpriteSheet, 
-    assets: &CustomAssets, // One struct to rule them all
+    assets: &CustomAssets,
     settings: &Settings, 
     talent_data: Option<&TalentRaw>,
     talent_levels: Option<&HashMap<u8, u8>>
@@ -37,8 +35,6 @@ pub fn render(
     let mut previous_content = false;
     let mut last_was_trait = false;
     let main_border = egui::Color32::BLACK;
-
-    // --- UPDATED CALLS: Now passing 'assets' everywhere ---
 
     if !grp_trait.is_empty() {
         render_icon_row(ui, &grp_trait, sheet, settings, main_border, assets);
@@ -82,7 +78,7 @@ pub fn render_icon_row(
     sheet: &SpriteSheet, 
     settings: &Settings, 
     border_color: egui::Color32,
-    assets: &CustomAssets, // Updated signature
+    assets: &CustomAssets,
 ) {
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(ABILITY_X, ABILITY_Y);
@@ -101,22 +97,12 @@ fn render_single_icon(
     sheet: &SpriteSheet, 
     settings: &Settings, 
     border: egui::Color32,
-    assets: &CustomAssets, // Updated signature
+    assets: &CustomAssets,
 ) -> egui::Response {
     let size = egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE);
     let force_fallback = settings.general.game_language == "--";
 
-    // REFACTORED: Direct access from the struct. No more Options.
-    let custom_texture = match item.custom_icon {
-        CustomIcon::Multihit => Some(&assets.multihit),
-        CustomIcon::Kamikaze => Some(&assets.kamikaze),
-        CustomIcon::BossWave => Some(&assets.boss_wave),
-        CustomIcon::Base => Some(&assets.base),
-        CustomIcon::StarredAlien => Some(&assets.starred_alien),
-        CustomIcon::Burrow => Some(&assets.burrow),
-        CustomIcon::Revive => Some(&assets.revive),
-        _ => None,
-    };
+    let custom_texture = item.custom_icon.get_texture(assets);
 
     let response = if !force_fallback && custom_texture.is_some() {
         ui.add(egui::Image::new(egui::load::SizedTexture::new(custom_texture.unwrap().id(), size)))
@@ -149,7 +135,7 @@ pub fn render_list_view(
     ui: &mut egui::Ui, 
     items: &Vec<AbilityItem>, 
     sheet: &SpriteSheet,
-    assets: &CustomAssets, // Updated signature
+    assets: &CustomAssets,
     cat_id: u32,
     current_level: i32,
     curve: Option<&stats::CatLevelCurve>,
@@ -209,7 +195,7 @@ fn render_conjure_details(
     level: i32,
     curve: Option<&stats::CatLevelCurve>,
     sheet: &SpriteSheet,
-    assets: &CustomAssets, // Updated signature
+    assets: &CustomAssets,
     settings: &Settings
 ) {
     egui::Frame::none()

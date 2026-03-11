@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use zip::ZipArchive;
 
 use crate::features::import::logic::keys; 
-use crate::global::patterns;
+use crate::global::io::patterns;
 
 #[derive(Clone)]
 struct PackEntry {
@@ -26,7 +26,6 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
     
     if !raw_dir.exists() { let _ = fs::create_dir_all(raw_dir); }
 
-    // --- BUILD THE LOCATION MAP ---
     let _ = tx.send("Indexing existing workspace files...".to_string());
     let shared_index = Arc::new(build_index(game_dir));
 
@@ -38,7 +37,7 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
 
     let mut dynamic_temp_dirs = Vec::new();
 
-    // Phase 1: Extract APK lists to dynamic sibling directories
+    // Extract APK lists to dynamic sibling directories
     if !apk_paths.is_empty() {
         let _ = tx.send("Extracting base data from APK...".to_string());
         for apk in apk_paths {
@@ -56,11 +55,11 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
         }
     }
 
-    // Phase 2: Chronological Sort with God Mode
+    // Chronological Sort with God Mode
     let _ = tx.send("Sorting patch history chronologically...".to_string());
     list_paths.sort_by_key(|p| calculate_order(p, &dynamic_temp_dirs));
 
-    // Phase 3: Build the "Last One Wins" In-Memory Map
+    // Build the "Last One Wins" In-Memory Map
     let mut master_map: HashMap<String, PackEntry> = HashMap::new();
     
     for list_path in list_paths {
@@ -92,7 +91,7 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
                         final_filename = format!("{}_{}.{}", stem, current_code, ext);
                     }
 
-                    // Insert into map. Newer files overwrite older files naturally!
+                    // Insert into map. Newer files overwrite older files naturally
                     master_map.insert(final_filename, PackEntry {
                         pack_path: pack_path.clone(),
                         original_name: asset_name.to_string(),
@@ -106,7 +105,7 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
 
     let _ = tx.send(format!("Found {} up-to-date files. Starting extraction...", master_map.len()));
 
-    // Phase 4: Group tasks by pack file to minimize disk IO overhead
+    // Group tasks by pack file to minimize disk IO overhead
     let mut pack_tasks: HashMap<PathBuf, Vec<(String, PackEntry)>> = HashMap::new();
     for (final_name, entry) in master_map {
         pack_tasks.entry(entry.pack_path.clone()).or_default().push((final_name, entry));
@@ -114,17 +113,17 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
 
     let count = AtomicI32::new(0);
 
-    // Phase 5: High-Speed Parallel Extraction
+    // High-Speed Parallel Extraction
     pack_tasks.into_par_iter().for_each(|(pack_path, entries)| {
         if let Ok(mut file) = fs::File::open(&pack_path) {
             for (final_name, entry) in entries {
                 let target_path = raw_dir.join(&final_name);
 
-                // --- GLOBAL INDEX BYPASS WITH PADDING CHECK ---
+                // --- GLOBAL INDEX BYPASS ---
                 let mut already_exists = false;
                 let name_lower = final_name.to_lowercase();
                 
-                // 1. Check if it exists anywhere in the game folder
+                // Check if it exists anywhere in the game folder
                 if let Some(existing_paths) = shared_index.get(&name_lower) {
                     for path in existing_paths {
                         if let Ok(meta) = fs::metadata(path) {
@@ -137,7 +136,7 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
                     }
                 }
                 
-                // 2. Check the raw_dir just in case it was freshly written or not indexed
+                // Check the raw_dir just in case it was freshly written or not indexed
                 if !already_exists && target_path.exists() {
                      if let Ok(meta) = fs::metadata(&target_path) {
                          let actual_size = meta.len() as usize;
@@ -225,7 +224,7 @@ fn calculate_order(path: &Path, temp_apk_dirs: &[PathBuf]) -> u64 {
         score = 0; // Oldest possible files if they aren't part of the modern APK
     }
 
-    // 4. THE BULLETPROOF APK OVERRIDE
+    // 4. APK OVERRIDE
     if temp_apk_dirs.iter().any(|dir| path.starts_with(dir)) {
         score += 500_000_000;
     }

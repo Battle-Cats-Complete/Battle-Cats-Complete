@@ -21,7 +21,6 @@ pub fn restart_scan(state: &mut EnemyListState, config: ScannerConfig) {
 }
 
 pub fn refresh_enemy(state: &mut EnemyListState, id: u32, config: &ScannerConfig) {
-    // FIX: Removed `mut` from `updated_enemies`
     let updated_enemies = scanner::scan_all(config);
     
     if let Some(new_enemy) = updated_enemies.into_iter().find(|e| e.id == id) {
@@ -37,7 +36,7 @@ pub fn refresh_enemy(state: &mut EnemyListState, id: u32, config: &ScannerConfig
 pub fn update_data(state: &mut EnemyListState) {
     if let Some(rx) = &state.scan_receiver {
         if let Ok(results) = rx.try_recv() {
-            state.enemies = results; // UNIFIED
+            state.enemies = results;
             
             if state.is_cold_scan && state.selected_enemy.is_none() {
                 if let Some(first_enemy) = state.enemies.first() {

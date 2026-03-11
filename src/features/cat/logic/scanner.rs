@@ -15,7 +15,7 @@ use crate::features::cat::data::unitexplanation;
 use crate::core::utils; 
 use crate::features::cat::paths::{self, AssetType};
 use crate::features::settings::logic::state::ScannerConfig;
-use crate::global::maanim::Animation;
+use crate::global::formats::maanim::Animation;
 
 #[derive(Clone, Debug)]
 pub struct CatEntry {
@@ -38,7 +38,6 @@ impl CatEntry {
         format!("{:03}-{}", self.id, form_index + 1)
     }
 
-    /// Returns the formal name or a "Cat ID-Form" fallback
     pub fn display_name(&self, form_index: usize) -> String {
         let raw_name = self.names.get(form_index).cloned().unwrap_or_default();
         if raw_name.is_empty() {

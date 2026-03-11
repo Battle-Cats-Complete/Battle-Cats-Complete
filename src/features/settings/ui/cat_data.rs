@@ -17,7 +17,7 @@ pub fn show(ui: &mut egui::Ui, settings: &mut CatDataSettings) -> bool {
                 
                 egui::ComboBox::from_id_salt("pref_banner")
                     .width(80.0)
-                    .selected_text(match settings.preferred_banner_form { // <-- FIXED
+                    .selected_text(match settings.preferred_banner_form {
                         0 => "Normal",
                         1 => "Evolved",
                         2 => "True",

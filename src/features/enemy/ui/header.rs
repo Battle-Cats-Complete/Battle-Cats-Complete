@@ -4,7 +4,6 @@ use crate::features::enemy::logic::state::EnemyDetailTab;
 use crate::ui::components::name_box;
 use image::imageops;
 
-// Unified spacing for the input fields
 pub const INPUT_SPACING: f32 = 4.0;
 
 #[derive(PartialEq)]
@@ -27,7 +26,6 @@ pub fn render(
     let mut export_action = ExportAction::None;
 
     ui.vertical(|ui| {
-        // --- 1. Tab Buttons (Exact Cat Replication) ---
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0; 
             ui.horizontal(|ui| {
@@ -45,7 +43,6 @@ pub fn render(
                         (egui::Color32::from_gray(40), egui::Stroke::new(1.0, egui::Color32::from_gray(100)), egui::Color32::from_gray(200))
                     };
 
-                    // Exact 60px min width button
                     let btn = egui::Button::new(egui::RichText::new(label).color(text))
                         .fill(fill)
                         .stroke(stroke)
@@ -61,7 +58,6 @@ pub fn render(
         ui.add_space(5.0);
 
         ui.horizontal_top(|ui| {
-            // Container 110x85 footprint
             let container_size = egui::vec2(110.0, 85.0);
             let (rect, _) = ui.allocate_exact_size(container_size, egui::Sense::hover());
             
@@ -72,7 +68,6 @@ pub fn render(
             }
 
             if let Some(tex) = texture_cache {
-                // Horizontal Centering
                 let icon_size = egui::vec2(85.0, 85.0);
                 let x_off = (container_size.x - icon_size.x) / 2.0;
                 let icon_rect = egui::Rect::from_min_size(rect.min + egui::vec2(x_off, 0.0), icon_size);
@@ -83,7 +78,6 @@ pub fn render(
 
             ui.add_space(3.0);
 
-            // Info Box (Synced spacing from Cat Header)
             ui.vertical(|ui| {
                 ui.set_width(name_box::NAME_BOX_WIDTH);
                 
@@ -96,7 +90,7 @@ pub fn render(
                 ui.add_space(10.0);
                 ui.label(egui::RichText::new(format!("ID: {:03}-E", enemy.id)).color(egui::Color32::from_gray(100)).size(12.0));
                 
-                ui.add_space(3.0); // Exact space as Cat ID -> Row below
+                ui.add_space(3.0);
 
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = INPUT_SPACING; 

@@ -2,16 +2,14 @@ use eframe::egui;
 use std::sync::mpsc::Receiver;
 use std::collections::{HashMap, VecDeque};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::time::Instant;
-
 use super::scanner::CatEntry;
-use super::{watcher, loader};
+use super::loader;
 
 use crate::features::cat::ui::list::CatList; 
 use crate::features::cat::ui as cat_detail;
-use crate::global::imgcut::SpriteSheet; 
-use crate::global::mamodel::Model;
+use crate::global::formats::imgcut::SpriteSheet; 
+use crate::global::formats::mamodel::Model;
 use crate::global::assets::CustomAssets;
 use crate::features::animation::ui::viewer::AnimViewer;
 use crate::features::cat::data::skilldescriptions; 
@@ -60,8 +58,6 @@ pub struct CatListState {
     pub current_level: i32,
     #[serde(skip)] pub cat_list: CatList,
     #[serde(skip)] pub scan_receiver: Option<Receiver<CatEntry>>,
-    #[serde(skip)] pub watchers: Option<watcher::CatWatchers>,
-    #[serde(skip)] pub watch_receiver: Option<Receiver<PathBuf>>,
     #[serde(skip)] pub detail_texture: Option<egui::TextureHandle>,
     #[serde(skip)] pub detail_key: String, 
     #[serde(skip)] pub icon_sheet: SpriteSheet,   
@@ -100,8 +96,6 @@ impl Default for CatListState {
             selected_cat: None,
             cat_list: CatList::default(),
             scan_receiver: None,
-            watchers: None,
-            watch_receiver: None,
             search_query: String::new(),
             selected_form: 0,
             selected_detail_tab: DetailTab::default(),
@@ -131,14 +125,6 @@ impl Default for CatListState {
 }
 
 impl CatListState {
-    pub fn init_watcher(&mut self, ctx: &egui::Context) {
-        watcher::init(self, ctx);
-    }
-
-    pub fn handle_event(&mut self, ctx: &egui::Context, path: &PathBuf, config: ScannerConfig) {
-        watcher::handle_event(self, ctx, path, config);
-    }
-
     pub fn update_data(&mut self) {
         loader::update_data(self);
     }
@@ -149,16 +135,13 @@ impl CatListState {
 }
 
 pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settings) {
-    // --- FIX: BREAK THE BORROW CHAIN ---
     if state.custom_assets.is_none() {
         state.custom_assets = Some(CustomAssets::new(ctx));
     }
-    // Clone handles to release the borrow on 'state' immediately
     let assets = state.custom_assets.as_ref().unwrap().clone();
 
     if !state.initialized {
         state.initialized = true;
-        state.init_watcher(ctx); 
         
         if !settings.cat_data.unit_persistence {
             state.selected_cat = None;
@@ -329,7 +312,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
             &mut state.detail_texture, &mut state.detail_key,
             &mut state.icon_sheet, &mut state.img022_sheet, &mut state.sprite_sheet,
             &mut state.model_data, &mut state.anim_viewer,
-            &assets, // Pass local reference
+            &assets,
             &mut state.talent_name_textures, &mut state.gatya_item_textures, 
             state.skill_descriptions.as_ref(), settings, talent_map,
             state.cached_talent_costs.as_ref().unwrap(),
@@ -383,7 +366,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
     
     crate::features::cat::ui::filter::show_popup(
         ctx, &mut state.filter_state, &mut state.icon_sheet,
-        &assets, // Pass local reference
+        &assets,
         settings, &mut state.drag_guard,
     );
 }

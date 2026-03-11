@@ -4,8 +4,8 @@ use ab_glyph::PxScale;
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use imageproc::rect::Rect;
 
-use crate::global::abilities::{AbilityItem, CustomIcon};
-use crate::global::imgcut::SpriteCut;
+use crate::global::game::abilities::{AbilityItem, CustomIcon};
+use crate::global::formats::imgcut::SpriteCut;
 
 pub const SUPERSCRIPT_SCALE: f32 = 0.75;
 pub const SUPERSCRIPT_OFFSET_Y: f32 = 0.0;
@@ -72,47 +72,38 @@ pub fn get_icon_image(
     custom_assets: &HashMap<CustomIcon, RgbaImage>,
     export_icon_size: u32,
 ) -> RgbaImage {
-    // 1. Check if the item is explicitly marked as a CustomIcon (Multihit/Kamikaze)
+    // If the registry flagged this as a custom icon, use the high-res asset
     let mut icon = if item.custom_icon != CustomIcon::None {
         if let Some(custom_img) = custom_assets.get(&item.custom_icon) {
             custom_img.clone()
         } else {
             RgbaImage::new(export_icon_size, export_icon_size)
         }
-    } else {
-        // 2. NEW: Detect enemy status effects by ID and redirect to high-res custom assets
-        let auto_custom_key = if item.icon_id == crate::global::img015::ICON_BASE { Some(CustomIcon::Base) }
-            else if item.icon_id == crate::global::img015::ICON_STARRED_ALIEN { Some(CustomIcon::StarredAlien) }
-            else if item.icon_id == crate::global::img015::ICON_BURROW { Some(CustomIcon::Burrow) }
-            else if item.icon_id == crate::global::img015::ICON_REVIVE { Some(CustomIcon::Revive) }
-            else { None };
-
-        if let Some(key) = auto_custom_key {
-            custom_assets.get(&key).cloned().unwrap_or_else(|| RgbaImage::new(export_icon_size, export_icon_size))
-        } 
-        // 3. Fallback to standard sprite sheet cropping
-        else if let Some(cut) = cuts_map.get(&item.icon_id) {
-            let w = img015_base.width() as f32;
-            let h = img015_base.height() as f32;
-            let px = (cut.uv_coordinates.min.x * w).round() as u32;
-            let py = (cut.uv_coordinates.min.y * h).round() as u32;
-            let pw = cut.original_size.x.round() as u32;
-            let ph = cut.original_size.y.round() as u32;
-            
-            if px + pw <= img015_base.width() && py + ph <= img015_base.height() {
-                image::imageops::crop_imm(img015_base, px, py, pw, ph).to_image()
-            } else {
-                RgbaImage::new(export_icon_size, export_icon_size)
-            }
+    } 
+    // Otherwise, fallback to standard sprite sheet cropping
+    else if let Some(cut) = cuts_map.get(&item.icon_id) {
+        let w = img015_base.width() as f32;
+        let h = img015_base.height() as f32;
+        let px = (cut.uv_coordinates.min.x * w).round() as u32;
+        let py = (cut.uv_coordinates.min.y * h).round() as u32;
+        let pw = cut.original_size.x.round() as u32;
+        let ph = cut.original_size.y.round() as u32;
+        
+        if px + pw <= img015_base.width() && py + ph <= img015_base.height() {
+            image::imageops::crop_imm(img015_base, px, py, pw, ph).to_image()
         } else {
             RgbaImage::new(export_icon_size, export_icon_size)
         }
+    } else {
+        RgbaImage::new(export_icon_size, export_icon_size)
     };
 
+    // Resize the core icon if necessary
     if icon.width() != export_icon_size || icon.height() != export_icon_size {
         icon = image::imageops::resize(&icon, export_icon_size, export_icon_size, image::imageops::FilterType::Lanczos3);
     }
 
+    // Apply the border if one exists
     if let Some(border_id) = item.border_id {
         if let Some(cut) = cuts_map.get(&border_id) {
             let w = img015_base.width() as f32;

@@ -1,12 +1,12 @@
 use eframe::egui;
 use crate::features::enemy::logic::scanner::EnemyEntry;
 use crate::features::enemy::logic::abilities;
-use crate::global::imgcut::SpriteSheet;
+use crate::global::formats::imgcut::SpriteSheet;
 use crate::features::settings::logic::Settings;
 use crate::ui::components::shared::{render_fallback_icon, text_with_superscript};
-use crate::global::img015;
+use crate::global::game::img015;
 use crate::global::assets::CustomAssets;
-use crate::global::abilities::{AbilityItem, CustomIcon};
+use crate::global::game::abilities::{AbilityItem, CustomIcon};
 use crate::features::enemy::registry;
 
 pub const ABILITY_X: f32 = 3.0;
@@ -98,7 +98,7 @@ fn render_single_icon(
     let force_fallback = settings.general.game_language == "--";
 
     let custom_texture = match item.icon_id {
-        img015::ICON_BASE => Some(&assets.base),
+        img015::ICON_DOJO => Some(&assets.dojo),
         img015::ICON_STARRED_ALIEN => Some(&assets.starred_alien),
         img015::ICON_BURROW => Some(&assets.burrow),
         img015::ICON_REVIVE => Some(&assets.revive),

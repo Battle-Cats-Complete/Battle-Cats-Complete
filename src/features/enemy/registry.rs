@@ -1,6 +1,6 @@
-use crate::global::img015;
+use crate::global::game::img015;
 use crate::features::enemy::data::t_unit::EnemyRaw;
-use crate::global::abilities::CustomIcon;
+use crate::global::game::abilities::CustomIcon;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum DisplayGroup {
@@ -90,7 +90,7 @@ fn fmt_multihit(e: &EnemyRaw) -> String {
 }
 
 pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
-    // --- SPECIAL HIDDEN (FILTER ONLY) ---
+    // --- SPECIAL HIDDEN ---
     EnemyAbilityDef {
         name: "Single Attack",
         fallback: "Sngl",
@@ -214,13 +214,13 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         formatter: |_, _, _, _| "Traitless".into(),
     },
 
-    // --- HEADLINE 1 (Special Units) ---
+    // --- HEADLINE 1 ---
     EnemyAbilityDef {
         name: "Dojo",
         fallback: "Dojo",
-        icon_id: img015::ICON_BASE,
+        icon_id: img015::ICON_DOJO,
         group: DisplayGroup::Headline1,
-        custom_icon: CustomIcon::None,
+        custom_icon: CustomIcon::Dojo,
         getter: |e| e.type_dojo,
         duration_getter: None,
         formatter: |_, _, _, _| "Dojo".into(),
@@ -230,7 +230,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         fallback: "Star",
         icon_id: img015::ICON_STARRED_ALIEN, 
         group: DisplayGroup::Headline1,
-        custom_icon: CustomIcon::None,
+        custom_icon: CustomIcon::StarredAlien,
         getter: |e| e.type_starred_alien,
         duration_getter: None,
         formatter: |_, _, _, _| "Starred Alien".into(),
@@ -299,7 +299,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         name: "Kamikaze",
         fallback: "Kamik",
         icon_id: img015::ICON_KAMIKAZE,
-        group: DisplayGroup::Headline1,
+        group: DisplayGroup::Headline2,
         custom_icon: CustomIcon::Kamikaze, 
         getter: |e| if e.kamikaze > 0 { 1 } else { 0 },
         duration_getter: None,
@@ -318,7 +318,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         formatter: |_, _, _, _| "Deals 4× Damage to the Cat Base".into(),
     },
 
-    // --- BODY 1 (Attack Procs) ---
+    // --- BODY 1 ---
     EnemyAbilityDef {
         name: "Multi-Hit",
         fallback: "Multi",
@@ -509,7 +509,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         formatter: |val, _, _, _| format!("{}% Chance to Survive a lethal strike", val),
     },
 
-    // --- BODY 2 (Detailed Mechanics & CC) ---
+    // --- BODY 2 ---
     EnemyAbilityDef {
         name: "Barrier",
         fallback: "Barri",
@@ -518,7 +518,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         custom_icon: CustomIcon::None,
         getter: |e| e.barrier_hitpoints,
         duration_getter: None,
-        formatter: |val, _, _, _| format!("Has a Barrier with {} HP", val), // Normal barriers do not scale with mag!
+        formatter: |val, _, _, _| format!("Has a Barrier with {} HP", val),
     },
     EnemyAbilityDef {
         name: "Aku Shield",
@@ -542,7 +542,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         fallback: "Burro",
         icon_id: img015::ICON_BURROW, 
         group: DisplayGroup::Body2,
-        custom_icon: CustomIcon::None,
+        custom_icon: CustomIcon::Burrow,
         getter: |e| e.burrow_amount,
         duration_getter: None,
         formatter: |val, e, _, _| format!("Burrows {} Range {}", e.burrow_distance, fmt_count(val)),
@@ -552,7 +552,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         fallback: "Reviv",
         icon_id: img015::ICON_REVIVE, 
         group: DisplayGroup::Body2,
-        custom_icon: CustomIcon::None,
+        custom_icon: CustomIcon::Revive,
         getter: |e| e.revive_count,
         duration_getter: None,
         formatter: |val, e, _, _| format!("Revives with {}% HP after {} {} unless Z-Killed", e.revive_hp, fmt_time(e.revive_time), fmt_count(val)),
@@ -638,7 +638,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         formatter: |val, e, dur, _| format!("{}% Chance to Warp Cats {}~{} Range for {}", val, e.warp_distance_min, e.warp_distance_max, fmt_time(dur)),
     },
     
-    // --- FOOTER (Immunities) ---
+    // --- FOOTER ---
     EnemyAbilityDef { 
         name: "Immune Wave", 
         fallback: "NoWav", 
@@ -733,7 +733,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         name: "Counter Surge",
         fallback: "C-Srg",
         icon_id: img015::ICON_COUNTER_SURGE,
-        group: DisplayGroup::Footer,
+        group: DisplayGroup::Headline2,
         custom_icon: CustomIcon::None,
         getter: |e| e.counter_surge,
         duration_getter: None,

@@ -1,11 +1,11 @@
 use std::collections::{HashSet, HashMap};
-use crate::features::cat::registry::ABILITY_REGISTRY;
+use crate::features::cat::registry::CAT_ABILITY_REGISTRY;
 use crate::features::cat::logic::stats::CatRaw;
 use crate::features::cat::logic::scanner::CatEntry;
 use crate::features::cat::data::skillacquisition::TalentGroupRaw;
 use crate::features::cat::logic::talents::apply_talent_stats;
 use crate::features::cat::registry::CAT_STATS_REGISTRY;
-use crate::global::img015;
+use crate::global::game::img015;
 
 pub const ATTACK_TYPE_ICONS: &[usize] = &[
     img015::ICON_SINGLE_ATTACK,
@@ -128,7 +128,7 @@ pub fn get_adv_attributes(name: &str) -> Option<&'static [&'static str]> {
 }
 
 pub fn get_icon_name(icon_id: usize) -> String {
-    ABILITY_REGISTRY.iter().find(|d| d.icon_id == icon_id).map(|d| d.name).unwrap_or("Unknown").to_string()
+    CAT_ABILITY_REGISTRY.iter().find(|d| d.icon_id == icon_id).map(|d| d.name).unwrap_or("Unknown").to_string()
 }
 
 pub fn get_ability_value(s: &CatRaw, ability_name: &str, attr: &str) -> i32 {
@@ -191,9 +191,8 @@ pub fn get_talent_modifier(g: &TalentGroupRaw, attr: &str) -> i32 {
     }
 }
 
-// THIS IS NOW A TINY 1-LINER!
 pub fn has_trait_or_ability(s: &CatRaw, icon_id: usize) -> bool {
-    ABILITY_REGISTRY.iter().find(|d| d.icon_id == icon_id).map_or(false, |def| (def.getter)(s) > 0)
+    CAT_ABILITY_REGISTRY.iter().find(|d| d.icon_id == icon_id).map_or(false, |def| (def.getter)(s) > 0)
 }
 
 pub fn entity_passes_filter(cat: &CatEntry, filter: &CatFilterState) -> bool {
@@ -349,7 +348,7 @@ pub fn entity_passes_filter(cat: &CatEntry, filter: &CatFilterState) -> bool {
                     if form_idx >= 2 {
                         if let Some(t_data) = cat.talent_data.as_ref() {
                             for g in &t_data.groups {
-                                let matches_icon = ABILITY_REGISTRY.iter()
+                                let matches_icon = CAT_ABILITY_REGISTRY.iter()
                                     .any(|d| d.icon_id == icon_id && (g.ability_id == d.talent_id || g.name_id as u8 == d.talent_id));
 
                                 if matches_icon {

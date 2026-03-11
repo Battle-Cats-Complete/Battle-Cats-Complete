@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 use eframe::egui;
 use crate::features::settings::logic::Settings;
-use super::imgcut::SpriteSheet;
-use crate::global::paths;
+use crate::global::formats::imgcut::SpriteSheet;
+use crate::global::io::paths;
 
 // Icon IDs Based On Positon
 pub const ICON_RESIST_WEAKEN: usize = 43;
@@ -100,7 +100,7 @@ pub const ICON_SUPERVILLIAN: usize = 384;
 pub const ICON_RESIST_EXPLOSION: usize = 386;
 
 // Mock IDs For Custom Assets
-pub const ICON_BASE: usize = 9993;
+pub const ICON_DOJO: usize = 9993;
 pub const ICON_STARRED_ALIEN: usize = 9994;
 pub const ICON_BURROW: usize = 9995;
 pub const ICON_REVIVE: usize = 9996;

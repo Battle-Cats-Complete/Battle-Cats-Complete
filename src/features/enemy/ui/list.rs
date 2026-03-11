@@ -6,6 +6,8 @@ use std::thread;
 use image::imageops;
 
 use crate::features::enemy::logic::scanner::EnemyEntry;
+use crate::features::enemy::ui::filter::EnemyFilterState;
+use crate::features::enemy::logic::filter;
 
 struct LoadedImage {
     id: u32,
@@ -28,6 +30,7 @@ pub struct EnemyList {
     scroll_to_top_needed: bool,
     last_search_query: String,
     last_unit_count: usize,
+    last_filter_state: EnemyFilterState,
     cached_indices: Vec<usize>,
 }
 
@@ -37,7 +40,6 @@ impl Default for EnemyList {
         let (tx_result, rx_result) = mpsc::channel::<LoadedImage>();
 
         thread::spawn(move || {
-            // Load the standard Cat background frame!
             let bg_cache = image::load_from_memory(crate::global::assets::UDI_F).ok().map(|img| img.to_rgba8());
             let bg_cache = std::sync::Arc::new(bg_cache);
 
@@ -64,6 +66,7 @@ impl Default for EnemyList {
             scroll_to_top_needed: false,
             last_search_query: String::new(),
             last_unit_count: 0,
+            last_filter_state: EnemyFilterState::default(),
             cached_indices: Vec::new(),
         }
     }
@@ -94,6 +97,7 @@ impl EnemyList {
         entries: &[EnemyEntry], 
         selected_id: &mut Option<u32>, 
         search_query: &str,
+        filter: &EnemyFilterState,
     ) {
         if self.placeholder_texture.is_none() {
             if let Ok(img) = image::load_from_memory(crate::global::assets::UDI_F) {
@@ -124,8 +128,9 @@ impl EnemyList {
             self.pending_requests.remove(&loaded.id);
         }
 
-        if search_query != self.last_search_query || entries.len() != self.last_unit_count {
-            self.update_search_cache(entries, search_query);
+        let filter_changed = *filter != self.last_filter_state;
+        if search_query != self.last_search_query || entries.len() != self.last_unit_count || filter_changed {
+            self.update_search_cache(entries, search_query, filter);
         }
 
         let row_height = 55.0; 
@@ -194,24 +199,26 @@ impl EnemyList {
         });
     }
 
-    fn update_search_cache(&mut self, entries: &[EnemyEntry], query: &str) {
+    fn update_search_cache(&mut self, entries: &[EnemyEntry], query: &str, filter: &EnemyFilterState) {
         self.last_search_query = query.to_string();
         self.last_unit_count = entries.len();
+        self.last_filter_state = filter.clone();
         self.cached_indices.clear();
 
         let query_lower = query.to_lowercase();
         let is_empty = query.is_empty();
 
         for (i, entry) in entries.iter().enumerate() {
+            if !filter::entity_passes_filter(entry, filter) {
+                continue;
+            }
+
             if is_empty {
                 self.cached_indices.push(i);
                 continue;
             }
 
-            let full_id = entry.id_str().to_lowercase(); // e.g., "074-e"
-
-            // Smart Search: If the query starts with a number, allow highly forgiving ID matching.
-            // This safely allows "74", "074-", and "74-e" without letting "-e" match everything!
+            let full_id = entry.id_str().to_lowercase();
             let is_id_search = query_lower.chars().next().map_or(false, |c| c.is_ascii_digit());
             
             if is_id_search && full_id.contains(&query_lower) {
@@ -219,7 +226,6 @@ impl EnemyList {
                 continue;
             }
 
-            // Fallback to searching by Name
             if entry.name.to_lowercase().contains(&query_lower) {
                 self.cached_indices.push(i);
             }
@@ -227,10 +233,8 @@ impl EnemyList {
     }
 }
 
-// --- TWEAKABLE CONSTANTS ---
 const ENEMY_ICON_SCALE_FACTOR: f32 = 2.6; 
 const ENEMY_ICON_OFFSET_X: i64 = 8;       
-// How many pixels at the bottom of the scaled image to ignore (removes shadow bias)
 const ENEMY_SHADOW_MARGIN: u32 = 8;       
 
 fn process_image(path: &PathBuf, bg_cache: &Option<image::RgbaImage>) -> Option<egui::ColorImage> {
@@ -239,7 +243,6 @@ fn process_image(path: &PathBuf, bg_cache: &Option<image::RgbaImage>) -> Option<
     if let Ok(image_buffer) = image::open(path) {
         let mut unit_img = image_buffer.to_rgba8();
         
-        // 1. Scale the enemy up
         let scaled_w = (unit_img.width() as f32 * ENEMY_ICON_SCALE_FACTOR).round() as u32;
         let scaled_h = (unit_img.height() as f32 * ENEMY_ICON_SCALE_FACTOR).round() as u32;
         unit_img = imageops::resize(&unit_img, scaled_w, scaled_h, imageops::FilterType::Lanczos3);
@@ -254,7 +257,6 @@ fn process_image(path: &PathBuf, bg_cache: &Option<image::RgbaImage>) -> Option<
             let mut found_solid = false;
 
             // DENSITY CHECK: Find vertical center of the SOLID body
-            // We subtract the shadow margin from the height so shadows don't pull the center downwards
             let shadow_cutoff = h.saturating_sub(ENEMY_SHADOW_MARGIN);
             
             for (_x, y, pixel) in unit_img.enumerate_pixels() {
@@ -274,30 +276,24 @@ fn process_image(path: &PathBuf, bg_cache: &Option<image::RgbaImage>) -> Option<
 
             let offset_y = (bg_h / 2) - center_y;
 
-            // 2. Manual overlay with SMART PIXEL MASKING
+            // Manual overlay with SMART PIXEL MASKING
             use image::Pixel; 
             
             for (x, y, pixel) in unit_img.enumerate_pixels() {
                 let dest_x = ENEMY_ICON_OFFSET_X + x as i64;
                 let dest_y = offset_y + y as i64;
 
-                // Make sure we are within the background image bounds
                 if dest_x >= 0 && dest_x < bg_w && dest_y >= 0 && dest_y < bg_h {
                     
                     let bg_pixel = final_image.get_pixel_mut(dest_x as u32, dest_y as u32);
-                    
-                    // --- SMART CLIPPING ---
-                    // Check if the background pixel is black (the frame border / level box)
                     let is_black_border = bg_pixel[0] < 25 && bg_pixel[1] < 25 && bg_pixel[2] < 25 && bg_pixel[3] > 200;
 
-                    // Only blend the enemy pixel if we are NOT on top of a black frame pixel
                     if !is_black_border {
                         bg_pixel.blend(&pixel);
                     }
                 }
             }
 
-            // 3. Shrink down to list UI proportions, perfectly preserving udi_f aspect ratio
             let target_h = 50; 
             let ratio = target_h as f32 / final_image.height() as f32;
             let target_w = (final_image.width() as f32 * ratio) as u32;
@@ -308,7 +304,6 @@ fn process_image(path: &PathBuf, bg_cache: &Option<image::RgbaImage>) -> Option<
             
             return Some(egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()));
         } else {
-            // Failsafe
             let final_image = imageops::resize(&unit_img, 50, 50, imageops::FilterType::Lanczos3);
             let size = [final_image.width() as usize, final_image.height() as usize];
             let pixels = final_image.as_flat_samples();

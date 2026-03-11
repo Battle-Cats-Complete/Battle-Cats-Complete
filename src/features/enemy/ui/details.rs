@@ -32,7 +32,6 @@ pub fn render(ui: &mut egui::Ui, description: &[String]) {
         }
     });
 
-    // Replicates the visual separator seen before the Cat's Evolve section
     ui.add_space(15.0);
     ui.separator(); 
     ui.add_space(10.0);

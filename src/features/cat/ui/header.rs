@@ -8,14 +8,12 @@ use crate::core::utils::autocrop;
 use crate::ui::components::name_box;
 use crate::features::cat::paths::{self, AssetType};
 use crate::features::cat::data::skilllevel::TalentCost;
-use crate::global::imgcut::SpriteSheet;
+use crate::global::formats::imgcut::SpriteSheet;
 
 pub const HEADER_NP_ICON_SIZE: f32 = 24.0;
 pub const HEADER_NP_TEXT_SIZE: f32 = 20.0;
 pub const TALENT_BTN_WIDTH: f32 = 100.0;
 pub const TALENT_BTN_HEIGHT: f32 = 23.0;
-
-// Unified spacing for the input fields
 pub const INPUT_SPACING: f32 = 4.0;
 
 #[derive(PartialEq)]
@@ -156,7 +154,7 @@ fn render_talent_controls(
             
             let mut drawn = false;
             if settings.general.game_language != "--" {
-                if let Some(cut) = img022_sheet.cuts_map.get(&crate::global::img022::ICON_NP_COST) {
+                if let Some(cut) = img022_sheet.cuts_map.get(&crate::global::game::img022::ICON_NP_COST) {
                     if let Some(tex) = &img022_sheet.texture_handle {
                         let aspect = cut.original_size.x / cut.original_size.y;
                         let size = egui::vec2(HEADER_NP_ICON_SIZE * aspect, HEADER_NP_ICON_SIZE);
@@ -345,7 +343,6 @@ fn render_info_box(ui: &mut egui::Ui, cat: &CatEntry, form: usize, level_input: 
         ui.set_width(name_box::NAME_BOX_WIDTH);
 
         let form_num = form + 1;
-        // Use centralized naming logic
         let disp_name = cat.display_name(form);
 
         ui.add_space(15.0); 

@@ -62,7 +62,7 @@ fn start_manual_sort(state: &mut ImportState) {
         let import_result = match mode {
             ImportMode::Folder => archive::import_standard_folder(&path, tx.clone()),
             ImportMode::Zip => archive::import_standard_archive(&path, tx.clone()),
-            _ => Err("Invalid mode".to_string()), // Add this catch-all arm
+            _ => Err("Invalid mode".to_string()),
         };
 
         match import_result {

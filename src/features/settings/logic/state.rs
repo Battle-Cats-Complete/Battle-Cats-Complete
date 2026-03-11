@@ -4,9 +4,6 @@ use std::sync::mpsc::Receiver;
 use super::lang;
 use super::upd::UpdateMode;
 
-// ---------------------------------------------------------
-// THE CORE WRAPPER
-// ---------------------------------------------------------
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)] 
 pub struct Settings {
@@ -18,10 +15,6 @@ pub struct Settings {
     #[serde(skip)] 
     pub runtime: RuntimeState,
 }
-
-// ---------------------------------------------------------
-// DOMAIN STRUCTS
-// ---------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -121,9 +114,6 @@ impl Default for AnimSettings {
     }
 }
 
-// ---------------------------------------------------------
-// RUNTIME STATE (Not Saved to Disk)
-// ---------------------------------------------------------
 pub struct RuntimeState {
     pub manual_check_requested: bool,
     pub active_tab: String,
@@ -144,9 +134,6 @@ impl Default for RuntimeState {
     }
 }
 
-// ---------------------------------------------------------
-// HELPER METHODS
-// ---------------------------------------------------------
 impl Settings {
     pub fn update_language_list(&mut self) {
         lang::handle_update(
@@ -157,9 +144,6 @@ impl Settings {
     }
 }
 
-// ---------------------------------------------------------
-// CONFIG BUNDLES (Data Transfer Objects)
-// ---------------------------------------------------------
 #[derive(Clone, Debug)]
 pub struct ScannerConfig {
     pub language: String,

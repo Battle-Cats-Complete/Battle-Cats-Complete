@@ -4,22 +4,20 @@ use std::collections::HashSet;
 use crate::global::formats::imgcut::SpriteSheet;
 use crate::global::assets::CustomAssets;
 use crate::core::utils::{DragGuard, UI_TRAIT_ORDER};
-use crate::features::cat::registry::{CAT_ABILITY_REGISTRY, DisplayGroup};
+use crate::features::enemy::registry::{ENEMY_ABILITY_REGISTRY, DisplayGroup};
 use crate::global::game::img015;
-use crate::features::settings::logic::Settings;
+use crate::features::settings::logic::state::Settings;
 
-pub use crate::features::cat::logic::filter::{CatFilterState, MatchMode, TalentFilterMode};
-use crate::features::cat::logic::filter::{get_adv_attributes, get_icon_name, ATTACK_TYPE_ICONS};
+pub use crate::features::enemy::logic::filter::{EnemyFilterState, MatchMode};
+use crate::features::enemy::logic::filter::{get_adv_attributes, get_icon_name, ATTACK_TYPE_ICONS};
 
 pub const WINDOW_WIDTH: f32 = 500.0;
 pub const WINDOW_HEIGHT: f32 = 580.0;
 pub const TILDE_SPACING: f32 = 5.0; 
-pub const BTN_SIZE_RARITY: [f32; 2] = [77.0, 24.0];
-pub const BTN_SIZE_FORM: [f32; 2] = [118.0, 24.0];
 
 pub fn show_popup(
     ctx: &egui::Context,
-    state: &mut CatFilterState,
+    state: &mut EnemyFilterState,
     sheet: &mut SpriteSheet,
     assets: &CustomAssets,
     settings: &Settings,
@@ -29,13 +27,13 @@ pub fn show_popup(
     
     img015::ensure_loaded(ctx, sheet, settings);
 
-    let window_id = egui::Id::new("Cat Filter");
+    let window_id = egui::Id::new("Enemy Filter");
     let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
     
     let mut clear_filters = false;
     let mut is_open_local = state.is_open;
     
-    let mut window = egui::Window::new("Advanced Cat Filter")
+    let mut window = egui::Window::new("Advanced Enemy Filter")
         .id(window_id)
         .open(&mut is_open_local)
         .collapsible(false)
@@ -56,94 +54,18 @@ pub fn show_popup(
             
             ui.heading("Attributes");
             ui.add_space(5.0);
-            
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                filter_button(ui, &mut state.rarities[0], "Normal", BTN_SIZE_RARITY);
-                filter_button(ui, &mut state.rarities[1], "Special", BTN_SIZE_RARITY);
-                filter_button(ui, &mut state.rarities[2], "Rare", BTN_SIZE_RARITY);
-                filter_button(ui, &mut state.rarities[3], "Super Rare", BTN_SIZE_RARITY);
-                filter_button(ui, &mut state.rarities[4], "Uber Rare", BTN_SIZE_RARITY);
-                filter_button(ui, &mut state.rarities[5], "Legend Rare", BTN_SIZE_RARITY);
-            });
-            ui.add_space(4.0);
-
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                filter_button(ui, &mut state.forms[0], "Normal Form", BTN_SIZE_FORM);
-                filter_button(ui, &mut state.forms[1], "Evolved Form", BTN_SIZE_FORM);
-                filter_button(ui, &mut state.forms[2], "True Form", BTN_SIZE_FORM);
-                filter_button(ui, &mut state.forms[3], "Ultra Form", BTN_SIZE_FORM);
-            });
-            ui.add_space(8.0);
 
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
+                ui.spacing_mut().item_spacing.x = 6.0;
+                ui.label(egui::RichText::new("Mode:").strong());
                 
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    ui.label(egui::RichText::new("Mode:").strong());
-                    
-                    egui::ComboBox::from_id_salt("cb_match_mode")
-                        .selected_text(if state.match_mode == MatchMode::And { "And" } else { "Or" })
-                        .width(55.0)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut state.match_mode, MatchMode::And, "And");
-                            ui.selectable_value(&mut state.match_mode, MatchMode::Or, "Or");
-                        });
-                });
-
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0; 
-                    ui.label(egui::RichText::new("Talents:").strong());
-                    
-                    ui.scope(|ui| {
-                        if state.talent_mode == TalentFilterMode::Only {
-                            let active_blue = egui::Color32::from_rgb(31, 106, 165);
-                            let visuals = ui.visuals_mut();
-                            visuals.widgets.inactive.bg_fill = active_blue;
-                            visuals.widgets.hovered.bg_fill = active_blue;
-                            visuals.widgets.active.bg_fill = active_blue;
-                            visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
-                            visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
-                        }
-                        
-                        egui::ComboBox::from_id_salt("cb_talent_mode")
-                            .selected_text(state.talent_mode.label())
-                            .width(85.0)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut state.talent_mode, TalentFilterMode::Ignore, "Ignore");
-                                ui.selectable_value(&mut state.talent_mode, TalentFilterMode::Consider, "Consider");
-                                ui.selectable_value(&mut state.talent_mode, TalentFilterMode::Only, "Only");
-                            });
+                egui::ComboBox::from_id_salt("cb_match_mode")
+                    .selected_text(if state.match_mode == MatchMode::And { "And" } else { "Or" })
+                    .width(55.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut state.match_mode, MatchMode::And, "And");
+                        ui.selectable_value(&mut state.match_mode, MatchMode::Or, "Or");
                     });
-                });
-
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0; 
-                    ui.label(egui::RichText::new("Ultra Talents:").strong());
-                    
-                    ui.scope(|ui| {
-                        if state.ultra_talent_mode == TalentFilterMode::Only {
-                            let active_blue = egui::Color32::from_rgb(31, 106, 165);
-                            let visuals = ui.visuals_mut();
-                            visuals.widgets.inactive.bg_fill = active_blue;
-                            visuals.widgets.hovered.bg_fill = active_blue;
-                            visuals.widgets.active.bg_fill = active_blue;
-                            visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
-                            visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
-                        }
-                        
-                        egui::ComboBox::from_id_salt("cb_ultra_talent_mode")
-                            .selected_text(state.ultra_talent_mode.label())
-                            .width(85.0)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut state.ultra_talent_mode, TalentFilterMode::Ignore, "Ignore");
-                                ui.selectable_value(&mut state.ultra_talent_mode, TalentFilterMode::Consider, "Consider");
-                                ui.selectable_value(&mut state.ultra_talent_mode, TalentFilterMode::Only, "Only");
-                            });
-                    });
-                });
             });
             ui.add_space(15.0);
 
@@ -153,16 +75,17 @@ pub fn show_popup(
             
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                ui.label(egui::RichText::new("Target Level:").strong());
+                ui.label(egui::RichText::new("Target Magnification:").strong());
                 ui.add_sized(
                     egui::vec2(45.0, 20.0), 
-                    egui::TextEdit::singleline(&mut state.level_input)
-                        .hint_text(egui::RichText::new("50").color(egui::Color32::from_gray(100)))
+                    egui::TextEdit::singleline(&mut state.mag_input)
+                        .hint_text(egui::RichText::new("100").color(egui::Color32::from_gray(100)))
                 );
+                ui.label("%");
             });
             ui.add_space(8.0);
 
-            let stat_keys = ["Attack", "Dps", "Range", "Atk Cycle (f)", "Hitpoints", "Knockbacks", "Speed", "Cooldown (f)", "Cost"];
+            let stat_keys = ["Attack", "Dps", "Range", "Atk Cycle (f)", "Hitpoints", "Knockbacks", "Speed", "Endure", "Cash Drop"];
             
             egui::Grid::new("stat_filter_grid")
                 .spacing([16.0, 6.0])
@@ -228,30 +151,6 @@ pub fn show_popup(
             render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Body2, true, true, sheet, assets); 
             render_display_group(ui, state, &mut rendered_icons, DisplayGroup::Footer, false, true, sheet, assets);
 
-            let check_talents = state.talent_mode != TalentFilterMode::Ignore || state.ultra_talent_mode != TalentFilterMode::Ignore;
-            if check_talents {
-                let mut talent_icons = Vec::new();
-                for def in CAT_ABILITY_REGISTRY.iter() {
-                    if !rendered_icons.contains(&def.icon_id) && !UI_TRAIT_ORDER.contains(&def.icon_id) && !ATTACK_TYPE_ICONS.contains(&def.icon_id) {
-                        if !talent_icons.contains(&def.icon_id) {
-                            talent_icons.push(def.icon_id);
-                        }
-                    }
-                }
-
-                if !talent_icons.is_empty() {
-                    ui.add_space(2.0);
-                    ui.heading("Talents");
-                    ui.add_space(5.0);
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                        for icon_id in talent_icons {
-                            render_filter_icon(ui, icon_id, &mut state.active_icons, sheet, assets);
-                        }
-                    });
-                }
-            }
-            
             ui.add_space(50.0); 
         });
         
@@ -275,13 +174,13 @@ pub fn show_popup(
     state.is_open = is_open_local;
 
     if clear_filters {
-        *state = CatFilterState { is_open: state.is_open, ..Default::default() };
+        *state = EnemyFilterState { is_open: state.is_open, ..Default::default() };
     }
 }
 
 fn render_display_group(
     ui: &mut egui::Ui,
-    state: &mut CatFilterState,
+    state: &mut EnemyFilterState,
     rendered_icons: &mut HashSet<usize>,
     target_group: DisplayGroup,
     is_vertical: bool,
@@ -291,7 +190,7 @@ fn render_display_group(
 ) {
     let mut icons_in_group = Vec::new();
     
-    for def in CAT_ABILITY_REGISTRY.iter() {
+    for def in ENEMY_ABILITY_REGISTRY.iter() {
         if def.group == target_group && !UI_TRAIT_ORDER.contains(&def.icon_id) && !ATTACK_TYPE_ICONS.contains(&def.icon_id) {
             if !icons_in_group.contains(&def.icon_id) {
                 icons_in_group.push(def.icon_id);
@@ -301,10 +200,6 @@ fn render_display_group(
     }
     
     if target_group == DisplayGroup::Headline2 {
-        if !icons_in_group.contains(&img015::ICON_CONJURE) { 
-            icons_in_group.insert(0, img015::ICON_CONJURE); 
-            rendered_icons.insert(img015::ICON_CONJURE);
-        }
         if !icons_in_group.contains(&img015::ICON_KAMIKAZE) { 
             icons_in_group.push(img015::ICON_KAMIKAZE); 
             rendered_icons.insert(img015::ICON_KAMIKAZE);
@@ -331,21 +226,9 @@ fn render_display_group(
     }
 }
 
-fn filter_button(ui: &mut egui::Ui, active: &mut bool, label: &str, size: [f32; 2]) -> egui::Response {
-    let mut btn = egui::Button::new(label);
-    if *active {
-        btn = btn.fill(egui::Color32::from_rgb(31, 106, 165));
-    }
-    let response = ui.add_sized(size, btn);
-    if response.clicked() {
-        *active = !*active;
-    }
-    response
-}
-
 fn render_filter_icon_row(
     ui: &mut egui::Ui, 
-    state: &mut CatFilterState,
+    state: &mut EnemyFilterState,
     icon_id: usize, 
     draw_labels: bool,
     sheet: &SpriteSheet,
@@ -432,19 +315,16 @@ fn render_filter_icon(
     let is_active = active_icons.contains(&icon_id);
     let tint = if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(80) };
     
-    // 1. Ask the Registry for the CustomIcon variant associated with this ID
-    let custom_variant = crate::features::cat::registry::CAT_ABILITY_REGISTRY.iter()
+    let custom_variant = crate::features::enemy::registry::ENEMY_ABILITY_REGISTRY.iter()
         .find(|d| d.icon_id == icon_id)
         .map(|d| d.custom_icon)
         .unwrap_or(crate::global::game::abilities::CustomIcon::None);
 
-    // 2. Try to get a custom texture handle
     let custom_tex = custom_variant.get_texture(assets);
 
     let mut drawn = false;
     
     if let Some(tex) = custom_tex {
-        // DRAW CUSTOM EMBEDDED TEXTURE
         let img = egui::Image::new(tex).fit_to_exact_size(egui::vec2(32.0, 32.0)).tint(tint);
         let response = ui.add(egui::ImageButton::new(img).frame(false));
         if response.clicked() {
@@ -454,7 +334,6 @@ fn render_filter_icon(
         response.on_hover_text(get_icon_name(icon_id));
         drawn = true;
     } else if let Some(cut) = sheet.cuts_map.get(&icon_id) {
-        // DRAW SPRITESHEET CUT (Fallback)
         if let Some(tex) = &sheet.texture_handle {
             let img = egui::Image::new(egui::load::SizedTexture::new(tex.id(), egui::vec2(32.0, 32.0)))
                 .uv(cut.uv_coordinates)
@@ -470,7 +349,6 @@ fn render_filter_icon(
     }
 
     if !drawn {
-        // DRAW "?" PLACEHOLDER
         let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
         if ui.is_rect_visible(rect) {
             ui.painter().rect_filled(rect, 4.0, egui::Color32::from_black_alpha(100));

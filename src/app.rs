@@ -6,7 +6,6 @@ use crate::features::import::logic::ImportState;
 use crate::features::cat::logic::CatListState;
 use crate::features::enemy::logic::state::EnemyListState;
 use crate::features::settings::logic::{Settings, upd::UpdateMode};
-use std::path::PathBuf;
 
 #[derive(PartialEq, Clone, Copy, serde::Deserialize, serde::Serialize)]
 enum Page {
@@ -41,6 +40,9 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     drag_guard: utils::DragGuard,
     
+    #[serde(skip)]
+    global_watcher: Option<crate::global::io::watcher::GlobalWatcher>,
+    
     cat_list_state: CatListState,
     enemy_list_state: EnemyListState,
     pub settings: Settings,
@@ -57,6 +59,7 @@ impl Default for BattleCatsApp {
             settings: Settings::default(),
             updater: updater::Updater::default(),
             drag_guard: utils::DragGuard::default(),
+            global_watcher: None,
         }
     }
 }
@@ -142,29 +145,22 @@ impl eframe::App for BattleCatsApp {
             ctx.request_repaint();
         }
 
-        let mut reload_queue: Vec<PathBuf> = Vec::new();
-        if let Some(rx) = &self.cat_list_state.watch_receiver {
-            while let Ok(path) = rx.try_recv() {
-                reload_queue.push(path);
-            }
-        }
-
-        for path in reload_queue {
-            self.cat_list_state.handle_event(
-                ctx, 
-                &path, 
-                self.settings.scanner_config()
-            );
-        }
+        self.process_file_events(ctx);
 
         self.cat_list_state.update_data();
         if self.cat_list_state.scan_receiver.is_some() {
+            ctx.request_repaint();
+        }
+        
+        self.enemy_list_state.update_data();
+        if self.enemy_list_state.scan_receiver.is_some() {
             ctx.request_repaint();
         }
 
         let import_finished = self.import_state.update(ctx, &mut self.settings);
         if import_finished {
             self.cat_list_state.restart_scan(self.settings.scanner_config());
+            self.enemy_list_state.restart_scan(self.settings.scanner_config());
             ctx.request_repaint();
         }
 
@@ -191,13 +187,17 @@ impl eframe::App for BattleCatsApp {
                 crate::features::cat::logic::show(ctx, &mut self.cat_list_state, &mut self.settings);
             },
             Page::EnemyData => {
-                crate::features::enemy::logic::state::show(ctx, &mut self.enemy_list_state, &mut self.settings);            },
+                crate::features::enemy::logic::state::show(ctx, &mut self.enemy_list_state, &mut self.settings);            
+            },
             Page::Settings => {
                 let refresh_needed = crate::features::settings::ui::show(ctx, &mut self.settings, &mut self.drag_guard);
                 
                 if refresh_needed {
                     self.cat_list_state.cat_list.clear_cache();
                     self.cat_list_state.restart_scan(self.settings.scanner_config());
+                    
+                    self.enemy_list_state.enemy_list.clear_cache();
+                    self.enemy_list_state.restart_scan(self.settings.scanner_config());
                 }
             }
         }
@@ -255,5 +255,96 @@ impl eframe::App for BattleCatsApp {
                     self.sidebar_open = !self.sidebar_open;
                 }
             });
+    }
+}
+
+impl BattleCatsApp {
+    fn process_file_events(&mut self, ctx: &egui::Context) {
+        if self.global_watcher.is_none() {
+            self.global_watcher = crate::global::io::watcher::GlobalWatcher::new(ctx.clone());
+        }
+
+        let watcher = match &self.global_watcher {
+            Some(w) => w,
+            None => return,
+        };
+
+        while let Ok(path) = watcher.rx.try_recv() {
+            let path_str = path.to_string_lossy().to_lowercase();
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            
+            if path_str.contains("img015") || path_str.contains("img022") {
+                self.cat_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+                self.cat_list_state.img022_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+                self.enemy_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+            }
+
+            if path_str.contains("assets") || path_str.contains("gatyaitem") {
+                self.cat_list_state.gatya_item_textures.clear();
+                self.cat_list_state.sprite_sheet = crate::global::formats::imgcut::SpriteSheet::default(); 
+                self.cat_list_state.texture_cache_version += 1; 
+            }
+
+            let is_cat_global = crate::features::cat::patterns::CAT_UNIVERSAL_FILES.contains(&file_name) 
+                             || crate::global::io::patterns::CHECK_LINE_FILES.contains(&file_name);
+            
+            if is_cat_global {
+                ctx.request_repaint();
+            } else if file_name == crate::features::cat::paths::UNIT_BUY {
+                self.cat_list_state.cached_unit_buy = None;
+                if let Some(id) = self.cat_list_state.selected_cat {
+                    crate::features::cat::logic::loader::refresh_cat(&mut self.cat_list_state, id, self.settings.scanner_config());
+                }
+                ctx.request_repaint();
+            } else if path_str.contains(crate::features::cat::paths::DIR_UNIT_EVOLVE) || path_str.contains("unitevolve") {
+                self.cat_list_state.cached_evolve_text = None; 
+                if self.cat_list_state.selected_cat.is_some() {
+                    crate::features::cat::logic::loader::reload_selected_cat_data(&mut self.cat_list_state, self.settings.scanner_config());
+                }
+                ctx.request_repaint();
+            } else if path_str.contains("cats") {
+                let components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+                if let Some(cats_idx) = components.iter().position(|c| c == "cats") {
+                    if let Some(id_str) = components.get(cats_idx + 1) {
+                        if let Ok(id) = id_str.parse::<u32>() {
+                            
+                            if let Some(anim_seg) = components.get(cats_idx + 3) {
+                                if anim_seg == "anim" && self.cat_list_state.selected_cat == Some(id) {
+                                    let form_char = components.get(cats_idx + 2).map(|s| s.to_string()).unwrap_or_else(|| "f".to_string());
+                                    let marker = format!("_{}_", form_char);
+                                    if self.cat_list_state.anim_viewer.loaded_id.is_empty() || self.cat_list_state.anim_viewer.loaded_id.contains(&marker) {
+                                        self.cat_list_state.anim_viewer.loaded_id.clear();
+                                        self.cat_list_state.anim_viewer.texture_version += 1; 
+                                        ctx.request_repaint();
+                                    }
+                                    continue; 
+                                }
+                            }
+
+                            self.cat_list_state.cat_list.flush_icon(id);
+                            if self.cat_list_state.selected_cat == Some(id) {
+                                self.cat_list_state.detail_texture = None; 
+                                self.cat_list_state.detail_key.clear();
+                                self.cat_list_state.texture_cache_version += 1; 
+                            }
+                            crate::features::cat::logic::loader::refresh_cat(&mut self.cat_list_state, id, self.settings.scanner_config());
+                            ctx.request_repaint();
+                        }
+                    }
+                }
+            }
+
+            if path_str.contains("enemies") {
+                if let Some(parent) = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()) {
+                    if parent.len() == 3 && parent.chars().all(|c| c.is_ascii_digit()) {
+                        if let Ok(id) = parent.parse::<u32>() {
+                            self.enemy_list_state.enemy_list.flush_icon(id);
+                            crate::features::enemy::logic::loader::refresh_enemy(&mut self.enemy_list_state, id, &self.settings.scanner_config());
+                            ctx.request_repaint();
+                        }
+                    }
+                }
+            }
+        }
     }
 }

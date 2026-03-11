@@ -7,10 +7,10 @@ pub fn render(ui: &mut egui::Ui, enemy: &EnemyEntry, magnification: i32) {
     let stats = &enemy.stats;
     let frames = enemy.atk_anim_frames;
 
-    // Fetch formatted strings directly from the centralized registry!
     let atk_str = format_enemy_stat("Attack", stats, frames, magnification);
     let dps_str = format_enemy_stat("Dps", stats, frames, magnification);
     let range_str = format_enemy_stat("Range", stats, frames, magnification);
+    let cycle = (get_enemy_stat("Atk Cycle").get_value)(stats, frames, magnification);
     let atk_type = format_enemy_stat("Atk Type", stats, frames, magnification);
     
     let hp_str = format_enemy_stat("Hitpoints", stats, frames, magnification);
@@ -18,9 +18,6 @@ pub fn render(ui: &mut egui::Ui, enemy: &EnemyEntry, magnification: i32) {
     let speed_str = format_enemy_stat("Speed", stats, frames, magnification);
     let endure_str = format_enemy_stat("Endure", stats, frames, magnification);
     let cash_str = format_enemy_stat("Cash Drop", stats, frames, magnification);
-
-    // Fetch raw values for custom UI elements
-    let cycle = (get_enemy_stat("Atk Cycle").get_value)(stats, frames, magnification);
 
     let cell_w = 60.0;
 

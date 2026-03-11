@@ -1,10 +1,10 @@
-use crate::global::img015;
+use crate::global::game::img015;
 use crate::features::settings::logic::Settings;
 use super::stats::{self, CatRaw};
 use crate::features::cat::data::skillacquisition::TalentRaw;
 use std::collections::HashMap;
 use crate::features::cat::registry::{self, DisplayGroup};
-use crate::global::abilities::{AbilityItem, CustomIcon};
+use crate::global::game::abilities::{AbilityItem, CustomIcon};
 
 pub fn collect_ability_data(
     final_stats: &CatRaw,
@@ -57,9 +57,8 @@ pub fn collect_ability_data(
 
     let target_label = if is_conjure_unit { "Enemies" } else { "Target Traits" };
 
-    // --- NO MORE HARDCODED LOGIC! WE JUST LOOP ---
-    for def in registry::ABILITY_REGISTRY {
-        if def.group == DisplayGroup::Hidden { continue; } // Skip Filter-only entries
+    for def in registry::CAT_ABILITY_REGISTRY {
+        if def.group == DisplayGroup::Hidden { continue; }
         
         if is_conjure_unit {
             if def.group == DisplayGroup::Trait || def.group == DisplayGroup::Headline1 { continue; } 
