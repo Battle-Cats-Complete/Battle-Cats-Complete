@@ -3,7 +3,7 @@ use std::path::Path;
 use eframe::egui;
 use crate::features::settings::logic::state::{GameDataSettings, RuntimeState};
 use crate::features::settings::logic::delete::FolderDeleter;
-use crate::core::utils::DragGuard;
+use crate::global::ui::shared::DragGuard;
 use super::tabs::toggle_ui;
 
 #[derive(Clone, Default)]

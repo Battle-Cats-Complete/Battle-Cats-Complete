@@ -1,6 +1,6 @@
 use eframe::egui;
 use crate::features::settings::logic::Settings;
-use crate::core::utils::DragGuard;
+use crate::global::ui::shared::DragGuard;
 
 pub fn show(ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) -> bool {
     settings.update_language_list();
