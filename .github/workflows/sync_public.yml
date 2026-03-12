@@ -33,12 +33,16 @@ jobs:
           # Sync Files using rsync
           # --delete: Removes files in public_repo that no longer exist in source_repo
           # We exclude .git to avoid corrupting the public repository history
-          # We exclude .github to prevent overwriting public workflows with private ones
+          # We specifically exclude sync_public.yml so it stays private, 
+          # but allow other workflows (like draft_release.yml) to sync over!
           
           rsync -av --delete \
             --exclude '.git' \
-            --exclude '.github' \
+            --exclude '.github/workflows/sync_public.yml' \
             source_repo/ public_repo/
+            
+          # Forcefully remove it from the public repo in case it was already synced previously
+          rm -f public_repo/.github/workflows/sync_public.yml
 
       # 4. Commit to Public with Smart Message Logic
       - name: Commit and Push
