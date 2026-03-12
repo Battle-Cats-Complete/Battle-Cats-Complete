@@ -20,7 +20,7 @@ use crate::features::cat::data::unitbuy::UnitBuyRow;
 use crate::features::cat::data::skillacquisition::TalentRaw;
 use crate::features::settings::logic::state::ScannerConfig;
 use crate::features::settings::logic::Settings;
-use crate::core::utils::DragGuard; 
+use crate::global::ui::shared::DragGuard; 
 
 pub const TOP_PANEL_PADDING: f32 = 2.5;
 pub const SEARCH_FILTER_GAP: f32 = 5.0;

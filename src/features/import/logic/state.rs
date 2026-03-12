@@ -4,7 +4,7 @@ use std::env;
 use eframe::egui;
 use std::path::Path;
 
-use crate::core::addons::adb::bridge::AdbEvent; 
+use crate::features::addons::adb::bridge::AdbEvent; 
 use crate::features::settings::logic::Settings;
 
 #[derive(PartialEq, Clone, Copy, Debug, Deserialize, Serialize)]

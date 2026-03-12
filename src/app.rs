@@ -1,8 +1,8 @@
 use eframe::egui;
 use std::collections::HashSet; 
-use crate::core::utils; 
+use crate::global::ui::shared; 
 use crate::updater;
-use crate::ui::main_menu;
+use crate::features::mainmenu;
 use crate::features::import::logic::ImportState;
 use crate::features::cat::logic::CatListState;
 use crate::features::enemy::logic::state::EnemyListState;
@@ -39,7 +39,7 @@ pub struct BattleCatsApp {
     updater: updater::Updater,
     
     #[serde(skip)]
-    drag_guard: utils::DragGuard,
+    drag_guard: shared::DragGuard,
     
     #[serde(skip)]
     global_watcher: Option<crate::global::io::watcher::GlobalWatcher>,
@@ -59,7 +59,7 @@ impl Default for BattleCatsApp {
             enemy_list_state: EnemyListState::default(),
             settings: Settings::default(),
             updater: updater::Updater::default(),
-            drag_guard: utils::DragGuard::default(),
+            drag_guard: shared::DragGuard::default(),
             global_watcher: None,
         }
     }
@@ -180,7 +180,7 @@ impl eframe::App for BattleCatsApp {
         ctx.set_style(style);
 
         match self.current_page {
-            Page::MainMenu => main_menu::show(ctx, &mut self.drag_guard),
+            Page::MainMenu => mainmenu::show(ctx, &mut self.drag_guard),
             Page::ImportData => {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     crate::features::import::ui::manager::show(ui, &mut self.import_state, &mut self.settings); 

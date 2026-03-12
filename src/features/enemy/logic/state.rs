@@ -11,7 +11,7 @@ use crate::features::enemy::ui::master;
 use crate::global::formats::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
 use crate::global::assets::CustomAssets;
-use crate::core::utils::DragGuard;
+use crate::global::ui::shared::DragGuard;
 use crate::features::enemy::ui::filter::EnemyFilterState; 
 use super::loader;
 
