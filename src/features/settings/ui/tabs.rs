@@ -49,7 +49,7 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragG
                 let result = match current_tab.as_str() {
                     "General" => super::general::show(ui, &mut settings.general, &mut settings.runtime),
                     "Cat Data" => super::cat_data::show(ui, &mut settings.cat_data),
-                    "Game Data" => super::game_data::show(ui, &mut settings.game_data, &mut settings.runtime),
+                    "Game Data" => super::game_data::show(ui, &mut settings.game_data, &mut settings.runtime, drag_guard),
                     "Anim View" => super::anim_view::show(ui, &mut settings.animation),
                     "Add-Ons" => super::addons::show(ui, drag_guard), 
                     _ => {
