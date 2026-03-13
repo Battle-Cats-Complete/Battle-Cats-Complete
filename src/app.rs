@@ -2,7 +2,7 @@ use eframe::egui;
 use std::collections::HashSet; 
 use crate::global::ui::shared; 
 use crate::updater;
-use crate::features::mainmenu;
+use crate::features::home;
 use crate::features::import::logic::ImportState;
 use crate::features::cat::logic::CatListState;
 use crate::features::enemy::logic::state::EnemyListState;
@@ -10,18 +10,28 @@ use crate::features::settings::logic::{Settings, upd::UpdateMode};
 
 #[derive(PartialEq, Clone, Copy, serde::Deserialize, serde::Serialize)]
 enum Page {
-    MainMenu,
-    ImportData,
-    CatData,
-    EnemyData,
+    Home,
+    Cats,
+    Enemies,
+    // Stages,
+    // Mods,
+    // Utility,
+    Data,
+    // Files,
     Settings,
 }
 
 const PAGES: &[(Page, &str)] = &[
-    (Page::MainMenu, "Main Menu"),
-    (Page::CatData, "Cat Data"),
-    (Page::EnemyData, "Enemy Data"),
-    (Page::ImportData, "Game Data"),
+    (Page::Home, "Home"),
+    (Page::Cats, "Cats"),
+    (Page::Enemies, "Enemies"),
+    // (Page::Stages, "Stages"),
+    
+    // (Page::Mods, "Mods"),
+    // (Page::Utility, "Utility"),
+    
+    (Page::Data, "Data"),
+    // (Page::Files, "Files"),
     (Page::Settings, "Settings"),
 ];
 
@@ -52,7 +62,7 @@ pub struct BattleCatsApp {
 impl Default for BattleCatsApp {
     fn default() -> Self {
         Self {
-            current_page: Page::MainMenu,
+            current_page: Page::Home,
             sidebar_open: false,
             import_state: ImportState::default(),
             cat_list_state: CatListState::default(),
@@ -180,18 +190,34 @@ impl eframe::App for BattleCatsApp {
         ctx.set_style(style);
 
         match self.current_page {
-            Page::MainMenu => mainmenu::show(ctx, &mut self.drag_guard),
-            Page::ImportData => {
+            Page::Home => home::show(ctx, &mut self.drag_guard),
+            Page::Cats => {
+                crate::features::cat::logic::show(ctx, &mut self.cat_list_state, &mut self.settings);
+            },
+            Page::Enemies => {
+                crate::features::enemy::logic::state::show(ctx, &mut self.enemy_list_state, &mut self.settings);            
+            },
+            
+            // Page::Stages => {
+            //     crate::features::stages::logic::show(ctx, &mut self.stage_list_state, &mut self.settings);
+            // },
+            // Page::Mods => {
+            //     crate::features::mods::logic::show(ctx, &mut self.mod_state, &mut self.settings);
+            // },
+            // Page::Utility => {
+            //     crate::features::utility::logic::show(ctx, &mut self.utility_state, &mut self.settings);
+            // },
+
+            Page::Data => {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     crate::features::import::ui::manager::show(ui, &mut self.import_state, &mut self.settings); 
                 });
-            }
-            Page::CatData => {
-                crate::features::cat::logic::show(ctx, &mut self.cat_list_state, &mut self.settings);
             },
-            Page::EnemyData => {
-                crate::features::enemy::logic::state::show(ctx, &mut self.enemy_list_state, &mut self.settings);            
-            },
+
+            // Page::Files => {
+            //     crate::features::files::logic::show(ctx, &mut self.files_state, &mut self.settings);
+            // },
+
             Page::Settings => {
                 let refresh_needed = crate::features::settings::ui::show(ctx, &mut self.settings, &mut self.drag_guard);
                 

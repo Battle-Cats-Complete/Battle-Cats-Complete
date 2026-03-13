@@ -975,7 +975,7 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
                 vec![] 
             }
         },
-        formatter: |val, c, target, dur| format!("{}% Chance to weaken {} to {}% Attack Power for {}", val, target, c.weaken_to, fmt_time(dur)),
+        formatter: |val, c, target, dur| format!("{}% Chance to weaken {}\nto {}% Attack Power for {}", val, target, c.weaken_to, fmt_time(dur)),
         apply_func: Some(|c, v1, v2, group| {
             if c.weaken_chance == 0 {
                  c.weaken_chance = v1; c.weaken_duration = v2; c.weaken_to = (100 - group.min_3) as i32; 
