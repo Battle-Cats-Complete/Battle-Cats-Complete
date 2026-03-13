@@ -1,0 +1,60 @@
+{
+  "rules": [
+    {
+      "prefix": "img",
+      "suffix": "015|022",
+      "extension": "png|imgcut",
+      "name_logic": "Only",
+      "languages": {"de":true,"en":true,"es":true,"fr":true,"it":true,"ja":true,"ko":true,"th":true,"tw":true},
+      "lang_logic": "Append"
+    },
+    {
+      "prefix": "SkillDescriptions",
+      "suffix": "",
+      "extension": "csv",
+      "name_logic": "Only",
+      "languages": {"de":true,"en":true,"es":true,"fr":true,"it":true,"ja":true,"ko":true,"th":true,"tw":true},
+      "lang_logic": "Append"
+    },
+    {
+      "prefix": "Skill_name_",
+      "suffix": "",
+      "extension": "png",
+      "name_logic": "Contains",
+      "languages": {"de":true,"en":true,"es":true,"fr":true,"it":true,"ja":true,"ko":true,"th":true,"tw":true},
+      "lang_logic": "Append"
+    },
+    {
+      "prefix": "GatyaitemName",
+      "suffix": "",
+      "extension": "csv",
+      "name_logic": "Only",
+      "languages": {"de":true,"en":true,"es":true,"fr":true,"it":true,"ja":true,"ko":true,"th":true,"tw":true},
+      "lang_logic": "Append"
+    },
+    {
+      "prefix": "Enemyname",
+      "suffix": "",
+      "extension": "tsv",
+      "name_logic": "Only",
+      "languages": {"de":true,"en":true,"es":true,"fr":true,"it":true,"ja":true,"ko":true,"th":true,"tw":true},
+      "lang_logic": "Append"
+    },
+    {
+      "prefix": "(udi|uni)?(435|484)",
+      "suffix": "_c(0[0-3])?",
+      "extension": "png|imgcut|mamodel|maanim",
+      "name_logic": "Only",
+      "languages": {"de":false,"en":true,"es":false,"fr":false,"it":false,"ja":true,"ko":true,"th":false,"tw":true},
+      "lang_logic": "Append"
+    },
+    {
+      "prefix": "001|092",
+      "suffix": "_s",
+      "extension": "png",
+      "name_logic": "Only",
+      "languages": {"de":false,"en":false,"es":false,"fr":false,"it":false,"ja":false,"ko":false,"th":false,"tw":true},
+      "lang_logic": "Append"
+    }
+  ]
+}

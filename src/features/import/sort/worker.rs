@@ -26,13 +26,12 @@ pub fn move_if_bigger(src: &Path, dest: &Path) -> std::io::Result<bool> {
         let src_lines = count_lines(src);
         let dest_lines = count_lines(dest);
 
-        // Files with more defined parts/lines will replace the dummy files
         if src_lines > dest_lines {
             let _ = fs::remove_file(dest);
             fs::rename(src, dest)?;
             Ok(true)
         } else {
-            fs::remove_file(src)?;
+            let _ = fs::remove_file(src)?;
             Ok(false)
         }
     } else {
@@ -65,7 +64,6 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
         return Err("Raw directory not found.".to_string());
     }
 
-    // THE FIX: We are sorting exactly what was just extracted
     let files_to_sort = fs::read_dir(raw_dir).map(|iter| iter.count()).unwrap_or(0);
     
     if files_to_sort == 0 {
@@ -92,23 +90,44 @@ pub fn sort_game_files(tx: Sender<String>) -> Result<(), String> {
             None => continue,
         };
 
+        let mut base_name = name.to_string();
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let ext = path.extension().unwrap_or_default().to_string_lossy().to_string();
+
+        for &(code, _) in global_patterns::APP_LANGUAGES {
+            let suffix = format!("_{}", code);
+            // Verify the stem is long enough and ends exactly with "_xx"
+            if stem.len() > suffix.len() && stem.ends_with(&suffix) {
+                // Ensure the base name is matched without the region tag
+                let clean_stem = &stem[..stem.len() - suffix.len()];
+                base_name = if ext.is_empty() { 
+                    clean_stem.to_string() 
+                } else { 
+                    format!("{}.{}", clean_stem, ext) 
+                };
+                break;
+            }
+        }
+
         let mut processed = false;
-        if cat_patterns::CAT_UNIVERSAL_FILES.contains(&name) {
+        
+        // Match against base_name (clean), Move using name (original)
+        if cat_patterns::CAT_UNIVERSAL_FILES.contains(&base_name.as_str()) {
             let dest = cats_dir.join(name);
-            if global_patterns::CHECK_LINE_FILES.contains(&name) {
+            if global_patterns::CHECK_LINE_FILES.contains(&base_name.as_str()) {
                 if let Ok(moved) = move_if_bigger(&path, &dest) { if moved { processed = true; } }
             } else {
                 if move_fast(&path, &dest).is_ok() { processed = true; }
             }
         } else {
-            let dest_folder = global_matcher.get_dest(name, assets_dir)
-                .or_else(|| cat_matcher.get_dest(name, cats_dir))
-                .or_else(|| enemy_matcher.get_dest(name, enemy_dir));
+            let dest_folder = global_matcher.get_dest(&base_name, assets_dir)
+                .or_else(|| cat_matcher.get_dest(&base_name, cats_dir))
+                .or_else(|| enemy_matcher.get_dest(&base_name, enemy_dir));
 
             if let Some(folder) = dest_folder {
                 if !folder.exists() { let _ = fs::create_dir_all(&folder); }
                 let dest = folder.join(name);
-                if global_patterns::CHECK_LINE_FILES.contains(&name) {
+                if global_patterns::CHECK_LINE_FILES.contains(&base_name.as_str()) {
                     if let Ok(moved) = move_if_bigger(&path, &dest) { if moved { processed = true; } }
                 } else {
                     if move_fast(&path, &dest).is_ok() { processed = true; }

@@ -30,6 +30,7 @@ dependencies = [
  "rfd",
  "self_update",
  "serde",
+ "serde_json",
  "tar",
  "webp-animation",
  "winres",

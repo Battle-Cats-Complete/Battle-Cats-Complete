@@ -6,68 +6,6 @@ use crate::features::settings::logic::delete::FolderDeleter;
 use crate::global::ui::shared::DragGuard;
 use super::tabs::toggle_ui;
 
-const COL_PREFIX_WIDTH: f32 = 120.0;
-const COL_SUFFIX_WIDTH: f32 = 120.0;
-const COL_EXT_WIDTH: f32 = 80.0;
-const COL_LOGIC_WIDTH: f32 = 90.0;
-const COL_LANG_WIDTH: f32 = 100.0;
-const COL_ACTION_WIDTH: f32 = 60.0;
-const WINDOW_MAX_HEIGHT: f32 = 600.0;
-// -----------------------------
-
-
-
-#[derive(Clone, PartialEq, Default)]
-enum NameLogic {
-    #[default]
-    Contains,
-    Only,
-}
-
-#[derive(Clone, PartialEq, Default)]
-enum LangLogic {
-    #[default]
-    Append,
-    Only,
-}
-
-#[derive(Clone)]
-struct ExceptionRule {
-    prefix: String,
-    suffix: String,
-    extension: String,
-    name_logic: NameLogic,
-    languages: std::collections::BTreeMap<String, bool>, 
-    lang_logic: LangLogic,
-}
-
-impl Default for ExceptionRule {
-    fn default() -> Self {
-        let mut languages = std::collections::BTreeMap::new();
-        // Combined GLOBAL_CODES and REGION_CODES (de-duplicated)
-        let all_langs = ["de", "en", "es", "fr", "it", "jp", "kr", "th", "tw"];
-        for lang in all_langs {
-            languages.insert(lang.to_string(), false);
-        }
-        Self {
-            prefix: String::new(),
-            suffix: String::new(),
-            extension: String::new(),
-            name_logic: NameLogic::Contains,
-            languages,
-            lang_logic: LangLogic::Append,
-        }
-    }
-}
-
-#[derive(Clone, Default)]
-struct ManageExceptionsState {
-    is_open: bool,
-    rules: Vec<ExceptionRule>,
-}
-
-// --- EXISTING MODAL LOGIC ---
-
 #[derive(Clone, Default)]
 struct FolderDeleteState {
     is_open: bool,
@@ -175,182 +113,10 @@ fn show_folder_delete_modal(
     yes_clicked
 }
 
-// --- NEW EXCEPTIONS MODAL LOGIC ---
-
-// --- NEW EXCEPTIONS MODAL LOGIC ---
-
-fn show_manage_exceptions_modal(ctx: &egui::Context, drag_guard: &mut DragGuard) {
-    let state_id = egui::Id::new("manage_exceptions_state");
-    let mut state = ctx.data(|d| d.get_temp::<ManageExceptionsState>(state_id)).unwrap_or_else(|| {
-        ManageExceptionsState { 
-            is_open: false, 
-            rules: vec![ExceptionRule::default()] 
-        }
-    });
-
-    let mut is_open = state.is_open;
-
-    if is_open {
-        let window_id = egui::Id::new("manage_exceptions_window");
-        let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
-
-        let mut window = egui::Window::new("Manage Exceptions")
-            .id(window_id)
-            .open(&mut is_open) 
-            .collapsible(false)
-            .resizable(false) // Shrink-wraps to the grid
-            .constrain(false)
-            .movable(allow_drag)
-            .default_pos(ctx.screen_rect().center() - egui::vec2(375.0, 200.0));
-
-        if let Some(pos) = fixed_pos { window = window.current_pos(pos); }
-
-        window.show(ctx, |ui| {
-            ui.add_space(10.0);
-
-            // Centered Toolbar
-            let btn_h = 24.0;
-            let btn_w = 120.0;
-            let default_color = egui::Color32::from_rgb(31, 106, 165);
-
-            ui.vertical_centered(|ui| {
-                ui.horizontal(|ui| {
-                    let spacing = ui.spacing().item_spacing.x;
-                    let total_width = (btn_w * 3.0) + (spacing * 2.0); 
-                    let x_offset = (ui.available_width() - total_width) / 2.0;
-                    ui.add_space(x_offset.max(0.0));
-
-                    let add_btn = egui::Button::new(egui::RichText::new("Add Rule").size(12.0).strong().color(egui::Color32::WHITE))
-                        .fill(default_color)
-                        .rounding(4.0);
-                    if ui.add_sized([btn_w, btn_h], add_btn).clicked() {
-                        state.rules.push(ExceptionRule::default());
-                    }
-
-                    let reset_btn = egui::Button::new(egui::RichText::new("Reset to Default").size(12.0).strong().color(egui::Color32::WHITE))
-                        .fill(default_color)
-                        .rounding(4.0);
-                    if ui.add_sized([btn_w, btn_h], reset_btn).clicked() {
-                        state.rules.clear();
-                        state.rules.push(ExceptionRule::default());
-                    }
-
-                    let export_btn = egui::Button::new(egui::RichText::new("Export List").size(12.0).strong().color(egui::Color32::WHITE))
-                        .fill(default_color)
-                        .rounding(4.0);
-                    if ui.add_sized([btn_w, btn_h], export_btn).clicked() {
-                        // Placeholder for RFD file save dialogue
-                    }
-                });
-            });
-
-            ui.add_space(15.0);
-            ui.separator();
-            ui.add_space(5.0);
-
-            // Table Header & Contents
-            egui::ScrollArea::vertical()
-                .max_height(WINDOW_MAX_HEIGHT)
-                .auto_shrink([true, true]) // Forces the void space at the bottom to collapse
-                .show(ui, |ui| {
-                    egui::Grid::new("exceptions_grid")
-                        .striped(true)
-                        .spacing(egui::vec2(15.0, 10.0))
-                        .show(ui, |ui| {
-                            
-                            // Headers with forced minimum widths so they never truncate
-                            ui.vertical_centered(|ui| { ui.set_min_width(COL_PREFIX_WIDTH); ui.label(egui::RichText::new("Prefix").strong()); });
-                            ui.vertical_centered(|ui| { ui.set_min_width(COL_SUFFIX_WIDTH); ui.label(egui::RichText::new("Suffix").strong()); });
-                            ui.vertical_centered(|ui| { ui.set_min_width(COL_EXT_WIDTH); ui.label(egui::RichText::new("Extension").strong()); });
-                            ui.vertical_centered(|ui| { ui.set_min_width(COL_LOGIC_WIDTH); ui.label(egui::RichText::new("Name Logic").strong()); });
-                            ui.vertical_centered(|ui| { ui.set_min_width(COL_LANG_WIDTH); ui.label(egui::RichText::new("Languages").strong()); });
-                            ui.vertical_centered(|ui| { ui.set_min_width(COL_LOGIC_WIDTH); ui.label(egui::RichText::new("Lang Logic").strong()); });
-                            ui.vertical_centered(|ui| { ui.set_min_width(COL_ACTION_WIDTH); ui.label(egui::RichText::new("Actions").strong()); });
-                            ui.end_row();
-
-                            let mut row_to_delete = None;
-                            
-                            for (i, rule) in state.rules.iter_mut().enumerate() {
-                                // Strings using our new constants
-                                ui.add(egui::TextEdit::singleline(&mut rule.prefix).desired_width(COL_PREFIX_WIDTH));
-                                ui.add(egui::TextEdit::singleline(&mut rule.suffix).desired_width(COL_SUFFIX_WIDTH));
-                                ui.add(egui::TextEdit::singleline(&mut rule.extension).desired_width(COL_EXT_WIDTH));
-
-                                ui.vertical_centered(|ui| {
-                                    egui::ComboBox::from_id_salt(format!("name_logic_{}", i))
-                                        .selected_text(match rule.name_logic {
-                                            NameLogic::Contains => "Contains",
-                                            NameLogic::Only => "Only",
-                                        })
-                                        .width(COL_LOGIC_WIDTH)
-                                        .show_ui(ui, |ui| {
-                                            ui.selectable_value(&mut rule.name_logic, NameLogic::Contains, "Contains");
-                                            ui.selectable_value(&mut rule.name_logic, NameLogic::Only, "Only");
-                                        });
-                                });
-
-                                ui.vertical_centered(|ui| {
-                                    let active_count = rule.languages.values().filter(|&&v| v).count();
-                                    
-                                    ui.menu_button(format!("Manage ({})", active_count), |ui| {
-                                        // Use a grid with a unique ID for this specific row's popup
-                                        egui::Grid::new(format!("lang_popup_grid_{}", i))
-                                            .num_columns(2)
-                                            .spacing(egui::vec2(0.0, 5.0)) // X-spacing locks the gap, Y-spacing breathes
-                                            .show(ui, |ui| {
-                                                for (lang, enabled) in rule.languages.iter_mut() {
-                                                    ui.label(lang.to_uppercase());
-                                                    
-                                                    // The toggle sits cleanly in the second column
-                                                    toggle_ui(ui, enabled); 
-                                                    
-                                                    ui.end_row(); // Move to the next line in the grid
-                                                }
-                                            });
-                                    });
-                                });
-
-                                ui.vertical_centered(|ui| {
-                                    egui::ComboBox::from_id_salt(format!("lang_logic_{}", i))
-                                        .selected_text(match rule.lang_logic {
-                                            LangLogic::Append => "Append",
-                                            LangLogic::Only => "Only",
-                                        })
-                                        .width(COL_LOGIC_WIDTH)
-                                        .show_ui(ui, |ui| {
-                                            ui.selectable_value(&mut rule.lang_logic, LangLogic::Append, "Append");
-                                            ui.selectable_value(&mut rule.lang_logic, LangLogic::Only, "Only");
-                                        });
-                                });
-
-                                ui.vertical_centered(|ui| {
-                                    if ui.button("🗑").on_hover_text("Delete Rule").clicked() {
-                                        row_to_delete = Some(i);
-                                    }
-                                });
-                                
-                                ui.end_row();
-                            }
-
-                            if let Some(idx) = row_to_delete {
-                                state.rules.remove(idx);
-                            }
-                        });
-                });
-        });
-
-        state.is_open = is_open;
-        ctx.data_mut(|d| d.insert_temp(state_id, state));
-    }
-}
-
-// --- MAIN SHOW FUNCTION ---
-
 pub fn show(ui: &mut egui::Ui, settings: &mut GameDataSettings, runtime: &mut RuntimeState, drag_guard: &mut DragGuard) -> bool {
     let mut refresh_needed = false;
     let ctx = ui.ctx().clone();
 
-    // Pull our background deleters from Egui's temporary memory
     let mut game_deleter = ctx.data_mut(|d| d.get_temp::<FolderDeleter>(egui::Id::new("game_deleter")).unwrap_or_default());
     let mut raw_deleter = ctx.data_mut(|d| d.get_temp::<FolderDeleter>(egui::Id::new("raw_deleter")).unwrap_or_default());
 
@@ -372,7 +138,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut GameDataSettings, runtime: &mut Ru
             ui.heading("Disk");
             ui.add_space(5.0);
 
-            // GAME FOLDER BUTTON LOGIC
             if game_deleter.is_deleting() {
                 let btn = egui::Button::new("Deleting \"game\" Folder...")
                     .fill(egui::Color32::from_rgb(200, 180, 50)); 
@@ -396,7 +161,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut GameDataSettings, runtime: &mut Ru
 
             ui.add_space(5.0);
 
-            // RAW FOLDER BUTTON LOGIC
             if raw_deleter.is_deleting() {
                 let btn = egui::Button::new("Deleting \"raw\" Folder...")
                     .fill(egui::Color32::from_rgb(200, 180, 50)); 
@@ -466,21 +230,16 @@ pub fn show(ui: &mut egui::Ui, settings: &mut GameDataSettings, runtime: &mut Ru
                 if toggle_response.changed() { refresh_needed = true; }
             });
 
-            // --- NEW IMPORT SECTION ---
             ui.add_space(20.0);
             ui.heading("Import");
             ui.add_space(5.0);
 
             let import_btn = egui::Button::new("Manage Exceptions")
-                .fill(egui::Color32::from_rgb(40, 90, 160)); // Nice actionable blue
+                .fill(egui::Color32::from_rgb(40, 90, 160));
             
             if ui.add_sized([180.0, 30.0], import_btn).clicked() {
-                let state_id = egui::Id::new("manage_exceptions_state");
-                let mut state = ctx.data(|d| d.get_temp::<ManageExceptionsState>(state_id)).unwrap_or_default();
-                state.is_open = true;
-                ctx.data_mut(|d| d.insert_temp(state_id, state));
+                crate::features::settings::ui::exceptions::open(&ctx);
             }
-            // --------------------------
 
             ui.add_space(20.0);
             ui.heading("Export");
@@ -502,7 +261,6 @@ pub fn show(ui: &mut egui::Ui, settings: &mut GameDataSettings, runtime: &mut Ru
             });
     });
 
-    // Check if the user confirmed deletion in the modals
     if show_folder_delete_modal(&ctx, drag_guard, "delete_game_modal", "Are you sure you want to delete the \"game\" folder?\nMost app function will be lost.") {
         game_deleter.start("game");
     }
@@ -511,10 +269,8 @@ pub fn show(ui: &mut egui::Ui, settings: &mut GameDataSettings, runtime: &mut Ru
         raw_deleter.start("game/raw");
     }
 
-    // Call our new exception modal
-    show_manage_exceptions_modal(&ctx, drag_guard);
+    crate::features::settings::ui::exceptions::show(&ctx, drag_guard);
 
-    // Save the thread trackers back into memory for the next frame
     ctx.data_mut(|d| {
         d.insert_temp(egui::Id::new("game_deleter"), game_deleter);
         d.insert_temp(egui::Id::new("raw_deleter"), raw_deleter);

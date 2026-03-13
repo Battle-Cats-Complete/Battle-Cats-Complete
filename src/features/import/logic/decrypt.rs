@@ -7,9 +7,11 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use rayon::prelude::*;
 use zip::ZipArchive;
+use regex::Regex;
 
 use crate::features::import::logic::keys; 
 use crate::global::io::patterns;
+use crate::features::settings::logic::exceptions::{ExceptionList, ExceptionRule, NameLogic, LangLogic, get_config_path};
 
 #[derive(Clone)]
 struct PackEntry {
@@ -57,6 +59,32 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
     let _ = tx.send("Sorting patch history chronologically...".to_string());
     list_paths.sort_by_key(|p| calculate_order(p, &dynamic_temp_dirs));
 
+    // Compile Regex Rules
+    let exceptions = ExceptionList::load_or_default(&get_config_path());
+    let mut compiled_rules: Vec<(Regex, ExceptionRule)> = Vec::new();
+    
+    let lang_codes: Vec<&str> = patterns::APP_LANGUAGES.iter().map(|&(code, _)| code).collect();
+    let lang_group = format!(r"(?:_(?:{}))?", lang_codes.join("|")); 
+    
+    for rule in exceptions.rules {
+        if rule.prefix.is_empty() && rule.suffix.is_empty() && rule.extension.is_empty() {
+        continue;
+    }
+    let p = if rule.prefix.is_empty() { String::new() } else { format!("(?:{})", rule.prefix) };
+        let s = if rule.suffix.is_empty() { String::new() } else { format!("(?:{})", rule.suffix) };
+        let e = if rule.extension.is_empty() { String::new() } else { format!(r"\.(?:{})", rule.extension) };
+        
+        let pattern = if rule.name_logic == NameLogic::Only {
+            format!(r"^{}{}{}{}$", p, s, lang_group, e)
+        } else {
+            format!(r"{}{}{}{}", p, s, lang_group, e)
+        };
+        
+        if let Ok(re) = Regex::new(&pattern) {
+            compiled_rules.push((re, rule));
+        }
+    }
+
     let mut master_map: HashMap<String, PackEntry> = HashMap::new();
     
     for list_path in list_paths {
@@ -76,28 +104,48 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
                     let offset: u64 = parts[1].parse().unwrap_or(0);
                     let size: usize = parts[2].parse().unwrap_or(0);
 
-                    let is_lang_sensitive = patterns::LANGUAGE_SENSITIVE_FILES.iter()
-                        .any(|&x| asset_name.ends_with(x) || asset_name.starts_with(x));
+                    let mut matched_rule: Option<&ExceptionRule> = None;
+                    for (re, rule) in &compiled_rules {
+                        if re.is_match(asset_name) {
+                            matched_rule = Some(rule);
+                            break;
+                        }
+                    }
 
                     let mut final_filename = asset_name.to_string();
-                    if is_lang_sensitive {
+
+                    if let Some(rule) = matched_rule {
                         let path_obj = Path::new(asset_name);
                         let stem = path_obj.file_stem().unwrap().to_string_lossy();
-                        let ext = path_obj.extension().unwrap().to_string_lossy();
+                        let ext = path_obj.extension().unwrap_or_default().to_string_lossy();
                         
                         let mut clean_stem = stem.to_string();
-                        for code in ["en", "ja", "tw", "kr", "th", "it", "fr", "de", "es"] {
+                        for &(code, _) in patterns::APP_LANGUAGES {
                             let suffix = format!("_{}", code);
                             if clean_stem.ends_with(&suffix) {
                                 clean_stem = clean_stem.trim_end_matches(&suffix).to_string();
                                 break;
                             }
                         }
-
-                        if current_code.is_empty() {
-                            final_filename = format!("{}.{}", clean_stem, ext);
+                        
+                        let check_code = current_code.as_str();
+                        
+                        let is_enabled = if check_code.is_empty() {
+                            false
                         } else {
-                            final_filename = format!("{}_{}.{}", clean_stem, current_code, ext);
+                            rule.languages.get(check_code).copied().unwrap_or(false)
+                        };
+                        
+                        if rule.lang_logic == LangLogic::Only && !is_enabled {
+                            continue;
+                        }
+                        
+                        if is_enabled && !check_code.is_empty() {
+                            final_filename = format!("{}_{}", clean_stem, check_code);
+                            if !ext.is_empty() { final_filename = format!("{}.{}", final_filename, ext); }
+                        } else {
+                            final_filename = clean_stem;
+                            if !ext.is_empty() { final_filename = format!("{}.{}", final_filename, ext); }
                         }
                     }
 
@@ -112,13 +160,10 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
         }
     }
 
-    // --- NEW PRE-SCAN LOGIC ---
-    // We filter the map to find exactly what needs to be written to disk.
     let size_tolerance = 128;
     let filtered_tasks: Vec<(String, PackEntry)> = master_map.into_iter().filter(|(final_name, entry)| {
         let name_lower = final_name.to_lowercase();
         
-        // Check index
         if let Some(existing_paths) = shared_index.get(&name_lower) {
             for path in existing_paths {
                 if let Ok(meta) = fs::metadata(path) {
@@ -129,7 +174,6 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
             }
         }
         
-        // Check raw_dir
         let target_path = raw_dir.join(final_name);
         if target_path.exists() {
             if let Ok(meta) = fs::metadata(&target_path) {
@@ -144,7 +188,6 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
     let to_extract_count = filtered_tasks.len();
     if to_extract_count == 0 {
         let _ = tx.send("Workspace is already up to date. No new files to extract.".to_string());
-        // Clean up and return early
         for dir in &dynamic_temp_dirs { let _ = fs::remove_dir_all(dir); }
         return Ok(());
     }
@@ -154,7 +197,6 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
     let update_interval = (to_extract_count / 100).max(10) as i32;
     let count = AtomicI32::new(0);
 
-    // Group tasks by pack file to minimize disk IO overhead
     let mut pack_tasks: HashMap<PathBuf, Vec<(String, PackEntry)>> = HashMap::new();
     for (final_name, entry) in filtered_tasks {
         pack_tasks.entry(entry.pack_path.clone()).or_default().push((final_name, entry));
@@ -199,8 +241,8 @@ pub fn run(folder_path: &str, region_code: &str, tx: Sender<String>) -> Result<(
 
 fn determine_code(filename: &str, selected_region: &str) -> String {
     if selected_region != "en" { return selected_region.to_string(); }
-    for code in patterns::GLOBAL_CODES {
-        if *code == "en" { continue; } 
+    for &(code, _) in patterns::APP_LANGUAGES {
+        if code == "en" { continue; } 
         if filename.contains(&format!("_{}", code)) { return code.to_string(); }
     }
     "en".to_string()
