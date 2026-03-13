@@ -810,7 +810,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
                 vec![] 
             }
         },
-        formatter: |val, e, _, _| format!("{}% Chance to deal {}% of a Cat's Max HP in additional damage", val, e.toxic_damage),
+        formatter: |val, e, _, _| format!("{}% Chance to deal {}% of a\nCat's Max HP in additional damage", val, e.toxic_damage),
         minus_one_is_inf: false,
     },
     EnemyAbilityDef {
@@ -858,7 +858,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
                 vec![] 
             }
         },
-        formatter: |val, e, dur, _| format!("{}% Chance to weaken Cats to {}% Attack Power for {}", val, e.weaken_percent, fmt_time(dur)),
+        formatter: |val, e, dur, _| format!("{}% Chance to weaken Cats\nto {}% Attack Power for {}", val, e.weaken_percent, fmt_time(dur)),
         minus_one_is_inf: false,
     },
     EnemyAbilityDef {
