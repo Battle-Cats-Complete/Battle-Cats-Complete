@@ -30,13 +30,14 @@ pub const CHECK_LINE_FILES: &[&str] = &[
 
 // Files that have regional variants but no
 // Country Codes within their source
-pub const LANGUAGE_SENSITIVE_FILES: &[&str] = &[
-    "img015.imgcut", 
-    "img015.png",
-    "img022.imgcut",
-    "img022.png",
-    "SkillDescriptions.csv",
-    "Skill_name_",
-    "GatyaitemName.csv",
-    "Enemyname.tsv"
+pub const APP_LANGUAGES: &[(&str, &str)] = &[
+    ("en", "English"),
+    ("ja", "Japanese"), 
+    ("tw", "Taiwanese"),
+    ("ko", "Korean"),   
+    ("es", "Spanish"),
+    ("de", "German"),
+    ("fr", "French"),
+    ("it", "Italian"),
+    ("th", "Thai"),
 ];
