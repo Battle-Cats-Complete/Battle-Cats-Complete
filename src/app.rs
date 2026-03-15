@@ -1,5 +1,6 @@
 use eframe::egui;
-use std::collections::HashSet; 
+use std::collections::HashSet;
+use std::path::Path;
 use crate::global::ui::shared; 
 use crate::updater;
 use crate::features::home;
@@ -83,18 +84,16 @@ impl BattleCatsApp {
             Default::default()
         };
 
+        crate::features::settings::logic::lang::ensure_complete_list(&mut app.settings.general.language_priority);
+
         setup_custom_fonts(&cc.egui_ctx);
         
-        if app.settings.runtime.rx_lang.is_none() {
-            app.settings.runtime.rx_lang = Some(crate::features::settings::logic::lang::start_scan());
-        }
-
         app.cat_list_state.restart_scan(app.settings.scanner_config());
         app.enemy_list_state.restart_scan(app.settings.scanner_config());
         updater::cleanup_temp_files();
 
         if app.settings.general.update_mode != UpdateMode::Ignore {
-            app.updater.check_for_updates();
+            app.updater.check_for_updates(cc.egui_ctx.clone(), false);
         }
 
         app
@@ -110,12 +109,14 @@ fn setup_custom_fonts(ctx: &egui::Context) {
 
     let families = [egui::FontFamily::Proportional, egui::FontFamily::Monospace];
     for family in families {
-        if let Some(list) = fonts.families.get_mut(&family) {
-            list.push("jp_font".to_owned());
-            list.push("kr_font".to_owned());
-            list.push("tc_font".to_owned());
-            list.push("thai_font".to_owned());
-        }
+        let list = match fonts.families.get_mut(&family) {
+            Some(l) => l,
+            None => continue,
+        };
+        list.push("jp_font".to_owned());
+        list.push("kr_font".to_owned());
+        list.push("tc_font".to_owned());
+        list.push("thai_font".to_owned());
     }
     ctx.set_fonts(fonts);
 }
@@ -126,16 +127,23 @@ impl eframe::App for BattleCatsApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.settings.runtime.rx_lang.is_some() {
-            self.settings.update_language_list();
-            ctx.request_repaint(); 
-        }
 
-        self.updater.update_state();
+        self.updater.update_state(ctx);
+        
+        let status_str = match self.updater.status {
+            updater::UpdateStatus::Checking => "Checking",
+            updater::UpdateStatus::UpToDate => "UpToDate",
+            updater::UpdateStatus::UpdateFound(..) => "UpdateFound",
+            updater::UpdateStatus::CheckFailed => "CheckFailed",
+            updater::UpdateStatus::Downloading(_) => "Downloading",
+            updater::UpdateStatus::RestartPending(_) => "RestartPending",
+            updater::UpdateStatus::Idle => "Idle",
+        };
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("updater_status"), status_str));
 
         if self.settings.runtime.manual_check_requested {
             self.settings.runtime.manual_check_requested = false;
-            self.updater.check_for_updates();
+            self.updater.check_for_updates(ctx.clone(), true);
         }
 
         self.updater.show_ui(ctx, &mut self.settings, &mut self.drag_guard);
@@ -165,12 +173,11 @@ impl eframe::App for BattleCatsApp {
             ctx.request_repaint();
         }
         
-        self.enemy_list_state.update_data();
         if self.enemy_list_state.scan_receiver.is_some() {
             ctx.request_repaint();
         }
 
-        let import_finished = self.import_state.update(ctx, &mut self.settings);
+        let import_finished = self.import_state.update(ctx);
         if import_finished {
             self.cat_list_state.restart_scan(self.settings.scanner_config());
             self.enemy_list_state.restart_scan(self.settings.scanner_config());
@@ -222,11 +229,42 @@ impl eframe::App for BattleCatsApp {
                 let refresh_needed = crate::features::settings::ui::show(ctx, &mut self.settings, &mut self.drag_guard);
                 
                 if refresh_needed {
+                    self.cat_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+                    self.cat_list_state.img022_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+                    self.cat_list_state.sprite_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+                    self.cat_list_state.gatya_item_textures.clear();
+                    
+                    self.cat_list_state.detail_texture = None;
+                    self.cat_list_state.detail_key.clear();
+                    self.cat_list_state.texture_cache_version += 1;
+                    
+                    self.enemy_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+                    self.enemy_list_state.detail_texture = None;
+                    self.enemy_list_state.detail_key.clear();
+
+                    let viewers = [
+                        &mut self.cat_list_state.anim_viewer,
+                        &mut self.enemy_list_state.anim_viewer,
+                    ];
+
+                    for viewer in viewers {
+                        viewer.loaded_id.clear();
+                        viewer.held_model = None;
+                        viewer.held_sheet = None;
+                        viewer.current_anim = None;
+                        viewer.staging_model = None;
+                        viewer.staging_sheet = None;
+                        viewer.current_frame = 0.0;
+                        viewer.texture_version += 1;
+                    }
+
+                    let config = self.settings.scanner_config();
+
                     self.cat_list_state.cat_list.clear_cache();
-                    self.cat_list_state.restart_scan(self.settings.scanner_config());
+                    self.cat_list_state.restart_scan(config.clone());
                     
                     self.enemy_list_state.enemy_list.clear_cache();
-                    self.enemy_list_state.restart_scan(self.settings.scanner_config());
+                    self.enemy_list_state.restart_scan(config);
                 }
             }
         }
@@ -260,12 +298,16 @@ impl eframe::App for BattleCatsApp {
                                     };
 
                                     let btn = egui::Button::new(btn_text).fill(bg_color).min_size(egui::vec2(0.0, 45.0));
-                                    if ui.add_sized([ui.available_width(), 45.0], btn).clicked() {
-                                        if self.current_page != *page_enum {
-                                            self.current_page = *page_enum;
-                                            self.settings.runtime.show_ip_field = false;
-                                        }
+                                    if !ui.add_sized([ui.available_width(), 45.0], btn).clicked() {
+                                        continue;
                                     }
+                                    
+                                    if self.current_page == *page_enum {
+                                        continue;
+                                    }
+                                    
+                                    self.current_page = *page_enum;
+                                    self.settings.runtime.show_ip_field = false;
                                 }
                             });
                         });
@@ -332,10 +374,10 @@ impl BattleCatsApp {
                 self.cat_list_state.texture_cache_version += 1; 
             }
 
-            let is_cat_global = crate::features::cat::patterns::CAT_UNIVERSAL_FILES.contains(&file_name) 
+            let is_cat_global_file = crate::features::cat::patterns::CAT_UNIVERSAL_FILES.contains(&file_name) 
                              || crate::global::io::patterns::CHECK_LINE_FILES.contains(&file_name);
             
-            if is_cat_global {
+            if is_cat_global_file {
                 global_cat_refresh = true;
             } else if file_name == crate::features::cat::paths::UNIT_BUY {
                 self.cat_list_state.cached_unit_buy = None;
@@ -343,42 +385,18 @@ impl BattleCatsApp {
             } else if path_str.contains(crate::features::cat::paths::DIR_UNIT_EVOLVE) || path_str.contains("unitevolve") {
                 self.cat_list_state.cached_evolve_text = None; 
                 global_cat_refresh = true;
-            } else if path_str.contains("cats") {
-                let components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
-                if let Some(cats_idx) = components.iter().position(|c| c == "cats") {
-                    if let Some(id_str) = components.get(cats_idx + 1) {
-                        if let Ok(id) = id_str.parse::<u32>() {
-                            
-                            if let Some(anim_seg) = components.get(cats_idx + 3) {
-                                if anim_seg == "anim" && self.cat_list_state.selected_cat == Some(id) {
-                                    let form_char = components.get(cats_idx + 2).map(|s| s.to_string()).unwrap_or_else(|| "f".to_string());
-                                    let marker = format!("_{}_", form_char);
-                                    if self.cat_list_state.anim_viewer.loaded_id.is_empty() || self.cat_list_state.anim_viewer.loaded_id.contains(&marker) {
-                                        self.cat_list_state.anim_viewer.loaded_id.clear();
-                                        self.cat_list_state.anim_viewer.texture_version += 1; 
-                                    }
-                                    continue; 
-                                }
-                            }
-                            cat_ids_to_refresh.insert(id);
-                        }
-                    }
-                }
+            } else if path_str.contains("cats") && self.process_cat_path(&path, &mut cat_ids_to_refresh) {
+                global_cat_refresh = true;
             }
 
-            let is_enemy_global = file_name.contains("t_unit") || file_name.contains("enemyname") || file_name.contains("enemypicturebook");
-            if is_enemy_global {
+            let is_enemy_global_file = file_name.contains("t_unit") || file_name.contains("enemyname") || file_name.contains("enemypicturebook");
+            if is_enemy_global_file {
                 global_enemy_refresh = true;
             }
 
-            if path_str.contains("enemies") {
-                if let Some(parent) = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()) {
-                    if parent.len() == 3 && parent.chars().all(|c| c.is_ascii_digit()) {
-                        if let Ok(id) = parent.parse::<u32>() {
-                            enemy_ids_to_refresh.insert(id);
-                        }
-                    }
-                }
+            let is_in_enemies_dir = path_str.contains("enemies");
+            if is_in_enemies_dir && Self::process_enemy_path(&path, &mut enemy_ids_to_refresh) {
+                global_enemy_refresh = true;
             }
         }
 
@@ -388,6 +406,7 @@ impl BattleCatsApp {
             self.cat_list_state.detail_texture = None;
             self.cat_list_state.detail_key.clear();
             self.cat_list_state.texture_cache_version += 1;
+            self.cat_list_state.anim_viewer.loaded_id.clear();
             crate::features::cat::logic::loader::resync_scan(&mut self.cat_list_state, self.settings.scanner_config());
         } else {
             for id in cat_ids_to_refresh {
@@ -417,5 +436,69 @@ impl BattleCatsApp {
         }
 
         ctx.request_repaint();
+    }
+
+    fn process_cat_path(&mut self, path: &Path, cat_ids_to_refresh: &mut HashSet<u32>) -> bool {
+        let components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+        
+        let cats_idx = match components.iter().position(|c| c == "cats") {
+            Some(idx) => idx,
+            None => return false,
+        };
+        
+        let folder_name = match components.get(cats_idx + 1) {
+            Some(s) => s,
+            None => return false,
+        };
+
+        let parsed_id = if let Ok(id) = folder_name.parse::<u32>() {
+            Some(id)
+        } else if folder_name.starts_with("egg_") {
+            folder_name[4..].parse::<u32>().ok()
+        } else {
+            None
+        };
+
+        let id = match parsed_id {
+            Some(i) => i,
+            None => return true,
+        };
+
+        let is_anim = components.get(cats_idx + 3).map(|s| s.as_ref()) == Some("anim");
+        if is_anim && self.cat_list_state.selected_cat == Some(id) {
+            let form_char = components.get(cats_idx + 2).map(|s| s.to_string()).unwrap_or_else(|| "f".to_string());
+            let marker = format!("_{}_", form_char);
+            
+            let loaded = &mut self.cat_list_state.anim_viewer.loaded_id;
+            if loaded.is_empty() || loaded.contains(&marker) {
+                loaded.clear();
+                self.cat_list_state.anim_viewer.texture_version += 1; 
+            }
+            return false;
+        }
+        
+        cat_ids_to_refresh.insert(id);
+        false
+    }
+    
+    fn process_enemy_path(path: &Path, enemy_ids_to_refresh: &mut HashSet<u32>) -> bool {
+        let components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+        
+        let enemies_idx = match components.iter().position(|c| c == "enemies") {
+            Some(idx) => idx,
+            None => return false,
+        };
+        
+        let folder_name = match components.get(enemies_idx + 1) {
+            Some(s) => s,
+            None => return false,
+        };
+        
+        if let Ok(id) = folder_name.parse::<u32>() {
+            enemy_ids_to_refresh.insert(id);
+            return false;
+        }
+        
+        true
     }
 }

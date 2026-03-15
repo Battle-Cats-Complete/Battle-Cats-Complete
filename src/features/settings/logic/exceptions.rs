@@ -4,6 +4,27 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use directories::ProjectDirs;
 
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
+pub enum RuleHandling {
+    Include,
+    Only,
+    Ignore,
+}
+
+impl RuleHandling {
+    pub fn all() -> [Self; 3] {
+        [Self::Include, Self::Only, Self::Ignore]
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::Include => "Include".to_string(),
+            Self::Only => "Only".to_string(),
+            Self::Ignore => "Ignore".to_string(),
+        }
+    }
+}
+
 pub fn get_config_path() -> PathBuf {
     if let Some(proj_dirs) = ProjectDirs::from("", "", "battle_cats_complete") {
         let data_dir = proj_dirs.data_dir();
@@ -17,33 +38,11 @@ pub fn get_config_path() -> PathBuf {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub enum NameLogic {
-    Contains,
-    Only,
-}
-
-impl Default for NameLogic {
-    fn default() -> Self { Self::Contains }
-}
-
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub enum LangLogic {
-    Append,
-    Only,
-}
-
-impl Default for LangLogic {
-    fn default() -> Self { Self::Append }
-}
-
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExceptionRule {
-    pub prefix: String,
-    pub suffix: String,
+    pub pattern: String,
     pub extension: String,
-    pub name_logic: NameLogic,
+    pub handling: RuleHandling,
     pub languages: BTreeMap<String, bool>,
-    pub lang_logic: LangLogic,
 }
 
 impl Default for ExceptionRule {
@@ -53,12 +52,10 @@ impl Default for ExceptionRule {
             languages.insert(lang.to_string(), false);
         }
         Self {
-            prefix: String::new(),
-            suffix: String::new(),
+            pattern: String::new(),
             extension: String::new(),
-            name_logic: NameLogic::Contains,
+            handling: RuleHandling::Include,
             languages,
-            lang_logic: LangLogic::Append,
         }
     }
 }

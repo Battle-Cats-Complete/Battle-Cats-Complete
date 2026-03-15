@@ -5,7 +5,7 @@ pub const ASSET_IMG015_PATTERN: &str = r"^img015(?:_([a-z]{2}))?\.png$";
 pub const ASSET_015CUT_PATTERN: &str = r"^img015(?:_([a-z]{2}))?\.imgcut$";
 pub const ASSET_IMG022_PATTERN: &str = r"^img022(?:_([a-z]{2}))?\.png$";
 pub const ASSET_022CUT_PATTERN: &str = r"^img022(?:_([a-z]{2}))?\.imgcut$";
-pub const SKILL_NAME_PATTERN: &str = r"^Skill_name_(\d+)_([a-z]{2})\.png$";
+pub const SKILL_NAME_PATTERN: &str = r"^Skill_name_\d{3}\.png$";
 
 // Gatya Items
 pub const GATYA_ITEM_D_PATTERN: &str = r"^gatyaitemD_(\d{2,3})_([fz])\.png$"; 

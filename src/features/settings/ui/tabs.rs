@@ -3,8 +3,6 @@ use crate::features::settings::logic::Settings;
 use crate::global::ui::shared::DragGuard;
 
 pub fn show(ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) -> bool {
-    settings.update_language_list();
-
     let mut refresh_needed = false;
     let tabs = ["General", "Cats", "Data", "Animation", "Add-Ons"];
 

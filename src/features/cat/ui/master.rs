@@ -63,14 +63,6 @@ pub fn show(
         ExportAction::Copy | ExportAction::Save => {
             if let (Some(final_s), Some(base_s)) = (final_stats_owned.as_ref(), base_stats) {
                 
-                let icon_path = crate::features::cat::paths::image(
-                    std::path::Path::new(crate::features::cat::paths::DIR_CATS),
-                    crate::features::cat::paths::AssetType::Icon,
-                    cat_entry.id,
-                    *current_form,
-                    cat_entry.egg_ids
-                );
-
                 let expand_id = egui::Id::new(format!("conjure_expand_{}", cat_entry.id));
                 let is_conjure_expanded = ctx.data(|d| d.get_temp::<bool>(expand_id).unwrap_or(settings.cat_data.expand_spirit_details));
 
@@ -111,7 +103,7 @@ pub fn show(
                     is_cat: true,
                     id_str: cat_entry.id_str(*current_form),
                     name: cat_entry.display_name(*current_form),
-                    icon_path,
+                    icon_path: cat_entry.deploy_icon_paths[*current_form].clone(),
                     top_label: "Level:".to_string(),
                     top_value: level_input.clone(),
                     
@@ -138,7 +130,7 @@ pub fn show(
                     traits, h1, h2, b1, b2, footer, spirit_data,
                 };
 
-                let lang_clone = settings.general.game_language.clone();
+                let lang_clone = settings.general.language_priority.first().cloned().unwrap_or_default();
                 let cuts_clone = icon_sheet.cuts_map.clone(); 
 
                 if export_action == ExportAction::Copy {
