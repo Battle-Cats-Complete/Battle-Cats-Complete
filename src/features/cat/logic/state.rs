@@ -157,7 +157,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
 
     let path = std::path::Path::new("game/cats");
     if state.skill_descriptions.is_none() {
-        state.skill_descriptions = Some(skilldescriptions::load(path, &settings.general.game_language));
+        state.skill_descriptions = Some(skilldescriptions::load(path, &settings.general.language_priority));
     }
     if state.cached_talent_costs.is_none() {
         state.cached_talent_costs = Some(skilllevel::load(path));

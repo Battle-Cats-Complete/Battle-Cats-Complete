@@ -12,7 +12,7 @@ use crate::features::cat::data::unitevolve;
 use crate::features::cat::paths;
 use crate::features::settings::logic::state::ScannerConfig;
 
-pub fn ensure_global_data_loaded(state: &mut CatListState, language_code: &str) {
+pub fn ensure_global_data_loaded(state: &mut CatListState, priority: &[String]) {
     let cats_dir = Path::new(paths::DIR_CATS);
 
     if state.cached_level_curves.is_none() {
@@ -25,12 +25,12 @@ pub fn ensure_global_data_loaded(state: &mut CatListState, language_code: &str) 
         state.cached_talents = Some(skillacquisition::load(cats_dir));
     }
     if state.cached_evolve_text.is_none() {
-        state.cached_evolve_text = Some(unitevolve::load(cats_dir, language_code));
+        state.cached_evolve_text = Some(unitevolve::load(cats_dir, priority));
     }
 }
 
 pub fn refresh_cat(state: &mut CatListState, id: u32, config: ScannerConfig) {
-    ensure_global_data_loaded(state, &config.language);
+    ensure_global_data_loaded(state, &config.language_priority);
 
     let cats_dir = Path::new(paths::DIR_CATS);
     let unit_folder = cats_dir.join(format!("{:03}", id));

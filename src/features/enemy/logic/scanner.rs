@@ -36,43 +36,55 @@ fn is_placeholder_png(path: &Path) -> bool {
     if file.read_exact(&mut buffer).is_err() { return true; }
     const PNG_SIG: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
     if buffer[0..8] != PNG_SIG { return true; }
-    buffer[24] < 8
+    buffer[24] < 4
 }
 
 pub fn start_scan(config: ScannerConfig) -> Receiver<EnemyEntry> {
     let (tx, rx) = mpsc::channel();
-
     std::thread::spawn(move || {
         let root = Path::new(paths::DIR_ENEMIES);
         let t_unit_path = paths::stats(root);
-        let raw_enemies = match t_unit::load_all(&t_unit_path) {
-            Some(e) => e,
-            None => return,
-        };
+        let Some(raw_enemies) = t_unit::load_all(&t_unit_path) else { return; };
 
-        let lang_code = &config.language;
-        let names = enemyname::load(root, lang_code);
-        let descriptions = enemypicturebook::load(root, lang_code);
+        let priority = &config.language_priority;
+        let names = enemyname::load(root, priority);
+        let descriptions = enemypicturebook::load(root, priority);
 
         raw_enemies.into_par_iter().enumerate().for_each(|(id, stats)| {
             let id_u32 = id as u32;
-            let icon_p = paths::icon(root, id_u32);
             
-            if !icon_p.exists() || is_placeholder_png(&icon_p) { return; }
-
-            let atk_maanim_path = paths::maanim(root, id_u32, 2);
-            let mut atk_anim_frames = 0;
-            if let Ok(file_content) = fs::read_to_string(&atk_maanim_path) {
-                let duration = Animation::scan_duration(&file_content);
-                atk_anim_frames = if duration > 0 { duration + 1 } else { 0 };
+            let icon_p = paths::icon(root, id_u32);
+            let mut resolved_icon = None;
+            
+            if let (Some(parent), Some(name)) = (icon_p.parent(), icon_p.file_name().and_then(|n| n.to_str())) {
+                resolved_icon = crate::global::get(parent, name, priority).into_iter().next();
             }
 
-            let name = names.get(id).cloned().unwrap_or_default();
-            let description = descriptions.get(id).cloned().unwrap_or_default();
+            if let Some(ref p) = resolved_icon {
+                if is_placeholder_png(p) && !config.show_invalid {
+                    resolved_icon = None;
+                }
+            }
+
+            let mut atk_anim_frames = 0;
+            let atk_p = paths::maanim(root, id_u32, 2);
+            
+            if let (Some(parent), Some(name)) = (atk_p.parent(), atk_p.file_name().and_then(|n| n.to_str())) {
+                if let Some(resolved_atk) = crate::global::get(parent, name, priority).into_iter().next() {
+                    if let Ok(content) = fs::read_to_string(&resolved_atk) {
+                        let duration = Animation::scan_duration(&content);
+                        atk_anim_frames = if duration > 0 { duration + 1 } else { 0 };
+                    }
+                }
+            }
 
             let _ = tx.send(EnemyEntry {
-                id: id_u32, name, description, stats,
-                icon_path: Some(icon_p), atk_anim_frames,
+                id: id_u32, 
+                name: names.get(id).cloned().unwrap_or_default(),
+                description: descriptions.get(id).cloned().unwrap_or_default(),
+                stats, 
+                icon_path: resolved_icon, 
+                atk_anim_frames,
             });
         });
     });
@@ -81,21 +93,30 @@ pub fn start_scan(config: ScannerConfig) -> Receiver<EnemyEntry> {
 
 pub fn scan_single(id: u32, config: &ScannerConfig) -> Option<EnemyEntry> {
     let root = Path::new(paths::DIR_ENEMIES);
+    let priority = &config.language_priority;
     let t_unit_path = paths::stats(root);
     let raw_enemies = t_unit::load_all(&t_unit_path)?;
     let stats = raw_enemies.get(id as usize)?.clone();
 
-    let lang_code = &config.language;
-    let name = enemyname::load(root, lang_code).get(id as usize).cloned().unwrap_or_default();
-    let description = enemypicturebook::load(root, lang_code).get(id as usize).cloned().unwrap_or_default();
+    let name = enemyname::load(root, priority).get(id as usize).cloned().unwrap_or_default();
+    let description = enemypicturebook::load(root, priority).get(id as usize).cloned().unwrap_or_default();
+    
     let icon_p = paths::icon(root, id);
-
-    let atk_maanim_path = paths::maanim(root, id, 2);
-    let mut atk_anim_frames = 0;
-    if let Ok(file_content) = fs::read_to_string(&atk_maanim_path) {
-        let duration = Animation::scan_duration(&file_content);
-        atk_anim_frames = if duration > 0 { duration + 1 } else { 0 };
+    let mut resolved_icon = None;
+    if let (Some(parent), Some(name)) = (icon_p.parent(), icon_p.file_name().and_then(|n| n.to_str())) {
+        resolved_icon = crate::global::get(parent, name, priority).into_iter().next();
     }
 
-    Some(EnemyEntry { id, name, description, stats, icon_path: Some(icon_p), atk_anim_frames })
+    let mut atk_anim_frames = 0;
+    let atk_p = paths::maanim(root, id, 2);
+    let resolved_atk = crate::global::get(atk_p.parent().unwrap(), atk_p.file_name().unwrap().to_str().unwrap(), priority).into_iter().next();
+    
+    if let Some(p) = resolved_atk {
+        if let Ok(content) = fs::read_to_string(&p) {
+            let duration = Animation::scan_duration(&content);
+            atk_anim_frames = if duration > 0 { duration + 1 } else { 0 };
+        }
+    }
+
+    Some(EnemyEntry { id, name, description, stats, icon_path: resolved_icon, atk_anim_frames })
 }
