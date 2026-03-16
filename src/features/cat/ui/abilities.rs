@@ -203,7 +203,7 @@ fn render_conjure_details(
             ui.spacing_mut().item_spacing.y = 0.0;
             let spirit_border = egui::Color32::WHITE;
             
-            let conjure_stats_vec = match stats::load_from_id(parent_stats.conjure_unit_id) {
+            let conjure_stats_vec = match stats::load_from_id(parent_stats.conjure_unit_id, &settings.general.language_priority) {
                 Some(s) => s,
                 None => {
                     ui.label(egui::RichText::new("Spirit data not found").weak());

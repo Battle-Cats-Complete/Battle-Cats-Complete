@@ -15,11 +15,13 @@ pub fn ensure_loaded(ctx: &egui::Context, sheet: &mut SpriteSheet, settings: &Se
 
     let base_dir = paths::img022_folder(std::path::Path::new(""));
     
-    if let Some(png_path) = crate::global::get(&base_dir, "img022.png", &settings.general.language_priority).into_iter().next() {
-        let imgcut_path = png_path.with_extension("imgcut");
-        if imgcut_path.exists() {
-            let key = png_path.file_stem().unwrap().to_string_lossy().into_owned();
-            sheet.load(ctx, &png_path, &imgcut_path, key);
-        }
+    let png_paths = crate::global::resolver::get(&base_dir, "img022.png", &settings.general.language_priority);
+    let cut_paths = crate::global::resolver::get(&base_dir, "img022.imgcut", &settings.general.language_priority);
+
+    if let (Some(png_path), Some(imgcut_path)) = (png_paths.into_iter().next(), cut_paths.into_iter().next()) {
+        
+        let key = png_path.file_stem().unwrap().to_string_lossy().into_owned();
+        
+        sheet.load(ctx, &png_path, &imgcut_path, key);
     }
 }

@@ -55,11 +55,14 @@ pub fn start_scan(config: ScannerConfig) -> Receiver<CatEntry> {
 
     thread::spawn(move || {
         let cats_directory = Path::new(paths::DIR_CATS);
+        let priority = &config.language_priority;
         
-        let level_curves_arc = Arc::new(unitlevel::load_level_curves(cats_directory));
-        let unit_buy_map_arc = Arc::new(unitbuy::load_unitbuy(cats_directory));
-        let talent_map_arc = Arc::new(skillacquisition::load(cats_directory));
-        let evolve_text_map_arc = Arc::new(unitevolve::load(cats_directory, &config.language_priority));
+        // Note: For a truly perfect architecture, these loaders should also be updated 
+        // to use resolver::get internally. For now, we pass the priority down
+        let level_curves_arc = Arc::new(unitlevel::load_level_curves(cats_directory, priority));
+        let unit_buy_map_arc = Arc::new(unitbuy::load_unitbuy(cats_directory, priority));
+        let talent_map_arc = Arc::new(skillacquisition::load(cats_directory, priority));
+        let evolve_text_map_arc = Arc::new(unitevolve::load(cats_directory, priority));
         
         let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
             Ok(read_dir_iter) => read_dir_iter
@@ -94,7 +97,7 @@ pub fn start_scan(config: ScannerConfig) -> Receiver<CatEntry> {
 
 pub fn process_cat_entry(
     original_folder_path: &Path, 
-    level_curves: &Vec<CatLevelCurve>, 
+    level_curves: &[CatLevelCurve], 
     unit_buys: &std::collections::HashMap<u32, UnitBuyRow>,
     talents_map: &std::collections::HashMap<u16, TalentRaw>, 
     evolve_text_map: &std::collections::HashMap<u32, [Vec<String>; 4]>, 
@@ -113,12 +116,14 @@ pub fn process_cat_entry(
     let egg_ids = (ub_row.egg_id_normal, ub_row.egg_id_evolved);
     let priority = &config.language_priority;
 
+    // Check form existence based on physical folders
     let mut forms_existence = [false; 4];
     for i in 0..4 {
         let folder = paths::folder(cats_root_dir, cat_id, i, egg_ids);
         forms_existence[i] = folder.exists();
     }
 
+    // Resolve Main List Image
     let mut final_image_path_opt = None;
     for form_idx in (0..=config.preferred_form).rev() {
         if form_idx >= 4 || !forms_existence[form_idx] { continue; }
@@ -126,12 +131,13 @@ pub fn process_cat_entry(
         let form_char = match form_idx { 0 => 'f', 1 => 'c', 2 => 's', _ => 'u' };
         let filename = format!("udi{:03}_{}.png", cat_id, form_char);
         
-        if let Some(found) = crate::global::get(&dir, &filename, priority).into_iter().next() {
+        if let Some(found) = crate::global::resolver::get(&dir, &filename, priority).into_iter().next() {
             final_image_path_opt = Some(found);
             break; 
         }
     }
 
+    // Resolve Deploy Icons
     let mut deploy_icon_paths: [Option<PathBuf>; 4] = Default::default();
     for form_idx in 0..4 {
         if !forms_existence[form_idx] { continue; }
@@ -139,17 +145,10 @@ pub fn process_cat_entry(
         let form_char = match form_idx { 0 => 'f', 1 => 'c', 2 => 's', _ => 'u' };
         let filename = format!("uni{:03}_{}00.png", cat_id, form_char);
         
-        deploy_icon_paths[form_idx] = crate::global::get(&dir, &filename, priority).into_iter().next();
+        deploy_icon_paths[form_idx] = crate::global::resolver::get(&dir, &filename, priority).into_iter().next();
     }
 
-    if !config.show_invalid && final_image_path_opt.is_some() {
-        let path = final_image_path_opt.as_ref().unwrap();
-        if let Ok(img) = image::open(path) {
-            let (w, h) = image::GenericImageView::dimensions(&img);
-            if w < 50 || h < 30 { return None; }
-        }
-    }
-
+    // Resolve Attack Animations
     let mut attack_anim_frames = [0; 4];
     for i in 0..4 {
         if !forms_existence[i] { continue; }
@@ -157,23 +156,33 @@ pub fn process_cat_entry(
         let parent = p.parent().unwrap();
         let name = p.file_name().and_then(|n| n.to_str()).unwrap();
 
-        if let Some(resolved) = crate::global::get(parent, name, priority).into_iter().next() {
-            if let Ok(content) = fs::read_to_string(&resolved) {
+        if let Some(resolved) = crate::global::resolver::get(parent, name, priority).into_iter().next() {
+            // Use lossy reading even for anim files to be safe
+            if let Ok(bytes) = fs::read(&resolved) {
+                let content = String::from_utf8_lossy(&bytes);
                 let duration = Animation::scan_duration(&content);
                 attack_anim_frames[i] = if duration > 0 { duration + 1 } else { 0 };
             }
         }
     }
     
+    // Resolve Stats
     let mut cat_stats = vec![None; 4];
-    let stats_file_path = paths::stats(cats_root_dir, cat_id);
-    if let Ok(file_content) = fs::read_to_string(&stats_file_path) {
-        let delimiter = utils::detect_csv_separator(&file_content);
-        for (line_index, csv_line) in file_content.lines().enumerate().take(4) {
-            cat_stats[line_index] = CatRaw::from_csv_line(csv_line, delimiter);
+    let stats_path = paths::stats(cats_root_dir, cat_id);
+    let stats_parent = stats_path.parent().unwrap();
+    let stats_name = stats_path.file_name().unwrap().to_str().unwrap();
+
+    if let Some(resolved) = crate::global::resolver::get(stats_parent, stats_name, priority).into_iter().next() {
+        if let Ok(bytes) = fs::read(resolved) {
+            let file_content = String::from_utf8_lossy(&bytes);
+            let delimiter = utils::detect_csv_separator(&file_content);
+            for (line_index, csv_line) in file_content.lines().enumerate().take(4) {
+                cat_stats[line_index] = CatRaw::from_csv_line(csv_line, delimiter);
+            }
         }
     }
 
+    // Resolve Names & Descriptions
     let mut cat_names = vec![String::new(); 4];
     let mut cat_descriptions = vec![Vec::new(); 4];
     
@@ -184,7 +193,7 @@ pub fn process_cat_entry(
     if lang_directory.exists() { search_dirs.insert(0, lang_directory); }
 
     for dir in search_dirs {
-        let resolved_paths = crate::global::get(&dir, &base_filename, priority);
+        let resolved_paths = crate::global::resolver::get(&dir, &base_filename, priority);
         for name_file_path in resolved_paths {
             if let Some(explanation) = unitexplanation::UnitExplanation::load(&name_file_path) {
                 for i in 0..4 {
@@ -204,9 +213,14 @@ pub fn process_cat_entry(
         image_path: final_image_path_opt, 
         deploy_icon_paths,
         names: cat_names,
-        description: cat_descriptions, forms: forms_existence, stats: cat_stats, 
-        curve: level_curves.get(cat_id as usize).cloned(), atk_anim_frames: attack_anim_frames,
-        egg_ids, talent_data: talents_map.get(&(cat_id as u16)).cloned(), 
-        unit_buy: ub_row.clone(), evolve_text: evolve_text_map.get(&cat_id).cloned().unwrap_or_default(),
+        description: cat_descriptions, 
+        forms: forms_existence, 
+        stats: cat_stats, 
+        curve: level_curves.get(cat_id as usize).cloned(), 
+        atk_anim_frames: attack_anim_frames,
+        egg_ids, 
+        talent_data: talents_map.get(&(cat_id as u16)).cloned(), 
+        unit_buy: ub_row.clone(), 
+        evolve_text: evolve_text_map.get(&cat_id).cloned().unwrap_or_default(),
     })
 }

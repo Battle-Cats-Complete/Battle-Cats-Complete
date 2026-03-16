@@ -1,14 +1,21 @@
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
+
+// Pointer to the currently enabled mod
+static ACTIVE_MOD: RwLock<Option<String>> = RwLock::new(None);
+
+pub fn set_active_mod(mod_name: Option<String>) {
+    if let Ok(mut active) = ACTIVE_MOD.write() {
+        *active = mod_name;
+    }
+}
 
 /// Finds every valid version of a file in priority order.
-/// 
-/// Priority Hierarchy: ALL Mod variants -> ALL Game variants.
-/// Stops processing completely when it hits the "--" (None) token.
+
 pub fn get(dir: &Path, filename: &str, priority: &[String]) -> Vec<PathBuf> {
-    // 1. Pre-calculate the exact filenames we care about
     let mut targets = Vec::new();
     for code in priority {
-        if code == "--" { break; } // The Hard Stop
+        if code == "--" { break; }
         
         if code.is_empty() {
             targets.push(filename.to_string());
@@ -19,14 +26,14 @@ pub fn get(dir: &Path, filename: &str, priority: &[String]) -> Vec<PathBuf> {
 
     let mut paths = Vec::new();
 
-    // 2. PASS 1: Check ALL Mod variants in priority order
+    // Check ALL Mod variants in priority order
     for target in &targets {
-        if let Some(p) = check_mod_override(dir, target) {
+        if let Some(p) = check_mod_override(target) {
             paths.push(p);
         }
     }
 
-    // 3. PASS 2: Check ALL Game variants in priority order
+    // Check ALL Game variants in priority order
     for target in &targets {
         let local_path = dir.join(target);
         if local_path.exists() {
@@ -38,8 +45,21 @@ pub fn get(dir: &Path, filename: &str, priority: &[String]) -> Vec<PathBuf> {
     paths
 }
 
-fn check_mod_override(_target_folder: &Path, _filename: &str) -> Option<PathBuf> {
-    // TODO: [MOD MANAGER HOOK]
+fn check_mod_override(filename: &str) -> Option<PathBuf> {
+    // Check if a mod is actually enabled
+    let active_mod = {
+        let guard = ACTIVE_MOD.read().ok()?;
+        guard.as_ref().cloned()?
+    };
+    
+    let mod_dir = Path::new("mods").join(active_mod);
+    
+    // Check flat path
+    let flat_path = mod_dir.join(filename);
+    if flat_path.exists() {
+        return Some(flat_path);
+    }
+    
     None
 }
 
@@ -47,30 +67,8 @@ fn build_regional_name(base_filename: &str, lang_code: &str) -> Option<String> {
     if lang_code.is_empty() { return None; }
     let path_obj = Path::new(base_filename);
     let stem = path_obj.file_stem()?.to_str()?;
-    
-    // Deprciated blacklist system, kept here to make compiler happy
-    if is_blacklisted_regional_base(stem) {
-        return None;
-    }
-
     let ext = path_obj.extension().unwrap_or_default().to_str().unwrap_or("");
     let ext_str = if ext.is_empty() { String::new() } else { format!(".{}", ext) };
     
     Some(format!("{}_{}{}", stem, lang_code, ext_str))
-}
-
-// Deprciated blacklist system, kept here to make compiler happy
-// Conflicting assets now handled by decrypter/sorter
-fn is_blacklisted_regional_base(stem: &str) -> bool {
-    // Check for udi (banners) and uni (icons)
-    if (stem.starts_with("udi") || stem.starts_with("uni")) && stem.len() >= 6 {
-        let id_part = &stem[3..6];
-        if let Ok(id) = id_part.parse::<u32>() {
-            // IDs 000 through 008 are the 9 Basic Cats
-            if id <= 9 { 
-                return true;
-            }
-        }
-    }
-    false
 }
