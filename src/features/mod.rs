@@ -6,3 +6,4 @@ pub mod settings;
 pub mod statblock;
 pub mod addons;
 pub mod home;
+pub mod mods;

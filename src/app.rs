@@ -15,7 +15,7 @@ enum Page {
     Cats,
     Enemies,
     // Stages,
-    // Mods,
+    Mods,
     // Utility,
     Data,
     // Files,
@@ -28,7 +28,7 @@ const PAGES: &[(Page, &str)] = &[
     (Page::Enemies, "Enemies"),
     // (Page::Stages, "Stages"),
     
-    // (Page::Mods, "Mods"),
+    (Page::Mods, "Mods"),
     // (Page::Utility, "Utility"),
     
     (Page::Data, "Data"),
@@ -57,6 +57,7 @@ pub struct BattleCatsApp {
     
     cat_list_state: CatListState,
     enemy_list_state: EnemyListState,
+    mod_state: crate::features::mods::logic::state::ModState,
     pub settings: Settings,
 }
 
@@ -68,6 +69,7 @@ impl Default for BattleCatsApp {
             import_state: ImportState::default(),
             cat_list_state: CatListState::default(),
             enemy_list_state: EnemyListState::default(),
+            mod_state: crate::features::mods::logic::state::ModState::default(),
             settings: Settings::default(),
             updater: updater::Updater::default(),
             drag_guard: shared::DragGuard::default(),
@@ -90,6 +92,7 @@ impl BattleCatsApp {
         
         app.cat_list_state.restart_scan(app.settings.scanner_config());
         app.enemy_list_state.restart_scan(app.settings.scanner_config());
+        app.mod_state.refresh_mods();
         updater::cleanup_temp_files();
 
         if app.settings.general.update_mode != UpdateMode::Ignore {
@@ -164,6 +167,12 @@ impl eframe::App for BattleCatsApp {
             ctx.request_repaint();
         }
 
+        if self.mod_state.needs_rescan {
+            self.mod_state.needs_rescan = false;
+            self.perform_full_data_reload();
+            ctx.request_repaint();
+        }
+
         self.process_file_events(ctx);
 
         self.cat_list_state.update_data();
@@ -208,9 +217,9 @@ impl eframe::App for BattleCatsApp {
             // Page::Stages => {
             //     crate::features::stages::logic::show(ctx, &mut self.stage_list_state, &mut self.settings);
             // },
-            // Page::Mods => {
-            //     crate::features::mods::logic::show(ctx, &mut self.mod_state, &mut self.settings);
-            // },
+            Page::Mods => {
+                crate::features::mods::ui::frame::show(ctx, &mut self.mod_state, &mut self.settings);
+            },
             // Page::Utility => {
             //     crate::features::utility::logic::show(ctx, &mut self.utility_state, &mut self.settings);
             // },
@@ -229,42 +238,8 @@ impl eframe::App for BattleCatsApp {
                 let refresh_needed = crate::features::settings::ui::show(ctx, &mut self.settings, &mut self.drag_guard);
                 
                 if refresh_needed {
-                    self.cat_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
-                    self.cat_list_state.img022_sheet = crate::global::formats::imgcut::SpriteSheet::default();
-                    self.cat_list_state.sprite_sheet = crate::global::formats::imgcut::SpriteSheet::default();
-                    self.cat_list_state.gatya_item_textures.clear();
-                    
-                    self.cat_list_state.detail_texture = None;
-                    self.cat_list_state.detail_key.clear();
-                    self.cat_list_state.texture_cache_version += 1;
-                    
-                    self.enemy_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
-                    self.enemy_list_state.detail_texture = None;
-                    self.enemy_list_state.detail_key.clear();
-
-                    let viewers = [
-                        &mut self.cat_list_state.anim_viewer,
-                        &mut self.enemy_list_state.anim_viewer,
-                    ];
-
-                    for viewer in viewers {
-                        viewer.loaded_id.clear();
-                        viewer.held_model = None;
-                        viewer.held_sheet = None;
-                        viewer.current_anim = None;
-                        viewer.staging_model = None;
-                        viewer.staging_sheet = None;
-                        viewer.current_frame = 0.0;
-                        viewer.texture_version += 1;
-                    }
-
-                    let config = self.settings.scanner_config();
-
-                    self.cat_list_state.cat_list.clear_cache();
-                    self.cat_list_state.restart_scan(config.clone());
-                    
-                    self.enemy_list_state.enemy_list.clear_cache();
-                    self.enemy_list_state.restart_scan(config);
+                    self.perform_full_data_reload();
+                    ctx.request_repaint();
                 }
             }
         }
@@ -329,7 +304,56 @@ impl eframe::App for BattleCatsApp {
     }
 }
 
+// Separated impl block containing all the file event helper methods
 impl BattleCatsApp {
+    pub fn perform_full_data_reload(&mut self) {
+        // --- 1. Purge Cat Textures & CSV Data ---
+        self.cat_list_state.texture_cache_version += 1;
+        self.cat_list_state.anim_viewer.loaded_id.clear();
+        self.cat_list_state.detail_texture = None;
+        self.cat_list_state.detail_key.clear();
+        
+        self.cat_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+        self.cat_list_state.img022_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+        self.cat_list_state.sprite_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+        self.cat_list_state.gatya_item_textures.clear();
+        
+        self.cat_list_state.cached_unit_buy = None;
+        self.cat_list_state.cached_evolve_text = None;
+
+        // --- 2. Purge Enemy Textures & Data ---
+        self.enemy_list_state.anim_viewer.loaded_id.clear();
+        self.enemy_list_state.detail_texture = None;
+        self.enemy_list_state.detail_key.clear();
+        
+        self.enemy_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+
+        // --- 3. Purge Viewers thoroughly ---
+        let viewers = [
+            &mut self.cat_list_state.anim_viewer,
+            &mut self.enemy_list_state.anim_viewer,
+        ];
+
+        for viewer in viewers {
+            viewer.loaded_id.clear();
+            viewer.held_model = None;
+            viewer.held_sheet = None;
+            viewer.current_anim = None;
+            viewer.staging_model = None;
+            viewer.staging_sheet = None;
+            viewer.current_frame = 0.0;
+            viewer.texture_version += 1;
+        }
+        
+        // --- 4. Restart Scanners ---
+        let config = self.settings.scanner_config();
+        self.cat_list_state.cat_list.clear_cache();
+        self.cat_list_state.restart_scan(config.clone());
+        
+        self.enemy_list_state.enemy_list.clear_cache();
+        self.enemy_list_state.restart_scan(config);
+    }
+
     fn process_file_events(&mut self, ctx: &egui::Context) {
         if self.global_watcher.is_none() {
             self.global_watcher = crate::global::io::watcher::GlobalWatcher::new(ctx.clone());
@@ -345,23 +369,24 @@ impl BattleCatsApp {
             paths.push(path);
         }
 
-        if paths.is_empty() {
-            return;
-        }
+        if paths.is_empty() { return; }
 
-        if self.import_state.rx.is_some() || self.import_state.is_adb_busy {
-            return;
-        }
+        if self.import_state.rx.is_some() || self.import_state.is_adb_busy { return; }
 
         let mut cat_ids_to_refresh = HashSet::new();
         let mut enemy_ids_to_refresh = HashSet::new(); 
         let mut global_cat_refresh = false;
         let mut global_enemy_refresh = false;
+        let mut mods_refresh = false;
 
         for path in paths {
             let path_str = path.to_string_lossy().to_lowercase();
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             
+            if path_str.contains("mods") && !path_str.contains("packages") {
+                mods_refresh = true;
+            }
+
             if path_str.contains("img015") || path_str.contains("img022") {
                 self.cat_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
                 self.cat_list_state.img022_sheet = crate::global::formats::imgcut::SpriteSheet::default();
@@ -398,6 +423,10 @@ impl BattleCatsApp {
             if is_in_enemies_dir && Self::process_enemy_path(&path, &mut enemy_ids_to_refresh) {
                 global_enemy_refresh = true;
             }
+        }
+
+        if mods_refresh {
+            self.mod_state.refresh_mods();
         }
 
         let mass_threshold = 5;

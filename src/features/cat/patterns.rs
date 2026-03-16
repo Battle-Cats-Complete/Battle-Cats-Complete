@@ -3,7 +3,7 @@
 // Basic patterns
 pub const CAT_ID: &str = r"(\d{3})";
 pub const CAT_FORM: &str = r"([fcsu])";
-pub const ANIM_TYPE: &str = r"(0[0-3])";
+pub const ANIM_TYPE: &str = r"(0[0-4])";
 pub const COUNTRY_CODE: &str = r"([a-z]{2})";
 
 // Combined patterns
@@ -15,7 +15,7 @@ pub const CAT_ICON_PATTERN: &str = concat!(r"^uni", r"(\d{3})_", r"([fcsu])", r"
 pub const CAT_UPGRADE_PATTERN: &str = concat!(r"^udi", r"(\d{3})_", r"([fcsu])", r"\.png$");
 pub const CAT_GACHA_PATTERN: &str = concat!(r"^gatyachara_", r"(\d{3})", r"_[fz]\.png$");
 pub const CAT_ANIM_PATTERN: &str = concat!(r"^", r"(\d{3})_", r"([fcsu])", r"\.(imgcut|mamodel|png)$");
-pub const CAT_MAANIM_PATTERN: &str = concat!(r"^", r"(\d{3})_", r"([fcsu])", r"(0[0-3]|_zombie0[0-2])\.maanim$");
+pub const CAT_MAANIM_PATTERN: &str = concat!(r"^", r"(\d{3})_", r"([fcsu])", r"(0[0-4]|_entry)\.maanim$");
 pub const CAT_EXPLAIN_PATTERN: &str = r"^Unit_Explanation(\d+)\.csv$";
 
 // Egg file strings

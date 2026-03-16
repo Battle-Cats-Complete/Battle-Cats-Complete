@@ -16,13 +16,13 @@ pub fn ensure_global_data_loaded(state: &mut CatListState, priority: &[String]) 
     let cats_dir = Path::new(paths::DIR_CATS);
 
     if state.cached_level_curves.is_none() {
-        state.cached_level_curves = Some(unitlevel::load_level_curves(cats_dir));
+        state.cached_level_curves = Some(unitlevel::load_level_curves(cats_dir, priority));
     }
     if state.cached_unit_buy.is_none() {
-        state.cached_unit_buy = Some(unitbuy::load_unitbuy(cats_dir));
+        state.cached_unit_buy = Some(unitbuy::load_unitbuy(cats_dir, priority));
     }
     if state.cached_talents.is_none() {
-        state.cached_talents = Some(skillacquisition::load(cats_dir));
+        state.cached_talents = Some(skillacquisition::load(cats_dir, priority));
     }
     if state.cached_evolve_text.is_none() {
         state.cached_evolve_text = Some(unitevolve::load(cats_dir, priority));
