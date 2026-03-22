@@ -27,10 +27,8 @@ const PAGES: &[(Page, &str)] = &[
     (Page::Cats, "Cats"),
     (Page::Enemies, "Enemies"),
     // (Page::Stages, "Stages"),
-    
     (Page::Mods, "Mods"),
     // (Page::Utility, "Utility"),
-    
     (Page::Data, "Data"),
     // (Page::Files, "Files"),
     (Page::Settings, "Settings"),
