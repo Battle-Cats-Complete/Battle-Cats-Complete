@@ -9,6 +9,8 @@ use crate::features::cat::data::unitlevel::{self, CatLevelCurve};
 use crate::features::cat::data::skillacquisition::{self, TalentRaw}; 
 use crate::features::cat::data::unitevolve; 
 use crate::features::cat::data::unitexplanation; 
+use crate::features::cat::data::skilllevel;
+use crate::features::cat::data::skilldescriptions;
 use crate::global::utils; 
 use crate::features::cat::paths;
 use crate::features::settings::logic::state::ScannerConfig;
@@ -29,6 +31,8 @@ pub struct CatEntry {
     pub talent_data: Option<TalentRaw>,
     pub unit_buy: UnitBuyRow,
     pub evolve_text: [Vec<String>; 4], 
+    pub talent_costs: Arc<std::collections::HashMap<u8, skilllevel::TalentCost>>,
+    pub skill_descriptions: Arc<Vec<String>>,
 }
 
 impl CatEntry {
@@ -61,6 +65,8 @@ pub fn start_scan(config: ScannerConfig) -> Receiver<CatEntry> {
         let unit_buy_map_arc = Arc::new(unitbuy::load_unitbuy(cats_directory, priority));
         let talent_map_arc = Arc::new(skillacquisition::load(cats_directory, priority));
         let evolve_text_map_arc = Arc::new(unitevolve::load(cats_directory, priority));
+        let talent_costs_arc = Arc::new(skilllevel::load(cats_directory, priority));
+        let skill_descriptions_arc = Arc::new(skilldescriptions::load(cats_directory, priority));
         
         let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
             Ok(read_dir_iter) => read_dir_iter
@@ -77,13 +83,17 @@ pub fn start_scan(config: ScannerConfig) -> Receiver<CatEntry> {
             let unit_buys_clone = Arc::clone(&unit_buy_map_arc);
             let talents_clone = Arc::clone(&talent_map_arc);
             let evolve_text_clone = Arc::clone(&evolve_text_map_arc);
+            let costs_clone = Arc::clone(&talent_costs_arc);
+            let descs_clone = Arc::clone(&skill_descriptions_arc);
             
             if let Some(cat_entry) = process_cat_entry(
                 folder_path, 
                 &curves_clone, 
                 &unit_buys_clone, 
                 &talents_clone, 
-                &evolve_text_clone, 
+                &evolve_text_clone,
+                &costs_clone,
+                &descs_clone,
                 &config
             ) {
                 let _ = sender_clone.send(cat_entry);
@@ -93,12 +103,30 @@ pub fn start_scan(config: ScannerConfig) -> Receiver<CatEntry> {
     cat_receiver
 }
 
+pub fn scan_single(id: u32, config: &ScannerConfig) -> Option<CatEntry> {
+    let cats_directory = Path::new(paths::DIR_CATS);
+    let priority = &config.language_priority;
+
+    let curves = unitlevel::load_level_curves(cats_directory, priority);
+    let buys = unitbuy::load_unitbuy(cats_directory, priority);
+    let talents = skillacquisition::load(cats_directory, priority);
+    let evolve = unitevolve::load(cats_directory, priority);
+    let costs = Arc::new(skilllevel::load(cats_directory, priority));
+    let descs = Arc::new(skilldescriptions::load(cats_directory, priority));
+
+    let folder_path = cats_directory.join(format!("{:03}", id));
+
+    process_cat_entry(&folder_path, &curves, &buys, &talents, &evolve, &costs, &descs, config)
+}
+
 pub fn process_cat_entry(
     original_folder_path: &Path, 
     level_curves: &[CatLevelCurve], 
     unit_buys: &std::collections::HashMap<u32, UnitBuyRow>,
     talents_map: &std::collections::HashMap<u16, TalentRaw>, 
     evolve_text_map: &std::collections::HashMap<u32, [Vec<String>; 4]>, 
+    talent_costs: &Arc<std::collections::HashMap<u8, skilllevel::TalentCost>>,
+    skill_descriptions: &Arc<Vec<String>>,
     config: &ScannerConfig
 ) -> Option<CatEntry> {
     let folder_stem = original_folder_path.file_name()?.to_str()?;
@@ -114,20 +142,17 @@ pub fn process_cat_entry(
     let egg_ids = (ub_row.egg_id_normal, ub_row.egg_id_evolved);
     let priority = &config.language_priority;
 
-    // Check form existence based on physical folders
     let mut forms_existence = [false; 4];
     for i in 0..4 {
         let folder = paths::folder(cats_root_dir, cat_id, i, egg_ids);
         forms_existence[i] = folder.exists();
     }
 
-    // Resolve Main List Image
     let mut final_image_path_opt = None;
     for form_idx in (0..=config.preferred_form).rev() {
         if form_idx >= 4 || !forms_existence[form_idx] { continue; }
         let dir = paths::folder(cats_root_dir, cat_id, form_idx, egg_ids);
         
-        // --- FIX: Use image_stem to properly retrieve egg asset names! ---
         let stem = paths::image_stem(paths::AssetType::Banner, cat_id, form_idx, egg_ids);
         let filename = format!("{}.png", stem);
         
@@ -135,7 +160,6 @@ pub fn process_cat_entry(
             final_image_path_opt = Some(found);
             break; 
         } else if form_idx == 1 && egg_ids.1 != -1 {
-            // --- FIX: Add the missing egg m01 -> m00 fallback ---
             let fallback_stem = format!("udi{:03}_m00", egg_ids.1);
             let fallback_filename = format!("{}.png", fallback_stem);
             if let Some(found) = crate::global::resolver::get(&dir, &fallback_filename, priority).into_iter().next() {
@@ -149,20 +173,17 @@ pub fn process_cat_entry(
         return None;
     }
     
-    // Resolve Deploy Icons
     let mut deploy_icon_paths: [Option<PathBuf>; 4] = Default::default();
     for form_idx in 0..4 {
         if !forms_existence[form_idx] { continue; }
         let dir = paths::folder(cats_root_dir, cat_id, form_idx, egg_ids);
         
-        // --- FIX: Use image_stem here too! ---
         let stem = paths::image_stem(paths::AssetType::Icon, cat_id, form_idx, egg_ids);
         let filename = format!("{}.png", stem);
         
         if let Some(found) = crate::global::resolver::get(&dir, &filename, priority).into_iter().next() {
             deploy_icon_paths[form_idx] = Some(found);
         } else if form_idx == 1 && egg_ids.1 != -1 {
-            // --- FIX: Add the missing egg m01 -> m00 fallback ---
             let fallback_stem = format!("uni{:03}_m00", egg_ids.1);
             let fallback_filename = format!("{}.png", fallback_stem);
             if let Some(found) = crate::global::resolver::get(&dir, &fallback_filename, priority).into_iter().next() {
@@ -171,7 +192,6 @@ pub fn process_cat_entry(
         }
     }
 
-    // Resolve Attack Animations
     let mut attack_anim_frames = [0; 4];
     for i in 0..4 {
         if !forms_existence[i] { continue; }
@@ -180,7 +200,6 @@ pub fn process_cat_entry(
         let name = p.file_name().and_then(|n| n.to_str()).unwrap();
 
         if let Some(resolved) = crate::global::resolver::get(parent, name, priority).into_iter().next() {
-            // Use lossy reading even for anim files to be safe
             if let Ok(bytes) = fs::read(&resolved) {
                 let content = String::from_utf8_lossy(&bytes);
                 let duration = Animation::scan_duration(&content);
@@ -189,7 +208,6 @@ pub fn process_cat_entry(
         }
     }
     
-    // Resolve Stats
     let mut cat_stats = vec![None; 4];
     let stats_path = paths::stats(cats_root_dir, cat_id);
     let stats_parent = stats_path.parent().unwrap();
@@ -205,7 +223,6 @@ pub fn process_cat_entry(
         }
     }
 
-    // Resolve Names & Descriptions
     let mut cat_names = vec![String::new(); 4];
     let mut cat_descriptions = vec![Vec::new(); 4];
     
@@ -245,5 +262,7 @@ pub fn process_cat_entry(
         talent_data: talents_map.get(&(cat_id as u16)).cloned(), 
         unit_buy: ub_row.clone(), 
         evolve_text: evolve_text_map.get(&cat_id).cloned().unwrap_or_default(),
+        talent_costs: Arc::clone(talent_costs),
+        skill_descriptions: Arc::clone(skill_descriptions),
     })
 }
