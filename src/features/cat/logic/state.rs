@@ -13,11 +13,6 @@ use crate::global::formats::imgcut::SpriteSheet;
 use crate::global::formats::mamodel::Model;
 use crate::global::assets::CustomAssets;
 use crate::features::animation::ui::viewer::AnimViewer;
-use crate::features::cat::data::skilldescriptions; 
-use crate::features::cat::data::skilllevel; 
-use crate::features::cat::data::unitlevel::CatLevelCurve;
-use crate::features::cat::data::unitbuy::UnitBuyRow;
-use crate::features::cat::data::skillacquisition::TalentRaw;
 use crate::features::settings::logic::state::ScannerConfig;
 use crate::features::settings::logic::Settings;
 use crate::global::ui::shared::DragGuard; 
@@ -42,15 +37,10 @@ impl Default for DetailTab {
 #[derive(Deserialize, Serialize)]
 #[serde(default)] 
 pub struct CatListState {
-    #[serde(skip)] pub cats: Vec<CatEntry>,          
+    #[serde(skip)] pub cats: Vec<CatEntry>,           
     #[serde(skip)] pub incoming_cats: Vec<CatEntry>, 
     #[serde(skip)] pub is_cold_scan: bool,
     #[serde(skip)] pub last_update_time: Option<Instant>,
-    #[serde(skip)] pub cached_level_curves: Option<Vec<CatLevelCurve>>,
-    #[serde(skip)] pub cached_unit_buy: Option<HashMap<u32, UnitBuyRow>>,
-    #[serde(skip)] pub cached_talents: Option<HashMap<u16, TalentRaw>>,
-    #[serde(skip)] pub cached_talent_costs: Option<HashMap<u8, skilllevel::TalentCost>>,
-    #[serde(skip)] pub cached_evolve_text: Option<HashMap<u32, [Vec<String>; 4]>>,
     #[serde(alias = "persistent_id")] pub selected_cat: Option<u32>,
     pub search_query: String, 
     pub selected_form: usize, 
@@ -71,7 +61,6 @@ pub struct CatListState {
     #[serde(skip)] pub talent_name_textures: HashMap<String, egui::TextureHandle>, 
     #[serde(skip)] pub gatya_item_textures: HashMap<i32, Option<egui::TextureHandle>>,
     #[serde(skip)] pub texture_cache_version: u64,
-    #[serde(skip)] pub skill_descriptions: Option<Vec<String>>,
     #[serde(skip)] pub initialized: bool,
     pub talent_levels: HashMap<u32, HashMap<u8, u8>>,
     pub talent_history: VecDeque<u32>, 
@@ -88,11 +77,6 @@ impl Default for CatListState {
             incoming_cats: Vec::new(),
             is_cold_scan: false,
             last_update_time: None,
-            cached_level_curves: None,
-            cached_unit_buy: None,
-            cached_talents: None,
-            cached_talent_costs: None,
-            cached_evolve_text: None,
             selected_cat: None,
             cat_list: CatList::default(),
             scan_receiver: None,
@@ -113,7 +97,6 @@ impl Default for CatListState {
             talent_name_textures: HashMap::new(),
             gatya_item_textures: HashMap::new(), 
             texture_cache_version: 0, 
-            skill_descriptions: None, 
             initialized: false, 
             talent_levels: HashMap::new(),
             talent_history: VecDeque::new(),
@@ -136,7 +119,6 @@ impl CatListState {
 }
 
 pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settings) {
-    let priority = &settings.general.language_priority;
     if state.custom_assets.is_none() {
         state.custom_assets = Some(CustomAssets::new(ctx));
     }
@@ -154,14 +136,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
     if state.scan_receiver.is_some() {
         state.update_data();
         ctx.request_repaint(); 
-    }
-
-    let path = std::path::Path::new("game/cats");
-    if state.skill_descriptions.is_none() {
-        state.skill_descriptions = Some(skilldescriptions::load(path, priority));
-    }
-    if state.cached_talent_costs.is_none() {
-        state.cached_talent_costs = Some(skilllevel::load(path, priority));
     }
 
     egui::SidePanel::left("cat_list_panel")
@@ -314,8 +288,8 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
             &mut state.model_data, &mut state.anim_viewer,
             &assets,
             &mut state.talent_name_textures, &mut state.gatya_item_textures, 
-            state.skill_descriptions.as_ref(), settings, talent_map,
-            state.cached_talent_costs.as_ref().unwrap(),
+            Some(cat_entry.skill_descriptions.as_ref()), settings, talent_map,
+            cat_entry.talent_costs.as_ref(),
             state.texture_cache_version,
         );
 
