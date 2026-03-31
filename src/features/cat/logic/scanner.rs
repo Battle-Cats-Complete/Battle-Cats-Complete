@@ -3,6 +3,8 @@ use std::fs;
 use std::thread;
 use std::sync::{Arc, mpsc::{self, Receiver}};
 use rayon::prelude::*;
+use std::io::Read;
+
 use crate::features::cat::data::unitid::CatRaw;
 use crate::features::cat::data::unitbuy::{self, UnitBuyRow};
 use crate::features::cat::data::unitlevel::{self, CatLevelCurve};
@@ -54,12 +56,37 @@ impl CatEntry {
     }
 }
 
+// PNG Validator: Checks signature and ensures bit depth is 8 or higher
+fn is_valid_png(path: &Path) -> bool {
+    let mut file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut buffer = [0u8; 25];
+    if file.read_exact(&mut buffer).is_err() { return false; }
+    
+    const PNG_SIG: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
+    if buffer[0..8] != PNG_SIG { return false; }
+    
+    // Byte 24 in PNG header is Bit Depth
+    buffer[24] >= 8
+}
+
 pub fn start_scan(config: ScannerConfig) -> Receiver<CatEntry> {
     let (cat_sender, cat_receiver) = mpsc::channel();
 
     thread::spawn(move || {
         let cats_directory = Path::new(paths::DIR_CATS);
         let priority = &config.language_priority;
+
+        // --- GLOBAL EXISTENCE CHECK ---
+        let unitbuy_resolved = crate::global::resolver::get(cats_directory, paths::UNIT_BUY, priority).into_iter().next();
+        let unitlevel_resolved = crate::global::resolver::get(cats_directory, paths::UNIT_LEVEL, priority).into_iter().next();
+        
+        if unitbuy_resolved.is_none() || unitlevel_resolved.is_none() {
+            // Essential base files missing. Abort entirely.
+            return;
+        }
         
         let level_curves_arc = Arc::new(unitlevel::load_level_curves(cats_directory, priority));
         let unit_buy_map_arc = Arc::new(unitbuy::load_unitbuy(cats_directory, priority));
@@ -79,21 +106,15 @@ pub fn start_scan(config: ScannerConfig) -> Receiver<CatEntry> {
 
         folder_entries.par_iter().for_each(|folder_path| {
             let sender_clone = cat_sender.clone();
-            let curves_clone = Arc::clone(&level_curves_arc);
-            let unit_buys_clone = Arc::clone(&unit_buy_map_arc);
-            let talents_clone = Arc::clone(&talent_map_arc);
-            let evolve_text_clone = Arc::clone(&evolve_text_map_arc);
-            let costs_clone = Arc::clone(&talent_costs_arc);
-            let descs_clone = Arc::clone(&skill_descriptions_arc);
             
             if let Some(cat_entry) = process_cat_entry(
                 folder_path, 
-                &curves_clone, 
-                &unit_buys_clone, 
-                &talents_clone, 
-                &evolve_text_clone,
-                &costs_clone,
-                &descs_clone,
+                &level_curves_arc, 
+                &unit_buy_map_arc, 
+                &talent_map_arc, 
+                &evolve_text_map_arc,
+                &talent_costs_arc,
+                &skill_descriptions_arc,
                 &config
             ) {
                 let _ = sender_clone.send(cat_entry);
@@ -107,6 +128,10 @@ pub fn scan_single(id: u32, config: &ScannerConfig) -> Option<CatEntry> {
     let cats_directory = Path::new(paths::DIR_CATS);
     let priority = &config.language_priority;
 
+    let unitbuy_resolved = crate::global::resolver::get(cats_directory, paths::UNIT_BUY, priority).into_iter().next();
+    let unitlevel_resolved = crate::global::resolver::get(cats_directory, paths::UNIT_LEVEL, priority).into_iter().next();
+    if unitbuy_resolved.is_none() || unitlevel_resolved.is_none() { return None; }
+
     let curves = unitlevel::load_level_curves(cats_directory, priority);
     let buys = unitbuy::load_unitbuy(cats_directory, priority);
     let talents = skillacquisition::load(cats_directory, priority);
@@ -115,6 +140,8 @@ pub fn scan_single(id: u32, config: &ScannerConfig) -> Option<CatEntry> {
     let descs = Arc::new(skilldescriptions::load(cats_directory, priority));
 
     let folder_path = cats_directory.join(format!("{:03}", id));
+    
+    if !folder_path.exists() { return None; }
 
     process_cat_entry(&folder_path, &curves, &buys, &talents, &evolve, &costs, &descs, config)
 }
@@ -131,67 +158,93 @@ pub fn process_cat_entry(
 ) -> Option<CatEntry> {
     let folder_stem = original_folder_path.file_name()?.to_str()?;
     let cat_id = folder_stem.parse::<u32>().ok()?;
-    let ub_row = unit_buys.get(&cat_id)?;
-
-    let is_egg_unit = ub_row.egg_id_normal != -1;
-    let is_summon = ub_row.level_cap_standard == 1 && ub_row.level_cap_plus == 0 && ub_row.purchase_cost == 0;
-
-    if !config.show_invalid && !is_egg_unit && is_summon { return None; }
-
     let cats_root_dir = Path::new(paths::DIR_CATS);
-    let egg_ids = (ub_row.egg_id_normal, ub_row.egg_id_evolved);
     let priority = &config.language_priority;
 
-    let mut forms_existence = [false; 4];
-    for i in 0..4 {
-        let folder = paths::folder(cats_root_dir, cat_id, i, egg_ids);
-        forms_existence[i] = folder.exists();
-    }
+    // --- UNIT STATS EXISTENCE CHECK ---
+    let stats_path = paths::stats(cats_root_dir, cat_id);
+    let stats_parent = stats_path.parent().unwrap();
+    let stats_name = stats_path.file_name().unwrap().to_str().unwrap();
+    let resolved_stats = crate::global::resolver::get(stats_parent, stats_name, priority).into_iter().next();
 
-    let mut final_image_path_opt = None;
-    for form_idx in (0..=config.preferred_form).rev() {
-        if form_idx >= 4 || !forms_existence[form_idx] { continue; }
-        let dir = paths::folder(cats_root_dir, cat_id, form_idx, egg_ids);
-        
-        let stem = paths::image_stem(paths::AssetType::Banner, cat_id, form_idx, egg_ids);
-        let filename = format!("{}.png", stem);
-        
-        if let Some(found) = crate::global::resolver::get(&dir, &filename, priority).into_iter().next() {
-            final_image_path_opt = Some(found);
-            break; 
-        } else if form_idx == 1 && egg_ids.1 != -1 {
-            let fallback_stem = format!("udi{:03}_m00", egg_ids.1);
-            let fallback_filename = format!("{}.png", fallback_stem);
-            if let Some(found) = crate::global::resolver::get(&dir, &fallback_filename, priority).into_iter().next() {
-                final_image_path_opt = Some(found);
-                break;
-            }
-        }
-    }
-
-    if !config.show_invalid && final_image_path_opt.is_none() {
+    if !config.show_invalid && resolved_stats.is_none() {
         return None;
     }
-    
+
+    let ub_row = unit_buys.get(&cat_id)?;
+    let egg_ids = (ub_row.egg_id_normal, ub_row.egg_id_evolved);
+
+    // --- ASSET-DRIVEN FORM EXISTENCE (Banner Only) ---
+    let mut forms_existence = [false; 4];
     let mut deploy_icon_paths: [Option<PathBuf>; 4] = Default::default();
+    let mut final_image_path_opt = None;
+
     for form_idx in 0..4 {
-        if !forms_existence[form_idx] { continue; }
         let dir = paths::folder(cats_root_dir, cat_id, form_idx, egg_ids);
         
-        let stem = paths::image_stem(paths::AssetType::Icon, cat_id, form_idx, egg_ids);
-        let filename = format!("{}.png", stem);
+        // Resolve Banner (udi)
+        let banner_stem = paths::image_stem(paths::AssetType::Banner, cat_id, form_idx, egg_ids);
+        let banner_name = format!("{}.png", banner_stem);
+        let mut resolved_banner = crate::global::resolver::get(&dir, &banner_name, priority).into_iter().next();
         
-        if let Some(found) = crate::global::resolver::get(&dir, &filename, priority).into_iter().next() {
-            deploy_icon_paths[form_idx] = Some(found);
-        } else if form_idx == 1 && egg_ids.1 != -1 {
+        if resolved_banner.is_none() && form_idx == 1 && egg_ids.1 != -1 {
+            let fallback_stem = format!("udi{:03}_m00", egg_ids.1);
+            let fallback_name = format!("{}.png", fallback_stem);
+            resolved_banner = crate::global::resolver::get(&dir, &fallback_name, priority).into_iter().next();
+        }
+
+        // Resolve Icon (uni) - Loaded for UI, but does not dictate existence
+        let icon_stem = paths::image_stem(paths::AssetType::Icon, cat_id, form_idx, egg_ids);
+        let icon_name = format!("{}.png", icon_stem);
+        let mut resolved_icon = crate::global::resolver::get(&dir, &icon_name, priority).into_iter().next();
+
+        if resolved_icon.is_none() && form_idx == 1 && egg_ids.1 != -1 {
             let fallback_stem = format!("uni{:03}_m00", egg_ids.1);
-            let fallback_filename = format!("{}.png", fallback_stem);
-            if let Some(found) = crate::global::resolver::get(&dir, &fallback_filename, priority).into_iter().next() {
-                deploy_icon_paths[form_idx] = Some(found);
+            let fallback_name = format!("{}.png", fallback_stem);
+            resolved_icon = crate::global::resolver::get(&dir, &fallback_name, priority).into_iter().next();
+        }
+
+        let mut form_valid = false;
+        
+        // Form is valid ONLY IF the banner resolves and passes bit depth
+        if let Some(b_path) = &resolved_banner {
+            if config.show_invalid || is_valid_png(b_path) {
+                form_valid = true;
             }
+        } else if config.show_invalid {
+            form_valid = dir.exists();
+        }
+
+        forms_existence[form_idx] = form_valid;
+        
+        if form_valid {
+            deploy_icon_paths[form_idx] = resolved_icon;
         }
     }
 
+    if !config.show_invalid && forms_existence.iter().all(|&e| !e) {
+        return None; // Absolute abort if no valid forms exist
+    }
+
+    // Set the primary list banner based on highest valid preferred form
+    for form_idx in (0..=config.preferred_form).rev() {
+        if forms_existence[form_idx] {
+            let dir = paths::folder(cats_root_dir, cat_id, form_idx, egg_ids);
+            let banner_stem = paths::image_stem(paths::AssetType::Banner, cat_id, form_idx, egg_ids);
+            let banner_name = format!("{}.png", banner_stem);
+            let mut b = crate::global::resolver::get(&dir, &banner_name, priority).into_iter().next();
+            
+            if b.is_none() && form_idx == 1 && egg_ids.1 != -1 {
+                let fallback_stem = format!("udi{:03}_m00", egg_ids.1);
+                let fallback_name = format!("{}.png", fallback_stem);
+                b = crate::global::resolver::get(&dir, &fallback_name, priority).into_iter().next();
+            }
+            final_image_path_opt = b;
+            break;
+        }
+    }
+
+    // Resolve Attack Animations
     let mut attack_anim_frames = [0; 4];
     for i in 0..4 {
         if !forms_existence[i] { continue; }
@@ -208,12 +261,9 @@ pub fn process_cat_entry(
         }
     }
     
+    // Resolve Stats
     let mut cat_stats = vec![None; 4];
-    let stats_path = paths::stats(cats_root_dir, cat_id);
-    let stats_parent = stats_path.parent().unwrap();
-    let stats_name = stats_path.file_name().unwrap().to_str().unwrap();
-
-    if let Some(resolved) = crate::global::resolver::get(stats_parent, stats_name, priority).into_iter().next() {
+    if let Some(resolved) = resolved_stats {
         if let Ok(bytes) = fs::read(resolved) {
             let file_content = String::from_utf8_lossy(&bytes);
             let delimiter = utils::detect_csv_separator(&file_content);
@@ -223,6 +273,7 @@ pub fn process_cat_entry(
         }
     }
 
+    // Resolve Names & Descriptions
     let mut cat_names = vec![String::new(); 4];
     let mut cat_descriptions = vec![Vec::new(); 4];
     

@@ -119,8 +119,8 @@ fn solve_single_part(target_index: usize, parts: &[ModelPart], model: &Model) ->
     }
     
     struct VectorStep {
-        position: [f64; 2],      // The local position of the node
-        matrix_scale: [f64; 2],  // The scale/flip matrix params from the PARENT
+        position: [f64; 2],        // The local position of the node
+        matrix_scale: [f64; 2],    // The scale/flip matrix params from the PARENT
         matrix_rotation: [f64; 4], // The rotation matrix params from the PARENT
     }
 
@@ -164,12 +164,12 @@ fn solve_single_part(target_index: usize, parts: &[ModelPart], model: &Model) ->
 
     let root_index = chain.last().copied().unwrap_or(target_index);
     let root_state = get_local_state(&parts[root_index], model);
+    let root_part = &parts[root_index];
     
-    // Initialize the starting position with the root's global offset,
-    // multiplied by the root's scale and flip modifiers.
+    // Inject the root pivot into the starting coordinates
     let mut final_position = [
-        root_state.x * root_state.scale_x * root_state.flip_x, 
-        -root_state.y * root_state.scale_y * root_state.flip_y
+        (root_state.x + root_part.pivot_x as f64) * root_state.scale_x * root_state.flip_x, 
+        -(root_state.y + root_part.pivot_y as f64) * root_state.scale_y * root_state.flip_y
     ];
 
     for apply_index in 0..step_count {
@@ -188,7 +188,7 @@ fn solve_single_part(target_index: usize, parts: &[ModelPart], model: &Model) ->
         final_position[1] += vector_steps[apply_index].position[1];
     }
 
-    // Construct Final Matrix (Flattened unwrap and if/else block)
+    // Construct Final Matrix
     let target_global = global_states.last().unwrap_or(&current_global);
 
     let final_scale_x = target_global.scale_x * target_global.flip_x;

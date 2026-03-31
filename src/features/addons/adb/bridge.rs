@@ -127,15 +127,24 @@ pub fn spawn_full_import(sender: Sender<AdbEvent>, base_output_dir: PathBuf, mod
                 let _ = sender.send(AdbEvent::Status("Root access confirmed via su.".to_string()));
             } else {
                 let _ = sender.send(AdbEvent::Status("Requesting Root Access (ADB Root)...".to_string()));
-                // Fallback: try standard adb root (might hang on some emulators if root is blocked)
+                // Try standard adb root (might hang on some emulators if root is blocked)
                 let _ = driver::run_command(&["-s", &current_serial, "root"]);
-                thread::sleep(Duration::from_secs(2));
                 
-                if !current_serial.contains(':') {
-                     if let Some(new_serial) = driver::find_usb_device() { current_serial = new_serial; }
-                } else {
+                // Give the daemon a moment to process the restart command
+                thread::sleep(Duration::from_secs(3));
+                
+                // Re-establish the connection based on device type
+                if current_serial.contains(':') {
+                     // TCP/IP network emulators drop connection on adb root and must be manually reconnected
                      let _ = driver::connect_wireless(&current_serial);
+                } else if !current_serial.starts_with("emulator") {
+                     // For physical USB devices, refresh the serial (find_usb_device ignores emulators)
+                     if let Some(new_serial) = driver::find_usb_device() { current_serial = new_serial; }
                 }
+                
+                // 3. CRITICAL FIX: Block the thread until the device is completely responsive again
+                let _ = sender.send(AdbEvent::Status("Waiting for device to reconnect...".to_string()));
+                let _ = driver::run_command(&["-s", &current_serial, "wait-for-device"]);
             }
         }
 
@@ -157,7 +166,7 @@ pub fn spawn_full_import(sender: Sender<AdbEvent>, base_output_dir: PathBuf, mod
             let _ = sender.send(AdbEvent::Status(format!("{}: {}", status_prefix, package_name)));
             let target_dir = base_output_dir.join(&package_name);
 
-            let process_result = process_single_region_adb(&sender, &current_serial, &package_name, &target_dir, mode);
+            let process_result = process_single_region_adb(&sender, &current_serial, &package_name, &target_dir, mode.clone());
             
             if let Err(process_error) = process_result {
                 let Some(ref rescue_ip) = fallback_ip else {
@@ -174,7 +183,7 @@ pub fn spawn_full_import(sender: Sender<AdbEvent>, base_output_dir: PathBuf, mod
                 }
 
                 current_serial = rescue_ip.clone(); 
-                let rescue_result = process_single_region_adb(&sender, &current_serial, &package_name, &target_dir, mode);
+                let rescue_result = process_single_region_adb(&sender, &current_serial, &package_name, &target_dir, mode.clone());
                 
                 if let Err(rescue_error) = rescue_result {
                     let _ = sender.send(AdbEvent::Status(format!("Rescue Failed: {}", rescue_error)));
