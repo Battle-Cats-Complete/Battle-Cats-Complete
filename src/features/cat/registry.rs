@@ -50,34 +50,53 @@ fn get_dur_val(value_1: i32, value_2: i32) -> i32 {
 }
 
 fn fmt_effective_range(stats: &CatRaw) -> String {
-    let enemy_base_range = {
-        let start_range = stats.long_distance_1_anchor;
-        let end_range = stats.long_distance_1_anchor + stats.long_distance_1_span;
-        let (min_reach, max_reach) = if start_range < end_range { (start_range, end_range) } else { (end_range, start_range) };
-        if min_reach > 0 { min_reach } else { max_reach }
+    // Standing distance is ALWAYS dictated by Hit 1
+    let primary_anchor = if stats.long_distance_1_anchor != 0 { 
+        stats.long_distance_1_anchor 
+    } else { 
+        stats.standing_range 
     };
+
     let mut range_strings = Vec::new();
-    let range_checks = [
-        (stats.long_distance_1_anchor, stats.long_distance_1_span),
-        (stats.long_distance_2_anchor, if stats.long_distance_2_flag == 1 { stats.long_distance_2_span } else { 0 }),
-        (stats.long_distance_3_anchor, if stats.long_distance_3_flag == 1 { stats.long_distance_3_span } else { 0 }),
-    ];
-    for (anchor_point, span_length) in range_checks {
-        if span_length != 0 {
-            let start_bound = anchor_point;
-            let end_bound = anchor_point + span_length;
-            let (minimum_range, maximum_range) = if start_bound < end_bound { (start_bound, end_bound) } else { (end_bound, start_bound) };
-            range_strings.push(format!("{}~{}", minimum_range, maximum_range));
+    
+    // Does the unit have LD or Omni on ANY hit?
+    let has_ld_or_omni = (stats.long_distance_1_span != 0 || stats.long_distance_1_anchor != 0) ||
+                         (stats.long_distance_2_flag > 0 && (stats.long_distance_2_span != 0 || stats.long_distance_2_anchor != 0)) ||
+                         (stats.long_distance_3_flag > 0 && (stats.long_distance_3_span != 0 || stats.long_distance_3_anchor != 0));
+
+    if has_ld_or_omni {
+        let hit_data = [
+            (true, stats.long_distance_1_anchor, stats.long_distance_1_span, 1),
+            (stats.attack_2 > 0, stats.long_distance_2_anchor, stats.long_distance_2_span, stats.long_distance_2_flag),
+            (stats.attack_3 > 0, stats.long_distance_3_anchor, stats.long_distance_3_span, stats.long_distance_3_flag),
+        ];
+        
+        for (is_active, anchor, span, flag) in hit_data {
+            if is_active {
+                // If it's an active LD/Omni hit...
+                if flag > 0 && (span != 0 || anchor != 0) {
+                    let start = anchor;
+                    let end = anchor + span;
+                    let (min_r, max_r) = if start < end { (start, end) } else { (end, start) };
+                    range_strings.push(format!("{}~{}", min_r, max_r));
+                } else {
+                    // Standard hit fallback! (Using standard Cat 320 collision offset)
+                    range_strings.push(format!("-320~{}", stats.standing_range));
+                }
+            }
         }
     }
+    
+    // ONLY merge if ALL hits are exactly the same
     if range_strings.len() > 1 {
         let first_string = range_strings[0].clone();
-        if range_strings.iter().all(|string_element| string_element == &first_string) {
+        if range_strings.iter().all(|s| s == &first_string) {
             range_strings.truncate(1);
         }
     }
+    
     let label_prefix = if range_strings.len() > 1 { "Range split" } else { "Effective Range" };
-    format!("{} {}\nStands at {} Range relative to Enemy Base", label_prefix, range_strings.join(" / "), enemy_base_range)
+    format!("{} {}\nStands at {} Range relative to Enemy Base", label_prefix, range_strings.join(" / "), primary_anchor)
 }
 
 fn fmt_multihit(stats: &CatRaw) -> String {
@@ -570,23 +589,18 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
         custom_icon: CustomIcon::None,
         schema: &[],
         get_attributes: |stats| {
-            let effective_ranges = [
-                (stats.long_distance_1_anchor, stats.long_distance_1_span),
-                (stats.long_distance_2_anchor, if stats.long_distance_2_flag == 1 { stats.long_distance_2_span } else { 0 }),
-                (stats.long_distance_3_anchor, if stats.long_distance_3_flag == 1 { stats.long_distance_3_span } else { 0 }),
-            ];
-            let mut has_valid_range = false;
-            let mut is_omnistrike = false;
-            for (anchor_point, span_length) in effective_ranges {
-                if span_length != 0 {
-                    has_valid_range = true;
-                    let start_bound = anchor_point;
-                    let end_bound = anchor_point + span_length;
-                    let minimum_range = if start_bound < end_bound { start_bound } else { end_bound };
-                    if minimum_range <= 0 { is_omnistrike = true; }
-                }
-            }
-            if has_valid_range && !is_omnistrike { vec![("Active", 1, AttrUnit::None)] } else { vec![] }
+            // Check if ANY hit is Omni
+            let has_omni = (stats.long_distance_1_span < 0 || (stats.long_distance_1_span == 0 && stats.long_distance_1_anchor != 0)) ||
+                           (stats.long_distance_2_flag > 0 && (stats.long_distance_2_span < 0 || (stats.long_distance_2_span == 0 && stats.long_distance_2_anchor != 0))) ||
+                           (stats.long_distance_3_flag > 0 && (stats.long_distance_3_span < 0 || (stats.long_distance_3_span == 0 && stats.long_distance_3_anchor != 0)));
+            
+            // Check if ANY hit is LD
+            let has_ld = (stats.long_distance_1_span > 0) || 
+                         (stats.long_distance_2_flag > 0 && stats.long_distance_2_span > 0) || 
+                         (stats.long_distance_3_flag > 0 && stats.long_distance_3_span > 0);
+            
+            // ONLY show the Long Distance icon if it has LD and DOES NOT have Omni
+            if has_ld && !has_omni { vec![("Active", 1, AttrUnit::None)] } else { vec![] }
         },
         formatter: |_, stats, _, _| fmt_effective_range(stats),
         apply_func: None,
@@ -600,21 +614,12 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
         custom_icon: CustomIcon::None,
         schema: &[],
         get_attributes: |stats| {
-            let effective_ranges = [
-                (stats.long_distance_1_anchor, stats.long_distance_1_span),
-                (stats.long_distance_2_anchor, if stats.long_distance_2_flag == 1 { stats.long_distance_2_span } else { 0 }),
-                (stats.long_distance_3_anchor, if stats.long_distance_3_flag == 1 { stats.long_distance_3_span } else { 0 }),
-            ];
-            let mut is_omnistrike = false;
-            for (anchor_point, span_length) in effective_ranges {
-                if span_length != 0 {
-                    let start_bound = anchor_point;
-                    let end_bound = anchor_point + span_length;
-                    let minimum_range = if start_bound < end_bound { start_bound } else { end_bound };
-                    if minimum_range <= 0 { is_omnistrike = true; }
-                }
-            }
-            if is_omnistrike { vec![("Active", 1, AttrUnit::None)] } else { vec![] }
+            // Check if ANY hit is Omni
+            let has_omni = (stats.long_distance_1_span < 0 || (stats.long_distance_1_span == 0 && stats.long_distance_1_anchor != 0)) ||
+                           (stats.long_distance_2_flag > 0 && (stats.long_distance_2_span < 0 || (stats.long_distance_2_span == 0 && stats.long_distance_2_anchor != 0))) ||
+                           (stats.long_distance_3_flag > 0 && (stats.long_distance_3_span < 0 || (stats.long_distance_3_span == 0 && stats.long_distance_3_anchor != 0)));
+            
+            if has_omni { vec![("Active", 1, AttrUnit::None)] } else { vec![] }
         },
         formatter: |_, stats, _, _| fmt_effective_range(stats),
         apply_func: None,
@@ -845,8 +850,7 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
             }
         },
         formatter: |value_1, stats, _, _| {
-            let multiplier = (stats.savage_blow_boost as f32 + 100.0) / 100.0;
-            format!("{}% Chance to perform a Savage Blow dealing {}× Damage", value_1, multiplier)
+            format!("{}% Chance to Savage Blow\ndealing +{}% Damage", value_1, stats.savage_blow_boost)
         },
         apply_func: Some(|stats, value_1, value_2, _| { stats.savage_blow_chance += value_1; if value_2 > 0 { stats.savage_blow_boost = value_2; } }),
     },
@@ -869,7 +873,7 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
                 vec![] 
             }
         },
-        formatter: |value_1, _, _, _| format!("{}% Chance to perform a Critical Hit dealing 2× Damage\nCritcal Hits bypass Metal resistance", value_1),
+        formatter: |value_1, _, _, _| format!("{}% Chance to Critical Hit dealing +100% Damage\nCritcal Hits bypass Metal resistance", value_1),
         apply_func: Some(|stats, value_1, _, _| stats.critical_chance += value_1),
     },
     CatAbilityDef {
@@ -893,7 +897,7 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
                 vec![] 
             }
         },
-        formatter: |_, stats, _, _| format!("Damage dealt increases by +{}% when reduced to {}% HP", stats.strengthen_boost, stats.strengthen_threshold),
+        formatter: |_, stats, _, _| format!("When reduced to or below {}% HP\nDamage dealt increases by +{}%", stats.strengthen_threshold, stats.strengthen_boost),
         apply_func: Some(|stats, value_1, value_2, _| {
              if stats.strengthen_boost == 0 {
                  stats.strengthen_threshold = 100 - value_1; 

@@ -5,6 +5,9 @@ pub const MAP_STAGE_DATA_PATTERN: &str = r"^MapStageData([a-zA-Z]+)_(\d+)\.csv$"
 pub const MAP_NAME_PATTERN: &str = r"^mapname(\d+)_([a-zA-Z]{1,3})(?:_[a-zA-Z]{2})?\.(png|imgcut|maanim|mamodel)$";
 pub const MAP_SN_PATTERN: &str = r"^mapsn(\d+)_(\d+)_([a-zA-Z]{1,3})(?:_[a-zA-Z]{2})?\.(png|imgcut|maanim|mamodel)$";
 
+// Global Map Names
+pub const MAP_GLOBAL_NAME_PATTERN: &str = r"^Map_Name(?:_[a-zA-Z]{2})?\.csv$";
+
 // Stage Normal (EoC, ItF, CotC, Zombies)
 pub const STAGE_NORMAL_PATTERN: &str = r"^stageNormal(\d)(?:_(\d))?(?:_Invasion)?(?:_Z)?\.csv$";
 
@@ -12,10 +15,10 @@ pub const STAGE_NORMAL_PATTERN: &str = r"^stageNormal(\d)(?:_(\d))?(?:_Invasion)
 pub const STAGE_FILE_PATTERN: &str = r"^stage([a-zA-Z]+)?(\d+)(?:_Invasion)?(?:_(\d+))?\.csv$";
 pub const STAGE_NAME_PATTERN: &str = r"^StageName_([a-zA-Z]+)(?:_[a-zA-Z]{2})?\.csv$";
 
-// --- NEW: Legacy Image Stage Names (ec022_n_ko.png, wc015_n.png) ---
+// Legacy Image Stage Names (ec022_n_ko.png, wc015_n.png)
 pub const LEGACY_STAGE_NAME_PATTERN: &str = r"^([a-zA-Z][cC])(\d+)_([a-zA-Z]{1,3})(?:_[a-zA-Z]{2})?\.(png|imgcut|maanim|mamodel)$";
 
-// --- UPDATED: Castles (Now supports optional _2 numbers like ec045_2_en.png) ---
+// Castles
 pub const CASTLE_PATTERN: &str = r"^(?:castle_)?([a-zA-Z][cC])(\d+)(?:_\d+)?(?:_[a-zA-Z]{2})?\.(png|imgcut|maanim|mamodel)$";
 
 // Backgrounds

@@ -7,6 +7,7 @@ use crate::features::home;
 use crate::features::import::logic::ImportState;
 use crate::features::cat::logic::CatListState;
 use crate::features::enemy::logic::state::EnemyListState;
+use crate::features::stage::logic::state::StageListState;
 use crate::features::settings::logic::{Settings, upd::UpdateMode};
 
 #[derive(PartialEq, Clone, Copy, serde::Deserialize, serde::Serialize)]
@@ -14,11 +15,9 @@ enum Page {
     Home,
     Cats,
     Enemies,
-    // Stages,
+    Stages,
     Mods,
-    // Utility,
     Data,
-    // Files,
     Settings,
 }
 
@@ -28,11 +27,9 @@ impl Page {
             Self::Home => "Home",
             Self::Cats => "Cats",
             Self::Enemies => "Enemies",
-            // Self::Stages => "Stages",
+            Self::Stages => "Stages",
             Self::Mods => "Mods",
-            // Self::Utility => "Utility",
             Self::Data => "Data",
-            // Self::Files => "Files",
             Self::Settings => "Settings",
         }
     }
@@ -42,35 +39,24 @@ const ALL_PAGES: &[Page] = &[
     Page::Home,
     Page::Cats,
     Page::Enemies,
-    // Page::Stages,
+    Page::Stages,
     Page::Mods,
-    // Page::Utility,
     Page::Data,
-    // Page::Files,
     Page::Settings,
 ];
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] 
 pub struct BattleCatsApp {
-    #[serde(skip)]
-    current_page: Page,
-    #[serde(skip)]
-    sidebar_open: bool,
-    #[serde(skip)]
-    import_state: ImportState,
-    
-    #[serde(skip)]
-    updater: updater::Updater,
-    
-    #[serde(skip)]
-    drag_guard: shared::DragGuard,
-    
-    #[serde(skip)]
-    global_watcher: Option<crate::global::io::watcher::GlobalWatcher>,
-    
+    #[serde(skip)] current_page: Page,
+    #[serde(skip)] sidebar_open: bool,
+    #[serde(skip)] import_state: ImportState,
+    #[serde(skip)] updater: updater::Updater,
+    #[serde(skip)] drag_guard: shared::DragGuard,
+    #[serde(skip)] global_watcher: Option<crate::global::io::watcher::GlobalWatcher>,
     cat_list_state: CatListState,
     enemy_list_state: EnemyListState,
+    stage_list_state: StageListState,
     mod_state: crate::features::mods::logic::state::ModState,
     pub settings: Settings,
 }
@@ -83,6 +69,7 @@ impl Default for BattleCatsApp {
             import_state: ImportState::default(),
             cat_list_state: CatListState::default(),
             enemy_list_state: EnemyListState::default(),
+            stage_list_state: StageListState::default(),
             mod_state: crate::features::mods::logic::state::ModState::default(),
             settings: Settings::default(),
             updater: updater::Updater::default(),
@@ -106,6 +93,7 @@ impl BattleCatsApp {
         
         app.cat_list_state.restart_scan(app.settings.scanner_config());
         app.enemy_list_state.restart_scan(app.settings.scanner_config());
+        app.stage_list_state.restart_scan(app.settings.scanner_config());
         app.mod_state.refresh_mods();
         updater::cleanup_temp_files();
 
@@ -189,19 +177,17 @@ impl eframe::App for BattleCatsApp {
 
         self.cat_list_state.update_data();
         self.enemy_list_state.update_data();
+        self.stage_list_state.update_data();
 
-        if self.cat_list_state.scan_receiver.is_some() || self.enemy_list_state.scan_receiver.is_some() {
+        if self.cat_list_state.scan_receiver.is_some() || self.enemy_list_state.scan_receiver.is_some() || self.stage_list_state.scan_receiver.is_some() {
             ctx.request_repaint();
         }
         
-        if self.enemy_list_state.scan_receiver.is_some() {
-            ctx.request_repaint();
-        }
-
         let import_finished = self.import_state.update(ctx);
         if import_finished {
             self.cat_list_state.restart_scan(self.settings.scanner_config());
             self.enemy_list_state.restart_scan(self.settings.scanner_config());
+            self.stage_list_state.restart_scan(self.settings.scanner_config());
             ctx.request_repaint();
         }
 
@@ -225,27 +211,17 @@ impl eframe::App for BattleCatsApp {
             Page::Enemies => {
                 crate::features::enemy::logic::state::show(ctx, &mut self.enemy_list_state, &mut self.settings);            
             },
-            
-            // Page::Stages => {
-            //     crate::features::stages::logic::show(ctx, &mut self.stage_list_state, &mut self.settings);
-            // },
+            Page::Stages => {
+                crate::features::stage::ui::master::show(ctx, &mut self.stage_list_state, &mut self.settings);
+            },
             Page::Mods => {
                 crate::features::mods::ui::frame::show(ctx, &mut self.mod_state, &mut self.settings);
             },
-            // Page::Utility => {
-            //     crate::features::utility::logic::show(ctx, &mut self.utility_state, &mut self.settings);
-            // },
-
             Page::Data => {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     crate::features::import::ui::manager::show(ui, &mut self.import_state, &mut self.settings); 
                 });
             },
-
-            // Page::Files => {
-            //     crate::features::files::logic::show(ctx, &mut self.files_state, &mut self.settings);
-            // },
-
             Page::Settings => {
                 let refresh_needed = crate::features::settings::ui::show(ctx, &mut self.settings, &mut self.drag_guard);
                 
@@ -357,7 +333,10 @@ impl BattleCatsApp {
         self.cat_list_state.restart_scan(config.clone());
         
         self.enemy_list_state.enemy_list.clear_cache();
-        self.enemy_list_state.restart_scan(config);
+        self.enemy_list_state.restart_scan(config.clone());
+
+        self.stage_list_state.registry.clear_cache();
+        self.stage_list_state.restart_scan(config);
     }
 
     fn process_file_events(&mut self, ctx: &egui::Context) {
@@ -379,6 +358,7 @@ impl BattleCatsApp {
         let mut enemy_ids_to_refresh = HashSet::new(); 
         let mut global_cat_refresh = false;
         let mut global_enemy_refresh = false;
+        let mut global_stage_refresh = false;
         let mut mods_refresh = false;
         let mut active_mod_file_changed = false;
 
@@ -434,13 +414,17 @@ impl BattleCatsApp {
             if is_in_enemies_dir && Self::process_enemy_path(&path, &mut enemy_ids_to_refresh) {
                 global_enemy_refresh = true;
             }
+
+            if path_str.contains("stages") {
+                global_stage_refresh = true;
+            }
         }
 
         if mods_refresh {
             self.mod_state.refresh_mods();
         }
 
-        if active_mod_file_changed || global_cat_refresh || global_enemy_refresh {
+        if active_mod_file_changed || global_cat_refresh || global_enemy_refresh || global_stage_refresh {
             self.perform_full_data_reload();
             ctx.request_repaint();
             return; 

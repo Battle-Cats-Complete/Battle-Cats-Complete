@@ -77,7 +77,7 @@ impl Model {
         let mut part_count = 0;
         let mut data_start_index = 0;
 
-        // 1. Get Part Count
+        // Get Part Count
         for (index, line) in lines.iter().take(5).enumerate() {
             if line.contains(',') { break; }
             
@@ -97,7 +97,7 @@ impl Model {
         let mut alpha_unit = 1000.0;
         let mut metadata_start_index = usize::MAX;
 
-        // 2. Read Custom Units
+        // Read Custom Units
         for index in unit_line_index..lines.len() {
             let columns: Vec<&str> = lines[index].split(delimiter).collect();
             if columns.len() < 3 { continue; }
@@ -116,7 +116,7 @@ impl Model {
 
         let mut parts = Vec::new();
 
-        // 3. Parse Parts
+        // Parse Parts
         for index in 0..part_count {
             let target_line_idx = data_start_index + index;
             if target_line_idx >= lines.len() { break; }
@@ -134,8 +134,8 @@ impl Model {
                 drawing_layer: columns[3].trim().parse().unwrap_or(0),
                 position_x:    if is_root { 0.0 } else { columns[4].trim().parse().unwrap_or(0.0) },
                 position_y:    if is_root { 0.0 } else { columns[5].trim().parse().unwrap_or(0.0) },
-                pivot_x:       if is_root { 0.0 } else { columns[6].trim().parse().unwrap_or(0.0) },
-                pivot_y:       if is_root { 0.0 } else { columns[7].trim().parse().unwrap_or(0.0) },
+                pivot_x:       columns[6].trim().parse().unwrap_or(0.0),
+                pivot_y:       columns[7].trim().parse().unwrap_or(0.0),
                 scale_x:       columns[8].trim().parse().unwrap_or(scale_unit), 
                 scale_y:       columns[9].trim().parse().unwrap_or(scale_unit),
                 rotation:      columns[10].trim().parse().unwrap_or(0.0),

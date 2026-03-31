@@ -6,6 +6,7 @@ pub struct StageMatcher {
     map_data: Regex,
     map_name: Regex,
     map_sn: Regex,
+    map_global_name: Regex,
     stage_normal: Regex,
     stage_file: Regex,
     stage_name: Regex,
@@ -26,6 +27,7 @@ impl StageMatcher {
             map_data: Regex::new(patterns::MAP_STAGE_DATA_PATTERN).unwrap(),
             map_name: Regex::new(patterns::MAP_NAME_PATTERN).unwrap(),
             map_sn: Regex::new(patterns::MAP_SN_PATTERN).unwrap(),
+            map_global_name: Regex::new(patterns::MAP_GLOBAL_NAME_PATTERN).unwrap(),
             stage_normal: Regex::new(patterns::STAGE_NORMAL_PATTERN).unwrap(),
             stage_file: Regex::new(patterns::STAGE_FILE_PATTERN).unwrap(),
             stage_name: Regex::new(patterns::STAGE_NAME_PATTERN).unwrap(),
@@ -41,31 +43,22 @@ impl StageMatcher {
         }
     }
 
-    // The Algorithmic Rosetta Stone: Translates Stage Prefixes into Map Prefixes
     fn format_prefix(prefix: &str) -> String {
         let upper = prefix.to_uppercase();
-        
-        // 1. Keep specific casing for Space
-        if upper == "SPACE" {
-            return "Space".to_string();
-        }
-        
-        // 2. The PONOS Madness Rule: Prune the leading 'R' if it's not a lone 'R'.
-        if upper.starts_with('R') && upper.len() > 1 {
-            return upper[1..].to_string();
-        }
-
-        // 3. Fallback for everything else
+        if upper == "SPACE" { return "Space".to_string(); }
+        if upper.starts_with('R') && upper.len() > 1 { return upper[1..].to_string(); }
         upper
     }
 
     pub fn get_dest(&self, name: &str, stages_dir: &Path) -> Option<PathBuf> {
-        // --- Exact Master File Matches ---
+        if self.map_global_name.is_match(name) { return Some(stages_dir.join("Map_Name")); }
+
         match name {
+            "Map_option.csv" | "MapConditions.json" => return Some(stages_dir.to_path_buf()),
             "bg.csv" => return Some(stages_dir.join("backgrounds").join("battle")),
             "Stage_option.csv" => return Some(stages_dir.to_path_buf()),
             "fixed_formation.csv" => return Some(stages_dir.join("fixedlineup")), 
-            "stage.csv" => return Some(stages_dir.join("EC").join("data")),
+            "stage.csv" => return Some(stages_dir.join("EC").join("000")),
             "SpecialRulesMap.json" | "SpecialRulesMapOption.json" => return Some(stages_dir.join("SR")),
             "tower_layout.csv" => return Some(stages_dir.join("V")), 
             "stage_conditions.csv" => return Some(stages_dir.join("L")),
@@ -73,59 +66,41 @@ impl StageMatcher {
             _ => {} 
         }
 
-        // --- Fixed Lineup Presets ---
-        if self.certification_preset.is_match(name) {
-            return Some(stages_dir.join("fixedlineup"));
-        }
-
-        // --- EX Specific Files ---
-        if self.ex_files.is_match(name) {
-            return Some(stages_dir.join("EX"));
-        }
-
-        // --- Map Stage Limits ---
-        if self.limit_msg.is_match(name) {
-            return Some(stages_dir.join("MapStageLimitMessage"));
-        }
-
-        // --- Master Stage Names (Text) ---
+        if self.certification_preset.is_match(name) { return Some(stages_dir.join("fixedlineup")); }
+        if self.ex_files.is_match(name) { return Some(stages_dir.join("EX")); }
+        if self.limit_msg.is_match(name) { return Some(stages_dir.join("MapStageLimitMessage")); }
+        
         if let Some(caps) = self.stage_name.captures(name) {
             return Some(stages_dir.join(Self::format_prefix(&caps[1])));
         }
 
-        // --- Legacy Image Stage Names (ec048_n_en.png, wc015_n.png, sc018_n_en.png) ---
+        // --- Legacy Images (Forced to Category/000/StageID) ---
         if let Some(caps) = self.legacy_stage_name.captures(name) {
             let raw_prefix = caps[1].to_lowercase();
-            let map_id = &caps[2];
-
             let mut mapped_prefix = match raw_prefix.as_str() {
-                "wc" => "W",
-                "sc" => "Space",
-                _ => "EC" // Default for 'ec'
+                "wc" => "W", "sc" => "Space", _ => "EC"
             };
 
-            // Reroute specific 'ec' IDs to Challenge (CL) and Punt (PT)
+            let Ok(id) = caps[2].parse::<u32>() else { return None; };
+            let mut folder_id = id;
+
             if raw_prefix == "ec" {
-                if let Ok(id) = map_id.parse::<u32>() {
-                    // The Moon stage image sharing offsets the image IDs by 2!
-                    // Data 50 (Challenge) = Image 48
-                    // Data 51-52 (Punt) = Image 49-50
-                    if id == 48 { mapped_prefix = "CL"; }
-                    if id >= 49 && id <= 50 { mapped_prefix = "PT"; }
-                }
+                if id == 48 { mapped_prefix = "M"; folder_id = 50; }
+                if id >= 49 && id <= 50 { mapped_prefix = "PT"; folder_id = id + 2; }
             }
 
-            // Route all to their prefix, then into a lowercase "names" folder
-            return Some(stages_dir.join(mapped_prefix).join("names"));
+            return Some(stages_dir.join(mapped_prefix).join("000").join(format!("{:02}", folder_id)));
         }
 
-        // --- Stage Normal (EC, ItF, CotC, and Zombies) ---
+        // --- Stage Normal (EoC, ItF, CotC, and Zombies) ---
         if let Some(caps) = self.stage_normal.captures(name) {
             let chapter = &caps[1];
-            let map_id = caps.get(2).map(|m| m.as_str());
+            // If sub_chapter doesn't exist (like in EoC), default to "0"
+            let sub_chapter = caps.get(2).map(|m| m.as_str()).unwrap_or("0");
             let is_zombie = name.ends_with("_Z.csv");
 
-            let base_folder = if is_zombie {
+            // Determine Category
+            let category = if is_zombie {
                 "Z".to_string()
             } else {
                 match chapter {
@@ -136,73 +111,77 @@ impl StageMatcher {
                 }
             };
 
-            let mut path = stages_dir.join(base_folder);
-            if is_zombie { path = path.join(chapter); }
-            if let Some(id) = map_id { path = path.join(id); }
+            // Map to the internal Map ID
+            let map_id = match (chapter, sub_chapter) {
+                ("0", _) => "000",   // EoC is Map 0
+                ("1", "0") => "004", // ItF Ch 1
+                ("1", "1") => "005", // ItF Ch 2
+                ("1", "2") => "006", // ItF Ch 3
+                ("2", "0") => "007", // CotC Ch 1
+                ("2", "1") => "008", // CotC Ch 2
+                ("2", "2") => "009", // CotC Ch 3
+                _ => "000",          // Fallback
+            };
 
-            return Some(path);
+            return Some(stages_dir.join(category).join(map_id));
         }
 
-        // --- Individual Stage Data (DEEP NESTING) ---
+        // --- Stage Files (Unified to Category/Map/Stage) ---
         if let Some(caps) = self.stage_file.captures(name) {
             let prefix = caps.get(1).map(|m| m.as_str());
-            let map_id = &caps[2];
-            let stage_id = caps.get(3).map(|m| m.as_str()); 
+            
+            let Ok(map_id) = caps[2].parse::<u32>() else { return None; };
 
             if let Some(p) = prefix {
-                let mut path = stages_dir.join(Self::format_prefix(p)).join(map_id);
-                if let Some(s) = stage_id { path = path.join(s); }
+                let mut path = stages_dir.join(Self::format_prefix(p)).join(format!("{:03}", map_id));
+                
+                if let Some(s) = caps.get(3) {
+                    if let Ok(stage_id) = s.as_str().parse::<u32>() {
+                        path = path.join(format!("{:02}", stage_id));
+                    }
+                }
                 return Some(path);
             } else {
-                // Legacy Routing puts them in a lowercase "data" folder
-                if let Ok(id) = map_id.parse::<u32>() {
-                    if id <= 49 { return Some(stages_dir.join("EC").join("data")); }
-                    if id == 50 { return Some(stages_dir.join("CL").join("data")); }
-                    if id >= 51 && id <= 52 { return Some(stages_dir.join("PT").join("data")); }
-                }
+                // Legacy Fallback: map_id capture is actually the stage ID here
+                let mut p = "EC";
+                if map_id == 50 { p = "M"; } // Merged into M!
+                if map_id >= 51 && map_id <= 52 { p = "PT"; }
+                return Some(stages_dir.join(p).join("000").join(format!("{:02}", map_id)));
             }
         }
 
-        // --- Dynamic Categories (Maps & Data) ---
+        // --- Map & Stage Dynamic Content ---
         if let Some(caps) = self.map_data.captures(name) {
-            return Some(stages_dir.join(Self::format_prefix(&caps[1])).join(&caps[2]));
+            let Ok(map_id) = caps[2].parse::<u32>() else { return None; };
+            return Some(stages_dir.join(Self::format_prefix(&caps[1])).join(format!("{:03}", map_id)));
         }
+        
         if let Some(caps) = self.map_name.captures(name) {
-            return Some(stages_dir.join(Self::format_prefix(&caps[2])).join(&caps[1]));
+            let Ok(map_id) = caps[1].parse::<u32>() else { return None; };
+            return Some(stages_dir.join(Self::format_prefix(&caps[2])).join(format!("{:03}", map_id)));
         }
+        
         if let Some(caps) = self.map_sn.captures(name) {
-            let map_id = &caps[1];
-            let stage_id = &caps[2];
-            let prefix = &caps[3];
-            
-            return Some(stages_dir.join(Self::format_prefix(prefix)).join(map_id).join(stage_id));
+            let Ok(map_id) = caps[1].parse::<u32>() else { return None; };
+            let Ok(stage_id) = caps[2].parse::<u32>() else { return None; };
+            return Some(stages_dir.join(Self::format_prefix(&caps[3])).join(format!("{:03}", map_id)).join(format!("{:02}", stage_id)));
         }
 
-        // --- Castles ---
+        // --- Assorted Assets ---
         if let Some(caps) = self.castle.captures(name) {
             if name.starts_with("fc000") { return None; } 
             return Some(stages_dir.join("castles").join(&caps[1]));
         }
-
-        // --- Backgrounds ---
         if let Some(caps) = self.bg_map.captures(name) {
-            if let Ok(id) = caps[1].parse::<u32>() {
-                return Some(stages_dir.join("backgrounds").join("maps").join(format!("{:03}", id)));
-            }
+            if let Ok(id) = caps[1].parse::<u32>() { return Some(stages_dir.join("backgrounds").join("maps").join(format!("{:03}", id))); }
         }
         if let Some(caps) = self.bg_battle.captures(name) {
-            if let Ok(id) = caps[1].parse::<u32>() {
-                return Some(stages_dir.join("backgrounds").join("battle").join(format!("{:03}", id)));
-            }
+            if let Ok(id) = caps[1].parse::<u32>() { return Some(stages_dir.join("backgrounds").join("battle").join(format!("{:03}", id))); }
         }
         if let Some(caps) = self.bg_effect.captures(name) {
-            if let Ok(id) = caps[1].parse::<u32>() {
-                return Some(stages_dir.join("backgrounds").join("effects").join(format!("{:03}", id)));
-            }
+            if let Ok(id) = caps[1].parse::<u32>() { return Some(stages_dir.join("backgrounds").join("effects").join(format!("{:03}", id))); }
         }
-        if self.bg_data.is_match(name) {
-            return Some(stages_dir.join("backgrounds").join("effects").join("data"));
-        }
+        if self.bg_data.is_match(name) { return Some(stages_dir.join("backgrounds").join("effects").join("data")); }
 
         None
     }
