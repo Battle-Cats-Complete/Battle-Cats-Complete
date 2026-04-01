@@ -39,7 +39,7 @@ const ALL_PAGES: &[Page] = &[
     Page::Home,
     Page::Cats,
     Page::Enemies,
-    Page::Stages,
+    // Page::Stages,
     Page::Mods,
     Page::Data,
     Page::Settings,
@@ -130,7 +130,6 @@ impl eframe::App for BattleCatsApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-
         self.updater.update_state(ctx);
         
         let status_str = match self.updater.status {
@@ -185,9 +184,7 @@ impl eframe::App for BattleCatsApp {
         
         let import_finished = self.import_state.update(ctx);
         if import_finished {
-            self.cat_list_state.restart_scan(self.settings.scanner_config());
-            self.enemy_list_state.restart_scan(self.settings.scanner_config());
-            self.stage_list_state.restart_scan(self.settings.scanner_config());
+            self.perform_full_data_reload();
             ctx.request_repaint();
         }
 
@@ -302,15 +299,15 @@ impl BattleCatsApp {
         self.cat_list_state.detail_texture = None;
         self.cat_list_state.detail_key.clear();
         
-        self.cat_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
-        self.cat_list_state.img022_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+        self.cat_list_state.img015_sheets.clear();
+        self.cat_list_state.img022_sheets.clear();
         self.cat_list_state.sprite_sheet = crate::global::formats::imgcut::SpriteSheet::default();
         self.cat_list_state.gatya_item_textures.clear();
         
         self.enemy_list_state.anim_viewer.loaded_id.clear();
         self.enemy_list_state.detail_texture = None;
         self.enemy_list_state.detail_key.clear();
-        self.enemy_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+        self.enemy_list_state.img015_sheets.clear();
 
         let viewers = [
             &mut self.cat_list_state.anim_viewer,
@@ -381,9 +378,9 @@ impl BattleCatsApp {
             }
 
             if path_str.contains("img015") || path_str.contains("img022") {
-                self.cat_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
-                self.cat_list_state.img022_sheet = crate::global::formats::imgcut::SpriteSheet::default();
-                self.enemy_list_state.icon_sheet = crate::global::formats::imgcut::SpriteSheet::default();
+                self.cat_list_state.img015_sheets.clear();
+                self.cat_list_state.img022_sheets.clear();
+                self.enemy_list_state.img015_sheets.clear();
             }
 
             if path_str.contains("assets") || path_str.contains("gatyaitem") {
@@ -393,7 +390,7 @@ impl BattleCatsApp {
             }
 
             let is_cat_global_file = crate::features::cat::patterns::CAT_UNIVERSAL_FILES.contains(&file_name) 
-                                 || crate::global::io::patterns::CHECK_LINE_FILES.contains(&file_name);
+                                   || crate::global::io::patterns::CHECK_LINE_FILES.contains(&file_name);
             
             if is_cat_global_file {
                 global_cat_refresh = true;
