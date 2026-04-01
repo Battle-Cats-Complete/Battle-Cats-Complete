@@ -52,8 +52,8 @@ pub struct CatListState {
     #[serde(skip)] pub active_scan_ids: HashSet<u32>,
     #[serde(skip)] pub detail_texture: Option<egui::TextureHandle>,
     #[serde(skip)] pub detail_key: String, 
-    #[serde(skip)] pub icon_sheet: SpriteSheet,   
-    #[serde(skip)] pub img022_sheet: SpriteSheet, 
+    #[serde(skip)] pub img015_sheets: Vec<SpriteSheet>,   
+    #[serde(skip)] pub img022_sheets: Vec<SpriteSheet>, 
     #[serde(skip)] pub sprite_sheet: SpriteSheet, 
     #[serde(skip)] pub model_data: Option<Model>,
     #[serde(skip)] pub anim_viewer: AnimViewer,
@@ -88,8 +88,8 @@ impl Default for CatListState {
             active_scan_ids: HashSet::new(),
             detail_texture: None,
             detail_key: String::new(),
-            icon_sheet: SpriteSheet::default(), 
-            img022_sheet: SpriteSheet::default(),
+            img015_sheets: Vec::new(), 
+            img022_sheets: Vec::new(),
             sprite_sheet: SpriteSheet::default(), 
             model_data: None,
             anim_viewer: AnimViewer::default(),
@@ -284,7 +284,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
             &mut state.selected_form, &mut state.selected_detail_tab,
             &mut state.level_input, &mut state.current_level, 
             &mut state.detail_texture, &mut state.detail_key,
-            &mut state.icon_sheet, &mut state.img022_sheet, &mut state.sprite_sheet,
+            &mut state.img015_sheets, &mut state.img022_sheets, &mut state.sprite_sheet,
             &mut state.model_data, &mut state.anim_viewer,
             &assets,
             &mut state.talent_name_textures, &mut state.gatya_item_textures, 
@@ -339,7 +339,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
     });
     
     crate::features::cat::ui::filter::show_popup(
-        ctx, &mut state.filter_state, &mut state.icon_sheet,
+        ctx, &mut state.filter_state, &mut state.img015_sheets,
         &assets,
         settings, &mut state.drag_guard,
     );

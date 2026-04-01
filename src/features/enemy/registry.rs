@@ -879,6 +879,31 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         minus_one_is_inf: false,
     },
     EnemyAbilityDef {
+        name: "Cut Cooldown",
+        fallback: "CDown",
+        icon_id: img015::ICON_CUT_COOLDOWN,
+        group: DisplayGroup::Body2,
+        custom_icon: CustomIcon::None,
+        schema: &[
+            ("Chance", AttrUnit::Percent), 
+            ("Amount", AttrUnit::Percent)
+        ],
+        get_attributes: |stats| {
+            if stats.cut_cooldown_chance > 0 { 
+                vec![
+                    ("Chance", stats.cut_cooldown_chance, AttrUnit::Percent), 
+                    ("Amount", stats.cut_cooldown_percent, AttrUnit::Percent),
+                ] 
+            } else { 
+                vec![] 
+            }
+        },
+        formatter: |value_1, stats, _, _| {
+            format!("{}% Chance to cut\nongoing Cat cooldown by {}%", value_1, stats.cut_cooldown_percent)
+        },
+        minus_one_is_inf: false,
+    },
+    EnemyAbilityDef {
         name: "Dodge",
         fallback: "Dodge",
         icon_id: img015::ICON_DODGE,
