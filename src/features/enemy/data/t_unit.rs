@@ -136,12 +136,10 @@ impl EnemyRaw {
     }
 }
 
-pub fn load_all(t_unit_path: &Path) -> Option<Vec<EnemyRaw>> {
-    if !t_unit_path.exists() {
-        return None;
-    }
-
-    let file_content = fs::read_to_string(t_unit_path).ok()?;
+pub fn load_all(dir: &Path, filename: &str, priority: &[String]) -> Option<Vec<EnemyRaw>> {
+    let path = crate::global::resolver::get(dir, &[filename], priority).into_iter().next()?;
+    
+    let file_content = fs::read_to_string(path).ok()?;
     let mut enemies = Vec::new();
 
     for line in file_content.lines().skip(2) {

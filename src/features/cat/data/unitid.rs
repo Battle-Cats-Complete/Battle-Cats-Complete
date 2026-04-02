@@ -261,9 +261,9 @@ pub fn load_from_id(cat_id: i32, priority: &[String]) -> Option<Vec<CatRaw>> {
     let path_object = paths::stats(Path::new(paths::DIR_CATS), cat_id as u32);
     
     let base_dir = path_object.parent().unwrap_or(Path::new(""));
-    let file_name = path_object.file_name().unwrap().to_string_lossy();
+    let file_name = path_object.file_name().unwrap().to_string_lossy().to_string();
 
-    if let Some(resolved_path) = crate::global::resolver::get(base_dir, &file_name, priority).into_iter().next() {
+    if let Some(resolved_path) = crate::global::resolver::get(base_dir, &[file_name.as_str()], priority).into_iter().next() {
         
         if let Ok(bytes) = fs::read(resolved_path) {
             let file_content = String::from_utf8_lossy(&bytes);

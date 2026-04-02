@@ -1,5 +1,6 @@
 use eframe::egui;
 use std::sync::mpsc;
+use std::path::Path;
 use crate::features::import::logic::{ImportState, decrypt};
 use crate::features::import::sort;
 
@@ -54,15 +55,18 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState) {
         // Map AdbRegion to the code string expected by decrypt.rs
         let region_code = match state.adb_region {
             crate::features::import::logic::AdbRegion::English => "en",
-            crate::features::import::logic::AdbRegion::Japanese => "jp", 
+            crate::features::import::logic::AdbRegion::Japanese => "ja",
             crate::features::import::logic::AdbRegion::Taiwan => "tw",
-            crate::features::import::logic::AdbRegion::Korean => "kr",
+            crate::features::import::logic::AdbRegion::Korean => "ko",
             _ => "en",
         }.to_string();
 
         std::thread::spawn(move || {
+            let _ = tx.send("Indexing workspace...".to_string());
+            let mut shared_index = decrypt::build_index(Path::new("game"));
+
             // Run Decryption
-            if let Err(e) = decrypt::run(&folder, &region_code, tx.clone()) {
+            if let Err(e) = decrypt::run(&folder, &region_code, &mut shared_index, tx.clone()) {
                 let _ = tx.send(format!("Error: {}", e));
                 return; 
             }

@@ -187,7 +187,7 @@ fn build_statblock_image(
 
     let img015_folder = crate::global::io::paths::img015_folder(Path::new(""));
         let mut img015_base = RgbaImage::new(1024, 1024);
-        if let Some(p) = crate::global::resolver::get(&img015_folder, "img015.png", priority).into_iter().next() {
+        if let Some(p) = crate::global::resolver::get(&img015_folder, &["img015.png"], priority).into_iter().next() {
             if let Ok(loaded) = image::open(&p) { img015_base = loaded.to_rgba8(); }
         }    
 
