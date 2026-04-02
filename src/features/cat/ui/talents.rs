@@ -341,5 +341,5 @@ fn get_or_load_skill_name(
 fn find_skill_image_path(image_id: i16, settings: &Settings) -> Option<PathBuf> {
     let dir = Path::new(paths::DIR_SKILL_NAME);
     let base_filename = format!("Skill_name_{:03}.png", image_id);
-    crate::global::get(dir, &base_filename, &settings.general.language_priority).into_iter().next()
+    crate::global::get(dir, &[base_filename.as_str()], &settings.general.language_priority).into_iter().next()
 }

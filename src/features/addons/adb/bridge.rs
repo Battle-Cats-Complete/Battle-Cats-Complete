@@ -146,87 +146,127 @@ pub fn spawn_full_import(sender: Sender<AdbEvent>, base_output_dir: PathBuf, mod
             _ => vec![region],
         };
 
-        for (index, current_region) in regions_to_process.iter().enumerate() {
+        let mut successful_pulls = Vec::new();
+
+        // PHASE 1: MASS ADB PULL
+        for current_region in regions_to_process.iter() {
             let suffix = current_region.suffix();
             let package_name = format!("jp.co.ponos.battlecats{}", suffix);
             
-            let status_prefix = if region == AdbRegion::All {
-                format!("Region {}/4", index + 1)
-            } else {
-                "Processing".to_string()
-            };
+            let check_installed = driver::run_command(&["-s", &current_serial, "shell", "pm", "path", &package_name]).unwrap_or_default();
             
-            let _ = sender.send(AdbEvent::Status(format!("{}: {}", status_prefix, package_name)));
+            if check_installed.trim().is_empty() || check_installed.contains("Error") {
+                if region == AdbRegion::All {
+                    let _ = sender.send(AdbEvent::Status(format!("Skipping {}: Not installed on device.", package_name)));
+                } else {
+                    let _ = sender.send(AdbEvent::Error(format!("Error: {} is not installed on this device.", package_name)));
+                }
+                continue;
+            }
+
+            let _ = sender.send(AdbEvent::Status(format!("Pulling {}...", package_name)));
             let target_dir = base_output_dir.join(&package_name);
 
             let process_result = process_single_region_adb(&sender, &current_serial, &package_name, &target_dir, mode.clone());
             
-            if let Err(process_error) = process_result {
-                let Some(ref rescue_ip) = fallback_ip else {
-                    let _ = sender.send(AdbEvent::Status(format!("Skipping {} due to error: {}", package_name, process_error)));
-                    continue;
-                };
-                
-                let _ = sender.send(AdbEvent::Status(format!("Error: {}. Engaging Wireless Rescue...", process_error)));
-                let _ = sender.send(AdbEvent::Status(format!("Connecting to {}...", rescue_ip)));
-
-                if driver::connect_wireless(rescue_ip).is_err() {
-                    let _ = sender.send(AdbEvent::Status(format!("Rescue connection failed for {}", rescue_ip)));
-                    continue;
-                }
-
-                current_serial = rescue_ip.clone(); 
-                let rescue_result = process_single_region_adb(&sender, &current_serial, &package_name, &target_dir, mode.clone());
-                
-                if let Err(rescue_error) = rescue_result {
-                    let _ = sender.send(AdbEvent::Status(format!("Rescue Failed: {}", rescue_error)));
-                    continue;
-                }
-                
-                let _ = sender.send(AdbEvent::Status("Rescue Successful! Continuing via WiFi.".to_string()));
+            if process_result.is_ok() {
+                successful_pulls.push((current_region.clone(), package_name, target_dir));
+                continue;
             }
-
-            let _ = sender.send(AdbEvent::Status("Starting Decryption...".to_string()));
-            let region_code = match suffix { "" => "ja", "kr" => "ko", other => other };
-            let (decrypt_sender, decrypt_receiver) = std::sync::mpsc::channel();
             
-            let sender_clone = sender.clone();
-            thread::spawn(move || { while let Ok(msg) = decrypt_receiver.recv() { let _ = sender_clone.send(AdbEvent::Status(msg)); } });
+            let process_error = process_result.unwrap_err();
 
-            let Some(target_dir_str) = target_dir.to_str() else { 
-                let _ = sender.send(AdbEvent::Status("Decryption Failed: Invalid directory path.".to_string()));
-                continue; 
-            };
-
-            if let Err(decrypt_error) = decrypt::run(target_dir_str, region_code, decrypt_sender) {
-                let _ = sender.send(AdbEvent::Status(format!("Decryption Failed: {}", decrypt_error)));
+            // If we encounter hard app-level errors, immediately skip to next without triggering a network rescue IP fallback.
+            let is_app_warning = process_error.contains("Root Copy Failed") || process_error.contains("APK Path not found") || process_error.contains("Warning:");
+            if is_app_warning {
+                if region == AdbRegion::All {
+                    let _ = sender.send(AdbEvent::Status(format!("Skipping {}: {}", package_name, process_error)));
+                } else {
+                    let _ = sender.send(AdbEvent::Error(process_error));
+                }
                 continue;
             }
 
-            if !config.keep_app_folder {
-                let _ = sender.send(AdbEvent::Status("Cleaning up temporary app files...".to_string()));
-                if base_output_dir.exists() { let _ = fs::remove_dir_all(&base_output_dir); }
+            // Fallback Rescue IP logic specifically for connection drops or pull failures
+            let Some(ref rescue_ip) = fallback_ip else {
+                let _ = sender.send(AdbEvent::Status(format!("Skipping {} due to error: {}", package_name, process_error)));
+                continue;
+            };
+            
+            let _ = sender.send(AdbEvent::Status(format!("Error: {}. Engaging Wireless Rescue...", process_error)));
+            let _ = sender.send(AdbEvent::Status(format!("Connecting to {}...", rescue_ip)));
+
+            if driver::connect_wireless(rescue_ip).is_err() {
+                let _ = sender.send(AdbEvent::Status(format!("Rescue connection failed for {}", rescue_ip)));
+                continue;
             }
 
-            let _ = sender.send(AdbEvent::Status("Starting Sort...".to_string()));
-            let (sort_sender, sort_receiver) = std::sync::mpsc::channel();
+            current_serial = rescue_ip.clone(); 
+            let rescue_result = process_single_region_adb(&sender, &current_serial, &package_name, &target_dir, mode.clone());
             
-            let sender_clone_2 = sender.clone();
-            thread::spawn(move || { while let Ok(msg) = sort_receiver.recv() { let _ = sender_clone_2.send(AdbEvent::Status(msg)); } });
-
-            if let Err(sort_error) = sort::sort_game_files(sort_sender) {
-                let _ = sender.send(AdbEvent::Status(format!("Sort Failed: {}", sort_error)));
-            } else {
-                let _ = sender.send(AdbEvent::Status("Region processed successfully.".to_string()));
+            if let Err(rescue_error) = rescue_result {
+                let _ = sender.send(AdbEvent::Status(format!("Rescue Failed: {}", rescue_error)));
+                continue;
             }
             
-            thread::sleep(Duration::from_secs(1));
+            let _ = sender.send(AdbEvent::Status("Rescue Successful! Continuing via WiFi.".to_string()));
+            successful_pulls.push((current_region.clone(), package_name, target_dir));
         }
 
         let _ = sender.send(AdbEvent::Status("Stopping ADB Server...".to_string()));
         let _ = driver::run_command(&["kill-server"]);
 
-        let _ = sender.send(AdbEvent::Success("All Operations Complete!".to_string()));
+        if successful_pulls.is_empty() {
+             let _ = sender.send(AdbEvent::Error("No regions were successfully pulled from the device.".to_string()));
+             return;
+        }
+
+        // PHASE 2: MASS DECRYPTION
+        let _ = sender.send(AdbEvent::Status("Starting Decryption Phase...".to_string()));
+        
+        let _ = sender.send(AdbEvent::Status("Indexing workspace...".to_string()));
+        let mut master_workspace_index = decrypt::build_index(Path::new("game"));
+
+        for (current_region, pkg_name, target_dir) in &successful_pulls {
+            let suffix = current_region.suffix();
+            let region_code = match suffix { "" => "ja", "kr" => "ko", other => other };
+            
+            let _ = sender.send(AdbEvent::Status(format!("Decrypting {}...", pkg_name)));
+            
+            let (decrypt_sender, decrypt_receiver) = std::sync::mpsc::channel();
+            let sender_clone = sender.clone();
+            thread::spawn(move || { while let Ok(msg) = decrypt_receiver.recv() { let _ = sender_clone.send(AdbEvent::Status(msg)); } });
+
+            let Some(target_dir_str) = target_dir.to_str() else { 
+                let _ = sender.send(AdbEvent::Status(format!("Decryption Failed for {}: Invalid directory path.", pkg_name)));
+                continue; 
+            };
+
+            if let Err(decrypt_error) = decrypt::run(target_dir_str, region_code, &mut master_workspace_index, decrypt_sender) {
+                let _ = sender.send(AdbEvent::Status(format!("Decryption Failed for {}: {}", pkg_name, decrypt_error)));
+                continue;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+
+        // PHASE 3: CLEANUP
+        if !config.keep_app_folder {
+            let _ = sender.send(AdbEvent::Status("Cleaning up temporary app files...".to_string()));
+            if base_output_dir.exists() { let _ = fs::remove_dir_all(&base_output_dir); }
+        }
+
+        // PHASE 4: MASS SORT
+        let _ = sender.send(AdbEvent::Status("Starting Unified Sort...".to_string()));
+        let (sort_sender, sort_receiver) = std::sync::mpsc::channel();
+        
+        let sender_clone_2 = sender.clone();
+        thread::spawn(move || { while let Ok(msg) = sort_receiver.recv() { let _ = sender_clone_2.send(AdbEvent::Status(msg)); } });
+
+        if let Err(sort_error) = sort::sort_game_files(sort_sender) {
+            let _ = sender.send(AdbEvent::Status(format!("Sort Failed: {}", sort_error)));
+        } else {
+            let _ = sender.send(AdbEvent::Success("All Operations Complete!".to_string()));
+        }
     });
 }
 
@@ -248,18 +288,14 @@ fn process_single_region_adb(sender: &Sender<AdbEvent>, serial: &str, package_na
         
         if !success {
             let command_string = format!("'cp -r {} {}'", remote_src, remote_stage_dir);
-            if driver::run_command(&["-s", serial, "shell", "su", "-c", &command_string]).is_ok() {
-                success = true;
-            }
+            success = driver::run_command(&["-s", serial, "shell", "su", "-c", &command_string]).is_ok();
         }
         
         if !success {
-            if driver::run_command(&["-s", serial, "shell", "su", "0", "cp", "-r", &remote_src, remote_stage_dir]).is_ok() {
-                success = true;
-            }
+            success = driver::run_command(&["-s", serial, "shell", "su", "0", "cp", "-r", &remote_src, remote_stage_dir]).is_ok();
         }
         
-        if !success { return Err("Root Copy Failed. Device might not be rooted.".to_string()); }
+        if !success { return Err("Root Copy Failed. Device might not be rooted, or app is missing.".to_string()); }
 
         let _ = driver::run_command(&["-s", serial, "shell", "chmod", "-R", "777", remote_stage_target]);
         
@@ -287,36 +323,34 @@ fn process_single_region_adb(sender: &Sender<AdbEvent>, serial: &str, package_na
         let _ = driver::run_command(&["-s", serial, "shell", "rm", "-rf", remote_stage_target]);
     } 
 
-    let mut pulled_apk = false;
+    let pm_path_output = driver::run_command(&["-s", serial, "shell", "pm", "path", package_name]).unwrap_or_default();
+    let has_base = pm_path_output.contains("base.apk");
 
-    if pull_target_apk(serial, package_name, "split_InstallPack.apk", output_dir).is_ok() {
-        pulled_apk = true;
-    } else if pull_target_apk(serial, package_name, "base.apk", output_dir).is_ok() {
-        pulled_apk = true;
-    }
-    
-    if !pulled_apk {
-        let msg_suffix = match mode {
-            AdbImportType::Update => "Aborting import.",
-            AdbImportType::All => "Import may not include important/updated data.",
-        };
-        
-        let warning = format!("Warning: Update or Base APK not found. {}", msg_suffix);
-        let _ = sender.send(AdbEvent::Status(warning.clone()));
-        
-        if mode == AdbImportType::Update {
-            return Err(warning);
+    if pull_target_apk(serial, &pm_path_output, "split_InstallPack.apk", output_dir).is_err() {
+        if has_base {
+            return Err("Warning: File modification suspected, please do a clean Game install and import again".to_string());
+        } else {
+            let _ = sender.send(AdbEvent::Status("Warning: Update APK missing, import may be missing crucial/updated files".to_string()));
         }
     }
 
     Ok(())
 }
 
-fn pull_target_apk(serial: &str, package_name: &str, target: &str, output_dir: &Path) -> Result<(), String> {
-    let command_output = driver::run_command(&["-s", serial, "shell", "pm", "path", package_name])?;
-    let remote_path = command_output.lines().find(|line| line.contains("base.apk"))
-        .ok_or("APK Path not found.")?.trim().strip_prefix("package:").unwrap_or("")
-        .replace("base.apk", target);
+fn pull_target_apk(serial: &str, pm_path_output: &str, target: &str, output_dir: &Path) -> Result<(), String> {
+    // First, try to see if the target is explicitly listed in pm path
+    let mut remote_path = pm_path_output.lines()
+        .find(|line| line.contains(target))
+        .map(|line| line.trim().strip_prefix("package:").unwrap_or("").to_string());
+
+    // Fallback to the old string replace logic if it wasn't explicitly listed but base.apk is
+    if remote_path.is_none() {
+        remote_path = pm_path_output.lines()
+            .find(|line| line.contains("base.apk"))
+            .map(|line| line.trim().strip_prefix("package:").unwrap_or("").replace("base.apk", target));
+    }
+
+    let final_remote_path = remote_path.ok_or("APK Path not found.")?;
 
     let local_path = output_dir.join(target);
     
@@ -328,7 +362,7 @@ fn pull_target_apk(serial: &str, package_name: &str, target: &str, output_dir: &
         return Err("Invalid local path string.".to_string());
     };
     
-    driver::run_command(&["-s", serial, "pull", &remote_path, local_path_str])?;
+    driver::run_command(&["-s", serial, "pull", &final_remote_path, local_path_str])?;
     
     let apk_size = local_path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
     
