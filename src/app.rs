@@ -1,6 +1,7 @@
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::atomic::Ordering;
 use crate::global::ui::shared; 
 use crate::updater;
 use crate::features::home;
@@ -354,7 +355,9 @@ impl BattleCatsApp {
         }
 
         if paths.is_empty() { return; }
-        if self.import_state.rx.is_some() || self.import_state.is_adb_busy { return; }
+        
+        if self.import_state.import_rx.is_some() || self.import_state.import_job_status.load(Ordering::Relaxed) == 1 { return; }
+        if self.import_state.export_rx.is_some() || self.import_state.export_job_status.load(Ordering::Relaxed) == 1 { return; }
 
         let mut cat_ids_to_refresh = HashSet::new();
         let mut enemy_ids_to_refresh = HashSet::new(); 

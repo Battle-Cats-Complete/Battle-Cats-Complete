@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::collections::HashMap;
 use rayon::prelude::*;
@@ -10,6 +10,7 @@ use zip::ZipArchive;
 use crate::features::import::sort::{cat, global, enemy};
 use crate::features::cat::patterns as cat_patterns;
 use crate::global::io::patterns as global_patterns;
+
 struct FileValidator {
     global_matcher: global::GlobalMatcher,
     cat_matcher: cat::CatMatcher,
@@ -57,7 +58,10 @@ impl FileValidator {
     }
 }
 
-pub fn import_standard_folder(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
+pub fn import_standard_folder(path_str: &str, tx: Sender<String>, abort_flag: Arc<AtomicBool>, prog_curr: Arc<AtomicUsize>, prog_max: Arc<AtomicUsize>) -> Result<bool, String> {
+    prog_curr.store(0, Ordering::Relaxed);
+    prog_max.store(0, Ordering::Relaxed);
+    
     let source = Path::new(path_str);
     let game_root = Path::new("game");
     let raw_dir = game_root.join("raw");
@@ -70,7 +74,6 @@ pub fn import_standard_folder(path_str: &str, tx: Sender<String>) -> Result<bool
     if let (Ok(s), Ok(r)) = (source.canonicalize(), raw_dir.canonicalize()) {
         if s == r {
             let _ = tx.send("Targeted game/raw directly.\nBypassing indexer to run Sorter...".to_string());
-            
             return Ok(true); 
         }
     }
@@ -90,29 +93,36 @@ pub fn import_standard_folder(path_str: &str, tx: Sender<String>) -> Result<bool
         let _ = tx.send("Smart Import: Valid game structure detected.".to_string());
         let mut tasks = Vec::new();
         scan_with_relative_paths(&root, &root, &mut tasks).map_err(|e| e.to_string())?;
+        
+        prog_max.store(tasks.len(), Ordering::Relaxed);
 
         let count = AtomicI32::new(0);
         tasks.par_iter().for_each(|(abs_path, rel_path)| {
+            if abort_flag.load(Ordering::Relaxed) { return; }
             let dest = game_root.join(rel_path);
             if let Some(p) = dest.parent() { if !p.exists() { let _ = fs::create_dir_all(p); } }
             if fs::copy(abs_path, &dest).is_ok() {
                 let c = count.fetch_add(1, Ordering::Relaxed) + 1;
+                prog_curr.fetch_add(1, Ordering::Relaxed);
                 if c % 100 == 0 { let _ = tx.send(format!("Restored {} files...", c)); }
             }
         });
         
+        if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".to_string()); }
         return Ok(true);
     }
     
     // Standard Raw Import
     let mut tasks = Vec::new();
     scan_dir(source, &mut tasks).map_err(|e| e.to_string())?;
+    if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".to_string()); }
 
     let _ = tx.send("Indexing existing workspace files...".to_string());
     let shared_index = Arc::new(build_index(game_root));
     let validator = FileValidator::new();
 
     let filtered_tasks: Vec<PathBuf> = tasks.into_par_iter().filter(|path| {
+        if abort_flag.load(Ordering::Relaxed) { return false; }
         let Some(name_os) = path.file_name() else { return false; };
         let name = name_os.to_string_lossy();
         if !validator.is_valid(&name) { return false; }
@@ -132,35 +142,43 @@ pub fn import_standard_folder(path_str: &str, tx: Sender<String>) -> Result<bool
         true
     }).collect();
 
+    if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".to_string()); }
+
     if filtered_tasks.is_empty() {
         let _ = tx.send("Workspace is already up to date.".to_string());
-        
-        return Ok(true);
+        return Ok(false);
     }
+
+    prog_max.store(filtered_tasks.len(), Ordering::Relaxed);
 
     let _ = tx.send(format!("Found {} new files. Importing...", filtered_tasks.len()));
     let count = AtomicI32::new(0);
     filtered_tasks.par_iter().for_each(|path| {
+        if abort_flag.load(Ordering::Relaxed) { return; }
         let name = path.file_name().unwrap().to_string_lossy();
         if fs::copy(path, raw_dir.join(name.as_ref())).is_ok() {
             let c = count.fetch_add(1, Ordering::Relaxed) + 1;
+            prog_curr.fetch_add(1, Ordering::Relaxed);
             if c % 100 == 0 { let _ = tx.send(format!("Imported {} files...", c)); }
         }
     });
 
-    
+    if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".to_string()); }
     Ok(true)
 }
 
-pub fn import_standard_archive(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
+pub fn import_standard_archive(path_str: &str, tx: Sender<String>, abort_flag: Arc<AtomicBool>, prog_curr: Arc<AtomicUsize>, prog_max: Arc<AtomicUsize>) -> Result<bool, String> {
     if path_str.to_lowercase().ends_with(".zip") {
-        import_legacy_zip(path_str, tx)
+        import_legacy_zip(path_str, tx, abort_flag, prog_curr, prog_max)
     } else {
-        import_tar_zst(path_str, tx)
+        import_tar_zst(path_str, tx, abort_flag, prog_curr, prog_max)
     }
 }
 
-fn import_tar_zst(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
+fn import_tar_zst(path_str: &str, tx: Sender<String>, abort_flag: Arc<AtomicBool>, prog_curr: Arc<AtomicUsize>, prog_max: Arc<AtomicUsize>) -> Result<bool, String> {
+    prog_curr.store(0, Ordering::Relaxed);
+    prog_max.store(0, Ordering::Relaxed);
+
     let game_root = Path::new("game");
     let raw_dir = game_root.join("raw");
     let mut extracted = 0;
@@ -168,19 +186,30 @@ fn import_tar_zst(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
     let _ = tx.send("Scanning archive...".to_string());
     
     let mut smart_prefix = None;
+    let mut total_entries = 0;
     {
         let file = fs::File::open(path_str).map_err(|e| e.to_string())?;
         let decoder = zstd::stream::read::Decoder::new(file).map_err(|e| e.to_string())?;
         let mut archive = tar::Archive::new(decoder);
         for entry in archive.entries().map_err(|e| e.to_string())?.flatten() {
+            if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".to_string()); }
+            
             let path = entry.path().map_err(|e| e.to_string())?;
             let p_str = path.to_string_lossy();
-            if let Some(idx) = p_str.find("assets/img015") {
-                smart_prefix = Some(p_str[..idx].to_string());
-                break; 
+            
+            if !entry.header().entry_type().is_dir() {
+                total_entries += 1;
+            }
+
+            if smart_prefix.is_none() {
+                if let Some(idx) = p_str.find("assets/img015") {
+                    smart_prefix = Some(p_str[..idx].to_string());
+                }
             }
         }
     }
+    
+    prog_max.store(total_entries, Ordering::Relaxed);
 
     // Re-open for actual extraction
     let file = fs::File::open(path_str).map_err(|e| e.to_string())?;
@@ -190,6 +219,8 @@ fn import_tar_zst(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
     if let Some(prefix) = smart_prefix {
         let _ = tx.send("Smart Import: Restoring backup...".to_string());
         for entry_res in archive.entries().map_err(|e| e.to_string())? {
+            if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".to_string()); }
+
             let mut entry = entry_res.map_err(|e| e.to_string())?;
             if entry.header().entry_type().is_dir() { continue; }
             let path = entry.path().map_err(|e| e.to_string())?;
@@ -201,6 +232,7 @@ fn import_tar_zst(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
             if let Some(p) = dest.parent() { if !p.exists() { let _ = fs::create_dir_all(p); } }
             if entry.unpack(&dest).is_ok() {
                 extracted += 1;
+                prog_curr.store(extracted, Ordering::Relaxed);
                 if extracted % 100 == 0 { let _ = tx.send(format!("Extracted {} files...", extracted)); }
             }
         }
@@ -214,6 +246,8 @@ fn import_tar_zst(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
     let validator = FileValidator::new();
 
     for entry_res in archive.entries().map_err(|e| e.to_string())? {
+        if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".to_string()); }
+
         let mut entry = entry_res.map_err(|e| e.to_string())?;
         if entry.header().entry_type().is_dir() { continue; }
         let path = entry.path().map_err(|e| e.to_string())?;
@@ -233,24 +267,33 @@ fn import_tar_zst(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
             if !raw_dir.exists() { let _ = fs::create_dir_all(&raw_dir); }
             if entry.unpack(&dest).is_ok() {
                 extracted += 1;
+                prog_curr.store(extracted, Ordering::Relaxed);
                 if extracted % 100 == 0 { let _ = tx.send(format!("Extracted {} files...", extracted)); }
             }
         }
     }
 
-    if extracted == 0 { let _ = tx.send("Workspace up to date.".to_string()); }
+    if extracted == 0 { 
+        let _ = tx.send("Workspace up to date.".to_string()); 
+        return Ok(false);
+    }
     
     Ok(true)
 }
 
-fn import_legacy_zip(path_str: &str, tx: Sender<String>) -> Result<bool, String> {
+fn import_legacy_zip(path_str: &str, tx: Sender<String>, abort_flag: Arc<AtomicBool>, prog_curr: Arc<AtomicUsize>, prog_max: Arc<AtomicUsize>) -> Result<bool, String> {
+    prog_curr.store(0, Ordering::Relaxed);
+    
     let f = fs::File::open(path_str).map_err(|e| e.to_string())?;
     let mut archive = ZipArchive::new(f).map_err(|e| e.to_string())?;
+    
+    prog_max.store(archive.len(), Ordering::Relaxed);
+
     let game_root = Path::new("game");
     let raw_dir = game_root.join("raw");
     let mut extracted = 0;
 
-    // --- SMART PREFIX DETECTION ---
+    // SMART PREFIX DETECTION
     let mut smart_prefix = None;
     for i in 0..archive.len() {
         if let Ok(file) = archive.by_index(i) {
@@ -261,12 +304,14 @@ fn import_legacy_zip(path_str: &str, tx: Sender<String>) -> Result<bool, String>
         }
     }
 
-    // --- SMART IMPORT PATH (Backups) ---
+    // SMART IMPORT PATH
     if let Some(prefix) = smart_prefix {
         let _ = tx.send("Smart Import: Valid backup detected in ZIP.".to_string());
         
         let total = archive.len();
         for i in 0..total {
+            if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".to_string()); }
+
             let mut file = archive.by_index(i).unwrap();
             if file.is_dir() { continue; }
             
@@ -285,6 +330,7 @@ fn import_legacy_zip(path_str: &str, tx: Sender<String>) -> Result<bool, String>
             if let Ok(mut out) = fs::File::create(&dest) {
                 let _ = std::io::copy(&mut file, &mut out);
                 extracted += 1;
+                prog_curr.store(extracted, Ordering::Relaxed);
                 
                 if extracted % 100 == 0 {
                     let simple_name = Path::new(&name).file_name().unwrap_or_default().to_string_lossy();
@@ -297,7 +343,7 @@ fn import_legacy_zip(path_str: &str, tx: Sender<String>) -> Result<bool, String>
         return Ok(true);
     }
 
-    // --- STANDARD RAW IMPORT PATH ---
+    // STANDARD RAW IMPORT PATH
     if !raw_dir.exists() { 
         fs::create_dir_all(&raw_dir).map_err(|e| e.to_string())?; 
     }
@@ -311,6 +357,8 @@ fn import_legacy_zip(path_str: &str, tx: Sender<String>) -> Result<bool, String>
     
     // Identify new/updated files
     for i in 0..total {
+        if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".to_string()); }
+
         let file = archive.by_index(i).unwrap();
         if file.is_dir() { continue; }
         
@@ -346,15 +394,19 @@ fn import_legacy_zip(path_str: &str, tx: Sender<String>) -> Result<bool, String>
     // Handle "Up to Date" case
     if indices_to_extract.is_empty() {
         let _ = tx.send("Workspace is already up to date.\nNo new files to extract.".to_string());
-        
-        return Ok(true);
+        return Ok(false);
     }
     
     // Perform extraction
+    prog_max.store(indices_to_extract.len(), Ordering::Relaxed);
+    prog_curr.store(0, Ordering::Relaxed);
+
     let _ = tx.send(format!("Found {} new or updated files.", indices_to_extract.len()));
     let _ = tx.send(format!("Starting extraction..."));
 
     for i in indices_to_extract {
+        if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".to_string()); }
+
         let mut file = archive.by_index(i).unwrap();
         let name = Path::new(file.name()).file_name().unwrap_or_default().to_string_lossy().to_string();
         let dest = raw_dir.join(&name);
@@ -363,12 +415,13 @@ fn import_legacy_zip(path_str: &str, tx: Sender<String>) -> Result<bool, String>
             let _ = std::io::copy(&mut file, &mut out);
             
             extracted += 1;
+            prog_curr.store(extracted, Ordering::Relaxed);
+
             if extracted % 100 == 0 { 
                 let _ = tx.send(format!("Extracted {} files | Current: {}", extracted, name)); 
             }
         }
     }
-    
     
     Ok(true)
 }
