@@ -221,8 +221,8 @@ pub fn spawn_full_import(sender: Sender<AdbEvent>, base_output_dir: PathBuf, mod
              return;
         }
 
-        // PHASE 2: MASS DECRYPTION
-        let _ = sender.send(AdbEvent::Status("Starting Decryption Phase...".to_string()));
+        // PHASE 2: SEQUENTIAL DECRYPTION & SORTING
+        let _ = sender.send(AdbEvent::Status("Starting Processing Phase...".to_string()));
         
         let _ = sender.send(AdbEvent::Status("Indexing workspace...".to_string()));
         let mut master_workspace_index = decrypt::build_index(Path::new("game"));
@@ -231,6 +231,7 @@ pub fn spawn_full_import(sender: Sender<AdbEvent>, base_output_dir: PathBuf, mod
             let suffix = current_region.suffix();
             let region_code = match suffix { "" => "ja", "kr" => "ko", other => other };
             
+            // 1. Decrypt this specific region
             let _ = sender.send(AdbEvent::Status(format!("Decrypting {}...", pkg_name)));
             
             let (decrypt_sender, decrypt_receiver) = std::sync::mpsc::channel();
@@ -246,6 +247,22 @@ pub fn spawn_full_import(sender: Sender<AdbEvent>, base_output_dir: PathBuf, mod
                 let _ = sender.send(AdbEvent::Status(format!("Decryption Failed for {}: {}", pkg_name, decrypt_error)));
                 continue;
             }
+
+            // 2. Sort this specific region immediately
+            let _ = sender.send(AdbEvent::Status(format!("Sorting {} assets...", pkg_name)));
+            let (sort_sender, sort_receiver) = std::sync::mpsc::channel();
+            let sender_clone_sort = sender.clone();
+            
+            thread::spawn(move || { 
+                while let Ok(msg) = sort_receiver.recv() { 
+                    let _ = sender_clone_sort.send(AdbEvent::Status(msg)); 
+                } 
+            });
+
+            if let Err(sort_error) = sort::sort_game_files(sort_sender) {
+                let _ = sender.send(AdbEvent::Status(format!("Sort Failed for {}: {}", pkg_name, sort_error)));
+            }
+
             thread::sleep(Duration::from_millis(500));
         }
 
@@ -255,18 +272,7 @@ pub fn spawn_full_import(sender: Sender<AdbEvent>, base_output_dir: PathBuf, mod
             if base_output_dir.exists() { let _ = fs::remove_dir_all(&base_output_dir); }
         }
 
-        // PHASE 4: MASS SORT
-        let _ = sender.send(AdbEvent::Status("Starting Unified Sort...".to_string()));
-        let (sort_sender, sort_receiver) = std::sync::mpsc::channel();
-        
-        let sender_clone_2 = sender.clone();
-        thread::spawn(move || { while let Ok(msg) = sort_receiver.recv() { let _ = sender_clone_2.send(AdbEvent::Status(msg)); } });
-
-        if let Err(sort_error) = sort::sort_game_files(sort_sender) {
-            let _ = sender.send(AdbEvent::Status(format!("Sort Failed: {}", sort_error)));
-        } else {
-            let _ = sender.send(AdbEvent::Success("All Operations Complete!".to_string()));
-        }
+        let _ = sender.send(AdbEvent::Success("All Operations Complete!".to_string()));
     });
 }
 
