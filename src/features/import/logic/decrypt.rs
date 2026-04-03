@@ -1,9 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicBool, AtomicUsize, Ordering};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
+use std::sync::Arc;
 use rayon::prelude::*;
 use regex::RegexSet;
 
@@ -35,10 +36,8 @@ impl PackEntry {
 
 fn is_potential_conflict(name: &str) -> bool {
     if !name.starts_with("udi") || !name.ends_with(".png") { return false; }
-    
     let stem = Path::new(name).file_stem().unwrap_or_default().to_string_lossy();
     if stem.len() < 6 { return false; }
-    
     let Ok(unit_id) = stem[3..6].parse::<u32>() else { return false; };
     unit_id <= 9
 }
@@ -66,7 +65,8 @@ fn scan_for_index(dir: &Path, index: &mut HashSet<String>) -> std::io::Result<()
     Ok(())
 }
 
-pub fn run(folder_path: &str, region_code: &str, shared_index: &mut HashSet<String>, status_sender: Sender<String>) -> Result<(), String> {
+pub fn run(folder_path: &str, region_code: &str, shared_index: &mut HashSet<String>, status_sender: Sender<String>, abort_flag: Arc<AtomicBool>, prog_curr: Arc<AtomicUsize>, prog_max: Arc<AtomicUsize>) -> Result<(), String> {
+    if abort_flag.load(Ordering::Relaxed) { return Err("Job Aborted".into()); }
     let source_dir = Path::new(folder_path);
     let raw_dir = Path::new("game/raw");
     let base_dir = Path::new("game/cats/CatBase");
@@ -87,6 +87,8 @@ pub fn run(folder_path: &str, region_code: &str, shared_index: &mut HashSet<Stri
     let mut dynamic_temp_dirs = Vec::new();
     apk::extract_all(&apk_paths, &mut list_paths, &mut dynamic_temp_dirs, &status_sender);
 
+    if abort_flag.load(Ordering::Relaxed) { cleanup_temp_dirs(&dynamic_temp_dirs); return Err("Job Aborted".into()); }
+
     let _ = status_sender.send("Sorting patch history chronologically...".to_string());
     list_paths.sort_by(|path_a, path_b| {
         let score_a = chrono::calculate(path_a, &dynamic_temp_dirs);
@@ -104,109 +106,70 @@ pub fn run(folder_path: &str, region_code: &str, shared_index: &mut HashSet<Stri
         let _ = status_sender.send("Verifying file checksums...".to_string());
     }
 
-    // --- GROUP BY PACK TO PREVENT OS FILE HANDLE EXHAUSTION ---
     let mut pack_groups: HashMap<PathBuf, Vec<(String, PackEntry)>> = HashMap::new();
     for (name, entry) in master_map {
         pack_groups.entry(entry.pack_path.clone()).or_default().push((name, entry));
     }
 
     let verified_tasks: Vec<_> = pack_groups.into_par_iter().flat_map(|(pack_path, entries)| {
+        if abort_flag.load(Ordering::Relaxed) { return Vec::new(); }
         let mut results = Vec::new();
         if let Ok(mut file) = fs::File::open(&pack_path) {
             let current_pack = pack_path.file_name().unwrap_or_default().to_string_lossy().to_string();
             let mut file_buffer: Vec<u8> = Vec::new(); 
-            
             for (name, entry) in entries {
                 let aligned_size = if entry.size % 16 == 0 { entry.size } else { ((entry.size / 16) + 1) * 16 };
                 file_buffer.resize(aligned_size, 0); 
-                
                 let calculated_checksum = if file.seek(SeekFrom::Start(entry.offset)).is_ok() && file.read_exact(&mut file_buffer).is_ok() {
                     manifest::hash(&file_buffer)
-                } else {
-                    0
-                };
+                } else { 0 };
                 
-                let is_placeholder = match current_manifest.get(&name) {
-                    Some(previous_manifest_entry) => previous_manifest_entry.size > entry.size + 32,
-                    None => false,
-                };
-
+                let is_placeholder = match current_manifest.get(&name) { Some(p) => p.size > entry.size + 32, None => false };
                 let is_changed = match current_manifest.get(&name) {
-                    Some(previous_manifest_entry) => {
-                        if is_placeholder {
-                            false
-                        } else {
-                            previous_manifest_entry.size != entry.size || previous_manifest_entry.pack != current_pack || previous_manifest_entry.checksum != calculated_checksum
-                        }
-                    },
+                    Some(p) => if is_placeholder { false } else { p.size != entry.size || p.pack != current_pack || p.checksum != calculated_checksum },
                     None => true,
                 };
-
                 let is_missing = !shared_index.contains(&name.to_lowercase());
-
-                if is_changed || (is_missing && !is_placeholder) {
-                    results.push((name, entry, calculated_checksum));
-                }
+                if is_changed || (is_missing && !is_placeholder) { results.push((name, entry, calculated_checksum)); }
             }
         } else {
-            for (name, entry) in entries {
-                results.push((name, entry, 0));
-            }
+            for (name, entry) in entries { results.push((name, entry, 0)); }
         }
         results
     }).collect();
 
-    // --- REPEAT SAFE GROUPING FOR CONFLICTS ---
+    if abort_flag.load(Ordering::Relaxed) { cleanup_temp_dirs(&dynamic_temp_dirs); return Err("Job Aborted".into()); }
+
     let mut conflict_groups: HashMap<PathBuf, Vec<(String, PackEntry)>> = HashMap::new();
-    for (name, entry) in conflict_map {
-        conflict_groups.entry(entry.pack_path.clone()).or_default().push((name, entry));
-    }
+    for (name, entry) in conflict_map { conflict_groups.entry(entry.pack_path.clone()).or_default().push((name, entry)); }
 
     let verified_conflicts: Vec<_> = conflict_groups.into_par_iter().flat_map(|(pack_path, entries)| {
+        if abort_flag.load(Ordering::Relaxed) { return Vec::new(); }
         let mut results = Vec::new();
         if let Ok(mut file) = fs::File::open(&pack_path) {
             let current_pack = pack_path.file_name().unwrap_or_default().to_string_lossy().to_string();
             let mut file_buffer: Vec<u8> = Vec::new(); 
-            
             for (name, entry) in entries {
                 let aligned_size = if entry.size % 16 == 0 { entry.size } else { ((entry.size / 16) + 1) * 16 };
                 file_buffer.resize(aligned_size, 0); 
-                
                 let calculated_checksum = if file.seek(SeekFrom::Start(entry.offset)).is_ok() && file.read_exact(&mut file_buffer).is_ok() {
                     manifest::hash(&file_buffer)
-                } else {
-                    0
-                };
-                
-                let is_placeholder = match current_manifest.get(&name) {
-                    Some(previous_manifest_entry) => previous_manifest_entry.size > entry.size + 32,
-                    None => false,
-                };
-
+                } else { 0 };
+                let is_placeholder = match current_manifest.get(&name) { Some(p) => p.size > entry.size + 32, None => false };
                 let is_changed = match current_manifest.get(&name) {
-                    Some(previous_manifest_entry) => {
-                        if is_placeholder {
-                            false 
-                        } else {
-                            previous_manifest_entry.size != entry.size || previous_manifest_entry.pack != current_pack || previous_manifest_entry.checksum != calculated_checksum
-                        }
-                    },
+                    Some(p) => if is_placeholder { false } else { p.size != entry.size || p.pack != current_pack || p.checksum != calculated_checksum },
                     None => true,
                 };
-
                 let is_missing = !shared_index.contains(&name.to_lowercase());
-
-                if is_changed || (is_missing && !is_placeholder) {
-                    results.push((name, entry, calculated_checksum));
-                }
+                if is_changed || (is_missing && !is_placeholder) { results.push((name, entry, calculated_checksum)); }
             }
         } else {
-            for (name, entry) in entries {
-                results.push((name, entry, 0));
-            }
+            for (name, entry) in entries { results.push((name, entry, 0)); }
         }
         results
     }).collect();
+
+    if abort_flag.load(Ordering::Relaxed) { cleanup_temp_dirs(&dynamic_temp_dirs); return Err("Job Aborted".into()); }
 
     let mut filtered_tasks = Vec::new();
     for (name, entry, checksum) in verified_tasks {
@@ -224,29 +187,32 @@ pub fn run(folder_path: &str, region_code: &str, shared_index: &mut HashSet<Stri
     if to_extract_count == 0 && filtered_conflicts.is_empty() {
         let _ = status_sender.send("Workspace is already up to date.".to_string());
         cleanup_temp_dirs(&dynamic_temp_dirs);
+        prog_max.store(0, Ordering::Relaxed);
         return Ok(());
     }
 
+    prog_max.store(to_extract_count + filtered_conflicts.len(), Ordering::Relaxed);
+    prog_curr.store(0, Ordering::Relaxed);
+
     let extracted_count = AtomicI32::new(0);
     if to_extract_count > 0 {
-        extract_standard_packs(filtered_tasks.clone(), raw_dir, &extracted_count, to_extract_count, &status_sender);
+        extract_standard_packs(filtered_tasks.clone(), raw_dir, &extracted_count, to_extract_count, &status_sender, &abort_flag, &prog_curr);
     }
 
-    if !filtered_conflicts.is_empty() {
-        resolve_conflicts(filtered_conflicts.clone(), raw_dir, base_dir, &extracted_count, &status_sender);
+    if !filtered_conflicts.is_empty() && !abort_flag.load(Ordering::Relaxed) {
+        resolve_conflicts(filtered_conflicts.clone(), raw_dir, base_dir, &extracted_count, &status_sender, &abort_flag, &prog_curr);
     }
+
+    if abort_flag.load(Ordering::Relaxed) { cleanup_temp_dirs(&dynamic_temp_dirs); return Err("Job Aborted".into()); }
 
     manifest::save(&manifest_path, &current_manifest);
     cleanup_temp_dirs(&dynamic_temp_dirs);
 
-    for (name, _) in &filtered_tasks {
-        shared_index.insert(name.to_lowercase());
-    }
-    for (name, _) in &filtered_conflicts {
-        shared_index.insert(name.to_lowercase());
-    }
+    for (name, _) in &filtered_tasks { shared_index.insert(name.to_lowercase()); }
+    for (name, _) in &filtered_conflicts { shared_index.insert(name.to_lowercase()); }
     
     let _ = status_sender.send(format!("Decryption complete. Extracted {} files.", extracted_count.load(Ordering::Relaxed)));
+    prog_max.store(0, Ordering::Relaxed);
     Ok(())
 }
 
@@ -257,13 +223,10 @@ fn parse_list_files(
     for list_path in list_paths {
         let pack_path = list_path.with_extension("pack");
         if !pack_path.exists() { continue; }
-
         let Ok(list_data) = fs::read(list_path) else { continue; };
         let Ok(content) = decrypt_list_content(&list_data) else { continue; };
-        
         let pack_name = pack_path.file_name().unwrap_or_default().to_string_lossy();
         let current_code = determine_code(&pack_name, region_code);
-
         for line in content.lines() {
             process_list_line(line, &pack_path, current_code.as_str(), regex_set, compiled_rules, master_map, conflict_map);
         }
@@ -282,33 +245,21 @@ fn process_list_line(
     let size: usize = parts[2].parse().unwrap_or(0);
 
     let matched_rule = regex_set.matches(asset_name).into_iter().next().map(|index| &compiled_rules[index]);
+    let is_rule_active = if let Some(rule) = matched_rule { rule.languages.values().any(|&active| active) } else { false };
 
-    let is_rule_active = if let Some(rule) = matched_rule {
-        rule.languages.values().any(|&is_language_enabled| is_language_enabled)
-    } else { false };
-
-    if let Some(rule) = matched_rule {
-        if rule.handling == RuleHandling::Ignore { return; }
-    }
+    if let Some(rule) = matched_rule { if rule.handling == RuleHandling::Ignore { return; } }
 
     let entry = PackEntry {
-        pack_path: pack_path.to_path_buf(),
-        original_name: asset_name.to_string(),
-        offset,
-        size,
+        pack_path: pack_path.to_path_buf(), original_name: asset_name.to_string(), offset, size,
         is_locked: matched_rule.map(|rule| rule.locked).unwrap_or(false),
     };
 
     if matched_rule.is_none() || !is_rule_active {
         if is_potential_conflict(asset_name) {
-            if let Some(existing_entry) = conflict_map.get(asset_name) {
-                if !entry.is_locked && existing_entry.size > entry.size + 32 { return; }
-            }
+            if let Some(existing) = conflict_map.get(asset_name) { if !entry.is_locked && existing.size > entry.size + 32 { return; } }
             conflict_map.insert(asset_name.to_string(), entry); 
         } else {
-            if let Some(existing_entry) = master_map.get(asset_name) {
-                if !entry.is_locked && existing_entry.size > entry.size + 32 { return; }
-            }
+            if let Some(existing) = master_map.get(asset_name) { if !entry.is_locked && existing.size > entry.size + 32 { return; } }
             master_map.insert(asset_name.to_string(), entry); 
         }
         return;
@@ -322,19 +273,13 @@ fn process_list_line(
     let mut clean_stem = stem.to_string();
     for &(code, _) in patterns::APP_LANGUAGES {
         let suffix = format!("_{}", code);
-        if clean_stem.ends_with(&suffix) {
-            clean_stem = clean_stem.trim_end_matches(&suffix).to_string();
-            break;
-        }
+        if clean_stem.ends_with(&suffix) { clean_stem = clean_stem.trim_end_matches(&suffix).to_string(); break; }
     }
     
     let is_enabled = rule.languages.get(current_code).copied().unwrap_or(false);
-
     if rule.handling == RuleHandling::Only && !is_enabled { return; }
     
-    let is_single_lang_only = rule.handling == RuleHandling::Only 
-        && rule.languages.values().filter(|&&is_language_active| is_language_active).count() == 1;
-
+    let is_single_lang_only = rule.handling == RuleHandling::Only && rule.languages.values().filter(|&&act| act).count() == 1;
     let mut final_filename = asset_name.to_string();
     
     if is_enabled {
@@ -348,36 +293,31 @@ fn process_list_line(
     }
 
     if is_potential_conflict(asset_name) {
-        if let Some(existing_entry) = conflict_map.get(&final_filename) {
-            if !entry.is_locked && existing_entry.size > entry.size + 32 { return; }
-        }
+        if let Some(existing) = conflict_map.get(&final_filename) { if !entry.is_locked && existing.size > entry.size + 32 { return; } }
         conflict_map.insert(final_filename, entry);
     } else {
-        if let Some(existing_entry) = master_map.get(&final_filename) {
-            if !entry.is_locked && existing_entry.size > entry.size + 32 { return; }
-        }
+        if let Some(existing) = master_map.get(&final_filename) { if !entry.is_locked && existing.size > entry.size + 32 { return; } }
         master_map.insert(final_filename, entry);
     }
 }
 
-fn extract_standard_packs(filtered_tasks: Vec<(String, PackEntry)>, raw_dir: &Path, extracted_count: &AtomicI32, total_files: usize, status_sender: &Sender<String>) {
+fn extract_standard_packs(filtered_tasks: Vec<(String, PackEntry)>, raw_dir: &Path, extracted_count: &AtomicI32, total_files: usize, status_sender: &Sender<String>, abort_flag: &Arc<AtomicBool>, prog_curr: &Arc<AtomicUsize>) {
     let _ = status_sender.send(format!("Found {} new or updated files.", total_files));
-    let _ = status_sender.send(format!("Starting extraction..."));
+    let _ = status_sender.send("Starting extraction...".to_string());
     let update_interval = (total_files / 100).max(10) as i32;
 
     let mut pack_tasks: HashMap<PathBuf, Vec<(String, PackEntry)>> = HashMap::new();
-    for (final_name, entry) in filtered_tasks {
-        pack_tasks.entry(entry.pack_path.clone()).or_default().push((final_name, entry));
-    }
+    for (final_name, entry) in filtered_tasks { pack_tasks.entry(entry.pack_path.clone()).or_default().push((final_name, entry)); }
 
     pack_tasks.into_par_iter().for_each(|(pack_path, entries)| {
+        if abort_flag.load(Ordering::Relaxed) { return; }
         let Ok(mut file) = fs::File::open(&pack_path) else { return; };
         let mut file_buffer: Vec<u8> = Vec::new(); 
         
         for (final_name, entry) in entries {
+            if abort_flag.load(Ordering::Relaxed) { return; }
             let target_path = raw_dir.join(&final_name);
             let aligned_size = if entry.size % 16 == 0 { entry.size } else { ((entry.size / 16) + 1) * 16 };
-            
             if file.seek(SeekFrom::Start(entry.offset)).is_err() { continue; }
             file_buffer.resize(aligned_size, 0);
             if file.read_exact(&mut file_buffer).is_err() { continue; }
@@ -389,16 +329,19 @@ fn extract_standard_packs(filtered_tasks: Vec<(String, PackEntry)>, raw_dir: &Pa
             let _ = fs::write(&target_path, final_data);
             
             let current_extracted_count = extracted_count.fetch_add(1, Ordering::Relaxed) + 1;
+            prog_curr.fetch_add(1, Ordering::Relaxed);
+
             if current_extracted_count % update_interval == 0 { let _ = status_sender.send(format!("Extracted {} files | Current: {}", current_extracted_count, final_name)); }
         }
     });
 }
 
-fn resolve_conflicts(list: Vec<(String, PackEntry)>, raw: &Path, base_dir: &Path, extracted_count: &AtomicI32, status_sender: &Sender<String>) {
+fn resolve_conflicts(list: Vec<(String, PackEntry)>, raw: &Path, base_dir: &Path, extracted_count: &AtomicI32, status_sender: &Sender<String>, abort_flag: &Arc<AtomicBool>, prog_curr: &Arc<AtomicUsize>) {
     let _ = status_sender.send(format!("Resolving {} Basic Cat Banner overlaps...", list.len()));
     if !base_dir.exists() { let _ = fs::create_dir_all(base_dir); }
 
     for (name, entry) in list {
+        if abort_flag.load(Ordering::Relaxed) { return; }
         let Ok(mut file) = fs::File::open(&entry.pack_path) else { continue; };
         let aligned_size = if entry.size % 16 == 0 { entry.size } else { ((entry.size / 16) + 1) * 16 };
         if file.seek(SeekFrom::Start(entry.offset)).is_err() { continue; }
@@ -411,6 +354,7 @@ fn resolve_conflicts(list: Vec<(String, PackEntry)>, raw: &Path, base_dir: &Path
             let _ = fs::write(target_path, &decrypted_chunk[..std::cmp::min(entry.size, decrypted_chunk.len())]);
             extracted_count.fetch_add(1, Ordering::Relaxed);
         }
+        prog_curr.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -432,11 +376,9 @@ fn decrypt_list_content(data: &[u8]) -> Result<String, String> {
     if let Ok(bytes) = keys::decrypt_ecb_with_key(data, &pack_key) {
         if let Ok(decrypted_string) = String::from_utf8(bytes) { return Ok(decrypted_string); }
     }
-    
     let bc_key = keys::get_md5_key("battlecats");
     if let Ok(bytes) = keys::decrypt_ecb_with_key(data, &bc_key) {
         if let Ok(decrypted_string) = String::from_utf8(bytes) { return Ok(decrypted_string); }
     }
-    
     Err("Decryption failed".into())
 }
