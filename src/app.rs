@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use crate::global::ui::shared; 
 use crate::updater;
 use crate::features::home;
-use crate::features::import::logic::ImportState;
+use crate::features::data::logic::ImportState;
 use crate::features::cat::logic::CatListState;
 use crate::features::enemy::logic::state::EnemyListState;
 use crate::features::stage::logic::state::StageListState;
@@ -218,7 +218,7 @@ impl eframe::App for BattleCatsApp {
             },
             Page::Data => {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    crate::features::import::ui::manager::show(ui, &mut self.import_state, &mut self.settings); 
+                    crate::features::data::ui::manager::show(ui, &mut self.import_state, &mut self.settings); 
                 });
             },
             Page::Settings => {
