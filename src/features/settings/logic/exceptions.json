@@ -52,7 +52,7 @@
       "locked": false
     },
     {
-      "pattern": "Enemyname",
+      "pattern": "Enemyname|localizable",
       "extension": "tsv",
       "handling": "Only",
       "languages": {

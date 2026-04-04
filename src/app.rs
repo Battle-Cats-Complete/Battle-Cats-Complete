@@ -391,14 +391,19 @@ impl BattleCatsApp {
                 self.enemy_list_state.img015_sheets.clear();
             }
 
-            if path_str.contains("assets") || path_str.contains("gatyaitem") {
+            if path_str.contains("ui") || path_str.contains("gatyaitem") || path_str.contains("sheets") {
                 self.cat_list_state.gatya_item_textures.clear();
                 self.cat_list_state.sprite_sheet = crate::global::formats::imgcut::SpriteSheet::default(); 
                 self.cat_list_state.texture_cache_version += 1; 
             }
 
-            let is_cat_global_file = crate::features::cat::patterns::CAT_UNIVERSAL_FILES.contains(&file_name) 
-                                   || crate::global::io::patterns::CHECK_LINE_FILES.contains(&file_name);
+            if path_str.contains("tables") {
+                global_cat_refresh = true;
+                global_enemy_refresh = true;
+                global_stage_refresh = true;
+            }
+
+            let is_cat_global_file = crate::features::cat::patterns::CAT_UNIVERSAL_FILES.contains(&file_name);
             
             if is_cat_global_file {
                 global_cat_refresh = true;

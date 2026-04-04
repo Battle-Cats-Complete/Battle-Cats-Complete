@@ -1,6 +1,19 @@
 use crate::global::game::img015;
 use crate::features::enemy::data::t_unit::EnemyRaw;
 use crate::global::game::abilities::CustomIcon;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Magnification {
+    pub hitpoints: i32,
+    pub attack: i32,
+}
+
+impl Default for Magnification {
+    fn default() -> Self {
+        Self { hitpoints: 100, attack: 100 }
+    }
+}
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum DisplayGroup {
@@ -34,7 +47,7 @@ pub struct EnemyAbilityDef {
     pub group: DisplayGroup,
     pub schema: &'static [(&'static str, AttrUnit)],
     pub get_attributes: fn(&EnemyRaw) -> Vec<(&'static str, i32, AttrUnit)>,
-    pub formatter: fn(primary_value: i32, stats: &EnemyRaw, duration_frames: i32, magnification: i32) -> String,
+    pub formatter: fn(primary_value: i32, stats: &EnemyRaw, duration_frames: i32, magnification: Magnification) -> String,
     pub minus_one_is_inf: bool,
 }
 
@@ -768,7 +781,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
             }
         },
         formatter: |hp, stats, _, magnification| {
-            let scaled_hp = (hp as f32 * (magnification as f32 / 100.0)).round() as i32;
+            let scaled_hp = (hp as f32 * (magnification.hitpoints as f32 / 100.0)).round() as i32;
             if stats.shield_regen > 0 {
                 format!("Has a Shield with {} HP\nShield regenerates {}% HP when knocked back", scaled_hp, stats.shield_regen)
             } else {
@@ -1024,7 +1037,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
                 vec![] 
             }
         },
-        formatter: |chance, stats, target, duration_frames| format!("{}% Chance to Warp {}\n{} Range for {}", chance, target, fmt_compress(stats.warp_distance_minimum, stats.warp_distance_maximum), fmt_time(duration_frames)),
+        formatter: |chance, stats, duration_frames, _| format!("{}% Chance to Warp Cats\n{} Range for {}", chance, fmt_compress(stats.warp_distance_minimum, stats.warp_distance_maximum), fmt_time(duration_frames)),
         minus_one_is_inf: false,
     },
     
@@ -1135,7 +1148,7 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
 pub struct EnemyStatsDef {
     pub name: &'static str,
     pub display_name: &'static str,
-    pub get_value: fn(&EnemyRaw, i32, i32) -> i32, 
+    pub get_value: fn(&EnemyRaw, i32, Magnification) -> i32, 
     pub formatter: fn(i32) -> String,       
 }
 
@@ -1143,7 +1156,7 @@ pub const ENEMY_STATS_REGISTRY: &[EnemyStatsDef] = &[
     EnemyStatsDef {
         name: "Hitpoints",
         display_name: "Hitpoints",
-        get_value: |stats, _, magnification| (stats.hitpoints as f32 * (magnification as f32 / 100.0)).round() as i32,
+        get_value: |stats, _, magnification| (stats.hitpoints as f32 * (magnification.hitpoints as f32 / 100.0)).round() as i32,
         formatter: |hp| format!("{}", hp),
     },
     EnemyStatsDef {
@@ -1168,7 +1181,7 @@ pub const ENEMY_STATS_REGISTRY: &[EnemyStatsDef] = &[
         name: "Attack",
         display_name: "Attack",
         get_value: |stats, _, magnification| {
-            let magnification_factor = magnification as f32 / 100.0;
+            let magnification_factor = magnification.attack as f32 / 100.0;
             let damage_hit_1 = (stats.attack_1 as f32 * magnification_factor).round() as i32;
             let damage_hit_2 = (stats.attack_2 as f32 * magnification_factor).round() as i32;
             let damage_hit_3 = (stats.attack_3 as f32 * magnification_factor).round() as i32;
@@ -1180,7 +1193,7 @@ pub const ENEMY_STATS_REGISTRY: &[EnemyStatsDef] = &[
         name: "Dps",
         display_name: "DPS",
         get_value: |stats, animation_frames, magnification| {
-            let magnification_factor = magnification as f32 / 100.0;
+            let magnification_factor = magnification.attack as f32 / 100.0;
             let damage_hit_1 = (stats.attack_1 as f32 * magnification_factor).round() as i32;
             let damage_hit_2 = (stats.attack_2 as f32 * magnification_factor).round() as i32;
             let damage_hit_3 = (stats.attack_3 as f32 * magnification_factor).round() as i32;
@@ -1224,7 +1237,7 @@ pub const ENEMY_STATS_REGISTRY: &[EnemyStatsDef] = &[
         name: "Endure",
         display_name: "Endure",
         get_value: |stats, _, magnification| {
-            let hp = (stats.hitpoints as f32 * (magnification as f32 / 100.0)).round() as i32;
+            let hp = (stats.hitpoints as f32 * (magnification.hitpoints as f32 / 100.0)).round() as i32;
             if stats.knockbacks > 0 { (hp as f32 / stats.knockbacks as f32).round() as i32 } else { hp }
         },
         formatter: |endure| format!("{}", endure),
@@ -1242,7 +1255,7 @@ pub fn get_enemy_stat(name: &str) -> &'static EnemyStatsDef {
     ENEMY_STATS_REGISTRY.iter().find(|s| s.name == name).expect("Stat not found in registry")
 }
 
-pub fn format_enemy_stat(name: &str, stats: &EnemyRaw, animation_frames: i32, magnification: i32) -> String {
+pub fn format_enemy_stat(name: &str, stats: &EnemyRaw, animation_frames: i32, magnification: Magnification) -> String {
     let def = get_enemy_stat(name);
     (def.formatter)((def.get_value)(stats, animation_frames, magnification))
 }

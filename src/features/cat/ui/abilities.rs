@@ -102,13 +102,15 @@ fn render_single_icon(
 ) -> egui::Response {
     let size = egui::vec2(stats::ICON_SIZE, stats::ICON_SIZE);
 
-    if item.custom_icon != CustomIcon::None {
-        if let Some(tex) = item.custom_icon.get_texture(assets) {
-            return ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)));
-        }
-    } else {
+    // Try Custom Icon first
+    if let Some(tex) = item.custom_icon.get_texture(assets) {
+        return ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)));
+    }
+
+    // Cascade through available language sheets for Standard Icons
+    if let Some(icon_id) = item.icon_id {
         for sheet in sheets {
-            if let Some(cut) = sheet.cuts_map.get(&item.icon_id) {
+            if let Some(cut) = sheet.cuts_map.get(&icon_id) {
                 if let Some(tex) = &sheet.texture_handle {
                      let response = ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(cut.uv_coordinates));
                      if let Some(border_id) = item.border_id {
@@ -127,7 +129,7 @@ fn render_single_icon(
     let icon_enum = if item.custom_icon != CustomIcon::None {
         AbilityIcon::Custom(item.custom_icon)
     } else {
-        AbilityIcon::Standard(item.icon_id)
+        AbilityIcon::Standard(item.icon_id.unwrap_or(9999)) 
     };
 
     let alt = crate::features::cat::registry::get_fallback_by_icon(icon_enum);
@@ -147,7 +149,7 @@ pub fn render_list_view(
     border_color: egui::Color32,
 ) {
     for (i, item) in items.iter().enumerate() {
-        let is_conjure = item.icon_id == img015::ICON_CONJURE && item.custom_icon == CustomIcon::None;
+        let is_conjure = item.icon_id == Some(img015::ICON_CONJURE) && item.custom_icon == CustomIcon::None;
         let id = egui::Id::new(format!("conjure_expand_{}", cat_id));
         
         ui.horizontal(|ui| {

@@ -1,5 +1,5 @@
 use std::collections::{HashSet, HashMap};
-use crate::features::enemy::registry::{ENEMY_ABILITY_REGISTRY, ENEMY_STATS_REGISTRY, AbilityIcon};
+use crate::features::enemy::registry::{ENEMY_ABILITY_REGISTRY, ENEMY_STATS_REGISTRY, AbilityIcon, Magnification};
 use crate::features::enemy::data::t_unit::EnemyRaw;
 use crate::features::enemy::logic::scanner::EnemyEntry;
 use crate::global::game::abilities::CustomIcon;
@@ -63,7 +63,8 @@ pub fn get_stat_value(s: &EnemyRaw, stat: &str, anim_frames: i32, mag: i32) -> i
     };
     
     if let Some(def) = ENEMY_STATS_REGISTRY.iter().find(|d| d.name == reg_name) {
-        return (def.get_value)(s, anim_frames, mag);
+        let magnification = Magnification { hitpoints: mag, attack: mag };
+        return (def.get_value)(s, anim_frames, magnification);
     }
     0 
 }
