@@ -1,5 +1,4 @@
 use eframe::egui;
-use crate::features::enemy::logic::scanner::EnemyEntry;
 use crate::features::enemy::logic::abilities;
 use crate::global::formats::imgcut::SpriteSheet;
 use crate::global::ui::shared::{render_fallback_icon, text_with_superscript, GlobalContext};
