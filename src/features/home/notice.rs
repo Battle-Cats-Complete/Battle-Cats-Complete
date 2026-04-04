@@ -8,11 +8,6 @@ use crate::global::ui::shared::DragGuard;
 // Note: No notice will appear if NOTICE_CONTENT is empty
 pub const NOTICE_TITLE: &str = "NOTICE";
 pub const NOTICE_CONTENT: &str = r#"
-# Database Restructure Required
-
-- With this update the Database's fundamental structure has changed, the app will not work out of the box post-update.
-- To fix this, go to Game > Data, select "Raw", change the Source to "Folder", and select your "game" folder as the source, running the Job should begin the Database Reorganization and fix the App.
-- To see this message again, go to "Changelogs" on the bottom left of the Home page.
 "#;
 
 #[derive(Serialize, Deserialize, Default)]
