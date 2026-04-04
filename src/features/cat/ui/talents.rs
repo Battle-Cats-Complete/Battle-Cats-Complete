@@ -147,7 +147,9 @@ fn render_header(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             
-            if let Some(def) = crate::features::cat::registry::get_by_talent_id(group.ability_id) {
+            let def_opt = crate::features::cat::registry::get_by_talent_id(group.ability_id);
+            
+            if let Some(def) = &def_opt {
                 let size = egui::vec2(40.0, 40.0);
                 
                 let mut drawn = false;
@@ -176,11 +178,22 @@ fn render_header(
                     render_fallback_icon(ui, def.fallback, egui::Color32::BLACK);
                 }
             } else {
-                ui.label(egui::RichText::new("?").weak());
+                ui.label(egui::RichText::new("?").weak().size(24.0));
             }
 
             if let Some(texture) = get_or_load_skill_name(ui, group, settings, name_cache) {
                 ui.image((texture.id(), texture.size_vec2()));
+            } else {
+                let fallback_text = match &def_opt {
+                    Some(def) => format!("{}", def.name),
+                    None => format!("Unknown Skill (ID: {})", group.ability_id),
+                };
+                ui.label(
+                    egui::RichText::new(fallback_text)
+                        .strong()
+                        .size(18.0)
+                        .color(egui::Color32::WHITE)
+                );
             }
         });
 

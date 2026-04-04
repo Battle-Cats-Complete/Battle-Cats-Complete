@@ -76,12 +76,12 @@ pub fn collect_ability_data(
             let border = get_talent_border(def.talent_id);
 
             let (mut final_icon, final_custom) = match def.icon {
-                AbilityIcon::Standard(id) => (id, CustomIcon::None),
-                AbilityIcon::Custom(c) => (0, c),
+                AbilityIcon::Standard(id) => (Some(id), CustomIcon::None),
+                AbilityIcon::Custom(c) => (None, c),
             };
 
-            if def.name == "Wave Attack" && final_stats.mini_wave_flag > 0 { final_icon = img015::ICON_MINI_WAVE; }
-            else if def.name == "Surge Attack" && final_stats.mini_surge_flag > 0 { final_icon = img015::ICON_MINI_SURGE; }
+            if def.name == "Wave Attack" && final_stats.mini_wave_flag > 0 { final_icon = Some(img015::ICON_MINI_WAVE); }
+            else if def.name == "Surge Attack" && final_stats.mini_surge_flag > 0 { final_icon = Some(img015::ICON_MINI_SURGE); }
 
             let item = AbilityItem { icon_id: final_icon, text, custom_icon: final_custom, border_id: border };
 
@@ -108,8 +108,8 @@ pub fn collect_ability_data(
             if let Some(def) = registry::get_by_talent_id(group.ability_id) {
                 
                 let (final_icon, final_custom) = match def.icon {
-                    AbilityIcon::Standard(id) => (id, CustomIcon::None),
-                    AbilityIcon::Custom(c) => (0, c),
+                    AbilityIcon::Standard(id) => (Some(id), CustomIcon::None),
+                    AbilityIcon::Custom(c) => (None, c),
                 };
 
                 match group.ability_id {

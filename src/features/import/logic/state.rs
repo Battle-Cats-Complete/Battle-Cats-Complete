@@ -202,15 +202,51 @@ impl ImportState {
 
 pub fn censor_path(path: &str) -> String {
     if path.is_empty() || path == "No source selected" { return String::new(); }
+    
     let mut clean = path.to_string();
     if let Ok(user) = env::var("USERNAME").or_else(|_| env::var("USER")) {
         if !user.is_empty() { clean = clean.replace(&user, "***"); }
     }
+    
     let path_obj = Path::new(&clean);
     let components: Vec<_> = path_obj.components().map(|c| c.as_os_str().to_string_lossy()).collect();
-    if components.len() > 3 {
-        format!("...\\{}\\{}", components[components.len()-2], components[components.len()-1])
+    
+    if components.len() >= 2 {
+        let mut parent = components[components.len()-2].to_string();
+        let mut file = components[components.len()-1].to_string();
+        
+        let total_len = parent.chars().count() + file.chars().count();
+        
+        if total_len > 20 {
+            if file.chars().count() >= 20 {
+                // File name is too long on its own, truncate it and drop the parent
+                file = format!("{}...", file.chars().take(18).collect::<String>());
+                parent = String::new();
+            } else {
+                // File name fits, but combined with parent is too long. Truncate parent.
+                let allowed_parent = 20 - file.chars().count();
+                if allowed_parent > 2 {
+                    parent = format!("{}...", parent.chars().take(allowed_parent - 2).collect::<String>());
+                } else {
+                    parent = String::new();
+                }
+            }
+        }
+        
+        // Add the ellipsis prefix only if we chopped off earlier directories
+        let prefix = if components.len() > 2 { "...\\" } else { "" };
+        
+        if parent.is_empty() {
+            format!("{}{}", prefix, file)
+        } else {
+            format!("{}{}\\{}", prefix, parent, file)
+        }
     } else {
-        clean
+        // Fallback for root files
+        if clean.chars().count() > 20 {
+            format!("...{}", clean.chars().skip(clean.chars().count() - 20).collect::<String>())
+        } else {
+            clean
+        }
     }
 }

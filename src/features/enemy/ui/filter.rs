@@ -77,7 +77,7 @@ pub fn show_popup(
                 ui.spacing_mut().item_spacing.x = 6.0;
                 ui.label(egui::RichText::new("Target Magnification:").strong());
                 ui.add_sized(
-                    egui::vec2(45.0, 20.0), 
+                    egui::vec2(60.0, 20.0),
                     egui::TextEdit::singleline(&mut state.mag_input)
                         .hint_text(egui::RichText::new("100").color(egui::Color32::from_gray(100)))
                 );

@@ -1,12 +1,12 @@
 use crate::features::settings::logic::Settings;
 use crate::features::enemy::data::t_unit::EnemyRaw;
-use crate::features::enemy::registry::{self, DisplayGroup, AttrUnit, AbilityIcon};
+use crate::features::enemy::registry::{self, DisplayGroup, AttrUnit, AbilityIcon, Magnification};
 use crate::global::game::abilities::{AbilityItem, CustomIcon};
 
 pub fn collect_ability_data(
     stats: &EnemyRaw,
     _settings: &Settings,
-    magnification: i32,
+    magnification: Magnification,
 ) -> (Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>) {
     
     let mut group_trait = Vec::new();
@@ -28,8 +28,8 @@ pub fn collect_ability_data(
             let text = (def.formatter)(val, stats, dur, magnification);
 
             let (final_icon, custom_icon) = match def.icon {
-                AbilityIcon::Standard(id) => (id, CustomIcon::None),
-                AbilityIcon::Custom(icon) => (0, icon),
+                AbilityIcon::Standard(id) => (Some(id), CustomIcon::None),
+                AbilityIcon::Custom(icon) => (None, icon),
             };
 
             let item = AbilityItem { icon_id: final_icon, text, custom_icon, border_id: None };

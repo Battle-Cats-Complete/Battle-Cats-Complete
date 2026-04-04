@@ -141,7 +141,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings)
             });
 
             ui.add_space(spacing / 2.0);
-            ui.add(egui::Separator::default().spacing(0.0)); // Wait this was vertical but user code says default spacing 0.0? Keep as base.
+            ui.add(egui::Separator::default().spacing(0.0));
 
             // COLUMN 3: RAW
             ui.vertical(|ui| {

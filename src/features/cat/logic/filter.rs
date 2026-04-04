@@ -1,9 +1,8 @@
 use std::collections::{HashSet, HashMap};
-use crate::features::cat::registry::{CAT_ABILITY_REGISTRY, AbilityIcon};
+use crate::features::cat::registry::{CAT_ABILITY_REGISTRY, CAT_STATS_REGISTRY, AbilityIcon};
 use crate::features::cat::logic::stats::CatRaw;
 use crate::features::cat::logic::scanner::CatEntry;
 use crate::features::cat::logic::talents::apply_talent_stats;
-use crate::features::cat::registry::CAT_STATS_REGISTRY;
 use crate::global::game::img015;
 use crate::global::game::abilities::CustomIcon;
 

@@ -2,6 +2,7 @@ use eframe::egui;
 use crate::features::enemy::logic::scanner::EnemyEntry;
 use crate::features::enemy::logic::state::EnemyDetailTab;
 use crate::features::settings::logic::Settings;
+use crate::features::enemy::registry::Magnification;
 use crate::global::formats::imgcut::SpriteSheet;
 use crate::global::game::img015;
 use crate::global::formats::mamodel::Model;
@@ -20,7 +21,7 @@ pub fn show(
     enemy_entry: &EnemyEntry, 
     current_tab: &mut EnemyDetailTab, 
     mag_input: &mut String,
-    magnification: &mut i32,
+    magnification: &mut Magnification,
     settings: &mut Settings,
     img015_sheets: &mut Vec<SpriteSheet>,
     anim_sheet: &mut SpriteSheet,
