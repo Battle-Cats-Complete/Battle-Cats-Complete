@@ -12,6 +12,7 @@ pub const UDI_F: &[u8] = include_bytes!("../assets/udi_f.png");
 pub const STOP: &[u8] = include_bytes!("../assets/stop_attack.png");
 pub const DEATH_TIMER: &[u8] = include_bytes!("../assets/death_timer.png");
 pub const GOD: &[u8] = include_bytes!("../assets/god.png");
+pub const UNKNOWN: &[u8] = include_bytes!("../assets/unknown.png");
 
 pub const ICON: &[u8] = include_bytes!("../assets/icon.ico");
 pub const FONT_JP: &[u8] = include_bytes!("../assets/NotoSansJP-Regular.ttf");
@@ -30,6 +31,7 @@ pub const CUSTOM_ICON_DATA: &[(CustomIcon, &[u8])] = &[
     (CustomIcon::Stop, STOP),
     (CustomIcon::DeathTimer, DEATH_TIMER),
     (CustomIcon::God, GOD),
+    (CustomIcon::Unknown, UNKNOWN),
 ];
 
 #[derive(Clone)]
@@ -44,6 +46,7 @@ pub struct CustomAssets {
     pub stop: egui::TextureHandle,
     pub death_timer: egui::TextureHandle,
     pub god: egui::TextureHandle,
+    pub unknown: egui::TextureHandle,
     #[allow(dead_code)] pub udi_f: egui::TextureHandle,
 }
 
@@ -70,6 +73,7 @@ impl CustomAssets {
             stop: load("stop", STOP),
             death_timer: load("death_timer", DEATH_TIMER),
             god: load("god", GOD),
+            unknown: load("unknown", UNKNOWN),
             udi_f: load("udi_f", UDI_F),
         }
     }
@@ -86,6 +90,7 @@ impl CustomAssets {
             CustomIcon::Stop => Some(&self.stop),
             CustomIcon::DeathTimer => Some(&self.death_timer),
             CustomIcon::God => Some(&self.god),
+            CustomIcon::Unknown => Some(&self.unknown),
             CustomIcon::None => None,
         }
     }

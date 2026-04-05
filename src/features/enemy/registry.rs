@@ -1094,6 +1094,16 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         formatter: |chance,stats,duration_frames,_,_| format!("{}% Chance to Warp Cats\n{} Range for {}", chance, fmt_compress(stats.warp_distance_minimum, stats.warp_distance_maximum), fmt_time(duration_frames)),
         minus_one_is_inf: false,
     },
+    EnemyAbilityDef {
+        name: "Unknown",
+        fallback: "Unkwn",
+        icon: AbilityIcon::Custom(CustomIcon::Unknown),
+        group: DisplayGroup::Body2,
+        schema: &[],
+        get_attributes: |stats| if stats.has_unknown_abilities > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
+        formatter: |_,_,_,_,_| "This Enemy has an undefined ability\nThe App may need to be updated".into(),
+        minus_one_is_inf: false,
+    },
     
     // --- FOOTER ---
     EnemyAbilityDef { 

@@ -13,6 +13,7 @@ pub enum CustomIcon {
     Stop,
     DeathTimer,
     God,
+    Unknown,
 }
 
 #[derive(Clone, Debug)]
