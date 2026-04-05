@@ -1,6 +1,6 @@
 use crate::features::enemy::data::t_unit::EnemyRaw;
 use crate::features::enemy::registry::Magnification;
-use crate::global::ui::shared::GlobalContext;
+use crate::global::context::GlobalContext;
 
 #[derive(Clone, Copy)]
 pub struct EnemyRenderContext<'a> {

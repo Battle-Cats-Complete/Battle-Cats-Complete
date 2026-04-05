@@ -9,7 +9,7 @@ use crate::global::formats::mamodel::Model;
 use crate::features::animation::ui::viewer::AnimViewer;
 use crate::global::assets::CustomAssets;
 use crate::global::game::param::Param;
-use crate::global::ui::shared::GlobalContext;
+use crate::global::context::GlobalContext;
 use crate::features::enemy::logic::context::EnemyRenderContext;
 use crate::features::statblock::logic::builder::{generate_and_copy, generate_and_save};
 use crate::features::enemy::logic::statblock::build_enemy_statblock;

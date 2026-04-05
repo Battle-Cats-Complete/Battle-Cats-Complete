@@ -317,8 +317,26 @@ pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         icon: AbilityIcon::Custom(CustomIcon::StarredAlien),
         group: DisplayGroup::Headline1,
         schema: &[],
-        get_attributes: |stats| if stats.type_starred_alien > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
+        get_attributes: |stats| if stats.type_starred_alien == 1 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
         formatter: |_,_,_,_,_| "Starred Alien".into(),
+        minus_one_is_inf: false,
+    },
+    EnemyAbilityDef {
+        name: "Cat God",
+        fallback: "God",
+        icon: AbilityIcon::Custom(CustomIcon::God),
+        group: DisplayGroup::Headline1,
+        schema: &[
+            ("Type", AttrUnit::None)
+        ],
+        get_attributes: |stats| {
+            if stats.type_starred_alien >= 2 && stats.type_starred_alien <= 4 { 
+                vec![("Type", stats.type_starred_alien, AttrUnit::None)] 
+            } else { 
+                vec![] 
+            }
+        },
+        formatter: |type_val,_,_,_,_| format!("CotC {} Cat God", type_val - 1),
         minus_one_is_inf: false,
     },
     EnemyAbilityDef {

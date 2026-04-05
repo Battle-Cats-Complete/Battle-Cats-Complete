@@ -1,7 +1,4 @@
 use eframe::egui;
-use crate::features::settings::logic::Settings;
-use crate::global::game::param::Param;
-use crate::global::assets::CustomAssets;
 
 pub fn paint_fallback_at(ui: &mut egui::Ui, rect: egui::Rect, text: &str, border_color: egui::Color32) {
     if !ui.is_rect_visible(rect) { return; }
@@ -124,11 +121,4 @@ pub fn clamp_window_to_screen(ctx: &egui::Context, window_id: egui::Id) -> Optio
         if changed { return Some(new_pos); }
     }
     None
-}
-
-#[derive(Clone, Copy)]
-pub struct GlobalContext<'a> {
-    pub settings: &'a Settings,
-    pub param: &'a Param,
-    pub assets: &'a CustomAssets,
 }
