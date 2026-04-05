@@ -1163,6 +1163,17 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
         formatter: |chance, stats, target, duration_frames, _| format!("{}% Chance to Warp {}\n{} Range for {}", chance, target, fmt_compress(stats.warp_distance_minimum, stats.warp_distance_maximum), fmt_time(duration_frames)),
         apply_func: None,
     },
+    CatAbilityDef {
+        name: "Unknown",
+        fallback: "Unkwn",
+        icon: AbilityIcon::Custom(CustomIcon::Unknown),
+        talent_id: 0,
+        group: DisplayGroup::Body2,
+        schema: &[],
+        get_attributes: |stats| if stats.has_unknown_abilities > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
+        formatter: |_,_,_,_,_| "This Cat has an undefined ability\nThe App may need to be updated".into(),
+        apply_func: None,
+    },
     
     // --- FOOTER ---
     CatAbilityDef {
