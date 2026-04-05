@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use crate::features::cat::logic::stats::{CatRaw, CatLevelCurve};
 use crate::features::cat::data::skillacquisition::TalentRaw;
-use crate::global::ui::shared::GlobalContext;
+use crate::global::context::GlobalContext;
 
 #[derive(Clone, Copy)]
 pub struct CatRenderContext<'a> {

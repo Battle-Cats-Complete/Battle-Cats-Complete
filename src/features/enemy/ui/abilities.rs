@@ -1,7 +1,8 @@
 use eframe::egui;
 use crate::features::enemy::logic::abilities;
 use crate::global::formats::imgcut::SpriteSheet;
-use crate::global::ui::shared::{render_fallback_icon, text_with_superscript, GlobalContext};
+use crate::global::ui::shared::{render_fallback_icon, text_with_superscript};
+use crate::global::context::GlobalContext;
 use crate::global::game::abilities::AbilityItem;
 use crate::features::enemy::registry;
 use crate::features::enemy::logic::context::EnemyRenderContext;
@@ -86,7 +87,7 @@ fn render_single_icon(
 ) -> egui::Response {
     let size = egui::vec2(40.0, 40.0);
 
-    if let Some(tex) = item.custom_icon.get_texture(global_ctx.assets) {
+    if let Some(tex) = global_ctx.assets.get_icon_texture(item.custom_icon) {
         return ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)));
     }
 

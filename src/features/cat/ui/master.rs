@@ -15,7 +15,7 @@ use super::{header, stats, abilities, talents, details, viewer};
 use super::header::ExportAction;
 use crate::features::cat::logic::statblock::build_cat_statblock;
 use crate::global::game::param::Param;
-use crate::global::ui::shared::GlobalContext;
+use crate::global::context::GlobalContext;
 use crate::features::cat::logic::context::CatRenderContext;
 
 pub fn show(
@@ -148,7 +148,6 @@ pub fn show(
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false]) 
                     .show(ui, |ui| {
-                        // So incredibly clean now!
                         abilities::render(
                             ui, &cat_ctx, cat_entry, img015_sheets 
                         );
@@ -157,7 +156,6 @@ pub fn show(
         },
         DetailTab::Talents => {
              if let Some(raw) = &cat_entry.talent_data {
-                // If you ever want to clean up talents.rs in the future, you can drop `cat_ctx` in here too!
                 talents::render(ui, raw, img015_sheets, img022_sheets, talent_name_cache, skill_descriptions, settings, base_stats, cat_entry.curve.as_ref(), *current_level, talent_levels, cat_entry.id, talent_costs, assets);
              }
         },
