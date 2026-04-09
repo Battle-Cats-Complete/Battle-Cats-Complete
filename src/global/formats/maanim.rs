@@ -117,39 +117,14 @@ impl Animation {
             }
         }
 
-        let mut animation = Self { curves, max_frame: 0 };
-        
-        // Use the native calculation to set the true max frame on load
-        animation.max_frame = animation.get_native_length();
-
-        Some(animation)
-    }
-
-    // Calculates the total timeline length
-    pub fn get_native_length(&self) -> i32 {
-        let mut longest = 0;
-        
-        // If any curve is infinite, the whole animation length is -1
-        let has_infinite_loop = self.curves.iter().any(|curve| curve.loop_count == -1);
-        if has_infinite_loop {
-            return -1; 
-        }
-
-        // Calculate the finite unrolled duration
-        for curve in &self.curves {
-            if curve.keyframes.is_empty() { continue; }
-            
-            let first_frame = curve.keyframes.first().unwrap().frame;
-            let last_frame = curve.keyframes.last().unwrap().frame;
-            
-            let unrolled_length = first_frame + (curve.loop_count * (last_frame - first_frame));
-            
-            if unrolled_length >= longest {
-                longest = unrolled_length + 1; 
+        let mut max_len = 0;
+        for curve in &curves {
+            if let Some(last_keyframe) = curve.keyframes.last() {
+                if last_keyframe.frame > max_len { max_len = last_keyframe.frame; }
             }
         }
-        
-        longest
+
+        Some(Self { curves, max_frame: max_len })
     }
 
     pub fn calculate_true_loop(&self) -> Option<i32> {
