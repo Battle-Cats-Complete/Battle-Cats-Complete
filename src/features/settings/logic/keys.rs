@@ -40,16 +40,3 @@ impl UserKeys {
         vec
     }
 }
-
-/// Moves keys.json from the app root to the secure AppData folder
-pub fn migrate_keys_to_appdata() {
-    let root_path = Path::new("keys.json");
-    if root_path.exists() {
-        if let Ok(data) = fs::read_to_string(root_path) {
-            if let Ok(keys) = serde_json::from_str::<UserKeys>(&data) {
-                keys.save(); // Saves to new AppData location
-                let _ = fs::remove_file(root_path); // Deletes from root
-            }
-        }
-    }
-}

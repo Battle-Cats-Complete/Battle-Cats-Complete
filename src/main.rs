@@ -8,7 +8,6 @@ mod global;
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
-    crate::features::settings::logic::keys::migrate_keys_to_appdata();
 
     let icon = load_icon();
 
