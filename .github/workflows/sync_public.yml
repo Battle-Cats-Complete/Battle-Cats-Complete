@@ -14,14 +14,14 @@ jobs:
     steps:
       # 1. Check out Private Repo
       - name: Checkout Private Source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5 # Bumped to v5
         with:
           path: source_repo
           fetch-depth: 0
 
       # 2. Check out Public Repo
       - name: Checkout Public Portfolio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5 # Bumped to v5
         with:
           repository: WonderMOMOCO/Battle-Cats-Complete
           token: ${{ secrets.PUBLIC_REPO_TOKEN }}
@@ -51,12 +51,11 @@ jobs:
           
           git add .
           
-          # Generate Timestamp for the fallback message
           TIMESTAMP=$(TZ="America/New_York" date +'%Y-%m-%d | %H:%M:%S')
           
           # Logic: Use the manual input if provided, otherwise use the timestamp
-          if [[ "${{ github.event.inputs.commit_msg }}" != "" ]]; then
-            FINAL_MSG="${{ github.event.inputs.commit_msg }}"
+          if [[ "${{ inputs.commit_msg }}" != "" ]]; then
+            FINAL_MSG="${{ inputs.commit_msg }}"
           else
             FINAL_MSG="Update: $TIMESTAMP"
           fi
