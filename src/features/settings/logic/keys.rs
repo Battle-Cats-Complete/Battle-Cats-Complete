@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::Path;
 
 #[derive(Clone, Serialize, Deserialize, Default, PartialEq, Debug)]
 pub struct RegionKey {
