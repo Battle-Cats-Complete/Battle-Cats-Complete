@@ -25,6 +25,7 @@ pub struct StageListState {
     
     #[serde(skip)] pub enemy_registry: HashMap<u32, EnemyEntry>,
     #[serde(skip)] pub enemy_texture_cache: HashMap<u32, egui::TextureHandle>,
+    #[serde(skip)] pub enemy_name_registry: Vec<String>,
 
     #[serde(skip)] pub item_buy_registry: HashMap<u32, GatyaItemBuy>,
     #[serde(skip)] pub item_name_registry: HashMap<usize, GatyaItemName>,
@@ -47,6 +48,7 @@ impl Default for StageListState {
             is_list_open: true,
             enemy_registry: HashMap::new(),
             enemy_texture_cache: HashMap::new(),
+            enemy_name_registry: Vec::new(),
             item_buy_registry: HashMap::new(),
             item_name_registry: HashMap::new(),
             drop_chara_registry: HashMap::new(),
@@ -60,6 +62,12 @@ impl Default for StageListState {
 impl StageListState {
     pub fn restart_scan(&mut self, scanner_configuration: ScannerConfig) {
         self.active_language_priority = scanner_configuration.language_priority.clone();
+
+        let enemies_directory_path = Path::new("game/enemies");
+        self.enemy_name_registry = crate::features::enemy::data::enemyname::load(
+            enemies_directory_path,
+            &scanner_configuration.language_priority
+        );
 
         let tables_directory_path = Path::new("game/tables");
         self.item_buy_registry = gatyaitembuy::load(
