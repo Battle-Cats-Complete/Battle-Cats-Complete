@@ -14,21 +14,9 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
         let duration = (keyframe_max - keyframe_min).max(1.0);
         let mut local_frame = global_frame;
 
-        if global_frame < keyframe_min {
-            local_frame = keyframe_min;
-        } else if curve.loop_count == -1 {
+        if curve.loop_count != 1 {
             local_frame = (global_frame - keyframe_min).rem_euclid(duration) + keyframe_min;
-        } else if curve.loop_count >= 1 {
-            // Finite loop wraps up to the loop_count, then holds the last frame
-            let max_elapsed = (curve.loop_count as f32) * duration;
-            let elapsed = global_frame - keyframe_min;
-            
-            if elapsed >= max_elapsed {
-                local_frame = keyframe_max; 
-            } else {
-                local_frame = elapsed.rem_euclid(duration) + keyframe_min;
-            }
-        } 
+        }
 
         let is_discrete = matches!(curve.modification_type, 0 | 1 | 3 | 13 | 14);
         
