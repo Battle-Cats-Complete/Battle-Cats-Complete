@@ -55,8 +55,10 @@ pub fn draw(
                     grid.end_row();
 
                     for drop_data in valid_drops_array {
-                        let resolved_item_name = treasure_logic::resolve_item_name(
-                            drop_data.id, 
+                        // Grab everything perfectly in one go!
+                        let drop_info = treasure_logic::resolve_drop(
+                            drop_data.id,
+                            drop_data.amount,
                             item_buy_registry, 
                             item_name_registry, 
                             drop_chara_registry, 
@@ -70,13 +72,7 @@ pub fn draw(
                         grid.centered_and_justified(|icon_layout| {
                             let mut has_rendered_icon = false;
                             
-                            if let Some(resolved_image_path) = treasure_logic::resolve_item_image_path(
-                                drop_data.id, 
-                                item_buy_registry, 
-                                drop_chara_registry, 
-                                unit_buy_registry, 
-                                active_language_priority_array
-                            ) {
+                            if let Some(resolved_image_path) = drop_info.image_path {
                                 if !item_texture_cache.contains_key(&drop_data.id) {
                                     if let Some(processed_color_image) = treasure_logic::process_item_icon_texture(&resolved_image_path) {
                                         let generated_texture_handle = egui_context.load_texture(
@@ -90,17 +86,17 @@ pub fn draw(
 
                                 if let Some(cached_texture_handle) = item_texture_cache.get(&drop_data.id) {
                                     let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
-                                    image_response.on_hover_text(resolved_item_name.clone());
+                                    image_response.on_hover_text(drop_info.name.clone());
                                     has_rendered_icon = true;
                                 }
                             }
 
                             if !has_rendered_icon {
-                                icon_layout.add(egui::Label::new(resolved_item_name).wrap_mode(egui::TextWrapMode::Extend));
+                                icon_layout.add(egui::Label::new(&drop_info.name).wrap_mode(egui::TextWrapMode::Extend));
                             }
                         });
 
-                        center_text(grid, drop_data.amount.to_string());
+                        center_text(grid, drop_info.amount_display);
                         grid.end_row();
                     }
                 });
@@ -125,8 +121,9 @@ pub fn draw(
                     grid.end_row();
 
                     for score_data in timed_scores {
-                        let resolved_item_name = treasure_logic::resolve_item_name(
-                            score_data.id, 
+                        let drop_info = treasure_logic::resolve_drop(
+                            score_data.id,
+                            score_data.amount,
                             item_buy_registry, 
                             item_name_registry, 
                             drop_chara_registry, 
@@ -139,13 +136,7 @@ pub fn draw(
                         grid.centered_and_justified(|icon_layout| {
                             let mut has_rendered_icon = false;
                             
-                            if let Some(resolved_image_path) = treasure_logic::resolve_item_image_path(
-                                score_data.id, 
-                                item_buy_registry, 
-                                drop_chara_registry, 
-                                unit_buy_registry, 
-                                active_language_priority_array
-                            ) {
+                            if let Some(resolved_image_path) = drop_info.image_path {
                                 if !item_texture_cache.contains_key(&score_data.id) {
                                     if let Some(processed_color_image) = treasure_logic::process_item_icon_texture(&resolved_image_path) {
                                         let generated_texture_handle = egui_context.load_texture(
@@ -159,17 +150,17 @@ pub fn draw(
 
                                 if let Some(cached_texture_handle) = item_texture_cache.get(&score_data.id) {
                                     let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
-                                    image_response.on_hover_text(resolved_item_name.clone());
+                                    image_response.on_hover_text(drop_info.name.clone());
                                     has_rendered_icon = true;
                                 }
                             }
 
                             if !has_rendered_icon {
-                                icon_layout.add(egui::Label::new(resolved_item_name).wrap_mode(egui::TextWrapMode::Extend));
+                                icon_layout.add(egui::Label::new(&drop_info.name).wrap_mode(egui::TextWrapMode::Extend));
                             }
                         });
 
-                        center_text(grid, score_data.amount.to_string());
+                        center_text(grid, drop_info.amount_display);
                         grid.end_row();
                     }
                 });
