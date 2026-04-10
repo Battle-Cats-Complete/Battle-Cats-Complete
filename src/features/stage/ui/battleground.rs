@@ -16,6 +16,7 @@ pub fn draw(
     ui: &mut egui::Ui, 
     stage_data: &Stage,
     enemy_registry: &HashMap<u32, EnemyEntry>,
+    enemy_name_registry: &[String],
     texture_cache: &mut HashMap<u32, egui::TextureHandle>
 ) {
     ui.strong("Enemy Layout");
@@ -43,6 +44,12 @@ pub fn draw(
             grid.end_row();
 
             for enemy_data in &stage_data.enemies {
+                let resolved_enemy_name = enemy_name_registry
+                    .get(enemy_data.id as usize)
+                    .filter(|s| !s.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| format!("{:03}-E", enemy_data.id));
+
                 grid.with_layout(egui::Layout::bottom_up(egui::Align::Center), |icon_layout| {
                     let mut has_rendered_icon = false;
                     
@@ -57,7 +64,8 @@ pub fn draw(
                             }
 
                             if let Some(cached_texture_handle) = texture_cache.get(&enemy_data.id) {
-                                icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
+                                let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
+                                image_response.on_hover_text(resolved_enemy_name.clone());
                                 has_rendered_icon = true;
                             }
                         }
@@ -65,7 +73,8 @@ pub fn draw(
 
                     if !has_rendered_icon {
                         icon_layout.add_space(6.0);
-                        icon_layout.add(egui::Label::new(format!("{:03}", enemy_data.id)).wrap_mode(egui::TextWrapMode::Extend));
+                        let label_response = icon_layout.add(egui::Label::new(format!("{:03}", enemy_data.id)).wrap_mode(egui::TextWrapMode::Extend));
+                        label_response.on_hover_text(resolved_enemy_name);
                     }
                 });
 
