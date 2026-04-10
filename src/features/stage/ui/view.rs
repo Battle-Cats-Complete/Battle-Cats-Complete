@@ -15,7 +15,9 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState) 
     let unit_buy_registry = &state.unit_buy_registry;
     let item_texture_cache = &mut state.item_texture_cache;
     let active_language_priority_array = &state.active_language_priority;
+    
     let enemy_registry = &state.enemy_registry;
+    let enemy_name_registry = &state.enemy_name_registry; // <-- Grab it from state
     let texture_cache = &mut state.enemy_texture_cache;
     
     let Some(stage) = state.registry.stages.get(stage_id) else { return; };
@@ -55,7 +57,7 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState) 
                     );
                     ui.add_space(20.0);
 
-                    super::battleground::draw(ctx, ui, stage, enemy_registry, texture_cache);
+                    super::battleground::draw(ctx, ui, stage, enemy_registry, enemy_name_registry, texture_cache);
                 });
             });
         });

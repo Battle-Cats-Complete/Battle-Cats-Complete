@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::Path;
 
 #[derive(Clone, Serialize, Deserialize, Default, PartialEq, Debug)]
 pub struct RegionKey {
@@ -38,18 +36,5 @@ impl UserKeys {
         if !self.tw.key.is_empty() && !self.tw.iv.is_empty() { vec.push((self.tw.key.clone(), self.tw.iv.clone(), "TW".to_string())); }
         if !self.kr.key.is_empty() && !self.kr.iv.is_empty() { vec.push((self.kr.key.clone(), self.kr.iv.clone(), "KR".to_string())); }
         vec
-    }
-}
-
-/// Moves keys.json from the app root to the secure AppData folder
-pub fn migrate_keys_to_appdata() {
-    let root_path = Path::new("keys.json");
-    if root_path.exists() {
-        if let Ok(data) = fs::read_to_string(root_path) {
-            if let Ok(keys) = serde_json::from_str::<UserKeys>(&data) {
-                keys.save(); // Saves to new AppData location
-                let _ = fs::remove_file(root_path); // Deletes from root
-            }
-        }
     }
 }
