@@ -356,13 +356,16 @@ fn trigger_import_job(state: &mut ImportState, settings: &mut Settings) {
         Some(ImportSubTab::Sort) => {
             let data_path = state.import_path.clone();
             
+            let lang_priority = settings.general.language_priority.clone();
+
             thread::spawn(move || {
                 let result = raw::run(
                     &data_path, 
                     sender, 
                     abort, 
                     progress_current, 
-                    progress_max
+                    progress_max,
+                    &lang_priority
                 );
                 
                 if result.is_err() {
