@@ -6,14 +6,15 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use rayon::prelude::*;
 
-use crate::features::data::utilities::{audit, router, manifest};
+use crate::features::data::utilities::{audit, router, manifest, sort};
 
 pub fn run(
     source_path_string: &str, 
     status_sender: Sender<String>, 
     abort_flag: Arc<AtomicBool>, 
     progress_current: Arc<AtomicUsize>, 
-    progress_maximum: Arc<AtomicUsize>
+    progress_maximum: Arc<AtomicUsize>,
+    language_priority: &[String] 
 ) -> Result<(), String> {
     
     let source_path = Path::new(source_path_string);
@@ -41,11 +42,13 @@ pub fn run(
 
     let _ = status_sender.send("Importing standard raw files...".to_string());
     
-    let mut files_to_import = Vec::new();
-    collect_files_recursive(source_path, &mut files_to_import);
+    let mut raw_file_paths = Vec::new();
+    collect_files_recursive(source_path, &mut raw_file_paths);
     
+    let files_to_import = sort::process_raw_files(raw_file_paths, source_path_string, language_priority);
+
     if files_to_import.is_empty() {
-        let _ = status_sender.send("No files found in source directory.".to_string());
+        let _ = status_sender.send("No files found in source directory after filtering.".to_string());
         return Ok(());
     }
     
@@ -55,16 +58,16 @@ pub fn run(
     
     let count = std::sync::atomic::AtomicUsize::new(0);
     
-    files_to_import.par_iter().for_each(|path| {
+    files_to_import.par_iter().for_each(|sorted_file| {
         if abort_flag.load(Ordering::Relaxed) { return; }
-        if let Some(filename) = path.file_name() {
-            let _ = fs::copy(path, raw_directory_path.join(filename));
-            
-            let c = count.fetch_add(1, Ordering::Relaxed) + 1;
-            progress_current.store(c, Ordering::Relaxed);
-            if c % update_interval == 0 {
-                let _ = status_sender.send(format!("Copied {} files to raw...", c));
-            }
+        
+        let destination_path = raw_directory_path.join(&sorted_file.resolved_name);
+        let _ = fs::copy(&sorted_file.original_path, destination_path);
+        
+        let c = count.fetch_add(1, Ordering::Relaxed) + 1;
+        progress_current.store(c, Ordering::Relaxed);
+        if c % update_interval == 0 {
+            let _ = status_sender.send(format!("Copied {} files to raw...", c));
         }
     });
 

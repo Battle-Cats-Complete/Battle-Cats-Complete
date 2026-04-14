@@ -6,36 +6,40 @@ use super::transform::WorldTransform;
 
 // Shaders
 const VERTEX_SHADER_SOURCE: &str = r#"
-    precision lowp float;
-    attribute vec2 a_position;
-    attribute vec2 a_texcoord;
-    uniform mat3 u_transform;
-    varying vec2 v_texcoord;
+#ifdef GL_ES
+precision lowp float;
+#endif
+attribute vec2 a_position;
+attribute vec2 a_texcoord;
+uniform mat3 u_transform;
+varying vec2 v_texcoord;
 
-    void main() {
-        vec3 pos = u_transform * vec3(a_position, 1.0);
-        gl_Position = vec4(pos.xy, 0.0, 1.0);
-        v_texcoord = a_texcoord;
-    }
+void main() {
+    vec3 pos = u_transform * vec3(a_position, 1.0);
+    gl_Position = vec4(pos.xy, 0.0, 1.0);
+    v_texcoord = a_texcoord;
+}
 "#;
 
 const FRAGMENT_SHADER_SOURCE: &str = r#"
-    precision lowp float;
-    uniform sampler2D u_texture;
-    uniform float u_opacity;
-    uniform int u_is_glow;
-    varying vec2 v_texcoord;
+#ifdef GL_ES
+precision lowp float;
+#endif
+uniform sampler2D u_texture;
+uniform float u_opacity;
+uniform int u_is_glow;
+varying vec2 v_texcoord;
 
-    void main() {
-        vec4 tex_color = texture2D(u_texture, v_texcoord);
-        
-        if (u_is_glow == 1) {
-            float brightness = max(tex_color.r, max(tex_color.g, tex_color.b));
-            gl_FragColor = vec4(tex_color.rgb, brightness) * u_opacity;
-        } else {
-            gl_FragColor = tex_color * u_opacity;
-        }
+void main() {
+    vec4 tex_color = texture2D(u_texture, v_texcoord);
+    
+    if (u_is_glow == 1) {
+        float brightness = max(tex_color.r, max(tex_color.g, tex_color.b));
+        gl_FragColor = vec4(tex_color.rgb, brightness) * u_opacity;
+    } else {
+        gl_FragColor = tex_color * u_opacity;
     }
+}
 "#;
 
 // Renderer
