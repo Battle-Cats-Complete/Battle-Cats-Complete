@@ -35,7 +35,7 @@ jobs:
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
           TAG="v$VERSION"
-          if gh release view "$TAG" > /dev/null 2>&1; then
+          if gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
             echo "Version $TAG already exists."
             echo "should_release=false" >> $GITHUB_OUTPUT
           else
