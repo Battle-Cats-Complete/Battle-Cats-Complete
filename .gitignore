@@ -9,6 +9,7 @@ Battle_Cats_Complete.exe
 
 # Quality of Life
 .cargo/
+publish.sh
 
 # Extracted Game Data
 /game/
