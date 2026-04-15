@@ -16,7 +16,7 @@ publish.ps1
 /exports/
 /mods/
 
-# Update Leftovers 
+# Update Leftovers
 tmp_update.zip
 tmp_new_version.exe
 tmp_new_version
