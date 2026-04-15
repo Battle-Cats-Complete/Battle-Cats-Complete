@@ -1,0 +1,60 @@
+name: Notify Discord on Release
+
+on:
+  release:
+    types: [released, published]
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Latest Release info
+        if: github.event_name == 'workflow_dispatch'
+        id: latest_release
+        run: |
+          RELEASE_DATA=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" | jq '.[0]')
+          
+          echo "name=$(echo $RELEASE_DATA | jq -r .name)" >> $GITHUB_OUTPUT
+          echo "tag=$(echo $RELEASE_DATA | jq -r .tag_name)" >> $GITHUB_OUTPUT
+          echo "url=$(echo $RELEASE_DATA | jq -r .html_url)" >> $GITHUB_OUTPUT
+          echo "date=$(echo $RELEASE_DATA | jq -r .published_at)" >> $GITHUB_OUTPUT
+          
+          echo $RELEASE_DATA | jq -r .body > release_body.txt
+
+      - name: Send Rich Message to Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          RELEASE_BODY_EVENT: ${{ github.event.release.body }}
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            REL_NAME="${{ steps.latest_release.outputs.name }}"
+            REL_URL="${{ steps.latest_release.outputs.url }}"
+            REL_DATE=$(echo "${{ steps.latest_release.outputs.date }}" | cut -c1-10)
+            MESSAGE_BODY=$(cat release_body.txt)
+          else
+            REL_NAME="${{ github.event.release.name }}"
+            REL_URL="${{ github.event.release.html_url }}"
+            REL_DATE=$(echo "${{ github.event.release.published_at }}" | cut -c1-10)
+            MESSAGE_BODY="$RELEASE_BODY_EVENT"
+          fi
+
+          if [ ${#MESSAGE_BODY} -gt 2000 ]; then
+            MESSAGE_BODY=$(printf "%s ...\n\n**[Read full release notes](%s)**" "${MESSAGE_BODY:0:2000}" "$REL_URL")
+          fi
+
+          CLEAN_BODY=$(echo "$MESSAGE_BODY" | jq -Rs .)
+
+          curl -H "Content-Type: application/json" \
+          -d "{
+            \"content\": \"**$REL_NAME**\",
+            \"embeds\": [{
+              \"title\": \"Release\",
+              \"url\": \"$REL_URL\",
+              \"description\": $CLEAN_BODY,
+              \"color\": 2058496,
+              \"footer\": { \"text\": \"Release Date: $REL_DATE\" }
+            }]
+          }" \
+          "$DISCORD_WEBHOOK"
