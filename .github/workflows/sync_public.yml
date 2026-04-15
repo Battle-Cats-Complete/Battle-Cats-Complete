@@ -23,7 +23,7 @@ jobs:
       - name: Checkout Public Portfolio
         uses: actions/checkout@v5 # Bumped to v5
         with:
-          repository: WonderMOMOCO/Battle-Cats-Complete
+          repository: Battle-Cats-Complete/Battle-Cats-Complete
           token: ${{ secrets.PUBLIC_REPO_TOKEN }}
           path: public_repo
 
