@@ -171,7 +171,7 @@ fn fmt_sage(param: &Param) -> String {
 
 // --- ABILITY REGISTRY ---
 
-pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
+pub static CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
     // --- SPECIAL HIDDEN ---
     CatAbilityDef {
         name: "Single Attack",
@@ -297,8 +297,8 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
         apply_func: Some(|stats,_,_,_| stats.target_aku = 1),
     },
     CatAbilityDef {
-        name: "Target White",
-        fallback: "White",
+        name: "Target Traitless",
+        fallback: "NoTrt",
         icon: AbilityIcon::Standard(img015::ICON_TRAIT_TRAITLESS),
         talent_id: 41,
         group: DisplayGroup::Trait,
@@ -307,7 +307,28 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
         formatter: |_,_,_,_,_| "Targets Traitless Enemies".into(),
         apply_func: Some(|stats,_,_,_| stats.target_traitless = 1),
     },
-
+    CatAbilityDef {
+        name: "Target Witch",
+        fallback: "Witch",
+        icon: AbilityIcon::Standard(img015::ICON_WITCH),
+        talent_id: 0,
+        group: DisplayGroup::Trait,
+        schema: &[],
+        get_attributes: |stats| if stats.target_witch > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
+        formatter: |_,_,_,_,_| "Targets Witch Enemies".into(),
+        apply_func: Some(|stats,_,_,_| stats.target_witch = 1),
+    },
+    CatAbilityDef {
+        name: "Target EVA",
+        fallback: "EVA",
+        icon: AbilityIcon::Standard(img015::ICON_EVA),
+        talent_id: 0,
+        group: DisplayGroup::Trait,
+        schema: &[],
+        get_attributes: |stats| if stats.target_eva > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
+        formatter: |_,_,_,_,_| "Targets EVA Angels".into(),
+        apply_func: Some(|stats,_,_,_| stats.target_eva = 1),
+    },
     // --- HEADLINE 1 ---
     CatAbilityDef {
         name: "Attack Only",
@@ -493,17 +514,6 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
         }),
     },
     CatAbilityDef {
-        name: "Eva Killer",
-        fallback: "Eva",
-        icon: AbilityIcon::Standard(img015::ICON_EVA_KILLER),
-        talent_id: 0,
-        group: DisplayGroup::Headline2,
-        schema: &[],
-        get_attributes: |stats| if stats.eva_killer > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
-        formatter: |_,_,_,_,_| "Deals 5× Damage to and takes 0.2× Damage from Eva Angels".into(),
-        apply_func: Some(|stats,_,_,_| stats.eva_killer = 1),
-    },
-    CatAbilityDef {
         name: "Witch Killer",
         fallback: "Witch",
         icon: AbilityIcon::Standard(img015::ICON_WITCH_KILLER),
@@ -513,6 +523,17 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
         get_attributes: |stats| if stats.witch_killer > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
         formatter: |_,_,_,_,_| "Deals 5× Damage to and takes 0.1× Damage from Witches".into(),
         apply_func: Some(|stats,_,_,_| stats.witch_killer = 1),
+    },
+    CatAbilityDef {
+        name: "Eva Killer",
+        fallback: "Eva",
+        icon: AbilityIcon::Standard(img015::ICON_EVA_KILLER),
+        talent_id: 0,
+        group: DisplayGroup::Headline2,
+        schema: &[],
+        get_attributes: |stats| if stats.eva_killer > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
+        formatter: |_,_,_,_,_| "Deals 5× Damage to and takes 0.2× Damage from Eva Angels".into(),
+        apply_func: Some(|stats,_,_,_| stats.eva_killer = 1),
     },
     CatAbilityDef {
         name: "Wave Block",
@@ -644,13 +665,21 @@ pub const CAT_ABILITY_REGISTRY: &[CatAbilityDef] = &[
         apply_func: None,
     },
     CatAbilityDef {
-        name: "Conjure / Spirit",
+        name: "Conjure",
         fallback: "Spirit",
         icon: AbilityIcon::Standard(img015::ICON_CONJURE),
         talent_id: 0,
         group: DisplayGroup::Body1,
-        schema: &[],
-        get_attributes: |stats| if stats.conjure_unit_id > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
+        schema: &[
+            ("Spirit ID", AttrUnit::None)
+        ],
+        get_attributes: |stats| {
+            if stats.conjure_unit_id > -1 { 
+                vec![("Spirit ID", stats.conjure_unit_id, AttrUnit::None)] 
+            } else { 
+                vec![] 
+            }
+        },
         formatter: |_,_,_,_,_| "Conjures a Spirit to the battlefield when tapped\nThis Cat may only be deployed one at a time".into(),
         apply_func: None,
     },
