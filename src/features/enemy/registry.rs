@@ -175,7 +175,7 @@ fn fmt_sage(param: &Param) -> String {
     }
 }
 
-pub const ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
+pub static ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
     // --- SPECIAL HIDDEN ---
     EnemyAbilityDef {
         name: "Single Attack",
