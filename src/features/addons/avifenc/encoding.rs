@@ -36,13 +36,9 @@ fn encode_via_pipe(
 
     let output_path_string = temp_path.to_string_lossy();
     
-    // SPEED
     let speed_value = 10 - (config.compression_percent / 10).clamp(0, 10);
-    
-    // QUALITY
-    let quality_value = ((config.quality_percent as f32 / 100.0) * 63.0).round() as u8;
+    let quality_value = config.quality_percent.clamp(0, 100) as u8;
 
-    // Start Avifenc
     let mut avif_command_builder = Command::new(avif_path);
     #[cfg(target_os = "windows")]
     {
@@ -50,12 +46,12 @@ fn encode_via_pipe(
         avif_command_builder.creation_flags(0x08000000);
     }
     
-    // Construct Args
     let arguments = vec![
         "--speed".to_string(), speed_value.to_string(),
         "-o".to_string(), output_path_string.to_string(),
         "-q".to_string(), quality_value.to_string(),
         "--qalpha".to_string(), quality_value.to_string(),
+        "--yuv".to_string(), "444".to_string(),
         "--stdin".to_string()
     ];
 
@@ -70,7 +66,6 @@ fn encode_via_pipe(
         return false;
     };
 
-    // Start FFmpeg
     let mut ffmpeg_command_builder = Command::new(ffmpeg_path);
     #[cfg(target_os = "windows")]
     {
@@ -108,7 +103,6 @@ fn encode_via_pipe(
         return false;
     };
 
-    // Process Decoupling Bridge
     let bridge_handle = thread::spawn(move || {
         let _ = std::io::copy(&mut ffmpeg_stdout, &mut avif_stdin);
     });
@@ -116,7 +110,6 @@ fn encode_via_pipe(
     let mut frames_processed = 0;
     let mut is_success = false;
 
-    // Pump frames to FFmpeg
     while let Ok(message) = receiver.recv() {
         if abort_signal.load(Ordering::Relaxed) { break; }
 
@@ -160,14 +153,12 @@ fn encode_via_folder(
     let parent_directory = temp_path.parent().unwrap_or_else(|| Path::new("."));
     let work_directory = parent_directory.join(folder_name);
     
-    // Ensure we start clean
     if work_directory.exists() { let _ = fs::remove_dir_all(&work_directory); }
     let _ = fs::create_dir_all(&work_directory);
 
     let mut frames_processed = 0;
     let mut frame_paths = Vec::new();
 
-    // Pump frames to PNGs
     while let Ok(message) = receiver.recv() {
         if abort_signal.load(Ordering::Relaxed) { 
             let _ = fs::remove_dir_all(&work_directory);
@@ -192,14 +183,15 @@ fn encode_via_folder(
         return false; 
     }
 
-    // MAPPING
     let speed_value = 10 - (config.compression_percent / 10).clamp(0, 10);
-    let quality_value = ((config.quality_percent as f32 / 100.0) * 63.0).round() as u8;
+    let quality_value = config.quality_percent.clamp(0, 100) as u8;
 
     let mut arguments = vec![
         "--speed".to_string(), speed_value.to_string(),
         "-o".to_string(), temp_path.to_string_lossy().to_string(),
-        "-q".to_string(), quality_value.to_string()
+        "-q".to_string(), quality_value.to_string(),
+        "--qalpha".to_string(), quality_value.to_string(),
+        "--yuv".to_string(), "444".to_string()
     ];
 
     for frame_path in &frame_paths { 
