@@ -257,7 +257,7 @@ impl CatRaw {
             behemoth_dodge_duration: get_int(107),
             mini_surge_flag: get_int(108),
             counter_surge: get_int(109),
-            conjure_unit_id: get_int(110),
+            conjure_unit_id: get_int_neg(110),
             sage_slayer: get_int(111),
             metal_killer_percent: get_int(112),
             explosion_chance: get_int(113),
