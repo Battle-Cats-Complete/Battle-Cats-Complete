@@ -3,7 +3,6 @@ use std::collections::HashSet;
 
 use crate::global::formats::imgcut::SpriteSheet;
 use crate::global::assets::CustomAssets;
-use crate::global::game::abilities::UI_TRAIT_ORDER;
 use crate::global::ui::shared::DragGuard;
 use crate::features::enemy::registry::{ENEMY_ABILITY_REGISTRY, DisplayGroup, AbilityIcon};
 use crate::global::game::img015;
@@ -38,20 +37,22 @@ pub fn show_popup(
         .id(window_id)
         .open(&mut is_open_local)
         .collapsible(false)
-        .resizable(false)
+        .resizable(true)
         .constrain(false)
         .movable(allow_drag)
         .default_pos(ctx.screen_rect().center() - egui::vec2(WINDOW_WIDTH / 2.0, WINDOW_HEIGHT / 2.0))
-        .fixed_size([WINDOW_WIDTH, WINDOW_HEIGHT]);
+        .default_size([WINDOW_WIDTH, WINDOW_HEIGHT])
+        .min_width(380.0)
+        .min_height(400.0);
         
     if let Some(pos) = fixed_pos { window = window.current_pos(pos); }
     
     window.show(ctx, |ui| {
         let max_rect = ui.max_rect(); 
         
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            
-            ui.set_min_width(WINDOW_WIDTH - 20.0);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
             
             ui.heading("Attributes");
             ui.add_space(5.0);
@@ -126,10 +127,11 @@ pub fn show_popup(
             ui.add_space(5.0);
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                for &icon_id in UI_TRAIT_ORDER {
-                    let ability_icon = AbilityIcon::Standard(icon_id);
-                    render_filter_icon(ui, ability_icon, &mut state.active_icons, sheets, assets);
-                    rendered_icons.insert(ability_icon); 
+                for def in ENEMY_ABILITY_REGISTRY.iter() {
+                    if def.group == DisplayGroup::Type {
+                        render_filter_icon(ui, def.icon, &mut state.active_icons, sheets, assets);
+                        rendered_icons.insert(def.icon); 
+                    }
                 }
             });
 
@@ -195,37 +197,33 @@ fn render_display_group(
     let mut icons_in_group = Vec::new();
     
     for def in ENEMY_ABILITY_REGISTRY.iter() {
-        let is_trait = match def.icon {
-            AbilityIcon::Standard(id) => UI_TRAIT_ORDER.contains(&id),
-            _ => false,
-        };
-
-        if def.group == target_group && !is_trait && !ATTACK_TYPE_ICONS.contains(&def.icon) {
-            if !icons_in_group.contains(&def.icon) {
-                icons_in_group.push(def.icon);
-                rendered_icons.insert(def.icon);
-            }
-        }
+        if def.group != target_group { continue; }
+        if def.group == DisplayGroup::Type { continue; }
+        if ATTACK_TYPE_ICONS.contains(&def.icon) { continue; }
+        if icons_in_group.contains(&def.icon) { continue; }
+        
+        icons_in_group.push(def.icon);
+        rendered_icons.insert(def.icon);
     }
     
-    if !icons_in_group.is_empty() {
-        if is_vertical {
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
-                for ability_icon in icons_in_group {
-                    render_filter_icon_row(ui, state, ability_icon, draw_labels, sheets, assets);
-                }
-            });
-        } else {
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                for ability_icon in icons_in_group {
-                    render_filter_icon(ui, ability_icon, &mut state.active_icons, sheets, assets);
-                }
-            });
-        }
-        ui.add_space(8.0); 
+    if icons_in_group.is_empty() { return; }
+    
+    if is_vertical {
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
+            for ability_icon in icons_in_group {
+                render_filter_icon_row(ui, state, ability_icon, draw_labels, sheets, assets);
+            }
+        });
+    } else {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+            for ability_icon in icons_in_group {
+                render_filter_icon(ui, ability_icon, &mut state.active_icons, sheets, assets);
+            }
+        });
     }
+    ui.add_space(8.0); 
 }
 
 fn render_filter_icon_row(
@@ -267,48 +265,38 @@ fn render_filter_icon_row(
 
                 if is_active && has_adv {
                     ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(3.0); 
-                        
-                        egui::Grid::new(format!("adv_grid_{}", name))
-                            .spacing([8.0, 6.0]) 
-                            .show(ui, |ui| {
-                                for &(attr, _unit) in schema {
-                                    ui.label(format!("{}:", attr));
-                                    
-                                    let range = state.adv_ranges
-                                        .entry(ability_icon)
-                                        .or_default()
-                                        .entry(attr)
-                                        .or_default();
-                                    
-                                    ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing.x = TILDE_SPACING;
+                    egui::Grid::new(format!("adv_grid_{}", name))
+                        .spacing([8.0, 6.0]) 
+                        .show(ui, |ui| {
+                            for &(attr, _unit) in schema {
+                                ui.label(format!("{}:", attr));
+                                
+                                let range = state.adv_ranges
+                                    .entry(ability_icon)
+                                    .or_default()
+                                    .entry(attr)
+                                    .or_default();
+                                
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = TILDE_SPACING;
 
-                                        let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
-                                        
-                                        ui.horizontal(|ui| {
-                                            ui.spacing_mut().item_spacing.x = 2.0;
-                                            ui.add_sized(
-                                                egui::vec2(45.0, 20.0), 
-                                                egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
-                                            );
-                                        });
-                                        
-                                        ui.label("~");
-                                        
-                                        ui.horizontal(|ui| {
-                                            ui.spacing_mut().item_spacing.x = 2.0;
-                                            ui.add_sized(
-                                                egui::vec2(45.0, 20.0), 
-                                                egui::TextEdit::singleline(&mut range.max).hint_text(hint)
-                                            );
-                                        });
-                                    });
-                                    ui.end_row();
-                                }
-                            });
-                    });
+                                    let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
+                                    
+                                    ui.add_sized(
+                                        egui::vec2(45.0, 20.0), 
+                                        egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
+                                    );
+                                    
+                                    ui.label("~");
+                                    
+                                    ui.add_sized(
+                                        egui::vec2(45.0, 20.0), 
+                                        egui::TextEdit::singleline(&mut range.max).hint_text(hint)
+                                    );
+                                });
+                                ui.end_row();
+                            }
+                        });
                 }
             });
         });
@@ -324,11 +312,8 @@ fn render_filter_icon(
     let is_active = active_icons.contains(&ability_icon);
     let tint = if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(80) };
     
-    let mut drawn = false;
-    
     match ability_icon {
         AbilityIcon::Custom(custom_icon) => {
-            // UPDATED: Use `assets.get_icon_texture`
             if let Some(tex) = assets.get_icon_texture(custom_icon) {
                 let img = egui::Image::new(tex).fit_to_exact_size(egui::vec2(32.0, 32.0)).tint(tint);
                 let response = ui.add(egui::ImageButton::new(img).frame(false));
@@ -337,41 +322,38 @@ fn render_filter_icon(
                     else { active_icons.insert(ability_icon); }
                 }
                 response.on_hover_text(get_icon_name(ability_icon));
-                drawn = true;
+                return;
             }
         },
         AbilityIcon::Standard(icon_id) => {
             for sheet in sheets {
-                if let Some(cut) = sheet.cuts_map.get(&icon_id) {
-                    if let Some(tex) = &sheet.texture_handle {
-                        let img = egui::Image::new(egui::load::SizedTexture::new(tex.id(), egui::vec2(32.0, 32.0)))
-                            .uv(cut.uv_coordinates)
-                            .tint(tint);
-                        let response = ui.add(egui::ImageButton::new(img).frame(false));
-                        if response.clicked() {
-                            if is_active { active_icons.remove(&ability_icon); } 
-                            else { active_icons.insert(ability_icon); }
-                        }
-                        response.on_hover_text(get_icon_name(ability_icon));
-                        drawn = true;
-                        break;
-                    }
+                let Some(cut) = sheet.cuts_map.get(&icon_id) else { continue; };
+                let Some(tex) = &sheet.texture_handle else { continue; };
+                
+                let img = egui::Image::new(egui::load::SizedTexture::new(tex.id(), egui::vec2(32.0, 32.0)))
+                    .uv(cut.uv_coordinates)
+                    .tint(tint);
+                    
+                let response = ui.add(egui::ImageButton::new(img).frame(false));
+                if response.clicked() {
+                    if is_active { active_icons.remove(&ability_icon); } 
+                    else { active_icons.insert(ability_icon); }
                 }
+                response.on_hover_text(get_icon_name(ability_icon));
+                return;
             }
         }
     }
 
-    if !drawn {
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
-        if ui.is_rect_visible(rect) {
-            ui.painter().rect_filled(rect, 4.0, egui::Color32::from_black_alpha(100));
-            let text_color = if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(100) };
-            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "?", egui::FontId::proportional(20.0), text_color);
-        }
-        if response.clicked() {
-            if is_active { active_icons.remove(&ability_icon); } 
-            else { active_icons.insert(ability_icon); }
-        }
-        response.on_hover_text(get_icon_name(ability_icon));
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        ui.painter().rect_filled(rect, 4.0, egui::Color32::from_black_alpha(100));
+        let text_color = if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(100) };
+        ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "?", egui::FontId::proportional(20.0), text_color);
     }
+    if response.clicked() {
+        if is_active { active_icons.remove(&ability_icon); } 
+        else { active_icons.insert(ability_icon); }
+    }
+    response.on_hover_text(get_icon_name(ability_icon));
 }
