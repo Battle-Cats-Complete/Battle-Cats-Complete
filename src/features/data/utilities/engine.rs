@@ -398,10 +398,16 @@ pub fn run_universal_import(
         let mut should_write_to_disk = true;
 
         if let Some(existing_manifest_entry) = global_file_ledger.get(&resolved_filename) {
-            if winning_candidate.true_weight < existing_manifest_entry.weight {
-                should_write_to_disk = false; 
-            } else if winning_candidate.true_weight == existing_manifest_entry.weight && winning_checksum == existing_manifest_entry.checksum {
-                if target_destination_path.exists() { should_write_to_disk = false; }
+            let is_same_region = winning_candidate.task.region_code == existing_manifest_entry.winner;
+            let is_identical = winning_candidate.true_weight == existing_manifest_entry.weight 
+                            && winning_checksum == existing_manifest_entry.checksum;
+
+            if is_identical && target_destination_path.exists() {
+                should_write_to_disk = false;
+            }
+
+            if !is_same_region && winning_candidate.true_weight < existing_manifest_entry.weight {
+                should_write_to_disk = false;
             }
         }
 
