@@ -210,7 +210,7 @@ fn apply_target_traits(stats: &mut CatRaw, name_id: i16, type_id: u16) {
         match bit {
             0 => stats.target_red = 1,
             1 => stats.target_floating = 1,
-            2 => stats.target_black = 1,
+            2 => stats.target_dark = 1,
             3 => stats.target_metal = 1,
             4 => stats.target_angel = 1,
             5 => stats.target_alien = 1,
