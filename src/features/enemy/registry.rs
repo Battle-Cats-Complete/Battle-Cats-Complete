@@ -220,13 +220,13 @@ pub static ENEMY_ABILITY_REGISTRY: &[EnemyAbilityDef] = &[
         minus_one_is_inf: false,
     },
     EnemyAbilityDef {
-        name: "Black",
-        fallback: "Black",
+        name: "Dark",
+        fallback: "Dark",
         icon: AbilityIcon::Standard(img015::ICON_TRAIT_BLACK),
         group: DisplayGroup::Type,
         schema: &[],
-        get_attributes: |stats| if stats.type_black > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
-        formatter: |_,_,_,_,_| "Black".into(),
+        get_attributes: |stats| if stats.type_dark > 0 { vec![("Active", 1, AttrUnit::None)] } else { vec![] },
+        formatter: |_,_,_,_,_| "Dark".into(),
         minus_one_is_inf: false,
     },
     EnemyAbilityDef {
