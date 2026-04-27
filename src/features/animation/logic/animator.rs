@@ -90,18 +90,18 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
     
     if !is_found {
         let Some(last_keyframe) = curve.keyframes.last() else { return None; };
-        return Some((last_keyframe.value as f32).trunc());
+        return Some(last_keyframe.value as f32);
     }
     
     if end_index == 0 {
-         return Some((curve.keyframes[0].value as f32).trunc());
+         return Some(curve.keyframes[0].value as f32);
     }
 
     let start_keyframe = &curve.keyframes[start_index];
     let end_keyframe = &curve.keyframes[end_index];
 
-    if is_discrete { return Some((start_keyframe.value as f32).trunc()); }
-    if start_keyframe.frame == end_keyframe.frame { return Some((start_keyframe.value as f32).trunc()); }
+    if is_discrete { return Some(start_keyframe.value as f32); }
+    if start_keyframe.frame == end_keyframe.frame { return Some(start_keyframe.value as f32); }
 
     if start_keyframe.ease_mode == 3 {
         let mut points = Vec::new();
@@ -140,7 +140,7 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
             }
             final_result += polynomial_product;
         }
-        return Some(final_result.trunc());
+        return Some(final_result);
     }
 
     let time_duration = (end_keyframe.frame - start_keyframe.frame) as f32;
@@ -151,7 +151,7 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
     let value_change = (end_keyframe.value - start_keyframe.value) as f32;
 
     let interpolated_value = match start_keyframe.ease_mode {
-        0 => start_value + (value_change * x), 
+        0 => start_value + (value_change * x).trunc(), 
         1 => if x >= 1.0 { end_keyframe.value as f32 } else { start_value }, 
         2 => { 
             let ease_power = if start_keyframe.ease_power != 0 { start_keyframe.ease_power as f32 } else { 1.0 };
@@ -163,12 +163,12 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
             };
             
             if ease_factor.is_nan() { 
-                start_value + (value_change * x) 
+                start_value + (value_change * x).trunc() 
             } else { 
-                start_value + (value_change * ease_factor) 
+                start_value + (value_change * ease_factor).trunc() 
             }
         },
-        _ => start_value + (value_change * x) 
+        _ => start_value + (value_change * x).trunc()
     };
 
     if curve.modification_type == 2 {
@@ -179,5 +179,5 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
         }
     }
 
-    Some(interpolated_value.trunc())
+    Some(interpolated_value)
 }
