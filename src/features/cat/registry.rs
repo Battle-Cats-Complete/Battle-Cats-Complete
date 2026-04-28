@@ -90,6 +90,11 @@ fn fmt_effective_range(stats: &CatRaw) -> String {
                     let end = anchor + span;
                     let (min_r, max_r) = if start < end { (start, end) } else { (end, start) };
                     range_strings.push(format!("{}~{}", min_r, max_r));
+                } else if stats.long_distance_1_span != 0 || stats.long_distance_1_anchor != 0 {
+                    let start = stats.long_distance_1_anchor;
+                    let end = stats.long_distance_1_anchor + stats.long_distance_1_span;
+                    let (min_r, max_r) = if start < end { (start, end) } else { (end, start) };
+                    range_strings.push(format!("{}~{}", min_r, max_r));
                 } else {
                     // Standard hit fallback! (Using standard Cat 320 collision offset)
                     range_strings.push(format!("-320~{}", stats.standing_range));
