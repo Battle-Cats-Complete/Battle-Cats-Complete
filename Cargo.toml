@@ -43,6 +43,12 @@ rustc-hash = "1.1"
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
 
+[workspace]
+members = [
+    ".",
+    "xtask",
+]
+
 [profile.release]
 strip = true
 opt-level = 3
