@@ -30,29 +30,26 @@ pub fn animate(model: &Model, animation: &Animation, global_frame: f32) -> Vec<M
         match curve.modification_type {
             0 => part.parent_id = interpolated_value as i32,
             1 => part.unit_id = interpolated_value as i32,
-            3 => part.drawing_layer = interpolated_value as i32, 
-            
             2 => { part.sprite_index = interpolated_value as i32; },
-
-            4 => part.position_x = base_part.position_x + interpolated_value, 
-            5 => part.position_y = base_part.position_y + interpolated_value,
-            6 => part.pivot_x = base_part.pivot_x + interpolated_value,
-            7 => part.pivot_y = base_part.pivot_y + interpolated_value,
+            3 => part.drawing_layer = interpolated_value as i32, 
+            4 => part.position_x = (base_part.position_x + interpolated_value).trunc(), 
+            5 => part.position_y = (base_part.position_y + interpolated_value).trunc(),
+            6 => part.pivot_x = (base_part.pivot_x + interpolated_value).trunc(),
+            7 => part.pivot_y = (base_part.pivot_y + interpolated_value).trunc(),
             8 => { 
-                let scale_factor = interpolated_value / model.scale_unit;
-                part.scale_x = base_part.scale_x * scale_factor;
-                part.scale_y = base_part.scale_y * scale_factor;
+                part.scale_x = (base_part.scale_x * interpolated_value / model.scale_unit).trunc();
+                part.scale_y = (base_part.scale_y * interpolated_value / model.scale_unit).trunc();
             },
             9 => {
-                let scale_factor = interpolated_value / model.scale_unit;
-                part.scale_x = base_part.scale_x * scale_factor;
+                part.scale_x = (base_part.scale_x * interpolated_value / model.scale_unit).trunc();
             },
             10 => {
-                let scale_factor = interpolated_value / model.scale_unit;
-                part.scale_y = base_part.scale_y * scale_factor;
+                part.scale_y = (base_part.scale_y * interpolated_value / model.scale_unit).trunc();
             },
-            11 => part.rotation = base_part.rotation + interpolated_value,
-            12 => part.alpha = base_part.alpha * (interpolated_value / model.alpha_unit),
+            11 => part.rotation = (base_part.rotation + interpolated_value).trunc(),
+            12 => {
+                part.alpha = (base_part.alpha * interpolated_value / model.alpha_unit).trunc();
+            },
             
             13 => {
                 part.flip_x = interpolated_value != 0.0;
@@ -103,6 +100,7 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
     if is_discrete { return Some((start_keyframe.value as f32).trunc()); }
     if start_keyframe.frame == end_keyframe.frame { return Some((start_keyframe.value as f32).trunc()); }
 
+    // 12-bit fixed-point integer math for EASE_POLYNOMIAL
     if start_keyframe.ease_mode == 3 {
         let mut points = Vec::new();
         let mut backward_index = start_index as isize;
@@ -110,7 +108,7 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
         while backward_index >= 0 {
             let current_keyframe = &curve.keyframes[backward_index as usize];
             if (backward_index as usize) != start_index && current_keyframe.ease_mode != 3 { break; }
-            points.push((current_keyframe.frame as f32, current_keyframe.value as f32));
+            points.push((current_keyframe.frame as i64, current_keyframe.value as i64));
             backward_index -= 1;
         }
         
@@ -119,39 +117,42 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
         
         while forward_index < curve.keyframes.len() {
             let current_keyframe = &curve.keyframes[forward_index];
-            points.push((current_keyframe.frame as f32, current_keyframe.value as f32));
+            points.push((current_keyframe.frame as i64, current_keyframe.value as i64));
             if current_keyframe.ease_mode != 3 { break; }
             forward_index += 1;
         }
 
-        let mut final_result = 0.0;
+        let mut final_result: i64 = 0;
         let total_points = points.len();
+        let frame_int = frame.trunc() as i64; 
         
         for outer_index in 0..total_points {
             let (xj, yj) = points[outer_index];
-            let mut polynomial_product = yj;
+            let mut v = yj << 12; // Initial 12-bit shift
             
             for inner_index in 0..total_points {
                 if outer_index == inner_index { continue; }
                 let (xm, _) = points[inner_index];
-                if (xj - xm).abs() > 0.0001 {
-                    polynomial_product *= (frame - xm) / (xj - xm);
+                if xj - xm != 0 {
+                    // Sequential integer division creates the "correct" artifacts
+                    v = v * (frame_int - xm) / (xj - xm);
                 }
             }
-            final_result += polynomial_product;
+            final_result += v;
         }
-        return Some(final_result.trunc());
+        
+        return Some((final_result / 4096) as f32);
     }
 
     let time_duration = (end_keyframe.frame - start_keyframe.frame) as f32;
-    let time_current = frame - (start_keyframe.frame as f32);
+    let time_current = frame.trunc() - (start_keyframe.frame as f32);
     let x = time_current / time_duration;
 
     let start_value = start_keyframe.value as f32;
     let value_change = (end_keyframe.value - start_keyframe.value) as f32;
 
     let interpolated_value = match start_keyframe.ease_mode {
-        0 => start_value + (value_change * x), 
+        0 => start_value + (value_change * x).trunc(),
         1 => if x >= 1.0 { end_keyframe.value as f32 } else { start_value }, 
         2 => { 
             let ease_power = if start_keyframe.ease_power != 0 { start_keyframe.ease_power as f32 } else { 1.0 };
@@ -163,12 +164,12 @@ fn interpolate_curve(curve: &AnimModification, frame: f32, is_discrete: bool) ->
             };
             
             if ease_factor.is_nan() { 
-                start_value + (value_change * x) 
+                start_value + (value_change * x).trunc() 
             } else { 
-                start_value + (value_change * ease_factor) 
+                start_value + (value_change * ease_factor).trunc() 
             }
         },
-        _ => start_value + (value_change * x) 
+        _ => start_value + (value_change * x).trunc()
     };
 
     if curve.modification_type == 2 {
