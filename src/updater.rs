@@ -9,7 +9,7 @@ use std::process::Command;
 use crate::features::settings::logic::{Settings, upd::UpdateMode};
 use crate::global::ui::shared::DragGuard;
 
-const REPO_OWNER: &str = "WonderMOMOCO"; 
+const REPO_OWNER: &str = "Battle-Cats-Complete"; 
 const REPO_NAME: &str = "Battle-Cats-Complete";
 const BIN_NAME: &str = "Battle Cats Complete"; 
 
@@ -218,7 +218,7 @@ impl Updater {
         let display_ver = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
         let screen_rect = ctx.screen_rect();
 
-        let window_id = egui::Id::new("Update_Available");
+        let window_id = egui::Id::new(format!("Update_Available_{}", tag));
         let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
 
         let mut window = egui::Window::new("Update Available")
@@ -283,7 +283,7 @@ impl Updater {
         ctx.request_repaint();
         let screen_rect = ctx.screen_rect();
         
-        let window_id = egui::Id::new("Downloading_Update");
+        let window_id = egui::Id::new(format!("Downloading_Update_{}", tag));
         let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
 
         let mut window = egui::Window::new("Downloading Update")
@@ -323,7 +323,7 @@ impl Updater {
         let display_tag = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
         let screen_rect = ctx.screen_rect();
 
-        let window_id = egui::Id::new("Update_Complete");
+        let window_id = egui::Id::new(format!("Update_Complete_{}", tag));
         let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
 
         let mut window = egui::Window::new("Update Complete")
