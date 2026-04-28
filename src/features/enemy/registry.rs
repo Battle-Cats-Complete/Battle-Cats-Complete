@@ -105,6 +105,11 @@ fn fmt_effective_range(stats: &EnemyRaw) -> String {
                     let end = anchor + span;
                     let (min_r, max_r) = if start < end { (start, end) } else { (end, start) };
                     range_strings.push(format!("{}~{}", min_r, max_r));
+                } else if stats.long_distance_span_1 != 0 || stats.long_distance_anchor_1 != 0 {
+                    let start = stats.long_distance_anchor_1;
+                    let end = stats.long_distance_anchor_1 + stats.long_distance_span_1;
+                    let (min_r, max_r) = if start < end { (start, end) } else { (end, start) };
+                    range_strings.push(format!("{}~{}", min_r, max_r));
                 } else {
                     // It's a standard hit! Show its true reach using hitbox_width
                     range_strings.push(format!("{}~{}", -stats.hitbox_width, stats.standing_range));
