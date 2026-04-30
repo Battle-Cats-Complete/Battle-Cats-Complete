@@ -4,15 +4,14 @@ use std::sync::{Arc, Mutex};
 use crate::global::formats::imgcut::SpriteSheet;
 use super::transform::WorldTransform;
 
-// Shaders
 const VERTEX_SHADER_SOURCE: &str = r#"
 #ifdef GL_ES
 precision lowp float;
 #endif
-attribute vec2 a_position;
-attribute vec2 a_texcoord;
+in vec2 a_position;
+in vec2 a_texcoord;
 uniform mat3 u_transform;
-varying vec2 v_texcoord;
+out vec2 v_texcoord;
 
 void main() {
     vec3 pos = u_transform * vec3(a_position, 1.0);
@@ -28,16 +27,17 @@ precision lowp float;
 uniform sampler2D u_texture;
 uniform float u_opacity;
 uniform int u_is_glow;
-varying vec2 v_texcoord;
+in vec2 v_texcoord;
+out vec4 f_color;
 
 void main() {
-    vec4 tex_color = texture2D(u_texture, v_texcoord);
+    vec4 tex_color = texture(u_texture, v_texcoord);
     
     if (u_is_glow == 1) {
         float brightness = max(tex_color.r, max(tex_color.g, tex_color.b));
-        gl_FragColor = vec4(tex_color.rgb, brightness) * u_opacity;
+        f_color = vec4(tex_color.rgb, brightness) * u_opacity;
     } else {
-        gl_FragColor = tex_color * u_opacity;
+        f_color = tex_color * u_opacity;
     }
 }
 "#;
@@ -153,8 +153,9 @@ impl GlowRenderer {
                 data.push(alpha_byte);
             }
 
+            // Using RGBA8 specifically for strict Core Profile support
             gl_context.tex_image_2d(
-                glow::TEXTURE_2D, 0, glow::RGBA as i32,
+                glow::TEXTURE_2D, 0, glow::RGBA8 as i32,
                 image.width() as i32, image.height() as i32, 0,
                 glow::RGBA, glow::UNSIGNED_BYTE, Some(&data),
             );
@@ -298,25 +299,35 @@ unsafe fn compile_program(gl_context: &glow::Context, vertex_shader_source: &str
     unsafe {
         let program = gl_context.create_program().expect("Cannot create OpenGL program");
         
+        // Dynamically inject the version so it correctly builds everywhere
+        let shader_version = if cfg!(target_arch = "wasm32") {
+            "#version 300 es\n"
+        } else {
+            "#version 330\n"
+        };
+
+        let vs_source = format!("{}{}", shader_version, vertex_shader_source);
+        let fs_source = format!("{}{}", shader_version, fragment_shader_source);
+
         let vertex_shader = gl_context.create_shader(glow::VERTEX_SHADER).expect("Cannot create vertex shader");
-        gl_context.shader_source(vertex_shader, vertex_shader_source);
+        gl_context.shader_source(vertex_shader, &vs_source);
         gl_context.compile_shader(vertex_shader);
         if !gl_context.get_shader_compile_status(vertex_shader) {
-            panic!("{}", gl_context.get_shader_info_log(vertex_shader));
+            panic!("Vertex Shader Error: {}", gl_context.get_shader_info_log(vertex_shader));
         }
         gl_context.attach_shader(program, vertex_shader);
 
         let fragment_shader = gl_context.create_shader(glow::FRAGMENT_SHADER).expect("Cannot create fragment shader");
-        gl_context.shader_source(fragment_shader, fragment_shader_source);
+        gl_context.shader_source(fragment_shader, &fs_source);
         gl_context.compile_shader(fragment_shader);
         if !gl_context.get_shader_compile_status(fragment_shader) {
-            panic!("{}", gl_context.get_shader_info_log(fragment_shader));
+            panic!("Fragment Shader Error: {}", gl_context.get_shader_info_log(fragment_shader));
         }
         gl_context.attach_shader(program, fragment_shader);
 
         gl_context.link_program(program);
         if !gl_context.get_program_link_status(program) {
-            panic!("{}", gl_context.get_program_info_log(program));
+            panic!("Program Link Error: {}", gl_context.get_program_info_log(program));
         }
         
         gl_context.delete_shader(vertex_shader);
