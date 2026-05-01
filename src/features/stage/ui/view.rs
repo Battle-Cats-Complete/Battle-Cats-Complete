@@ -15,11 +15,14 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState) 
     let unit_buy_registry = &state.unit_buy_registry;
     let item_texture_cache = &mut state.item_texture_cache;
     let active_language_priority_array = &state.active_language_priority;
+    
     let enemy_registry = &state.enemy_registry;
     let enemy_name_registry = &state.enemy_name_registry; 
     let texture_cache = &mut state.enemy_texture_cache;
     let stage_texture_cache = &mut state.stage_texture_cache;
+    
     let Some(stage) = state.registry.stages.get(stage_id) else { return; };
+
     let map_key = format!("{}_{}", stage.category, stage.map_id);
     let map_name = state.registry.maps.get(&map_key).map(|m| m.name.clone()).unwrap_or_default();
 
@@ -27,19 +30,19 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState) 
         .id_salt("view_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-
             let frame = egui::Frame::none().inner_margin(egui::Margin { left: 40.0, right: 40.0, top: 0.0, bottom: 0.0 });
             
             frame.show(ui, |ui| {
                 ui.vertical(|ui| {
-                    
                     super::info::draw(
                         ctx, 
                         ui, 
                         stage, 
                         &map_name, 
                         active_language_priority_array, 
-                        stage_texture_cache
+                        stage_texture_cache,
+                        &state.lock_skip_registry,
+                        &state.scat_cpu_setting
                     );
                     ui.add_space(20.0);
                     

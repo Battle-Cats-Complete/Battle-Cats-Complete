@@ -22,13 +22,11 @@ pub fn load(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, Str
             let Ok(id) = parts[0].trim().parse::<u32>() else { continue; };
             let name = parts[1].trim();
             
-            // Overwrite ONLY if the new name is not empty
             if !name.is_empty() {
                 map.insert(id, name.to_string());
             }
         }
     }
-    
     map
 }
 
@@ -38,11 +36,9 @@ pub struct CategoryMeta {
     pub sort_order: u32,
 }
 
-
 pub fn get_meta(prefix: &str) -> CategoryMeta {
     let (name, base_id, sort_order) = match prefix.to_uppercase().as_str() {
-        // Category Prefix => Display Name, Base ID, and UI Sort Order 
-        "N"        => (Some("Stories of Legend"),        Some(0),   0),
+        "N"        => (Some("Stories of Legend"),         Some(0),   0),
         "RS" | "S" => (Some("Regular Event Stages"),     Some(1),   1),
         "C"        => (Some("Collab Stages"),            Some(2),   2),
         "EC"       => (Some("Empire of Cats"),           None,      3),
@@ -68,24 +64,20 @@ pub fn get_meta(prefix: &str) -> CategoryMeta {
         "SR"       => (Some("Otherworld Colosseum"),     Some(36),  36),
         "G"        => (Some("Catclaw Championships"),    Some(37),  37),
         "PT"       => (Some("Legacy Princess Punt"),     None,      98),
-        _          => (None,                             None,      99), // Fallback
+        _          => (None,                             None,      99),
     };
 
     CategoryMeta { name, base_id, sort_order }
 }
 
-
-/// The Hardcoded PONOS Category Dictionary
 pub fn get_category_name(prefix: &str) -> String {
     get_meta(prefix).name.unwrap_or(prefix).to_string()
 }
 
-/// Translates a Folder Prefix + Local Map ID into PONOS' Global Map ID
 pub fn get_global_map_id(prefix: &str, local_map_id: u32) -> Option<u32> {
     get_meta(prefix).base_id.map(|base| (base * 1000) + local_map_id)
 }
 
-/// Returns the internal PONOS Category ID for UI sorting
 pub fn get_category_sort_order(prefix: &str) -> u32 {
     get_meta(prefix).sort_order
 }

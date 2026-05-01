@@ -24,6 +24,8 @@ pub struct StageMatcher {
     score_bonus: Regex,
     difficulty_level: Regex,
     drop_chara: Regex,
+    lock_skip: Regex,
+    scat_cpu: Regex,
 }
 
 impl StageMatcher {
@@ -50,6 +52,8 @@ impl StageMatcher {
             score_bonus: Regex::new(patterns::SCORE_BONUS_PATTERN).unwrap(),
             difficulty_level: Regex::new(patterns::DIFFICULTY_LEVEL_PATTERN).unwrap(),
             drop_chara: Regex::new(patterns::DROP_CHARA_PATTERN).unwrap(),
+            lock_skip: Regex::new(patterns::LOCK_SKIP_DATA_PATTERN).unwrap(),
+            scat_cpu: Regex::new(patterns::SCAT_CPU_SETTING_PATTERN).unwrap(),
         }
     }
 
@@ -67,7 +71,8 @@ impl StageMatcher {
 
         match target_file_name {
             "Map_option.csv" | "MapConditions.json" | "Stage_option.csv" | 
-            "DropItem.csv" | "Charagroup.csv" | "drop_chara.csv" => return Some(base_stages_dir.to_path_buf()),
+            "DropItem.csv" | "Charagroup.csv" | "drop_chara.csv" | 
+            "LockSkipData.csv" | "ScatCPUsetting.csv" => return Some(base_stages_dir.to_path_buf()),
             "ScoreBonusMap.json" => return Some(base_stages_dir.join("R")),
             "SpecialRulesMap.json" | "SpecialRulesMapOption.json" => return Some(base_stages_dir.join("SR")),
             "bg.csv" => return Some(base_stages_dir.join("backgrounds").join("battle")),
@@ -84,6 +89,8 @@ impl StageMatcher {
         if self.charagroup.is_match(target_file_name) { return Some(base_stages_dir.to_path_buf()); }
         if self.difficulty_level.is_match(target_file_name) { return Some(base_stages_dir.to_path_buf()); }
         if self.drop_chara.is_match(target_file_name) { return Some(base_stages_dir.to_path_buf()); }
+        if self.lock_skip.is_match(target_file_name) { return Some(base_stages_dir.to_path_buf()); }
+        if self.scat_cpu.is_match(target_file_name) { return Some(base_stages_dir.to_path_buf()); }
         
         if self.score_bonus.is_match(target_file_name) { return Some(base_stages_dir.join("R")); }
         if self.certification_preset.is_match(target_file_name) { return Some(base_stages_dir.join("fixedlineup")); }

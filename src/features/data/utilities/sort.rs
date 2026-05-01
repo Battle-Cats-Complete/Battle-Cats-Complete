@@ -34,10 +34,9 @@ pub fn process_raw_files(
         s if s.ends_with("ko") => "ko",
         s if s.ends_with("en") => "en",
         s if s.ends_with("battlecats") => "ja",
-        _ => "", // No matching criteria -> Treat as Base
+        _ => "",
     };
 
-    // 2. First pass: check if there are any localized sibling folders (Global Version specific)
     let mut has_global_siblings = false;
     for path in &files {
         if let Some(parent) = path.parent() {
@@ -50,11 +49,10 @@ pub fn process_raw_files(
         }
     }
 
-    // Assign base pack region
     let base_pack_region = if has_global_siblings {
         "en".to_string()
     } else {
-        inferred_region.to_string() // Will be "" if it's an unrecognized folder
+        inferred_region.to_string()
     };
 
     for path in files {
@@ -62,11 +60,10 @@ pub fn process_raw_files(
         
         let mut region_code = base_pack_region.clone();
         
-        // Check exact parent folder for sub-region hints
         if let Some(parent) = path.parent() {
             if let Some(parent_name) = parent.file_name().and_then(|n| n.to_str()) {
                 if parent_name == "resLocal" {
-                    region_code = "en".to_string(); // resLocal is explicitly English base
+                    region_code = "en".to_string();
                 } else if let Some(stripped) = parent_name.strip_prefix("resLocal_") {
                     region_code = stripped.to_string();
                 }
@@ -83,8 +80,6 @@ pub fn process_raw_files(
         let mut final_resolved_filename = file_name.to_string();
 
         if let Some(rule) = matched_user_rule {
-            // ONLY apply language renaming if we successfully identified a region.
-            // If region_code is empty (""), it skips this block entirely and imports as base!
             if !region_code.is_empty() && rule.languages.values().any(|&is_active| is_active) {
                 let asset_stem_string = path.file_stem().unwrap_or_default().to_string_lossy();
                 let asset_extension_string = path.extension().unwrap_or_default().to_string_lossy();

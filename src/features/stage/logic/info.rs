@@ -1,13 +1,8 @@
 use std::path::Path;
 use eframe::egui;
 use crate::global::utils::autocrop;
-
-pub fn format_energy_cost(category: &str, energy: u32) -> String {
-    if category == "B" {
-        return format!("{} Catamin", energy);
-    }
-    energy.to_string()
-}
+use crate::features::stage::data::{map_name, lockskipdata, scatcpusetting};
+use std::collections::HashMap;
 
 pub fn format_difficulty_level(difficulty: u16) -> String {
     if difficulty == 0 {
@@ -16,23 +11,47 @@ pub fn format_difficulty_level(difficulty: u16) -> String {
     format!("★{}", difficulty)
 }
 
-pub fn format_crown_display(target_crowns: i8, max_crowns: u8) -> String {
-    if target_crowns < 0 {
-        return "-".to_string();
+pub fn format_energy_cost(category_prefix: &str, raw_energy_cost: u32) -> String {
+    if category_prefix != "B" {
+        return raw_energy_cost.to_string();
     }
-    format!("{} / {}", target_crowns, max_crowns)
+
+    if raw_energy_cost < 1000 {
+        return format!("{}A", raw_energy_cost);
+    }
+    
+    if raw_energy_cost < 2000 {
+        return format!("{}B", raw_energy_cost % 1000);
+    }
+    
+    format!("{}C", raw_energy_cost % 1000)
 }
+
+pub fn format_crown_display(target_crowns: i8, max_crowns: u8) -> String {
+    let crown_symbol = "♔"; 
+    
+    if target_crowns != -1 {
+        return format!("{}{}", target_crowns + 1, crown_symbol);
+    }
+    
+    if max_crowns > 1 {
+        return format!("1{}~{}{}", crown_symbol, max_crowns, crown_symbol);
+    }
+    
+    format!("1{}", crown_symbol)
+}
+
+pub fn format_base_display(anim_base_id: u32, standard_base_id: i32) -> (String, String) {
+    if anim_base_id != 0 {
+        let calculated_enemy_id = if anim_base_id >= 2 { anim_base_id - 2 } else { 0 };
+        return ("Anim Base".to_string(), format!("E-{:03}", calculated_enemy_id));
+    }
+    ("Base Img".to_string(), standard_base_id.to_string())
+}
+
 
 pub fn format_boolean_status(status: bool, true_str: &str, false_str: &str) -> String {
     if status { true_str.to_string() } else { false_str.to_string() }
-}
-
-pub fn format_base_display(anim_base_id: u32, base_id: i32) -> (String, String) {
-    if anim_base_id > 0 {
-        ("Anim Base".to_string(), anim_base_id.to_string())
-    } else {
-        ("Base ID".to_string(), base_id.to_string())
-    }
 }
 
 pub fn format_global_respawn(min_spawn: u32, max_spawn: u32) -> String {
@@ -62,6 +81,28 @@ pub fn format_category_prefix(category: &str) -> String {
         return upper[1..].to_string();
     }
     upper
+}
+
+pub fn get_cpu_skip_status(
+    category: &str, 
+    map_id: u32, 
+    lock_registry: &HashMap<u32, lockskipdata::LockSkipEntry>,
+    cpu_setting: &scatcpusetting::ScatCpuSetting
+) -> String {
+    let global_map_id = map_name::get_global_map_id(category, map_id);
+
+    if let Some(mid) = global_map_id {
+        if let Some(entry) = lock_registry.get(&mid) {
+            if entry.excluded_map_id == mid {
+                return "N/A".to_string();
+            }
+        }
+    }
+
+    if cpu_setting.super_cpu_consume_amount > 0 {
+        return format!("{} CPUs", cpu_setting.super_cpu_consume_amount);
+    }
+    "-".to_string()
 }
 
 pub fn get_map_image_filenames(map_id: u32, category: &str, lang_priority: &[String]) -> Vec<String> {
