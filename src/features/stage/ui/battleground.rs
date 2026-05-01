@@ -19,7 +19,7 @@ pub fn draw(
     enemy_name_registry: &[String],
     texture_cache: &mut HashMap<u32, egui::TextureHandle>
 ) {
-    ui.strong("Enemy Layout");
+    ui.strong("Battleground");
     ui.separator();
 
     if stage_data.enemies.is_empty() {
