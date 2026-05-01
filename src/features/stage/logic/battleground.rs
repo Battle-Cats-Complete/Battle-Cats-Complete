@@ -23,6 +23,13 @@ pub fn format_enemy_respawn(spawn_amount: &EnemyAmount, respawn_min_frames: u32,
     format!("{}f ~ {}f", respawn_min_frames, respawn_max_frames)
 }
 
+pub fn format_layer(layer_min: i32, layer_max: i32) -> String {
+    if layer_min == layer_max {
+        return layer_min.to_string();
+    }
+    format!("{} ~ {}", layer_min, layer_max)
+}
+
 pub fn format_boss_type(boss_type: &BossType) -> String {
     match boss_type {
         BossType::None => "-".to_string(),
@@ -39,7 +46,18 @@ pub fn format_kill_count(kill_count: u32) -> String {
     kill_count.to_string()
 }
 
-pub fn format_base_hp_percentage(base_hp_percentage: u32) -> String {
+pub fn format_score(score: u32) -> String {
+    if score == 0 {
+        return "-".to_string();
+    }
+    score.to_string()
+}
+
+pub fn format_base_hp_percentage(base_hp_percentage: u32, is_dojo_mechanic: bool) -> String {
+    if is_dojo_mechanic {
+        return base_hp_percentage.to_string();
+    }
+    
     if base_hp_percentage == 100 {
         return "-".to_string();
     }

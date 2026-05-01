@@ -16,10 +16,13 @@ pub struct Stage {
     pub width: u32,
     pub base_hp: u32,
     pub min_spawn: u32, 
+    pub max_spawn: u32, 
     pub background_id: u32,
     pub max_enemies: u32,
+    pub time_limit: u32,
     pub is_no_continues: bool,
     pub is_base_indestructible: bool,
+    pub unknown_value: u32,
     pub enemies: Vec<data::stage::EnemyLine>,
     
     // Core Rewards & Media

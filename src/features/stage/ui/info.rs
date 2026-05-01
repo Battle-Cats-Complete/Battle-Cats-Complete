@@ -24,8 +24,10 @@ pub fn draw(ui: &mut egui::Ui, stage_data: &Stage) {
     let formatted_crown = info_logic::format_crown_display(stage_data.target_crowns, stage_data.max_crowns);
     let formatted_no_continues = info_logic::format_boolean_status(stage_data.is_no_continues, "Yes", "No");
     let formatted_indestructible = info_logic::format_boolean_status(stage_data.is_base_indestructible, "Active", "-");
-    let formatted_boss_track = info_logic::format_boss_track(stage_data.boss_track, stage_data.bgm_change_percent);
     let (base_header, formatted_base_value) = info_logic::format_base_display(stage_data.anim_base_id, stage_data.base_id);
+    let formatted_global_respawn = info_logic::format_global_respawn(stage_data.min_spawn, stage_data.max_spawn);
+    let formatted_boss_track = info_logic::format_boss_track(stage_data.boss_track, stage_data.init_track, stage_data.bgm_change_percent);
+    let formatted_time_limit = info_logic::format_time_limit(stage_data.time_limit);
 
     egui::Grid::new("stage_meta_grid")
         .striped(true)
@@ -36,7 +38,8 @@ pub fn draw(ui: &mut egui::Ui, stage_data: &Stage) {
             center_header(grid, "XP Base");
             center_header(grid, "Width");
             center_header(grid, "Max Enemy");
-            center_header(grid, "Min Respawn");
+            center_header(grid, "Respawn");
+            center_header(grid, "Time Limit");
             center_header(grid, "Difficulty");
             grid.end_row();
 
@@ -45,7 +48,8 @@ pub fn draw(ui: &mut egui::Ui, stage_data: &Stage) {
             center_text(grid, stage_data.xp.to_string());
             center_text(grid, stage_data.width.to_string());
             center_text(grid, stage_data.max_enemies.to_string());
-            center_text(grid, format!("{}f", stage_data.min_spawn));
+            center_text(grid, formatted_global_respawn);
+            center_text(grid, formatted_time_limit);
             center_text(grid, formatted_difficulty);
             grid.end_row();
 
@@ -56,6 +60,7 @@ pub fn draw(ui: &mut egui::Ui, stage_data: &Stage) {
             center_header(grid, "BGM");
             center_header(grid, "Boss BGM");
             center_header(grid, "Crowns");
+            center_header(grid, "Max Deploy");
             grid.end_row();
 
             center_text(grid, formatted_no_continues);
@@ -65,6 +70,7 @@ pub fn draw(ui: &mut egui::Ui, stage_data: &Stage) {
             center_text(grid, stage_data.init_track.to_string());
             center_text(grid, formatted_boss_track);
             center_text(grid, formatted_crown);
+            center_text(grid, stage_data.deploy_limit.to_string());
             grid.end_row();
         });
 }

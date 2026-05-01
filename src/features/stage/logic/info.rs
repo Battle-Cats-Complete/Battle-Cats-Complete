@@ -50,9 +50,23 @@ pub fn format_base_display(anim_base_id: u32, standard_base_id: i32) -> (String,
     ("Base Img".to_string(), standard_base_id.to_string())
 }
 
-pub fn format_boss_track(boss_track: u32, bgm_change_percent: u32) -> String {
-    if boss_track == 0 && bgm_change_percent == 0 {
+pub fn format_global_respawn(min_spawn: u32, max_spawn: u32) -> String {
+    if min_spawn == max_spawn {
+        return format!("{}f", min_spawn);
+    }
+    format!("{}f ~ {}f", min_spawn, max_spawn)
+}
+
+pub fn format_boss_track(boss_track: u32, init_track: u32, bgm_change_percent: u32) -> String {
+    if boss_track == init_track || bgm_change_percent == 100 {
         return "-".to_string();
     }
-    format!("Trk {} ({}%)", boss_track, bgm_change_percent)
+    boss_track.to_string()
+}
+
+pub fn format_time_limit(time_limit: u32) -> String {
+    if time_limit == 0 {
+        return "-".to_string();
+    }
+    format!("{}m", time_limit)
 }

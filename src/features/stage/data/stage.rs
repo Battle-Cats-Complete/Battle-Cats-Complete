@@ -43,11 +43,14 @@ pub struct StageRaw {
     pub width: u32,
     pub base_hp: u32,
     pub min_spawn: u32,
+    pub max_spawn: u32, 
     pub background_id: u32,
     pub max_enemies: u32,
     pub anim_base_id: u32,
+    pub time_limit: u32,
     pub is_no_continues: bool,
     pub is_base_indestructible: bool, 
+    pub unknown_value: u32,
     pub enemies: Vec<EnemyLine>,
 }
 
@@ -59,9 +62,13 @@ pub struct EnemyLine {
     pub respawn_min: u32,
     pub respawn_max: u32,
     pub base_hp_perc: u32,
+    pub layer_min: i32,
+    pub layer_max: i32,
     pub boss_type: BossType,
     pub magnification: u32,
+    pub score: u32,
     pub atk_magnification: u32,
+    pub time_flag: u32,
     pub kill_count: u32,
     pub is_base: bool, 
 }
@@ -98,18 +105,19 @@ fn parse(file_content: &str) -> StageRaw {
     stage_raw.width = config_parts.get(0).and_then(|part| part.parse().ok()).unwrap_or(0);
     stage_raw.base_hp = config_parts.get(1).and_then(|part| part.parse().ok()).unwrap_or(0);
     stage_raw.min_spawn = config_parts.get(2).and_then(|part| part.parse().ok()).unwrap_or(0);
+    stage_raw.max_spawn = config_parts.get(3).and_then(|part| part.parse().ok()).unwrap_or(stage_raw.min_spawn);
     stage_raw.background_id = config_parts.get(4).and_then(|part| part.parse().ok()).unwrap_or(0);
     stage_raw.max_enemies = config_parts.get(5).and_then(|part| part.parse().ok()).unwrap_or(0);
     stage_raw.anim_base_id = config_parts.get(6).and_then(|part| part.parse().ok()).unwrap_or(0);
+    stage_raw.time_limit = config_parts.get(7).and_then(|part| part.parse().ok()).unwrap_or(0);
     stage_raw.is_base_indestructible = config_parts.get(8).and_then(|part| part.parse::<u8>().ok()).unwrap_or(0) == 1;
+    stage_raw.unknown_value = config_parts.get(9).and_then(|part| part.parse().ok()).unwrap_or(0);
 
     for enemy_line in clean_lines {
         let enemy_parts: Vec<&str> = enemy_line.split(csv_separator).collect();
         let enemy_id = enemy_parts.get(0).and_then(|part| part.parse::<u32>().ok()).unwrap_or(0);
         
-        if enemy_id == 0 { 
-            break; 
-        }
+        if enemy_id == 0 { break; }
 
         let raw_amount = enemy_parts.get(1).and_then(|part| part.parse::<u32>().ok()).unwrap_or(0);
         let mut spawn_amount = if raw_amount == 0 { EnemyAmount::Infinite } else { EnemyAmount::Limit(raw_amount) };
@@ -124,6 +132,11 @@ fn parse(file_content: &str) -> StageRaw {
         let boss_type_val = enemy_parts.get(8).and_then(|part| part.parse::<u32>().ok()).unwrap_or(0);
         let mag_percent = enemy_parts.get(9).and_then(|part| if *part == "." { None } else { part.parse().ok() }).unwrap_or(100);
         
+        let mut atk_magnification = enemy_parts.get(11).and_then(|part| part.parse::<u32>().ok()).unwrap_or(mag_percent);
+        if atk_magnification == 0 {
+            atk_magnification = mag_percent;
+        }
+
         let actual_enemy_id = if enemy_id >= 2 { enemy_id - 2 } else { 0 };
         let start_frame = enemy_parts.get(2).and_then(|part| part.parse::<u32>().ok()).unwrap_or(0) * 2;
 
@@ -139,9 +152,13 @@ fn parse(file_content: &str) -> StageRaw {
             respawn_min,
             respawn_max,
             base_hp_perc: enemy_parts.get(5).and_then(|part| part.parse().ok()).unwrap_or(0),
+            layer_min: enemy_parts.get(6).and_then(|part| part.parse::<i32>().ok()).unwrap_or(0),
+            layer_max: enemy_parts.get(7).and_then(|part| part.parse::<i32>().ok()).unwrap_or(0),
             boss_type: BossType::from(boss_type_val),
             magnification: mag_percent,
-            atk_magnification: enemy_parts.get(11).and_then(|part| part.parse().ok()).unwrap_or(mag_percent),
+            score: enemy_parts.get(10).and_then(|part| part.parse::<u32>().ok()).unwrap_or(0),
+            atk_magnification,
+            time_flag: enemy_parts.get(12).and_then(|part| part.parse::<u32>().ok()).unwrap_or(0),
             kill_count: enemy_parts.get(13).and_then(|part| part.parse().ok()).unwrap_or(0),
             is_base: enemy_id != 0 && enemy_id == stage_raw.anim_base_id, 
         });

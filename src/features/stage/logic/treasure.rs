@@ -23,7 +23,7 @@ pub fn resolve_drop(
     active_language_priority_array: &[String]
 ) -> ResolvedDrop {
     
-    // 1. Regular Items (This safely catches ID 0 / XP first!)
+    // Regular Items
     if let Some(located_item_buy_data) = item_buy_registry.get(&target_item_id) {
         let target_name_row_index = located_item_buy_data.row_index;
         let name = item_name_registry.get(&target_name_row_index)
@@ -47,7 +47,7 @@ pub fn resolve_drop(
         };
     }
 
-    // 2. Base Cat Drops
+    // Base Cat Drops
     if let Some(&located_chara_id) = drop_chara_registry.get(&target_item_id) {
         let chara_directory_path = PathBuf::from(format!("game/cats/{:03}/lang", located_chara_id));
         let explanation_file_name = format!("Unit_Explanation{}.csv", located_chara_id + 1);
@@ -73,7 +73,7 @@ pub fn resolve_drop(
         };
     }
 
-    // 3. True Form Drops
+    // True Form Drops
     if let Some((&unit_id, _)) = unit_buy_registry.iter().find(|(_, row_data)| row_data.true_form_id == target_item_id as i32) {
         let chara_directory_path = PathBuf::from(format!("game/cats/{:03}/lang", unit_id));
         let explanation_file_name = format!("Unit_Explanation{}.csv", unit_id + 1);

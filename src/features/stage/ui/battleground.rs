@@ -27,6 +27,9 @@ pub fn draw(
         return;
     }
 
+    let show_score_column = stage_data.enemies.iter().any(|e| e.score > 0);
+    let is_dojo_mechanic = stage_data.enemies.iter().any(|e| e.base_hp_perc > 100);
+
     egui::Grid::new("enemy_grid")
         .striped(true)
         .spacing([15.0, 4.0])
@@ -36,10 +39,14 @@ pub fn draw(
             center_header(grid, "Count");
             center_header(grid, "HP %");
             center_header(grid, "Atk %");
-            center_header(grid, "Base %");
+            center_header(grid, if is_dojo_mechanic { "Dmg #" } else { "Base %" });
             center_header(grid, "Spawn");
             center_header(grid, "Respawn");
+            center_header(grid, "Layer");
             center_header(grid, "Boss");
+            if show_score_column {
+                center_header(grid, "Score");
+            }
             center_header(grid, "Kills"); 
             grid.end_row();
 
@@ -51,25 +58,21 @@ pub fn draw(
                     .unwrap_or_else(|| format!("{:03}-E", enemy_data.id));
 
                 grid.with_layout(egui::Layout::bottom_up(egui::Align::Center), |icon_layout| {
-                    let mut has_rendered_icon = false;
-                    
-                    if let Some(located_enemy_entry) = enemy_registry.get(&enemy_data.id) {
-                        if let Some(enemy_icon_path) = &located_enemy_entry.icon_path {
-                            
-                            if !texture_cache.contains_key(&enemy_data.id) {
-                                if let Some(processed_color_image) = bg_logic::process_enemy_icon_texture(enemy_icon_path) {
-                                    let generated_texture_handle = egui_context.load_texture(format!("stage_enemy_icon_{}", enemy_data.id), processed_color_image, egui::TextureOptions::LINEAR);
-                                    texture_cache.insert(enemy_data.id, generated_texture_handle);
-                                }
-                            }
-
-                            if let Some(cached_texture_handle) = texture_cache.get(&enemy_data.id) {
-                                let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
-                                image_response.on_hover_text(resolved_enemy_name.clone());
-                                has_rendered_icon = true;
-                            }
+                    let has_rendered_icon = 'icon: {
+                        let Some(located_enemy_entry) = enemy_registry.get(&enemy_data.id) else { break 'icon false; };
+                        let Some(enemy_icon_path) = &located_enemy_entry.icon_path else { break 'icon false; };
+                        
+                        if !texture_cache.contains_key(&enemy_data.id) {
+                            let Some(processed_color_image) = bg_logic::process_enemy_icon_texture(enemy_icon_path) else { break 'icon false; };
+                            let generated_texture_handle = egui_context.load_texture(format!("stage_enemy_icon_{}", enemy_data.id), processed_color_image, egui::TextureOptions::LINEAR);
+                            texture_cache.insert(enemy_data.id, generated_texture_handle);
                         }
-                    }
+
+                        let Some(cached_texture_handle) = texture_cache.get(&enemy_data.id) else { break 'icon false; };
+                        let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
+                        image_response.on_hover_text(resolved_enemy_name.clone());
+                        true
+                    };
 
                     if !has_rendered_icon {
                         icon_layout.add_space(6.0);
@@ -79,9 +82,11 @@ pub fn draw(
                 });
 
                 let formatted_amount = bg_logic::format_enemy_amount(&enemy_data.amount);
-                let formatted_base_hp = bg_logic::format_base_hp_percentage(enemy_data.base_hp_perc);
+                let formatted_base_hp = bg_logic::format_base_hp_percentage(enemy_data.base_hp_perc, is_dojo_mechanic);
                 let formatted_respawn = bg_logic::format_enemy_respawn(&enemy_data.amount, enemy_data.respawn_min, enemy_data.respawn_max);
+                let formatted_layer = bg_logic::format_layer(enemy_data.layer_min, enemy_data.layer_max);
                 let formatted_boss_type = bg_logic::format_boss_type(&enemy_data.boss_type);
+                let formatted_score = bg_logic::format_score(enemy_data.score);
                 let formatted_kill_count = bg_logic::format_kill_count(enemy_data.kill_count);
 
                 center_enemy_text(grid, formatted_amount);
@@ -90,7 +95,11 @@ pub fn draw(
                 center_enemy_text(grid, formatted_base_hp);
                 center_enemy_text(grid, format!("{}f", enemy_data.start_frame));
                 center_enemy_text(grid, formatted_respawn);
+                center_enemy_text(grid, formatted_layer);
                 center_enemy_text(grid, formatted_boss_type);
+                if show_score_column {
+                    center_enemy_text(grid, formatted_score);
+                }
                 center_enemy_text(grid, formatted_kill_count);
 
                 grid.end_row();
