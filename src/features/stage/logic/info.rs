@@ -1,53 +1,38 @@
-pub fn format_energy_cost(category_prefix: &str, raw_energy_cost: u32) -> String {
-    if category_prefix != "B" {
-        return raw_energy_cost.to_string();
-    }
+use std::path::Path;
+use eframe::egui;
+use crate::global::utils::autocrop;
 
-    if raw_energy_cost < 1000 {
-        return format!("{}A", raw_energy_cost);
+pub fn format_energy_cost(category: &str, energy: u32) -> String {
+    if category == "B" {
+        return format!("{} Catamin", energy);
     }
-    
-    if raw_energy_cost < 2000 {
-        return format!("{}B", raw_energy_cost % 1000);
-    }
-    
-    format!("{}C", raw_energy_cost % 1000)
+    energy.to_string()
 }
 
-pub fn format_difficulty_level(raw_difficulty: u16) -> String {
-    if raw_difficulty == 0 {
+pub fn format_difficulty_level(difficulty: u16) -> String {
+    if difficulty == 0 {
         return "-".to_string();
     }
-    format!("★{}", raw_difficulty)
+    format!("★{}", difficulty)
 }
 
 pub fn format_crown_display(target_crowns: i8, max_crowns: u8) -> String {
-    let crown_symbol = "♔"; 
-    
-    if target_crowns != -1 {
-        return format!("{}{}", target_crowns + 1, crown_symbol);
+    if target_crowns < 0 {
+        return "-".to_string();
     }
-    
-    if max_crowns > 1 {
-        return format!("1{}~{}{}", crown_symbol, max_crowns, crown_symbol);
-    }
-    
-    format!("1{}", crown_symbol)
+    format!("{} / {}", target_crowns, max_crowns)
 }
 
-pub fn format_boolean_status(is_active: bool, active_label: &str, inactive_label: &str) -> String {
-    if is_active {
-        return active_label.to_string();
-    }
-    inactive_label.to_string()
+pub fn format_boolean_status(status: bool, true_str: &str, false_str: &str) -> String {
+    if status { true_str.to_string() } else { false_str.to_string() }
 }
 
-pub fn format_base_display(anim_base_id: u32, standard_base_id: i32) -> (String, String) {
-    if anim_base_id != 0 {
-        let calculated_enemy_id = if anim_base_id >= 2 { anim_base_id - 2 } else { 0 };
-        return ("Anim Base".to_string(), format!("E-{:03}", calculated_enemy_id));
+pub fn format_base_display(anim_base_id: u32, base_id: i32) -> (String, String) {
+    if anim_base_id > 0 {
+        ("Anim Base".to_string(), anim_base_id.to_string())
+    } else {
+        ("Base ID".to_string(), base_id.to_string())
     }
-    ("Base Img".to_string(), standard_base_id.to_string())
 }
 
 pub fn format_global_respawn(min_spawn: u32, max_spawn: u32) -> String {
@@ -69,4 +54,43 @@ pub fn format_time_limit(time_limit: u32) -> String {
         return "-".to_string();
     }
     format!("{}m", time_limit)
+}
+
+pub fn format_category_prefix(category: &str) -> String {
+    let upper = category.to_uppercase();
+    if upper.starts_with('R') && upper.len() > 1 {
+        return upper[1..].to_string();
+    }
+    upper
+}
+
+pub fn get_map_image_filenames(map_id: u32, category: &str, lang_priority: &[String]) -> Vec<String> {
+    let cat_lower = format_category_prefix(category).to_lowercase();
+    let mut filenames = Vec::new();
+    for lang in lang_priority {
+        filenames.push(format!("mapname{:03}_{}_{}.png", map_id, cat_lower, lang));
+    }
+    filenames.push(format!("mapname{:03}_{}.png", map_id, cat_lower)); 
+    filenames
+}
+
+pub fn get_stage_image_filenames(map_id: u32, stage_id: u32, category: &str, lang_priority: &[String]) -> Vec<String> {
+    let cat_lower = format_category_prefix(category).to_lowercase();
+    let mut filenames = Vec::new();
+    for lang in lang_priority {
+        filenames.push(format!("mapsn{:03}_{:02}_{}_{}.png", map_id, stage_id, cat_lower, lang));
+    }
+    filenames.push(format!("mapsn{:03}_{:02}_{}.png", map_id, stage_id, cat_lower)); 
+    filenames
+}
+
+pub fn process_texture(image_file_path: &Path) -> Option<egui::ColorImage> {
+    let Ok(loaded_raw_image_data) = image::open(image_file_path) else {
+        return None;
+    };
+    
+    let autocropped_rgba_image = autocrop(loaded_raw_image_data.to_rgba8());
+    let image_dimensions = [autocropped_rgba_image.width() as usize, autocropped_rgba_image.height() as usize];
+    
+    Some(egui::ColorImage::from_rgba_unmultiplied(image_dimensions, autocropped_rgba_image.as_flat_samples().as_slice()))
 }

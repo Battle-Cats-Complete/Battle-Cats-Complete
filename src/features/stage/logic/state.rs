@@ -22,17 +22,15 @@ pub struct StageListState {
     pub is_list_open: bool,
 
     #[serde(skip)] pub scan_receiver: Option<Receiver<StageRegistry>>,
-    
     #[serde(skip)] pub enemy_registry: HashMap<u32, EnemyEntry>,
     #[serde(skip)] pub enemy_texture_cache: HashMap<u32, egui::TextureHandle>,
     #[serde(skip)] pub enemy_name_registry: Vec<String>,
-
     #[serde(skip)] pub item_buy_registry: HashMap<u32, GatyaItemBuy>,
     #[serde(skip)] pub item_name_registry: HashMap<usize, GatyaItemName>,
     #[serde(skip)] pub drop_chara_registry: HashMap<u32, u32>,
     #[serde(skip)] pub unit_buy_registry: HashMap<u32, UnitBuyRow>,
     #[serde(skip)] pub item_texture_cache: HashMap<u32, egui::TextureHandle>,
-    
+    #[serde(skip)] pub stage_texture_cache: HashMap<String, egui::TextureHandle>,
     #[serde(skip)] pub active_language_priority: Vec<String>,
 }
 
@@ -54,6 +52,7 @@ impl Default for StageListState {
             drop_chara_registry: HashMap::new(),
             unit_buy_registry: HashMap::new(),
             item_texture_cache: HashMap::new(),
+            stage_texture_cache: HashMap::new(),
             active_language_priority: Vec::new(),
         }
     }
