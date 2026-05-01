@@ -27,7 +27,7 @@ To use this app, you must provide game files for it to read. These files are not
 - **Displaying Enemy Data**
   - Icons, Stats, and Abilities
   - In-game Descriptions
-- **EUnit Animations**
+- **Unit Animations**
   - View Walk, Idle, Attack, and Knockback
   - View Burrow, Surface, and Spirit animations
   - Raw Model viewing
