@@ -32,7 +32,7 @@ To use this app, you must provide game files for it to read. These files are not
   - View Burrow, Surface, and Spirit animations
   - Raw Model viewing
 - **Export Animations**
-  - Export to GIF, WebP, AVIF, or PNG sequences
+  - Export to GIF, WebP, AVIF, and more
   - Export single animations or custom sequences
   - User-defined camera area rendering
 - **Advanced Filtering**
