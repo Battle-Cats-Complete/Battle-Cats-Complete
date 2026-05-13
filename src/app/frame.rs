@@ -27,7 +27,7 @@ impl Page {
             Self::Home => "Home",
             Self::Cats => "Cats",
             Self::Enemies => "Enemies",
-            Self::Stages => "Stages",
+            Self::Stages => "Stages (WIP)",
             Self::Mods => "Mods",
             Self::Data => "Data",
             Self::Settings => "Settings",

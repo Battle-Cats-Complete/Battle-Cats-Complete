@@ -4,11 +4,11 @@ use crate::global::ui::shared::DragGuard;
 
 pub fn show(ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) -> bool {
     let mut refresh_needed = false;
-    let tabs = ["General", "Cats", "Enemies", "Data", "Animation", "Add-Ons"];
+    let tabs = ["General", "Cats", "Enemies", "Data", "Animation", "Add-Ons", "About"];
 
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 5.0; 
+            ui.spacing_mut().item_spacing.x = 5.0;
 
             for tab_name in tabs {
                 let is_selected = settings.runtime.active_tab == *tab_name;
@@ -17,12 +17,12 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragG
                 } else {
                     egui::Color32::from_gray(60)
                 };
-                
+
                 let btn = egui::Button::new(
-                        egui::RichText::new(tab_name)
-                            .color(egui::Color32::WHITE)
-                            .size(14.0)
-                    )
+                    egui::RichText::new(tab_name)
+                        .color(egui::Color32::WHITE)
+                        .size(14.0)
+                )
                     .fill(bg_color)
                     .min_size(egui::vec2(80.0, 30.0));
 
@@ -47,7 +47,8 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragG
                     "Enemies" => super::enemies::show(ui, &mut settings.enemy_data),
                     "Data" => super::data::show(ui, &mut settings.game_data, &mut settings.runtime, drag_guard),
                     "Animation" => super::animation::show(ui, &mut settings.animation),
-                    "Add-Ons" => super::addons::show(ui, drag_guard), 
+                    "Add-Ons" => super::addons::show(ui, drag_guard),
+                    "About" => super::about::show(ui),
                     _ => {
                         ui.vertical_centered(|ui| {
                             ui.add_space(50.0);
@@ -56,7 +57,7 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragG
                         false
                     }
                 };
-                
+
                 if result { refresh_needed = true; }
             });
         });
@@ -68,12 +69,12 @@ pub fn show(ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragG
 pub fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
     let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-    
+
     if response.clicked() {
         *on = !*on;
         response.mark_changed();
     }
-    
+
     if !ui.is_rect_visible(rect) {
         return response;
     }
@@ -82,9 +83,9 @@ pub fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     let visuals = ui.style().interact_selectable(&response, *on);
     let rect = rect.expand(visuals.expansion);
     let radius = 0.5 * rect.height();
-    
+
     ui.painter().rect(rect, radius, visuals.bg_fill, visuals.bg_stroke);
-    
+
     let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
     ui.painter().circle(egui::pos2(circle_x, rect.center().y), 0.75 * radius, visuals.fg_stroke.color, visuals.fg_stroke);
 
