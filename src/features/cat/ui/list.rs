@@ -6,7 +6,7 @@ use std::thread;
 use std::time::Duration;
 use image::imageops;
 
-use crate::features::cat::logic::scanner::CatEntry; 
+use crate::features::cat::logic::scanner::CatEntry;
 use crate::features::cat::logic::filter::{entity_passes_filter, CatFilterState};
 
 struct LoadedImage {
@@ -29,7 +29,7 @@ pub struct CatList {
     pending_requests: HashSet<u32>,
     invalidated_ids: HashSet<u32>,
     missing_ids: HashSet<u32>,
-    hovered_id: Option<egui::Id>, 
+    hovered_id: Option<egui::Id>,
     hover_start_time: f64,
     hover_lost_time: Option<f64>,
     scroll_to_top_needed: bool,
@@ -51,7 +51,7 @@ impl Default for CatList {
             while let Ok(req) = rx_request.recv() {
                 let tx = tx_result.clone();
                 let bg = bg_cache.clone();
-                let ctx = req.ctx.clone(); 
+                let ctx = req.ctx.clone();
 
                 rayon::spawn(move || {
                     let result = process_image_robust(req.id, &req.path, &bg, req.high_banner_quality);
@@ -89,7 +89,7 @@ impl CatList {
         self.missing_ids.clear();
         self.hovered_id = None;
         self.hover_lost_time = None;
-        self.last_unit_count = 0; 
+        self.last_unit_count = 0;
     }
 
     pub fn flush_icon(&mut self, id: u32) {
@@ -97,19 +97,19 @@ impl CatList {
         self.missing_ids.remove(&id);
         self.pending_requests.remove(&id);
     }
-    
+
     pub fn force_search_rebuild(&mut self) {
         self.last_unit_count = usize::MAX;
     }
 
     pub fn show(
-        &mut self, 
-        ctx: &egui::Context, 
-        ui: &mut egui::Ui, 
-        units: &[CatEntry], 
-        selected_id: &mut Option<u32>, 
-        search_query: &str, 
-        filter_state: &CatFilterState, 
+        &mut self,
+        ctx: &egui::Context,
+        ui: &mut egui::Ui,
+        units: &[CatEntry],
+        selected_id: &mut Option<u32>,
+        search_query: &str,
+        filter_state: &CatFilterState,
         high_banner_quality: bool
     ) {
         if self.placeholder_texture.is_none() {
@@ -118,8 +118,8 @@ impl CatList {
                 let size = [rgba.width() as usize, rgba.height() as usize];
                 let pixels = rgba.as_flat_samples();
                 self.placeholder_texture = Some(ctx.load_texture(
-                    "list_placeholder", 
-                    egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()), 
+                    "list_placeholder",
+                    egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()),
                     egui::TextureOptions::LINEAR
                 ));
             }
@@ -135,7 +135,7 @@ impl CatList {
                 self.missing_ids.insert(loaded.id);
             }
             self.pending_requests.remove(&loaded.id);
-            self.invalidated_ids.remove(&loaded.id); 
+            self.invalidated_ids.remove(&loaded.id);
         }
 
         if search_query != self.last_search_query || units.len() != self.last_unit_count || filter_state != &self.last_filter_state {
@@ -146,8 +146,8 @@ impl CatList {
     }
 
     fn render_scroll_area(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, units: &[CatEntry], selected_id: &mut Option<u32>, hq: bool) {
-        let row_height = 55.0; 
-        let total_rows = self.cached_indices.len(); 
+        let row_height = 55.0;
+        let total_rows = self.cached_indices.len();
         let now = ui.input(|i| i.time);
 
         let mut scroll_area = egui::ScrollArea::vertical().auto_shrink([false, false]);
@@ -173,11 +173,11 @@ impl CatList {
              self.hover_lost_time = None;
              return;
         }
-        
+
         if self.hover_lost_time.is_none() {
             self.hover_lost_time = Some(now);
         }
-        
+
         if let Some(lost_start) = self.hover_lost_time {
             if now - lost_start > 0.1 {
                 self.hovered_id = None;
@@ -204,7 +204,7 @@ impl CatList {
                 let _ = self.tx_request.send(LoadRequest {
                     id: unit.id,
                     path: path.clone(),
-                    high_banner_quality: hq, 
+                    high_banner_quality: hq,
                     ctx: ui.ctx().clone(),
                 });
             } else {
@@ -311,7 +311,7 @@ fn process_image_robust(_id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaI
                     let (w, h) = unit_img.dimensions();
                     let is_transparent_unit = w > 311 && h > 2 && unit_img.get_pixel(311, 2)[3] == 0;
                     let (x, y) = if is_transparent_unit {
-                        (-2, 9)
+                        (-3, 9)
                     } else {
                         unit_img = autocrop(unit_img);
                         let unit_w = unit_img.width() as i64;
@@ -344,7 +344,7 @@ fn autocrop(img: image::RgbaImage) -> image::RgbaImage {
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (width, height, 0, 0);
     let mut found = false;
     for (x, y, pixel) in img.enumerate_pixels() {
-        if pixel[3] > 0 { 
+        if pixel[3] > 0 {
             min_x = min_x.min(x); min_y = min_y.min(y);
             max_x = max_x.max(x); max_y = max_y.max(y);
             found = true;
