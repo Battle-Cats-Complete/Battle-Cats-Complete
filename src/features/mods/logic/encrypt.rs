@@ -1,9 +1,10 @@
-use std::sync::{mpsc::{self, Receiver}, Mutex};
+use std::sync::{mpsc::{self, Receiver, Sender}, Mutex};
 use std::thread;
 use std::fs;
 use std::path::PathBuf;
 use crate::features::mods::logic::state::{ModState, TargetRegion};
-use crate::features::settings::logic::keys::UserKeys;
+use crate::features::data::utilities::keys;
+use crate::features::settings::logic::state::Settings;
 
 use crate::features::addons::apktool::{apk, sign, xapk};
 use crate::features::mods::logic::{modify, pack};
@@ -16,6 +17,17 @@ pub enum ExportEvent {
 
 static EVENT_RECEIVER: Mutex<Option<Receiver<ExportEvent>>> = Mutex::new(None);
 
+/// Helper to bridge pure string channels to our custom ExportEvent enum
+fn spawn_log_adapter(event_tx: Sender<ExportEvent>) -> Sender<String> {
+    let (str_tx, str_rx) = mpsc::channel();
+    thread::spawn(move || {
+        for msg in str_rx {
+            let _ = event_tx.send(ExportEvent::Log(msg));
+        }
+    });
+    str_tx
+}
+
 pub fn start_apk_export(state: &mut ModState) {
     if state.export.is_busy { return; }
 
@@ -26,12 +38,25 @@ pub fn start_apk_export(state: &mut ModState) {
     let Some(mod_folder) = state.selected_mod.clone() else { state.export.is_busy = false; return; };
     let Some(input_apk_path) = state.export.selected_apk.clone() else { state.export.is_busy = false; return; };
     let java_sign_type = state.export.sign_type.clone();
-    let user_keys = UserKeys::load();
     let detected_region = state.export.target_region.clone();
+
     let (tx, rx) = mpsc::channel();
     if let Ok(mut guard) = EVENT_RECEIVER.lock() { *guard = Some(rx); }
 
     thread::spawn(move || {
+        let str_tx = spawn_log_adapter(tx.clone());
+
+        let settings: Settings = crate::global::io::json::load("settings.json").unwrap_or_default();
+
+        // Guard: Validate Keys via Central Helper
+        let user_keys = match keys::verify(settings.game_data.enforce_key_validation, &str_tx) {
+            Ok(k) => k,
+            Err(e) => {
+                let _ = tx.send(ExportEvent::Error(e));
+                return;
+            }
+        };
+
         let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let mod_dir = base_dir.join("mods").join(&mod_folder);
         let workspace_dir = mod_dir.join("apk_workspace");
@@ -130,13 +155,25 @@ pub fn start_pack_export(state: &mut ModState) {
     state.export.status_message = "Initializing Pack Export...".to_string();
 
     let pack_name = if state.export.pack_name.trim().is_empty() { "mod".to_string() } else { state.export.pack_name.clone() };
-    let user_keys = UserKeys::load();
     let target_region = state.export.target_region.clone();
 
     let (tx, rx) = mpsc::channel();
     if let Ok(mut guard) = EVENT_RECEIVER.lock() { *guard = Some(rx); }
 
     thread::spawn(move || {
+        let str_tx = spawn_log_adapter(tx.clone());
+
+        let settings: Settings = crate::global::io::json::load("settings.json").unwrap_or_default();
+
+        // Guard: Validate Keys via Central Helper
+        let user_keys = match keys::verify(settings.game_data.enforce_key_validation, &str_tx) {
+            Ok(k) => k,
+            Err(e) => {
+                let _ = tx.send(ExportEvent::Error(e));
+                return;
+            }
+        };
+
         let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let mod_path = base_dir.join("mods").join(&mod_folder);
         let export_dir = base_dir.join("exports");
