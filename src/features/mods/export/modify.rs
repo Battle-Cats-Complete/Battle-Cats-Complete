@@ -1,6 +1,8 @@
 use std::fs;
+use std::io::{Read, Write};
 use std::path::Path;
 use regex::Regex;
+use zip::{ZipArchive, ZipWriter};
 
 pub fn patch_identity(decode_dir: &Path, new_suffix: &str, app_title: &str, _log_cb: &impl Fn(String)) -> Result<String, String> {
     let suffix = new_suffix.trim();
@@ -161,4 +163,41 @@ pub fn inject_loose_assets(mod_dir: &Path, decode_dir: &Path) -> Result<usize, S
     }
 
     Ok(copied_count)
+}
+
+pub fn normalize_apk(input_apk: &Path, output_apk: &Path) -> Result<(), String> {
+    let source_file = fs::File::open(input_apk).map_err(|e| format!("Failed to open APK: {}", e))?;
+    let mut archive = ZipArchive::new(source_file).map_err(|e| format!("Failed to read APK archive: {}", e))?;
+
+    let dest_file = fs::File::create(output_apk).map_err(|e| format!("Failed to create normalized APK: {}", e))?;
+    let mut zip_writer = ZipWriter::new(dest_file);
+
+    let uncompressed_exts = ["dex", "arsc", "so", "pack", "list", "ogg"];
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).unwrap();
+        let name = file.name().to_string();
+        let ext = Path::new(&name).extension().and_then(|e| e.to_str()).unwrap_or("");
+
+        let needs_store = uncompressed_exts.contains(&ext);
+
+        if needs_store && file.compression() != zip::CompressionMethod::Stored {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data).map_err(|e| format!("Failed reading {}: {}", name, e))?;
+
+            let alignment = if ext == "so" { 4096 } else { 4 };
+
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored)
+                .with_alignment(alignment);
+
+            zip_writer.start_file(&name, options).map_err(|e| e.to_string())?;
+            zip_writer.write_all(&data).map_err(|e| e.to_string())?;
+        } else {
+            zip_writer.raw_copy_file(file).map_err(|e| e.to_string())?;
+        }
+    }
+
+    zip_writer.finish().map_err(|e| e.to_string())?;
+    Ok(())
 }

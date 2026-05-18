@@ -1,9 +1,9 @@
 use std::fs::{self, File};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use zip::{ZipArchive, ZipWriter};
 
 use crate::features::mods::logic::state::ModState;
@@ -117,7 +117,7 @@ pub fn start_fast_track_export(state: &mut ModState) {
             Ok(a) => a,
             Err(e) => { let _ = tx.send(ExportEvent::Error(format!("Invalid Source APK format: {}", e))); return; }
         };
-        
+
         let mut compression_catalog: HashMap<String, zip::CompressionMethod> = HashMap::new();
         for i in 0..archive.len() {
             if let Ok(file) = archive.by_index(i) {
@@ -132,12 +132,16 @@ pub fn start_fast_track_export(state: &mut ModState) {
         };
         let mut zip_writer = ZipWriter::new(dest_file);
 
-        log_cb("Injecting files...".to_string());
+        log_cb("Injecting and aligning files...".to_string());
         let mut injected_count = 0;
-        
+
         for i in 0..archive.len() {
-            let file = archive.by_index(i).unwrap();
+            let mut file = archive.by_index(i).unwrap();
             let name = file.name().to_string();
+
+            if name.starts_with("META-INF/") {
+                continue;
+            }
 
             let mut replacement_path = inject_map.get(&name).cloned();
 
@@ -154,9 +158,14 @@ pub fn start_fast_track_export(state: &mut ModState) {
 
             if let Some(local_path) = replacement_path {
                 let data = fs::read(&local_path).unwrap_or_default();
-                
                 let comp_method = compression_catalog.get(&name).copied().unwrap_or(zip::CompressionMethod::Deflated);
-                let options = zip::write::FileOptions::default().compression_method(comp_method);
+
+                let mut options = zip::write::SimpleFileOptions::default().compression_method(comp_method);
+                if comp_method == zip::CompressionMethod::Stored {
+                    let ext = Path::new(&name).extension().and_then(|e| e.to_str()).unwrap_or("");
+                    let alignment = if ext == "so" { 4096 } else { 4 };
+                    options = options.with_alignment(alignment);
+                }
 
                 if zip_writer.start_file(&name, options).is_ok() {
                     let _ = zip_writer.write_all(&data);
@@ -164,8 +173,23 @@ pub fn start_fast_track_export(state: &mut ModState) {
                 }
                 inject_map.remove(&name);
             } else {
-                if let Err(e) = zip_writer.raw_copy_file(file) {
-                    let _ = tx.send(ExportEvent::Error(format!("Failed to copy internal zip chunk {}: {}", name, e))); return;
+                if file.compression() == zip::CompressionMethod::Stored {
+                    let mut data = Vec::new();
+                    if file.read_to_end(&mut data).is_ok() {
+                        let ext = Path::new(&name).extension().and_then(|e| e.to_str()).unwrap_or("");
+                        let alignment = if ext == "so" { 4096 } else { 4 };
+                        let options = zip::write::SimpleFileOptions::default()
+                            .compression_method(zip::CompressionMethod::Stored)
+                            .with_alignment(alignment);
+
+                        if zip_writer.start_file(&name, options).is_ok() {
+                            let _ = zip_writer.write_all(&data);
+                        }
+                    }
+                } else {
+                    if let Err(e) = zip_writer.raw_copy_file(file) {
+                        let _ = tx.send(ExportEvent::Error(format!("Failed to copy internal zip chunk {}: {}", name, e))); return;
+                    }
                 }
             }
         }
@@ -173,12 +197,16 @@ pub fn start_fast_track_export(state: &mut ModState) {
         for (zip_path, local_path) in inject_map {
             let data = fs::read(&local_path).unwrap_or_default();
             let ext = Path::new(&zip_path).extension().and_then(|e| e.to_str()).unwrap_or("");
-            let compression = match ext {
-                "pack" | "list" | "dex" | "arsc" | "so" => zip::CompressionMethod::Stored,
-                _ => zip::CompressionMethod::Deflated,
-            };
 
-            let options = zip::write::FileOptions::default().compression_method(compression);
+            let is_stored = matches!(ext, "pack" | "list" | "dex" | "arsc" | "so" | "ogg");
+            let compression = if is_stored { zip::CompressionMethod::Stored } else { zip::CompressionMethod::Deflated };
+
+            let mut options = zip::write::SimpleFileOptions::default().compression_method(compression);
+            if is_stored {
+                let alignment = if ext == "so" { 4096 } else { 4 };
+                options = options.with_alignment(alignment);
+            }
+
             if zip_writer.start_file(&zip_path, options).is_ok() {
                 let _ = zip_writer.write_all(&data);
                 injected_count += 1;
@@ -189,6 +217,7 @@ pub fn start_fast_track_export(state: &mut ModState) {
             let _ = tx.send(ExportEvent::Error(format!("Failed to finalize APK Zip: {}", e))); return;
         }
 
+        log_cb(format!("Successfully patched {} files.", injected_count));
         log_cb("Signing APK...".to_string());
 
         if let Err(e) = sign::sign(&unsigned_apk_path, None) {

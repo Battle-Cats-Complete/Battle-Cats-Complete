@@ -27,9 +27,7 @@ fn run_java_with_fallback(arguments: &[String], log_callback: &impl Fn(String)) 
         if execute_command(&java_binary, arguments).is_ok() {
             return Ok(());
         }
-        log_callback("Local JRE environment crashed or is incompatible. Falling back to native system JRE...".to_string());
-    } else {
-        log_callback("Local portable JRE not found. Using system JRE...".to_string());
+        log_callback("JRE crashed or incompatible\nFalling back to system JRE...".to_string());
     }
 
     let system_java = Path::new("java");
@@ -42,9 +40,6 @@ fn run_java_with_fallback(arguments: &[String], log_callback: &impl Fn(String)) 
 
 pub fn decode(apk_path: &Path, out_dir: &Path, log_callback: &impl Fn(String)) -> Result<(), String> {
     let apktool_jar = get_jar_path().ok_or("apktool.jar is not installed.")?;
-    let filename = apk_path.file_name().unwrap_or_default().to_string_lossy();
-
-    log_callback(format!("Apktool: Decoding {}...", filename));
 
     let safe_temp_dir = get_apktool_dir().join("tmp");
     let _ = fs::create_dir_all(&safe_temp_dir);
@@ -66,7 +61,6 @@ pub fn decode(apk_path: &Path, out_dir: &Path, log_callback: &impl Fn(String)) -
 
 pub fn build(decode_dir: &Path, out_apk: &Path, log_callback: &impl Fn(String)) -> Result<(), String> {
     let apktool_jar = get_jar_path().ok_or("apktool.jar is not installed.")?;
-    log_callback("Apktool: Rebuilding APK with perfectly aligned headers...".to_string());
 
     let safe_temp_dir = get_apktool_dir().join("tmp");
     let _ = fs::create_dir_all(&safe_temp_dir);

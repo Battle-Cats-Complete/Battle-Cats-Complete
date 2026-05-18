@@ -108,13 +108,19 @@ pub fn start_apk_export(state: &mut ModState) {
             let _ = tx.send(ExportEvent::Error(e)); return;
         }
 
+        log_cb("Normalizing binaries...".to_string());
+        let normalized_apk_path = app_dir.join("normalized_final.apk");
+        if let Err(e) = modify::normalize_apk(&unsigned_apk_path, &normalized_apk_path) {
+            let _ = tx.send(ExportEvent::Error(format!("Normalization Error: {}", e))); return;
+        }
+
         log_cb("Signing APK...".to_string());
-        if let Err(e) = sign::sign(&unsigned_apk_path, None) {
+        if let Err(e) = sign::sign(&normalized_apk_path, None) {
             let _ = tx.send(ExportEvent::Error(format!("Native Signing Error: {}", e))); return;
         }
 
         let output_apk = export_dir.join(format!("{}.apk", final_id));
-        if let Err(e) = fs::copy(&unsigned_apk_path, &output_apk) {
+        if let Err(e) = fs::copy(&normalized_apk_path, &output_apk) {
             let _ = tx.send(ExportEvent::Error(format!("Filesystem Error: {}", e))); return;
         }
 

@@ -6,7 +6,6 @@ use std::sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}};
 use eframe::egui;
 use eframe::glow::{self, HasContext};
 use image::RgbaImage;
-use zip::write::FileOptions;
 use webp_animation::Encoder as WebpEncoder;
 use gif::{Encoder as GifEncoder, Frame as GifFrame, Repeat as GifRepeat, DisposalMethod};
 
@@ -148,8 +147,8 @@ pub fn encode_native(
             } else { 
                 zip::CompressionMethod::Deflated 
             };
-            
-            let zip_options = FileOptions::default().compression_method(compression_method);
+
+            let zip_options = zip::write::SimpleFileOptions::default().compression_method(compression_method);
             
             while let Ok(message) = receiver.recv() {
                 if abort_signal.load(Ordering::Relaxed) { return false; }

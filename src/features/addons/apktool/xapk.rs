@@ -26,9 +26,7 @@ fn run_java_with_fallback(arguments: &[String], log_callback: &impl Fn(String)) 
         if execute_command(&java_binary, arguments).is_ok() {
             return Ok(());
         }
-        log_callback("Local JRE environment crashed or is incompatible. Falling back to native system JRE...".to_string());
-    } else {
-        log_callback("Local portable JRE not found. Using system JRE...".to_string());
+        log_callback("JRE crashed or incompatible\nFalling back to system JRE...".to_string());
     }
 
     let system_java = Path::new("java");
@@ -41,9 +39,6 @@ fn run_java_with_fallback(arguments: &[String], log_callback: &impl Fn(String)) 
 
 pub fn merge_xapk(input_xapk: &Path, output_apk: &Path, log_callback: &impl Fn(String)) -> Result<(), String> {
     let editor_jar = get_apkeditor_path().ok_or("APKEditor.jar is not installed.")?;
-    let filename = input_xapk.file_name().unwrap_or_default().to_string_lossy();
-
-    log_callback(format!("APKEditor: Merging XAPK {}...", filename));
 
     let arguments = vec![
         "-jar".to_string(),
@@ -61,6 +56,5 @@ pub fn merge_xapk(input_xapk: &Path, output_apk: &Path, log_callback: &impl Fn(S
         return Err("APKEditor executed successfully, but the output APK is missing.".to_string());
     }
 
-    log_callback("XAPK successfully unified into a standalone APK!".to_string());
     Ok(())
 }
