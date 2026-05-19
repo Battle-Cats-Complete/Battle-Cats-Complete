@@ -9,6 +9,30 @@ use crate::features::mods::export::{patch, create, update, pack};
 pub fn show(ctx: &egui::Context, state: &mut ModState, _settings: &Settings) {
     let mut is_open = state.export.is_open;
     let window_id = egui::Id::new("export_mod_window");
+    let tracking_open_id = egui::Id::new("export_was_open");
+    let was_open = ctx.data(|d| d.get_temp::<bool>(tracking_open_id)).unwrap_or_default();
+    let current_mod = state.selected_mod.clone().unwrap_or_default();
+    let tracking_mod_id = egui::Id::new("export_tracking_mod");
+    let last_viewed = ctx.data(|d| d.get_temp::<String>(tracking_mod_id)).unwrap_or_default();
+
+    if (!was_open && is_open) || (is_open && last_viewed != current_mod) {
+        if state.export.patch_mode == PatchMode::Create {
+            if let Some(mod_folder) = &state.selected_mod {
+                let meta = metadata::ModMetadata::load(&std::path::Path::new("mods").join(mod_folder));
+                state.export.app_title = meta.title;
+                state.export.package_suffix = meta.package;
+            } else {
+                state.export.app_title.clear();
+                state.export.package_suffix.clear();
+            }
+        } else {
+            state.export.app_title.clear();
+            state.export.package_suffix.clear();
+        }
+        ctx.data_mut(|d| d.insert_temp(tracking_mod_id, current_mod));
+    }
+    ctx.data_mut(|d| d.insert_temp(tracking_open_id, is_open));
+
     let is_busy = patch::process_events(state);
     if is_busy {
         ctx.request_repaint();
@@ -140,6 +164,12 @@ fn show_apk_view(ui: &mut egui::Ui, state: &mut ModState) {
                     }
                     state.export.app_title.clear();
                     state.export.package_suffix.clear();
+                } else if state.export.patch_mode == PatchMode::Create {
+                    if let Some(mod_folder) = &state.selected_mod {
+                        let meta = metadata::ModMetadata::load(&std::path::Path::new("mods").join(mod_folder));
+                        state.export.app_title = meta.title;
+                        state.export.package_suffix = meta.package;
+                    }
                 }
             }
         });
@@ -178,18 +208,6 @@ fn show_apk_view(ui: &mut egui::Ui, state: &mut ModState) {
                 pkg_field.on_disabled_hover_text("Requires Apktool Add-On\nDownload through Settings > Add-Ons > Apktool");
             }
         });
-
-        if deep_patch_allowed && (state.export.app_title.is_empty() || state.export.package_suffix.is_empty()) {
-            if let Some(mod_folder) = &state.selected_mod {
-                let meta = metadata::ModMetadata::load(&std::path::Path::new("mods").join(mod_folder));
-                if state.export.app_title.is_empty() {
-                    state.export.app_title = meta.title;
-                }
-                if state.export.package_suffix.is_empty() {
-                    state.export.package_suffix = meta.package;
-                }
-            }
-        }
 
         ui.add_space(4.0);
 

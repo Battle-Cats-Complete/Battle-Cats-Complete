@@ -11,8 +11,8 @@ const MOD_TITLE_SIZE: f32 = 25.0;
 const BTN_SIZE: [f32; 2] = [105.0, 28.0];
 
 const META_LEFT_HEADER_OFFSET: f32 = 38.0;
-const META_LEFT_TOP_PADDING: f32 = 7.0;
-const META_LEFT_INNER_PADDING: f32 = 3.0;
+const META_LEFT_TOP_PADDING: f32 = 13.0;
+const META_LEFT_INNER_PADDING: f32 = 9.0;
 const META_LEFT_BOTTOM_PADDING: f32 = 0.0;
 
 #[derive(Clone, Default)]
@@ -106,7 +106,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut ModState, _settings: &mut Settings)
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.set_width(160.0);
-
+            ui.spacing_mut().item_spacing.y = 0.0;
             ui.horizontal(|ui| {
                 ui.add_space(META_LEFT_HEADER_OFFSET);
                 ui.label(egui::RichText::new("Information").heading().strong());
