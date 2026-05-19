@@ -15,10 +15,11 @@ To use this app, you must provide game files for it to read. These files are not
   - Direct import from emulator/android
   - Import from `.pack` / `.apk` files
   - Import from standard archives
-- **Import & View Mods**
+- **Import, View, Export Mods**
   - Import from Android, Packs, or Files
   - Add custom icons and metadata
   - Patch mods into the live database
+  - Inject mod into APK/XAPK
 - **Displaying Cat Data**
   - Icons and Banners
   - Forms, Stats, and Abilities
@@ -59,6 +60,10 @@ Because this app is an open-source hobby project and not signed with a paid cert
 >
 > To fix this, type the following command in Terminal: `xattr -cr`, then drag the app file into the terminal window to auto-fill the path.
 
+BCC requires two additonal third-party resources to unlock full functionality. Without these, the apps capabilities are limited:
+- Rooted Android device/emulator that is not Bluestacks and can run The Battle Cats
+- Legally obtained Decryption Keys and Initialization Vectors for every region
+
 ## Credit
 Various people have motivated and helped me create this project:
 - **TheWWRNerdGuy:** Provided a repo which holds Rust code for reading raw game data, also gave coding tips.
@@ -67,6 +72,8 @@ Various people have motivated and helped me create this project:
 - **Timtams:** Did field research to confirm certain game data quirks, also supplied some custom assets.
 
 ## Legal
-This project is for educational purposes only. Assets are copyright PONOS Corp. Please support the official release.
+This tool is not affiliated with, endorsed by, or sponsored by PONOS Corp. This project is for educational purposes only. Assets are copyright PONOS Corp. Please support the official release.
 
-*This applcation is intended to be used with legally obtained game files only. Make sure to recieve explicit permission from PONOS Corp. to use their data and assets.*
+*This applcation is intended to be used with legally obtained game files, keys, IV, and APKs only. Make sure to recieve explicit permission from PONOS Corp. to use their data and assets.*
+
+*The developers of this tool assume no responsibility for any legal issues, account bans, or damages resulting from the use of this software. Use at your own risk.*

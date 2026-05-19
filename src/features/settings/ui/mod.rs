@@ -8,5 +8,7 @@ pub mod exceptions;
 pub mod enemies;
 pub mod keys;
 mod about;
+pub mod mods;
+pub mod pem;
 
 pub use tabs::{show, toggle_ui};
