@@ -4,7 +4,6 @@ use std::sync::mpsc::Receiver;
 use serde::{Deserialize, Serialize};
 
 use crate::addons::adb::mods::ModAdbEvent;
-use crate::data::state::ImportSubTab;
 use crate::global::region::Region;
 
 use super::metadata::ModMetadata;
@@ -13,6 +12,15 @@ use super::metadata::ModMetadata;
 pub enum ExportType {
     #[default]
     Apk,
+    Bcm,
+    Pack,
+}
+
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
+pub enum ModImportTab {
+    #[default]
+    Adb,
+    Bcm,
     Pack,
 }
 
@@ -59,8 +67,6 @@ impl Default for ExportState {
 #[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum ModPackType {
     Apk,
-    Zip,
-    Folder,
     Pack,
 }
 
@@ -75,7 +81,7 @@ pub struct ModData {
 #[serde(default)]
 pub struct ModImportState {
     pub is_open: bool,
-    pub tab: ImportSubTab,
+    pub tab: ModImportTab,
     pub package_suffix: String,
     pub pack_type: ModPackType,
     #[serde(skip)] pub is_busy: bool,
@@ -89,7 +95,7 @@ impl Default for ModImportState {
     fn default() -> Self {
         Self {
             is_open: false,
-            tab: ImportSubTab::Emulator,
+            tab: ModImportTab::Adb,
             package_suffix: String::new(),
             pack_type: ModPackType::Apk,
             is_busy: false,

@@ -3,9 +3,8 @@ use std::path::PathBuf;
 use eframe::egui;
 
 use core::addons::toolpaths::{self, Presence};
-use core::data::state::ImportSubTab;
 use core::mods::logic::manager;
-use core::mods::logic::state::ModPackType;
+use core::mods::logic::state::{ModImportTab, ModPackType};
 use core::settings::logic::Settings;
 
 use super::state::ModListState;
@@ -39,11 +38,13 @@ pub fn show(ctx: &egui::Context, state: &mut ModListState, settings: &Settings) 
             ui.spacing_mut().item_spacing.x = 5.0;
             let active_color = egui::Color32::from_rgb(31, 106, 165);
             let inactive_color = egui::Color32::from_gray(60);
+
             let tabs = [
-                (ImportSubTab::Emulator, "Android"),
-                (ImportSubTab::Decrypt, "Pack"),
-                (ImportSubTab::Sort, "Raw"),
+                (ModImportTab::Adb, "Android"),
+                (ModImportTab::Bcm, "BCM"),
+                (ModImportTab::Pack, "Pack"),
             ];
+
             for (tab_enum, label) in tabs {
                 let is_active = state.data.import.tab == tab_enum;
                 let btn = egui::Button::new(egui::RichText::new(label).color(egui::Color32::WHITE).size(14.0))
@@ -56,9 +57,9 @@ pub fn show(ctx: &egui::Context, state: &mut ModListState, settings: &Settings) 
         ui.add_space(15.0);
 
         match state.data.import.tab {
-            ImportSubTab::Emulator => show_adb_view(ui, state, settings),
-            ImportSubTab::Decrypt => show_pack_view(ui, state),
-            ImportSubTab::Sort => show_raw_view(ui, state),
+            ModImportTab::Adb => show_adb_view(ui, state, settings),
+            ModImportTab::Bcm => show_bcm_view(ui, state),
+            ModImportTab::Pack => show_pack_view(ui, state),
         }
 
         ui.add_space(15.0);
@@ -69,14 +70,14 @@ pub fn show(ctx: &egui::Context, state: &mut ModListState, settings: &Settings) 
         if is_busy && !status.contains("Success") && !status.contains("Error") {
             ui.horizontal(|ui| { ui.spinner(); ui.label(status); });
         } else {
-            let color = if status.contains("Error") || status.contains("Failed") { egui::Color32::LIGHT_RED } 
-            else if status.contains("Success") || status.contains("Complete") { egui::Color32::LIGHT_GREEN } 
+            let color = if status.contains("Error") || status.contains("Failed") { egui::Color32::LIGHT_RED }
+            else if status.contains("Success") || status.contains("Complete") { egui::Color32::LIGHT_GREEN }
             else { egui::Color32::LIGHT_BLUE };
             ui.colored_label(color, status);
         }
-        
+
         ui.separator();
-        
+
         egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.label(egui::RichText::new(&state.data.import.log_content).monospace().size(12.0));
@@ -88,22 +89,22 @@ pub fn show(ctx: &egui::Context, state: &mut ModListState, settings: &Settings) 
 
 fn show_adb_view(ui: &mut egui::Ui, state: &mut ModListState, _settings: &Settings) {
     let is_present = toolpaths::adb_status() == Presence::Installed;
-    
+
     if is_present {
         ui.label("Import mod package using Android/Emulator");
     } else {
         ui.label(egui::RichText::new("Android Bridge is required. Download it in Settings > Add-Ons").color(egui::Color32::from_rgb(200, 150, 50)));
     }
-    
+
     ui.add_space(10.0);
 
     ui.add_enabled_ui(!state.data.import.is_busy && is_present, |ui| {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = PACKAGE_INPUT_PADDING;
-        ui.label(egui::RichText::new("Package:"));
-        ui.add(egui::TextEdit::singleline(&mut state.data.import.package_suffix)
-            .hint_text(egui::RichText::new("en").weak())
-            .desired_width(40.0));
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = PACKAGE_INPUT_PADDING;
+            ui.label(egui::RichText::new("Package:"));
+            ui.add(egui::TextEdit::singleline(&mut state.data.import.package_suffix)
+                .hint_text(egui::RichText::new("en").weak())
+                .desired_width(40.0));
         });
     });
 
@@ -115,8 +116,40 @@ fn show_adb_view(ui: &mut egui::Ui, state: &mut ModListState, _settings: &Settin
     }
 }
 
+fn show_bcm_view(ui: &mut egui::Ui, state: &mut ModListState) {
+    ui.label("Import packaged .bcm or .zip mod archives");
+    ui.add_space(10.0);
+
+    let path_id = egui::Id::new("bcm_view_path");
+    let mut selected_path = ui.data(|d| d.get_temp::<Option<PathBuf>>(path_id).unwrap_or_default());
+
+    ui.horizontal(|ui| {
+        let enabled = !state.data.import.is_busy;
+        if ui.add_enabled(enabled, egui::Button::new("Select Archive")).clicked() {
+            if let Some(p) = rfd::FileDialog::new().add_filter("Archive", &["bcm", "zip"]).pick_file() {
+                selected_path = Some(p.clone());
+                ui.data_mut(|d| d.insert_temp(path_id, Some(p)));
+            }
+        }
+
+        let label_text = if let Some(p) = &selected_path {
+            crate::features::data::state::censor_path(&p.to_string_lossy())
+        } else {
+            "No archive selected".to_string()
+        };
+        ui.label(label_text);
+    });
+
+    ui.add_space(15.0);
+
+    if ui.add_enabled(!state.data.import.is_busy && selected_path.is_some(), egui::Button::new("Start Import")).clicked() {
+        let Some(path) = selected_path else { return; };
+        manager::start_bcm_import(&mut state.data, path);
+    }
+}
+
 fn show_pack_view(ui: &mut egui::Ui, state: &mut ModListState) {
-    ui.label("Import modded DownloadLocal files manually");
+    ui.label("Import modded files directly from game formats");
     ui.add_space(10.0);
 
     let id = egui::Id::new("pack_view_path");
@@ -131,17 +164,13 @@ fn show_pack_view(ui: &mut egui::Ui, state: &mut ModListState) {
             egui::ComboBox::from_id_salt("mod_pack_type")
                 .selected_text(match state.data.import.pack_type {
                     ModPackType::Apk => "APK",
-                    ModPackType::Zip => "ZIP",
-                    ModPackType::Folder => "Folder",
-                    ModPackType::Pack => "Pack (.pack/.list)",
+                    ModPackType::Pack => "Pack",
                 })
                 .show_ui(ui, |ui| {
                     if ui.selectable_value(&mut state.data.import.pack_type, ModPackType::Apk, "APK").clicked() ||
-                       ui.selectable_value(&mut state.data.import.pack_type, ModPackType::Zip, "ZIP").clicked() ||
-                       ui.selectable_value(&mut state.data.import.pack_type, ModPackType::Folder, "Folder").clicked() ||
-                       ui.selectable_value(&mut state.data.import.pack_type, ModPackType::Pack, "Pack (.pack/.list)").clicked() {
-                           ui.data_mut(|d| d.insert_temp(id, None::<PathBuf>));
-                       }
+                        ui.selectable_value(&mut state.data.import.pack_type, ModPackType::Pack, "Pack").clicked() {
+                        ui.data_mut(|d| d.insert_temp(id, None::<PathBuf>));
+                    }
                 });
         });
     });
@@ -151,11 +180,11 @@ fn show_pack_view(ui: &mut egui::Ui, state: &mut ModListState) {
     ui.horizontal(|ui| {
         let enabled = !state.data.import.is_busy;
         let btn_text = if state.data.import.pack_type == ModPackType::Pack { "Select Pack/List" } else { "Select Source" };
-        
+
         if ui.add_enabled(enabled, egui::Button::new(btn_text)).clicked() {
             handle_pack_selection(ui, state, id, err_id, time_id, &mut selected_path);
         }
-        
+
         render_pack_selection_label(ui, state, time_id, err_id, &selected_path);
     });
 
@@ -167,85 +196,15 @@ fn show_pack_view(ui: &mut egui::Ui, state: &mut ModListState) {
     }
 }
 
-fn show_raw_view(ui: &mut egui::Ui, state: &mut ModListState) {
-    ui.label("Copy raw modded files into a mod folder");
-    ui.add_space(10.0);
-
-    let is_folder_id = egui::Id::new("raw_view_is_folder");
-    let mut is_folder = ui.data(|d| d.get_temp::<bool>(is_folder_id).unwrap_or(true));
-
-    let path_id = egui::Id::new("raw_view_path");
-    let mut selected_path = ui.data(|d| d.get_temp::<Option<PathBuf>>(path_id).unwrap_or_default());
-
-    let files_id = egui::Id::new("raw_view_files");
-    let mut selected_files = ui.data(|d| d.get_temp::<Vec<PathBuf>>(files_id).unwrap_or_default());
-
-    ui.add_enabled_ui(!state.data.import.is_busy, |ui| {
-        ui.horizontal(|ui| {
-            ui.label("Format:");
-            egui::ComboBox::from_id_salt("raw_format_type")
-                .selected_text(if is_folder { "Folder" } else { "Files" })
-                .show_ui(ui, |ui| {
-                    if ui.selectable_value(&mut is_folder, true, "Folder").clicked() ||
-                       ui.selectable_value(&mut is_folder, false, "Files").clicked() {
-                        ui.data_mut(|d| d.insert_temp(is_folder_id, is_folder));
-                    }
-                });
-        });
-    });
-
-    ui.add_space(5.0);
-
-    ui.horizontal(|ui| {
-        let enabled = !state.data.import.is_busy;
-        if is_folder {
-            if ui.add_enabled(enabled, egui::Button::new("Select Source")).clicked()
-                && let Some(p) = rfd::FileDialog::new().pick_folder() {
-                    selected_path = Some(p);
-                    ui.data_mut(|d| d.insert_temp(path_id, selected_path.clone()));
-                }
-            let label_text = if let Some(p) = &selected_path { 
-                crate::features::data::state::censor_path(&p.to_string_lossy()) 
-            } else { 
-                "No source selected".to_string() 
-            };
-            ui.label(label_text);
-        } else {
-            if ui.add_enabled(enabled, egui::Button::new("Select Files")).clicked()
-                && let Some(files) = rfd::FileDialog::new().pick_files() {
-                    selected_files = files;
-                    ui.data_mut(|d| d.insert_temp(files_id, selected_files.clone()));
-                }
-            let count = selected_files.len();
-            let label_text = match count {
-                0 => "No files selected".to_string(),
-                1 => "1 File".to_string(),
-                _ => format!("{} Files", count),
-            };
-            ui.label(label_text);
-        }
-    });
-
-    ui.add_space(15.0);
-
-    let can_import = (is_folder && selected_path.is_some()) || (!is_folder && !selected_files.is_empty());
-    
-    if ui.add_enabled(!state.data.import.is_busy && can_import, egui::Button::new("Start Import")).clicked() {
-         manager::start_raw_import(&mut state.data, is_folder, selected_path, selected_files);
-    }
-}
-
 fn handle_pack_selection(
-    ui: &mut egui::Ui, 
-    state: &mut ModListState, 
-    id: egui::Id, err_id: egui::Id, time_id: egui::Id, 
+    ui: &mut egui::Ui,
+    state: &mut ModListState,
+    id: egui::Id, err_id: egui::Id, time_id: egui::Id,
     selected_path: &mut Option<PathBuf>
 ) {
     if state.data.import.pack_type != ModPackType::Pack {
         let path_opt = match state.data.import.pack_type {
-            ModPackType::Apk => rfd::FileDialog::new().add_filter("APK", &["apk"]).pick_file(),
-            ModPackType::Zip => rfd::FileDialog::new().add_filter("ZIP", &["zip"]).pick_file(),
-            ModPackType::Folder => rfd::FileDialog::new().pick_folder(),
+            ModPackType::Apk => rfd::FileDialog::new().add_filter("APK", &["apk", "xapk", "apkm"]).pick_file(),
             _ => None,
         };
         if let Some(p) = path_opt {
@@ -262,7 +221,7 @@ fn handle_pack_selection(
     let stem = first.file_stem().unwrap().to_string_lossy();
     let pack_file = parent.join(format!("{}.pack", stem));
     let list_file = parent.join(format!("{}.list", stem));
-    
+
     if !pack_file.exists() {
         ui.data_mut(|d| {
             d.insert_temp(err_id, "Missing .pack!".to_string());
@@ -288,21 +247,21 @@ fn handle_pack_selection(
 }
 
 fn render_pack_selection_label(
-    ui: &mut egui::Ui, 
-    state: &ModListState, 
-    time_id: egui::Id, err_id: egui::Id, 
+    ui: &mut egui::Ui,
+    state: &ModListState,
+    time_id: egui::Id, err_id: egui::Id,
     selected_path: &Option<PathBuf>
 ) {
     let current_time = ui.ctx().input(|i| i.time);
     let err_time = ui.data(|d| d.get_temp::<f64>(time_id).unwrap_or(0.0));
     let err_msg = ui.data(|d| d.get_temp::<String>(err_id).unwrap_or_default());
-    
+
     if current_time < err_time + 2.0 {
         ui.label(egui::RichText::new(err_msg).color(egui::Color32::RED));
-        ui.ctx().request_repaint(); 
+        ui.ctx().request_repaint();
         return;
-    } 
-    
+    }
+
     let Some(p) = selected_path else {
         ui.label("No source selected");
         return;
@@ -312,7 +271,7 @@ fn render_pack_selection_label(
         let stem = p.file_stem().unwrap_or_default().to_string_lossy();
         ui.label(egui::RichText::new(format!("{} Found!", stem)).color(egui::Color32::GREEN));
         return;
-    } 
-    
+    }
+
     ui.label(crate::features::data::state::censor_path(&p.to_string_lossy()));
 }

@@ -3,10 +3,27 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 
+use tracing::{error, info, trace, warn};
+
 use crate::addons::adb::mods::{self, ModAdbEvent};
 use crate::mods::import::{decrypt, extract};
-
 use super::state::{ModDataState, ModPackType};
+
+fn format_log_name(name: &str, path: &Path) -> String {
+    let cleaned = name.trim_start_matches("...\\").trim_start_matches(".../");
+    if cleaned.len() > 35 {
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        let ext = path.extension().unwrap_or_default().to_string_lossy();
+        let trunc_stem: String = stem.chars().take(20).collect();
+        if !ext.is_empty() && ext.len() <= 5 {
+            format!("{}....{}", trunc_stem, ext)
+        } else {
+            format!("{}...", trunc_stem)
+        }
+    } else {
+        cleaned.to_string()
+    }
+}
 
 pub fn process_events(state: &mut ModDataState) -> bool {
     process_adb_events(state);
@@ -61,6 +78,42 @@ pub fn start_adb_import(state: &mut ModDataState) {
     mods::spawn_mod_import(tx, state.import.package_suffix.clone());
 }
 
+pub fn start_bcm_import(state: &mut ModDataState, path: PathBuf) {
+    state.import.log_content.clear();
+    state.import.status_message = format!("Extracting {:?}...", path.file_name().unwrap_or_default());
+    state.import.is_busy = true;
+
+    let (tx, rx) = mpsc::channel();
+    state.import.pack_rx = Some(rx);
+
+    thread::spawn(move || {
+        let _ = tx.send("Creating workspace...".to_string());
+
+        let (workspace_dir, _name) = match create_workspace(None) {
+            Ok(res) => res,
+            Err(e) => {
+                let _ = tx.send(format!("Error: Failed to construct workspace: {}", e));
+                return;
+            }
+        };
+
+        let settings: crate::settings::logic::state::Settings = crate::global::io::json::load("settings.json").unwrap_or_default();
+        let user_keys = match crate::data::utilities::keys::verify(settings.game_data.enforce_key_validation, &tx) {
+            Ok(keys) => keys,
+            Err(_) => return,
+        };
+
+        if let Err(e) = extract::run_archive(&path, &workspace_dir, tx.clone(), &user_keys) {
+            let _ = tx.send(format!("Error: {}", e));
+            return;
+        }
+
+        let final_name = apply_metadata_rename(Path::new("mods"), &workspace_dir);
+        info!("BCM import finished completely. Saved as {}", final_name);
+        let _ = tx.send(format!("\nImport Complete! Saved as '{}'", final_name));
+    });
+}
+
 pub fn start_pack_import(state: &mut ModDataState, path: PathBuf) {
     let pack_type = state.import.pack_type;
 
@@ -68,10 +121,10 @@ pub fn start_pack_import(state: &mut ModDataState, path: PathBuf) {
     state.import.status_message = format!("Processing {:?}...", path.file_name().unwrap_or_default());
     state.import.is_busy = true;
 
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = mpsc::channel();
     state.import.pack_rx = Some(rx);
 
-    std::thread::spawn(move || {
+    thread::spawn(move || {
         let settings: crate::settings::logic::state::Settings = crate::global::io::json::load("settings.json").unwrap_or_default();
 
         let user_keys = match crate::data::utilities::keys::verify(settings.game_data.enforce_key_validation, &tx) {
@@ -79,39 +132,27 @@ pub fn start_pack_import(state: &mut ModDataState, path: PathBuf) {
             Err(_) => return,
         };
 
-        let pkg_name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
-        let target_dir = PathBuf::from(format!("mods/packages/{}", pkg_name));
+        let (workspace_dir, _name) = match create_workspace(None) {
+            Ok(res) => res,
+            Err(e) => {
+                let _ = tx.send(format!("Error: Failed to construct workspace: {}", e));
+                return;
+            }
+        };
 
         let res = match pack_type {
-            ModPackType::Apk | ModPackType::Zip => {
-                let r = extract::run_archive(&path, &target_dir, tx.clone(), &user_keys);
-
-                let _ = tx.send("Cleaning up temporary pack files...".to_string());
-
-                // Prevent the OS Error 2 if the folder doesn't exist
-                if let Err(e) = std::fs::remove_dir_all(&target_dir)
-                    && e.kind() != std::io::ErrorKind::NotFound {
-                        let _ = tx.send(format!("Warning: Could not fully delete {}: {}", target_dir.display(), e));
-                    }
-
-                if Path::new("mods/packages").exists() {
-                    let _ = std::fs::remove_dir("mods/packages"); // Ignore error if not empty
-                }
-
-                r
-            },
-            ModPackType::Folder => {
-                let _ = tx.send("Folder import coming soon...".to_string());
-                Err("Not implemented".to_string())
-            },
-            ModPackType::Pack => decrypt::run(&path, tx.clone(), &user_keys)
+            ModPackType::Apk => extract::run_archive(&path, &workspace_dir, tx.clone(), &user_keys),
+            ModPackType::Pack => decrypt::run(&path, &workspace_dir, tx.clone(), &user_keys),
         };
 
         match res {
             Ok(_) => {
-                let _ = tx.send("Import Complete!".to_string());
+                let final_name = apply_metadata_rename(Path::new("mods"), &workspace_dir);
+                info!("Pack import finished completely. Saved as {}", final_name);
+                let _ = tx.send(format!("\nImport Complete! Saved as '{}'", final_name));
             }
             Err(e) => {
+                error!("Pack import failed: {}", e);
                 let _ = tx.send(format!("Error: {}", e));
             }
         }
@@ -123,71 +164,143 @@ pub fn start_raw_import(state: &mut ModDataState, is_folder: bool, path_opt: Opt
     state.import.is_busy = true;
     state.import.status_message = "Copying raw files...".to_string();
 
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = mpsc::channel();
     state.import.pack_rx = Some(rx);
 
-    std::thread::spawn(move || {
-        let mods_root = Path::new("mods");
-        let mut mod_num = 1;
-        while mods_root.join(format!("NewMod{}", mod_num)).exists() {
-            mod_num += 1;
-        }
-        let target_dir = mods_root.join(format!("NewMod{}", mod_num));
+    thread::spawn(move || {
+        let _ = tx.send("Creating workspace...".to_string());
 
-        let _ = tx.send("Creating new mod workspace...".to_string());
-        if std::fs::create_dir_all(&target_dir).is_err() {
-            let _ = tx.send("Error: Failed to create target directory".to_string());
-            return;
-        }
+        let (workspace_dir, _name) = match create_workspace(None) {
+            Ok(res) => res,
+            Err(e) => {
+                let _ = tx.send(format!("Error: Failed to construct workspace: {}", e));
+                return;
+            }
+        };
 
         if is_folder {
             let Some(p) = path_opt else { return; };
-            let _ = tx.send(format!("Copying folder {:?}...", p.file_name().unwrap_or_default()));
-            if let Err(e) = copy_dir_all(&p, &target_dir) {
+            let total_files = count_files_recursive(&p);
+            let log_interval = (total_files / 10).max(1);
+            let mut processed = 0;
+
+            if let Err(e) = copy_dir_all_with_log(&p, &workspace_dir, &tx, total_files, log_interval, &mut processed) {
                 let _ = tx.send(format!("Error copying folder: {}", e));
             } else {
-                let final_name = apply_metadata_rename(mods_root, &target_dir, mod_num);
-                let _ = tx.send(format!("Raw Import Complete! Saved as '{}'.", final_name));
+                let final_name = apply_metadata_rename(Path::new("mods"), &workspace_dir);
+                info!("Raw folder import finished. Saved as {}", final_name);
+                let _ = tx.send(format!("\nImport Complete! Saved as '{}'", final_name));
             }
             return;
         }
 
-        let _ = tx.send(format!("Copying {} files...", files.len()));
+        let total_files = files.len();
+        let log_interval = (total_files / 10).max(1);
+        let mut processed = 0;
+
         for file in files {
             let Some(name) = file.file_name() else { continue; };
-            if let Err(e) = std::fs::copy(&file, target_dir.join(name)) {
+            if let Err(e) = fs::copy(&file, workspace_dir.join("loose").join(name)) {
+                warn!("Error copying individual file {:?}: {}", name, e);
                 let _ = tx.send(format!("Error copying file {:?}: {}", name, e));
+            } else {
+                processed += 1;
+                if processed % log_interval == 0 || processed == total_files {
+                    let display_name = format_log_name(&name.to_string_lossy(), &file);
+                    trace!("Copied raw file: {}", display_name);
+                    let _ = tx.send(format!("Extracted {} Files | Streaming: {}", processed, display_name));
+                }
             }
         }
 
-        let final_name = apply_metadata_rename(mods_root, &target_dir, mod_num);
-        let _ = tx.send(format!("Raw Import Complete! Saved as '{}'.", final_name));
+        let final_name = apply_metadata_rename(Path::new("mods"), &workspace_dir);
+        info!("Raw file import finished. Saved as {}", final_name);
+        let _ = tx.send(format!("\nImport Complete! Saved as '{}'", final_name));
     });
 }
 
-fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
-    std::fs::create_dir_all(&dst)?;
-    for entry in std::fs::read_dir(src)? {
+fn count_files_recursive(dir: &Path) -> usize {
+    let mut count = 0;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                count += count_files_recursive(&entry.path());
+            } else {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+fn copy_dir_all_with_log(
+    src: &Path,
+    dst: &Path,
+    tx: &mpsc::Sender<String>,
+    total: usize,
+    interval: usize,
+    processed: &mut usize
+) -> std::io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
         if ty.is_dir() {
-            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            copy_dir_all_with_log(&entry.path(), &dst.join(entry.file_name()), tx, total, interval, processed)?;
         } else {
-            std::fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            fs::copy(entry.path(), dst.join(entry.file_name()))?;
+            *processed += 1;
+
+            if *processed % interval == 0 || *processed == total {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let display_name = format_log_name(&name, &entry.path());
+                trace!("Copied folder content: {}", display_name);
+                let _ = tx.send(format!("Extracted {} Files | Streaming: {}", *processed, display_name));
+            }
         }
     }
     Ok(())
 }
 
-pub fn apply_metadata_rename(mods_root: &Path, target_dir: &Path, default_num: u32) -> String {
-    let mut final_name = format!("NewMod{}", default_num);
-    let meta_path = target_dir.join("metadata.json");
+pub fn create_workspace(base_name: Option<&str>) -> std::io::Result<(PathBuf, String)> {
+    let mods_root = Path::new("mods");
+    fs::create_dir_all(mods_root)?;
+
+    let default_name = base_name.unwrap_or("NewMod");
+    let mut final_name = default_name.to_string();
+    let mut counter = 1;
+
+    if base_name.is_none() {
+        while mods_root.join(format!("{}{}", default_name, counter)).exists() {
+            counter += 1;
+        }
+        final_name = format!("{}{}", default_name, counter);
+    } else {
+        while mods_root.join(&final_name).exists() {
+            final_name = format!("{}{}", default_name, counter);
+            counter += 1;
+        }
+    }
+
+    let workspace_dir = mods_root.join(&final_name);
+    fs::create_dir_all(&workspace_dir)?;
+    fs::create_dir_all(workspace_dir.join("patch"))?;
+    fs::create_dir_all(workspace_dir.join("loose"))?;
+    fs::create_dir_all(workspace_dir.join("icons"))?;
+
+    trace!("Workspace generated: {}", final_name);
+    Ok((workspace_dir, final_name))
+}
+
+pub fn apply_metadata_rename(mods_root: &Path, target_dir: &Path) -> String {
+    let mut final_name = target_dir.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let meta_path = target_dir.join("patch").join("metadata.json");
 
     if meta_path.exists() {
         let meta = crate::mods::logic::metadata::ModMetadata::load(target_dir);
         let safe_title = meta.title.replace(&['<', '>', ':', '"', '/', '\\', '|', '?', '*'][..], "").trim().to_string();
 
-        if !safe_title.is_empty() {
+        if !safe_title.is_empty() && safe_title != final_name {
             let mut attempt = safe_title.clone();
             let mut counter = 1;
             let mut new_path = mods_root.join(&attempt);
@@ -199,7 +312,8 @@ pub fn apply_metadata_rename(mods_root: &Path, target_dir: &Path, default_num: u
                     counter += 1;
                 }
 
-                if std::fs::rename(target_dir, &new_path).is_ok() {
+                if fs::rename(target_dir, &new_path).is_ok() {
+                    trace!("Renamed workspace to metadata target: {}", attempt);
                     final_name = attempt;
                 }
             }
@@ -210,6 +324,7 @@ pub fn apply_metadata_rename(mods_root: &Path, target_dir: &Path, default_num: u
 
 pub fn delete_mod_folder(path: PathBuf) {
     thread::spawn(move || {
+        trace!("Deleting mod folder: {:?}", path);
         let _ = fs::remove_dir_all(path);
     });
 }

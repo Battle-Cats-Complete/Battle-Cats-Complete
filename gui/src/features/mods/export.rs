@@ -2,7 +2,7 @@ use eframe::egui;
 
 use core::global::region::Region;
 use core::mods::export::{apk, pack, patch};
-use core::mods::logic::metadata;
+use core::mods::logic::{bcm, metadata};
 use core::mods::logic::state::ExportType;
 use core::settings::logic::Settings;
 
@@ -57,7 +57,11 @@ pub fn show(context: &egui::Context, state: &mut ModListState, settings: &Settin
             let active_color = egui::Color32::from_rgb(31, 106, 165);
             let inactive_color = egui::Color32::from_gray(60);
 
-            let tabs = [(ExportType::Apk, "APK"), (ExportType::Pack, "Pack")];
+            let tabs = [
+                (ExportType::Apk, "APK"),
+                (ExportType::Bcm, "BCM"),
+                (ExportType::Pack, "Pack")
+            ];
 
             for (tab_enum, label) in tabs {
                 let is_active = state.data.export.tab == tab_enum;
@@ -75,6 +79,7 @@ pub fn show(context: &egui::Context, state: &mut ModListState, settings: &Settin
 
         match state.data.export.tab {
             ExportType::Apk => show_apk_view(ui_container, state, settings),
+            ExportType::Bcm => show_bcm_view(ui_container, state),
             ExportType::Pack => show_pack_view(ui_container, state),
         }
 
@@ -191,6 +196,36 @@ fn show_apk_view(ui_container: &mut egui::Ui, state: &mut ModListState, settings
 
     if ui_container.add_enabled(!state.data.export.is_busy && is_ready, egui::Button::new("Apply Mod")).clicked() {
         apk::start_export(&mut state.data, settings);
+    }
+}
+
+fn show_bcm_view(ui_container: &mut egui::Ui, state: &mut ModListState) {
+    ui_container.label("Package mod into a standalone .bcm archive");
+    ui_container.add_space(5.0);
+
+    let compression_id = egui::Id::new("bcm_compression_slider");
+    let mut compression_level = ui_container.ctx().data(|d| d.get_temp::<i64>(compression_id).unwrap_or(bcm::BCM_COMPRESSION_DEFAULT));
+
+    ui_container.add_enabled_ui(!state.data.export.is_busy, |enabled_ui| {
+        enabled_ui.horizontal(|ui_row| {
+            ui_row.label("Title:");
+            ui_row.add(egui::TextEdit::singleline(&mut state.data.export.app_title).desired_width(120.0));
+        });
+
+        enabled_ui.add_space(4.0);
+
+        enabled_ui.horizontal(|ui_row| {
+            ui_row.label("Compression:");
+            ui_row.add(egui::Slider::new(&mut compression_level, bcm::BCM_COMPRESSION_MIN..=bcm::BCM_COMPRESSION_MAX));
+        });
+    });
+
+    ui_container.ctx().data_mut(|d| d.insert_temp(compression_id, compression_level));
+
+    ui_container.add_space(8.0);
+
+    if ui_container.add_enabled(!state.data.export.is_busy && state.data.selected_mod.is_some(), egui::Button::new("Create BCM Package")).clicked() {
+        bcm::start_bcm_export(&mut state.data, compression_level);
     }
 }
 

@@ -10,11 +10,10 @@ use zip::ZipArchive;
 use crate::addons::apkeditor::xapk;
 use crate::data::utilities::keys;
 use crate::global::region::Region;
+use crate::mods::export::patch::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
+use crate::mods::export::{modify, pack, sign};
 use crate::mods::logic::state::ModDataState;
 use crate::settings::logic::state::{ExportBehavior, Settings};
-
-use super::patch::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
-use super::{modify, pack, sign};
 
 pub fn start_export(state: &mut ModDataState, settings: &Settings) {
     if state.export.is_busy {
@@ -69,7 +68,7 @@ pub fn start_export(state: &mut ModDataState, settings: &Settings) {
             }
         };
 
-        let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("../../../.."));
+        let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("../../../../../../../../.."));
         let mod_dir = base_dir.join("mods").join(&mod_folder);
         let export_dir = base_dir.join("exports");
         let app_dir = mod_dir.join("app");

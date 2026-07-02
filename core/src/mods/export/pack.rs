@@ -9,11 +9,10 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::data::utilities::keys;
 use crate::global::region::Region;
+use crate::mods::export::patch::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
 use crate::mods::logic::state::ModDataState;
 use crate::settings::logic::keys::RegionKey;
 use crate::settings::logic::state::Settings;
-
-use super::patch::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
 
 pub fn start_pack_export(state: &mut ModDataState) {
     if state.export.is_busy {
@@ -61,7 +60,7 @@ pub fn start_pack_export(state: &mut ModDataState) {
             }
         };
 
-        let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("../../../.."));
+        let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("../../../../../../../../.."));
         let mod_path = base_dir.join("mods").join(&mod_folder);
         let export_dir = base_dir.join("exports");
 
@@ -82,7 +81,7 @@ pub fn start_pack_export(state: &mut ModDataState) {
         }
 
         info!("Pack Export successfully finished: {}.pack", pack_name);
-        let _ = transmitter.send(ExportEvent::Success(format!("Successfully Built {}.pack!", pack_name)));
+        let _ = transmitter.send(ExportEvent::Success(format!("\nSuccessfully Created {}.pack!", pack_name)));
     });
 }
 
