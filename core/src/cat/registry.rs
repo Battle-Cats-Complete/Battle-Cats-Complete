@@ -435,7 +435,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_SINGLE_ATTACK),
             group: DisplayGroup::Body1,
             formatter: |_, stats, _, _, _| {
-                let tba = fmt_time(stats.time_between_attacks);
+                let tba = fmt_time(stats.attack_cooldown);
                 if stats.attack_2 > 0 {
                     format!("Time between attacks {}", tba)
                 } else {
@@ -450,7 +450,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_AREA_ATTACK),
             group: DisplayGroup::Body1,
             formatter: |_, stats, _, _, _| {
-                let tba = fmt_time(stats.time_between_attacks);
+                let tba = fmt_time(stats.attack_cooldown);
                 if stats.attack_2 > 0 {
                     format!("Time between attacks {}", tba)
                 } else {
@@ -908,7 +908,7 @@ pub const CAT_STATS_REGISTRY: &[CatStatsDef] = &[
             let mut effective_foreswing = stats.time_until_attack_1;
             if stats.attack_3 > 0 && stats.time_until_attack_3 > 0 { effective_foreswing = stats.time_until_attack_3; }
             else if stats.attack_2 > 0 && stats.time_until_attack_2 > 0 { effective_foreswing = stats.time_until_attack_2; }
-            let cooldown_frames = stats.time_between_attacks.saturating_sub(1);
+            let cooldown_frames = stats.attack_cooldown.saturating_sub(1);
             let attack_cycle = (effective_foreswing + cooldown_frames).max(animation_frames);
             if attack_cycle > 0 { ((total_attack_damage as f32 * 30.0) / attack_cycle as f32).round() as i32 } else { 0 }
         },
@@ -923,7 +923,7 @@ pub const CAT_STATS_REGISTRY: &[CatStatsDef] = &[
             let mut effective_foreswing = stats.time_until_attack_1;
             if stats.attack_3 > 0 && stats.time_until_attack_3 > 0 { effective_foreswing = stats.time_until_attack_3; }
             else if stats.attack_2 > 0 && stats.time_until_attack_2 > 0 { effective_foreswing = stats.time_until_attack_2; }
-            let cooldown_frames = stats.time_between_attacks.saturating_sub(1);
+            let cooldown_frames = stats.attack_cooldown.saturating_sub(1);
             (effective_foreswing + cooldown_frames).max(animation_frames)
         },
         formatter: |frames| format!("{}f", frames),
@@ -971,7 +971,7 @@ pub const CAT_STATS_REGISTRY: &[CatStatsDef] = &[
     CatStatsDef {
         name: "TBA",
         display_name: "TBA",
-        get_value: |stats, _, _| stats.time_between_attacks,
+        get_value: |stats, _, _| stats.attack_cooldown,
         formatter: |tba| format!("{}f", tba),
         linked_talent_id: Some(61),
         talent_modifier_fmt: Some(|percent, _| format!("(-{}%)", percent)),

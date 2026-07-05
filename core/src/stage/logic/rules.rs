@@ -1,7 +1,7 @@
+use nyanko::common::csv::{strip_html_tags, BreakHandling};
 use tracing::{debug, instrument, warn};
 
 use crate::global::context::GlobalContext;
-use crate::global::utils::strip_color_tags;
 use crate::stage::data::specialrulesmap::{RuleType, SpecialRule};
 use crate::stage::data::specialrulesmapoption::SpecialRuleOption;
 
@@ -20,25 +20,22 @@ pub fn parse(
 ) -> ProcessedRule {
     debug!(label = %rule.name_label, "parsing special rule");
 
-    // 1. Exact Lookup Strategy
-    let raw_title = ctx.localizable.lookup_or_empty(&rule.name_label);
+    let raw_title = ctx.localizable.lookup(&rule.name_label).unwrap_or_default();
 
-    // The JSON provides 'SpecialRuleNameXXX', map it to the Explanation key
     let exp_key = rule.name_label.replace("Name", "Explanation");
-    let raw_desc = ctx.localizable.lookup_or_empty(&exp_key);
+    let raw_desc = ctx.localizable.lookup(&exp_key).unwrap_or_default();
 
-    let mut title = strip_color_tags(raw_title);
-    let mut description = strip_color_tags(raw_desc);
+    let mut title = strip_html_tags(&raw_title, BreakHandling::Space);
+    let mut description = strip_html_tags(&raw_desc, BreakHandling::Space);
 
     if title.is_empty() {
         warn!(key = %rule.name_label, "missing localization for special rule title");
         title = rule.name_label.clone();
     }
 
-    // 2. Enum Fallback Strategy
     if description.is_empty() {
         warn!(key = %exp_key, "falling back to raw enum parsing");
-        description = fallback_description(rule);
+        description = format!("{}:\n{}", exp_key, fallback_description(rule));
     }
 
     let mut invalid_combos = Vec::new();

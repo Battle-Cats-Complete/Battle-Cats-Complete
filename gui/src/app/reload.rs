@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use core::global::game::param::load_param;
+use core::global::game::{localizable::load_localizable, param::load_param};
 
 use super::BattleCatsApp;
 
@@ -48,7 +48,8 @@ impl BattleCatsApp {
         self.stage_list_state.data.registry.clear_cache();
         self.stage_list_state.data.restart_scan(config);
 
-        tracing::debug!("Reloading core param table");
+        tracing::debug!("Reloading core tables");
         self.param = load_param(Path::new("game/tables"), &self.settings.general.language_priority).unwrap_or_default();
+        self.localizable = load_localizable(Path::new("game/tables/localizable"), &self.settings.general.language_priority);
     }
 }

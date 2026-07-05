@@ -22,11 +22,11 @@ pub fn autocrop(img: image::RgbaImage) -> image::RgbaImage {
 pub fn strip_markdown(text: &str) -> String {
     let mut text = text.to_string();
 
-    if let Ok(re_link) = Regex::new(r"\[([^\]]+)\]\([^\)]+\)") {
+    if let Ok(re_link) = Regex::new(r"\[([^]]+)]\([^)]+\)") {
         text = re_link.replace_all(&text, "$1").to_string();
     }
 
-    if let Ok(re_list) = Regex::new(r"(?m)^(\s*)[\*\-]\s+") {
+    if let Ok(re_list) = Regex::new(r"(?m)^(\s*)[*\-]\s+") {
         text = re_list.replace_all(&text, "${1}• ").to_string();
     }
 
@@ -37,20 +37,4 @@ pub fn strip_markdown(text: &str) -> String {
     text = text.replace("`", "");
 
     text
-}
-
-pub fn strip_color_tags(input: &str) -> String {
-    let mut stripped = String::new();
-    let mut in_tag = false;
-
-    for c in input.chars() {
-        if c == '<' {
-            in_tag = true;
-        } else if c == '>' {
-            in_tag = false;
-        } else if !in_tag {
-            stripped.push(c);
-        }
-    }
-    stripped
 }

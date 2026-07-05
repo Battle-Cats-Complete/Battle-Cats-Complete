@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use eframe::egui;
+use nyanko::common::csv::{strip_html_tags, BreakHandling};
 use tracing::{debug, instrument, warn};
 
 use core::enemy::logic::scanner::EnemyEntry;
@@ -74,33 +75,17 @@ fn format_base_hp_percentage(base_hp_percentage: u32, is_dojo_mechanic: bool) ->
     format!("{}%", base_hp_percentage)
 }
 
-fn strip_color_tags(input: &str) -> String {
-    let mut stripped = String::new();
-    let mut in_tag = false;
-
-    for character in input.chars() {
-        if character == '<' {
-            in_tag = true;
-        } else if character == '>' {
-            in_tag = false;
-        } else if !in_tag {
-            stripped.push(character);
-        }
-    }
-    stripped
-}
-
 #[instrument(skip(rule, global_ctx))]
 fn format_special_rule(rule: &SpecialRule, global_ctx: &GlobalContext) -> String {
     let clean_key = rule.name_label.trim();
     let explanation_key = clean_key.replace("Name", "Explanation");
 
-    let raw_description = global_ctx.localizable.lookup_or_empty(&explanation_key);
-    let mut description = strip_color_tags(&raw_description);
+    let raw_description = global_ctx.localizable.lookup(&explanation_key).unwrap_or_default();
+    let mut description = strip_html_tags(&raw_description, BreakHandling::Space);
 
     if description.is_empty() {
-        let raw_title = global_ctx.localizable.lookup_or_empty(clean_key);
-        let mut title = strip_color_tags(&raw_title);
+        let raw_title = global_ctx.localizable.lookup(clean_key).unwrap_or_default();
+        let mut title = strip_html_tags(&raw_title, BreakHandling::Space);
 
         if title.is_empty() {
             title = clean_key.to_string();
