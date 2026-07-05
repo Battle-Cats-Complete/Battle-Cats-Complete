@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use eframe::egui;
-use nyanko::common::csv::{strip_html_tags, BreakHandling};
+use nyanko::common::utils::csv::{strip_html_tags, BreakHandling};
 use tracing::{debug, instrument, warn};
 
 use core::enemy::logic::scanner::EnemyEntry;

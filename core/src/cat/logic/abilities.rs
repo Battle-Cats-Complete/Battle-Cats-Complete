@@ -1,5 +1,5 @@
 use nyanko::cat::abilities::{get_talent, AttrUnit, Identity, REGISTRY};
-use nyanko::common::img015;
+use nyanko::common::data::img015;
 
 use crate::cat::registry::{self, AbilityIcon, DisplayGroup};
 use crate::global::game::abilities::{AbilityItem, CustomIcon};

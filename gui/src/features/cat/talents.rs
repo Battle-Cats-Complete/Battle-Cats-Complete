@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 use nyanko::cat::abilities::get_talent;
 use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
-use nyanko::common::img022;
+use nyanko::common::data::img022;
 
 use core::cat::logic::talents;
 use core::cat::paths;

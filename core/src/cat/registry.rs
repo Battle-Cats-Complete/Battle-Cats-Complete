@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use nyanko::cat::abilities::{Identity, REGISTRY};
 use nyanko::cat::unit::{Battle, UnitBuy};
-use nyanko::common::{img015, Param};
+use nyanko::common::data::{img015, Param};
 
 use crate::global::game::abilities::CustomIcon;
 
@@ -132,15 +132,14 @@ fn fmt_multihit(stats: &Battle) -> String {
 
 fn fmt_sage(param: &Param) -> String {
     let mut resistance_groups_by_percentage: HashMap<i32, Vec<&str>> = HashMap::new();
-    let to_percentage = |multiplier: f32| (multiplier * 100.0).round() as i32;
-
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_slayer_resist_weaken)).or_default().push("Weaken");
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_slayer_resist_freeze)).or_default().push("Freeze");
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_slayer_resist_slow)).or_default().push("Slow");
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_slayer_resist_curse)).or_default().push("Curse");
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_slayer_resist_other)).or_default().push("Knockback");
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_slayer_resist_other)).or_default().push("Delay");
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_slayer_resist_warp)).or_default().push("Warp");
+    
+    resistance_groups_by_percentage.entry(param.sage_slayer_resist_weaken).or_default().push("Weaken");
+    resistance_groups_by_percentage.entry(param.sage_slayer_resist_freeze).or_default().push("Freeze");
+    resistance_groups_by_percentage.entry(param.sage_slayer_resist_slow).or_default().push("Slow");
+    resistance_groups_by_percentage.entry(param.sage_slayer_resist_curse).or_default().push("Curse");
+    resistance_groups_by_percentage.entry(param.sage_slayer_resist_other).or_default().push("Knockback");
+    resistance_groups_by_percentage.entry(param.sage_slayer_resist_other).or_default().push("Delay");
+    resistance_groups_by_percentage.entry(param.sage_slayer_resist_warp).or_default().push("Warp");
 
     let base_description = format!(
         "Deals {:.1}× Damage to and takes {:.1}× Damage from Sage Enemies\nIgnores the Crowd Control resistance of Sage Enemies\nCrowd Control effects originating from Sage Enemies reduced by",

@@ -1,4 +1,4 @@
-use nyanko::common::csv::{strip_html_tags, BreakHandling};
+use nyanko::common::utils::csv::{strip_html_tags, BreakHandling};
 use tracing::{debug, instrument, warn};
 
 use crate::global::context::GlobalContext;

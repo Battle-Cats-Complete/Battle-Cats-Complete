@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::collections::HashMap;
 use crate::global::resolver;
-use nyanko::common::csv::detect_separator;
+use nyanko::common::utils::csv::detect_separator;
 
 #[derive(Default, Debug, Clone)]
 pub struct LockSkipEntry {

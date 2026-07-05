@@ -3,7 +3,7 @@ use std::path::Path;
 
 use eframe::egui;
 use nyanko::cat::unit::TalentCost;
-use nyanko::common::img022;
+use nyanko::common::data::img022;
 
 use core::cat::logic::scanner::CatEntry;
 use core::cat::logic::state::DetailTab;

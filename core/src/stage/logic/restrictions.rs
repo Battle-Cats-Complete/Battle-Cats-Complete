@@ -1,5 +1,5 @@
 use tracing::{debug, trace, warn};
-use nyanko::common::csv::{strip_html_tags, BreakHandling};
+use nyanko::common::utils::csv::{strip_html_tags, BreakHandling};
 
 use crate::global::context::GlobalContext;
 use crate::stage::data::charagroup::{CharaGroup, CharaGroupType};

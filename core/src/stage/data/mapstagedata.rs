@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use serde::{Serialize, Deserialize};
 use crate::global::resolver;
-use nyanko::common::csv::detect_separator;
+use nyanko::common::utils::csv::detect_separator;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DropReward {

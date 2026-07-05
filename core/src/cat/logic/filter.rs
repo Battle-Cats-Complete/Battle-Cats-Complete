@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use nyanko::cat::abilities::REGISTRY;
 use nyanko::cat::unit::{Battle, UnitBuy};
-use nyanko::common::img015;
+use nyanko::common::data::img015;
 
 use crate::cat::registry::{get_display_def, AbilityIcon, CAT_STATS_REGISTRY};
 use crate::global::game::abilities::CustomIcon;

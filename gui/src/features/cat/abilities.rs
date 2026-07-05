@@ -1,5 +1,5 @@
 use eframe::egui;
-use nyanko::common::img015;
+use nyanko::common::data::img015;
 
 use core::cat::logic::abilities;
 use core::cat::logic::context::CatRenderContext;

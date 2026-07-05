@@ -5,7 +5,7 @@ use eframe::egui;
 use core::cat::paths as cat_paths;
 use core::cat::waiter::{skilldescriptions, skilllevel};
 use core::global::assets;
-use core::global::game::{localizable::load_localizable, param::load_param};
+use core::global::game::waiter::{localizable, param};
 use core::global::io::json;
 use core::settings::logic::{lang, upd::UpdateMode};
 
@@ -38,8 +38,8 @@ impl BattleCatsApp {
         updater::cleanup_temp_files();
 
         tracing::info!("Loading core tables");
-        app.param = load_param(Path::new("game/tables"), &app.settings.general.language_priority).unwrap_or_default();
-        app.localizable = load_localizable(Path::new("game/tables/localizable"), &app.settings.general.language_priority);
+        app.param = param(Path::new("game/tables"), &app.settings.general.language_priority).unwrap_or_default();
+        app.localizable = localizable(Path::new("game/tables/localizable"), &app.settings.general.language_priority);
 
         let mut expected_hash = 0;
         let mut needs_validation = false;

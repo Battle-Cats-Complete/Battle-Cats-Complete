@@ -9,7 +9,7 @@ use eframe::egui;
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use imageproc::rect::Rect;
-use nyanko::common::img015;
+use nyanko::common::data::img015;
 use nyanko::graphics::actor::SpriteCut;
 
 use core::global::assets;

@@ -1,10 +1,9 @@
 use std::hash::{Hash, Hasher};
 
 use eframe::egui;
-use nyanko::common::Param;
+use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
 
-use core::global::game::localizable::Localizable;
 use core::global::io::json;
 use core::settings::logic::state::Settings;
 

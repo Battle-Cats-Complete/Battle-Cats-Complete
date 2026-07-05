@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 use crate::global::resolver;
-use nyanko::common::csv::detect_separator;
+use nyanko::common::utils::csv::detect_separator;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct StageOption {

@@ -1,6 +1,4 @@
-use nyanko::common::Param;
-
-use super::game::localizable::Localizable;
+use nyanko::common::data::{Param, Localizable};
 
 #[derive(Clone, Copy)]
 pub struct GlobalContext<'a> {

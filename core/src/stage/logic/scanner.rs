@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
-use nyanko::common::csv;
+use nyanko::common::utils::csv;
 use tracing::{instrument, warn};
 
 use crate::settings::logic::state::ScannerConfig;

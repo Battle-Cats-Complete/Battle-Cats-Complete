@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::collections::HashMap;
 use crate::global::resolver;
-use nyanko::common::csv::detect_separator;
+use nyanko::common::utils::csv::detect_separator;
 
 pub fn load(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, u32> {
     let mut map = HashMap::new();

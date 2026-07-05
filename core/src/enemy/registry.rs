@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use nyanko::common::{img015, Param};
+use nyanko::common::data::{img015, Param};
 use nyanko::enemy::abilities::{Identity, REGISTRY};
 use nyanko::enemy::unit::Battle;
 use serde::{Deserialize, Serialize};
@@ -156,14 +156,12 @@ fn fmt_multihit(stats: &Battle, magnification: Magnification) -> String {
 
 fn fmt_sage(param: &Param) -> String {
     let mut resistance_groups_by_percentage: HashMap<i32, Vec<&str>> = HashMap::new();
-
-    let to_percentage = |multiplier: f32| (multiplier * 100.0).round() as i32;
-
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_type_resist_weaken)).or_default().push("Weaken");
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_type_resist_freeze)).or_default().push("Freeze");
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_type_resist_slow)).or_default().push("Slow");
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_type_resist_curse)).or_default().push("Curse");
-    resistance_groups_by_percentage.entry(to_percentage(param.sage_type_resist_knockback)).or_default().push("Knockback");
+    
+    resistance_groups_by_percentage.entry(param.sage_type_resist_weaken).or_default().push("Weaken");
+    resistance_groups_by_percentage.entry(param.sage_type_resist_freeze).or_default().push("Freeze");
+    resistance_groups_by_percentage.entry(param.sage_type_resist_slow).or_default().push("Slow");
+    resistance_groups_by_percentage.entry(param.sage_type_resist_curse).or_default().push("Curse");
+    resistance_groups_by_percentage.entry(param.sage_type_resist_knockback).or_default().push("Knockback");
 
     let base_description = "Crowd Control effects inflicted upon Sage Enemies are reduced by";
 
