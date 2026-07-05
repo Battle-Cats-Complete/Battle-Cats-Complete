@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -8,45 +9,22 @@ use crate::global::resolver;
 
 #[derive(Default, Debug, Clone)]
 pub struct Localizable {
-    data: Vec<u8>,
+    map: HashMap<String, String>,
 }
 
 impl Localizable {
     pub fn lookup(&self, key: &str) -> Option<String> {
         trace!(key, "Starting localizable lookup");
 
-        if self.data.is_empty() {
-            warn!("Localizable data is empty, cannot look up key: {}", key);
-            return None;
+        let result = self.map.get(key).cloned();
+
+        if result.is_some() {
+            trace!(key, "Localization match found");
+        } else {
+            trace!(key, "No localization match found");
         }
 
-        let content = scrub(&self.data);
-
-        for line in content.lines() {
-            let clean_line = line.split("//").next().unwrap_or("").trim();
-
-            if clean_line.is_empty() {
-                continue;
-            }
-
-            let Some(tab_index) = clean_line.find('\t') else {
-                continue;
-            };
-
-            let current_key = clean_line[..tab_index].trim();
-
-            if current_key != key {
-                continue;
-            }
-
-            let value = clean_line[tab_index..].trim().to_string();
-            trace!(key = current_key, value = %value, "Localization match found");
-
-            return Some(value);
-        }
-
-        trace!(key, "No localization match found");
-        None
+        result
     }
 }
 
@@ -68,7 +46,33 @@ pub fn load_localizable(dir: &Path, priority: &[String]) -> Localizable {
         return Localizable::default();
     };
 
-    info!(size = data.len(), path = %file_path.display(), "Successfully loaded localization bytes");
+    debug!("Scrubbing raw bytes and building lookup index");
+    let content = scrub(&data);
 
-    Localizable { data }
+    // A conservative divisor of 50 intentionally overestimates the line count.
+    // This slightly over-allocates memory upfront (extremely cheap) to guarantee
+    // absolutely zero reallocations during the loop (extremely expensive).
+    let estimated_entries = data.len() / 50;
+    let mut map = HashMap::with_capacity(estimated_entries);
+
+    for line in content.lines() {
+        let clean_line = line.split("//").next().unwrap_or("").trim();
+
+        if clean_line.is_empty() {
+            continue;
+        }
+
+        let Some(tab_index) = clean_line.find('\t') else {
+            continue;
+        };
+
+        let current_key = clean_line[..tab_index].trim().to_string();
+        let value = clean_line[tab_index..].trim().to_string();
+
+        map.insert(current_key, value);
+    }
+
+    info!(entries = map.len(), path = %file_path.display(), "Successfully loaded and indexed localization data");
+
+    Localizable { map }
 }
