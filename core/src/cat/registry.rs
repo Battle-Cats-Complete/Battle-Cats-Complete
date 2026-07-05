@@ -365,7 +365,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_BEHEMOTH_SLAYER),
             group: DisplayGroup::Headline2,
             formatter: |_, stats, _, _, param| {
-                let mut formatted_text = format!("Deals {:.1}× Damage to and takes {:.1}× Damage from Behemoth Enemies", param.behemoth_slayer_attack_multiplier, param.behemoth_slayer_defense_multiplier);
+                let mut formatted_text = format!("Deals {:.1}× Damage to and takes {:.1}× Damage from Behemoth Enemies", param.behemoth_slayer_attack_multiplier as f32 / 1000.0, param.behemoth_slayer_defense_multiplier as f32 / 1000.0);
                 if stats.behemoth_dodge_chance > 0 {
                     formatted_text.push_str(&format!("\n{}% Chance to Dodge Behemoth Enemies for {}", stats.behemoth_dodge_chance, fmt_time(stats.behemoth_dodge_duration)));
                 }
