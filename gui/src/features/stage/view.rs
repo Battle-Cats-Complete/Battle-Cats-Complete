@@ -55,8 +55,8 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
                     ui.add_space(20.0);
 
                     if super::materials::has_drops(stage, map_data) {
-                        ui.columns(2, |cols| {
-                            cols[0].vertical(|ui| {
+                        ui.horizontal_top(|ui| {
+                            ui.vertical(|ui| {
                                 super::treasure::draw(
                                     ctx,
                                     ui,
@@ -70,7 +70,9 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
                                 );
                             });
 
-                            cols[1].vertical(|ui| {
+                            ui.add_space(24.0);
+
+                            ui.vertical(|ui| {
                                 super::materials::draw(
                                     ctx,
                                     ui,

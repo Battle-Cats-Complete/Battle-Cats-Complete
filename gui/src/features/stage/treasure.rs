@@ -11,7 +11,7 @@ use core::stage::data::mapstagedata::RewardStructure;
 use core::stage::logic::treasure;
 use core::stage::registry::Stage;
 
-// --- FORMATTERS & UTILS ---
+pub const TREASURE_TABLE_WIDTH: f32 = 345.0;
 
 fn format_drop_chance(raw_chance: u32, drop_rule: i32) -> String {
     if drop_rule == -3 || drop_rule == -4 {
@@ -68,8 +68,6 @@ pub fn center_text(ui: &mut egui::Ui, display_text: impl Into<String>) {
     });
 }
 
-// --- MAIN UI DRAW LOOP ---
-
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
     egui_context: &egui::Context,
@@ -84,6 +82,8 @@ pub fn draw(
 ) {
     match &stage_data.rewards {
         RewardStructure::Treasure { drop_rule, drops } => {
+            ui.set_max_width(TREASURE_TABLE_WIDTH);
+
             let rule_description = format_treasure_rule(*drop_rule);
             ui.strong(format!("Treasure | {}", rule_description));
             ui.separator();
@@ -125,13 +125,13 @@ pub fn draw(
                             if let Some(resolved_image_path) = drop_info.image_path {
                                 if !item_texture_cache.contains_key(&drop_data.id)
                                     && let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
-                                        let generated_texture_handle = egui_context.load_texture(
-                                            format!("treasure_item_icon_{}", drop_data.id),
-                                            processed_color_image,
-                                            egui::TextureOptions::LINEAR
-                                        );
-                                        item_texture_cache.insert(drop_data.id, generated_texture_handle);
-                                    }
+                                    let generated_texture_handle = egui_context.load_texture(
+                                        format!("treasure_item_icon_{}", drop_data.id),
+                                        processed_color_image,
+                                        egui::TextureOptions::LINEAR
+                                    );
+                                    item_texture_cache.insert(drop_data.id, generated_texture_handle);
+                                }
 
                                 if let Some(cached_texture_handle) = item_texture_cache.get(&drop_data.id) {
                                     let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
@@ -151,6 +151,8 @@ pub fn draw(
                 });
         }
         RewardStructure::Timed(timed_scores) => {
+            ui.set_max_width(TREASURE_TABLE_WIDTH);
+
             ui.strong("Timed Score Rewards");
             ui.separator();
 
@@ -188,13 +190,13 @@ pub fn draw(
                             if let Some(resolved_image_path) = drop_info.image_path {
                                 if !item_texture_cache.contains_key(&score_data.id)
                                     && let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
-                                        let generated_texture_handle = egui_context.load_texture(
-                                            format!("treasure_item_icon_{}", score_data.id),
-                                            processed_color_image,
-                                            egui::TextureOptions::LINEAR
-                                        );
-                                        item_texture_cache.insert(score_data.id, generated_texture_handle);
-                                    }
+                                    let generated_texture_handle = egui_context.load_texture(
+                                        format!("treasure_item_icon_{}", score_data.id),
+                                        processed_color_image,
+                                        egui::TextureOptions::LINEAR
+                                    );
+                                    item_texture_cache.insert(score_data.id, generated_texture_handle);
+                                }
 
                                 if let Some(cached_texture_handle) = item_texture_cache.get(&score_data.id) {
                                     let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
@@ -214,6 +216,8 @@ pub fn draw(
                 });
         }
         RewardStructure::None => {
+            ui.set_max_width(TREASURE_TABLE_WIDTH);
+
             ui.strong("Rewards");
             ui.separator();
             ui.label("No rewards for this stage.");
