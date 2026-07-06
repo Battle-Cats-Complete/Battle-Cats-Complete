@@ -26,7 +26,7 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
     let stage_texture_cache = &mut state.stage_texture_cache;
 
     let Some(stage) = state.data.registry.stages.get(stage_id) else { return; };
-    
+
     let map_key = format!("{}_{}", stage.category, stage.map_id);
     let Some(map_data) = state.data.registry.maps.get(&map_key) else {
         warn!(map_key, "Failed to locate parent map for stage view");
@@ -51,22 +51,64 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
                         &state.data.lock_skip_registry,
                         &state.data.scat_cpu_setting
                     );
+
                     ui.add_space(20.0);
 
-                    super::treasure::draw(
+                    if super::materials::has_drops(stage, map_data) {
+                        ui.columns(2, |cols| {
+                            cols[0].vertical(|ui| {
+                                super::treasure::draw(
+                                    ctx,
+                                    ui,
+                                    stage,
+                                    item_buy_registry,
+                                    item_name_registry,
+                                    drop_chara_registry,
+                                    unit_buy_registry,
+                                    item_texture_cache,
+                                    active_language_priority_array
+                                );
+                            });
+
+                            cols[1].vertical(|ui| {
+                                super::materials::draw(
+                                    ctx,
+                                    ui,
+                                    stage,
+                                    map_data,
+                                    item_buy_registry,
+                                    item_name_registry,
+                                    item_texture_cache,
+                                    active_language_priority_array
+                                );
+                            });
+                        });
+                    } else {
+                        super::treasure::draw(
+                            ctx,
+                            ui,
+                            stage,
+                            item_buy_registry,
+                            item_name_registry,
+                            drop_chara_registry,
+                            unit_buy_registry,
+                            item_texture_cache,
+                            active_language_priority_array
+                        );
+                    }
+
+                    ui.add_space(20.0);
+
+                    super::battleground::draw(
                         ctx,
                         ui,
                         stage,
-                        item_buy_registry,
-                        item_name_registry,
-                        drop_chara_registry,
-                        unit_buy_registry,
-                        item_texture_cache,
-                        active_language_priority_array
+                        map_data,
+                        enemy_registry,
+                        enemy_name_registry,
+                        texture_cache,
+                        global_ctx
                     );
-                    ui.add_space(20.0);
-
-                    super::battleground::draw(ctx, ui, stage, map_data, enemy_registry, enemy_name_registry, texture_cache, global_ctx);
                 });
             });
         });

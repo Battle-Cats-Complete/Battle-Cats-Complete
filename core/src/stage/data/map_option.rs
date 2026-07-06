@@ -59,7 +59,6 @@ pub fn load(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, Map
 
         let Ok(map_id) = parts[0].trim().parse::<u32>() else { continue; };
         
-        // Pre-15.1 offsets safety logic
         let offset = if parts[2].trim().is_empty() || parts[2].trim().parse::<u32>().is_err() { 1 } else { 0 };
 
         let max_crowns = parts[1].trim().parse::<u8>().unwrap_or(1);

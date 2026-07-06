@@ -10,14 +10,14 @@ pub struct Stage {
     pub category_name: String,
     pub map_id: u32,
     pub stage_id: u32,
-    
+
     // Base layout
     pub base_id: i32,
     pub anim_base_id: u32,
     pub width: u32,
     pub base_hp: u32,
-    pub min_spawn: u32, 
-    pub max_spawn: u32, 
+    pub min_spawn: u32,
+    pub max_spawn: u32,
     pub background_id: u32,
     pub max_enemies: u32,
     pub time_limit: u32,
@@ -25,7 +25,7 @@ pub struct Stage {
     pub is_base_indestructible: bool,
     pub unknown_value: u32,
     pub enemies: Vec<data::stage::EnemyLine>,
-    
+
     // Core Rewards & Media
     pub energy: u32,
     pub xp: u32,
@@ -35,9 +35,9 @@ pub struct Stage {
     pub rewards: data::mapstagedata::RewardStructure,
 
     // Stage Options & Restrictions
-    pub difficulty: u16,  
-    pub max_crowns: u8,   
-    pub target_crowns: i8, 
+    pub difficulty: u16,
+    pub max_crowns: u8,
+    pub target_crowns: i8,
     pub rarity_mask: u8,
     pub deploy_limit: u32,
     pub allowed_rows: u8,

@@ -5,3 +5,4 @@ pub mod info;
 pub mod treasure;
 pub mod battleground;
 pub mod state;
+pub mod materials;
