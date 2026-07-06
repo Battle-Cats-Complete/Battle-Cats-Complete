@@ -143,8 +143,8 @@ fn fmt_sage(param: &Param) -> String {
 
     let base_description = format!(
         "Deals {:.1}× Damage to and takes {:.1}× Damage from Sage Enemies\nIgnores the Crowd Control resistance of Sage Enemies\nCrowd Control effects originating from Sage Enemies reduced by",
-        param.sage_slayer_attack_multiplier,
-        param.sage_slayer_defense_multiplier
+        param.sage_slayer_attack_multiplier as f32 / 1000.0,
+        param.sage_slayer_defense_multiplier as f32 / 1000.0
     );
 
     if resistance_groups_by_percentage.len() == 1 {
