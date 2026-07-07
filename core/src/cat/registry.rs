@@ -434,12 +434,12 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_SINGLE_ATTACK),
             group: DisplayGroup::Body1,
             formatter: |_, stats, _, _, _| {
-                let tba = fmt_time(stats.attack_cooldown);
+                let atk_cd = fmt_time(stats.attack_cooldown);
                 if stats.attack_2 > 0 {
-                    format!("Time between attacks {}", tba)
+                    format!("Attack cooldown {}", atk_cd)
                 } else {
                     let tbh = fmt_time(stats.time_until_attack_1);
-                    format!("Time between attacks {}\nTime before hit {}", tba, tbh)
+                    format!("Attack cooldown {}\nTime before hit {}", atk_cd, tbh)
                 }
             },
         },
@@ -449,12 +449,12 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_AREA_ATTACK),
             group: DisplayGroup::Body1,
             formatter: |_, stats, _, _, _| {
-                let tba = fmt_time(stats.attack_cooldown);
+                let atk_cd = fmt_time(stats.attack_cooldown);
                 if stats.attack_2 > 0 {
-                    format!("Time between attacks {}", tba)
+                    format!("Attack cooldown {}", atk_cd)
                 } else {
                     let tbh = fmt_time(stats.time_until_attack_1);
-                    format!("Time between attacks {}\nTime before hit {}", tba, tbh)
+                    format!("Attack cooldown {}\nTime before hit {}", atk_cd, tbh)
                 }
             },
         },
@@ -971,7 +971,7 @@ pub const CAT_STATS_REGISTRY: &[CatStatsDef] = &[
         name: "TBA",
         display_name: "TBA",
         get_value: |stats, _, _| stats.attack_cooldown,
-        formatter: |tba| format!("{}f", tba),
+        formatter: |atk_cd| format!("{}f", atk_cd),
         linked_talent_id: Some(61),
         talent_modifier_fmt: Some(|percent, _| format!("(-{}%)", percent)),
     },

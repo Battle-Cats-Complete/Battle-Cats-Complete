@@ -388,12 +388,12 @@ pub fn get_display_def(identity: Identity) -> EnemyAbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_SINGLE_ATTACK),
             group: DisplayGroup::Body1,
             formatter: |_, stats, _, _, _| {
-                let tba = fmt_time(stats.attack_cooldown);
+                let atk_cd = fmt_time(stats.attack_cooldown);
                 if stats.attack_2 > 0 {
-                    format!("Time between attacks {}", tba)
+                    format!("Attack cooldown {}", atk_cd)
                 } else {
                     let tbh = fmt_time(stats.time_until_attack_1);
-                    format!("Time between attacks {}\nTime before hit {}", tba, tbh)
+                    format!("Attack cooldown {}\nTime before hit {}", atk_cd, tbh)
                 }
             },
         },
@@ -403,12 +403,12 @@ pub fn get_display_def(identity: Identity) -> EnemyAbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_AREA_ATTACK),
             group: DisplayGroup::Body1,
             formatter: |_, stats, _, _, _| {
-                let tba = fmt_time(stats.attack_cooldown);
+                let atk_cd = fmt_time(stats.attack_cooldown);
                 if stats.attack_2 > 0 {
-                    format!("Time between attacks {}", tba)
+                    format!("Attack cooldown {}", atk_cd)
                 } else {
                     let tbh = fmt_time(stats.time_until_attack_1);
-                    format!("Time between attacks {}\nTime before hit {}", tba, tbh)
+                    format!("Attack cooldown {}\nTime before hit {}", atk_cd, tbh)
                 }
             },
         },
