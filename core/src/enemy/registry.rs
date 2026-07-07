@@ -638,7 +638,7 @@ pub fn get_display_def(identity: Identity) -> EnemyAbilityDisplayDef {
             fallback: "Unkwn",
             icon: AbilityIcon::Custom(CustomIcon::Unknown),
             group: DisplayGroup::Body2,
-            formatter: |_,_,_,_,_| "This Enemy has an undefined ability\nThe App may need to be updated".into(),
+            formatter: |_,_,_,_,_| "This Enemy may have an undefined ability\nBattle Cats Complete may need to be updated".into(),
         },
 
         // --- FOOTER (IMMUNITIES) ---
