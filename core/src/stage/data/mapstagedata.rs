@@ -37,7 +37,7 @@ pub struct MapStageEntry {
     pub xp: u32,
     pub init_track: u32,
     pub bgm_change_percent: u32,
-    pub boss_track: u32,
+    pub boss_track: i16,
     pub rewards: RewardStructure,
 }
 

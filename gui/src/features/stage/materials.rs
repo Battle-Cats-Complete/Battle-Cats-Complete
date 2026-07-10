@@ -35,6 +35,7 @@ pub fn draw(
     ui: &mut egui::Ui,
     s: &Stage,
     m: &Map,
+    selected_crown: u8, // <-- ADDED HERE
     buy: &HashMap<u32, GatyaItemBuy>,
     names: &HashMap<usize, GatyaItemName>,
     cache: &mut HashMap<u32, egui::TextureHandle>,
@@ -46,11 +47,10 @@ pub fn draw(
 
     let s_idx = s.stage_id as usize;
     let b_amt = drops.stage_drops.get(s_idx).copied().unwrap_or(0);
-    let c_idx = s.target_crowns.max(0) as usize;
-    let mul = drops.crown_multipliers.get(c_idx).copied().unwrap_or(1.0);
+    let mul = drops.crown_multipliers.get(selected_crown as usize).copied().unwrap_or(1.0);
     let f_amt = (b_amt as f32 * mul).round() as u32;
 
-    ui.strong(format!("Materials | Amount: {} ({}×{})", f_amt, b_amt, mul));
+    ui.strong(format!("Material Drops | Amount: {} ({}×{})", f_amt, b_amt, mul));
     ui.separator();
     ui.add_space(4.0);
 

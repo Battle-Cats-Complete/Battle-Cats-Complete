@@ -74,8 +74,8 @@ fn format_global_respawn(min_spawn: u32, max_spawn: u32) -> String {
     format!("{}f ~ {}f", min_spawn, max_spawn)
 }
 
-fn format_boss_track(boss_track: u32, init_track: u32, bgm_change_percent: u32) -> String {
-    if boss_track == init_track || bgm_change_percent == 100 {
+fn format_boss_track(boss_track: i16, init_track: u32, bgm_change_percent: u32) -> String {
+    if boss_track < 0 || boss_track as u32 == init_track || bgm_change_percent == 100 {
         return "-".to_string();
     }
     boss_track.to_string()
@@ -106,9 +106,9 @@ fn get_cpu_skip_status(
 
     if let Some(mid) = global_map_id
         && let Some(entry) = lock_registry.get(&mid)
-            && entry.excluded_map_id == mid {
-                return "N/A".to_string();
-            }
+        && entry.excluded_map_id == mid {
+        return "N/A".to_string();
+    }
 
     if cpu_setting.super_cpu_consume_amount > 0 {
         return format!("{} CPUs", cpu_setting.super_cpu_consume_amount);
@@ -161,6 +161,7 @@ fn center_text(ui: &mut egui::Ui, display_text: impl Into<String>) {
 
 // --- MAIN UI DRAW LOOP ---
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw(
     egui_context: &egui::Context,
     ui: &mut egui::Ui,
@@ -169,7 +170,8 @@ pub fn draw(
     lang_priority: &[String],
     texture_cache: &mut HashMap<String, egui::TextureHandle>,
     lock_registry: &HashMap<u32, core::stage::data::lockskipdata::LockSkipEntry>,
-    cpu_setting: &core::stage::data::scatcpusetting::ScatCpuSetting
+    cpu_setting: &core::stage::data::scatcpusetting::ScatCpuSetting,
+    selected_crown: &mut u8 // <--- Added Crown State reference
 ) {
     let cat_formatted = format_category_prefix(&stage_data.category);
     let map_dir = Path::new(paths::DIR_STAGES).join(&cat_formatted).join(format!("{:03}", stage_data.map_id));
@@ -183,8 +185,8 @@ pub fn draw(
         let refs: Vec<&str> = possible_files.iter().map(|s| s.as_str()).collect();
         if let Some(resolved_path) = resolver::get(&map_dir, &refs, lang_priority).first()
             && let Some(color_img) = process_texture(resolved_path) {
-                texture_cache.insert(map_img_key.clone(), egui_context.load_texture(&map_img_key, color_img, egui::TextureOptions::LINEAR));
-            }
+            texture_cache.insert(map_img_key.clone(), egui_context.load_texture(&map_img_key, color_img, egui::TextureOptions::LINEAR));
+        }
     }
 
     if !texture_cache.contains_key(&stage_img_key) {
@@ -192,8 +194,8 @@ pub fn draw(
         let refs: Vec<&str> = possible_files.iter().map(|s| s.as_str()).collect();
         if let Some(resolved_path) = resolver::get(&stage_dir, &refs, lang_priority).first()
             && let Some(color_img) = process_texture(resolved_path) {
-                texture_cache.insert(stage_img_key.clone(), egui_context.load_texture(&stage_img_key, color_img, egui::TextureOptions::LINEAR));
-            }
+            texture_cache.insert(stage_img_key.clone(), egui_context.load_texture(&stage_img_key, color_img, egui::TextureOptions::LINEAR));
+        }
     }
 
     let mut map_width = 0.0;
@@ -238,6 +240,9 @@ pub fn draw(
     ui.separator();
     ui.add_space(BOTTOM_PADDING);
 
+    // <--- CROWNS DRAWN HERE --->
+    super::crowns::draw(ui, stage_data, selected_crown);
+
     ui.strong("General Information");
     ui.separator();
 
@@ -249,7 +254,7 @@ pub fn draw(
     let formatted_indestructible = format_boolean_status(stage_data.is_base_indestructible, "Active", "-");
     let (base_header, formatted_base_value) = format_base_display(stage_data.anim_base_id, stage_data.base_id);
     let formatted_global_respawn = format_global_respawn(stage_data.min_spawn, stage_data.max_spawn);
-    let formatted_boss_track = format_boss_track(stage_data.boss_track, stage_data.init_track, stage_data.bgm_change_percent);
+    let formatted_boss_track = format_boss_track(stage_data.boss_track as i16, stage_data.init_track, stage_data.bgm_change_percent);
     let formatted_time_limit = format_time_limit(stage_data.time_limit);
     let formatted_cpu_skip = get_cpu_skip_status(&stage_data.category, stage_data.map_id,lock_registry, cpu_setting);
 

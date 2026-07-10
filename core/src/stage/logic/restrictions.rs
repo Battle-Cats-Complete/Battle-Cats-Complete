@@ -33,9 +33,15 @@ pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) 
     }
 
     let mut restrictions = Vec::new();
+    
+    let effective_rarity_mask = if current_crown == 3 {
+        6
+    } else {
+        stage.rarity_mask
+    };
 
-    if let Some(rarity_str) = parse_rarity_mask(stage.rarity_mask, ctx) {
-        debug!(mask = stage.rarity_mask, "parsed rarity restriction");
+    if let Some(rarity_str) = parse_rarity_mask(effective_rarity_mask, ctx.clone()) {
+        debug!(mask = effective_rarity_mask, "parsed rarity restriction");
         restrictions.push(rarity_str);
     }
 
@@ -95,7 +101,7 @@ pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) 
     }
 
     if let Some(charagroup) = &stage.charagroup {
-        if let Some(group_str) = parse_charagroup(charagroup, ctx) {
+        if let Some(group_str) = parse_charagroup(charagroup, ctx.clone()) {
             debug!("parsed charagroup restriction");
             restrictions.push(group_str);
         } else {

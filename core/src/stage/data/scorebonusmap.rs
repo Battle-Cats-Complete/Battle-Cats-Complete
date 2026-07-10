@@ -10,8 +10,10 @@ pub enum BonusType {
     Freeze(Vec<u32>),
     Slow(Vec<u32>),
     Knockback(Vec<u32>),
-    Strong(Vec<u32>),
+    StrongAttack(Vec<u32>),
     MassiveDamage(Vec<u32>),
+    StrongDefense(Vec<u32>),
+    Resist(Vec<u32>),
     Unknown(u8, Vec<u32>),
 }
 
@@ -19,6 +21,7 @@ pub enum BonusType {
 pub struct ScoreBonus {
     pub bonuses: Vec<BonusType>,
     pub name_label: String,
+    pub explanation_label: String,
 }
 
 #[derive(Deserialize)]
@@ -33,6 +36,8 @@ struct RawBonusData {
     bonus_type: HashMap<String, RawBonusType>,
     #[serde(rename = "BonusNameLabel")]
     bonus_name_label: Option<String>,
+    #[serde(rename = "BonusExplanationLabel")]
+    bonus_explanation_label: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -56,23 +61,26 @@ pub fn load(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, Sco
         for (key_str, raw_type) in raw_data.bonus_type {
             let Ok(key) = key_str.parse::<u8>() else { continue; };
             let params = raw_type.parameters;
-            
+
             let bonus_enum = match key {
                 0 => BonusType::Weaken(params),
                 1 => BonusType::Freeze(params),
                 2 => BonusType::Slow(params),
                 3 => BonusType::Knockback(params),
-                13 => BonusType::Strong(params),
+                13 => BonusType::StrongAttack(params),
                 14 => BonusType::MassiveDamage(params),
+                16 => BonusType::StrongDefense(params),
+                17 => BonusType::Resist(params),
                 _ => BonusType::Unknown(key, params),
             };
-            
+
             bonuses.push(bonus_enum);
         }
 
         map.insert(map_id, ScoreBonus {
             bonuses,
             name_label: raw_data.bonus_name_label.unwrap_or_default(),
+            explanation_label: raw_data.bonus_explanation_label.unwrap_or_default(),
         });
     }
 

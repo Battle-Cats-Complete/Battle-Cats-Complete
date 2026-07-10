@@ -31,7 +31,7 @@ pub struct Stage {
     pub xp: u32,
     pub init_track: u32,
     pub bgm_change_percent: u32,
-    pub boss_track: u32,
+    pub boss_track: i16,
     pub rewards: data::mapstagedata::RewardStructure,
 
     // Stage Options & Restrictions
@@ -57,6 +57,8 @@ pub struct Map {
 
     // Map Options
     pub max_crowns: u8,
+    pub has_abyss: bool,
+    pub crown_1_mag: Option<u32>,
     pub crown_2_mag: Option<u32>,
     pub crown_3_mag: Option<u32>,
     pub crown_4_mag: Option<u32>,
@@ -64,6 +66,7 @@ pub struct Map {
     pub max_clears: u32,
     pub cooldown_minutes: u32,
     pub hidden_upon_clear: bool,
+    pub comment: String,
 
     // Extraneous Map Configs
     pub ex_invasion: Option<u32>,

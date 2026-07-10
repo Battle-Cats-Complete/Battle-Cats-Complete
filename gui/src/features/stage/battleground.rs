@@ -8,6 +8,7 @@ use tracing::{debug, instrument, warn};
 use core::enemy::logic::scanner::EnemyEntry;
 use core::global::context::GlobalContext;
 use core::global::utils::autocrop;
+use core::stage::data::scorebonusmap::{BonusType, ScoreBonus};
 use core::stage::data::specialrulesmap::{RuleType, SpecialRule};
 use core::stage::data::stage::{BossType, EnemyAmount};
 use core::stage::registry::{Map, Stage};
@@ -117,6 +118,43 @@ fn format_special_rule(rule: &SpecialRule, global_ctx: &GlobalContext) -> String
     description
 }
 
+#[instrument(skip(score_bonus, global_ctx))]
+fn format_score_bonus(score_bonus: &ScoreBonus, global_ctx: &GlobalContext) -> String {
+    let lookup_key = if !score_bonus.explanation_label.is_empty() {
+        &score_bonus.explanation_label
+    } else {
+        &score_bonus.name_label
+    };
+
+    let raw_description = global_ctx.localizable.lookup(lookup_key).unwrap_or_default();
+    let mut description = strip_html_tags(&raw_description, BreakHandling::Space);
+
+    if description.is_empty() {
+        description = format!("【{}】 Localization data missing.", lookup_key);
+    } else {
+        for bonus in &score_bonus.bonuses {
+            let parameters = match bonus {
+                BonusType::Weaken(params) => params,
+                BonusType::Freeze(params) => params,
+                BonusType::Slow(params) => params,
+                BonusType::Knockback(params) => params,
+                BonusType::StrongAttack(params) => params,
+                BonusType::MassiveDamage(params) => params,
+                BonusType::StrongDefense(params) => params,
+                BonusType::Resist(params) => params,
+                BonusType::Unknown(_, params) => params,
+            };
+
+            for param in parameters {
+                // Dojo parameters frequently slot into `%d` score multipliers in localizable strings
+                description = description.replacen("%d", &param.to_string(), 1);
+            }
+        }
+    }
+
+    description
+}
+
 #[instrument(skip(icon_file_path), fields(path = %icon_file_path.display()))]
 fn process_enemy_icon_texture(icon_file_path: &Path) -> Option<egui::ColorImage> {
     debug!("Loading raw image file for icon processing");
@@ -147,6 +185,7 @@ pub fn draw(
     ui: &mut egui::Ui,
     stage_data: &Stage,
     map_data: &Map,
+    selected_crown: u8,
     enemy_registry: &HashMap<u32, EnemyEntry>,
     enemy_name_registry: &[String],
     texture_cache: &mut HashMap<u32, egui::TextureHandle>,
@@ -155,7 +194,7 @@ pub fn draw(
     ui.strong("Battleground");
     ui.separator();
 
-    let restrictions = core::stage::logic::restrictions::parse_restrictions(stage_data, 0, global_ctx.clone());
+    let restrictions = core::stage::logic::restrictions::parse_restrictions(stage_data, selected_crown as i8, global_ctx.clone());
 
     if !restrictions.is_empty() {
         ui.add_space(4.0);
@@ -183,8 +222,18 @@ pub fn draw(
         });
     }
 
-    if restrictions.is_empty() && map_data.special_rules.is_none() {
-        debug!("No stage restrictions or special rules found for current crown to display");
+    if let Some(score_bonus) = &map_data.score_bonuses {
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new("Dojo Score Bonus").strong());
+
+        ui.indent("score_bonus_indent", |ui| {
+            let desc = format_score_bonus(score_bonus, &global_ctx);
+            ui.label(format!("• {}", desc));
+        });
+    }
+
+    if restrictions.is_empty() && map_data.special_rules.is_none() && map_data.score_bonuses.is_none() {
+        debug!("No stage restrictions, special rules, or score bonuses found for current crown to display");
     } else {
         ui.add_space(8.0);
     }
@@ -193,6 +242,13 @@ pub fn draw(
         ui.label("No enemies defined for this stage.");
         return;
     }
+
+    let crown_mag = match selected_crown {
+        1 => map_data.crown_2_mag.unwrap_or(100),
+        2 => map_data.crown_3_mag.unwrap_or(100),
+        3 => map_data.crown_4_mag.unwrap_or(100),
+        _ => map_data.crown_1_mag.unwrap_or(100),
+    };
 
     let show_score_column = stage_data.enemies.iter().any(|enemy| enemy.score > 0);
     let is_dojo_mechanic = stage_data.enemies.iter().any(|enemy| enemy.base_hp_perc > 100);
@@ -261,6 +317,9 @@ pub fn draw(
                     }
                 });
 
+                let final_hp_mag = (enemy_data.magnification * crown_mag) / 100;
+                let final_atk_mag = (enemy_data.atk_magnification * crown_mag) / 100;
+
                 let formatted_amount = format_enemy_amount(&enemy_data.amount);
                 let formatted_base_hp = format_base_hp_percentage(enemy_data.base_hp_perc, is_dojo_mechanic);
                 let formatted_respawn = format_enemy_respawn(&enemy_data.amount, enemy_data.respawn_min, enemy_data.respawn_max);
@@ -270,8 +329,8 @@ pub fn draw(
                 let formatted_kill_count = format_kill_count(enemy_data.kill_count);
 
                 center_enemy_text(grid, formatted_amount);
-                center_enemy_text(grid, format!("{}%", enemy_data.magnification));
-                center_enemy_text(grid, format!("{}%", enemy_data.atk_magnification));
+                center_enemy_text(grid, format!("{}%", final_hp_mag));
+                center_enemy_text(grid, format!("{}%", final_atk_mag));
                 center_enemy_text(grid, formatted_base_hp);
                 center_enemy_text(grid, format!("{}f", enemy_data.start_frame));
                 center_enemy_text(grid, formatted_respawn);

@@ -33,6 +33,11 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
         return;
     };
 
+    // Clamp the selected crown so it never exceeds the map's bounds when clicking between stages
+    if state.selected_crown >= stage.max_crowns {
+        state.selected_crown = 0;
+    }
+
     egui::ScrollArea::vertical()
         .id_salt("view_scroll")
         .auto_shrink([false, false])
@@ -49,7 +54,8 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
                         active_language_priority_array,
                         stage_texture_cache,
                         &state.data.lock_skip_registry,
-                        &state.data.scat_cpu_setting
+                        &state.data.scat_cpu_setting,
+                        &mut state.selected_crown
                     );
 
                     ui.add_space(20.0);
@@ -78,6 +84,7 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
                                     ui,
                                     stage,
                                     map_data,
+                                    state.selected_crown,
                                     item_buy_registry,
                                     item_name_registry,
                                     item_texture_cache,
@@ -106,6 +113,7 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
                         ui,
                         stage,
                         map_data,
+                        state.selected_crown,
                         enemy_registry,
                         enemy_name_registry,
                         texture_cache,

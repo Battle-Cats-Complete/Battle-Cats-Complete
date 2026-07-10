@@ -205,6 +205,8 @@ fn load_map(
         map_id,
         stages: Vec::new(),
         max_crowns: map_opt.max_crowns,
+        has_abyss: map_opt.has_abyss,
+        crown_1_mag: map_opt.crown_1_mag,
         crown_2_mag: map_opt.crown_2_mag,
         crown_3_mag: map_opt.crown_3_mag,
         crown_4_mag: map_opt.crown_4_mag,
@@ -212,6 +214,7 @@ fn load_map(
         max_clears: map_opt.max_clears,
         cooldown_minutes: map_opt.cooldown_minutes,
         hidden_upon_clear: map_opt.hidden_upon_clear,
+        comment: map_opt.comment,
         ex_invasion: ctx.ex_options.get(&global_id_val).cloned(),
         score_bonuses: ctx.score_bonuses.get(&global_id_val).cloned(),
         special_rules,
@@ -381,7 +384,7 @@ fn load_map(
                 stage_struct.energy = *energy;
                 stage_struct.xp = get_hardcoded_xp(global_id_val, stage_id as usize);
                 stage_struct.init_track = *init_track as u32;
-                stage_struct.boss_track = *boss_track as u32;
+                stage_struct.boss_track = *boss_track;
             }
         } else if let Some(entry) = stage_data_entries.get(stage_id as usize) {
             stage_struct.energy = entry.energy;

@@ -11,6 +11,7 @@ use core::stage::logic::state::StageDataState;
 pub struct StageListState {
     pub data: StageDataState,
     pub is_list_open: bool,
+    pub selected_crown: u8,
 
     // UI-Specific Texture Caches
     #[serde(skip)] pub enemy_texture_cache: HashMap<u32, egui::TextureHandle>,
@@ -19,7 +20,6 @@ pub struct StageListState {
 }
 
 impl StageListState {
-
     pub fn update_data(&mut self) {
         self.data.update_data();
     }
