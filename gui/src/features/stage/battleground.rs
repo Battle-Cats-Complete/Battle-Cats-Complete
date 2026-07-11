@@ -18,13 +18,13 @@ use super::treasure::center_header;
 fn format_enemy_amount(spawn_amount: &EnemyAmount) -> String {
     match spawn_amount {
         EnemyAmount::Infinite => "∞".to_string(),
-        EnemyAmount::Limit(limited_amount) => limited_amount.to_string(),
+        EnemyAmount::Limit(limit_amount) => limit_amount.to_string(),
     }
 }
 
 fn format_enemy_respawn(spawn_amount: &EnemyAmount, respawn_min_frames: u32, respawn_max_frames: u32) -> String {
-    let is_singular_enemy_spawn = spawn_amount == &EnemyAmount::Limit(1);
-    if is_singular_enemy_spawn {
+    let is_singular_spawn = spawn_amount == &EnemyAmount::Limit(1);
+    if is_singular_spawn {
         return "-".to_string();
     }
 
@@ -65,15 +65,15 @@ fn format_score(score: u32) -> String {
     score.to_string()
 }
 
-fn format_base_hp_percentage(base_hp_percentage: u32, is_dojo_mechanic: bool) -> String {
+fn format_base_hp_percentage(base_hp_perc: u32, is_dojo_mechanic: bool) -> String {
     if is_dojo_mechanic {
-        return base_hp_percentage.to_string();
+        return base_hp_perc.to_string();
     }
 
-    if base_hp_percentage == 100 {
+    if base_hp_perc == 100 {
         return "-".to_string();
     }
-    format!("{}%", base_hp_percentage)
+    format!("{}%", base_hp_perc)
 }
 
 #[instrument(skip(rule, global_ctx))]
@@ -146,7 +146,6 @@ fn format_score_bonus(score_bonus: &ScoreBonus, global_ctx: &GlobalContext) -> S
             };
 
             for param in parameters {
-                // Dojo parameters frequently slot into `%d` score multipliers in localizable strings
                 description = description.replacen("%d", &param.to_string(), 1);
             }
         }
@@ -253,6 +252,12 @@ pub fn draw(
     let show_score_column = stage_data.enemies.iter().any(|enemy| enemy.score > 0);
     let is_dojo_mechanic = stage_data.enemies.iter().any(|enemy| enemy.base_hp_perc > 100);
 
+    let has_split_magnification = stage_data.enemies.iter().any(|enemy| {
+        let final_hp_mag = (enemy.magnification * crown_mag) / 100;
+        let final_atk_mag = (enemy.atk_magnification * crown_mag) / 100;
+        final_hp_mag != final_atk_mag
+    });
+
     egui::Grid::new("enemy_grid")
         .striped(true)
         .spacing([15.0, 4.0])
@@ -260,8 +265,13 @@ pub fn draw(
         .show(ui, |grid| {
             center_header(grid, "Enemy");
             center_header(grid, "Count");
-            center_header(grid, "HP %");
-            center_header(grid, "Atk %");
+
+            if has_split_magnification {
+                center_header(grid, "Magnification %\n(HP% / ATK%)");
+            } else {
+                center_header(grid, "Magnification %");
+            }
+
             center_header(grid, if is_dojo_mechanic { "Dmg #" } else { "Base %" });
             center_header(grid, "Spawn");
             center_header(grid, "Respawn");
@@ -320,6 +330,12 @@ pub fn draw(
                 let final_hp_mag = (enemy_data.magnification * crown_mag) / 100;
                 let final_atk_mag = (enemy_data.atk_magnification * crown_mag) / 100;
 
+                let formatted_mag = if final_hp_mag == final_atk_mag {
+                    format!("{}%", final_hp_mag)
+                } else {
+                    format!("{}% / {}%", final_hp_mag, final_atk_mag)
+                };
+
                 let formatted_amount = format_enemy_amount(&enemy_data.amount);
                 let formatted_base_hp = format_base_hp_percentage(enemy_data.base_hp_perc, is_dojo_mechanic);
                 let formatted_respawn = format_enemy_respawn(&enemy_data.amount, enemy_data.respawn_min, enemy_data.respawn_max);
@@ -329,8 +345,7 @@ pub fn draw(
                 let formatted_kill_count = format_kill_count(enemy_data.kill_count);
 
                 center_enemy_text(grid, formatted_amount);
-                center_enemy_text(grid, format!("{}%", final_hp_mag));
-                center_enemy_text(grid, format!("{}%", final_atk_mag));
+                center_enemy_text(grid, formatted_mag);
                 center_enemy_text(grid, formatted_base_hp);
                 center_enemy_text(grid, format!("{}f", enemy_data.start_frame));
                 center_enemy_text(grid, formatted_respawn);
