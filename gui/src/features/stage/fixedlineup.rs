@@ -29,6 +29,7 @@ pub fn draw(
     ui.add_space(4.0);
 
     ui.horizontal_top(|ui| {
+        // Left Side: Cat Lineup Grid
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = ICON_SPACING;
 
@@ -49,23 +50,13 @@ pub fn draw(
 
         ui.add_space(24.0);
 
+        // Right Side: Upgrades & Treasures
         ui.vertical(|ui| {
             egui::ScrollArea::vertical()
                 .id_salt("fixed_lineup_upgrades_scroll")
                 .max_height(260.0)
                 .show(ui, |ui| {
-                    egui::Grid::new("fixed_lineup_upgrades_grid")
-                        .striped(true)
-                        .spacing([32.0, 6.0])
-                        .show(ui, |ui| {
-                            ui.strong("Upgrade Name");
-                            ui.strong("Level");
-                            ui.end_row();
-
-                            draw_ability_rows(ui, preset_data);
-                            draw_cannon_rows(ui, preset_data);
-                            draw_treasure_rows(ui, preset_data);
-                        });
+                    draw_upgrades_section(ui, preset_data);
                 });
         });
     });
@@ -115,6 +106,55 @@ fn draw_slot(
     }
 }
 
+fn draw_upgrades_section(ui: &mut egui::Ui, preset_data: &PresetLineup) {
+    // Top: Cannon Header
+    let cannon_name = match preset_data.slot_cannon_type {
+        CannonType::Basic => "Basic Cannon",
+        CannonType::SlowBeam => "Slow Beam",
+        CannonType::IronWall => "Iron Wall",
+        CannonType::Thunderbolt => "Thunderbolt",
+        CannonType::Waterblast => "Waterblast",
+        CannonType::HolyBlast => "HolyBlast",
+        CannonType::Breakerblast => "Breakerblast",
+        CannonType::Curseblast => "Curseblast",
+        CannonType::Unknown(_) => "Unknown Cannon",
+    };
+
+    let cannon_level = preset_data.cannon_levels.get(&preset_data.slot_cannon_type).copied().unwrap_or(0);
+
+    ui.strong(format!("{} Lv{}", cannon_name, cannon_level));
+    ui.add_space(8.0);
+
+    // Split: Abilities (Left) | Treasures (Right)
+    ui.horizontal_top(|ui| {
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new("Abilities").color(egui::Color32::DARK_GRAY));
+            ui.add_space(4.0);
+
+            egui::Grid::new("fixed_lineup_abilities_grid")
+                .striped(true)
+                .spacing([24.0, 6.0])
+                .show(ui, |ui| {
+                    draw_ability_rows(ui, preset_data);
+                });
+        });
+
+        ui.add_space(24.0);
+
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new("Treasures").color(egui::Color32::DARK_GRAY));
+            ui.add_space(4.0);
+
+            egui::Grid::new("fixed_lineup_treasures_grid")
+                .striped(true)
+                .spacing([24.0, 6.0])
+                .show(ui, |ui| {
+                    draw_treasure_rows(ui, preset_data);
+                });
+        });
+    });
+}
+
 fn draw_ability_rows(ui: &mut egui::Ui, preset_data: &PresetLineup) {
     const ABILITIES: [(AbilityType, &str); 10] = [
         (AbilityType::CatCannonAttack, "Cat Cannon Attack"),
@@ -146,48 +186,29 @@ fn draw_ability_rows(ui: &mut egui::Ui, preset_data: &PresetLineup) {
     }
 }
 
-fn draw_cannon_rows(ui: &mut egui::Ui, preset_data: &PresetLineup) {
-    let cannon_name = match preset_data.slot_cannon_type {
-        CannonType::Basic => "Basic Cannon",
-        CannonType::SlowBeam => "Slow Beam",
-        CannonType::IronWall => "Iron Wall",
-        CannonType::Thunderbolt => "Thunderbolt",
-        CannonType::Waterblast => "Waterblast",
-        CannonType::HolyBlast => "HolyBlast",
-        CannonType::Breakerblast => "Breakerblast",
-        CannonType::Curseblast => "Curseblast",
-        CannonType::Unknown(_) => "Unknown Cannon",
-    };
-
-    let cannon_level = preset_data.cannon_levels.get(&preset_data.slot_cannon_type).copied().unwrap_or(0);
-
-    ui.label(format!("Equipped: {}", cannon_name));
-    ui.label(cannon_level.to_string());
-    ui.end_row();
-}
-
 fn draw_treasure_rows(ui: &mut egui::Ui, preset_data: &PresetLineup) {
     const TREASURES: [(TreasureType, &str); 9] = [
-        (TreasureType::EoC1, "EoC Ch. 1 Treasures"),
-        (TreasureType::EoC2, "EoC Ch. 2 Treasures"),
-        (TreasureType::EoC3, "EoC Ch. 3 Treasures"),
-        (TreasureType::ItF1, "ItF Ch. 1 Treasures"),
-        (TreasureType::ItF2, "ItF Ch. 2 Treasures"),
-        (TreasureType::ItF3, "ItF Ch. 3 Treasures"),
-        (TreasureType::CotC1, "CotC Ch. 1 Treasures"),
-        (TreasureType::CotC2, "CotC Ch. 2 Treasures"),
-        (TreasureType::CotC3, "CotC Ch. 3 Treasures"),
+        (TreasureType::EoC1, "EoC Ch. 1"),
+        (TreasureType::EoC2, "EoC Ch. 2"),
+        (TreasureType::EoC3, "EoC Ch. 3"),
+        (TreasureType::ItF1, "ItF Ch. 1"),
+        (TreasureType::ItF2, "ItF Ch. 2"),
+        (TreasureType::ItF3, "ItF Ch. 3"),
+        (TreasureType::CotC1, "CotC Ch. 1"),
+        (TreasureType::CotC2, "CotC Ch. 2"),
+        (TreasureType::CotC3, "CotC Ch. 3"),
     ];
 
     for (treasure_type, name) in TREASURES {
-        let count_string = if let Some(treasure_data) = preset_data.treasures.get(&treasure_type) {
+        let grades_string = if let Some(treasure_data) = preset_data.treasures.get(&treasure_type) {
+            // Displays as Superior/Normal/Inferior
             format!("{}/{}/{}", treasure_data.superior_count, treasure_data.normal_count, treasure_data.inferior_count)
         } else {
             "0/0/0".to_string()
         };
 
         ui.label(name);
-        ui.label(count_string);
+        ui.label(grades_string);
         ui.end_row();
     }
 }
