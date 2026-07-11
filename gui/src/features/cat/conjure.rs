@@ -94,7 +94,7 @@ pub fn render_conjure_details(
                     let alt = core::cat::registry::get_fallback_by_icon(core::cat::registry::AbilityIcon::Standard(icon));
                     render_fallback_icon(ui, alt, spirit_border);
                 }
-                ui.label(format!("Damage: {}\nRange: {}", dmg, conjure_final.standing_range));
+                ui.label(format!("Damage {}\nRange {}", dmg, conjure_final.standing_range));
             });
             
             ui.add_space(ABILITY_Y);
@@ -161,7 +161,7 @@ pub fn build_spirit_data(
                 let (s_traits, s_h1, s_h2, s_b1, s_b2, s_footer) = abilities::collect_ability_data(&spirit_ctx);
 
                 return Some(SpiritData {
-                    dmg_text: format!("Damage: {}\nRange: {}", conjure_final.attack_1, conjure_final.standing_range),
+                    dmg_text: format!("Damage {}\nRange {}", conjure_final.attack_1, conjure_final.standing_range),
                     traits: s_traits,
                     h1: s_h1,
                     h2: s_h2,
