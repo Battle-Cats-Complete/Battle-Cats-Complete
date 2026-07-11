@@ -14,3 +14,5 @@ pub mod drop_chara;
 pub mod lockskipdata;
 pub mod scatcpusetting;
 pub mod specialrulesmapoption;
+pub mod fixed_formation;
+pub mod certification_preset;

@@ -27,6 +27,7 @@ pub struct ScanContext<'a> {
     pub special_rule_options: HashMap<u8, data::specialrulesmapoption::SpecialRuleOption>,
     pub ex_options: HashMap<u32, u32>,
     pub difficulties: HashMap<u32, Vec<u16>>,
+    pub fixed_formations: HashMap<(u32, u8, u32), data::fixed_formation::FixedFormation>,
 }
 
 #[instrument(skip(config))]
@@ -59,6 +60,7 @@ fn scan_all(lang_priority: &[String]) -> StageRegistry {
         special_rule_options: data::specialrulesmapoption::load(&root_path.join("SR"), "SpecialRulesMapOption.json", lang_priority),
         ex_options: data::ex_option::load(root_path, "EX_option.csv", lang_priority),
         difficulties: data::difficulty_level::load(root_path, "difficulty_level.tsv", lang_priority),
+        fixed_formations: data::fixed_formation::load(&root_path.join("fixedlineup"), "fixed_formation.csv", lang_priority),
     };
 
     let Ok(categories_dir) = fs::read_dir(root_path) else {
@@ -344,6 +346,25 @@ fn load_map(
         let stage_diff = ctx.difficulties.get(&global_id_val).and_then(|diff_list| diff_list.get(stage_id as usize)).copied().unwrap_or(0);
         let current_charagroup = ctx.charagroups.get(&final_opt.charagroup_id).cloned();
 
+        let mut loaded_fixed_lineups = HashMap::new();
+        let fixed_lineup_directory = Path::new(paths::DIR_STAGES).join("fixedlineup");
+
+        for crown_index in 0..map_opt.max_crowns {
+            let Some(formation_data) = ctx.fixed_formations.get(&(global_id_val, crown_index, stage_id)) else {
+                continue;
+            };
+
+            let Some(preset_lineup_json) = data::certification_preset::load(
+                &fixed_lineup_directory,
+                &formation_data.preset_file_name,
+                ctx.lang_priority
+            ) else {
+                continue;
+            };
+
+            loaded_fixed_lineups.insert(crown_index, preset_lineup_json);
+        }
+
         let stage_key = format!("{}_{}_{}", cat_prefix, map_id, stage_id);
         let mut stage_struct = Stage {
             id: stage_key.clone(),
@@ -374,6 +395,7 @@ fn load_map(
             min_cost: final_opt.min_cost,
             max_cost: final_opt.max_cost,
             charagroup: current_charagroup,
+            fixed_lineups: loaded_fixed_lineups,
             ..Default::default()
         };
 

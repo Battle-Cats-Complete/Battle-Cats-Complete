@@ -7,3 +7,4 @@ pub mod restrictions;
 pub mod xp;
 pub mod rules;
 pub mod materials;
+pub mod fixedlineup;

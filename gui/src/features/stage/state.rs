@@ -17,6 +17,7 @@ pub struct StageListState {
     #[serde(skip)] pub enemy_texture_cache: HashMap<u32, egui::TextureHandle>,
     #[serde(skip)] pub item_texture_cache: HashMap<u32, egui::TextureHandle>,
     #[serde(skip)] pub stage_texture_cache: HashMap<String, egui::TextureHandle>,
+    #[serde(skip)] pub cat_texture_cache: HashMap<String, egui::TextureHandle>,
 }
 
 impl StageListState {

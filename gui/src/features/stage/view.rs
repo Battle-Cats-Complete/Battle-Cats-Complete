@@ -25,6 +25,8 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
     let texture_cache = &mut state.enemy_texture_cache;
     let stage_texture_cache = &mut state.stage_texture_cache;
 
+    let cat_texture_cache = &mut state.cat_texture_cache;
+
     let Some(stage) = state.data.registry.stages.get(stage_id) else { return; };
 
     let map_key = format!("{}_{}", stage.category, stage.map_id);
@@ -107,6 +109,22 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
                     }
 
                     ui.add_space(20.0);
+
+                    if let Some(preset_lineup) = stage.fixed_lineups.get(&state.selected_crown) {
+                        let resolved_lineup = core::stage::logic::fixedlineup::resolve_lineup(
+                            preset_lineup,
+                            active_language_priority_array
+                        );
+
+                        super::fixedlineup::draw(
+                            ctx,
+                            ui,
+                            &resolved_lineup,
+                            cat_texture_cache
+                        );
+
+                        ui.add_space(20.0);
+                    }
 
                     super::battleground::draw(
                         ctx,

@@ -44,6 +44,9 @@ pub struct Stage {
     pub min_cost: u32,
     pub max_cost: u32,
     pub charagroup: Option<data::charagroup::CharaGroup>,
+
+    // Maps Crown Index -> Fixed Lineup JSON
+    pub fixed_lineups: HashMap<u8, data::certification_preset::PresetLineup>,
 }
 
 #[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
