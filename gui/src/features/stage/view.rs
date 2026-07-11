@@ -35,7 +35,6 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
         return;
     };
 
-    // Clamp the selected crown so it never exceeds the map's bounds when clicking between stages
     if state.selected_crown >= stage.max_crowns {
         state.selected_crown = 0;
     }
@@ -120,6 +119,7 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
                             ctx,
                             ui,
                             &resolved_lineup,
+                            preset_lineup,
                             cat_texture_cache
                         );
 
