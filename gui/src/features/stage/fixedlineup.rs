@@ -3,12 +3,15 @@ use std::path::Path;
 
 use eframe::egui;
 
+use core::cat::paths as cat_paths;
+use core::cat::waiter::unitexplanation;
 use core::global::utils::autocrop;
-use core::stage::data::certification_preset::{AbilityType, CannonType, PresetLineup, TreasureType};
+use core::stage::data::certification_preset::{AbilityType, CannonType, EvolutionForm, PresetLineup, TreasureType};
 use core::stage::logic::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
 
 const ICON_SCALE: f32 = 0.45;
 const ICON_SPACING: f32 = 8.0;
+const SCROLL_AREA_HEIGHT: f32 = 93.0;
 
 fn load_cat_icon(path: &Path) -> Option<egui::ColorImage> {
     let Ok(image_file) = image::open(path) else { return None; };
@@ -23,38 +26,37 @@ pub fn draw(
     resolved_lineup: &ResolvedFixedLineup,
     preset_data: &PresetLineup,
     texture_cache: &mut HashMap<String, egui::TextureHandle>,
+    langs: &[String],
 ) {
     ui.strong("Fixed Lineup");
     ui.separator();
     ui.add_space(4.0);
 
     ui.horizontal_top(|ui| {
-        // Left Side: Cat Lineup Grid
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = ICON_SPACING;
 
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = ICON_SPACING;
                 for slot_data in resolved_lineup.slots.iter().take(5) {
-                    draw_slot(context, ui, slot_data, texture_cache);
+                    draw_slot(context, ui, slot_data, preset_data, texture_cache, langs);
                 }
             });
 
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = ICON_SPACING;
                 for slot_data in resolved_lineup.slots.iter().skip(5).take(5) {
-                    draw_slot(context, ui, slot_data, texture_cache);
+                    draw_slot(context, ui, slot_data, preset_data, texture_cache, langs);
                 }
             });
         });
 
         ui.add_space(24.0);
 
-        // Right Side: Upgrades & Treasures
         ui.vertical(|ui| {
             egui::ScrollArea::vertical()
                 .id_salt("fixed_lineup_upgrades_scroll")
-                .max_height(260.0)
+                .max_height(SCROLL_AREA_HEIGHT)
                 .show(ui, |ui| {
                     draw_upgrades_section(ui, preset_data);
                 });
@@ -66,7 +68,9 @@ fn draw_slot(
     context: &egui::Context,
     ui: &mut egui::Ui,
     slot_data: &ResolvedSlot,
+    preset_data: &PresetLineup,
     texture_cache: &mut HashMap<String, egui::TextureHandle>,
+    langs: &[String],
 ) {
     let mut is_rendered = false;
 
@@ -87,10 +91,48 @@ fn draw_slot(
             let image_response = ui.add(cat_image);
 
             if let (Some(unit_id), Some(unit_level)) = (slot_data.unit_id, slot_data.level) {
-                let plus_level = slot_data.plus_level.unwrap_or(0);
-                let plus_string = if plus_level > 0 { format!(" +{}", plus_level) } else { "".to_string() };
+                let padded_id = format!("{:03}", unit_id);
+                let cat_folder = Path::new(cat_paths::DIR_CATS).join(&padded_id);
+                let explanation = unitexplanation(unit_id, &cat_folder, langs);
 
-                image_response.on_hover_text(format!("Unit ID: {}\nLevel: {}{}", unit_id, unit_level, plus_string));
+                let form_index = if let Some(chara) = preset_data.characters.get(&unit_id) {
+                    match chara.evolution_form {
+                        EvolutionForm::Normal => 0,
+                        EvolutionForm::Evolved => 1,
+                        EvolutionForm::True => 2,
+                        EvolutionForm::Ultra => 3,
+                        _ => 0,
+                    }
+                } else {
+                    0
+                };
+
+                let mut display_name = format!("Unit {}", padded_id);
+                if let Some(Some(name)) = explanation.names.get(form_index) {
+                    display_name = name.clone();
+                } else if let Some(Some(name)) = explanation.names.get(0) {
+                    display_name = name.clone();
+                }
+
+                let plus_level = slot_data.plus_level.unwrap_or(0);
+                let plus_string = if plus_level > 0 { format!("+{}", plus_level) } else { "".to_string() };
+
+                image_response.on_hover_ui(|tooltip_ui| {
+                    tooltip_ui.horizontal(|row_ui| {
+                        row_ui.label(egui::RichText::new("[Name]").weak());
+                        row_ui.label(&display_name);
+                    });
+
+                    tooltip_ui.horizontal(|row_ui| {
+                        row_ui.label(egui::RichText::new("[ID]").weak());
+                        row_ui.label(&padded_id);
+                    });
+
+                    tooltip_ui.horizontal(|row_ui| {
+                        row_ui.label(egui::RichText::new("[Level]").weak());
+                        row_ui.label(format!("{}{}", unit_level, plus_string));
+                    });
+                });
             }
 
             is_rendered = true;
@@ -107,34 +149,60 @@ fn draw_slot(
 }
 
 fn draw_upgrades_section(ui: &mut egui::Ui, preset_data: &PresetLineup) {
-    // Top: Cannon Header
-    let cannon_name = match preset_data.slot_cannon_type {
-        CannonType::Basic => "Basic Cannon",
-        CannonType::SlowBeam => "Slow Beam",
-        CannonType::IronWall => "Iron Wall",
-        CannonType::Thunderbolt => "Thunderbolt",
-        CannonType::Waterblast => "Waterblast",
-        CannonType::HolyBlast => "HolyBlast",
-        CannonType::Breakerblast => "Breakerblast",
-        CannonType::Curseblast => "Curseblast",
-        CannonType::Unknown(_) => "Unknown Cannon",
-    };
+    ui.horizontal(|ui| {
+        let available_width = ui.available_width();
+        let estimated_grid_width = 140.0;
 
-    let cannon_level = preset_data.cannon_levels.get(&preset_data.slot_cannon_type).copied().unwrap_or(0);
+        if available_width > estimated_grid_width {
+            ui.add_space((available_width - estimated_grid_width) / 2.0);
+        }
 
-    ui.strong(format!("{} Lv{}", cannon_name, cannon_level));
-    ui.add_space(8.0);
+        egui::Grid::new("fixed_lineup_cannon_grid")
+            .striped(true)
+            .spacing([24.0, 6.0])
+            .show(ui, |ui| {
+                let cannon_name = match preset_data.slot_cannon_type {
+                    CannonType::Basic => "Basic",
+                    CannonType::SlowBeam => "Slow Beam",
+                    CannonType::IronWall => "Iron Wall",
+                    CannonType::Thunderbolt => "Thunderbolt",
+                    CannonType::Waterblast => "Waterblast",
+                    CannonType::HolyBlast => "HolyBlast",
+                    CannonType::Breakerblast => "Breakerblast",
+                    CannonType::Curseblast => "Curseblast",
+                    CannonType::Unknown(_) => "Unknown",
+                };
 
-    // Split: Abilities (Left) | Treasures (Right)
+                let cannon_level = preset_data.cannon_levels.get(&preset_data.slot_cannon_type).copied().unwrap_or(0);
+
+                ui.strong("Cannon");
+                ui.centered_and_justified(|ui| {
+                    ui.strong("Level");
+                });
+                ui.end_row();
+
+                ui.label(cannon_name);
+                ui.centered_and_justified(|ui| {
+                    ui.label(cannon_level.to_string());
+                });
+                ui.end_row();
+            });
+    });
+
+    ui.add_space(16.0);
+
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
-            ui.label(egui::RichText::new("Abilities").color(egui::Color32::DARK_GRAY));
-            ui.add_space(4.0);
-
             egui::Grid::new("fixed_lineup_abilities_grid")
                 .striped(true)
                 .spacing([24.0, 6.0])
                 .show(ui, |ui| {
+                    ui.strong("Upgrade");
+                    ui.centered_and_justified(|ui| {
+                        ui.strong("Level");
+                    });
+                    ui.end_row();
+
                     draw_ability_rows(ui, preset_data);
                 });
         });
@@ -142,13 +210,16 @@ fn draw_upgrades_section(ui: &mut egui::Ui, preset_data: &PresetLineup) {
         ui.add_space(24.0);
 
         ui.vertical(|ui| {
-            ui.label(egui::RichText::new("Treasures").color(egui::Color32::DARK_GRAY));
-            ui.add_space(4.0);
-
             egui::Grid::new("fixed_lineup_treasures_grid")
                 .striped(true)
                 .spacing([24.0, 6.0])
                 .show(ui, |ui| {
+                    ui.strong("Chapter");
+                    ui.centered_and_justified(|ui| {
+                        ui.strong("Grades");
+                    });
+                    ui.end_row();
+
                     draw_treasure_rows(ui, preset_data);
                 });
         });
@@ -181,7 +252,9 @@ fn draw_ability_rows(ui: &mut egui::Ui, preset_data: &PresetLineup) {
         };
 
         ui.label(name);
-        ui.label(level_string);
+        ui.centered_and_justified(|ui| {
+            ui.label(level_string);
+        });
         ui.end_row();
     }
 }
@@ -201,14 +274,15 @@ fn draw_treasure_rows(ui: &mut egui::Ui, preset_data: &PresetLineup) {
 
     for (treasure_type, name) in TREASURES {
         let grades_string = if let Some(treasure_data) = preset_data.treasures.get(&treasure_type) {
-            // Displays as Superior/Normal/Inferior
             format!("{}/{}/{}", treasure_data.superior_count, treasure_data.normal_count, treasure_data.inferior_count)
         } else {
             "0/0/0".to_string()
         };
 
         ui.label(name);
-        ui.label(grades_string);
+        ui.centered_and_justified(|ui| {
+            ui.label(grades_string);
+        });
         ui.end_row();
     }
 }

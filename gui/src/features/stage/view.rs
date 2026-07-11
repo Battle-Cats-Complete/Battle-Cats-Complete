@@ -120,7 +120,8 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
                             ui,
                             &resolved_lineup,
                             preset_lineup,
-                            cat_texture_cache
+                            cat_texture_cache,
+                            active_language_priority_array
                         );
 
                         ui.add_space(20.0);
