@@ -1,8 +1,8 @@
 use tracing::{debug, trace, warn};
 use nyanko::common::utils::csv::{strip_html_tags, BreakHandling};
+use nyanko::chapter::stage::{CharaGroupEntry, CharaGroupType};
 
 use crate::global::context::GlobalContext;
-use crate::stage::data::charagroup::{CharaGroup, CharaGroupType};
 use crate::stage::registry::Stage;
 
 pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) -> Vec<String> {
@@ -105,7 +105,7 @@ pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) 
             debug!("parsed charagroup restriction");
             restrictions.push(group_str);
         } else {
-            warn!(group_id = charagroup.group_id, "failed to parse charagroup string");
+            warn!(id = charagroup.id, "failed to parse charagroup string");
         }
     }
 
@@ -152,17 +152,17 @@ fn parse_rarity_mask(mask: u8, ctx: GlobalContext) -> Option<String> {
     }
 }
 
-fn parse_charagroup(group: &CharaGroup, ctx: GlobalContext) -> Option<String> {
-    let mode_str = match group.group_type {
+fn parse_charagroup(group: &CharaGroupEntry, ctx: GlobalContext) -> Option<String> {
+    let mode_str = match group.kind {
         CharaGroupType::OnlyUse => "Only",
         CharaGroupType::CannotUse => "Cannot use",
         _ => {
-            warn!(group_id = group.group_id, "unknown charagroup type encountered");
+            warn!(id = group.id, "unknown charagroup type encountered");
             return None;
         }
     };
 
-    let group_key = format!("stage_restriction_charagroup_{}", group.group_id);
+    let group_key = format!("stage_restriction_charagroup_{}", group.id);
     let raw_group_name = ctx.localizable.lookup(&group_key).unwrap_or_default();
     let mut group_name = strip_html_tags(&raw_group_name, BreakHandling::Space);
 

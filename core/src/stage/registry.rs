@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+use nyanko::chapter::stage::{BattlegroundEntry, CertificationPreset, CharaGroupEntry};
+use nyanko::chapter::map::{DropItemEntry};
+
 use super::data;
 
 #[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -24,7 +27,7 @@ pub struct Stage {
     pub is_no_continues: bool,
     pub is_base_indestructible: bool,
     pub unknown_value: u32,
-    pub enemies: Vec<data::stage::EnemyLine>,
+    pub enemies: Vec<BattlegroundEntry>,
 
     // Core Rewards & Media
     pub energy: u32,
@@ -43,10 +46,8 @@ pub struct Stage {
     pub allowed_rows: u8,
     pub min_cost: u32,
     pub max_cost: u32,
-    pub charagroup: Option<data::charagroup::CharaGroup>,
-
-    // Maps Crown Index -> Fixed Lineup JSON
-    pub fixed_lineups: HashMap<u8, data::certification_preset::PresetLineup>,
+    pub charagroup: Option<CharaGroupEntry>,
+    pub fixed_lineups: HashMap<u8, CertificationPreset>,
 }
 
 #[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -76,7 +77,7 @@ pub struct Map {
     pub score_bonuses: Option<data::scorebonusmap::ScoreBonus>,
     pub special_rules: Option<data::specialrulesmap::SpecialRule>,
     pub invalid_combos: Vec<u32>,
-    pub drop_items: Option<data::dropitem::DropItem>,
+    pub drop_items: Option<DropItemEntry>,
 }
 
 #[derive(Default, serde::Deserialize, serde::Serialize)]

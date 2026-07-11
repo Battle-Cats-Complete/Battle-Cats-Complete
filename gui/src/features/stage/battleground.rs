@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use eframe::egui;
+use nyanko::chapter::stage::{EnemyAmount, BossType};
 use nyanko::common::utils::csv::{strip_html_tags, BreakHandling};
 use tracing::{debug, instrument, warn};
 
@@ -10,7 +11,6 @@ use core::global::context::GlobalContext;
 use core::global::utils::autocrop;
 use core::stage::data::scorebonusmap::{BonusType, ScoreBonus};
 use core::stage::data::specialrulesmap::{RuleType, SpecialRule};
-use core::stage::data::stage::{BossType, EnemyAmount};
 use core::stage::registry::{Map, Stage};
 
 use super::treasure::center_header;
@@ -283,36 +283,36 @@ pub fn draw(
             center_header(grid, "Kills");
             grid.end_row();
 
-            for enemy_data in &stage_data.enemies {
+            for spawn in &stage_data.enemies {
                 let resolved_enemy_name = enemy_name_registry
-                    .get(enemy_data.id as usize)
+                    .get(spawn.enemy_id as usize)
                     .filter(|string_val| !string_val.is_empty())
                     .cloned()
-                    .unwrap_or_else(|| format!("{:03}-E", enemy_data.id));
+                    .unwrap_or_else(|| format!("{:03}-E", spawn.enemy_id));
 
                 grid.with_layout(egui::Layout::bottom_up(egui::Align::Center), |icon_layout| {
                     let has_rendered_icon = 'icon: {
-                        let Some(located_enemy_entry) = enemy_registry.get(&enemy_data.id) else {
+                        let Some(located_enemy_entry) = enemy_registry.get(&spawn.enemy_id) else {
                             break 'icon false;
                         };
                         let Some(enemy_icon_path) = &located_enemy_entry.icon_path else {
                             break 'icon false;
                         };
 
-                        if let std::collections::hash_map::Entry::Vacant(cache_entry) = texture_cache.entry(enemy_data.id) {
-                            debug!(enemy_id = enemy_data.id, "Texture cache miss, attempting processing");
+                        if let std::collections::hash_map::Entry::Vacant(cache_entry) = texture_cache.entry(spawn.enemy_id) {
+                            debug!(id = spawn.enemy_id, "Texture cache miss, attempting processing");
                             let Some(processed_color_image) = process_enemy_icon_texture(enemy_icon_path) else {
                                 break 'icon false;
                             };
                             let generated_texture_handle = egui_context.load_texture(
-                                format!("stage_enemy_icon_{}", enemy_data.id),
+                                format!("stage_enemy_icon_{}", spawn.enemy_id),
                                 processed_color_image,
                                 egui::TextureOptions::LINEAR
                             );
                             cache_entry.insert(generated_texture_handle);
                         }
 
-                        let Some(cached_texture_handle) = texture_cache.get(&enemy_data.id) else {
+                        let Some(cached_texture_handle) = texture_cache.get(&spawn.enemy_id) else {
                             break 'icon false;
                         };
                         let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
@@ -322,13 +322,13 @@ pub fn draw(
 
                     if !has_rendered_icon {
                         icon_layout.add_space(6.0);
-                        let label_response = icon_layout.add(egui::Label::new(format!("{:03}", enemy_data.id)).wrap_mode(egui::TextWrapMode::Extend));
+                        let label_response = icon_layout.add(egui::Label::new(format!("{:03}", spawn.enemy_id)).wrap_mode(egui::TextWrapMode::Extend));
                         label_response.on_hover_text(resolved_enemy_name);
                     }
                 });
 
-                let final_hp_mag = (enemy_data.magnification * crown_mag) / 100;
-                let final_atk_mag = (enemy_data.atk_magnification * crown_mag) / 100;
+                let final_hp_mag = (spawn.magnification * crown_mag) / 100;
+                let final_atk_mag = (spawn.atk_magnification * crown_mag) / 100;
 
                 let formatted_mag = if final_hp_mag == final_atk_mag {
                     format!("{}%", final_hp_mag)
@@ -336,18 +336,18 @@ pub fn draw(
                     format!("{}% / {}%", final_hp_mag, final_atk_mag)
                 };
 
-                let formatted_amount = format_enemy_amount(&enemy_data.amount);
-                let formatted_base_hp = format_base_hp_percentage(enemy_data.base_hp_perc, is_dojo_mechanic);
-                let formatted_respawn = format_enemy_respawn(&enemy_data.amount, enemy_data.respawn_min, enemy_data.respawn_max);
-                let formatted_layer = format_layer(enemy_data.layer_min, enemy_data.layer_max);
-                let formatted_boss_type = format_boss_type(&enemy_data.boss_type);
-                let formatted_score = format_score(enemy_data.score);
-                let formatted_kill_count = format_kill_count(enemy_data.kill_count);
+                let formatted_amount = format_enemy_amount(&spawn.amount);
+                let formatted_base_hp = format_base_hp_percentage(spawn.base_hp_perc, is_dojo_mechanic);
+                let formatted_respawn = format_enemy_respawn(&spawn.amount, spawn.respawn_min, spawn.respawn_max);
+                let formatted_layer = format_layer(spawn.layer_min, spawn.layer_max);
+                let formatted_boss_type = format_boss_type(&spawn.boss_type);
+                let formatted_score = format_score(spawn.score);
+                let formatted_kill_count = format_kill_count(spawn.kill_count);
 
                 center_enemy_text(grid, formatted_amount);
                 center_enemy_text(grid, formatted_mag);
                 center_enemy_text(grid, formatted_base_hp);
-                center_enemy_text(grid, format!("{}f", enemy_data.start_frame));
+                center_enemy_text(grid, format!("{}f", spawn.start_frame));
                 center_enemy_text(grid, formatted_respawn);
                 center_enemy_text(grid, formatted_layer);
                 center_enemy_text(grid, formatted_boss_type);

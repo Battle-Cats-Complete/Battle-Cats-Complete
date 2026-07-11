@@ -3459,7 +3459,7 @@ checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 [[package]]
 name = "nyanko"
 version = "0.5.1"
-source = "git+https://github.com/omochikaeri15/nyanko#85dc5fb0267bc2986a043dc2ddbdeb352170c534"
+source = "git+https://github.com/omochikaeri15/nyanko#4958e5552bc7229c2c23ac9c2f436e5c0923d56d"
 dependencies = [
  "aes 0.9.1",
  "block-padding",
@@ -3470,6 +3470,7 @@ dependencies = [
  "image",
  "md-5",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

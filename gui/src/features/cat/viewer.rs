@@ -43,6 +43,7 @@ pub fn show(
 
             let mut available_anims = Vec::new();
             let anim_defs = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
+
             for idx in anim_defs {
                 let p = paths::maanim(root, cat_entry.id, current_form, egg_ids, idx);
                 let Some(parent) = p.parent() else { continue; };
@@ -66,8 +67,29 @@ pub fn show(
                 Some((png, cut, model))
             })();
 
-            let secondary_assets = None;
-            let secondary_id = String::new();
+            let mut secondary_assets = None;
+            let mut secondary_id = String::new();
+
+            let conjure_id = cat_entry.stats.get(current_form)
+                .and_then(|s| s.as_ref())
+                .map(|s| s.conjure_unit_id)
+                .unwrap_or(0);
+
+            if conjure_id > 0 {
+                let s_id = conjure_id as u32;
+                secondary_assets = (|| {
+                    let png = resolve(paths::anim(root, s_id, 0, (-1, -1), AnimType::Png))?;
+                    let cut = resolve(paths::anim(root, s_id, 0, (-1, -1), AnimType::Imgcut))?;
+                    let model = resolve(paths::anim(root, s_id, 0, (-1, -1), AnimType::Mamodel))?;
+                    let atk = resolve(paths::maanim(root, s_id, 0, (-1, -1), IDX_ATTACK))?;
+
+                    Some((png, cut, model, atk))
+                })();
+
+                if secondary_assets.is_some() {
+                    secondary_id = format!("spirit_{}_{}", s_id, anim_viewer.texture_version);
+                }
+            }
 
             c.0 = primary_id.clone();
             c.1 = secondary_id;

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use tracing::warn;
 
 use crate::global::resolver;
-use crate::stage::data::certification_preset::{PresetLineup, PresetChara, EvolutionForm};
+use nyanko::chapter::stage::{CertificationPreset, PresetChara, EvolutionForm};
 
 pub struct ResolvedSlot {
     pub unit_id: Option<u32>,
@@ -72,7 +72,7 @@ fn resolve_populated_slot(
 }
 
 pub fn resolve_lineup(
-    preset_lineup_data: &PresetLineup,
+    preset_lineup_data: &CertificationPreset,
     active_language_priority_array: &[String],
 ) -> ResolvedFixedLineup {
     let mut resolved_slots_array = Vec::with_capacity(10);

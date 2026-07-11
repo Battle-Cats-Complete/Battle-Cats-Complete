@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::mpsc::Receiver;
 
 use nyanko::cat::unit::UnitBuy;
+use nyanko::chapter::map::LockSkipDataEntry;
 use serde::{Deserialize, Serialize};
 
 use crate::cat::waiter::unitbuy;
@@ -11,8 +12,9 @@ use crate::enemy::waiter::enemyname;
 use crate::global::formats::gatyaitembuy::{self, GatyaItemBuy};
 use crate::global::formats::gatyaitemname::{self, GatyaItemName};
 use crate::settings::logic::ScannerConfig;
-use crate::stage::data::{drop_chara, lockskipdata, scatcpusetting};
+use crate::stage::data::{scatcpusetting};
 use crate::stage::registry::StageRegistry;
+use crate::stage::waiter::{drop_chara, lockskipdata};
 
 use super::loader;
 
@@ -33,7 +35,7 @@ pub struct StageDataState {
     #[serde(skip)] pub item_name_registry: HashMap<usize, GatyaItemName>,
     #[serde(skip)] pub drop_chara_registry: HashMap<u32, u32>,
     #[serde(skip)] pub unit_buy_registry: HashMap<u32, UnitBuy>,
-    #[serde(skip)] pub lock_skip_registry: HashMap<u32, lockskipdata::LockSkipEntry>,
+    #[serde(skip)] pub lock_skip_registry: HashMap<u32, LockSkipDataEntry>,
     #[serde(skip)] pub scat_cpu_setting: scatcpusetting::ScatCpuSetting,
     #[serde(skip)] pub active_language_priority: Vec<String>,
 }
@@ -72,8 +74,9 @@ impl StageDataState {
             };
         }
 
-        self.drop_chara_registry = load_stage_file!(drop_chara, "drop_chara.csv");
-        self.lock_skip_registry = load_stage_file!(lockskipdata, "LockSkipData.csv");
+        self.drop_chara_registry = drop_chara(stages_directory_path, "drop_chara.csv", lang_priority);
+        self.lock_skip_registry = lockskipdata(stages_directory_path, "LockSkipData.csv", lang_priority);
+
         self.scat_cpu_setting = load_stage_file!(scatcpusetting, "ScatCPUsetting.csv");
 
         let cats_directory_path = Path::new("game/cats");

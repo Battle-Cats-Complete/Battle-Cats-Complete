@@ -6,12 +6,18 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 use nyanko::common::utils::csv;
+use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry};
+use nyanko::chapter::map::{DropItemEntry};
 use tracing::{instrument, warn};
 
 use crate::settings::logic::state::ScannerConfig;
 use crate::stage::data;
 use crate::stage::paths;
 use crate::stage::registry::{Map, Stage, StageRegistry};
+use crate::stage::waiter::{
+    battleground, certification_preset, charagroup, difficulty_level, dropitem,
+    ex_option, fixed_formation
+};
 
 use super::xp::get_hardcoded_xp;
 
@@ -20,14 +26,14 @@ pub struct ScanContext<'a> {
     pub map_names: HashMap<u32, String>,
     pub map_options: HashMap<u32, data::map_option::MapOption>,
     pub stage_options: HashMap<u32, Vec<data::stage_option::StageOption>>,
-    pub charagroups: HashMap<u32, data::charagroup::CharaGroup>,
-    pub drop_items: HashMap<u32, data::dropitem::DropItem>,
+    pub charagroups: HashMap<u32, CharaGroupEntry>,
+    pub drop_items: HashMap<u32, DropItemEntry>,
     pub score_bonuses: HashMap<u32, data::scorebonusmap::ScoreBonus>,
     pub special_rules: HashMap<u32, data::specialrulesmap::SpecialRule>,
     pub special_rule_options: HashMap<u8, data::specialrulesmapoption::SpecialRuleOption>,
     pub ex_options: HashMap<u32, u32>,
     pub difficulties: HashMap<u32, Vec<u16>>,
-    pub fixed_formations: HashMap<(u32, u8, u32), data::fixed_formation::FixedFormation>,
+    pub fixed_formations: HashMap<(u32, u8, u32), FixedFormationEntry>,
 }
 
 #[instrument(skip(config))]
@@ -53,14 +59,14 @@ fn scan_all(lang_priority: &[String]) -> StageRegistry {
         map_names: data::map_name::load(&root_path.join("Map_Name"), "Map_Name.csv", lang_priority),
         map_options: data::map_option::load(root_path, "Map_option.csv", lang_priority),
         stage_options: data::stage_option::load(root_path, "Stage_option.csv", lang_priority),
-        charagroups: data::charagroup::load(root_path, "Charagroup.csv", lang_priority),
-        drop_items: data::dropitem::load(root_path, "DropItem.csv", lang_priority),
+        charagroups: charagroup(root_path, "Charagroup.csv", lang_priority),
+        drop_items: dropitem(root_path, "DropItem.csv", lang_priority),
         score_bonuses: data::scorebonusmap::load(&root_path.join("R"), "ScoreBonusMap.json", lang_priority),
         special_rules: data::specialrulesmap::load(&root_path.join("SR"), "SpecialRulesMap.json", lang_priority),
         special_rule_options: data::specialrulesmapoption::load(&root_path.join("SR"), "SpecialRulesMapOption.json", lang_priority),
-        ex_options: data::ex_option::load(root_path, "EX_option.csv", lang_priority),
-        difficulties: data::difficulty_level::load(root_path, "difficulty_level.tsv", lang_priority),
-        fixed_formations: data::fixed_formation::load(&root_path.join("fixedlineup"), "fixed_formation.csv", lang_priority),
+        ex_options: ex_option(root_path, "EX_option.csv", lang_priority),
+        difficulties: difficulty_level(root_path, "difficulty_level.tsv", lang_priority),
+        fixed_formations: fixed_formation(&root_path.join("fixedlineup"), "fixed_formation.csv", lang_priority),
     };
 
     let Ok(categories_dir) = fs::read_dir(root_path) else {
@@ -307,7 +313,7 @@ fn load_map(
                     continue;
                 }
 
-                stage_raw = data::stage::load(&stage_path, &filename, ctx.lang_priority);
+                stage_raw = battleground(&stage_path, &filename, ctx.lang_priority);
 
                 if stage_raw.is_some() {
                     break;
@@ -354,7 +360,7 @@ fn load_map(
                 continue;
             };
 
-            let Some(preset_lineup_json) = data::certification_preset::load(
+            let Some(preset_lineup_json) = certification_preset(
                 &fixed_lineup_directory,
                 &formation_data.preset_file_name,
                 ctx.lang_priority
@@ -385,7 +391,7 @@ fn load_map(
             is_no_continues: raw_layout.is_no_continues,
             is_base_indestructible: raw_layout.is_base_indestructible,
             unknown_value: raw_layout.unknown_value,
-            enemies: raw_layout.enemies,
+            enemies: raw_layout.entries,
             difficulty: stage_diff,
             max_crowns: map_opt.max_crowns,
             target_crowns: final_opt.target_crowns,

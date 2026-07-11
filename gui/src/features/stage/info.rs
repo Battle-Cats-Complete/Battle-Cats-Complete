@@ -2,10 +2,11 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use eframe::egui;
+use nyanko::chapter::map::LockSkipDataEntry;
 
 use core::global::resolver;
 use core::global::utils::autocrop;
-use core::stage::data::{lockskipdata, map_name, scatcpusetting};
+use core::stage::data::{map_name, scatcpusetting};
 use core::stage::paths;
 use core::stage::registry::Stage;
 
@@ -99,7 +100,7 @@ fn format_category_prefix(category: &str) -> String {
 fn get_cpu_skip_status(
     category: &str,
     map_id: u32,
-    lock_registry: &HashMap<u32, lockskipdata::LockSkipEntry>,
+    lock_registry: &HashMap<u32, LockSkipDataEntry>,
     cpu_setting: &scatcpusetting::ScatCpuSetting
 ) -> String {
     let global_map_id = map_name::get_global_map_id(category, map_id);
@@ -169,9 +170,9 @@ pub fn draw(
     map_name: &str,
     lang_priority: &[String],
     texture_cache: &mut HashMap<String, egui::TextureHandle>,
-    lock_registry: &HashMap<u32, core::stage::data::lockskipdata::LockSkipEntry>,
-    cpu_setting: &core::stage::data::scatcpusetting::ScatCpuSetting,
-    selected_crown: &mut u8 // <--- Added Crown State reference
+    lock_registry: &HashMap<u32, LockSkipDataEntry>,
+    cpu_setting: &scatcpusetting::ScatCpuSetting,
+    selected_crown: &mut u8
 ) {
     let cat_formatted = format_category_prefix(&stage_data.category);
     let map_dir = Path::new(paths::DIR_STAGES).join(&cat_formatted).join(format!("{:03}", stage_data.map_id));

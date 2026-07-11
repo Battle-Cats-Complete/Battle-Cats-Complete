@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use eframe::egui;
+use nyanko::chapter::stage::{AbilityType, CannonType, EvolutionForm, CertificationPreset, TreasureType};
 
 use core::cat::paths as cat_paths;
 use core::cat::waiter::unitexplanation;
 use core::global::utils::autocrop;
-use core::stage::data::certification_preset::{AbilityType, CannonType, EvolutionForm, PresetLineup, TreasureType};
 use core::stage::logic::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
 
 const ICON_SCALE: f32 = 0.45;
@@ -24,7 +24,7 @@ pub fn draw(
     context: &egui::Context,
     ui: &mut egui::Ui,
     resolved_lineup: &ResolvedFixedLineup,
-    preset_data: &PresetLineup,
+    preset_data: &CertificationPreset,
     texture_cache: &mut HashMap<String, egui::TextureHandle>,
     langs: &[String],
 ) {
@@ -68,7 +68,7 @@ fn draw_slot(
     context: &egui::Context,
     ui: &mut egui::Ui,
     slot_data: &ResolvedSlot,
-    preset_data: &PresetLineup,
+    preset_data: &CertificationPreset,
     texture_cache: &mut HashMap<String, egui::TextureHandle>,
     langs: &[String],
 ) {
@@ -148,7 +148,7 @@ fn draw_slot(
     }
 }
 
-fn draw_upgrades_section(ui: &mut egui::Ui, preset_data: &PresetLineup) {
+fn draw_upgrades_section(ui: &mut egui::Ui, preset_data: &CertificationPreset) {
     ui.horizontal(|ui| {
         let available_width = ui.available_width();
         let estimated_grid_width = 140.0;
@@ -226,7 +226,7 @@ fn draw_upgrades_section(ui: &mut egui::Ui, preset_data: &PresetLineup) {
     });
 }
 
-fn draw_ability_rows(ui: &mut egui::Ui, preset_data: &PresetLineup) {
+fn draw_ability_rows(ui: &mut egui::Ui, preset_data: &CertificationPreset) {
     const ABILITIES: [(AbilityType, &str); 10] = [
         (AbilityType::CatCannonAttack, "Cat Cannon Attack"),
         (AbilityType::CatCannonRange, "Cat Cannon Range"),
@@ -259,7 +259,7 @@ fn draw_ability_rows(ui: &mut egui::Ui, preset_data: &PresetLineup) {
     }
 }
 
-fn draw_treasure_rows(ui: &mut egui::Ui, preset_data: &PresetLineup) {
+fn draw_treasure_rows(ui: &mut egui::Ui, preset_data: &CertificationPreset) {
     const TREASURES: [(TreasureType, &str); 9] = [
         (TreasureType::EoC1, "EoC Ch. 1"),
         (TreasureType::EoC2, "EoC Ch. 2"),
