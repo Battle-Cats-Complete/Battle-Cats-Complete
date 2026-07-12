@@ -35,7 +35,7 @@ pub fn draw(
     ui: &mut egui::Ui,
     s: &Stage,
     m: &Map,
-    selected_crown: u8, // <-- ADDED HERE
+    selected_crown: u8,
     buy: &HashMap<u32, GatyaItemBuy>,
     names: &HashMap<usize, GatyaItemName>,
     cache: &mut HashMap<u32, egui::TextureHandle>,
