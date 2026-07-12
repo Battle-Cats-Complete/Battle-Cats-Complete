@@ -4,13 +4,12 @@ use std::path::Path;
 use eframe::egui;
 use nyanko::chapter::stage::{EnemyAmount, BossType};
 use nyanko::common::utils::csv::{strip_html_tags, BreakHandling};
+use nyanko::chapter::map::{BonusType, ScoreBonusMapEntry, SpecialRulesMapEntry, RuleType};
 use tracing::{debug, instrument, warn};
 
 use core::enemy::logic::scanner::EnemyEntry;
 use core::global::context::GlobalContext;
 use core::global::utils::autocrop;
-use core::stage::data::scorebonusmap::{BonusType, ScoreBonus};
-use core::stage::data::specialrulesmap::{RuleType, SpecialRule};
 use core::stage::registry::{Map, Stage};
 
 use super::treasure::center_header;
@@ -77,7 +76,7 @@ fn format_base_hp_percentage(base_hp_perc: u32, is_dojo_mechanic: bool) -> Strin
 }
 
 #[instrument(skip(rule, global_ctx))]
-fn format_special_rule(rule: &SpecialRule, global_ctx: &GlobalContext) -> String {
+fn format_special_rule(rule: &SpecialRulesMapEntry, global_ctx: &GlobalContext) -> String {
     let clean_key = rule.name_label.trim();
     let explanation_key = clean_key.replace("Name", "Explanation");
 
@@ -100,12 +99,12 @@ fn format_special_rule(rule: &SpecialRule, global_ctx: &GlobalContext) -> String
                 RuleType::CooldownEquality(params) => params,
                 RuleType::RarityLimit(params) => params,
                 RuleType::CheapLabor(params) => params,
-                RuleType::RestrictPrice(params) => params,
-                RuleType::RestrictCd(params) => params,
-                RuleType::DeployLimit(params) => params,
-                RuleType::AwesomeCatSpawn(params) => params,
-                RuleType::AwesomeCatCannon(params) => params,
-                RuleType::AwesomeUnitSpeed(params) => params,
+                RuleType::CatCost(params) => params,
+                RuleType::CatProduction(params) => params,
+                RuleType::TotalDeployLimit(params) => params,
+                RuleType::MoreThanOne(params) => params,
+                RuleType::MegaCatCannon(params) => params,
+                RuleType::UniformMotion(params) => params,
                 RuleType::Unknown(_, params) => params,
             };
 
@@ -119,7 +118,7 @@ fn format_special_rule(rule: &SpecialRule, global_ctx: &GlobalContext) -> String
 }
 
 #[instrument(skip(score_bonus, global_ctx))]
-fn format_score_bonus(score_bonus: &ScoreBonus, global_ctx: &GlobalContext) -> String {
+fn format_score_bonus(score_bonus: &ScoreBonusMapEntry, global_ctx: &GlobalContext) -> String {
     let lookup_key = if !score_bonus.explanation_label.is_empty() {
         &score_bonus.explanation_label
     } else {

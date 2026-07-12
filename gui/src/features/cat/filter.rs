@@ -11,8 +11,8 @@ use crate::global::assets::CustomAssets;
 use crate::global::shared::DragGuard;
 use crate::global::sheet::SpriteSheet;
 
-pub const WINDOW_WIDTH: f32 = 500.0;
-pub const WINDOW_HEIGHT: f32 = 580.0;
+pub const WINDOW_WIDTH: f32 = 420.0;
+pub const WINDOW_HEIGHT: f32 = 400.0;
 pub const TILDE_SPACING: f32 = 5.0;
 pub const BTN_SIZE_RARITY: [f32; 2] = [77.0, 24.0];
 pub const BTN_SIZE_FORM: [f32; 2] = [118.0, 24.0];

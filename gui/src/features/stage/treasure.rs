@@ -3,11 +3,11 @@ use std::path::Path;
 
 use eframe::egui;
 use nyanko::cat::unit::UnitBuy;
+use nyanko::chapter::stage::RewardStructure;
 
 use core::global::formats::gatyaitembuy::GatyaItemBuy;
 use core::global::formats::gatyaitemname::GatyaItemName;
 use core::global::utils::autocrop;
-use core::stage::data::mapstagedata::RewardStructure;
 use core::stage::logic::treasure;
 use core::stage::registry::Stage;
 
@@ -107,7 +107,7 @@ pub fn draw(
 
                     for drop_data in valid_drops_array {
                         let drop_info = treasure::resolve_drop(
-                            drop_data.id,
+                            drop_data.item_id,
                             drop_data.amount,
                             item_buy_registry,
                             item_name_registry,
@@ -123,17 +123,17 @@ pub fn draw(
                             let mut has_rendered_icon = false;
 
                             if let Some(resolved_image_path) = drop_info.image_path {
-                                if !item_texture_cache.contains_key(&drop_data.id)
+                                if !item_texture_cache.contains_key(&drop_data.item_id)
                                     && let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
                                     let generated_texture_handle = egui_context.load_texture(
-                                        format!("treasure_item_icon_{}", drop_data.id),
+                                        format!("treasure_item_icon_{}", drop_data.item_id),
                                         processed_color_image,
                                         egui::TextureOptions::LINEAR
                                     );
-                                    item_texture_cache.insert(drop_data.id, generated_texture_handle);
+                                    item_texture_cache.insert(drop_data.item_id, generated_texture_handle);
                                 }
 
-                                if let Some(cached_texture_handle) = item_texture_cache.get(&drop_data.id) {
+                                if let Some(cached_texture_handle) = item_texture_cache.get(&drop_data.item_id) {
                                     let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
                                     image_response.on_hover_text(drop_info.name.clone());
                                     has_rendered_icon = true;
@@ -173,7 +173,7 @@ pub fn draw(
 
                     for score_data in timed_scores {
                         let drop_info = treasure::resolve_drop(
-                            score_data.id,
+                            score_data.item_id,
                             score_data.amount,
                             item_buy_registry,
                             item_name_registry,
@@ -188,17 +188,17 @@ pub fn draw(
                             let mut has_rendered_icon = false;
 
                             if let Some(resolved_image_path) = drop_info.image_path {
-                                if !item_texture_cache.contains_key(&score_data.id)
+                                if !item_texture_cache.contains_key(&score_data.item_id)
                                     && let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
                                     let generated_texture_handle = egui_context.load_texture(
-                                        format!("treasure_item_icon_{}", score_data.id),
+                                        format!("treasure_item_icon_{}", score_data.item_id),
                                         processed_color_image,
                                         egui::TextureOptions::LINEAR
                                     );
-                                    item_texture_cache.insert(score_data.id, generated_texture_handle);
+                                    item_texture_cache.insert(score_data.item_id, generated_texture_handle);
                                 }
 
-                                if let Some(cached_texture_handle) = item_texture_cache.get(&score_data.id) {
+                                if let Some(cached_texture_handle) = item_texture_cache.get(&score_data.item_id) {
                                     let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
                                     image_response.on_hover_text(drop_info.name.clone());
                                     has_rendered_icon = true;

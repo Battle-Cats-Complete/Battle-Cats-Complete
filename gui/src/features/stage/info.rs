@@ -2,11 +2,12 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use eframe::egui;
+use nyanko::chapter::Category;
 use nyanko::chapter::map::LockSkipDataEntry;
+use nyanko::chapter::stage::ScatCpuSetting;
 
 use core::global::resolver;
 use core::global::utils::autocrop;
-use core::stage::data::{map_name, scatcpusetting};
 use core::stage::paths;
 use core::stage::registry::Stage;
 
@@ -101,9 +102,10 @@ fn get_cpu_skip_status(
     category: &str,
     map_id: u32,
     lock_registry: &HashMap<u32, LockSkipDataEntry>,
-    cpu_setting: &scatcpusetting::ScatCpuSetting
+    cpu_setting: &ScatCpuSetting
 ) -> String {
-    let global_map_id = map_name::get_global_map_id(category, map_id);
+    let cat_enum = Category::from_prefix(category);
+    let global_map_id = cat_enum.global_map_id(map_id);
 
     if let Some(mid) = global_map_id
         && let Some(entry) = lock_registry.get(&mid)
@@ -171,7 +173,7 @@ pub fn draw(
     lang_priority: &[String],
     texture_cache: &mut HashMap<String, egui::TextureHandle>,
     lock_registry: &HashMap<u32, LockSkipDataEntry>,
-    cpu_setting: &scatcpusetting::ScatCpuSetting,
+    cpu_setting: &ScatCpuSetting,
     selected_crown: &mut u8
 ) {
     let cat_formatted = format_category_prefix(&stage_data.category);
@@ -257,7 +259,7 @@ pub fn draw(
     let formatted_global_respawn = format_global_respawn(stage_data.min_spawn, stage_data.max_spawn);
     let formatted_boss_track = format_boss_track(stage_data.boss_track as i16, stage_data.init_track, stage_data.bgm_change_percent);
     let formatted_time_limit = format_time_limit(stage_data.time_limit);
-    let formatted_cpu_skip = get_cpu_skip_status(&stage_data.category, stage_data.map_id,lock_registry, cpu_setting);
+    let formatted_cpu_skip = get_cpu_skip_status(&stage_data.category, stage_data.map_id,lock_registry, &cpu_setting);
 
     egui::Grid::new("stage_meta_grid")
         .striped(true)

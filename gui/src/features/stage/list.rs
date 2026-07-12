@@ -1,16 +1,16 @@
 use eframe::egui;
 
 use core::stage::logic::navigate;
+use nyanko::chapter::Category;
 
 use super::state::StageListState;
 
-pub const BTN_SPACING_X: f32 = 14.0; // Total horizontal space given to the separator
-pub const BTN_SPACING_Y: f32 = 6.0;  // Vertical padding between list buttons
+pub const BTN_SPACING_X: f32 = 14.0;
+pub const BTN_SPACING_Y: f32 = 6.0;
 
 pub fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
     let mut categories = navigate::get_categories(&state.data.registry);
-
-    categories.sort_by_key(|(prefix, _)| core::stage::data::map_name::get_category_sort_order(prefix));
+    categories.sort_by_key(|(prefix, _)| Category::from_prefix(prefix).sort_order());
 
     if categories.is_empty() {
         ui.vertical_centered(|ui| {

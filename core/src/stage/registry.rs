@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
-use nyanko::chapter::stage::{BattlegroundEntry, CertificationPreset, CharaGroupEntry};
-use nyanko::chapter::map::{DropItemEntry};
-
-use super::data;
+use nyanko::chapter::stage::{BattlegroundEntry, CertificationPreset, CharaGroupEntry, RewardStructure};
+use nyanko::chapter::map::{DropItemEntry, ResetType, ScoreBonusMapEntry, SpecialRulesMapEntry};
 
 #[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Stage {
@@ -35,7 +33,7 @@ pub struct Stage {
     pub init_track: u32,
     pub bgm_change_percent: u32,
     pub boss_track: i16,
-    pub rewards: data::mapstagedata::RewardStructure,
+    pub rewards: RewardStructure,
 
     // Stage Options & Restrictions
     pub difficulty: u16,
@@ -58,24 +56,20 @@ pub struct Map {
     pub category_name: String,
     pub map_id: u32,
     pub stages: Vec<String>,
-
-    // Map Options
     pub max_crowns: u8,
     pub has_abyss: bool,
     pub crown_1_mag: Option<u32>,
     pub crown_2_mag: Option<u32>,
     pub crown_3_mag: Option<u32>,
     pub crown_4_mag: Option<u32>,
-    pub reset_type: data::map_option::ResetType,
+    pub reset_type: ResetType,
     pub max_clears: u32,
     pub cooldown_minutes: u32,
     pub hidden_upon_clear: bool,
     pub comment: String,
-
-    // Extraneous Map Configs
     pub ex_invasion: Option<u32>,
-    pub score_bonuses: Option<data::scorebonusmap::ScoreBonus>,
-    pub special_rules: Option<data::specialrulesmap::SpecialRule>,
+    pub score_bonuses: Option<ScoreBonusMapEntry>,
+    pub special_rules: Option<SpecialRulesMapEntry>,
     pub invalid_combos: Vec<u32>,
     pub drop_items: Option<DropItemEntry>,
 }

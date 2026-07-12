@@ -4,6 +4,7 @@ use std::sync::mpsc::Receiver;
 
 use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::map::LockSkipDataEntry;
+use nyanko::chapter::stage::ScatCpuSetting;
 use serde::{Deserialize, Serialize};
 
 use crate::cat::waiter::unitbuy;
@@ -12,15 +13,12 @@ use crate::enemy::waiter::enemyname;
 use crate::global::formats::gatyaitembuy::{self, GatyaItemBuy};
 use crate::global::formats::gatyaitemname::{self, GatyaItemName};
 use crate::settings::logic::ScannerConfig;
-use crate::stage::data::{scatcpusetting};
 use crate::stage::registry::StageRegistry;
-use crate::stage::waiter::{drop_chara, lockskipdata};
+use crate::stage::waiter::{drop_chara, lockskipdata, scatcpusetting};
 
 use super::loader;
 
-#[derive(Deserialize, Serialize)]
-#[serde(default)]
-#[derive(Default)]
+#[derive(Default, Deserialize, Serialize)]
 pub struct StageDataState {
     #[serde(skip)] pub registry: StageRegistry,
     pub search_query: String,
@@ -36,7 +34,7 @@ pub struct StageDataState {
     #[serde(skip)] pub drop_chara_registry: HashMap<u32, u32>,
     #[serde(skip)] pub unit_buy_registry: HashMap<u32, UnitBuy>,
     #[serde(skip)] pub lock_skip_registry: HashMap<u32, LockSkipDataEntry>,
-    #[serde(skip)] pub scat_cpu_setting: scatcpusetting::ScatCpuSetting,
+    #[serde(skip)] pub scat_cpu_setting: ScatCpuSetting,
     #[serde(skip)] pub active_language_priority: Vec<String>,
 }
 
@@ -68,16 +66,9 @@ impl StageDataState {
 
         let stages_directory_path = Path::new("game/stages");
 
-        macro_rules! load_stage_file {
-            ($module:ident, $filename:expr) => {
-                $module::load(stages_directory_path, $filename, lang_priority)
-            };
-        }
-
         self.drop_chara_registry = drop_chara(stages_directory_path, "drop_chara.csv", lang_priority);
         self.lock_skip_registry = lockskipdata(stages_directory_path, "LockSkipData.csv", lang_priority);
-
-        self.scat_cpu_setting = load_stage_file!(scatcpusetting, "ScatCPUsetting.csv");
+        self.scat_cpu_setting = scatcpusetting(stages_directory_path, "ScatCPUsetting.csv", lang_priority);
 
         let cats_directory_path = Path::new("game/cats");
         self.unit_buy_registry = unitbuy(

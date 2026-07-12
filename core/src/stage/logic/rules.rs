@@ -1,9 +1,8 @@
 use nyanko::common::utils::csv::{strip_html_tags, BreakHandling};
+use nyanko::chapter::map::{RuleType, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
 use tracing::{debug, instrument, warn};
 
 use crate::global::context::GlobalContext;
-use crate::stage::data::specialrulesmap::{RuleType, SpecialRule};
-use crate::stage::data::specialrulesmapoption::SpecialRuleOption;
 
 #[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct ProcessedRule {
@@ -14,8 +13,8 @@ pub struct ProcessedRule {
 
 #[instrument(skip(rule, options, ctx))]
 pub fn parse(
-    rule: &SpecialRule,
-    options: &std::collections::HashMap<u8, SpecialRuleOption>,
+    rule: &SpecialRulesMapEntry,
+    options: &std::collections::HashMap<u8, SpecialRulesMapOptionEntry>,
     ctx: &GlobalContext,
 ) -> ProcessedRule {
     debug!(label = %rule.name_label, "parsing special rule");
@@ -47,12 +46,12 @@ pub fn parse(
             RuleType::CooldownEquality(_) => 1,
             RuleType::RarityLimit(_) => 3,
             RuleType::CheapLabor(_) => 4,
-            RuleType::RestrictPrice(_) => 5,
-            RuleType::RestrictCd(_) => 6,
-            RuleType::DeployLimit(_) => 7,
-            RuleType::AwesomeCatSpawn(_) => 8,
-            RuleType::AwesomeCatCannon(_) => 9,
-            RuleType::AwesomeUnitSpeed(_) => 10,
+            RuleType::CatCost(_) => 5,
+            RuleType::CatProduction(_) => 6,
+            RuleType::TotalDeployLimit(_) => 7,
+            RuleType::MoreThanOne(_) => 8,
+            RuleType::MegaCatCannon(_) => 9,
+            RuleType::UniformMotion(_) => 10,
             RuleType::Unknown(id, _) => *id,
         };
 
@@ -71,7 +70,7 @@ pub fn parse(
     }
 }
 
-fn fallback_description(rule: &SpecialRule) -> String {
+fn fallback_description(rule: &SpecialRulesMapEntry) -> String {
     let mut description = String::new();
 
     for target_rule in &rule.rules {
@@ -80,12 +79,12 @@ fn fallback_description(rule: &SpecialRule) -> String {
             RuleType::CooldownEquality(params) => format!("Cooldown Equality (Params: {:?})", params),
             RuleType::RarityLimit(params) => format!("Rarity Limit (Params: {:?})", params),
             RuleType::CheapLabor(params) => format!("Cheap Labor (Params: {:?})", params),
-            RuleType::RestrictPrice(params) => format!("Restrict Price (Params: {:?})", params),
-            RuleType::RestrictCd(params) => format!("Restrict CD (Params: {:?})", params),
-            RuleType::DeployLimit(params) => format!("Deploy Limit (Params: {:?})", params),
-            RuleType::AwesomeCatSpawn(params) => format!("Awesome Cat Spawn (Params: {:?})", params),
-            RuleType::AwesomeCatCannon(params) => format!("Awesome Cat Cannon (Params: {:?})", params),
-            RuleType::AwesomeUnitSpeed(params) => format!("Awesome Unit Speed (Params: {:?})", params),
+            RuleType::CatCost(params) => format!("Restrict Price (Params: {:?})", params),
+            RuleType::CatProduction(params) => format!("Restrict CD (Params: {:?})", params),
+            RuleType::TotalDeployLimit(params) => format!("Deploy Limit (Params: {:?})", params),
+            RuleType::MoreThanOne(params) => format!("Awesome Cat Spawn (Params: {:?})", params),
+            RuleType::MegaCatCannon(params) => format!("Awesome Cat Cannon (Params: {:?})", params),
+            RuleType::UniformMotion(params) => format!("Awesome Unit Speed (Params: {:?})", params),
             RuleType::Unknown(id, params) => format!("Unknown Rule {} (Params: {:?})", id, params),
         };
         description.push_str(&formatted_rule);

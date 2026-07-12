@@ -6,31 +6,30 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 use nyanko::common::utils::csv;
-use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry};
-use nyanko::chapter::map::{DropItemEntry};
+use nyanko::chapter::Category;
+use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, get_hardcoded_xp, StageOptionEntry, StageNameEntry};
+use nyanko::chapter::map::{DropItemEntry, MapOptionEntry, ScoreBonusMapEntry, SpecialRulesMapEntry, RuleType, SpecialRulesMapOptionEntry};
 use tracing::{instrument, warn};
 
 use crate::settings::logic::state::ScannerConfig;
-use crate::stage::data;
 use crate::stage::paths;
 use crate::stage::registry::{Map, Stage, StageRegistry};
 use crate::stage::waiter::{
     battleground, certification_preset, charagroup, difficulty_level, dropitem,
-    ex_option, fixed_formation
+    ex_option, fixed_formation, map_name, map_option, mapstagedata, scorebonusmap,
+    specialrulesmap, specialrulesmapoption, stage_option, stagename
 };
-
-use super::xp::get_hardcoded_xp;
 
 pub struct ScanContext<'a> {
     pub lang_priority: &'a [String],
     pub map_names: HashMap<u32, String>,
-    pub map_options: HashMap<u32, data::map_option::MapOption>,
-    pub stage_options: HashMap<u32, Vec<data::stage_option::StageOption>>,
+    pub map_options: HashMap<u32, MapOptionEntry>,
+    pub stage_options: HashMap<u32, Vec<StageOptionEntry>>,
     pub charagroups: HashMap<u32, CharaGroupEntry>,
     pub drop_items: HashMap<u32, DropItemEntry>,
-    pub score_bonuses: HashMap<u32, data::scorebonusmap::ScoreBonus>,
-    pub special_rules: HashMap<u32, data::specialrulesmap::SpecialRule>,
-    pub special_rule_options: HashMap<u8, data::specialrulesmapoption::SpecialRuleOption>,
+    pub score_bonuses: HashMap<u32, ScoreBonusMapEntry>,
+    pub special_rules: HashMap<u32, SpecialRulesMapEntry>,
+    pub special_rule_options: HashMap<u8, SpecialRulesMapOptionEntry>,
     pub ex_options: HashMap<u32, u32>,
     pub difficulties: HashMap<u32, Vec<u16>>,
     pub fixed_formations: HashMap<(u32, u8, u32), FixedFormationEntry>,
@@ -56,14 +55,14 @@ fn scan_all(lang_priority: &[String]) -> StageRegistry {
 
     let ctx = ScanContext {
         lang_priority,
-        map_names: data::map_name::load(&root_path.join("Map_Name"), "Map_Name.csv", lang_priority),
-        map_options: data::map_option::load(root_path, "Map_option.csv", lang_priority),
-        stage_options: data::stage_option::load(root_path, "Stage_option.csv", lang_priority),
+        map_names: map_name(&root_path.join("Map_Name"), "Map_Name.csv", lang_priority),
+        map_options: map_option(root_path, "Map_option.csv", lang_priority),
+        stage_options: stage_option(root_path, "Stage_option.csv", lang_priority),
         charagroups: charagroup(root_path, "Charagroup.csv", lang_priority),
         drop_items: dropitem(root_path, "DropItem.csv", lang_priority),
-        score_bonuses: data::scorebonusmap::load(&root_path.join("R"), "ScoreBonusMap.json", lang_priority),
-        special_rules: data::specialrulesmap::load(&root_path.join("SR"), "SpecialRulesMap.json", lang_priority),
-        special_rule_options: data::specialrulesmapoption::load(&root_path.join("SR"), "SpecialRulesMapOption.json", lang_priority),
+        score_bonuses: scorebonusmap(&root_path.join("R"), "ScoreBonusMap.json", lang_priority),
+        special_rules: specialrulesmap(&root_path.join("SR"), "SpecialRulesMap.json", lang_priority),
+        special_rule_options: specialrulesmapoption(&root_path.join("SR"), "SpecialRulesMapOption.json", lang_priority),
         ex_options: ex_option(root_path, "EX_option.csv", lang_priority),
         difficulties: difficulty_level(root_path, "difficulty_level.tsv", lang_priority),
         fixed_formations: fixed_formation(&root_path.join("fixedlineup"), "fixed_formation.csv", lang_priority),
@@ -98,11 +97,12 @@ fn scan_all(lang_priority: &[String]) -> StageRegistry {
 #[instrument(skip(registry, ctx))]
 fn scan_category(registry: &mut StageRegistry, cat_path: &Path, ctx: &ScanContext) {
     let cat_prefix = cat_path.file_name().unwrap_or_default().to_string_lossy().to_string();
-    let cat_display_name = data::map_name::get_category_name(&cat_prefix);
+    let category = Category::from_prefix(&cat_prefix);
+    let cat_display_name = category.display_name().to_string();
 
-    let mut stage_names = data::stagename::load(cat_path, &format!("StageName_{}.csv", cat_prefix), ctx.lang_priority);
+    let mut stage_names = stagename(cat_path, &format!("StageName_{}.csv", cat_prefix), ctx.lang_priority);
     if stage_names.is_empty() {
-        stage_names = data::stagename::load(cat_path, &format!("StageName_R{}.csv", cat_prefix), ctx.lang_priority);
+        stage_names = stagename(cat_path, &format!("StageName_R{}.csv", cat_prefix), ctx.lang_priority);
     }
 
     let Ok(maps_dir) = fs::read_dir(cat_path) else {
@@ -120,7 +120,7 @@ fn scan_category(registry: &mut StageRegistry, cat_path: &Path, ctx: &ScanContex
             continue;
         };
 
-        let mut global_map_id = data::map_name::get_global_map_id(&cat_prefix, map_id);
+        let mut global_map_id = category.global_map_id(map_id);
 
         if global_map_id.is_none() || global_map_id == Some(map_id) {
             let routed_id = match (cat_prefix.as_str(), map_id) {
@@ -169,7 +169,7 @@ fn load_map(
     map_path: &Path,
     map_display_name: &str,
     cat_display_name: &str,
-    stage_names: &HashMap<u32, Vec<String>>,
+    stage_names: &HashMap<u32, StageNameEntry>,
     ctx: &ScanContext,
     global_map_id: Option<u32>
 ) {
@@ -183,17 +183,17 @@ fn load_map(
     if let Some(rule) = &special_rules {
         for target_rule in &rule.rules {
             let rule_id = match target_rule {
-                data::specialrulesmap::RuleType::TrustFund(_) => 0,
-                data::specialrulesmap::RuleType::CooldownEquality(_) => 1,
-                data::specialrulesmap::RuleType::RarityLimit(_) => 3,
-                data::specialrulesmap::RuleType::CheapLabor(_) => 4,
-                data::specialrulesmap::RuleType::RestrictPrice(_) => 5,
-                data::specialrulesmap::RuleType::RestrictCd(_) => 6,
-                data::specialrulesmap::RuleType::DeployLimit(_) => 7,
-                data::specialrulesmap::RuleType::AwesomeCatSpawn(_) => 8,
-                data::specialrulesmap::RuleType::AwesomeCatCannon(_) => 9,
-                data::specialrulesmap::RuleType::AwesomeUnitSpeed(_) => 10,
-                data::specialrulesmap::RuleType::Unknown(id, _) => *id,
+                RuleType::TrustFund(_) => 0,
+                RuleType::CooldownEquality(_) => 1,
+                RuleType::RarityLimit(_) => 3,
+                RuleType::CheapLabor(_) => 4,
+                RuleType::CatCost(_) => 5,
+                RuleType::CatProduction(_) => 6,
+                RuleType::TotalDeployLimit(_) => 7,
+                RuleType::MoreThanOne(_) => 8,
+                RuleType::MegaCatCannon(_) => 9,
+                RuleType::UniformMotion(_) => 10,
+                RuleType::Unknown(id, _) => *id,
             };
 
             if let Some(opt) = ctx.special_rule_options.get(&rule_id) {
@@ -276,7 +276,7 @@ fn load_map(
                     continue;
                 }
 
-                stage_data_entries = data::mapstagedata::load(map_path, &filename, ctx.lang_priority);
+                stage_data_entries = mapstagedata(map_path, &filename, ctx.lang_priority);
 
                 if !stage_data_entries.is_empty() {
                     break;
@@ -285,7 +285,7 @@ fn load_map(
         }
 
         if stage_data_entries.is_empty() {
-            stage_data_entries = data::mapstagedata::load(map_path, "stage.csv", ctx.lang_priority);
+            stage_data_entries = mapstagedata(map_path, "stage.csv", ctx.lang_priority);
         }
     }
 
@@ -326,12 +326,12 @@ fn load_map(
         };
 
         let stage_display_name = stage_names.get(&map_id)
-            .and_then(|names_list| names_list.get(stage_id as usize))
+            .and_then(|entry| entry.names.get(stage_id as usize))
             .filter(|name| !name.is_empty())
             .cloned()
             .unwrap_or_else(|| format!("{:02}", stage_id));
 
-        let mut final_opt = data::stage_option::StageOption::default();
+        let mut final_opt = StageOptionEntry::default();
         final_opt.target_crowns = -1;
 
         let valid_options = stage_opts.iter().filter(|o|
