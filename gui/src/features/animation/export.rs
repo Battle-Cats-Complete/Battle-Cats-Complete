@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eframe::egui;
-use nyanko::graphics::actor::{Animation, Unit};
+use nyanko::graphics::rig::{Animation, Unit};
 
 use core::addons::toolpaths::{self, Presence};
 use core::animation::export::encoding::{EncoderStatus, ExportFormat};

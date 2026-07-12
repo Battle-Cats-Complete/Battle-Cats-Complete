@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 
 use tracing::{error, info, trace};
-use nyanko::common::utils::variant::Region;
+use nyanko::common::tools::variant::Region;
 use nyanko::pack::cryptology;
 use rayon::prelude::*;
 

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use nyanko::common::utils::csv;
+use nyanko::common::tools::csv;
 
 #[derive(Clone, Debug)]
 pub struct ModelPart {

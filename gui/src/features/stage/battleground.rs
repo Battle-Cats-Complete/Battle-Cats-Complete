@@ -3,7 +3,7 @@ use std::path::Path;
 
 use eframe::egui;
 use nyanko::chapter::stage::{EnemyAmount, BossType};
-use nyanko::common::utils::csv::{strip_html_tags, BreakHandling};
+use nyanko::common::tools::csv::{strip_html_tags, BreakHandling};
 use nyanko::chapter::map::{BonusType, ScoreBonusMapEntry, SpecialRulesMapEntry, RuleType};
 use tracing::{debug, instrument, warn};
 

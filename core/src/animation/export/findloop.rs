@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use nyanko::graphics::actor::{Animation, Unit};
+use nyanko::graphics::rig::{Animation, Unit};
 
 use super::state::LoopStatus;
 

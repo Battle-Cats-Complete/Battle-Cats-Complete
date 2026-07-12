@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::{mpsc::{self, Receiver}, Arc, Mutex};
 use std::thread;
 
-use nyanko::graphics::actor::{SpriteCut, SpriteSheet as NyankoSpriteSheet};
+use nyanko::graphics::rig::{SpriteCut, SpriteSheet as NyankoSpriteSheet};
 
 #[derive(Default)]
 pub struct SpriteSheet {

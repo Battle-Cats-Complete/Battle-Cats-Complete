@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use nyanko::cat::unit::UnitBuy;
 
-use crate::cat::paths;
+use crate::cat::paths::{self, AssetType};
 use crate::cat::waiter::unitexplanation;
 use crate::global::formats::gatyaitembuy::GatyaItemBuy;
 use crate::global::formats::gatyaitemname::GatyaItemName;
@@ -12,6 +12,46 @@ pub struct ResolvedDrop {
     pub name: String,
     pub image_path: Option<PathBuf>,
     pub amount_display: String,
+}
+
+fn resolve_cat_icon(
+    unit_id: u32,
+    form_index: usize,
+    unit_buy_registry: &HashMap<u32, UnitBuy>,
+    active_language_priority_array: &[String]
+) -> Option<PathBuf> {
+    let default_egg_ids = (-1, -1);
+    let egg_id_tuple = unit_buy_registry.get(&unit_id)
+        .map(|unit_buy_data| (unit_buy_data.egg_id_normal, unit_buy_data.egg_id_evolved))
+        .unwrap_or(default_egg_ids);
+
+    let cats_directory = Path::new(paths::DIR_CATS);
+    let img_directory_path = paths::folder(cats_directory, unit_id, form_index, egg_id_tuple);
+    let img_stem = paths::image_stem(AssetType::Icon, unit_id, form_index, egg_id_tuple);
+    let img_file_name = format!("{}.png", img_stem);
+
+    let resolved_primary_icon = crate::global::resolver::get(
+        &img_directory_path,
+        [img_file_name.as_str()],
+        active_language_priority_array
+    ).into_iter().next();
+
+    if resolved_primary_icon.is_some() {
+        return resolved_primary_icon;
+    }
+
+    let target_egg_id = if form_index == 0 { egg_id_tuple.0 } else { egg_id_tuple.1 };
+
+    if target_egg_id != -1 {
+        let fallback_name = format!("uni{:03}_m00.png", target_egg_id);
+        return crate::global::resolver::get(
+            &img_directory_path,
+            [fallback_name.as_str()],
+            active_language_priority_array
+        ).into_iter().next();
+    }
+
+    None
 }
 
 pub fn resolve_drop(
@@ -24,9 +64,6 @@ pub fn resolve_drop(
     active_language_priority_array: &[String]
 ) -> ResolvedDrop {
 
-    // =========================================================================
-    // 1. Regular Items (Tickets, XP, Battle Items, Materials)
-    // =========================================================================
     if let Some(located_item_unitbuy) = item_buy_registry.get(&target_item_id) {
         let target_name_row_index = located_item_unitbuy.row_index;
         let name = item_name_registry.get(&target_name_row_index)
@@ -50,26 +87,16 @@ pub fn resolve_drop(
         };
     }
 
-    // =========================================================================
-    // 2. Base Cat Drops (Normal / Evolved form unlocks from stages)
-    // =========================================================================
     if let Some(&located_chara_id) = drop_chara_registry.get(&target_item_id) {
         let cat_folder = Path::new(paths::DIR_CATS).join(format!("{:03}", located_chara_id));
-
-        // THE WAITER HAND-OFF: Let the unitexplanation module manage the language fallback directories
         let explanation = unitexplanation(located_chara_id, &cat_folder, active_language_priority_array);
 
-        // Default to a numerical ID string if the localized name is missing
         let mut name = format!("{}-1", located_chara_id);
-
-        // Safely unwrap the strict Option type from the new UnitExplanation structure
         if let Some(first_form_name) = &explanation.names[0] {
             name = first_form_name.clone();
         }
 
-        let img_directory_path = PathBuf::from(format!("game/cats/{:03}/f", located_chara_id));
-        let img_file_name = format!("uni{:03}_f00.png", located_chara_id);
-        let image_path = crate::global::resolver::get(&img_directory_path, [&img_file_name], active_language_priority_array).into_iter().next();
+        let image_path = resolve_cat_icon(located_chara_id, 0, unit_buy_registry, active_language_priority_array);
 
         return ResolvedDrop {
             name,
@@ -78,25 +105,16 @@ pub fn resolve_drop(
         };
     }
 
-    // =========================================================================
-    // 3. True Form Drops (Evolution unlocks from Awaken stages)
-    // =========================================================================
     if let Some((&unit_id, _)) = unit_buy_registry.iter().find(|(_, row_data)| row_data.true_form_id == target_item_id as i32) {
         let cat_folder = Path::new(paths::DIR_CATS).join(format!("{:03}", unit_id));
         let explanation = unitexplanation(unit_id, &cat_folder, active_language_priority_array);
 
-        // Default to a numerical ID string if the localized name is missing
         let mut name = format!("{}-3", unit_id);
-
-        // Target index 2, representing the True Form
         if let Some(true_form_name) = &explanation.names[2] {
             name = true_form_name.clone();
         }
 
-        // True form unlocks usually display the Evolved (s) form icon in the drop menu
-        let img_directory_path = PathBuf::from(format!("game/cats/{:03}/s", unit_id));
-        let img_file_name = format!("uni{:03}_s00.png", unit_id);
-        let image_path = crate::global::resolver::get(&img_directory_path, [&img_file_name], active_language_priority_array).into_iter().next();
+        let image_path = resolve_cat_icon(unit_id, 1, unit_buy_registry, active_language_priority_array);
 
         return ResolvedDrop {
             name,

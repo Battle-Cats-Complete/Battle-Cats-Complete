@@ -2,7 +2,7 @@ use eframe::egui;
 use tracing::warn;
 
 use core::global::context::GlobalContext;
-
+use core::stage::registry::GlobalMapId;
 use super::state::StageListState;
 
 pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, global_ctx: GlobalContext) {
@@ -29,9 +29,9 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
 
     let Some(stage) = state.data.registry.stages.get(stage_id) else { return; };
 
-    let map_key = format!("{}_{}", stage.category, stage.map_id);
+    let map_key = GlobalMapId { category: stage.category.clone(), map: stage.map_id };
     let Some(map_data) = state.data.registry.maps.get(&map_key) else {
-        warn!(map_key, "Failed to locate parent map for stage view");
+        warn!(?map_key, "Failed to locate parent map for stage view");
         return;
     };
 
@@ -51,7 +51,7 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
                         ctx,
                         ui,
                         stage,
-                        &map_data.name,
+                        map_data,
                         active_language_priority_array,
                         stage_texture_cache,
                         &state.data.lock_skip_registry,

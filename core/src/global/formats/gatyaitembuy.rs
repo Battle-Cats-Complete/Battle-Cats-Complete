@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use nyanko::common::utils::csv::detect_separator;
+use nyanko::common::tools::csv::detect_separator;
 
 use crate::global::resolver;
 

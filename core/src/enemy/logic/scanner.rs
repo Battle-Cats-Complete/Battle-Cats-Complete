@@ -5,7 +5,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 
 use nyanko::enemy::unit::Battle;
-use nyanko::graphics::actor::Animation;
+use nyanko::graphics::rig::Animation;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 

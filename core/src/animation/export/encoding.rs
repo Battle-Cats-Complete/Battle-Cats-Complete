@@ -10,9 +10,9 @@ use gif::{
 };
 use glow::HasContext;
 use image::RgbaImage;
+use nyanko::graphics::engine::resolve_frame;
+use nyanko::graphics::rig::{Animation, Unit};
 use webp_animation::Encoder as WebpEncoder;
-
-use nyanko::graphics::actor::{resolve_frame, Animation, Unit};
 
 use crate::animation::logic::canvas::GlowRenderer;
 

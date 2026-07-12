@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::mpsc::Receiver;
 
 use nyanko::cat::unit::UnitBuy;
+use nyanko::chapter::Category;
 use nyanko::chapter::map::LockSkipDataEntry;
 use nyanko::chapter::stage::ScatCpuSetting;
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,7 @@ use crate::enemy::waiter::enemyname;
 use crate::global::formats::gatyaitembuy::{self, GatyaItemBuy};
 use crate::global::formats::gatyaitemname::{self, GatyaItemName};
 use crate::settings::logic::ScannerConfig;
-use crate::stage::registry::StageRegistry;
+use crate::stage::registry::{StageRegistry, GlobalStageId, GlobalMapId};
 use crate::stage::waiter::{drop_chara, lockskipdata, scatcpusetting};
 
 use super::loader;
@@ -22,9 +23,9 @@ use super::loader;
 pub struct StageDataState {
     #[serde(skip)] pub registry: StageRegistry,
     pub search_query: String,
-    pub selected_category: Option<String>,
-    pub selected_map: Option<String>,
-    pub selected_stage: Option<String>,
+    pub selected_category: Option<Category>,
+    pub selected_map: Option<GlobalMapId>,
+    pub selected_stage: Option<GlobalStageId>,
 
     #[serde(skip)] pub scan_receiver: Option<Receiver<StageRegistry>>,
     #[serde(skip)] pub enemy_registry: HashMap<u32, EnemyEntry>,

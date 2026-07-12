@@ -49,7 +49,7 @@ fn format_treasure_rule(drop_rule: i32) -> &'static str {
     match drop_rule {
         1 => "Once, Then Unlimited",
         0 => "Unlimited",
-        -1 => "Raw Percentages (Unlimited)",
+        -1 => "Unlimited (%)",
         -3 => "Guaranteed (Once)",
         -4 => "Guaranteed (Unlimited)",
         _ => "Unknown Rule",
@@ -82,18 +82,18 @@ pub fn draw(
 ) {
     match &stage_data.rewards {
         RewardStructure::Treasure { drop_rule, drops } => {
+            let valid_drops_array: Vec<_> = drops.iter().filter(|drop_data| drop_data.chance > 0).collect();
+
+            // Guard clause: immediately exit if there are no valid drops
+            if valid_drops_array.is_empty() {
+                return;
+            }
+
             ui.set_max_width(TREASURE_TABLE_WIDTH);
 
             let rule_description = format_treasure_rule(*drop_rule);
             ui.strong(format!("Treasure | {}", rule_description));
             ui.separator();
-
-            let valid_drops_array: Vec<_> = drops.iter().filter(|drop_data| drop_data.chance > 0).collect();
-
-            if valid_drops_array.is_empty() {
-                ui.label("No drops configured.");
-                return;
-            }
 
             egui::Grid::new("reward_treasure_grid")
                 .striped(true)
@@ -123,14 +123,15 @@ pub fn draw(
                             let mut has_rendered_icon = false;
 
                             if let Some(resolved_image_path) = drop_info.image_path {
-                                if !item_texture_cache.contains_key(&drop_data.item_id)
-                                    && let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
-                                    let generated_texture_handle = egui_context.load_texture(
-                                        format!("treasure_item_icon_{}", drop_data.item_id),
-                                        processed_color_image,
-                                        egui::TextureOptions::LINEAR
-                                    );
-                                    item_texture_cache.insert(drop_data.item_id, generated_texture_handle);
+                                if !item_texture_cache.contains_key(&drop_data.item_id) {
+                                    if let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
+                                        let generated_texture_handle = egui_context.load_texture(
+                                            format!("treasure_item_icon_{}", drop_data.item_id),
+                                            processed_color_image,
+                                            egui::TextureOptions::LINEAR
+                                        );
+                                        item_texture_cache.insert(drop_data.item_id, generated_texture_handle);
+                                    }
                                 }
 
                                 if let Some(cached_texture_handle) = item_texture_cache.get(&drop_data.item_id) {
@@ -151,22 +152,22 @@ pub fn draw(
                 });
         }
         RewardStructure::Timed(timed_scores) => {
+            // Guard clause: immediately exit if there are no timed scores
+            if timed_scores.is_empty() {
+                return;
+            }
+
             ui.set_max_width(TREASURE_TABLE_WIDTH);
 
             ui.strong("Timed Score Rewards");
             ui.separator();
-
-            if timed_scores.is_empty() {
-                ui.label("No timed rewards configured.");
-                return;
-            }
 
             egui::Grid::new("reward_timed_grid")
                 .striped(true)
                 .spacing([15.0, 4.0])
                 .min_row_height(32.0)
                 .show(ui, |grid| {
-                    center_header(grid, "Score Required");
+                    center_header(grid, "Score");
                     center_header(grid, "Item");
                     center_header(grid, "Amount");
                     grid.end_row();
@@ -188,14 +189,15 @@ pub fn draw(
                             let mut has_rendered_icon = false;
 
                             if let Some(resolved_image_path) = drop_info.image_path {
-                                if !item_texture_cache.contains_key(&score_data.item_id)
-                                    && let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
-                                    let generated_texture_handle = egui_context.load_texture(
-                                        format!("treasure_item_icon_{}", score_data.item_id),
-                                        processed_color_image,
-                                        egui::TextureOptions::LINEAR
-                                    );
-                                    item_texture_cache.insert(score_data.item_id, generated_texture_handle);
+                                if !item_texture_cache.contains_key(&score_data.item_id) {
+                                    if let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
+                                        let generated_texture_handle = egui_context.load_texture(
+                                            format!("treasure_item_icon_{}", score_data.item_id),
+                                            processed_color_image,
+                                            egui::TextureOptions::LINEAR
+                                        );
+                                        item_texture_cache.insert(score_data.item_id, generated_texture_handle);
+                                    }
                                 }
 
                                 if let Some(cached_texture_handle) = item_texture_cache.get(&score_data.item_id) {
@@ -216,11 +218,6 @@ pub fn draw(
                 });
         }
         RewardStructure::None => {
-            ui.set_max_width(TREASURE_TABLE_WIDTH);
-
-            ui.strong("Rewards");
-            ui.separator();
-            ui.label("No rewards for this stage.");
         }
     }
 }

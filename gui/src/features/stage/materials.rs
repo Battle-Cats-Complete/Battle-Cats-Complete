@@ -50,7 +50,7 @@ pub fn draw(
     let mul = drops.crown_multipliers.get(selected_crown as usize).copied().unwrap_or(1.0);
     let f_amt = (b_amt as f32 * mul).round() as u32;
 
-    ui.strong(format!("Material Drops | Amount: {} ({}×{})", f_amt, b_amt, mul));
+    ui.strong(format!("Material Drops | Amount: {} ({}×{:.2})", f_amt, b_amt, mul));
     ui.separator();
     ui.add_space(4.0);
 

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use eframe::egui;
-use nyanko::graphics::actor::{Animation, Unit};
+use nyanko::graphics::rig::{Animation, Unit};
 
 use core::animation::export::state::{ExportMode, ExporterState};
 use core::animation::logic::canvas::GlowRenderer;

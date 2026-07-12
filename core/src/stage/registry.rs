@@ -1,83 +1,26 @@
 use std::collections::HashMap;
 
-use nyanko::chapter::stage::{BattlegroundEntry, CertificationPreset, CharaGroupEntry, RewardStructure};
-use nyanko::chapter::map::{DropItemEntry, ResetType, ScoreBonusMapEntry, SpecialRulesMapEntry};
+use nyanko::chapter::Category;
+pub use nyanko::chapter::Map;
+pub use nyanko::chapter::Stage;
 
-#[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct Stage {
-    pub id: String,
-    pub name: String,
-    pub category: String,
-    pub category_name: String,
-    pub map_id: u32,
-    pub stage_id: u32,
-
-    // Base layout
-    pub base_id: i32,
-    pub anim_base_id: u32,
-    pub width: u32,
-    pub base_hp: u32,
-    pub min_spawn: u32,
-    pub max_spawn: u32,
-    pub background_id: u32,
-    pub max_enemies: u32,
-    pub time_limit: u32,
-    pub is_no_continues: bool,
-    pub is_base_indestructible: bool,
-    pub unknown_value: u32,
-    pub enemies: Vec<BattlegroundEntry>,
-
-    // Core Rewards & Media
-    pub energy: u32,
-    pub xp: u32,
-    pub init_track: u32,
-    pub bgm_change_percent: u32,
-    pub boss_track: i16,
-    pub rewards: RewardStructure,
-
-    // Stage Options & Restrictions
-    pub difficulty: u16,
-    pub max_crowns: u8,
-    pub target_crowns: i8,
-    pub rarity_mask: u8,
-    pub deploy_limit: u32,
-    pub allowed_rows: u8,
-    pub min_cost: u32,
-    pub max_cost: u32,
-    pub charagroup: Option<CharaGroupEntry>,
-    pub fixed_lineups: HashMap<u8, CertificationPreset>,
+#[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct GlobalMapId {
+    pub category: Category,
+    pub map: u32,
 }
 
-#[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct Map {
-    pub id: String,
-    pub name: String,
-    pub category: String,
-    pub category_name: String,
-    pub map_id: u32,
-    pub stages: Vec<String>,
-    pub max_crowns: u8,
-    pub has_abyss: bool,
-    pub crown_1_mag: Option<u32>,
-    pub crown_2_mag: Option<u32>,
-    pub crown_3_mag: Option<u32>,
-    pub crown_4_mag: Option<u32>,
-    pub reset_type: ResetType,
-    pub max_clears: u32,
-    pub cooldown_minutes: u32,
-    pub hidden_upon_clear: bool,
-    pub comment: String,
-    pub ex_invasion: Option<u32>,
-    pub score_bonuses: Option<ScoreBonusMapEntry>,
-    pub special_rules: Option<SpecialRulesMapEntry>,
-    pub invalid_combos: Vec<u32>,
-    pub drop_items: Option<DropItemEntry>,
+#[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct GlobalStageId {
+    pub category: Category,
+    pub map: u32,
+    pub stage: u32,
 }
 
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 pub struct StageRegistry {
-    pub maps: HashMap<String, Map>,
-    pub stages: HashMap<String, Stage>,
+    pub maps: HashMap<GlobalMapId, Map>,
+    pub stages: HashMap<GlobalStageId, Stage>,
 }
 
 impl StageRegistry {

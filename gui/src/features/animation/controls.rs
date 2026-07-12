@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use eframe::egui;
-use nyanko::graphics::actor::Animation;
+use nyanko::graphics::rig::Animation;
 
 use core::settings::logic::state::Settings;
 

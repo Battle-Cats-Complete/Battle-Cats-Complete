@@ -9,7 +9,7 @@ use nyanko::chapter::stage::ScatCpuSetting;
 use core::global::resolver;
 use core::global::utils::autocrop;
 use core::stage::paths;
-use core::stage::registry::Stage;
+use core::stage::registry::{Map, Stage};
 
 const MAP_IMG_HEIGHT: f32 = 50.0;
 const STAGE_IMG_HEIGHT: f32 = 35.0;
@@ -26,8 +26,8 @@ fn format_difficulty_level(difficulty: u16) -> String {
     format!("★{}", difficulty)
 }
 
-fn format_energy_cost(category_prefix: &str, raw_energy_cost: u32) -> String {
-    if category_prefix != "B" {
+fn format_energy_cost(category: &Category, raw_energy_cost: u32) -> String {
+    if *category != Category::CataminStages {
         return raw_energy_cost.to_string();
     }
 
@@ -64,7 +64,6 @@ fn format_base_display(anim_base_id: u32, standard_base_id: i32) -> (String, Str
     ("Base Img".to_string(), standard_base_id.to_string())
 }
 
-
 fn format_boolean_status(status: bool, true_str: &str, false_str: &str) -> String {
     if status { true_str.to_string() } else { false_str.to_string() }
 }
@@ -90,52 +89,88 @@ fn format_time_limit(time_limit: u32) -> String {
     format!("{}m", time_limit)
 }
 
-fn format_category_prefix(category: &str) -> String {
-    let upper = category.to_uppercase();
-    if upper.starts_with('R') && upper.len() > 1 {
-        return upper[1..].to_string();
+fn get_image_prefix(category: &Category) -> String {
+    match category {
+        Category::StoriesOfLegend => "n".to_string(),
+        Category::RegularEventStages => "s".to_string(),
+        Category::CollabStages => "c".to_string(),
+        Category::EmpireOfCats => "ec".to_string(),
+        Category::IntoTheFuture => "w".to_string(),
+        Category::CatsOfTheCosmos => "space".to_string(),
+        Category::EventStages => "e".to_string(),
+        Category::ContinuationStages => "ex".to_string(),
+        Category::DojoHallOfInitiates => "t".to_string(),
+        Category::TowersAndCitadels => "v".to_string(),
+        Category::DojoRankingEvents => "r".to_string(),
+        Category::ChallengeBattle => "m".to_string(),
+        Category::UncannyLegends => "na".to_string(),
+        Category::CataminStages => "b".to_string(),
+        Category::LegendQuest => "d".to_string(),
+        Category::ZombieOutbreaks => "z".to_string(),
+        Category::GauntletStages => "a".to_string(),
+        Category::EnigmaStages => "h".to_string(),
+        Category::CollabGauntletStages => "ca".to_string(),
+        Category::AkuRealms => "u".to_string(),
+        Category::BehemothCulling => "q".to_string(),
+        Category::Labyrinth => "l".to_string(),
+        Category::ZeroLegends => "nd".to_string(),
+        Category::OtherworldColosseum => "sr".to_string(),
+        Category::CatclawChampionships => "g".to_string(),
+        Category::Unknown(prefix) => {
+            let upper = prefix.to_uppercase();
+            if upper.starts_with('R') && upper.len() > 1 {
+                upper[1..].to_lowercase()
+            } else {
+                upper.to_lowercase()
+            }
+        }
     }
-    upper
 }
 
 fn get_cpu_skip_status(
-    category: &str,
+    category: &Category,
     map_id: u32,
     lock_registry: &HashMap<u32, LockSkipDataEntry>,
     cpu_setting: &ScatCpuSetting
 ) -> String {
-    let cat_enum = Category::from_prefix(category);
-    let global_map_id = cat_enum.global_map_id(map_id);
+    let global_map_id = category.global_map_id(map_id);
 
-    if let Some(mid) = global_map_id
-        && let Some(entry) = lock_registry.get(&mid)
-        && entry.excluded_map_id == mid {
-        return "N/A".to_string();
+    if let Some(map_id_val) = global_map_id {
+        if let Some(entry) = lock_registry.get(&map_id_val) {
+            if entry.excluded_map_id == map_id_val {
+                return "N/A".to_string();
+            }
+        }
     }
 
     if cpu_setting.super_cpu_consume_amount > 0 {
         return format!("{} CPUs", cpu_setting.super_cpu_consume_amount);
     }
+
     "-".to_string()
 }
 
-fn get_map_image_filenames(map_id: u32, category: &str, lang_priority: &[String]) -> Vec<String> {
-    let cat_lower = format_category_prefix(category).to_lowercase();
+fn get_map_image_filenames(map_id: u32, category: &Category, lang_priority: &[String]) -> Vec<String> {
+    let category_lower = get_image_prefix(category);
     let mut filenames = Vec::new();
+
     for lang in lang_priority {
-        filenames.push(format!("mapname{:03}_{}_{}.png", map_id, cat_lower, lang));
+        filenames.push(format!("mapname{:03}_{}_{}.png", map_id, category_lower, lang));
     }
-    filenames.push(format!("mapname{:03}_{}.png", map_id, cat_lower));
+    filenames.push(format!("mapname{:03}_{}.png", map_id, category_lower));
+
     filenames
 }
 
-fn get_stage_image_filenames(map_id: u32, stage_id: u32, category: &str, lang_priority: &[String]) -> Vec<String> {
-    let cat_lower = format_category_prefix(category).to_lowercase();
+fn get_stage_image_filenames(map_id: u32, stage_id: u32, category: &Category, lang_priority: &[String]) -> Vec<String> {
+    let category_lower = get_image_prefix(category);
     let mut filenames = Vec::new();
+
     for lang in lang_priority {
-        filenames.push(format!("mapsn{:03}_{:02}_{}_{}.png", map_id, stage_id, cat_lower, lang));
+        filenames.push(format!("mapsn{:03}_{:02}_{}_{}.png", map_id, stage_id, category_lower, lang));
     }
-    filenames.push(format!("mapsn{:03}_{:02}_{}.png", map_id, stage_id, cat_lower));
+    filenames.push(format!("mapsn{:03}_{:02}_{}.png", map_id, stage_id, category_lower));
+
     filenames
 }
 
@@ -169,50 +204,74 @@ pub fn draw(
     egui_context: &egui::Context,
     ui: &mut egui::Ui,
     stage_data: &Stage,
-    map_name: &str,
+    map_data: &Map,
     lang_priority: &[String],
     texture_cache: &mut HashMap<String, egui::TextureHandle>,
     lock_registry: &HashMap<u32, LockSkipDataEntry>,
     cpu_setting: &ScatCpuSetting,
     selected_crown: &mut u8
 ) {
-    let cat_formatted = format_category_prefix(&stage_data.category);
-    let map_dir = Path::new(paths::DIR_STAGES).join(&cat_formatted).join(format!("{:03}", stage_data.map_id));
+    let category_formatted = get_image_prefix(&stage_data.category).to_uppercase();
+
+    // Fallback for custom formatted folder names
+    let folder_prefix = if category_formatted == "E" {
+        "RE".to_string()
+    } else if category_formatted == "T" && stage_data.category == Category::DojoHallOfInitiates {
+        "RT".to_string()
+    } else if category_formatted == "V" && stage_data.category == Category::TowersAndCitadels {
+        "RV".to_string()
+    } else if category_formatted == "R" && stage_data.category == Category::DojoRankingEvents {
+        "RR".to_string()
+    } else {
+        category_formatted
+    };
+
+    let map_dir = Path::new(paths::DIR_STAGES).join(&folder_prefix).join(format!("{:03}", stage_data.map_id));
     let stage_dir = map_dir.join(format!("{:02}", stage_data.stage_id));
 
-    let map_img_key = format!("map_img_{}_{}", stage_data.category, stage_data.map_id);
-    let stage_img_key = format!("stage_img_{}_{}_{}", stage_data.category, stage_data.map_id, stage_data.stage_id);
+    let map_img_key = format!("map_img_{:?}_{}", stage_data.category, stage_data.map_id);
+    let stage_img_key = format!("stage_img_{:?}_{}_{}", stage_data.category, stage_data.map_id, stage_data.stage_id);
 
     if !texture_cache.contains_key(&map_img_key) {
         let possible_files = get_map_image_filenames(stage_data.map_id, &stage_data.category, lang_priority);
         let refs: Vec<&str> = possible_files.iter().map(|s| s.as_str()).collect();
-        if let Some(resolved_path) = resolver::get(&map_dir, &refs, lang_priority).first()
-            && let Some(color_img) = process_texture(resolved_path) {
-            texture_cache.insert(map_img_key.clone(), egui_context.load_texture(&map_img_key, color_img, egui::TextureOptions::LINEAR));
+
+        if let Some(resolved_path) = resolver::get(&map_dir, &refs, lang_priority).first() {
+            if let Some(color_img) = process_texture(resolved_path) {
+                texture_cache.insert(map_img_key.clone(), egui_context.load_texture(&map_img_key, color_img, egui::TextureOptions::LINEAR));
+            }
         }
     }
 
     if !texture_cache.contains_key(&stage_img_key) {
         let possible_files = get_stage_image_filenames(stage_data.map_id, stage_data.stage_id, &stage_data.category, lang_priority);
         let refs: Vec<&str> = possible_files.iter().map(|s| s.as_str()).collect();
-        if let Some(resolved_path) = resolver::get(&stage_dir, &refs, lang_priority).first()
-            && let Some(color_img) = process_texture(resolved_path) {
-            texture_cache.insert(stage_img_key.clone(), egui_context.load_texture(&stage_img_key, color_img, egui::TextureOptions::LINEAR));
+
+        if let Some(resolved_path) = resolver::get(&stage_dir, &refs, lang_priority).first() {
+            if let Some(color_img) = process_texture(resolved_path) {
+                texture_cache.insert(stage_img_key.clone(), egui_context.load_texture(&stage_img_key, color_img, egui::TextureOptions::LINEAR));
+            }
         }
     }
 
     let mut map_width = 0.0;
     let mut stage_width = 0.0;
+
     let has_map = texture_cache.contains_key(&map_img_key);
     let has_stage = texture_cache.contains_key(&stage_img_key);
 
     if has_map {
-        let size = texture_cache.get(&map_img_key).unwrap().size_vec2();
-        map_width = size.x * (MAP_IMG_HEIGHT / size.y);
+        if let Some(map_tex) = texture_cache.get(&map_img_key) {
+            let size = map_tex.size_vec2();
+            map_width = size.x * (MAP_IMG_HEIGHT / size.y);
+        }
     }
+
     if has_stage {
-        let size = texture_cache.get(&stage_img_key).unwrap().size_vec2();
-        stage_width = size.x * (STAGE_IMG_HEIGHT / size.y);
+        if let Some(stage_tex) = texture_cache.get(&stage_img_key) {
+            let size = stage_tex.size_vec2();
+            stage_width = size.x * (STAGE_IMG_HEIGHT / size.y);
+        }
     }
 
     let max_height = MAP_IMG_HEIGHT.max(STAGE_IMG_HEIGHT);
@@ -223,16 +282,21 @@ pub fn draw(
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+
             if has_map {
-                let map_tex = texture_cache.get(&map_img_key).unwrap();
-                ui.add(egui::Image::new(map_tex).fit_to_exact_size(egui::vec2(map_width, MAP_IMG_HEIGHT)));
+                if let Some(map_tex) = texture_cache.get(&map_img_key) {
+                    ui.add(egui::Image::new(map_tex).fit_to_exact_size(egui::vec2(map_width, MAP_IMG_HEIGHT)));
+                }
             } else {
-                ui.label(egui::RichText::new(map_name).strong().size(18.0));
+                ui.label(egui::RichText::new(&map_data.name).strong().size(18.0));
             }
+
             ui.add_space(IMG_SPACING);
+
             if has_stage {
-                let stage_tex = texture_cache.get(&stage_img_key).unwrap();
-                ui.add(egui::Image::new(stage_tex).fit_to_exact_size(egui::vec2(stage_width, STAGE_IMG_HEIGHT)));
+                if let Some(stage_tex) = texture_cache.get(&stage_img_key) {
+                    ui.add(egui::Image::new(stage_tex).fit_to_exact_size(egui::vec2(stage_width, STAGE_IMG_HEIGHT)));
+                }
             } else {
                 ui.label(egui::RichText::new(&stage_data.name).strong().size(18.0));
             }
@@ -243,13 +307,25 @@ pub fn draw(
     ui.separator();
     ui.add_space(BOTTOM_PADDING);
 
-    // <--- CROWNS DRAWN HERE --->
     super::crowns::draw(ui, stage_data, selected_crown);
 
     ui.strong("General Information");
     ui.separator();
 
-    let energy_header = if stage_data.category == "B" { "Catamin" } else { "Energy" };
+    let crown_mag = match *selected_crown {
+        1 => map_data.crown_2_mag.unwrap_or(100),
+        2 => map_data.crown_3_mag.unwrap_or(100),
+        3 => map_data.crown_4_mag.unwrap_or(100),
+        _ => map_data.crown_1_mag.unwrap_or(100),
+    } as u32;
+
+    let final_base_hp = if stage_data.anim_base_id != 0 {
+        (stage_data.base_hp * crown_mag) / 100
+    } else {
+        stage_data.base_hp
+    };
+
+    let energy_header = if stage_data.category == Category::CataminStages { "Catamin" } else { "Energy" };
     let formatted_energy_value = format_energy_cost(&stage_data.category, stage_data.energy);
     let formatted_difficulty = format_difficulty_level(stage_data.difficulty);
     let formatted_crown = format_crown_display(stage_data.target_crowns, stage_data.max_crowns);
@@ -257,9 +333,9 @@ pub fn draw(
     let formatted_indestructible = format_boolean_status(stage_data.is_base_indestructible, "Active", "-");
     let (base_header, formatted_base_value) = format_base_display(stage_data.anim_base_id, stage_data.base_id);
     let formatted_global_respawn = format_global_respawn(stage_data.min_spawn, stage_data.max_spawn);
-    let formatted_boss_track = format_boss_track(stage_data.boss_track as i16, stage_data.init_track, stage_data.bgm_change_percent);
+    let formatted_boss_track = format_boss_track(stage_data.boss_track, stage_data.init_track, stage_data.bgm_change_percent);
     let formatted_time_limit = format_time_limit(stage_data.time_limit);
-    let formatted_cpu_skip = get_cpu_skip_status(&stage_data.category, stage_data.map_id,lock_registry, &cpu_setting);
+    let formatted_cpu_skip = get_cpu_skip_status(&stage_data.category, stage_data.map_id, lock_registry, cpu_setting);
 
     egui::Grid::new("stage_meta_grid")
         .striped(true)
@@ -275,7 +351,7 @@ pub fn draw(
             center_header(grid, "Difficulty");
             grid.end_row();
 
-            center_text(grid, stage_data.base_hp.to_string());
+            center_text(grid, final_base_hp.to_string());
             center_text(grid, formatted_energy_value);
             center_text(grid, stage_data.xp.to_string());
             center_text(grid, stage_data.width.to_string());

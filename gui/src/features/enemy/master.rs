@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use eframe::egui;
-use nyanko::graphics::actor::Unit;
+use nyanko::graphics::rig::Unit;
 
 use core::enemy::logic::context::EnemyRenderContext;
 use core::enemy::logic::scanner::{self, EnemyEntry};

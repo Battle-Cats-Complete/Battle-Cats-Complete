@@ -1,33 +1,41 @@
-use crate::stage::registry::{StageRegistry, Map, Stage};
+use std::collections::HashSet;
 
-pub fn get_categories(registry: &StageRegistry) -> Vec<(String, String)> {
-    let mut categories: Vec<(String, String)> = registry.maps.values()
-        .map(|m| (m.category.clone(), m.category_name.clone()))
+use nyanko::chapter::Category;
+use crate::stage::registry::{StageRegistry, Map, Stage, GlobalMapId, GlobalStageId};
+
+pub fn get_categories(registry: &StageRegistry) -> Vec<Category> {
+    let unique_categories: HashSet<Category> = registry.maps.keys()
+        .map(|id| id.category.clone())
         .collect();
-    
-    categories.sort_by(|a, b| a.0.cmp(&b.0));
-    categories.dedup();
-    categories
+
+    unique_categories.into_iter().collect()
 }
 
-pub fn get_maps(registry: &StageRegistry, category: &str) -> Vec<Map> {
-    let mut maps: Vec<Map> = registry.maps.values()
-        .filter(|m| m.category == category)
-        .cloned()
+pub fn get_maps(registry: &StageRegistry, category: &Category) -> Vec<Map> {
+    let mut maps: Vec<Map> = registry.maps.iter()
+        .filter(|(id, _)| id.category == *category)
+        .map(|(_, m)| m.clone())
         .collect();
-    
+
     maps.sort_by_key(|m| m.map_id);
     maps
 }
 
-pub fn get_stages(registry: &StageRegistry, map_id: &str) -> Vec<Stage> {
+pub fn get_stages(registry: &StageRegistry, map_id: &GlobalMapId) -> Vec<Stage> {
     let Some(map) = registry.maps.get(map_id) else { return Vec::new(); };
-    
+
     let mut stages: Vec<Stage> = map.stages.iter()
-        .filter_map(|s_key| registry.stages.get(s_key))
+        .filter_map(|&stage_id| {
+            let stage_key = GlobalStageId {
+                category: map_id.category.clone(),
+                map: map_id.map,
+                stage: stage_id,
+            };
+            registry.stages.get(&stage_key)
+        })
         .cloned()
         .collect();
-    
+
     stages.sort_by_key(|s| s.stage_id);
     stages
 }

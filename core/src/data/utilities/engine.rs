@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
-use nyanko::common::utils::variant::Region;
+use nyanko::common::tools::variant::Region;
 use nyanko::pack::cryptology;
 use nyanko::pack::chronology;
 use rayon::prelude::*;

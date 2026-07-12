@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use eframe::egui;
-use nyanko::graphics::actor::Unit;
+use nyanko::graphics::rig::Unit;
 use serde::{Deserialize, Serialize};
 
 use core::cat::logic::filter::CatFilterState;

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use eframe::egui;
 use nyanko::cat::unit::TalentCost;
-use nyanko::graphics::actor::Unit;
+use nyanko::graphics::rig::Unit;
 
 use core::cat::logic::context::CatRenderContext;
 use core::cat::logic::scanner::CatEntry;

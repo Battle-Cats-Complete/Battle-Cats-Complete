@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use eframe::egui;
-use nyanko::graphics::actor::{resolve_frame, Animation, Unit};
+use nyanko::graphics::engine::resolve_frame;
+use nyanko::graphics::rig::{Animation, Unit};
 
 use core::animation::logic::canvas::GlowRenderer;
 

@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use eframe::egui;
-use nyanko::graphics::actor::{Animation, Unit};
+use nyanko::graphics::rig::{Animation, Unit};
 
 use core::animation::export::encoding::{self, EncoderMessage};
 use core::animation::export::process::calculate_export_time;

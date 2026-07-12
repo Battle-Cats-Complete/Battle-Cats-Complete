@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{mpsc, Arc, Mutex};
 
-use nyanko::graphics::actor::Animation;
+use nyanko::graphics::rig::Animation;
 
 use super::encoding::{EncoderStatus, ExportConfig, ExportFormat};
 use super::leader;

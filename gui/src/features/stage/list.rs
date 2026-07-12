@@ -1,16 +1,17 @@
 use eframe::egui;
-
-use core::stage::logic::navigate;
 use nyanko::chapter::Category;
 
+use core::stage::logic::navigate;
+use core::stage::registry::{GlobalMapId, GlobalStageId};
+
+use super::category::CategoryExt;
 use super::state::StageListState;
 
 pub const BTN_SPACING_X: f32 = 14.0;
 pub const BTN_SPACING_Y: f32 = 6.0;
 
 pub fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
-    let mut categories = navigate::get_categories(&state.data.registry);
-    categories.sort_by_key(|(prefix, _)| Category::from_prefix(prefix).sort_order());
+    let categories = navigate::get_categories(&state.data.registry);
 
     if categories.is_empty() {
         ui.vertical_centered(|ui| {
@@ -44,33 +45,36 @@ fn draw_sidebar_btn(ui: &mut egui::Ui, text: &str, is_selected: bool) -> bool {
 
     let btn_text = egui::RichText::new(text).size(13.0);
     let btn = egui::Button::new(btn_text).fill(bg_color).wrap();
-    
+
     ui.add_sized([ui.available_width(), 30.0], btn).clicked()
 }
 
-fn draw_categories(ui: &mut egui::Ui, state: &mut StageListState, categories: &[(String, String)]) {
+fn draw_categories(ui: &mut egui::Ui, state: &mut StageListState, categories: &[Category]) {
     ui.vertical(|ui| {
         ui.set_min_width(180.0);
         ui.set_max_width(180.0);
-        ui.set_min_height(ui.available_height()); 
+        ui.set_min_height(ui.available_height());
 
         egui::ScrollArea::vertical()
             .id_salt("cat_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = BTN_SPACING_Y; 
+                ui.spacing_mut().item_spacing.y = BTN_SPACING_Y;
                 ui.add_space(BTN_SPACING_Y);
-                
-                for (cat_prefix, cat_name) in categories {
-                    let is_selected = state.data.selected_category.as_deref() == Some(cat_prefix);
-                    
-                    if draw_sidebar_btn(ui, cat_name, is_selected) {
-                        state.data.selected_category = Some(cat_prefix.clone());
+
+                let mut sorted_categories = categories.to_vec();
+                sorted_categories.sort_by_key(|cat| cat.sort_order());
+
+                for cat in &sorted_categories {
+                    let is_selected = state.data.selected_category.as_ref() == Some(cat);
+
+                    if draw_sidebar_btn(ui, cat.display_name(), is_selected) {
+                        state.data.selected_category = Some(cat.clone());
                         state.data.selected_map = None;
                         state.data.selected_stage = None;
                     }
                 }
-                
+
                 ui.add_space(BTN_SPACING_Y);
             });
     });
@@ -78,7 +82,7 @@ fn draw_categories(ui: &mut egui::Ui, state: &mut StageListState, categories: &[
 
 fn draw_maps(ui: &mut egui::Ui, state: &mut StageListState) {
     let Some(cat) = &state.data.selected_category else { return; };
-    
+
     ui.vertical(|ui| {
         ui.set_min_width(200.0);
         ui.set_max_width(200.0);
@@ -90,18 +94,19 @@ fn draw_maps(ui: &mut egui::Ui, state: &mut StageListState) {
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = BTN_SPACING_Y;
                 ui.add_space(BTN_SPACING_Y);
-                
+
                 let maps = navigate::get_maps(&state.data.registry, cat);
                 for map in maps {
-                    let is_selected = state.data.selected_map.as_ref() == Some(&map.id);
-                    
+                    let map_key = GlobalMapId { category: cat.clone(), map: map.map_id };
+                    let is_selected = state.data.selected_map.as_ref() == Some(&map_key);
+
                     if draw_sidebar_btn(ui, &map.name, is_selected) {
-                        state.data.selected_map = Some(map.id);
+                        state.data.selected_map = Some(map_key);
                         state.data.selected_stage = None;
                     }
                 }
-                
-                ui.add_space(BTN_SPACING_Y); 
+
+                ui.add_space(BTN_SPACING_Y);
             });
     });
 }
@@ -120,16 +125,22 @@ fn draw_stages(ui: &mut egui::Ui, state: &mut StageListState) {
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = BTN_SPACING_Y;
                 ui.add_space(BTN_SPACING_Y);
-                
+
                 let stages = navigate::get_stages(&state.data.registry, map_id);
                 for stage in stages {
-                    let is_selected = state.data.selected_stage.as_ref() == Some(&stage.id);
-                    
+                    let stage_key = GlobalStageId {
+                        category: map_id.category.clone(),
+                        map: map_id.map,
+                        stage: stage.stage_id,
+                    };
+
+                    let is_selected = state.data.selected_stage.as_ref() == Some(&stage_key);
+
                     if draw_sidebar_btn(ui, &stage.name, is_selected) {
-                        state.data.selected_stage = Some(stage.id);
+                        state.data.selected_stage = Some(stage_key);
                     }
                 }
-                
+
                 ui.add_space(BTN_SPACING_Y);
             });
     });

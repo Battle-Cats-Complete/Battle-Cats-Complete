@@ -9,14 +9,14 @@ use nyanko::cat::unit::{
     Battle, LevelCurve, Talent,
     TalentCost, UnitBuy, UnitEvolve
 };
-use nyanko::graphics::actor::Animation;
+use nyanko::graphics::rig::Animation;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::cat::paths;
 use crate::cat::waiter::{
     skillacquisition, skilldescriptions, skilllevel,
-    unitbuy, unitevolve, unitexplanation, unitlevel,
+    unitbuy, unitevolve, unitexplanation, unitlevel
 };
 use crate::settings::logic::state::ScannerConfig;
 

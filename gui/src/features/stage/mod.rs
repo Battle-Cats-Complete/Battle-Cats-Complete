@@ -8,3 +8,4 @@ pub mod state;
 pub mod materials;
 pub mod crowns;
 pub mod fixedlineup;
+pub mod category;

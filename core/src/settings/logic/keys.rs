@@ -1,5 +1,5 @@
 use md5;
-use nyanko::common::utils::variant::Region;
+use nyanko::common::tools::variant::Region;
 use serde::{Deserialize, Serialize};
 
 pub const EXPECTED_HASHES: [(&str, &str); 4] = [
