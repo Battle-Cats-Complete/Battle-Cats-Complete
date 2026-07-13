@@ -10,6 +10,7 @@ use core::stage::logic::materials;
 use core::stage::registry::{Map, Stage};
 
 pub const MAT_TABLE_WIDTH: f32 = 345.0;
+pub const MAX_ICON_SIZE: f32 = 32.0;
 const COL_SPACING: f32 = 8.0;
 
 fn process_item_icon_texture(p: &Path) -> Option<egui::ColorImage> {
@@ -17,7 +18,7 @@ fn process_item_icon_texture(p: &Path) -> Option<egui::ColorImage> {
     let crop = autocrop(img.to_rgba8());
     let (w, h) = crop.dimensions();
     let max_dim = w.max(h) as f32;
-    let scale = 32.0 / max_dim;
+    let scale = MAX_ICON_SIZE / max_dim;
     let tw = (w as f32 * scale).round() as u32;
     let th = (h as f32 * scale).round() as u32;
     let res = image::imageops::resize(&crop, tw.max(1), th.max(1), image::imageops::FilterType::Triangle);
@@ -50,7 +51,7 @@ pub fn draw(
     let mul = drops.crown_multipliers.get(selected_crown as usize).copied().unwrap_or(1.0);
     let f_amt = (b_amt as f32 * mul).round() as u32;
 
-    ui.strong(format!("Material Drops | Amount: {} ({}×{:.2})", f_amt, b_amt, mul));
+    ui.strong(format!("Materials | Amount: {} ({}×{:.2})", f_amt, b_amt, mul));
     ui.separator();
     ui.add_space(4.0);
 
@@ -116,14 +117,14 @@ fn draw_chunks(
                     }
 
                     if let Some(tex) = cache.get(&id) {
-                        let resp = ui.add(egui::Image::new(tex).max_size(egui::vec2(32.0, 32.0)));
+                        let resp = ui.add(egui::Image::new(tex).max_size(egui::vec2(MAX_ICON_SIZE, MAX_ICON_SIZE)));
                         resp.on_hover_text(d.name.clone());
                         is_rendered = true;
                     }
                 }
 
                 if !is_rendered {
-                    ui.add_sized([32.0, 32.0], egui::Label::new(&d.name).truncate());
+                    ui.add_sized([MAX_ICON_SIZE, MAX_ICON_SIZE], egui::Label::new(&d.name).truncate());
                 }
             });
         }

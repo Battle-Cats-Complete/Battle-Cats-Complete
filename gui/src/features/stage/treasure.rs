@@ -152,7 +152,6 @@ pub fn draw(
                 });
         }
         RewardStructure::Timed(timed_scores) => {
-            // Guard clause: immediately exit if there are no timed scores
             if timed_scores.is_empty() {
                 return;
             }

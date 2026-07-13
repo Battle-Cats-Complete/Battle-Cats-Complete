@@ -383,41 +383,48 @@ fn load_story_stages(
     };
 
     if !story_file.is_empty() {
-        let story_path = map_path.join(story_file);
-        if let Ok(content) = fs::read_to_string(&story_path) {
-            let sep = csv::detect_separator(&content);
-            for (idx, line) in content.lines().skip(2).enumerate() {
-                let clean = line.split("//").next().unwrap_or("").trim();
-                if clean.is_empty() { continue; }
+        let resolved_paths = crate::global::resolver::get(map_path, [story_file], ctx.lang_priority);
+        if let Some(story_path) = resolved_paths.first() {
+            if let Ok(content) = fs::read_to_string(story_path) {
+                let sep = csv::detect_separator(&content);
+                for (idx, line) in content.lines().skip(2).enumerate() {
+                    let clean = line.split("//").next().unwrap_or("").trim();
+                    if clean.is_empty() { continue; }
 
-                let parts: Vec<&str> = clean.split(sep).collect();
-                if parts.len() < 6 { continue; }
+                    let parts: Vec<&str> = clean.split(sep).collect();
+                    if parts.len() < 6 { continue; }
 
-                let energy = parts[0].trim().parse().unwrap_or(0);
-                let init_track: i16 = parts[2].trim().parse().unwrap_or(0);
-                let boss_track: i16 = parts[5].trim().parse().unwrap_or(-1);
-                story_data.insert(idx as u32, (energy, init_track, boss_track));
+                    let energy = parts[0].trim().parse().unwrap_or(0);
+                    let init_track: i16 = parts[2].trim().parse().unwrap_or(0);
+                    let boss_track: i16 = parts[5].trim().parse().unwrap_or(-1);
+                    story_data.insert(idx as u32, (energy, init_track, boss_track));
+                }
+            } else {
+                warn!("Expected story data file missing or unreadable: {}", story_path.display());
             }
         } else {
-            warn!("Expected story data file missing: {}", story_path.display());
+            warn!("Expected story data file missing: {}", map_path.join(story_file).display());
         }
     }
 
     if !inv_story_file.is_empty() {
-        let inv_story_path = map_path.join(inv_story_file);
-        if let Ok(content) = fs::read_to_string(&inv_story_path) {
-            let sep = csv::detect_separator(&content);
-            for line in content.lines().skip(2) {
-                let clean = line.split("//").next().unwrap_or("").trim();
-                if clean.is_empty() { continue; }
+        // [MODIFIED]: Fetch via resolver instead of map_path.join(inv_story_file)
+        let resolved_paths = crate::global::resolver::get(map_path, [inv_story_file], ctx.lang_priority);
+        if let Some(inv_story_path) = resolved_paths.first() {
+            if let Ok(content) = fs::read_to_string(inv_story_path) {
+                let sep = csv::detect_separator(&content);
+                for line in content.lines().skip(2) {
+                    let clean = line.split("//").next().unwrap_or("").trim();
+                    if clean.is_empty() { continue; }
 
-                let parts: Vec<&str> = clean.split(sep).collect();
-                if parts.len() >= 6 {
-                    let energy = parts[0].trim().parse().unwrap_or(0);
-                    let init_track: i16 = parts[2].trim().parse().unwrap_or(0);
-                    let boss_track: i16 = parts[5].trim().parse().unwrap_or(-1);
-                    inv_story_data = Some((energy, init_track, boss_track));
-                    break;
+                    let parts: Vec<&str> = clean.split(sep).collect();
+                    if parts.len() >= 6 {
+                        let energy = parts[0].trim().parse().unwrap_or(0);
+                        let init_track: i16 = parts[2].trim().parse().unwrap_or(0);
+                        let boss_track: i16 = parts[5].trim().parse().unwrap_or(-1);
+                        inv_story_data = Some((energy, init_track, boss_track));
+                        break;
+                    }
                 }
             }
         }

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use nyanko::cat::unit::UnitBuy;
+use tracing::{debug, trace};
 
 use crate::cat::waiter::unitexplanation;
 use crate::global::formats::gatyaitembuy::GatyaItemBuy;
@@ -20,10 +21,10 @@ fn resolve_cat_icon(
     unit_buy_registry: &HashMap<u32, UnitBuy>,
     langs: &[String]
 ) -> Option<PathBuf> {
-    let default_egg_ids = (-1, -1);
-    let egg_id_tuple = unit_buy_registry.get(&unit_id)
-        .map(|unit_buy_data| (unit_buy_data.egg_id_normal, unit_buy_data.egg_id_evolved))
-        .unwrap_or(default_egg_ids);
+    let default_egg = (-1, -1);
+    let egg_ids = unit_buy_registry.get(&unit_id)
+        .map(|buy_data| (buy_data.egg_id_normal, buy_data.egg_id_evolved))
+        .unwrap_or(default_egg);
 
     let form_str = match form_index {
         0 => "f",
@@ -36,20 +37,23 @@ fn resolve_cat_icon(
     let img_dir = paths::cat_form_folder(unit_id, form_str);
     let img_file = paths::cat_form_img(unit_id, form_str);
 
-    let resolved_primary_icon = crate::global::resolver::get(
+    trace!(unit_id, form_index, "Attempting to resolve primary cat icon");
+
+    let primary_icon = crate::global::resolver::get(
         &img_dir,
         [&img_file],
         langs
     ).into_iter().next();
 
-    if resolved_primary_icon.is_some() {
-        return resolved_primary_icon;
+    if primary_icon.is_some() {
+        return primary_icon;
     }
 
-    let target_egg_id = if form_index == 0 { egg_id_tuple.0 } else { egg_id_tuple.1 };
+    let target_egg = if form_index == 0 { egg_ids.0 } else { egg_ids.1 };
 
-    if target_egg_id != -1 {
-        let fallback_name = format!("uni{:03}_m00.png", target_egg_id);
+    if target_egg != -1 {
+        trace!(unit_id, target_egg, "Falling back to egg icon");
+        let fallback_name = format!("uni{:03}_m00.png", target_egg);
         return crate::global::resolver::get(
             &img_dir,
             [&fallback_name],
@@ -70,20 +74,21 @@ pub fn resolve_drop(
     langs: &[String]
 ) -> ResolvedDrop {
 
-    if let Some(located_item_unitbuy) = item_buy_registry.get(&target_item_id) {
-        let target_name_row_index = located_item_unitbuy.row_index;
-        let name = item_name_registry.get(&target_name_row_index)
+    if let Some(item_buy) = item_buy_registry.get(&target_item_id) {
+        debug!(target_item_id, "Resolving regular item drop");
+        let name_idx = item_buy.row_index;
+        let name = item_name_registry.get(&name_idx)
             .map(|d| d.name.clone())
             .unwrap_or_else(|| target_item_id.to_string());
 
-        let resolved_image_identifier = if located_item_unitbuy.img_id != -1 {
-            located_item_unitbuy.img_id as u32
+        let img_id = if item_buy.img_id != -1 {
+            item_buy.img_id as u32
         } else {
-            located_item_unitbuy.row_index as u32
+            item_buy.row_index as u32
         };
 
         let gatya_dir = Path::new(paths::DIR_GATYA_ITEM);
-        let gatya_img = paths::gatya_item_img(resolved_image_identifier);
+        let gatya_img = paths::gatya_item_img(img_id);
 
         let image_path = crate::global::resolver::get(gatya_dir, [&gatya_img], langs).into_iter().next();
 
@@ -94,16 +99,17 @@ pub fn resolve_drop(
         };
     }
 
-    if let Some(&located_chara_id) = drop_chara_registry.get(&target_item_id) {
-        let cat_folder = paths::cat_folder(located_chara_id);
-        let explanation = unitexplanation(located_chara_id, &cat_folder, langs);
+    if let Some(&chara_id) = drop_chara_registry.get(&target_item_id) {
+        debug!(chara_id, target_item_id, "Resolving base cat drop");
+        let cat_folder = paths::cat_folder(chara_id);
+        let explanation = unitexplanation(chara_id, &cat_folder, langs);
 
-        let mut name = format!("{}-1", located_chara_id);
-        if let Some(first_form_name) = &explanation.names[0] {
-            name = first_form_name.clone();
+        let mut name = format!("{}-1", chara_id);
+        if let Some(first_form) = &explanation.names[0] {
+            name = first_form.clone();
         }
 
-        let image_path = resolve_cat_icon(located_chara_id, 0, unit_buy_registry, langs);
+        let image_path = resolve_cat_icon(chara_id, 0, unit_buy_registry, langs);
 
         return ResolvedDrop {
             name,
@@ -112,16 +118,17 @@ pub fn resolve_drop(
         };
     }
 
-    if let Some((&unit_id, _)) = unit_buy_registry.iter().find(|(_, row_data)| row_data.true_form_id == target_item_id as i32) {
+    if let Some((&unit_id, _)) = unit_buy_registry.iter().find(|(_, row)| row.true_form_id == target_item_id as i32) {
+        debug!(unit_id, target_item_id, "Resolving true form cat drop");
         let cat_folder = paths::cat_folder(unit_id);
         let explanation = unitexplanation(unit_id, &cat_folder, langs);
 
         let mut name = format!("{}-3", unit_id);
-        if let Some(true_form_name) = &explanation.names[2] {
-            name = true_form_name.clone();
+        if let Some(true_form) = &explanation.names[2] {
+            name = true_form.clone();
         }
 
-        let image_path = resolve_cat_icon(unit_id, 1, unit_buy_registry, langs);
+        let image_path = resolve_cat_icon(unit_id, 2, unit_buy_registry, langs);
 
         return ResolvedDrop {
             name,
@@ -130,6 +137,7 @@ pub fn resolve_drop(
         };
     }
 
+    debug!(target_item_id, "Fallback for unresolved drop");
     ResolvedDrop {
         name: target_item_id.to_string(),
         image_path: None,

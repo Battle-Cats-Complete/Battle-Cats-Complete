@@ -94,28 +94,51 @@ fn get_skip_status(
     "-".to_string()
 }
 
-fn get_map_imgs(map_id: u32, image_prefix: &str, languages: &[String]) -> Vec<String> {
-    let mut files = Vec::new();
-    let prefix_string = if image_prefix.is_empty() { "".to_string() } else { format!("_{}", image_prefix) };
-
-    for language in languages {
-        files.push(format!("mapname{:03}{}_{}.png", map_id, prefix_string, language));
-    }
-    files.push(format!("mapname{:03}{}.png", map_id, prefix_string));
-
-    files
+fn get_map_file(map_id: u32, image_prefix: &str) -> String {
+    let prefix_string = if image_prefix.is_empty() { String::new() } else { format!("_{}", image_prefix) };
+    format!("mapname{:03}{}.png", map_id, prefix_string)
 }
 
-fn get_stage_imgs(map_id: u32, stage_id: u32, image_prefix: &str, languages: &[String]) -> Vec<String> {
-    let mut files = Vec::new();
-    let prefix_string = if image_prefix.is_empty() { "".to_string() } else { format!("_{}", image_prefix) };
+fn get_stage_file(map_id: u32, stage_id: u32, image_prefix: &str) -> String {
+    let prefix_string = if image_prefix.is_empty() { String::new() } else { format!("_{}", image_prefix) };
+    format!("mapsn{:03}_{:02}{}.png", map_id, stage_id, prefix_string)
+}
 
-    for language in languages {
-        files.push(format!("mapsn{:03}_{:02}{}_{}.png", map_id, stage_id, prefix_string, language));
-    }
-    files.push(format!("mapsn{:03}_{:02}{}.png", map_id, stage_id, prefix_string));
+fn get_story_stage_info(category: &Category, map_id: u32, stage_id: u32) -> Option<(PathBuf, String)> {
+    let (folder_name, file_code) = match category {
+        Category::EmpireOfCats => ("EC", "ec"),
+        Category::IntoTheFuture => ("W", "wc"),
+        Category::CatsOfTheCosmos => ("Space", "sc"),
+        Category::ZombieOutbreaks => match map_id / 3 {
+            0 => ("EC", "ec"),
+            1 => ("W", "wc"),
+            2 => ("Space", "sc"),
+            _ => return None,
+        },
+        _ => return None,
+    };
 
-    files
+    let image_index = match stage_id {
+        0..=45 => {
+            let reversed_index = 45 - stage_id;
+            tracing::trace!("Reversing story image index: {} -> {}", stage_id, reversed_index);
+            reversed_index
+        }
+        49 | 50 => {
+            tracing::trace!("Clamping story image index: {} -> 47", stage_id);
+            47
+        }
+        id => id,
+    };
+
+    let directory = Path::new(paths::DIR_CATEGORIES)
+        .join(folder_name)
+        .join("image")
+        .join(format!("{:02}", image_index));
+
+    let file_name = format!("{}0{:02}_n.png", file_code, image_index);
+
+    Some((directory, file_name))
 }
 
 fn find_texture(directories: &[PathBuf], files: &[String], languages: &[String]) -> Option<PathBuf> {
@@ -166,16 +189,11 @@ pub fn draw(
     let stage_key = format!("stage_img_{:?}_{}_{}", stage.category, stage.map_id, stage.stage_id);
 
     let base_directory = Path::new(paths::DIR_CATEGORIES);
-
     let map_directory = paths::map_folder(base_directory, &stage.category, stage.map_id);
-    let stage_directory = paths::stage_folder(base_directory, &stage.category, stage.map_id, stage.stage_id);
-
-    let map_directories = vec![map_directory];
-    let stage_directories = vec![stage_directory];
 
     if !texture_cache.contains_key(&map_key) {
-        let files = get_map_imgs(stage.map_id, &image_prefix, languages);
-        if let Some(texture_path) = find_texture(&map_directories, &files, languages) {
+        let map_file = get_map_file(stage.map_id, &image_prefix);
+        if let Some(texture_path) = find_texture(&[map_directory.clone()], &[map_file], languages) {
             if let Some(processed_image) = process_texture(&texture_path) {
                 tracing::trace!("Caching map texture: {}", map_key);
                 texture_cache.insert(map_key.clone(), context.load_texture(&map_key, processed_image, egui::TextureOptions::LINEAR));
@@ -184,8 +202,15 @@ pub fn draw(
     }
 
     if !texture_cache.contains_key(&stage_key) {
-        let files = get_stage_imgs(stage.map_id, stage.stage_id, &image_prefix, languages);
-        if let Some(texture_path) = find_texture(&stage_directories, &files, languages) {
+        let (search_dirs, files) = if let Some((story_dir, story_file)) = get_story_stage_info(&stage.category, stage.map_id, stage.stage_id) {
+            (vec![story_dir], vec![story_file])
+        } else {
+            let stage_directory = paths::stage_folder(base_directory, &stage.category, stage.map_id, stage.stage_id);
+            let stage_file = get_stage_file(stage.map_id, stage.stage_id, &image_prefix);
+            (vec![stage_directory], vec![stage_file])
+        };
+
+        if let Some(texture_path) = find_texture(&search_dirs, &files, languages) {
             if let Some(processed_image) = process_texture(&texture_path) {
                 tracing::trace!("Caching stage texture: {}", stage_key);
                 texture_cache.insert(stage_key.clone(), context.load_texture(&stage_key, processed_image, egui::TextureOptions::LINEAR));
