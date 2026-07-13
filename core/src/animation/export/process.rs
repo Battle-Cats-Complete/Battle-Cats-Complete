@@ -127,28 +127,31 @@ pub fn calculate_export_time(
         let step = if state.frame_start < state.frame_end { 1 } else { -1 };
         (start + (state.current_progress * step)) as f32
     };
+    
+    let loop_boundary = animation.calculate_true_loop();
 
     if state.export_mode == ExportMode::Showcase {
         let natively_loops = animation.curves.iter().any(|c| c.loop_count != 1);
 
         if natively_loops {
             raw_frame
-        } else {
-            let effective_maximum = animation.curves.iter()
-                .filter_map(|c| c.keyframes.last().map(|k| k.frame))
-                .max()
-                .unwrap_or(0);
-
-            if effective_maximum > 0 {
-                raw_frame.rem_euclid(effective_maximum as f32 + 1.0)
+        } else if let Some(boundary) = loop_boundary {
+            if boundary > 0 {
+                raw_frame.rem_euclid(boundary as f32 + 1.0)
             } else {
                 raw_frame
             }
+        } else {
+            raw_frame
         }
     } else if state.loop_supported {
         raw_frame
-    } else if state.max_frame > 0 {
-        raw_frame.rem_euclid(state.max_frame as f32 + 1.0)
+    } else if let Some(boundary) = loop_boundary {
+        if boundary > 0 {
+            raw_frame.rem_euclid(boundary as f32 + 1.0)
+        } else {
+            raw_frame
+        }
     } else {
         raw_frame
     }

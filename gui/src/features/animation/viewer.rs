@@ -97,9 +97,11 @@ impl AnimViewer {
 
         if self.export_state.export_mode != ExportMode::Showcase {
             if let Some(anim) = &self.current_anim {
-                self.export_state.max_frame = anim.max_frame;
+                let true_end = anim.calculate_true_loop().unwrap_or(anim.max_frame);
+
+                self.export_state.max_frame = true_end;
                 self.export_state.frame_start = 0;
-                self.export_state.frame_end = anim.max_frame;
+                self.export_state.frame_end = true_end;
             } else {
                 self.export_state.max_frame = 0;
                 self.export_state.frame_start = 0;

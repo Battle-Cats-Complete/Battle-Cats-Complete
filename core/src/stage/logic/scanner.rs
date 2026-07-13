@@ -53,7 +53,7 @@ pub fn start_scan(config: &ScannerConfig) -> Receiver<StageRegistry> {
         if !crate::global::resolver::is_mod_active() {
             if map_count > 0 {
                 let mut is_different = true;
-                
+
                 if let Some((_, cached_registry)) = crate::global::io::cache::load_with_hash::<StageRegistry>("stages_cache.bin") {
                     if let (Ok(new_bytes), Ok(old_bytes)) = (serde_json::to_vec(&registry), serde_json::to_vec(&cached_registry)) {
                         if !new_bytes.is_empty() && new_bytes == old_bytes {
@@ -72,7 +72,7 @@ pub fn start_scan(config: &ScannerConfig) -> Receiver<StageRegistry> {
                 warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
             }
         }
-        
+
         let _ = tx_channel.send(registry);
     });
 
@@ -118,10 +118,7 @@ fn scan_all(langs: &[String]) -> StageRegistry {
         scan_category(&reg_mtx, &cat_path, &ctx);
     });
 
-    match reg_mtx.into_inner() {
-        Ok(final_reg) => final_reg,
-        Err(_) => StageRegistry::default(),
-    }
+    reg_mtx.into_inner().unwrap_or_else(|_| StageRegistry::default())
 }
 
 #[instrument(skip(reg_mtx, ctx))]
