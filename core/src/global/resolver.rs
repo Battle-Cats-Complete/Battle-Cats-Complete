@@ -66,7 +66,6 @@ where
 }
 
 fn check_mod_override(filename: &str) -> Option<PathBuf> {
-    // 1. Check RAM Cache First (Instant)
     if let Ok(cache) = OVERRIDE_CACHE.read()
         && let Some(map) = cache.as_ref()
             && let Some(cached_result) = map.get(filename) {

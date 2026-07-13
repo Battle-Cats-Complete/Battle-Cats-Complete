@@ -82,3 +82,30 @@ pub fn stage_name_image(root: &Path, cat: &Category, map_id: u32, stage_id: u32,
         .join(format!("{:02}", stage_id))
         .join(format!("mapsn{:03}_{:02}_{}{}.png", map_id, stage_id, cat.image_prefix(), lang_sfx))
 }
+
+pub fn stage_name_targets(cat_path: &Path, cat_prefix: &str) -> Vec<(PathBuf, String)> {
+    let mut targets = Vec::new();
+    let base_name_dir = cat_path.join("StageName");
+
+    if base_name_dir.exists() {
+        targets.push((base_name_dir.clone(), format!("StageName_{}.csv", cat_prefix)));
+        targets.push((base_name_dir.clone(), format!("StageName_R{}.csv", cat_prefix)));
+    }
+
+    if cat_prefix == "EC" {
+        targets.push((cat_path.join("StageName"), "StageName.csv".to_string()));
+    }
+
+    let num_target = match cat_prefix {
+        "EC" => Some((cat_path.join("StageName0"), "StageName0.csv".to_string())),
+        "W" => Some((cat_path.join("StageName1"), "StageName1.csv".to_string())),
+        "Space" => Some((cat_path.join("StageName2"), "StageName2.csv".to_string())),
+        _ => None,
+    };
+
+    if let Some(target) = num_target {
+        targets.push(target);
+    }
+
+    targets
+}

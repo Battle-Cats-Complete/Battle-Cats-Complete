@@ -42,32 +42,32 @@ impl Default for StageMatcher {
 impl StageMatcher {
     pub fn new() -> Self {
         Self {
-            map_data: Regex::new(patterns::MAP_STAGE_DATA_PATTERN).unwrap(),
-            map_name: Regex::new(patterns::MAP_NAME_PATTERN).unwrap(),
-            map_sn: Regex::new(patterns::MAP_SN_PATTERN).unwrap(),
-            map_global: Regex::new(patterns::MAP_GLOBAL_NAME_PATTERN).unwrap(),
-            stage_normal: Regex::new(patterns::STAGE_NORMAL_PATTERN).unwrap(),
-            stage_file: Regex::new(patterns::STAGE_FILE_PATTERN).unwrap(),
-            stage_name: Regex::new(patterns::STAGE_NAME_PATTERN).unwrap(),
-            stage_numeric: Regex::new(patterns::STAGE_NAME_NUMERIC_PATTERN).unwrap(),
-            stage_base: Regex::new(patterns::STAGE_NAME_BASE_PATTERN).unwrap(),
-            legacy_stage: Regex::new(patterns::LEGACY_STAGE_NAME_PATTERN).unwrap(),
-            castle: Regex::new(patterns::CASTLE_PATTERN).unwrap(),
-            bg_map: Regex::new(patterns::BG_MAP_PATTERN).unwrap(),
-            bg_battle: Regex::new(patterns::BG_BATTLE_PATTERN).unwrap(),
-            bg_data: Regex::new(patterns::BG_DATA_PATTERN).unwrap(),
-            bg_effect: Regex::new(patterns::BG_EFFECT_PATTERN).unwrap(),
-            limit_msg: Regex::new(patterns::LIMIT_MSG_PATTERN).unwrap(),
-            ex_files: Regex::new(patterns::EX_PATTERN).unwrap(),
-            preset: Regex::new(patterns::CERTIFICATION_PRESET_PATTERN).unwrap(),
-            drop_item: Regex::new(patterns::DROP_ITEM_PATTERN).unwrap(),
-            charagroup: Regex::new(patterns::CHARAGROUP_PATTERN).unwrap(),
-            score_bonus: Regex::new(patterns::SCORE_BONUS_PATTERN).unwrap(),
-            difficulty: Regex::new(patterns::DIFFICULTY_LEVEL_PATTERN).unwrap(),
-            drop_chara: Regex::new(patterns::DROP_CHARA_PATTERN).unwrap(),
-            lock_skip: Regex::new(patterns::LOCK_SKIP_DATA_PATTERN).unwrap(),
-            scat_cpu: Regex::new(patterns::SCAT_CPU_SETTING_PATTERN).unwrap(),
-            first_msg: Regex::new(patterns::STAGE_FIRST_MESSAGE_PATTERN).unwrap(),
+            map_data: Regex::new(patterns::MAP_STAGE_DATA_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            map_name: Regex::new(patterns::MAP_NAME_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            map_sn: Regex::new(patterns::MAP_SN_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            map_global: Regex::new(patterns::MAP_GLOBAL_NAME_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            stage_normal: Regex::new(patterns::STAGE_NORMAL_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            stage_file: Regex::new(patterns::STAGE_FILE_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            stage_name: Regex::new(patterns::STAGE_NAME_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            stage_numeric: Regex::new(patterns::STAGE_NAME_NUMERIC_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            stage_base: Regex::new(patterns::STAGE_NAME_BASE_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            legacy_stage: Regex::new(patterns::LEGACY_STAGE_NAME_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            castle: Regex::new(patterns::CASTLE_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            bg_map: Regex::new(patterns::BG_MAP_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            bg_battle: Regex::new(patterns::BG_BATTLE_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            bg_data: Regex::new(patterns::BG_DATA_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            bg_effect: Regex::new(patterns::BG_EFFECT_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            limit_msg: Regex::new(patterns::LIMIT_MSG_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            ex_files: Regex::new(patterns::EX_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            preset: Regex::new(patterns::CERTIFICATION_PRESET_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            drop_item: Regex::new(patterns::DROP_ITEM_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            charagroup: Regex::new(patterns::CHARAGROUP_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            score_bonus: Regex::new(patterns::SCORE_BONUS_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            difficulty: Regex::new(patterns::DIFFICULTY_LEVEL_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            drop_chara: Regex::new(patterns::DROP_CHARA_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            lock_skip: Regex::new(patterns::LOCK_SKIP_DATA_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            scat_cpu: Regex::new(patterns::SCAT_CPU_SETTING_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
+            first_msg: Regex::new(patterns::STAGE_FIRST_MESSAGE_PATTERN).unwrap_or_else(|_| Regex::new("").unwrap()),
         }
     }
 
@@ -135,7 +135,7 @@ impl StageMatcher {
             return Some(cat_dir.join(Self::format_prefix(&caps[1])).join("StageName"));
         }
 
-        // Legacy Images (Forced to Category/000/StageID)
+        // Legacy Images (Forced to Category/image/StageID)
         if let Some(caps) = self.legacy_stage.captures(target_file) {
             let raw_prefix = caps[1].to_lowercase();
             let mut mapped_prefix = match raw_prefix.as_str() {
@@ -153,7 +153,7 @@ impl StageMatcher {
                 }
             }
 
-            return Some(cat_dir.join(mapped_prefix).join("000").join(format!("{:02}", target_folder)));
+            return Some(cat_dir.join(mapped_prefix).join("image").join(format!("{:02}", target_folder)));
         }
 
         // Stage Normal (EoC, ItF, CotC, and Zombies)
@@ -174,6 +174,8 @@ impl StageMatcher {
             };
 
             let map_id = match (chapter_str, sub_chapter) {
+                ("0", "1") => "001",
+                ("0", "2") => "002",
                 ("0", _) => "000",
                 ("1", "0") => "004",
                 ("1", "1") => "005",
@@ -192,13 +194,26 @@ impl StageMatcher {
             let cap_prefix = caps.get(1).map(|m| m.as_str());
             let Ok(parsed_map) = caps[2].parse::<u32>() else { return None; };
 
-            if let Some(valid_prefix) = cap_prefix {
-                let mut path = cat_dir.join(Self::format_prefix(valid_prefix)).join(format!("{:03}", parsed_map));
+            let is_invasion = target_file.contains("_Invasion");
+            let is_z = target_file.contains("_Z");
 
-                if let Some(stage_cap) = caps.get(3)
-                    && let Ok(parsed_stage) = stage_cap.as_str().parse::<u32>() {
-                    path = path.join(format!("{:02}", parsed_stage));
+            if let Some(valid_prefix) = cap_prefix {
+                let category_folder = if is_z {
+                    "Z".to_string()
+                } else {
+                    Self::format_prefix(valid_prefix)
+                };
+
+                let mut path = cat_dir.join(category_folder).join(format!("{:03}", parsed_map));
+
+                if is_invasion {
+                    path = path.join("Invasion");
+                } else if let Some(stage_cap) = caps.get(3) {
+                    if let Ok(parsed_stage) = stage_cap.as_str().parse::<u32>() {
+                        path = path.join(format!("{:02}", parsed_stage));
+                    }
                 }
+
                 return Some(path);
             } else {
                 let mut fallback_prefix = "EC";
@@ -234,19 +249,22 @@ impl StageMatcher {
             return Some(base_dir.join("castles").join(&caps[1]));
         }
 
-        if let Some(caps) = self.bg_map.captures(target_file)
-            && let Ok(parsed_id) = caps[1].parse::<u32>() {
-            return Some(base_dir.join("backgrounds").join("maps").join(format!("{:03}", parsed_id)));
+        if let Some(caps) = self.bg_map.captures(target_file) {
+            if let Ok(parsed_id) = caps[1].parse::<u32>() {
+                return Some(base_dir.join("backgrounds").join("maps").join(format!("{:03}", parsed_id)));
+            }
         }
 
-        if let Some(caps) = self.bg_battle.captures(target_file)
-            && let Ok(parsed_id) = caps[1].parse::<u32>() {
-            return Some(base_dir.join("backgrounds").join("battle").join(format!("{:03}", parsed_id)));
+        if let Some(caps) = self.bg_battle.captures(target_file) {
+            if let Ok(parsed_id) = caps[1].parse::<u32>() {
+                return Some(base_dir.join("backgrounds").join("battle").join(format!("{:03}", parsed_id)));
+            }
         }
 
-        if let Some(caps) = self.bg_effect.captures(target_file)
-            && let Ok(parsed_id) = caps[1].parse::<u32>() {
-            return Some(base_dir.join("backgrounds").join("effects").join(format!("{:03}", parsed_id)));
+        if let Some(caps) = self.bg_effect.captures(target_file) {
+            if let Ok(parsed_id) = caps[1].parse::<u32>() {
+                return Some(base_dir.join("backgrounds").join("effects").join(format!("{:03}", parsed_id)));
+            }
         }
 
         if self.bg_data.is_match(target_file) {

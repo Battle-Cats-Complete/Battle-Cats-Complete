@@ -51,25 +51,26 @@ pub fn start_scan(config: &ScannerConfig) -> Receiver<StageRegistry> {
         info!("--- STAGE SCANNER COMPLETE: Found {} maps and {} stages ---", map_count, stage_count);
 
         if !crate::global::resolver::is_mod_active() {
-            if map_count > 0 {
-                let mut is_different = true;
+            if map_count == 0 {
+                warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
+                let _ = tx_channel.send(registry);
+                return;
+            }
 
-                if let Some((_, cached_registry)) = crate::global::io::cache::load_with_hash::<StageRegistry>("stages_cache.bin") {
-                    if let (Ok(new_bytes), Ok(old_bytes)) = (serde_json::to_vec(&registry), serde_json::to_vec(&cached_registry)) {
-                        if !new_bytes.is_empty() && new_bytes == old_bytes {
-                            is_different = false;
-                            info!("Scanned stages perfectly match existing cache. Discarding scan and doing nothing.");
-                        }
+            let mut is_different = true;
+            if let Some((_, cached_registry)) = crate::global::io::cache::load_with_hash::<StageRegistry>("stages_cache.bin") {
+                if let (Ok(new_bytes), Ok(old_bytes)) = (serde_json::to_vec(&registry), serde_json::to_vec(&cached_registry)) {
+                    if !new_bytes.is_empty() && new_bytes == old_bytes {
+                        is_different = false;
+                        info!("Scanned stages perfectly match existing cache. Discarding scan and doing nothing.");
                     }
                 }
+            }
 
-                if is_different {
-                    debug!("Scanned stages differ from cache (or cache is stale/missing). Overwriting stages_cache.bin");
-                    let hash = crate::global::io::cache::get_game_hash(None);
-                    crate::global::io::cache::save("stages_cache.bin", hash, &registry);
-                }
-            } else {
-                warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
+            if is_different {
+                debug!("Scanned stages differ from cache (or cache is stale/missing). Overwriting stages_cache.bin");
+                let hash = crate::global::io::cache::get_game_hash(None);
+                crate::global::io::cache::save("stages_cache.bin", hash, &registry);
             }
         }
 
@@ -118,7 +119,7 @@ fn scan_all(langs: &[String]) -> StageRegistry {
         scan_category(&reg_mtx, &cat_path, &ctx);
     });
 
-    reg_mtx.into_inner().unwrap_or_else(|_| StageRegistry::default())
+    reg_mtx.into_inner().unwrap_or_default()
 }
 
 #[instrument(skip(reg_mtx, ctx))]
@@ -130,61 +131,85 @@ fn scan_category(reg_mtx: &Mutex<StageRegistry>, cat_path: &Path, ctx: &ScanCont
     debug!("Scanning category folder: {}", cat_prefix);
 
     let mut stage_names = HashMap::new();
-    let base_name_dir = cat_path.join("StageName");
 
-    if base_name_dir.exists() {
-        stage_names = stagename(&base_name_dir, &format!("StageName_{}.csv", cat_prefix), ctx.lang_priority);
-        if stage_names.is_empty() {
-            stage_names = stagename(&base_name_dir, &format!("StageName_R{}.csv", cat_prefix), ctx.lang_priority);
-        }
-    } else if cat_prefix == "EC" {
-        stage_names = stagename(&cat_path.join("StageName"), "StageName.csv", ctx.lang_priority);
-    }
-
-    if stage_names.is_empty() {
-        let num_target = match cat_prefix.as_str() {
-            "EC" => Some((cat_path.join("StageName0"), "StageName0.csv")),
-            "W" => Some((cat_path.join("StageName1"), "StageName1.csv")),
-            "Space" => Some((cat_path.join("StageName2"), "StageName2.csv")),
-            _ => None,
-        };
-
-        if let Some((dir, file)) = num_target {
-            stage_names = stagename(&dir, file, ctx.lang_priority);
+    for (dir, file) in paths::stage_name_targets(cat_path, &cat_prefix) {
+        stage_names = stagename(&dir, &file, ctx.lang_priority);
+        if !stage_names.is_empty() {
+            break;
         }
     }
 
+    let mut map_entries = Vec::new();
     let Ok(maps_dir) = fs::read_dir(cat_path) else {
         warn!("Failed to read contents of category directory: {}", cat_path.display());
         return;
     };
 
-    let map_entries: Vec<_> = maps_dir.flatten().collect();
-
-    map_entries.par_iter().for_each(|map_entry| {
+    for map_entry in maps_dir.flatten() {
         let map_path = map_entry.path();
-        if !map_path.is_dir() { return; }
+        if !map_path.is_dir() { continue; }
 
-        let Some(os_folder) = map_path.file_name() else { return; };
-        let Ok(map_id) = os_folder.to_string_lossy().parse::<u32>() else { return; };
+        let Some(os_folder) = map_path.file_name() else { continue; };
+        let Ok(map_id) = os_folder.to_string_lossy().parse::<u32>() else { continue; };
+        map_entries.push((map_id, map_path));
+    }
 
+    if cat_prefix == "EC" {
+        let base_path = cat_path.join("000");
+        if base_path.exists() {
+            if !map_entries.iter().any(|(id, _)| *id == 1) {
+                map_entries.push((1, base_path.clone()));
+            }
+            if !map_entries.iter().any(|(id, _)| *id == 2) {
+                map_entries.push((2, base_path.clone()));
+            }
+        }
+    }
+
+    map_entries.into_par_iter().for_each(|(map_id, map_path)| {
         let mut global_map_id = category.global_map_id(map_id);
 
         if global_map_id.is_none() || global_map_id == Some(map_id) {
             let routed_id = match (cat_prefix.as_str(), map_id) {
-                ("EC", 0) => Some(3000),
-                ("EC", 1) => Some(3001),
-                ("EC", 2) => Some(3002),
-                ("W", 4)  => Some(3003),
-                ("W", 5)  => Some(3004),
-                ("W", 6)  => Some(3005),
-                ("Space", 7) => Some(3006),
-                ("Space", 8) => Some(3007),
-                ("Space", 9) => Some(3008),
+                ("EC", 0) | ("Z", 0) => Some(3000),
+                ("EC", 1) | ("Z", 1) => Some(3001),
+                ("EC", 2) | ("Z", 2) => Some(3002),
+                ("W", 4)  | ("Z", 4) => Some(3003),
+                ("W", 5)  | ("Z", 5) => Some(3004),
+                ("W", 6)  | ("Z", 6) => Some(3005),
+                ("Space", 7) | ("Z", 7) => Some(3006),
+                ("Space", 8) | ("Z", 8) => Some(3007),
+                ("Space", 9) | ("Z", 9) => Some(3008),
                 _ => global_map_id,
             };
             if routed_id.is_some() && routed_id != global_map_id {
                 global_map_id = routed_id;
+            }
+        }
+
+        let mut active_stage_names = stage_names.clone();
+
+        if cat_prefix == "Z" {
+            let proxy_prefix = match map_id {
+                0 | 1 | 2 => "EC",
+                4 | 5 | 6 => "W",
+                7 | 8 | 9 => "Space",
+                _ => "",
+            };
+
+            if !proxy_prefix.is_empty() {
+                let parent_dir = cat_path.parent().unwrap_or(cat_path);
+                let proxy_path = parent_dir.join(proxy_prefix);
+
+                debug!("Fetching proxy names from {} for Z map {}", proxy_prefix, map_id);
+
+                for (dir, file) in paths::stage_name_targets(&proxy_path, proxy_prefix) {
+                    let names = stagename(&dir, &file, ctx.lang_priority);
+                    if names.is_empty() { continue; }
+
+                    active_stage_names = names;
+                    break;
+                }
             }
         }
 
@@ -200,7 +225,7 @@ fn scan_category(reg_mtx: &Mutex<StageRegistry>, cat_path: &Path, ctx: &ScanCont
             map_id,
             &map_path,
             &map_display_name,
-            &stage_names,
+            &active_stage_names,
             ctx,
             global_map_id
         );
@@ -292,13 +317,15 @@ fn load_map(
 
     map_struct.stages = stage_ids;
 
-    if !map_struct.stages.is_empty() {
-        map_struct.stages.sort();
+    if map_struct.stages.is_empty() {
+        return;
+    }
 
-        if let Ok(mut reg) = reg_mtx.lock() {
-            reg.maps.insert(map_key, map_struct);
-            reg.stages.extend(stage_structs);
-        }
+    map_struct.stages.sort();
+
+    if let Ok(mut reg) = reg_mtx.lock() {
+        reg.maps.insert(map_key, map_struct);
+        reg.stages.extend(stage_structs);
     }
 }
 
@@ -315,16 +342,44 @@ fn load_story_stages(
     let mut id_list = Vec::new();
     let mut stage_list = Vec::new();
     let mut story_data = HashMap::new();
+    let mut inv_story_data = None;
 
-    let story_file = match global_map_id {
-        Some(3000 | 3001 | 3002) => "stageNormal0.csv",
-        Some(3003) => "stageNormal1_0.csv",
-        Some(3004) => "stageNormal1_1.csv",
-        Some(3005) => "stageNormal1_2.csv",
-        Some(3006) => "stageNormal2_0.csv",
-        Some(3007) => "stageNormal2_1.csv",
-        Some(3008) => "stageNormal2_2.csv",
-        _ => "",
+    let story_file = if category.map_prefix() == "Z" {
+        match global_map_id {
+            Some(3000) => "stageNormal0_0_Z.csv",
+            Some(3001) => "stageNormal0_1_Z.csv",
+            Some(3002) => "stageNormal0_2_Z.csv",
+            Some(3003) => "stageNormal1_0_Z.csv",
+            Some(3004) => "stageNormal1_1_Z.csv",
+            Some(3005) => "stageNormal1_2_Z.csv",
+            Some(3006) => "stageNormal2_0_Z.csv",
+            Some(3007) => "stageNormal2_1_Z.csv",
+            Some(3008) => "stageNormal2_2_Z.csv",
+            _ => "",
+        }
+    } else {
+        match global_map_id {
+            Some(3000 | 3001 | 3002) => "stageNormal0.csv",
+            Some(3003) => "stageNormal1_0.csv",
+            Some(3004) => "stageNormal1_1.csv",
+            Some(3005) => "stageNormal1_2.csv",
+            Some(3006) => "stageNormal2_0.csv",
+            Some(3007) => "stageNormal2_1.csv",
+            Some(3008) => "stageNormal2_2.csv",
+            _ => "",
+        }
+    };
+
+    let inv_story_file = if category.map_prefix() == "Z" {
+        match global_map_id {
+            Some(3008) => "stageNormal2_2_Invasion_Z.csv",
+            _ => "",
+        }
+    } else {
+        match global_map_id {
+            Some(3008) => "stageNormal2_2_Invasion.csv",
+            _ => "",
+        }
     };
 
     if !story_file.is_empty() {
@@ -332,10 +387,28 @@ fn load_story_stages(
         if let Ok(content) = fs::read_to_string(&story_path) {
             let sep = csv::detect_separator(&content);
             for (idx, line) in content.lines().skip(2).enumerate() {
-                let clean = match line.split("//").next() {
-                    Some(p) => p.trim(),
-                    None => "",
-                };
+                let clean = line.split("//").next().unwrap_or("").trim();
+                if clean.is_empty() { continue; }
+
+                let parts: Vec<&str> = clean.split(sep).collect();
+                if parts.len() < 6 { continue; }
+
+                let energy = parts[0].trim().parse().unwrap_or(0);
+                let init_track: i16 = parts[2].trim().parse().unwrap_or(0);
+                let boss_track: i16 = parts[5].trim().parse().unwrap_or(-1);
+                story_data.insert(idx as u32, (energy, init_track, boss_track));
+            }
+        } else {
+            warn!("Expected story data file missing: {}", story_path.display());
+        }
+    }
+
+    if !inv_story_file.is_empty() {
+        let inv_story_path = map_path.join(inv_story_file);
+        if let Ok(content) = fs::read_to_string(&inv_story_path) {
+            let sep = csv::detect_separator(&content);
+            for line in content.lines().skip(2) {
+                let clean = line.split("//").next().unwrap_or("").trim();
                 if clean.is_empty() { continue; }
 
                 let parts: Vec<&str> = clean.split(sep).collect();
@@ -343,22 +416,37 @@ fn load_story_stages(
                     let energy = parts[0].trim().parse().unwrap_or(0);
                     let init_track: i16 = parts[2].trim().parse().unwrap_or(0);
                     let boss_track: i16 = parts[5].trim().parse().unwrap_or(-1);
-                    story_data.insert(idx as u32, (energy, init_track, boss_track));
+                    inv_story_data = Some((energy, init_track, boss_track));
+                    break;
                 }
             }
-        } else {
-            warn!("Expected story data file missing: {}", story_path.display());
         }
     }
 
     let Ok(stages_dir) = fs::read_dir(map_path) else { return (id_list, stage_list); };
+    let mut invasion_path = None;
 
     for stage_entry in stages_dir.flatten() {
         let stage_path = stage_entry.path();
         if !stage_path.is_dir() { continue; }
 
         let Some(os_folder) = stage_path.file_name() else { continue; };
-        let Ok(stage_id) = os_folder.to_string_lossy().parse::<u32>() else { continue; };
+        let folder_str = os_folder.to_string_lossy();
+
+        if folder_str == "Invasion" {
+            invasion_path = Some(stage_path);
+            continue;
+        }
+
+        let Ok(stage_id) = folder_str.parse::<u32>() else { continue; };
+
+        let is_ec_group = category.map_prefix() == "EC" || (category.map_prefix() == "Z" && map_id <= 2);
+
+        if is_ec_group {
+            if map_id == 0 && stage_id > 47 { continue; }
+            if map_id == 1 && (stage_id == 47 || stage_id == 48 || stage_id > 49) { continue; }
+            if map_id == 2 && (stage_id == 47 || stage_id == 48 || stage_id == 49 || stage_id > 50) { continue; }
+        }
 
         let Some(raw_layout) = find_battleground(&stage_path, ctx.lang_priority) else {
             warn!("Failed to find battleground CSV in story stage directory: {}", stage_path.display());
@@ -381,6 +469,32 @@ fn load_story_stages(
         let stage_key = GlobalStageId { category: category.clone(), map: map_id, stage: stage_id };
         stage_list.push((stage_key, stage_struct));
         id_list.push(stage_id);
+    }
+
+    if let Some(inv_path) = invasion_path {
+        let inv_stage_id = id_list.iter().max().copied().unwrap_or(0) + 1;
+
+        if let Some(raw_layout) = find_battleground(&inv_path, ctx.lang_priority) {
+            let mut stage_struct = build_base_stage(
+                category, map_id, inv_stage_id, max_crowns, &raw_layout, stage_names, ctx, global_map_id
+            );
+
+            stage_struct.name = "Invasion".to_string();
+            stage_struct.base_id = inv_stage_id as i32;
+
+            if let Some((energy_val, init_track_val, boss_track_val)) = inv_story_data {
+                stage_struct.energy = energy_val;
+                stage_struct.xp = global_map_id.map(|id| get_hardcoded_xp(id, inv_stage_id as usize)).unwrap_or(0);
+                stage_struct.init_track = init_track_val as u32;
+                stage_struct.boss_track = boss_track_val;
+            }
+
+            let stage_key = GlobalStageId { category: category.clone(), map: map_id, stage: inv_stage_id };
+            stage_list.push((stage_key, stage_struct));
+            id_list.push(inv_stage_id);
+        } else {
+            warn!("Failed to find battleground CSV in invasion stage directory: {}", inv_path.display());
+        }
     }
 
     (id_list, stage_list)
@@ -483,11 +597,30 @@ fn build_base_stage(
     ctx: &ScanContext,
     global_map_id: Option<u32>,
 ) -> Stage {
-    let stage_display_name = stage_names.get(&map_id)
-        .and_then(|entry| entry.names.get(stage_id as usize))
-        .filter(|name| !name.is_empty())
-        .cloned()
-        .unwrap_or_else(|| format!("{:02}", stage_id));
+    let is_story_name = matches!(category.map_prefix().as_str(), "EC" | "W" | "Space" | "Z");
+
+    let stage_display_name = if is_story_name {
+        let mut lookup_id = stage_id;
+
+        let is_ec = category.map_prefix() == "EC";
+        let is_z_ec = category.map_prefix() == "Z" && map_id <= 2;
+
+        if (is_ec || is_z_ec) && matches!(stage_id, 48 | 49 | 50) {
+            lookup_id = 47;
+        }
+
+        stage_names.get(&lookup_id)
+            .and_then(|entry| entry.names.first())
+            .filter(|name| !name.is_empty())
+            .cloned()
+            .unwrap_or_else(|| format!("{:02}", stage_id))
+    } else {
+        stage_names.get(&map_id)
+            .and_then(|entry| entry.names.get(stage_id as usize))
+            .filter(|name| !name.is_empty())
+            .cloned()
+            .unwrap_or_else(|| format!("{:02}", stage_id))
+    };
 
     let stage_opts = global_map_id
         .and_then(|id| ctx.stage_options.get(&id))
