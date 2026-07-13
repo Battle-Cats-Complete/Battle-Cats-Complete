@@ -10,38 +10,52 @@ use rustc_hash::FxHasher;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub fn get_cache_dir() -> Option<PathBuf> {
-    if let Some(base_dirs) = BaseDirs::new() {
-        let cache_directory = base_dirs.data_local_dir().join("battle_cats_complete").join("cache");
-        if !cache_directory.exists() {
-            tracing::debug!("Creating missing cache directory at {:?}", cache_directory);
-            let _ = fs::create_dir_all(&cache_directory);
-        }
-        Some(cache_directory)
-    } else {
+    let Some(base_dirs) = BaseDirs::new() else {
         tracing::error!("Failed to retrieve BaseDirs. Caching system is disabled.");
-        None
+        return None;
+    };
+
+    let cache_directory = base_dirs.data_local_dir().join("battle_cats_complete").join("cache");
+
+    if !cache_directory.exists() {
+        tracing::debug!("Creating missing cache directory at {:?}", cache_directory);
+        if let Err(err) = fs::create_dir_all(&cache_directory) {
+            tracing::error!("Failed to create cache directory: {}", err);
+            return None;
+        }
     }
+
+    Some(cache_directory)
 }
 
 fn hash_directory_parallel(directory_path: &Path) -> u64 {
-    if !directory_path.exists() { return 0; }
+    if !directory_path.exists() {
+        tracing::trace!("Directory {:?} does not exist, skipping hash", directory_path);
+        return 0;
+    }
+
+    let Ok(read_directory) = fs::read_dir(directory_path) else {
+        tracing::warn!("Failed to read directory for hashing: {:?}", directory_path);
+        return 0;
+    };
 
     let mut file_entries = Vec::new();
-    if let Ok(read_directory) = fs::read_dir(directory_path) {
-        for directory_entry in read_directory.flatten() {
-            file_entries.push(directory_entry.path());
-        }
+    for directory_entry in read_directory.flatten() {
+        file_entries.push(directory_entry.path());
     }
 
     let child_hashes: Vec<u64> = file_entries.par_iter().map(|child_path| {
         let mut local_hasher = FxHasher::default();
+
         if child_path.is_dir() {
             let subdirectory_hash = hash_directory_parallel(child_path);
             subdirectory_hash.hash(&mut local_hasher);
-        } else if let Ok(file_metadata) = child_path.metadata()
-            && let Ok(modified_time) = file_metadata.modified() {
-            modified_time.hash(&mut local_hasher);
+        } else if let Ok(file_metadata) = child_path.metadata() {
+            if let Ok(modified_time) = file_metadata.modified() {
+                modified_time.hash(&mut local_hasher);
+            }
         }
+
         local_hasher.finish()
     }).collect();
 
@@ -49,6 +63,7 @@ fn hash_directory_parallel(directory_path: &Path) -> u64 {
     for child_hash in child_hashes {
         child_hash.hash(&mut final_hasher);
     }
+
     file_entries.len().hash(&mut final_hasher);
     final_hasher.finish()
 }
@@ -57,8 +72,8 @@ fn hash_directory_parallel(directory_path: &Path) -> u64 {
 pub fn get_game_hash(active_mod: Option<&str>) -> u64 {
     tracing::trace!("Calculating global game hash across assets and tables...");
     let mut final_game_hasher = FxHasher::default();
-
-    let target_paths = ["game/tables", "game/cats", "game/enemies", "mods"];
+    
+    let target_paths = ["game/tables", "game/cats", "game/enemies", "game/stages", "mods"];
     for path_string in target_paths {
         let directory_hash = hash_directory_parallel(Path::new(path_string));
         directory_hash.hash(&mut final_game_hasher);
@@ -84,14 +99,15 @@ struct CachePayload<T> {
 
 #[tracing::instrument(level = "debug", skip_all, fields(file = %filename))]
 pub fn load_with_hash<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
-    let cache_path = get_cache_dir()?.join(filename);
+    let Some(cache_directory) = get_cache_dir() else {
+        return None;
+    };
 
-    let cache_file = match File::open(&cache_path) {
-        Ok(f) => f,
-        Err(_) => {
-            tracing::trace!("Cache file {} does not exist", filename);
-            return None;
-        }
+    let cache_path = cache_directory.join(filename);
+
+    let Ok(cache_file) = File::open(&cache_path) else {
+        tracing::trace!("Cache file {} does not exist or cannot be read", filename);
+        return None;
     };
 
     let reader = BufReader::new(cache_file);
@@ -101,11 +117,11 @@ pub fn load_with_hash<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
 
     match options.deserialize_from::<_, CachePayload<T>>(reader) {
         Ok(payload) => {
-            tracing::debug!("Successfully loaded cache payload");
+            tracing::debug!("Successfully loaded cache payload for {}", filename);
             Some((payload.hash, payload.data))
         },
-        Err(e) => {
-            tracing::warn!("Failed to deserialize cache payload: {}. Purging corrupted cache file.", e);
+        Err(err) => {
+            tracing::warn!("Failed to deserialize cache payload for {}: {}. Purging corrupted cache file.", filename, err);
             let _ = fs::remove_file(&cache_path);
             None
         }
@@ -114,33 +130,38 @@ pub fn load_with_hash<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
 
 #[tracing::instrument(level = "debug", skip(data))]
 pub fn save<T: Serialize>(filename: &str, hash: u64, data: &T) {
-    if let Some(cache_directory) = get_cache_dir() {
-        let target_path = cache_directory.join(filename);
-        let tmp_path = target_path.with_extension("tmp");
+    let Some(cache_directory) = get_cache_dir() else {
+        tracing::warn!("Cache directory unavailable; skipping save for {}", filename);
+        return;
+    };
 
-        if let Ok(cache_file) = File::create(&tmp_path) {
-            let mut writer = BufWriter::new(cache_file);
-            let payload = CachePayload { hash, data };
-            let options = bincode::DefaultOptions::new()
-                .with_limit(1024 * 1024 * 100);
+    let target_path = cache_directory.join(filename);
+    let tmp_path = target_path.with_extension("tmp");
 
-            if let Err(e) = options.serialize_into(&mut writer, &payload) {
-                tracing::error!("Failed to serialize cache payload: {}", e);
-                let _ = fs::remove_file(&tmp_path);
-                return;
-            }
+    let Ok(cache_file) = File::create(&tmp_path) else {
+        tracing::error!("Failed to create temporary cache file at {:?}", tmp_path);
+        return;
+    };
 
-            if writer.into_inner().is_ok() {
-                if let Err(e) = fs::rename(&tmp_path, &target_path) {
-                    tracing::error!("Failed to commit cache file rename: {}", e);
-                } else {
-                    tracing::debug!("Successfully committed cache file to disk");
-                }
-            } else {
-                tracing::error!("Failed to flush cache file writer");
-            }
-        } else {
-            tracing::error!("Failed to create temporary cache file at {:?}", tmp_path);
-        }
+    let mut writer = BufWriter::new(cache_file);
+    let payload = CachePayload { hash, data };
+    let options = bincode::DefaultOptions::new()
+        .with_limit(1024 * 1024 * 100);
+
+    if let Err(err) = options.serialize_into(&mut writer, &payload) {
+        tracing::error!("Failed to serialize cache payload: {}", err);
+        let _ = fs::remove_file(&tmp_path);
+        return;
+    }
+
+    if writer.into_inner().is_err() {
+        tracing::error!("Failed to flush cache file writer for {:?}", tmp_path);
+        return;
+    }
+
+    if let Err(err) = fs::rename(&tmp_path, &target_path) {
+        tracing::error!("Failed to commit cache file rename: {}", err);
+    } else {
+        tracing::debug!("Successfully committed cache file {} to disk", filename);
     }
 }

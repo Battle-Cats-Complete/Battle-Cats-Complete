@@ -1,8 +1,9 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::global::formats::gatyaitembuy::GatyaItemBuy;
 use crate::global::formats::gatyaitemname::GatyaItemName;
+use crate::stage::paths;
 use super::treasure::ResolvedDrop;
 
 pub const MAT_IDS: [u32; 16] = [
@@ -44,9 +45,9 @@ pub fn resolve(
         buy_data.row_index as u32
     };
 
-    let dir = PathBuf::from("game/ui/gatyaitemD");
-    let file = format!("gatyaitemD_{:02}_f.png", img_id);
-    let image_path = crate::global::resolver::get(&dir, [&file], langs).into_iter().next();
+    let dir = Path::new(paths::DIR_GATYA_ITEM);
+    let file = paths::gatya_item_img(img_id);
+    let image_path = crate::global::resolver::get(dir, [&file], langs).into_iter().next();
 
     ResolvedDrop {
         name,

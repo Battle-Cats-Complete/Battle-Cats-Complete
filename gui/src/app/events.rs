@@ -33,39 +33,45 @@ impl BattleCatsApp {
 
         tracing::trace!("File watcher received {} paths to process", paths.len());
 
-        let mut cat_ids_to_refresh = HashSet::new();
-        let mut enemy_ids_to_refresh = HashSet::new();
-        let mut mod_icons_to_refresh = HashSet::new();
+        let mut cat_ids = HashSet::new();
+        let mut enemy_ids = HashSet::new();
+        let mut mod_icons = HashSet::new();
 
-        let mut global_cat_refresh = false;
-        let mut global_enemy_refresh = false;
-        let mut global_stage_refresh = false;
-        let mut mods_refresh = false;
-        let mut active_mod_file_changed = false;
+        let mut global_cat = false;
+        let mut global_enemy = false;
+        let mut global_stage = false;
+        let mut refresh_mods = false;
+        let mut mod_changed = false;
 
         let active_mod = self.mod_state.data.loaded_mods.iter()
-            .find(|mod_item| mod_item.enabled)
-            .map(|mod_item| mod_item.folder_name.to_lowercase());
+            .find(|m| m.enabled)
+            .map(|m| m.folder_name.to_lowercase());
 
         resolver::set_active_mod(active_mod.clone());
 
         for path in paths {
             let path_str = path.to_string_lossy().to_lowercase();
-            let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+
+            let file_name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(name) => name,
+                None => "",
+            };
 
             tracing::trace!("Processing modified path: {}", path_str);
 
-            let is_mod_path = path_str.contains("mods") && !path_str.contains("packages");
-            if is_mod_path {
-                mods_refresh = true;
+            let is_mod = path_str.contains("mods") && !path_str.contains("packages");
+            if is_mod {
+                refresh_mods = true;
                 if Self::check_if_active_mod_changed(&path, active_mod.as_deref()) {
-                    active_mod_file_changed = true;
+                    mod_changed = true;
                 }
 
-                if path_str.contains("icons") && (file_name == "icon.png")
-                    && let Some(mods_idx) = path.components().position(|c| c.as_os_str().to_string_lossy().to_lowercase() == "mods")
-                    && let Some(mod_folder) = path.components().nth(mods_idx + 1) {
-                    mod_icons_to_refresh.insert(mod_folder.as_os_str().to_string_lossy().into_owned());
+                if path_str.contains("icons") && file_name == "icon.png" {
+                    if let Some(idx) = path.components().position(|c| c.as_os_str().to_string_lossy().to_lowercase() == "mods") {
+                        if let Some(folder) = path.components().nth(idx + 1) {
+                            mod_icons.insert(folder.as_os_str().to_string_lossy().into_owned());
+                        }
+                    }
                 }
             }
 
@@ -81,97 +87,112 @@ impl BattleCatsApp {
             }
 
             if path_str.contains("tables") {
-                global_cat_refresh = true;
-                global_enemy_refresh = true;
-                global_stage_refresh = true;
+                global_cat = true;
+                global_enemy = true;
+                global_stage = true;
             }
 
-            let is_cat_global_file = cat_patterns::CAT_UNIVERSAL_FILES.contains(&file_name);
+            let cat_global = cat_patterns::CAT_UNIVERSAL_FILES.contains(&file_name);
+            let cat_buy = file_name == cat_paths::UNIT_BUY;
+            let cat_evolve = path_str.contains(cat_paths::DIR_UNIT_EVOLVE) || path_str.contains("unitevolve");
+            let is_cat_dir = path_str.contains("cats");
 
-            if is_cat_global_file {
-                global_cat_refresh = true;
-            } else if file_name == cat_paths::UNIT_BUY {
-                global_cat_refresh = true;
-            } else if path_str.contains(cat_paths::DIR_UNIT_EVOLVE) || path_str.contains("unitevolve") {
-                global_cat_refresh = true;
-            } else if path_str.contains("cats") && self.process_cat_path(&path, &mut cat_ids_to_refresh) {
-                global_cat_refresh = true;
+            if cat_global || cat_buy || cat_evolve {
+                global_cat = true;
+                global_stage = true;
+            } else if is_cat_dir {
+                global_stage = true;
+                if self.process_cat_path(&path, &mut cat_ids) {
+                    global_cat = true;
+                }
             }
 
-            let is_enemy_global_file = file_name.contains("t_unit") || file_name.contains("enemyname") || file_name.contains("enemypicturebook");
-            if is_enemy_global_file {
-                global_enemy_refresh = true;
-            }
+            let enemy_global = file_name.contains("t_unit") || file_name.contains("enemyname") || file_name.contains("enemypicturebook");
+            let is_enemy_dir = path_str.contains("enemies");
 
-            let is_in_enemies_dir = path_str.contains("enemies");
-            if is_in_enemies_dir && self.process_enemy_path(&path, &mut enemy_ids_to_refresh) {
-                global_enemy_refresh = true;
+            if enemy_global {
+                global_enemy = true;
+                global_stage = true;
+            } else if is_enemy_dir {
+                global_stage = true;
+                if self.process_enemy_path(&path, &mut enemy_ids) {
+                    global_enemy = true;
+                }
             }
 
             if path_str.contains("stages") {
-                global_stage_refresh = true;
+                global_stage = true;
             }
         }
 
-        if mods_refresh {
+        if refresh_mods {
             tracing::debug!("Refreshing UI mods list");
             self.mod_state.data.refresh_mods();
         }
 
-        if !mod_icons_to_refresh.is_empty()
-            && let Some(list) = &mut self.mod_state.list {
-            for mod_name in mod_icons_to_refresh {
-                list.flush_icon(&mod_name);
+        if !mod_icons.is_empty() {
+            if let Some(list) = &mut self.mod_state.list {
+                for name in mod_icons {
+                    list.flush_icon(&name);
+                }
             }
         }
 
-        if active_mod_file_changed || global_cat_refresh || global_enemy_refresh || global_stage_refresh {
+        if mod_changed || global_cat || global_enemy {
             tracing::info!("Global files or active mod changed. Triggering full reload.");
             self.perform_full_data_reload();
             ctx.request_repaint();
             return;
         }
 
-        let mass_threshold = 5;
+        let limit = 5;
+        let config = self.settings.scanner_config();
 
-        if cat_ids_to_refresh.len() > mass_threshold {
+        if cat_ids.len() > limit {
             tracing::debug!("Mass threshold exceeded for cats, resyncing scan...");
             self.cat_list_state.detail_texture = None;
             self.cat_list_state.data.detail_key.clear();
             self.cat_list_state.texture_cache_version += 1;
             self.cat_list_state.anim_viewer.loaded_id.clear();
-            cat_loader::resync_scan(&mut self.cat_list_state.data, self.settings.scanner_config());
+            cat_loader::resync_scan(&mut self.cat_list_state.data, config.clone());
         } else {
-            for &id in &cat_ids_to_refresh {
+            for &id in &cat_ids {
                 self.cat_list_state.cat_list.flush_icon(id);
                 if self.cat_list_state.data.selected_cat == Some(id) {
                     self.cat_list_state.detail_texture = None;
                     self.cat_list_state.data.detail_key.clear();
                     self.cat_list_state.texture_cache_version += 1;
                 }
-                cat_loader::refresh_cat(&mut self.cat_list_state.data, id, self.settings.scanner_config());
+                cat_loader::refresh_cat(&mut self.cat_list_state.data, id, config.clone());
             }
         }
 
-        if enemy_ids_to_refresh.len() > mass_threshold {
+        if enemy_ids.len() > limit {
             tracing::debug!("Mass threshold exceeded for enemies, resyncing scan...");
             self.enemy_list_state.detail_texture = None;
             self.enemy_list_state.data.detail_key.clear();
-            enemy_loader::resync_scan(&mut self.enemy_list_state.data, self.settings.scanner_config());
+            enemy_loader::resync_scan(&mut self.enemy_list_state.data, config.clone());
         } else {
-            for &id in &enemy_ids_to_refresh {
+            for &id in &enemy_ids {
                 self.enemy_list_state.enemy_list.flush_icon(id);
                 if self.enemy_list_state.data.selected_enemy == Some(id) {
                     self.enemy_list_state.detail_texture = None;
                     self.enemy_list_state.data.detail_key.clear();
                 }
-                enemy_loader::refresh_enemy(&mut self.enemy_list_state.data, id, &self.settings.scanner_config());
+                enemy_loader::refresh_enemy(&mut self.enemy_list_state.data, id, &config);
             }
         }
 
-        if (!cat_ids_to_refresh.is_empty() || !enemy_ids_to_refresh.is_empty() || global_cat_refresh || global_enemy_refresh || global_stage_refresh)
-            && !resolver::is_mod_active() {
+        if global_stage {
+            tracing::info!("Cascading stage reload triggered.");
+            self.stage_list_state.data.registry.clear_cache();
+            self.stage_list_state.data.sync_enemies(&self.enemy_list_state.data.enemies);
+            self.stage_list_state.data.restart_scan(config);
+        }
 
+        let has_changes = !cat_ids.is_empty() || !enemy_ids.is_empty();
+
+        if has_changes && !resolver::is_mod_active() {
             tracing::debug!("Updating vanilla cache bins in background thread");
             let cats = self.cat_list_state.data.cats.clone();
             let enemies = self.enemy_list_state.data.enemies.clone();
@@ -188,40 +209,47 @@ impl BattleCatsApp {
 
     pub fn check_if_active_mod_changed(path: &Path, active_mod: Option<&str>) -> bool {
         let Some(active) = active_mod else { return false; };
-        let components: Vec<_> = path.components().map(|comp| comp.as_os_str().to_string_lossy().to_lowercase()).collect();
 
-        let Some(mods_idx) = components.iter().position(|comp| comp == "mods") else { return false; };
-        let Some(mod_folder) = components.get(mods_idx + 1) else { return false; };
+        let comps: Vec<_> = path.components()
+            .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+            .collect();
 
-        mod_folder == active
+        let Some(idx) = comps.iter().position(|c| c == "mods") else { return false; };
+        let Some(folder) = comps.get(idx + 1) else { return false; };
+
+        folder == active
     }
 
-    pub fn process_cat_path(&mut self, path: &Path, cat_ids_to_refresh: &mut HashSet<u32>) -> bool {
-        let components: Vec<_> = path.components().map(|comp| comp.as_os_str().to_string_lossy()).collect();
+    pub fn process_cat_path(&mut self, path: &Path, cat_ids: &mut HashSet<u32>) -> bool {
+        let comps: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
 
-        let Some(cats_idx) = components.iter().position(|comp| comp == "cats") else { return false; };
-        let Some(folder_name) = components.get(cats_idx + 1) else { return false; };
+        let Some(idx) = comps.iter().position(|c| c == "cats") else { return false; };
+        let Some(folder) = comps.get(idx + 1) else { return false; };
 
-        let parsed_id = if let Ok(id) = folder_name.parse::<u32>() {
+        let parsed = if let Ok(id) = folder.parse::<u32>() {
             Some(id)
-        } else if folder_name.starts_with("egg_") {
-            folder_name[4..].parse::<u32>().ok()
+        } else if folder.starts_with("egg_") {
+            folder[4..].parse::<u32>().ok()
         } else {
             None
-        } ;
+        };
 
-        let Some(id) = parsed_id else { return true; };
+        let Some(id) = parsed else { return true; };
 
-        let is_anim = components.get(cats_idx + 3).map(|string_val| string_val.as_ref()) == Some("anim");
+        let is_anim = comps.get(idx + 3).map(|s| s.as_ref()) == Some("anim");
         if !is_anim || self.cat_list_state.data.selected_cat != Some(id) {
-            cat_ids_to_refresh.insert(id);
+            cat_ids.insert(id);
             return false;
         }
 
-        let form_char = components.get(cats_idx + 2).map(|string_val| string_val.to_string()).unwrap_or_else(|| "f".to_string());
-        let marker = format!("_{}_", form_char);
+        let form = match comps.get(idx + 2) {
+            Some(s) => s.to_string(),
+            None => "f".to_string(),
+        };
 
+        let marker = format!("_{}_", form);
         let loaded = &mut self.cat_list_state.anim_viewer.loaded_id;
+
         if loaded.is_empty() || loaded.contains(&marker) {
             loaded.clear();
             self.cat_list_state.anim_viewer.texture_version += 1;
@@ -230,17 +258,17 @@ impl BattleCatsApp {
         false
     }
 
-    pub fn process_enemy_path(&mut self, path: &Path, enemy_ids_to_refresh: &mut HashSet<u32>) -> bool {
-        let components: Vec<_> = path.components().map(|comp| comp.as_os_str().to_string_lossy()).collect();
+    pub fn process_enemy_path(&mut self, path: &Path, enemy_ids: &mut HashSet<u32>) -> bool {
+        let comps: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
 
-        let Some(enemies_idx) = components.iter().position(|comp| comp == "enemies") else { return false; };
-        let Some(folder_name) = components.get(enemies_idx + 1) else { return false; };
+        let Some(idx) = comps.iter().position(|c| c == "enemies") else { return false; };
+        let Some(folder) = comps.get(idx + 1) else { return false; };
 
-        let Ok(id) = folder_name.parse::<u32>() else { return true; };
+        let Ok(id) = folder.parse::<u32>() else { return true; };
 
-        let is_anim = components.get(enemies_idx + 2).map(|s| s.as_ref()) == Some("anim");
+        let is_anim = comps.get(idx + 2).map(|s| s.as_ref()) == Some("anim");
         if !is_anim || self.enemy_list_state.data.selected_enemy != Some(id) {
-            enemy_ids_to_refresh.insert(id);
+            enemy_ids.insert(id);
             return false;
         }
 

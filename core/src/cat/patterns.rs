@@ -31,11 +31,11 @@ pub const CAT_EVOLVE_PATTERN: &str = r"^unitevolve\.csv$";
 
 // Master files for Cat Data
 pub const CAT_UNIVERSAL_FILES: &[&str] = &[
-    "SkillAcquisition.csv", 
+    "SkillAcquisition.csv",
     "SkillLevel.csv",
-    "unitbuy.csv", 
-    "unitexp.csv", 
-    "unitlevel.csv", 
+    "unitbuy.csv",
+    "unitexp.csv",
+    "unitlevel.csv",
     "unitlimit.csv",
-    "uni.png" 
+    "uni.png"
 ];

@@ -14,7 +14,8 @@ use crate::enemy::waiter::enemyname;
 use crate::global::formats::gatyaitembuy::{self, GatyaItemBuy};
 use crate::global::formats::gatyaitemname::{self, GatyaItemName};
 use crate::settings::logic::ScannerConfig;
-use crate::stage::registry::{StageRegistry, GlobalStageId, GlobalMapId};
+use crate::stage::paths;
+use crate::stage::registry::{GlobalMapId, GlobalStageId, StageRegistry};
 use crate::stage::waiter::{drop_chara, lockskipdata, scatcpusetting};
 
 use super::loader;
@@ -27,6 +28,7 @@ pub struct StageDataState {
     pub selected_map: Option<GlobalMapId>,
     pub selected_stage: Option<GlobalStageId>,
 
+    #[serde(skip)] pub initialized: bool,
     #[serde(skip)] pub scan_receiver: Option<Receiver<StageRegistry>>,
     #[serde(skip)] pub enemy_registry: HashMap<u32, EnemyEntry>,
     #[serde(skip)] pub enemy_name_registry: Vec<String>,
@@ -39,52 +41,54 @@ pub struct StageDataState {
     #[serde(skip)] pub active_language_priority: Vec<String>,
 }
 
-
 impl StageDataState {
-    pub fn restart_scan(&mut self, scanner_configuration: ScannerConfig) {
-        self.active_language_priority = scanner_configuration.language_priority.clone();
-        let lang_priority = &scanner_configuration.language_priority;
+    #[tracing::instrument(level = "debug", skip(self, config))]
+    pub fn load_dictionaries(&mut self, config: &ScannerConfig) {
+        tracing::trace!("Loading auxiliary stage dictionaries");
 
-        let enemies_directory_path = Path::new("game/enemies");
-        self.enemy_name_registry = enemyname(
-            enemies_directory_path,
-            lang_priority
-        );
+        self.active_language_priority = config.language_priority.clone();
+        let langs = &config.language_priority;
 
-        let tables_directory_path = Path::new("game/tables");
-        self.item_buy_registry = gatyaitembuy::load(
-            tables_directory_path,
-            "Gatyaitembuy.csv",
-            lang_priority
-        );
+        let enemy_dir = Path::new(paths::DIR_ENEMIES);
+        self.enemy_name_registry = enemyname(enemy_dir, langs);
 
-        let names_directory_path = tables_directory_path.join("GatyaitemName");
-        self.item_name_registry = gatyaitemname::load(
-            &names_directory_path,
-            "GatyaitemName.csv",
-            lang_priority
-        );
+        let tables_dir = Path::new(paths::DIR_TABLES);
+        self.item_buy_registry = gatyaitembuy::load(tables_dir, "Gatyaitembuy.csv", langs);
 
-        let stages_directory_path = Path::new("game/stages");
+        let names_dir = paths::gatya_name_dir();
+        self.item_name_registry = gatyaitemname::load(&names_dir, "GatyaitemName.csv", langs);
 
-        self.drop_chara_registry = drop_chara(stages_directory_path, "drop_chara.csv", lang_priority);
-        self.lock_skip_registry = lockskipdata(stages_directory_path, "LockSkipData.csv", lang_priority);
-        self.scat_cpu_setting = scatcpusetting(stages_directory_path, "ScatCPUsetting.csv", lang_priority);
+        let stages_dir = Path::new(paths::DIR_STAGES);
+        self.drop_chara_registry = drop_chara(stages_dir, "drop_chara.csv", langs);
+        self.lock_skip_registry = lockskipdata(stages_dir, "LockSkipData.csv", langs);
+        self.scat_cpu_setting = scatcpusetting(stages_dir, "ScatCPUsetting.csv", langs);
 
-        let cats_directory_path = Path::new("game/cats");
-        self.unit_buy_registry = unitbuy(
-            cats_directory_path,
-            lang_priority
-        );
+        let cats_dir = Path::new(paths::DIR_CATS);
+        self.unit_buy_registry = unitbuy(cats_dir, langs);
+    }
 
-        loader::restart_scan(self, scanner_configuration);
+    #[tracing::instrument(level = "debug", skip(self, config))]
+    pub fn restart_scan(&mut self, config: ScannerConfig) {
+        tracing::info!("Initializing stage data scan sequence");
+
+        self.initialized = false;
+        self.load_dictionaries(&config);
+
+        tracing::debug!("Delegating thread scan to loader");
+        loader::restart_scan(self, config);
     }
 
     pub fn update_data(&mut self) {
         loader::update_data(self);
     }
 
-    pub fn sync_enemies(&mut self, extracted_enemies_array: &[EnemyEntry]) {
-        self.enemy_registry = extracted_enemies_array.iter().map(|enemy_entry| (enemy_entry.id, enemy_entry.clone())).collect();
+    #[tracing::instrument(level = "trace", skip(self, extracted))]
+    pub fn sync_enemies(&mut self, extracted: &[EnemyEntry]) {
+        tracing::trace!("Syncing {} enemies to stage registry", extracted.len());
+
+        self.enemy_registry = extracted
+            .iter()
+            .map(|enemy| (enemy.id, enemy.clone()))
+            .collect();
     }
 }

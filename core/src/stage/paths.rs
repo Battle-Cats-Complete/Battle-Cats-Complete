@@ -1,50 +1,84 @@
 use std::path::{Path, PathBuf};
+use nyanko::chapter::Category;
 
 pub const DIR_STAGES: &str = "game/stages";
+pub const DIR_CATEGORIES: &str = "game/stages/categories";
+pub const DIR_CATS: &str = "game/cats";
+pub const DIR_ENEMIES: &str = "game/enemies";
+pub const DIR_TABLES: &str = "game/tables";
+pub const DIR_GATYA_ITEM: &str = "game/ui/gatyaitemD";
 
-pub fn normalize_prefix(prefix: &str) -> String {
-    let upper = prefix.to_uppercase();
-    if upper == "SPACE" { return "Space".to_string(); }
-    if upper.starts_with('R') && upper.len() > 1 { return upper[1..].to_string(); }
-    upper
+pub fn stage_sub(sub: &str) -> PathBuf {
+    Path::new(DIR_STAGES).join(sub)
 }
 
-pub fn map_folder(root: &Path, prefix: &str, map_id: u32) -> PathBuf {
-    root.join(normalize_prefix(prefix)).join(format!("{:03}", map_id))
+pub fn gatya_name_dir() -> PathBuf {
+    Path::new(DIR_TABLES).join("GatyaitemName")
 }
 
-pub fn stage_folder(root: &Path, prefix: &str, map_id: u32, stage_id: u32) -> PathBuf {
-    map_folder(root, prefix, map_id).join(format!("{:02}", stage_id))
+pub fn gatya_item_img(id: u32) -> String {
+    format!("gatyaitemD_{:02}_f.png", id)
 }
 
-pub fn stage_name_image(root: &Path, prefix: &str, map_id: u32, stage_id: u32, lang: &str) -> PathBuf {
-    let norm = normalize_prefix(prefix);
-    let lang_suffix = if lang.is_empty() { String::new() } else { format!("_{}", lang) };
+pub fn cat_folder(id: u32) -> PathBuf {
+    Path::new(DIR_CATS).join(format!("{:03}", id))
+}
 
-    // The Main Chapter Reuse Rule
+pub fn cat_form_folder(id: u32, form: &str) -> PathBuf {
+    cat_folder(id).join(form)
+}
+
+pub fn cat_form_img(id: u32, form: &str) -> String {
+    format!("uni{:03}_{}00.png", id, form)
+}
+
+pub fn empty_cat_icon() -> String {
+    "uni.png".to_string()
+}
+
+pub fn map_folder(root: &Path, cat: &Category, map_id: u32) -> PathBuf {
+    let cat_dir = if root.ends_with("categories") {
+        root.to_path_buf()
+    } else {
+        root.join("categories")
+    };
+
+    cat_dir.join(cat.map_prefix()).join(format!("{:03}", map_id))
+}
+
+pub fn stage_folder(root: &Path, cat: &Category, map_id: u32, stage_id: u32) -> PathBuf {
+    map_folder(root, cat, map_id).join(format!("{:02}", stage_id))
+}
+
+pub fn stage_name_image(root: &Path, cat: &Category, map_id: u32, stage_id: u32, lang: &str) -> PathBuf {
+    let norm = cat.map_prefix();
+    let lang_sfx = if lang.is_empty() { String::new() } else { format!("_{}", lang) };
+
+    let cat_dir = if root.ends_with("categories") {
+        root.to_path_buf()
+    } else {
+        root.join("categories")
+    };
+
     if matches!(norm.as_str(), "EC" | "W" | "Space" | "PT") || (norm == "M" && stage_id == 50 && map_id == 0) {
-        let file_prefix = match norm.as_str() {
+        let file_pfx = match norm.as_str() {
             "W" => "wc",
             "Space" => "sc",
             _ => "ec",
         };
 
-        // Handle the offset for the Moon image sharing
         let mut img_id = stage_id;
-        if norm == "M" && stage_id == 50 { img_id = 48; } // Old Challenge Battle Offset
-        if norm == "PT" { img_id = stage_id - 2; }
+        if norm == "M" && stage_id == 50 { img_id = 48; }
+        if norm == "PT" { img_id = stage_id.saturating_sub(2); }
 
-        // Force the path to look in Map 000
-        return root.join(&norm)
-                   .join("000")
-                   .join(format!("{:02}", stage_id))
-                   .join(format!("{}{:03}_n{}.png", file_prefix, img_id, lang_suffix));
+        return cat_dir.join(&norm)
+            .join("000")
+            .join(format!("{:02}", stage_id))
+            .join(format!("{}{:03}_n{}.png", file_pfx, img_id, lang_sfx));
     }
 
-    // Modern Maps
-    // They have unique images inside their specific map folders
-    root.join(&norm)
+    cat_dir.join(&norm)
         .join(format!("{:03}", map_id))
         .join(format!("{:02}", stage_id))
-        .join(format!("mapsn{:03}_{:02}_{}{}.png", map_id, stage_id, norm.to_lowercase(), lang_suffix))
+        .join(format!("mapsn{:03}_{:02}_{}{}.png", map_id, stage_id, cat.image_prefix(), lang_sfx))
 }

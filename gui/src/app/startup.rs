@@ -38,26 +38,31 @@ impl BattleCatsApp {
         updater::cleanup_temp_files();
 
         tracing::info!("Loading core tables");
-        app.param = param(Path::new("game/tables"), &app.settings.general.language_priority).unwrap_or_default();
-        app.localizable = localizable(Path::new("game/tables/localizable"), &app.settings.general.language_priority);
+        let tables_dir = Path::new("game/tables");
+        let loc_dir = Path::new("game/tables/localizable");
+        let priority = &app.settings.general.language_priority;
+
+        app.param = param(tables_dir, priority).unwrap_or_else(|| Default::default());
+        app.localizable = localizable(loc_dir, priority);
 
         let mut expected_hash = 0;
         let mut needs_validation = false;
-        let priority = &app.settings.general.language_priority;
 
         if let Some((hash, cached_cats)) = core::global::io::cache::load_with_hash::<Vec<core::cat::logic::scanner::CatEntry>>("cats_cache.bin") {
             tracing::info!("Found cats_cache.bin (Hash: {})", hash);
             expected_hash = hash;
             needs_validation = true;
-            let cats_directory = Path::new(cat_paths::DIR_CATS);
-            let costs_arc = std::sync::Arc::new(skilllevel(cats_directory, priority));
-            let descriptions_arc = std::sync::Arc::new(skilldescriptions(cats_directory, priority));
+
+            let cats_dir = Path::new(cat_paths::DIR_CATS);
+            let costs_arc = std::sync::Arc::new(skilllevel(cats_dir, priority));
+            let descs_arc = std::sync::Arc::new(skilldescriptions(cats_dir, priority));
 
             app.cat_list_state.data.cats = cached_cats.into_iter().map(|mut cat| {
                 cat.talent_costs = std::sync::Arc::clone(&costs_arc);
-                cat.skill_descriptions = std::sync::Arc::clone(&descriptions_arc);
+                cat.skill_descriptions = std::sync::Arc::clone(&descs_arc);
                 cat
             }).collect();
+
             app.cat_list_state.data.initialized = true;
         } else {
             tracing::info!("No cats_cache.bin found, triggering full cat scan");
@@ -75,18 +80,38 @@ impl BattleCatsApp {
             app.enemy_list_state.data.restart_scan(app.settings.scanner_config());
         }
 
-        tracing::info!("Triggering full stage scan");
-        app.stage_list_state.data.restart_scan(app.settings.scanner_config());
+        if let Some((hash, cached_registry)) = core::global::io::cache::load_with_hash::<core::stage::registry::StageRegistry>("stages_cache.bin") {
+            tracing::info!("Found stages_cache.bin (Hash: {})", hash);
+            expected_hash = hash;
+            needs_validation = true;
+
+            app.stage_list_state.data.registry = cached_registry;
+
+            let config = app.settings.scanner_config();
+            app.stage_list_state.data.load_dictionaries(&config);
+
+            let enemies_ref = app.enemy_list_state.data.enemies.clone();
+            app.stage_list_state.data.sync_enemies(&enemies_ref);
+
+            app.stage_list_state.data.initialized = true;
+
+            tracing::info!("Triggering silent background validation scan for stages...");
+            app.stage_list_state.data.restart_scan(app.settings.scanner_config());
+        } else {
+            tracing::info!("No stages_cache.bin found, triggering full stage scan");
+            app.stage_list_state.data.restart_scan(app.settings.scanner_config());
+        }
 
         if needs_validation {
             tracing::debug!("Spawning hash validation thread");
-            let (transmitter, receiver) = std::sync::mpsc::channel();
-            app.hash_rx = Some(receiver);
+            let (tx, rx) = std::sync::mpsc::channel();
+            app.hash_rx = Some(rx);
             let active_mod = core::global::resolver::get_active_mod();
 
             std::thread::spawn(move || {
-                let current_hash = core::global::io::cache::get_game_hash(active_mod.as_deref());
-                let _ = transmitter.send(current_hash == expected_hash && active_mod.is_none());
+                let cur_hash = core::global::io::cache::get_game_hash(active_mod.as_deref());
+                let is_valid = cur_hash == expected_hash && active_mod.is_none();
+                let _ = tx.send(is_valid);
             });
         }
 
@@ -109,12 +134,12 @@ fn setup_custom_fonts(context: &egui::Context) {
 
     let families = [egui::FontFamily::Proportional, egui::FontFamily::Monospace];
     for family in families {
-        let Some(list_reference) = fonts.families.get_mut(&family) else { continue; };
+        let Some(list_ref) = fonts.families.get_mut(&family) else { continue; };
 
-        list_reference.push("jp_font".to_owned());
-        list_reference.push("kr_font".to_owned());
-        list_reference.push("tc_font".to_owned());
-        list_reference.push("thai_font".to_owned());
+        list_ref.push("jp_font".to_owned());
+        list_ref.push("kr_font".to_owned());
+        list_ref.push("tc_font".to_owned());
+        list_ref.push("thai_font".to_owned());
     }
     context.set_fonts(fonts);
 }

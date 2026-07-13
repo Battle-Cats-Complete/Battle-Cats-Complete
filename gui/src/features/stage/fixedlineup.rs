@@ -1,19 +1,18 @@
 use std::collections::HashMap;
-use std::path::Path;
 
 use eframe::egui;
 use nyanko::chapter::stage::{AbilityType, CannonType, EvolutionForm, CertificationPreset, TreasureType};
 
-use core::cat::paths as cat_paths;
 use core::cat::waiter::unitexplanation;
 use core::global::utils::autocrop;
+use core::stage::paths;
 use core::stage::logic::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
 
 const ICON_SCALE: f32 = 0.45;
 const ICON_SPACING: f32 = 8.0;
 const SCROLL_AREA_HEIGHT: f32 = 93.0;
 
-fn load_cat_icon(path: &Path) -> Option<egui::ColorImage> {
+fn load_cat_icon(path: &std::path::Path) -> Option<egui::ColorImage> {
     let Ok(image_file) = image::open(path) else { return None; };
     let cropped_image = autocrop(image_file.to_rgba8());
     let dimensions = [cropped_image.width() as usize, cropped_image.height() as usize];
@@ -92,7 +91,7 @@ fn draw_slot(
 
             if let (Some(unit_id), Some(unit_level)) = (slot_data.unit_id, slot_data.level) {
                 let padded_id = format!("{:03}", unit_id);
-                let cat_folder = Path::new(cat_paths::DIR_CATS).join(&padded_id);
+                let cat_folder = paths::cat_folder(unit_id);
                 let explanation = unitexplanation(unit_id, &cat_folder, langs);
 
                 let form_index = if let Some(chara) = preset_data.characters.get(&unit_id) {

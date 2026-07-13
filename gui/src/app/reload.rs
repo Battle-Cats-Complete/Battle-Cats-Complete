@@ -22,6 +22,12 @@ impl BattleCatsApp {
         self.enemy_list_state.data.detail_key.clear();
         self.enemy_list_state.img015_sheets.clear();
 
+        tracing::debug!("Flushing stage UI image caches");
+        self.stage_list_state.enemy_texture_cache.clear();
+        self.stage_list_state.item_texture_cache.clear();
+        self.stage_list_state.stage_texture_cache.clear();
+        self.stage_list_state.cat_texture_cache.clear();
+
         let viewers = [
             &mut self.cat_list_state.anim_viewer,
             &mut self.enemy_list_state.anim_viewer,
@@ -38,7 +44,7 @@ impl BattleCatsApp {
         let config = self.settings.scanner_config();
 
         tracing::debug!("Dropping old UI caches and restarting data scans");
-        
+
         self.cat_list_state.cat_list = Default::default();
         self.cat_list_state.data.restart_scan(config.clone());
 
@@ -49,7 +55,12 @@ impl BattleCatsApp {
         self.stage_list_state.data.restart_scan(config);
 
         tracing::debug!("Reloading core tables");
-        self.param = param(Path::new("game/tables"), &self.settings.general.language_priority).unwrap_or_default();
-        self.localizable = localizable(Path::new("game/tables/localizable"), &self.settings.general.language_priority);
+
+        let langs = &self.settings.general.language_priority;
+        let tables_dir = Path::new("game/tables");
+        let loc_dir = Path::new("game/tables/localizable");
+
+        self.param = param(tables_dir, langs).unwrap_or_else(|| Default::default());
+        self.localizable = localizable(loc_dir, langs);
     }
 }
