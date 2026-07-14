@@ -227,10 +227,6 @@ pub fn show_popup(
                 ui.heading("Battleground");
                 ui.add_space(5.0);
 
-                if ui.button("+ Add New Enemy").clicked() {
-                    state.enemies.push(EnemyFilter::default());
-                }
-
                 let mut to_remove_e = None;
                 for (idx, enemy) in state.enemies.iter_mut().enumerate() {
                     ui.add_space(8.0);
@@ -318,13 +314,14 @@ pub fn show_popup(
                     state.enemies.remove(idx);
                 }
 
+                ui.add_space(8.0);
+                if ui.button("+ Add New Enemy").clicked() {
+                    state.enemies.push(EnemyFilter::default());
+                }
+
                 ui.add_space(15.0);
                 ui.heading("Fixed Lineup Cats");
                 ui.add_space(5.0);
-
-                if ui.button("+ Add Lineup Cat").clicked() {
-                    state.lineup_cats.push(LineupFilter::default());
-                }
 
                 let mut to_remove_l = None;
                 for (idx, cat) in state.lineup_cats.iter_mut().enumerate() {
@@ -373,15 +370,17 @@ pub fn show_popup(
                                 });
                         });
                 }
+
                 if let Some(idx) = to_remove_l { state.lineup_cats.remove(idx); }
+
+                ui.add_space(8.0);
+                if ui.button("+ Add Lineup Cat").clicked() {
+                    state.lineup_cats.push(LineupFilter::default());
+                }
 
                 ui.add_space(15.0);
                 ui.heading("Treasures");
                 ui.add_space(5.0);
-
-                if ui.button("+ Add New Treasure").clicked() {
-                    state.treasures.push(TreasureFilter::default());
-                }
 
                 let mut to_remove_t = None;
                 for (idx, treasure) in state.treasures.iter_mut().enumerate() {
@@ -431,15 +430,17 @@ pub fn show_popup(
                                 });
                         });
                 }
+
                 if let Some(idx) = to_remove_t { state.treasures.remove(idx); }
+
+                ui.add_space(8.0);
+                if ui.button("+ Add New Treasure").clicked() {
+                    state.treasures.push(TreasureFilter::default());
+                }
 
                 ui.add_space(15.0);
                 ui.heading("Materials");
                 ui.add_space(5.0);
-
-                if ui.button("+ Add New Material").clicked() {
-                    state.materials.push(MaterialFilter::default());
-                }
 
                 let mut to_remove_m = None;
                 for (idx, material) in state.materials.iter_mut().enumerate() {
@@ -488,7 +489,13 @@ pub fn show_popup(
                                 });
                         });
                 }
+
                 if let Some(idx) = to_remove_m { state.materials.remove(idx); }
+
+                ui.add_space(8.0);
+                if ui.button("+ Add New Material").clicked() {
+                    state.materials.push(MaterialFilter::default());
+                }
 
                 ui.add_space(60.0);
             });
