@@ -157,12 +157,14 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GeneralSettings, runtime
                     }
 
                     if features_available {
+                        // START | Nightly
                         let hint = "Enables work in progress \"Nightly\" features\n\
                             Nightly features are signified using a crescent moon \"🌙\"\n\
                             Expect bugs and poor performance when using Nightly features";
 
                         toggle_resp.on_hover_text(hint);
                         label_resp.on_hover_text(hint);
+                        //  END  | Nightly
                     }
                 });
             }).response;
