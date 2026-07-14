@@ -26,7 +26,7 @@ pub fn draw(ui: &mut egui::Ui, stage: &Stage, selected_crown: &mut u8) {
                     (egui::Color32::from_gray(15), egui::Stroke::new(1.0, egui::Color32::from_gray(50)), egui::Color32::from_gray(120))
                 };
 
-                let label = format!("{} ♔", c + 1);
+                let label = format!("{}♔", c + 1);
                 let btn = egui::Button::new(egui::RichText::new(label).color(text).strong())
                     .fill(fill)
                     .stroke(stroke)
