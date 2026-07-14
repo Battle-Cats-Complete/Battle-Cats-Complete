@@ -3,8 +3,8 @@ use eframe::egui;
 use core::stage::logic::filter::StageFilterState;
 use crate::global::shared::DragGuard;
 
-pub const WINDOW_WIDTH: f32 = 360.0;
-pub const WINDOW_HEIGHT: f32 = 420.0;
+pub const WINDOW_WIDTH: f32 = 380.0;
+pub const WINDOW_HEIGHT: f32 = 500.0;
 pub const TILDE_SPACING: f32 = 5.0;
 
 pub fn show_popup(
@@ -31,8 +31,8 @@ pub fn show_popup(
         .movable(allow_drag)
         .default_pos(ctx.screen_rect().center() - egui::vec2(WINDOW_WIDTH / 2.0, WINDOW_HEIGHT / 2.0))
         .default_size([WINDOW_WIDTH, WINDOW_HEIGHT])
-        .min_width(320.0)
-        .min_height(350.0);
+        .min_width(360.0)
+        .min_height(400.0);
 
     if let Some(pos) = fixed_pos {
         window = window.current_pos(pos);
@@ -44,19 +44,48 @@ pub fn show_popup(
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                ui.heading("Name");
+                ui.add_space(5.0);
+
+                egui::Grid::new("stage_name_filter_grid")
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Category:").strong());
+                        ui.add_sized(
+                            egui::vec2(150.0, 20.0),
+                            egui::TextEdit::singleline(&mut state.category_name).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
+                        );
+                        ui.end_row();
+
+                        ui.label(egui::RichText::new("Map:").strong());
+                        ui.add_sized(
+                            egui::vec2(150.0, 20.0),
+                            egui::TextEdit::singleline(&mut state.map_name).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
+                        );
+                        ui.end_row();
+
+                        ui.label(egui::RichText::new("Stage:").strong());
+                        ui.add_sized(
+                            egui::vec2(150.0, 20.0),
+                            egui::TextEdit::singleline(&mut state.stage_name).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
+                        );
+                        ui.end_row();
+                    });
+
+                ui.add_space(15.0);
                 ui.heading("Rules");
                 ui.add_space(5.0);
 
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("No Continues:").strong());
-                    tristate_btn(ui, &mut state.no_continues);
+                    ui.label(egui::RichText::new("Continues:").strong());
+                    tristate_btn(ui, &mut state.continues);
                 });
 
                 ui.add_space(4.0);
 
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Indestructible Base:").strong());
-                    tristate_btn(ui, &mut state.indestructible_base);
+                    ui.label(egui::RichText::new("Boss Guard:").strong());
+                    tristate_btn(ui, &mut state.boss_guard);
                 });
 
                 ui.add_space(15.0);
@@ -70,14 +99,99 @@ pub fn show_popup(
                     ("Max Enemies", &mut state.max_enemies),
                     ("Energy Cost", &mut state.energy),
                     ("XP Reward", &mut state.xp),
-                    ("Min Cost", &mut state.min_cost),
-                    ("Max Cost", &mut state.max_cost),
+                    ("Difficulty", &mut state.difficulty),
+                    ("Max Crowns", &mut state.max_crowns),
+                    ("Target Crowns", &mut state.target_crowns),
+                    ("Min Spawn", &mut state.min_spawn),
+                    ("Max Spawn", &mut state.max_spawn),
                 ];
 
                 egui::Grid::new("stage_stat_filter_grid")
                     .spacing([16.0, 6.0])
                     .show(ui, |ui| {
                         for (i, (label, range)) in stat_rows.into_iter().enumerate() {
+                            ui.label(format!("{}:", label));
+
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = TILDE_SPACING;
+                                let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
+
+                                ui.add_sized(
+                                    egui::vec2(55.0, 20.0),
+                                    egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
+                                );
+
+                                ui.label("~");
+
+                                ui.add_sized(
+                                    egui::vec2(55.0, 20.0),
+                                    egui::TextEdit::singleline(&mut range.max).hint_text(hint)
+                                );
+                            });
+
+                            if (i + 1) % 2 == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+
+                ui.add_space(15.0);
+                ui.heading("Restrictions");
+                ui.add_space(5.0);
+
+                let restriction_rows = [
+                    ("Deploy Limit", &mut state.deploy_limit),
+                    ("Allowed Rows", &mut state.allowed_rows),
+                    ("Min Cost", &mut state.min_cost),
+                    ("Max Cost", &mut state.max_cost),
+                ];
+
+                egui::Grid::new("stage_restriction_filter_grid")
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        for (i, (label, range)) in restriction_rows.into_iter().enumerate() {
+                            ui.label(format!("{}:", label));
+
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = TILDE_SPACING;
+                                let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
+
+                                ui.add_sized(
+                                    egui::vec2(55.0, 20.0),
+                                    egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
+                                );
+
+                                ui.label("~");
+
+                                ui.add_sized(
+                                    egui::vec2(55.0, 20.0),
+                                    egui::TextEdit::singleline(&mut range.max).hint_text(hint)
+                                );
+                            });
+
+                            if (i + 1) % 2 == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+
+                ui.add_space(15.0);
+                ui.heading("IDs & Audio");
+                ui.add_space(5.0);
+
+                let id_rows = [
+                    ("Base ID", &mut state.base_id),
+                    ("Anim Base ID", &mut state.anim_base_id),
+                    ("Background ID", &mut state.background_id),
+                    ("Init Track", &mut state.init_track),
+                    ("Boss Track", &mut state.boss_track),
+                    ("BGM Change (%)", &mut state.bgm_change_percent),
+                ];
+
+                egui::Grid::new("stage_id_filter_grid")
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        for (i, (label, range)) in id_rows.into_iter().enumerate() {
                             ui.label(format!("{}:", label));
 
                             ui.horizontal(|ui| {

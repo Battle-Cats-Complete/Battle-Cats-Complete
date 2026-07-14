@@ -1,6 +1,7 @@
 use eframe::egui;
-use nyanko::chapter::Category;
+use nyanko::chapter::{Category, Map};
 
+use core::stage::logic::filter::CompiledStageFilter;
 use core::stage::logic::navigate;
 use core::stage::registry::{GlobalMapId, GlobalStageId};
 
@@ -21,6 +22,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
         });
         return;
     }
+
+    let compiled_filter = state.filter_state.compile();
 
     ui.vertical(|ui| {
         ui.add_space(FILTER_BTN_PAD);
@@ -49,31 +52,29 @@ pub fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
             ui.set_max_height(available_height);
             ui.spacing_mut().item_spacing.x = 0.0;
 
-            draw_categories(ui, state, &categories);
+            draw_categories(ui, state, &compiled_filter, &categories);
 
             if state.data.selected_category.is_some() {
                 ui.add(egui::Separator::default().vertical().spacing(BTN_SPACING_X));
-                draw_maps(ui, state);
+                draw_maps(ui, state, &compiled_filter);
 
                 if state.data.selected_map.is_some() {
                     ui.add(egui::Separator::default().vertical().spacing(BTN_SPACING_X));
-                    draw_stages(ui, state);
+                    draw_stages(ui, state, &compiled_filter);
                 }
             }
         });
     });
 }
 
-fn has_matching_stage_in_map(state: &StageListState, cat: &Category, map_id: u32) -> bool {
-    if !state.filter_state.is_active() {
-        return true;
-    }
+fn has_matching_stage_in_map(state: &StageListState, compiled_filter: &CompiledStageFilter, cat: &Category, map_key: &GlobalMapId, map: &Map) -> bool {
+    if !compiled_filter.is_active() { return true; }
 
-    let map_key = GlobalMapId { category: cat.clone(), map: map_id };
-    let stages = navigate::get_stages(&state.data.registry, &map_key);
+    let stages = navigate::get_stages(&state.data.registry, map_key);
+    let cat_name = cat.display_name();
 
     for stage in stages {
-        if state.filter_state.matches_stage(&stage) {
+        if compiled_filter.matches(cat_name, map, &stage) {
             return true;
         }
     }
@@ -81,14 +82,13 @@ fn has_matching_stage_in_map(state: &StageListState, cat: &Category, map_id: u32
     false
 }
 
-fn has_matching_stage_in_category(state: &StageListState, cat: &Category) -> bool {
-    if !state.filter_state.is_active() {
-        return true;
-    }
+fn has_matching_stage_in_category(state: &StageListState, compiled_filter: &CompiledStageFilter, cat: &Category) -> bool {
+    if !compiled_filter.is_active() { return true; }
 
     let maps = navigate::get_maps(&state.data.registry, cat);
     for map in maps {
-        if has_matching_stage_in_map(state, cat, map.map_id) {
+        let map_key = GlobalMapId { category: cat.clone(), map: map.map_id };
+        if has_matching_stage_in_map(state, compiled_filter, cat, &map_key, &map) {
             return true;
         }
     }
@@ -109,7 +109,7 @@ fn draw_sidebar_btn(ui: &mut egui::Ui, text: &str, is_selected: bool) -> bool {
     ui.add_sized([ui.available_width(), 30.0], btn).clicked()
 }
 
-fn draw_categories(ui: &mut egui::Ui, state: &mut StageListState, categories: &[Category]) {
+fn draw_categories(ui: &mut egui::Ui, state: &mut StageListState, compiled_filter: &CompiledStageFilter, categories: &[Category]) {
     ui.vertical(|ui| {
         ui.set_min_width(180.0);
         ui.set_max_width(180.0);
@@ -126,7 +126,7 @@ fn draw_categories(ui: &mut egui::Ui, state: &mut StageListState, categories: &[
                 sorted_categories.sort_by_key(|cat| cat.sort_order());
 
                 for cat in &sorted_categories {
-                    if !has_matching_stage_in_category(state, cat) {
+                    if !has_matching_stage_in_category(state, compiled_filter, cat) {
                         continue;
                     }
 
@@ -144,7 +144,7 @@ fn draw_categories(ui: &mut egui::Ui, state: &mut StageListState, categories: &[
     });
 }
 
-fn draw_maps(ui: &mut egui::Ui, state: &mut StageListState) {
+fn draw_maps(ui: &mut egui::Ui, state: &mut StageListState, compiled_filter: &CompiledStageFilter) {
     let Some(cat) = state.data.selected_category.clone() else { return; };
 
     ui.vertical(|ui| {
@@ -161,11 +161,12 @@ fn draw_maps(ui: &mut egui::Ui, state: &mut StageListState) {
 
                 let maps = navigate::get_maps(&state.data.registry, &cat);
                 for map in maps {
-                    if !has_matching_stage_in_map(state, &cat, map.map_id) {
+                    let map_key = GlobalMapId { category: cat.clone(), map: map.map_id };
+
+                    if !has_matching_stage_in_map(state, compiled_filter, &cat, &map_key, &map) {
                         continue;
                     }
 
-                    let map_key = GlobalMapId { category: cat.clone(), map: map.map_id };
                     let is_selected = state.data.selected_map.as_ref() == Some(&map_key);
 
                     if draw_sidebar_btn(ui, &map.name, is_selected) {
@@ -179,7 +180,7 @@ fn draw_maps(ui: &mut egui::Ui, state: &mut StageListState) {
     });
 }
 
-fn draw_stages(ui: &mut egui::Ui, state: &mut StageListState) {
+fn draw_stages(ui: &mut egui::Ui, state: &mut StageListState, compiled_filter: &CompiledStageFilter) {
     let Some(map_id) = state.data.selected_map.clone() else { return; };
 
     ui.vertical(|ui| {
@@ -194,9 +195,13 @@ fn draw_stages(ui: &mut egui::Ui, state: &mut StageListState) {
                 ui.spacing_mut().item_spacing.y = BTN_SPACING_Y;
                 ui.add_space(BTN_SPACING_Y);
 
+                let maps = navigate::get_maps(&state.data.registry, &map_id.category);
+                let Some(map) = maps.into_iter().find(|m| m.map_id == map_id.map) else { return; };
+                let cat_name = map_id.category.display_name();
+
                 let stages = navigate::get_stages(&state.data.registry, &map_id);
                 for stage in stages {
-                    if !state.filter_state.matches_stage(&stage) {
+                    if !compiled_filter.matches(cat_name, &map, &stage) {
                         continue;
                     }
 
