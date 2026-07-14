@@ -1,4 +1,4 @@
-use nyanko::common::tools::csv::{strip_html_tags, BreakHandling};
+use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
 use nyanko::chapter::map::{RuleType, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
 use tracing::{debug, instrument, warn};
 

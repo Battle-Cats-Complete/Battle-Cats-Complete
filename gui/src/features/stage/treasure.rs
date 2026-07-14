@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use eframe::egui;
+use eframe::egui::{self,  RichText};
 use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::stage::RewardStructure;
 
@@ -58,7 +58,7 @@ fn format_treasure_rule(drop_rule: i32) -> &'static str {
 
 pub fn center_header(ui: &mut egui::Ui, display_text: &str) {
     ui.centered_and_justified(|ui| {
-        ui.add(egui::Label::new(egui::RichText::new(display_text).strong()).wrap_mode(egui::TextWrapMode::Extend));
+        ui.add(egui::Label::new(RichText::new(display_text).strong()).wrap_mode(egui::TextWrapMode::Extend));
     });
 }
 
@@ -84,7 +84,6 @@ pub fn draw(
         RewardStructure::Treasure { drop_rule, drops } => {
             let valid_drops_array: Vec<_> = drops.iter().filter(|drop_data| drop_data.chance > 0).collect();
 
-            // Guard clause: immediately exit if there are no valid drops
             if valid_drops_array.is_empty() {
                 return;
             }
@@ -92,7 +91,7 @@ pub fn draw(
             ui.set_max_width(TREASURE_TABLE_WIDTH);
 
             let rule_description = format_treasure_rule(*drop_rule);
-            ui.strong(format!("Treasure | {}", rule_description));
+            ui.label(RichText::new(format!("Treasure | {}", rule_description)).strong().heading());
             ui.separator();
 
             egui::Grid::new("reward_treasure_grid")

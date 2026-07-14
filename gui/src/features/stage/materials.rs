@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use eframe::egui;
+use eframe::egui::{self, RichText};
 
 use core::global::formats::gatyaitembuy::GatyaItemBuy;
 use core::global::formats::gatyaitemname::GatyaItemName;
@@ -51,7 +51,7 @@ pub fn draw(
     let mul = drops.crown_multipliers.get(selected_crown as usize).copied().unwrap_or(1.0);
     let f_amt = (b_amt as f32 * mul).round() as u32;
 
-    ui.strong(format!("Materials | Amount: {} ({}×{:.2})", f_amt, b_amt, mul));
+    ui.label(RichText::new(format!("Materials | Amount: {} ({}×{:.2})", f_amt, b_amt, mul)).strong().heading());
     ui.separator();
     ui.add_space(4.0);
 
@@ -99,7 +99,7 @@ fn draw_chunks(
         for d in &res {
             g.centered_and_justified(|ui| {
                 ui.set_max_width(c_width);
-                ui.add(egui::Label::new(egui::RichText::new(&d.name).strong()).wrap_mode(egui::TextWrapMode::Wrap).truncate());
+                ui.add(egui::Label::new(RichText::new(&d.name).strong()).wrap_mode(egui::TextWrapMode::Wrap).truncate());
             });
         }
         g.end_row();
@@ -133,7 +133,7 @@ fn draw_chunks(
         for &c in chunk {
             g.centered_and_justified(|ui| {
                 let color = if c > 0 { ui.visuals().text_color() } else { egui::Color32::DARK_GRAY };
-                ui.label(egui::RichText::new(format!("{}%", c)).color(color).strong());
+                ui.label(RichText::new(format!("{}%", c)).color(color).strong());
             });
         }
         g.end_row();

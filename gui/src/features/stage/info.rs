@@ -16,6 +16,8 @@ const STAGE_IMG_HEIGHT: f32 = 35.0;
 const IMG_SPACING: f32 = 12.0;
 const TOP_PADDING: f32 = 3.0;
 const BOTTOM_PADDING: f32 = 5.0;
+const FALLBACK_MAP_SIZE: f32 = 32.0;
+const FALLBACK_STAGE_SIZE: f32 = 32.0;
 
 fn format_diff(difficulty_level: u16) -> String {
     if difficulty_level == 0 {
@@ -43,7 +45,7 @@ fn format_energy(category: &Category, raw_energy: u32) -> String {
 fn format_base(anim_id: u32, standard_id: i32) -> (String, String) {
     if anim_id != 0 {
         let calculated_id = anim_id.saturating_sub(2);
-        return ("Anim Base".to_string(), format!("E-{:03}", calculated_id));
+        return ("Base Enemy".to_string(), format!("E-{:03}", calculated_id));
     }
     ("Base Img".to_string(), standard_id.to_string())
 }
@@ -109,10 +111,10 @@ fn get_story_stage_info(category: &Category, map_id: u32, stage_id: u32) -> Opti
         Category::EmpireOfCats => ("EC", "ec"),
         Category::IntoTheFuture => ("W", "wc"),
         Category::CatsOfTheCosmos => ("Space", "sc"),
-        Category::ZombieOutbreaks => match map_id / 3 {
-            0 => ("EC", "ec"),
-            1 => ("W", "wc"),
-            2 => ("Space", "sc"),
+        Category::ZombieOutbreaks => match map_id {
+            0 | 1 | 2 => ("EC", "ec"),
+            4 | 5 | 6 => ("W", "wc"),
+            7 | 8 | 9 => ("Space", "sc"),
             _ => return None,
         },
         _ => return None,
@@ -153,9 +155,18 @@ fn find_texture(directories: &[PathBuf], files: &[String], languages: &[String])
 
 fn process_texture(image_path: &Path) -> Option<egui::ColorImage> {
     let raw_image = image::open(image_path).ok()?;
-    let cropped_image = autocrop(raw_image.to_rgba8());
-    let dimensions = [cropped_image.width() as usize, cropped_image.height() as usize];
 
+    if raw_image.width() <= 1 && raw_image.height() <= 1 {
+        return None;
+    }
+
+    let cropped_image = autocrop(raw_image.to_rgba8());
+
+    if cropped_image.width() <= 1 && cropped_image.height() <= 1 {
+        return None;
+    }
+
+    let dimensions = [cropped_image.width() as usize, cropped_image.height() as usize];
     Some(egui::ColorImage::from_rgba_unmultiplied(dimensions, cropped_image.as_flat_samples().as_slice()))
 }
 
@@ -242,7 +253,7 @@ pub fn draw(
     ui.add_space(TOP_PADDING);
     ui.allocate_ui_with_layout(
         egui::vec2(ui.available_width(), max_image_height),
-        egui::Layout::left_to_right(egui::Align::Center),
+        egui::Layout::left_to_right(egui::Align::BOTTOM),
         |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 
@@ -251,7 +262,7 @@ pub fn draw(
                     ui.add(egui::Image::new(cached_texture).fit_to_exact_size(egui::vec2(map_width, MAP_IMG_HEIGHT)));
                 }
             } else {
-                ui.label(egui::RichText::new(&map.name).strong().size(18.0));
+                ui.label(egui::RichText::new(&map.name).strong().size(FALLBACK_MAP_SIZE));
             }
 
             ui.add_space(IMG_SPACING);
@@ -261,7 +272,7 @@ pub fn draw(
                     ui.add(egui::Image::new(cached_texture).fit_to_exact_size(egui::vec2(stage_width, STAGE_IMG_HEIGHT)));
                 }
             } else {
-                ui.label(egui::RichText::new(&stage.name).strong().size(18.0));
+                ui.label(egui::RichText::new(&stage.name).strong().size(FALLBACK_STAGE_SIZE));
             }
         }
     );
@@ -272,7 +283,7 @@ pub fn draw(
 
     super::crowns::draw(ui, stage, selected_crown);
 
-    ui.strong("General Information");
+    ui.label(egui::RichText::new("Information").strong().heading());
     ui.separator();
 
     let crown_magnification = match *selected_crown {
@@ -297,7 +308,7 @@ pub fn draw(
     let energy_value = format_energy(&stage.category, stage.energy);
 
     let difficulty_value = format_diff(stage.difficulty);
-    let no_continue_value = format_bool(stage.is_no_continues, "Yes", "No");
+    let continue_value = format_bool(stage.is_no_continues, "No", "Yes");
     let indestructible_value = format_bool(stage.is_base_indestructible, "Active", "-");
     let (base_header, base_value) = format_base(stage.anim_base_id, stage.base_id);
     let respawn_value = format_respawn(stage.min_spawn, stage.max_spawn);
@@ -309,39 +320,39 @@ pub fn draw(
         .spacing([15.0, 8.0])
         .show(ui, |grid| {
             center_header(grid, hp_header);
-            center_header(grid, energy_header);
-            center_header(grid, "XP Base");
             center_header(grid, "Width");
+            center_header(grid, energy_header);
+            center_header(grid, "XP");
+            center_header(grid, "Boss Guard");
             center_header(grid, "Max Enemy");
             center_header(grid, "Respawn");
-            center_header(grid, "Difficulty");
             grid.end_row();
 
             center_text(grid, hp_value);
+            center_text(grid, stage.width.to_string());
             center_text(grid, energy_value);
             center_text(grid, stage.xp.to_string());
-            center_text(grid, stage.width.to_string());
+            center_text(grid, indestructible_value);
             center_text(grid, stage.max_enemies.to_string());
             center_text(grid, respawn_value);
-            center_text(grid, difficulty_value);
             grid.end_row();
 
-            center_header(grid, "No Cont.");
-            center_header(grid, "Boss Guard");
             center_header(grid, &base_header);
-            center_header(grid, "BG ID");
-            center_header(grid, "BGM");
-            center_header(grid, "Boss BGM");
+            center_header(grid, "Background");
+            center_header(grid, "Music");
+            center_header(grid, "Boss Music");
+            center_header(grid, "Difficulty");
             center_header(grid, "CPU Skip");
+            center_header(grid, "Continues");
             grid.end_row();
 
-            center_text(grid, no_continue_value);
-            center_text(grid, indestructible_value);
             center_text(grid, base_value);
             center_text(grid, stage.background_id.to_string());
             center_text(grid, stage.init_track.to_string());
             center_text(grid, boss_bgm_value);
+            center_text(grid, difficulty_value);
             center_text(grid, skip_value);
+            center_text(grid, continue_value);
             grid.end_row();
         });
 }

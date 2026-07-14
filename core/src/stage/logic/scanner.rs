@@ -6,7 +6,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::thread;
 
-use nyanko::common::tools::csv;
+use nyanko::common::tools::file;
 use nyanko::chapter::Category;
 use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, get_hardcoded_xp, StageOptionEntry, StageNameEntry};
 use nyanko::chapter::map::{DropItemEntry, MapOptionEntry, ScoreBonusMapEntry, SpecialRulesMapEntry, RuleType, SpecialRulesMapOptionEntry};
@@ -386,7 +386,7 @@ fn load_story_stages(
         let resolved_paths = crate::global::resolver::get(map_path, [story_file], ctx.lang_priority);
         if let Some(story_path) = resolved_paths.first() {
             if let Ok(content) = fs::read_to_string(story_path) {
-                let sep = csv::detect_separator(&content);
+                let sep = file::detect_separator(&content);
                 for (idx, line) in content.lines().skip(2).enumerate() {
                     let clean = line.split("//").next().unwrap_or("").trim();
                     if clean.is_empty() { continue; }
@@ -408,11 +408,10 @@ fn load_story_stages(
     }
 
     if !inv_story_file.is_empty() {
-        // [MODIFIED]: Fetch via resolver instead of map_path.join(inv_story_file)
         let resolved_paths = crate::global::resolver::get(map_path, [inv_story_file], ctx.lang_priority);
         if let Some(inv_story_path) = resolved_paths.first() {
             if let Ok(content) = fs::read_to_string(inv_story_path) {
-                let sep = csv::detect_separator(&content);
+                let sep = file::detect_separator(&content);
                 for line in content.lines().skip(2) {
                     let clean = line.split("//").next().unwrap_or("").trim();
                     if clean.is_empty() { continue; }

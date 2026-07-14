@@ -1,5 +1,5 @@
 use eframe::egui;
-use tracing::{trace, warn};
+use tracing::{trace, warn, debug};
 
 use core::global::context::GlobalContext;
 use core::stage::registry::GlobalMapId;
@@ -26,7 +26,10 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
     let stage_textures = &mut state.stage_texture_cache;
     let cat_textures = &mut state.cat_texture_cache;
 
-    let Some(stage) = state.data.registry.stages.get(stage_id) else { return; };
+    let Some(stage) = state.data.registry.stages.get(stage_id) else {
+        warn!(?stage_id, "Selected stage could not be located in registry");
+        return;
+    };
 
     let map_key = GlobalMapId { category: stage.category.clone(), map: stage.map_id };
     let Some(map_data) = state.data.registry.maps.get(&map_key) else {
@@ -35,13 +38,20 @@ pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, 
     };
 
     if state.selected_crown >= stage.max_crowns {
-        trace!("Resetting selected crown out of bounds");
+        debug!(current = state.selected_crown, max = stage.max_crowns, "Resetting selected crown out of bounds");
         state.selected_crown = 0;
     }
+    
+    let is_fixed_lineup_hovered = ctx.data_mut(|data_map| {
+        data_map.get_temp::<bool>(egui::Id::new("fixed_lineup_hovered")).unwrap_or(false)
+    });
+
+    trace!(?stage_id, "Drawing stage view layout");
 
     egui::ScrollArea::vertical()
         .id_salt("view_scroll")
         .auto_shrink([false, false])
+        .enable_scrolling(!is_fixed_lineup_hovered)
         .show(ui, |ui| {
             let margin = egui::Margin { left: 40.0, right: 40.0, top: 0.0, bottom: 0.0 };
 

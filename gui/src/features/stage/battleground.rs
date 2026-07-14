@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use eframe::egui;
+use eframe::egui::{self, RichText};
 use nyanko::chapter::stage::{EnemyAmount, BossType};
-use nyanko::common::tools::csv::{strip_html_tags, BreakHandling};
+use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
 use nyanko::chapter::map::{BonusType, ScoreBonusMapEntry, SpecialRulesMapEntry, RuleType};
 use tracing::{debug, instrument, warn};
 
@@ -13,6 +13,8 @@ use core::global::utils::autocrop;
 use core::stage::registry::{Map, Stage};
 
 use super::treasure::center_header;
+
+const SUBHEADER_SIZE: f32 = 14.0;
 
 fn format_enemy_amount(spawn_amount: &EnemyAmount) -> String {
     match spawn_amount {
@@ -189,49 +191,42 @@ pub fn draw(
     texture_cache: &mut HashMap<u32, egui::TextureHandle>,
     global_ctx: GlobalContext
 ) {
-    ui.strong("Battleground");
+    ui.label(RichText::new("Battleground").strong().heading());
     ui.separator();
 
     let restrictions = core::stage::logic::restrictions::parse_restrictions(stage_data, selected_crown as i8, global_ctx.clone());
 
     if !restrictions.is_empty() {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new("Stage Restrictions").strong());
+        ui.label(RichText::new("Restrictions").strong().size(SUBHEADER_SIZE));
 
-        ui.indent("stage_restrictions_indent", |ui| {
-            for restriction in &restrictions {
-                ui.label(format!("• {}", restriction));
-            }
-        });
+        for restriction in &restrictions {
+            ui.label(restriction);
+        }
     }
 
     if let Some(rule) = &map_data.special_rules {
         ui.add_space(8.0);
-        ui.label(egui::RichText::new("Special Rules").strong());
+        ui.label(RichText::new("Rules").strong().size(SUBHEADER_SIZE));
 
-        ui.indent("special_rules_indent", |ui| {
-            let rule_description = format_special_rule(rule, &global_ctx);
+        let rule_description = format_special_rule(rule, &global_ctx);
+        ui.label(rule_description);
 
-            ui.label(format!("• {}", rule_description));
-
-            if !map_data.invalid_combos.is_empty() {
-                ui.label(format!("• Disabled Combos: {} total", map_data.invalid_combos.len()));
-            }
-        });
+        if !map_data.invalid_combos.is_empty() {
+            ui.label(format!("Disabled Combos: {} total", map_data.invalid_combos.len()));
+        }
     }
 
     if let Some(score_bonus) = &map_data.score_bonuses {
         ui.add_space(8.0);
-        ui.label(egui::RichText::new("Dojo Score Bonus").strong());
+        ui.label(RichText::new("Score Bonus").strong().size(SUBHEADER_SIZE));
 
-        ui.indent("score_bonus_indent", |ui| {
-            let desc = format_score_bonus(score_bonus, &global_ctx);
-            ui.label(format!("• {}", desc));
-        });
+        let desc = format_score_bonus(score_bonus, &global_ctx);
+        ui.label(desc);
     }
 
     if restrictions.is_empty() && map_data.special_rules.is_none() && map_data.score_bonuses.is_none() {
-        debug!("No stage restrictions, special rules, or score bonuses found for current crown to display");
+        debug!("No restrictions, special rules, or score bonuses found for current crown to display");
     } else {
         ui.add_space(8.0);
     }

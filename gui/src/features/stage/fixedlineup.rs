@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use eframe::egui;
+use eframe::egui::{self, RichText};
 use nyanko::chapter::stage::{AbilityType, CannonType, EvolutionForm, CertificationPreset, TreasureType};
+use tracing::{error, warn, trace};
 
 use core::cat::waiter::unitexplanation;
 use core::global::utils::autocrop;
@@ -10,12 +11,18 @@ use core::stage::logic::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
 
 const ICON_SCALE: f32 = 0.45;
 const ICON_SPACING: f32 = 8.0;
-const SCROLL_AREA_HEIGHT: f32 = 93.0;
+const SCROLL_AREA_HEIGHT: f32 = 90.0;
 
 fn load_cat_icon(path: &std::path::Path) -> Option<egui::ColorImage> {
-    let Ok(image_file) = image::open(path) else { return None; };
+    let Ok(image_file) = image::open(path) else {
+        error!(?path, "Failed to open cat icon image file");
+        return None;
+    };
+
     let cropped_image = autocrop(image_file.to_rgba8());
     let dimensions = [cropped_image.width() as usize, cropped_image.height() as usize];
+
+    trace!(?path, width = dimensions[0], height = dimensions[1], "Loaded and cropped cat icon");
     Some(egui::ColorImage::from_rgba_unmultiplied(dimensions, cropped_image.as_flat_samples().as_slice()))
 }
 
@@ -27,9 +34,8 @@ pub fn draw(
     texture_cache: &mut HashMap<String, egui::TextureHandle>,
     langs: &[String],
 ) {
-    ui.strong("Fixed Lineup");
+    ui.label(RichText::new("Fixed Lineup").strong().heading());
     ui.separator();
-    ui.add_space(4.0);
 
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
@@ -53,14 +59,36 @@ pub fn draw(
         ui.add_space(24.0);
 
         ui.vertical(|ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("fixed_lineup_upgrades_scroll")
-                .max_height(SCROLL_AREA_HEIGHT)
+            let frame_response = egui::Frame::none()
+                .stroke(egui::Stroke::new(2.0, egui::Color32::DARK_GRAY))
+                .inner_margin(4.0)
+                .rounding(4.0)
                 .show(ui, |ui| {
-                    draw_upgrades_section(ui, preset_data);
+                    egui::ScrollArea::vertical()
+                        .id_salt("fixed_lineup_upgrades_scroll")
+                        .max_height(SCROLL_AREA_HEIGHT)
+                        .show(ui, |ui| {
+                            draw_upgrades_section(ui, preset_data);
+                        });
                 });
+
+            let interact_rect = frame_response.response.rect;
+            let hover_response = ui.interact(interact_rect, ui.id().with("fl_scroll_hover"), egui::Sense::hover());
+            let is_hovering_upgrades = hover_response.hovered();
+
+            ui.ctx().data_mut(|data_map| {
+                data_map.insert_temp(egui::Id::new("fixed_lineup_hovered"), is_hovering_upgrades);
+            });
         });
     });
+}
+
+fn draw_empty_slot(ui: &mut egui::Ui) {
+    let (rect, _response) = ui.allocate_exact_size(
+        egui::vec2(128.0 * ICON_SCALE, 128.0 * ICON_SCALE),
+        egui::Sense::hover()
+    );
+    ui.painter().rect_filled(rect, 4.0, egui::Color32::DARK_GRAY);
 }
 
 fn draw_slot(
@@ -71,80 +99,74 @@ fn draw_slot(
     texture_cache: &mut HashMap<String, egui::TextureHandle>,
     langs: &[String],
 ) {
-    let mut is_rendered = false;
+    let Some(image_path) = &slot_data.image_path else {
+        draw_empty_slot(ui);
+        return;
+    };
 
-    if let Some(image_path) = &slot_data.image_path {
-        let path_string = image_path.to_string_lossy().to_string();
+    let path_string = image_path.to_string_lossy().to_string();
 
-        if !texture_cache.contains_key(&path_string) {
-            if let Some(image_data) = load_cat_icon(image_path) {
-                let texture_handle = context.load_texture(&path_string, image_data, egui::TextureOptions::LINEAR);
-                texture_cache.insert(path_string.clone(), texture_handle);
-            }
-        }
-
-        if let Some(texture_handle) = texture_cache.get(&path_string) {
-            let max_image_size = egui::vec2(128.0 * ICON_SCALE, 128.0 * ICON_SCALE);
-
-            let cat_image = egui::Image::new(texture_handle).max_size(max_image_size);
-            let image_response = ui.add(cat_image);
-
-            if let (Some(unit_id), Some(unit_level)) = (slot_data.unit_id, slot_data.level) {
-                let padded_id = format!("{:03}", unit_id);
-                let cat_folder = paths::cat_folder(unit_id);
-                let explanation = unitexplanation(unit_id, &cat_folder, langs);
-
-                let form_index = if let Some(chara) = preset_data.characters.get(&unit_id) {
-                    match chara.evolution_form {
-                        EvolutionForm::Normal => 0,
-                        EvolutionForm::Evolved => 1,
-                        EvolutionForm::True => 2,
-                        EvolutionForm::Ultra => 3,
-                        _ => 0,
-                    }
-                } else {
-                    0
-                };
-
-                let mut display_name = format!("Unit {}", padded_id);
-                if let Some(Some(name)) = explanation.names.get(form_index) {
-                    display_name = name.clone();
-                } else if let Some(Some(name)) = explanation.names.get(0) {
-                    display_name = name.clone();
-                }
-
-                let plus_level = slot_data.plus_level.unwrap_or(0);
-                let plus_string = if plus_level > 0 { format!("+{}", plus_level) } else { "".to_string() };
-
-                image_response.on_hover_ui(|tooltip_ui| {
-                    tooltip_ui.horizontal(|row_ui| {
-                        row_ui.label(egui::RichText::new("[Name]").weak());
-                        row_ui.label(&display_name);
-                    });
-
-                    tooltip_ui.horizontal(|row_ui| {
-                        row_ui.label(egui::RichText::new("[ID]").weak());
-                        row_ui.label(&padded_id);
-                    });
-
-                    tooltip_ui.horizontal(|row_ui| {
-                        row_ui.label(egui::RichText::new("[Level]").weak());
-                        row_ui.label(format!("{}{}", unit_level, plus_string));
-                    });
-                });
-            }
-
-            is_rendered = true;
-        }
+    if !texture_cache.contains_key(&path_string) {
+        let Some(image_data) = load_cat_icon(image_path) else {
+            warn!(?image_path, "Could not load cat icon; rendering empty slot fallback");
+            draw_empty_slot(ui);
+            return;
+        };
+        let texture_handle = context.load_texture(&path_string, image_data, egui::TextureOptions::LINEAR);
+        texture_cache.insert(path_string.clone(), texture_handle);
     }
 
-    if !is_rendered {
-        let (rect, _response) = ui.allocate_exact_size(
-            egui::vec2(128.0 * ICON_SCALE, 128.0 * ICON_SCALE),
-            egui::Sense::hover()
-        );
-        ui.painter().rect_filled(rect, 4.0, egui::Color32::DARK_GRAY);
+    let Some(texture_handle) = texture_cache.get(&path_string) else {
+        draw_empty_slot(ui);
+        return;
+    };
+
+    let max_image_size = egui::vec2(128.0 * ICON_SCALE, 128.0 * ICON_SCALE);
+    let cat_image = egui::Image::new(texture_handle).max_size(max_image_size);
+    let image_response = ui.add(cat_image);
+
+    let (Some(unit_id), Some(unit_level)) = (slot_data.unit_id, slot_data.level) else {
+        return;
+    };
+
+    let padded_id = format!("{:03}", unit_id);
+    let cat_folder = paths::cat_folder(unit_id);
+    let explanation = unitexplanation(unit_id, &cat_folder, langs);
+
+    let form_index = preset_data.characters.get(&unit_id).map_or(0, |chara| {
+        match chara.evolution_form {
+            EvolutionForm::Normal => 0,
+            EvolutionForm::Evolved => 1,
+            EvolutionForm::True => 2,
+            EvolutionForm::Ultra => 3,
+            _ => 0,
+        }
+    });
+
+    let mut display_name = format!("Unit {}", padded_id);
+    if let Some(Some(name)) = explanation.names.get(form_index).or_else(|| explanation.names.get(0)) {
+        display_name = name.clone();
     }
+
+    let plus_level = slot_data.plus_level.unwrap_or(0);
+    let plus_string = if plus_level > 0 { format!("+{}", plus_level) } else { String::new() };
+
+    image_response.on_hover_ui(|tooltip_ui| {
+        tooltip_ui.horizontal(|row_ui| {
+            row_ui.label(RichText::new("[Name]").weak());
+            row_ui.label(&display_name);
+        });
+
+        tooltip_ui.horizontal(|row_ui| {
+            row_ui.label(RichText::new("[ID]").weak());
+            row_ui.label(&padded_id);
+        });
+
+        tooltip_ui.horizontal(|row_ui| {
+            row_ui.label(RichText::new("[Level]").weak());
+            row_ui.label(format!("{}{}", unit_level, plus_string));
+        });
+    });
 }
 
 fn draw_upgrades_section(ui: &mut egui::Ui, preset_data: &CertificationPreset) {
