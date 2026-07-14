@@ -5,7 +5,10 @@ use egui::TextureHandle;
 use serde::{Deserialize, Serialize};
 
 use core::enemy::logic::scanner::EnemyEntry;
+use core::stage::logic::filter::StageFilterState;
 use core::stage::logic::state::StageDataState;
+
+use crate::global::shared::DragGuard;
 
 #[derive(Deserialize, Serialize, Default)]
 #[serde(default)]
@@ -13,7 +16,9 @@ pub struct StageListState {
     pub data: StageDataState,
     pub is_list_open: bool,
     pub selected_crown: u8,
-    
+
+    #[serde(skip)] pub filter_state: StageFilterState,
+    #[serde(skip)] pub drag_guard: DragGuard,
     #[serde(skip)] pub enemy_texture_cache: HashMap<u32, TextureHandle>,
     #[serde(skip)] pub item_texture_cache: HashMap<u32, TextureHandle>,
     #[serde(skip)] pub stage_texture_cache: HashMap<String, TextureHandle>,

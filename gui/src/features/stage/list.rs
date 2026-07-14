@@ -9,6 +9,7 @@ use super::state::StageListState;
 
 pub const BTN_SPACING_X: f32 = 14.0;
 pub const BTN_SPACING_Y: f32 = 6.0;
+pub const FILTER_BTN_PAD: f32 = 5.0;
 
 pub fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
     let categories = navigate::get_categories(&state.data.registry);
@@ -21,19 +22,78 @@ pub fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
         return;
     }
 
-    ui.spacing_mut().item_spacing.x = 0.0;
+    ui.vertical(|ui| {
+        ui.add_space(FILTER_BTN_PAD);
 
-    draw_categories(ui, state, &categories);
+        ui.horizontal(|ui| {
+            ui.add_space(FILTER_BTN_PAD);
+            let btn_w = ui.available_width() - (FILTER_BTN_PAD * 2.0);
 
-    if state.data.selected_category.is_some() {
-        ui.add(egui::Separator::default().vertical().spacing(BTN_SPACING_X));
-        draw_maps(ui, state);
+            let mut filter_btn = egui::Button::new("Filter Stages");
+            if state.filter_state.is_active() {
+                filter_btn = filter_btn.fill(egui::Color32::from_rgb(31, 106, 165));
+            }
 
-        if state.data.selected_map.is_some() {
-            ui.add(egui::Separator::default().vertical().spacing(BTN_SPACING_X));
-            draw_stages(ui, state);
+            if ui.add_sized([btn_w, 28.0], filter_btn).clicked() {
+                state.filter_state.is_open = !state.filter_state.is_open;
+            }
+        });
+
+        ui.add_space(FILTER_BTN_PAD);
+        ui.separator();
+
+        let available_height = ui.available_height();
+
+        ui.horizontal(|ui| {
+            ui.set_min_height(available_height);
+            ui.set_max_height(available_height);
+            ui.spacing_mut().item_spacing.x = 0.0;
+
+            draw_categories(ui, state, &categories);
+
+            if state.data.selected_category.is_some() {
+                ui.add(egui::Separator::default().vertical().spacing(BTN_SPACING_X));
+                draw_maps(ui, state);
+
+                if state.data.selected_map.is_some() {
+                    ui.add(egui::Separator::default().vertical().spacing(BTN_SPACING_X));
+                    draw_stages(ui, state);
+                }
+            }
+        });
+    });
+}
+
+fn has_matching_stage_in_map(state: &StageListState, cat: &Category, map_id: u32) -> bool {
+    if !state.filter_state.is_active() {
+        return true;
+    }
+
+    let map_key = GlobalMapId { category: cat.clone(), map: map_id };
+    let stages = navigate::get_stages(&state.data.registry, &map_key);
+
+    for stage in stages {
+        if state.filter_state.matches_stage(&stage) {
+            return true;
         }
     }
+
+    false
+}
+
+fn has_matching_stage_in_category(state: &StageListState, cat: &Category) -> bool {
+    if !state.filter_state.is_active() {
+        return true;
+    }
+
+    let maps = navigate::get_maps(&state.data.registry, cat);
+    for map in maps {
+        if has_matching_stage_in_map(state, cat, map.map_id) {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn draw_sidebar_btn(ui: &mut egui::Ui, text: &str, is_selected: bool) -> bool {
@@ -66,6 +126,10 @@ fn draw_categories(ui: &mut egui::Ui, state: &mut StageListState, categories: &[
                 sorted_categories.sort_by_key(|cat| cat.sort_order());
 
                 for cat in &sorted_categories {
+                    if !has_matching_stage_in_category(state, cat) {
+                        continue;
+                    }
+
                     let is_selected = state.data.selected_category.as_ref() == Some(cat);
 
                     if draw_sidebar_btn(ui, cat.display_name(), is_selected) {
@@ -81,7 +145,7 @@ fn draw_categories(ui: &mut egui::Ui, state: &mut StageListState, categories: &[
 }
 
 fn draw_maps(ui: &mut egui::Ui, state: &mut StageListState) {
-    let Some(cat) = &state.data.selected_category else { return; };
+    let Some(cat) = state.data.selected_category.clone() else { return; };
 
     ui.vertical(|ui| {
         ui.set_min_width(200.0);
@@ -95,8 +159,12 @@ fn draw_maps(ui: &mut egui::Ui, state: &mut StageListState) {
                 ui.spacing_mut().item_spacing.y = BTN_SPACING_Y;
                 ui.add_space(BTN_SPACING_Y);
 
-                let maps = navigate::get_maps(&state.data.registry, cat);
+                let maps = navigate::get_maps(&state.data.registry, &cat);
                 for map in maps {
+                    if !has_matching_stage_in_map(state, &cat, map.map_id) {
+                        continue;
+                    }
+
                     let map_key = GlobalMapId { category: cat.clone(), map: map.map_id };
                     let is_selected = state.data.selected_map.as_ref() == Some(&map_key);
 
@@ -112,7 +180,7 @@ fn draw_maps(ui: &mut egui::Ui, state: &mut StageListState) {
 }
 
 fn draw_stages(ui: &mut egui::Ui, state: &mut StageListState) {
-    let Some(map_id) = &state.data.selected_map else { return; };
+    let Some(map_id) = state.data.selected_map.clone() else { return; };
 
     ui.vertical(|ui| {
         ui.set_min_width(200.0);
@@ -126,8 +194,12 @@ fn draw_stages(ui: &mut egui::Ui, state: &mut StageListState) {
                 ui.spacing_mut().item_spacing.y = BTN_SPACING_Y;
                 ui.add_space(BTN_SPACING_Y);
 
-                let stages = navigate::get_stages(&state.data.registry, map_id);
+                let stages = navigate::get_stages(&state.data.registry, &map_id);
                 for stage in stages {
+                    if !state.filter_state.matches_stage(&stage) {
+                        continue;
+                    }
+
                     let stage_key = GlobalStageId {
                         category: map_id.category.clone(),
                         map: map_id.map,

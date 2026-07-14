@@ -12,18 +12,18 @@ const LIST_BG_COLOR: egui::Color32 = egui::Color32::from_rgb(20, 20, 20);
 pub fn show(ctx: &egui::Context, state: &mut StageListState, _settings: &mut Settings, global_ctx: GlobalContext) {
     let screen_rect = ctx.screen_rect();
 
-    let mut inner_target_width = 180.0;
-    if state.data.selected_category.is_some() { inner_target_width += list::BTN_SPACING_X + 200.0; }
-    if state.data.selected_map.is_some() { inner_target_width += list::BTN_SPACING_X + 200.0; }
+    let mut inner_w = 180.0;
+    if state.data.selected_category.is_some() { inner_w += list::BTN_SPACING_X + 200.0; }
+    if state.data.selected_map.is_some() { inner_w += list::BTN_SPACING_X + 200.0; }
 
     let frame_margin = 15.0;
-    let total_target_width = inner_target_width + (frame_margin * 2.0);
-    let target_inner_height = screen_rect.height() - (frame_margin * 2.0);
+    let total_w = inner_w + (frame_margin * 2.0);
+    let target_inner_h = screen_rect.height() - (frame_margin * 2.0);
 
     let target_open = if state.is_list_open { 1.0 } else { 0.0 };
-    let app_velocity = 180.0 / ANIM_SPEED;
-    let anim_duration = total_target_width / app_velocity;
-    let open_factor = ctx.animate_value_with_time(egui::Id::new("stage_list_anim"), target_open, anim_duration);
+    let app_vel = 180.0 / ANIM_SPEED;
+    let anim_dur = total_w / app_vel;
+    let open_factor = ctx.animate_value_with_time(egui::Id::new("stage_list_anim"), target_open, anim_dur);
 
     if open_factor > 0.0 && open_factor < 1.0 {
         ctx.request_repaint();
@@ -40,10 +40,10 @@ pub fn show(ctx: &egui::Context, state: &mut StageListState, _settings: &mut Set
         view::draw(ctx, ui, state, global_ctx);
     });
 
-    let hidden_x = -total_target_width - 30.0;
+    let hidden_x = -total_w - 30.0;
     let sidebar_x = egui::lerp(hidden_x..=0.0, open_factor);
-    let sidebar_right_edge = sidebar_x + total_target_width;
-    let btn_x = (sidebar_right_edge + TOGGLE_BTN_GAP).max(TOGGLE_BTN_GAP);
+    let sidebar_edge = sidebar_x + total_w;
+    let btn_x = (sidebar_edge + TOGGLE_BTN_GAP).max(TOGGLE_BTN_GAP);
 
     egui::Area::new("stage_sidebar_area".into())
         .constrain(false)
@@ -55,12 +55,12 @@ pub fn show(ctx: &egui::Context, state: &mut StageListState, _settings: &mut Set
                 .inner_margin(frame_margin)
                 .rounding(egui::Rounding { nw: 0.0, sw: 0.0, ne: 10.0, se: 10.0 })
                 .show(ui, |ui| {
-                    ui.set_min_width(inner_target_width);
-                    ui.set_max_width(inner_target_width);
-                    ui.set_min_size(egui::vec2(inner_target_width, target_inner_height));
+                    ui.set_min_width(inner_w);
+                    ui.set_max_width(inner_w);
+                    ui.set_min_size(egui::vec2(inner_w, target_inner_h));
 
                     ui.horizontal(|ui| {
-                        ui.set_min_height(target_inner_height);
+                        ui.set_min_height(target_inner_h);
                         list::draw(ui, state);
                     });
                 });
@@ -99,4 +99,6 @@ pub fn show(ctx: &egui::Context, state: &mut StageListState, _settings: &mut Set
                 state.is_list_open = !state.is_list_open;
             }
         });
+    
+    crate::features::stage::filter::show_popup(ctx, &mut state.filter_state, &mut state.drag_guard);
 }
