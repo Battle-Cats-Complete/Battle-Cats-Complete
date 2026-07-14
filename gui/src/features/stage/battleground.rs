@@ -79,21 +79,42 @@ fn format_base_hp_percentage(base_hp_perc: u32, is_dojo_mechanic: bool) -> Strin
 
 #[instrument(skip(rule, global_ctx))]
 fn format_special_rule(rule: &SpecialRulesMapEntry, global_ctx: &GlobalContext) -> String {
-    let clean_key = rule.name_label.trim();
-    let explanation_key = clean_key.replace("Name", "Explanation");
+    let explanation_key = if !rule.explanation_label.is_empty() {
+        rule.explanation_label.clone()
+    } else if !rule.name_label.is_empty() {
+        rule.name_label.trim().replace("Name", "Explanation")
+    } else {
+        String::new()
+    };
 
-    let raw_description = global_ctx.localizable.lookup(&explanation_key).unwrap_or_default();
+    let raw_description = if !explanation_key.is_empty() {
+        global_ctx.localizable.lookup(&explanation_key).unwrap_or_default()
+    } else {
+        &String::new()
+    };
+
     let mut description = strip_html_tags(&raw_description, BreakHandling::Space);
 
     if description.is_empty() {
-        let raw_title = global_ctx.localizable.lookup(clean_key).unwrap_or_default();
-        let mut title = strip_html_tags(&raw_title, BreakHandling::Space);
-
-        if title.is_empty() {
-            title = clean_key.to_string();
+        let mut fallback = String::new();
+        for target_rule in &rule.rules {
+            let formatted_rule = match target_rule {
+                RuleType::TrustFund(params) => format!("Trust Fund {:?}", params),
+                RuleType::CooldownEquality(params) => format!("Cooldown Equality {:?}", params),
+                RuleType::RarityLimit(params) => format!("Rarity Limit {:?}", params),
+                RuleType::CheapLabor(params) => format!("Cheap Labor {:?}", params),
+                RuleType::CatCost(params) => format!("Restrict Price {:?}", params),
+                RuleType::CatProduction(params) => format!("Restrict CD {:?}", params),
+                RuleType::TotalDeployLimit(params) => format!("Deploy Limit {:?}", params),
+                RuleType::MoreThanOne(params) => format!("Awesome Cat Spawn {:?}", params),
+                RuleType::MegaCatCannon(params) => format!("Awesome Cat Cannon {:?}", params),
+                RuleType::UniformMotion(params) => format!("Awesome Unit Speed {:?}", params),
+                RuleType::Unknown(id, params) => format!("Unknown Rule {} {:?}", id, params),
+            };
+            fallback.push_str(&formatted_rule);
+            fallback.push('\n');
         }
-
-        description = format!("【{}】 Localization data missing.", title);
+        description = fallback.trim().to_string();
     } else {
         for target_rule in &rule.rules {
             let parameters = match target_rule {

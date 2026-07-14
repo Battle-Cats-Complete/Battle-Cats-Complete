@@ -1,10 +1,10 @@
 use eframe::egui;
 
-use core::stage::logic::filter::{EnemyFilter, StageFilterState, StatRange};
+use core::stage::logic::filter::{EnemyFilter, LineupFilter, MaterialFilter, StageFilterState, StatRange, TreasureFilter};
 use crate::global::shared::DragGuard;
 
-pub const WINDOW_WIDTH: f32 = 400.0;
-pub const WINDOW_HEIGHT: f32 = 550.0;
+pub const WINDOW_WIDTH: f32 = 460.0;
+pub const WINDOW_HEIGHT: f32 = 650.0;
 pub const TILDE_SPACING: f32 = 5.0;
 
 pub fn show_popup(
@@ -31,8 +31,8 @@ pub fn show_popup(
         .movable(allow_drag)
         .default_pos(ctx.screen_rect().center() - egui::vec2(WINDOW_WIDTH / 2.0, WINDOW_HEIGHT / 2.0))
         .default_size([WINDOW_WIDTH, WINDOW_HEIGHT])
-        .min_width(380.0)
-        .min_height(450.0);
+        .min_width(400.0)
+        .min_height(500.0);
 
     if let Some(pos) = fixed_pos {
         window = window.current_pos(pos);
@@ -73,20 +73,80 @@ pub fn show_popup(
                     });
 
                 ui.add_space(15.0);
-                ui.heading("Rules");
+                ui.heading("General Rules");
                 ui.add_space(5.0);
 
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Continues:").strong());
-                    tristate_btn(ui, &mut state.continues);
-                });
+                egui::Grid::new("general_rules_grid")
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Continues:").strong());
+                        tristate_btn(ui, &mut state.continues);
 
-                ui.add_space(4.0);
+                        ui.label(egui::RichText::new("Boss Guard:").strong());
+                        tristate_btn(ui, &mut state.boss_guard);
+                        ui.end_row();
 
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Boss Guard:").strong());
-                    tristate_btn(ui, &mut state.boss_guard);
-                });
+                        ui.label(egui::RichText::new("Use Super CPU:").strong());
+                        tristate_btn(ui, &mut state.use_super_cpu);
+                        ui.end_row();
+                    });
+
+                ui.add_space(15.0);
+                ui.heading("Special Map Rules");
+                ui.add_space(5.0);
+
+                let map_rules = [
+                    ("Trust Fund", &mut state.rule_trust_fund),
+                    ("Cooldown Equality", &mut state.rule_cooldown_equality),
+                    ("Rarity Limit", &mut state.rule_rarity_limit),
+                    ("Cheap Labor", &mut state.rule_cheap_labor),
+                    ("Cat Cost", &mut state.rule_cat_cost),
+                    ("Cat Production", &mut state.rule_cat_production),
+                    ("Total Deploy Limit", &mut state.rule_total_deploy_limit),
+                    ("More Than One", &mut state.rule_more_than_one),
+                    ("Mega Cat Cannon", &mut state.rule_mega_cat_cannon),
+                    ("Uniform Motion", &mut state.rule_uniform_motion),
+                    ("Invalid Combos", &mut state.invalid_combos),
+                ];
+
+                egui::Grid::new("special_rules_grid")
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        for (i, (label, val_ref)) in map_rules.into_iter().enumerate() {
+                            ui.label(egui::RichText::new(label).strong());
+                            tristate_btn(ui, val_ref);
+                            if (i + 1) % 2 == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+
+                ui.add_space(15.0);
+                ui.heading("Score Bonuses");
+                ui.add_space(5.0);
+
+                let bonus_rules = [
+                    ("Weaken", &mut state.bonus_weaken),
+                    ("Freeze", &mut state.bonus_freeze),
+                    ("Slow", &mut state.bonus_slow),
+                    ("Knockback", &mut state.bonus_knockback),
+                    ("Strong Attack", &mut state.bonus_strong_attack),
+                    ("Massive Damage", &mut state.bonus_massive_damage),
+                    ("Strong Defense", &mut state.bonus_strong_defense),
+                    ("Resist", &mut state.bonus_resist),
+                ];
+
+                egui::Grid::new("score_bonus_grid")
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        for (i, (label, val_ref)) in bonus_rules.into_iter().enumerate() {
+                            ui.label(egui::RichText::new(label).strong());
+                            tristate_btn(ui, val_ref);
+                            if (i + 1) % 2 == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
 
                 ui.add_space(15.0);
                 ui.heading("Stats");
@@ -171,7 +231,7 @@ pub fn show_popup(
                     state.enemies.push(EnemyFilter::default());
                 }
 
-                let mut to_remove = None;
+                let mut to_remove_e = None;
                 for (idx, enemy) in state.enemies.iter_mut().enumerate() {
                     ui.add_space(8.0);
 
@@ -181,12 +241,13 @@ pub fn show_popup(
                         .inner_margin(8.0)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Boss Type:").strong());
-                                boss_type_combo(ui, format!("boss_type_{}", idx), &mut enemy.boss_type);
-
-                                ui.add_space(10.0);
-                                ui.label(egui::RichText::new("Is Base:").strong());
-                                tristate_btn(ui, &mut enemy.is_base);
+                                let mode_label = if enemy.is_exclude { "Exclude" } else { "Include" };
+                                egui::ComboBox::from_id_salt(format!("emode_{}", idx))
+                                    .selected_text(mode_label)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut enemy.is_exclude, false, "Include");
+                                        ui.selectable_value(&mut enemy.is_exclude, true, "Exclude");
+                                    });
 
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     let close_btn = egui::Button::new(
@@ -197,7 +258,7 @@ pub fn show_popup(
                                         .min_size(egui::vec2(24.0, 24.0));
 
                                     if ui.add(close_btn).clicked() {
-                                        to_remove = Some(idx);
+                                        to_remove_e = Some(idx);
                                     }
                                 });
                             });
@@ -205,17 +266,27 @@ pub fn show_popup(
                             ui.add_space(8.0);
 
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Enemy Name:").strong());
+                                ui.label(egui::RichText::new("Boss Type:").strong());
+                                boss_type_combo(ui, format!("boss_type_{}", idx), &mut enemy.boss_type);
+
+                                ui.add_space(10.0);
+                                ui.label(egui::RichText::new("Is Base:").strong());
+                                tristate_btn(ui, &mut enemy.is_base);
+                            });
+
+                            ui.add_space(8.0);
+
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Name or ID:").strong());
                                 ui.add_sized(
                                     egui::vec2(150.0, 20.0),
-                                    egui::TextEdit::singleline(&mut enemy.name).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
+                                    egui::TextEdit::singleline(&mut enemy.name_or_id).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
                                 );
                             });
 
                             ui.add_space(6.0);
 
                             let enemy_rows = [
-                                ("Enemy ID", &mut enemy.enemy_id),
                                 ("Amount", &mut enemy.amount),
                                 ("Start Frame", &mut enemy.start_frame),
                                 ("Respawn Min", &mut enemy.respawn_min),
@@ -243,9 +314,181 @@ pub fn show_popup(
                         });
                 }
 
-                if let Some(idx) = to_remove {
+                if let Some(idx) = to_remove_e {
                     state.enemies.remove(idx);
                 }
+
+                ui.add_space(15.0);
+                ui.heading("Fixed Lineup Cats");
+                ui.add_space(5.0);
+
+                if ui.button("+ Add Lineup Cat").clicked() {
+                    state.lineup_cats.push(LineupFilter::default());
+                }
+
+                let mut to_remove_l = None;
+                for (idx, cat) in state.lineup_cats.iter_mut().enumerate() {
+                    ui.add_space(8.0);
+                    egui::Frame::none()
+                        .fill(egui::Color32::from_black_alpha(150))
+                        .rounding(6.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let mode_label = if cat.is_exclude { "Exclude" } else { "Include" };
+                                egui::ComboBox::from_id_salt(format!("lmode_{}", idx))
+                                    .selected_text(mode_label)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut cat.is_exclude, false, "Include");
+                                        ui.selectable_value(&mut cat.is_exclude, true, "Exclude");
+                                    });
+
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let close_btn = egui::Button::new(
+                                        egui::RichText::new(" X ").color(egui::Color32::WHITE).strong()
+                                    )
+                                        .fill(egui::Color32::from_rgb(210, 50, 50))
+                                        .rounding(4.0)
+                                        .min_size(egui::vec2(24.0, 24.0));
+                                    if ui.add(close_btn).clicked() { to_remove_l = Some(idx); }
+                                });
+                            });
+
+                            ui.add_space(8.0);
+
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Name or ID:").strong());
+                                ui.add_sized(
+                                    egui::vec2(150.0, 20.0),
+                                    egui::TextEdit::singleline(&mut cat.name_or_id).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
+                                );
+                            });
+
+                            ui.add_space(6.0);
+
+                            egui::Grid::new(format!("lineup_grid_{}", idx))
+                                .spacing([16.0, 6.0])
+                                .show(ui, |ui| {
+                                    draw_stat_range(ui, "Total Level", &mut cat.level);
+                                });
+                        });
+                }
+                if let Some(idx) = to_remove_l { state.lineup_cats.remove(idx); }
+
+                ui.add_space(15.0);
+                ui.heading("Treasures");
+                ui.add_space(5.0);
+
+                if ui.button("+ Add New Treasure").clicked() {
+                    state.treasures.push(TreasureFilter::default());
+                }
+
+                let mut to_remove_t = None;
+                for (idx, treasure) in state.treasures.iter_mut().enumerate() {
+                    ui.add_space(8.0);
+                    egui::Frame::none()
+                        .fill(egui::Color32::from_black_alpha(150))
+                        .rounding(6.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let mode_label = if treasure.is_exclude { "Exclude" } else { "Include" };
+                                egui::ComboBox::from_id_salt(format!("tmode_{}", idx))
+                                    .selected_text(mode_label)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut treasure.is_exclude, false, "Include");
+                                        ui.selectable_value(&mut treasure.is_exclude, true, "Exclude");
+                                    });
+
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let close_btn = egui::Button::new(
+                                        egui::RichText::new(" X ").color(egui::Color32::WHITE).strong()
+                                    )
+                                        .fill(egui::Color32::from_rgb(210, 50, 50))
+                                        .rounding(4.0)
+                                        .min_size(egui::vec2(24.0, 24.0));
+                                    if ui.add(close_btn).clicked() { to_remove_t = Some(idx); }
+                                });
+                            });
+
+                            ui.add_space(8.0);
+
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Name or ID:").strong());
+                                ui.add_sized(
+                                    egui::vec2(150.0, 20.0),
+                                    egui::TextEdit::singleline(&mut treasure.name_or_id).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
+                                );
+                            });
+
+                            ui.add_space(6.0);
+
+                            egui::Grid::new(format!("treasure_grid_{}", idx))
+                                .spacing([16.0, 6.0])
+                                .show(ui, |ui| {
+                                    draw_stat_range(ui, "Amount", &mut treasure.amount);
+                                    draw_stat_range(ui, "Chance (%)", &mut treasure.chance);
+                                });
+                        });
+                }
+                if let Some(idx) = to_remove_t { state.treasures.remove(idx); }
+
+                ui.add_space(15.0);
+                ui.heading("Materials");
+                ui.add_space(5.0);
+
+                if ui.button("+ Add New Material").clicked() {
+                    state.materials.push(MaterialFilter::default());
+                }
+
+                let mut to_remove_m = None;
+                for (idx, material) in state.materials.iter_mut().enumerate() {
+                    ui.add_space(8.0);
+                    egui::Frame::none()
+                        .fill(egui::Color32::from_black_alpha(150))
+                        .rounding(6.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let mode_label = if material.is_exclude { "Exclude" } else { "Include" };
+                                egui::ComboBox::from_id_salt(format!("mmode_{}", idx))
+                                    .selected_text(mode_label)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut material.is_exclude, false, "Include");
+                                        ui.selectable_value(&mut material.is_exclude, true, "Exclude");
+                                    });
+
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let close_btn = egui::Button::new(
+                                        egui::RichText::new(" X ").color(egui::Color32::WHITE).strong()
+                                    )
+                                        .fill(egui::Color32::from_rgb(210, 50, 50))
+                                        .rounding(4.0)
+                                        .min_size(egui::vec2(24.0, 24.0));
+                                    if ui.add(close_btn).clicked() { to_remove_m = Some(idx); }
+                                });
+                            });
+
+                            ui.add_space(8.0);
+
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Name or ID:").strong());
+                                ui.add_sized(
+                                    egui::vec2(150.0, 20.0),
+                                    egui::TextEdit::singleline(&mut material.name_or_id).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
+                                );
+                            });
+
+                            ui.add_space(6.0);
+
+                            egui::Grid::new(format!("material_grid_{}", idx))
+                                .spacing([16.0, 6.0])
+                                .show(ui, |ui| {
+                                    draw_stat_range(ui, "Amount", &mut material.amount);
+                                });
+                        });
+                }
+                if let Some(idx) = to_remove_m { state.materials.remove(idx); }
 
                 ui.add_space(60.0);
             });

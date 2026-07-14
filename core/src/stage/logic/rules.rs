@@ -21,25 +21,55 @@ pub fn parse(
 
     let raw_title = ctx.localizable.lookup(&rule.name_label).unwrap_or_default();
 
-    let exp_key = rule.name_label.replace("Name", "Explanation");
-    let raw_desc = ctx.localizable.lookup(&exp_key).unwrap_or_default();
+    let exp_key = if !rule.explanation_label.is_empty() {
+        rule.explanation_label.clone()
+    } else if !rule.name_label.is_empty() {
+        rule.name_label.replace("Name", "Explanation")
+    } else {
+        String::new()
+    };
+
+    let raw_desc = if !exp_key.is_empty() {
+        ctx.localizable.lookup(&exp_key).unwrap_or_default()
+    } else {
+        &String::new()
+    };
 
     let mut title = strip_html_tags(&raw_title, BreakHandling::Space);
     let mut description = strip_html_tags(&raw_desc, BreakHandling::Space);
 
-    if title.is_empty() {
+    if title.is_empty() && !rule.name_label.is_empty() {
         warn!(key = %rule.name_label, "missing localization for special rule title");
         title = rule.name_label.clone();
     }
 
     if description.is_empty() {
         warn!(key = %exp_key, "falling back to raw enum parsing");
-        description = format!("{}:\n{}", exp_key, fallback_description(rule));
+        description = fallback_description(rule);
+    } else {
+        for target_rule in &rule.rules {
+            let params = match target_rule {
+                RuleType::TrustFund(p) => p,
+                RuleType::CooldownEquality(p) => p,
+                RuleType::RarityLimit(p) => p,
+                RuleType::CheapLabor(p) => p,
+                RuleType::CatCost(p) => p,
+                RuleType::CatProduction(p) => p,
+                RuleType::TotalDeployLimit(p) => p,
+                RuleType::MoreThanOne(p) => p,
+                RuleType::MegaCatCannon(p) => p,
+                RuleType::UniformMotion(p) => p,
+                RuleType::Unknown(_, p) => p,
+            };
+
+            for param in params {
+                description = description.replacen("%d", &param.to_string(), 1);
+            }
+        }
     }
 
     let mut invalid_combos = Vec::new();
 
-    // 3. Extract Invalid Combos
     for target_rule in &rule.rules {
         let rule_id = match target_rule {
             RuleType::TrustFund(_) => 0,

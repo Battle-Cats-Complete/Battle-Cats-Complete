@@ -74,7 +74,19 @@ fn has_matching_stage_in_map(state: &StageListState, compiled_filter: &CompiledS
     let cat_name = cat.display_name();
 
     for stage in stages {
-        if compiled_filter.matches(cat_name, map, &stage, &state.data.enemy_name_registry) {
+        if compiled_filter.matches(
+            cat_name,
+            map,
+            &stage,
+            &state.data.enemy_name_registry,
+            &state.data.lock_skip_registry,
+            &state.data.scat_cpu_setting,
+            &state.data.item_buy_registry,
+            &state.data.item_name_registry,
+            &state.data.drop_chara_registry,
+            &state.data.unit_buy_registry,
+            &state.data.active_language_priority,
+        ) {
             return true;
         }
     }
@@ -201,7 +213,19 @@ fn draw_stages(ui: &mut egui::Ui, state: &mut StageListState, compiled_filter: &
 
                 let stages = navigate::get_stages(&state.data.registry, &map_id);
                 for stage in stages {
-                    if !compiled_filter.matches(cat_name, &map, &stage, &state.data.enemy_name_registry) {
+                    if !compiled_filter.matches(
+                        cat_name,
+                        &map,
+                        &stage,
+                        &state.data.enemy_name_registry,
+                        &state.data.lock_skip_registry,
+                        &state.data.scat_cpu_setting,
+                        &state.data.item_buy_registry,
+                        &state.data.item_name_registry,
+                        &state.data.drop_chara_registry,
+                        &state.data.unit_buy_registry,
+                        &state.data.active_language_priority,
+                    ) {
                         continue;
                     }
 
