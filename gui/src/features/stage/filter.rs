@@ -1,10 +1,10 @@
 use eframe::egui;
 
-use core::stage::logic::filter::StageFilterState;
+use core::stage::logic::filter::{EnemyFilter, StageFilterState, StatRange};
 use crate::global::shared::DragGuard;
 
-pub const WINDOW_WIDTH: f32 = 380.0;
-pub const WINDOW_HEIGHT: f32 = 500.0;
+pub const WINDOW_WIDTH: f32 = 400.0;
+pub const WINDOW_HEIGHT: f32 = 550.0;
 pub const TILDE_SPACING: f32 = 5.0;
 
 pub fn show_popup(
@@ -31,8 +31,8 @@ pub fn show_popup(
         .movable(allow_drag)
         .default_pos(ctx.screen_rect().center() - egui::vec2(WINDOW_WIDTH / 2.0, WINDOW_HEIGHT / 2.0))
         .default_size([WINDOW_WIDTH, WINDOW_HEIGHT])
-        .min_width(360.0)
-        .min_height(400.0);
+        .min_width(380.0)
+        .min_height(450.0);
 
     if let Some(pos) = fixed_pos {
         window = window.current_pos(pos);
@@ -110,25 +110,7 @@ pub fn show_popup(
                     .spacing([16.0, 6.0])
                     .show(ui, |ui| {
                         for (i, (label, range)) in stat_rows.into_iter().enumerate() {
-                            ui.label(format!("{}:", label));
-
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = TILDE_SPACING;
-                                let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
-
-                                ui.add_sized(
-                                    egui::vec2(55.0, 20.0),
-                                    egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
-                                );
-
-                                ui.label("~");
-
-                                ui.add_sized(
-                                    egui::vec2(55.0, 20.0),
-                                    egui::TextEdit::singleline(&mut range.max).hint_text(hint)
-                                );
-                            });
-
+                            draw_stat_range(ui, label, range);
                             if (i + 1) % 2 == 0 {
                                 ui.end_row();
                             }
@@ -150,25 +132,7 @@ pub fn show_popup(
                     .spacing([16.0, 6.0])
                     .show(ui, |ui| {
                         for (i, (label, range)) in restriction_rows.into_iter().enumerate() {
-                            ui.label(format!("{}:", label));
-
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = TILDE_SPACING;
-                                let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
-
-                                ui.add_sized(
-                                    egui::vec2(55.0, 20.0),
-                                    egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
-                                );
-
-                                ui.label("~");
-
-                                ui.add_sized(
-                                    egui::vec2(55.0, 20.0),
-                                    egui::TextEdit::singleline(&mut range.max).hint_text(hint)
-                                );
-                            });
-
+                            draw_stat_range(ui, label, range);
                             if (i + 1) % 2 == 0 {
                                 ui.end_row();
                             }
@@ -192,32 +156,88 @@ pub fn show_popup(
                     .spacing([16.0, 6.0])
                     .show(ui, |ui| {
                         for (i, (label, range)) in id_rows.into_iter().enumerate() {
-                            ui.label(format!("{}:", label));
-
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = TILDE_SPACING;
-                                let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
-
-                                ui.add_sized(
-                                    egui::vec2(55.0, 20.0),
-                                    egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
-                                );
-
-                                ui.label("~");
-
-                                ui.add_sized(
-                                    egui::vec2(55.0, 20.0),
-                                    egui::TextEdit::singleline(&mut range.max).hint_text(hint)
-                                );
-                            });
-
+                            draw_stat_range(ui, label, range);
                             if (i + 1) % 2 == 0 {
                                 ui.end_row();
                             }
                         }
                     });
 
-                ui.add_space(50.0);
+                ui.add_space(15.0);
+                ui.heading("Battleground");
+                ui.add_space(5.0);
+
+                if ui.button("+ Add New Enemy").clicked() {
+                    state.enemies.push(EnemyFilter::default());
+                }
+
+                let mut to_remove = None;
+                for (idx, enemy) in state.enemies.iter_mut().enumerate() {
+                    ui.add_space(8.0);
+
+                    egui::Frame::none()
+                        .fill(egui::Color32::from_black_alpha(100))
+                        .rounding(6.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Boss Type:").strong());
+                                boss_type_combo(ui, format!("boss_type_{}", idx), &mut enemy.boss_type);
+
+                                ui.add_space(10.0);
+                                ui.label(egui::RichText::new("Is Base:").strong());
+                                tristate_btn(ui, &mut enemy.is_base);
+
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let close_btn = egui::Button::new(
+                                        egui::RichText::new(" X ").color(egui::Color32::WHITE).strong()
+                                    )
+                                        .fill(egui::Color32::from_rgb(210, 50, 50))
+                                        .rounding(4.0)
+                                        .min_size(egui::vec2(24.0, 24.0));
+
+                                    if ui.add(close_btn).clicked() {
+                                        to_remove = Some(idx);
+                                    }
+                                });
+                            });
+
+                            ui.add_space(8.0);
+
+                            let enemy_rows = [
+                                ("Enemy ID", &mut enemy.enemy_id),
+                                ("Amount", &mut enemy.amount),
+                                ("Start Frame", &mut enemy.start_frame),
+                                ("Respawn Min", &mut enemy.respawn_min),
+                                ("Respawn Max", &mut enemy.respawn_max),
+                                ("Base HP (%)", &mut enemy.base_hp_perc),
+                                ("Layer Min", &mut enemy.layer_min),
+                                ("Layer Max", &mut enemy.layer_max),
+                                ("Magnification", &mut enemy.magnification),
+                                ("Atk Mag", &mut enemy.atk_magnification),
+                                ("Score", &mut enemy.score),
+                                ("Time Flag", &mut enemy.time_flag),
+                                ("Kill Count", &mut enemy.kill_count),
+                            ];
+
+                            egui::Grid::new(format!("enemy_grid_{}", idx))
+                                .spacing([16.0, 6.0])
+                                .show(ui, |ui| {
+                                    for (i, (label, range)) in enemy_rows.into_iter().enumerate() {
+                                        draw_stat_range(ui, label, range);
+                                        if (i + 1) % 2 == 0 {
+                                            ui.end_row();
+                                        }
+                                    }
+                                });
+                        });
+                }
+
+                if let Some(idx) = to_remove {
+                    state.enemies.remove(idx);
+                }
+
+                ui.add_space(60.0);
             });
 
         let btn_size = egui::vec2(160.0, 34.0);
@@ -244,6 +264,23 @@ pub fn show_popup(
     }
 }
 
+fn draw_stat_range(ui: &mut egui::Ui, label: &str, range: &mut StatRange) {
+    ui.label(format!("{}:", label));
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = TILDE_SPACING;
+        let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
+        ui.add_sized(
+            egui::vec2(55.0, 20.0),
+            egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
+        );
+        ui.label("~");
+        ui.add_sized(
+            egui::vec2(55.0, 20.0),
+            egui::TextEdit::singleline(&mut range.max).hint_text(hint)
+        );
+    });
+}
+
 fn tristate_btn(ui: &mut egui::Ui, val: &mut Option<bool>) {
     let (label, bg_color) = match val {
         None => ("Any", ui.visuals().widgets.inactive.bg_fill),
@@ -260,4 +297,21 @@ fn tristate_btn(ui: &mut egui::Ui, val: &mut Option<bool>) {
             Some(false) => None,
         };
     }
+}
+
+fn boss_type_combo(ui: &mut egui::Ui, id_source: impl std::hash::Hash, val: &mut Option<u32>) {
+    let label = match val {
+        None => "Any",
+        Some(0) => "None",
+        Some(1) => "Boss",
+        Some(2) => "Screen Shake",
+        _ => "Unknown",
+    };
+
+    egui::ComboBox::from_id_salt(id_source).selected_text(label).show_ui(ui, |ui| {
+        ui.selectable_value(val, None, "Any");
+        ui.selectable_value(val, Some(0), "None");
+        ui.selectable_value(val, Some(1), "Boss");
+        ui.selectable_value(val, Some(2), "Screen Shake");
+    });
 }
