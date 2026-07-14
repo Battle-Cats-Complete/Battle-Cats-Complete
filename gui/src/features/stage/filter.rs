@@ -176,7 +176,7 @@ pub fn show_popup(
                     ui.add_space(8.0);
 
                     egui::Frame::none()
-                        .fill(egui::Color32::from_black_alpha(100))
+                        .fill(egui::Color32::from_black_alpha(150))
                         .rounding(6.0)
                         .inner_margin(8.0)
                         .show(ui, |ui| {
@@ -203,6 +203,16 @@ pub fn show_popup(
                             });
 
                             ui.add_space(8.0);
+
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Enemy Name:").strong());
+                                ui.add_sized(
+                                    egui::vec2(150.0, 20.0),
+                                    egui::TextEdit::singleline(&mut enemy.name).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
+                                );
+                            });
+
+                            ui.add_space(6.0);
 
                             let enemy_rows = [
                                 ("Enemy ID", &mut enemy.enemy_id),

@@ -57,6 +57,7 @@ impl CompiledStatRange {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct EnemyFilter {
+    pub name: String,
     pub enemy_id: StatRange,
     pub amount: StatRange,
     pub start_frame: StatRange,
@@ -76,7 +77,8 @@ pub struct EnemyFilter {
 
 impl EnemyFilter {
     pub fn is_active(&self) -> bool {
-        self.enemy_id.is_active()
+        !self.name.trim().is_empty()
+            || self.enemy_id.is_active()
             || self.amount.is_active()
             || self.start_frame.is_active()
             || self.respawn_min.is_active()
@@ -95,7 +97,8 @@ impl EnemyFilter {
 
     pub fn compile(&self) -> CompiledEnemyFilter {
         CompiledEnemyFilter {
-            enemy_id: self.enemy_id.compile(2),
+            name: self.name.trim().to_lowercase(),
+            enemy_id: self.enemy_id.compile(2), // Add +2 to user input
             amount: self.amount.compile(0),
             start_frame: self.start_frame.compile(0),
             respawn_min: self.respawn_min.compile(0),
@@ -115,6 +118,7 @@ impl EnemyFilter {
 }
 
 pub struct CompiledEnemyFilter {
+    name: String,
     enemy_id: CompiledStatRange,
     amount: CompiledStatRange,
     start_frame: CompiledStatRange,
@@ -133,7 +137,7 @@ pub struct CompiledEnemyFilter {
 }
 
 impl CompiledEnemyFilter {
-    pub fn matches(&self, enemy: &BattlegroundEntry) -> bool {
+    pub fn matches(&self, enemy: &BattlegroundEntry, enemy_name_registry: &[String]) -> bool {
         let internal_amount = match enemy.amount {
             EnemyAmount::Infinite => 0,
             EnemyAmount::Limit(v) => v as i64,
@@ -152,6 +156,18 @@ impl CompiledEnemyFilter {
 
         if let Some(ib) = self.is_base {
             if enemy.is_base != ib { return false; }
+        }
+
+        if !self.name.is_empty() {
+            let resolved_name = enemy_name_registry
+                .get(enemy.enemy_id as usize)
+                .filter(|name_str| !name_str.is_empty())
+                .cloned()
+                .unwrap_or_else(|| format!("{:03}-E", enemy.enemy_id));
+
+            if !resolved_name.to_lowercase().contains(&self.name) {
+                return false;
+            }
         }
 
         if !self.enemy_id.matches((enemy.enemy_id + 2) as i64) { return false; }
@@ -297,7 +313,7 @@ impl StageFilterState {
             deploy_limit: self.deploy_limit.compile(0),
             allowed_rows: self.allowed_rows.compile(0),
             base_id: self.base_id.compile(0),
-            anim_base_id: self.anim_base_id.compile(2),
+            anim_base_id: self.anim_base_id.compile(2), // Add +2 to user input
             background_id: self.background_id.compile(0),
             init_track: self.init_track.compile(0),
             boss_track: self.boss_track.compile(0),
@@ -338,7 +354,7 @@ impl CompiledStageFilter {
             || !self.enemies.is_empty()
     }
 
-    pub fn matches(&self, cat_name: &str, map: &Map, stage: &Stage) -> bool {
+    pub fn matches(&self, cat_name: &str, map: &Map, stage: &Stage, enemy_name_registry: &[String]) -> bool {
         if !self.is_active() { return true; }
 
         if !self.category_name.is_empty() && !cat_name.to_lowercase().contains(&self.category_name) {
@@ -405,7 +421,7 @@ impl CompiledStageFilter {
             for enemy_filter in &self.enemies {
                 let mut found_match = false;
                 for stage_enemy in &stage.enemies {
-                    if enemy_filter.matches(stage_enemy) {
+                    if enemy_filter.matches(stage_enemy, enemy_name_registry) {
                         found_match = true;
                         break;
                     }
