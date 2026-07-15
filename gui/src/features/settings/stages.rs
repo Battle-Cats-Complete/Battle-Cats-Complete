@@ -9,7 +9,7 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut StageDataSettings) -> bo
         .id_salt("stages_scroll")
         .auto_shrink([false, true])
         .show(ui_container, |scroll_ui| {
-            scroll_ui.heading("List");
+            scroll_ui.heading("Stage List");
             scroll_ui.add_space(5.0);
 
             scroll_ui.horizontal(|horizontal_ui| {
