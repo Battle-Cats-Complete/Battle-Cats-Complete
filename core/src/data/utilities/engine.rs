@@ -15,7 +15,7 @@ use crate::global::io::patterns;
 use crate::settings::logic::exceptions::RuleHandling;
 use crate::settings::logic::keys::UserKeys;
 
-use super::{apk, audit, manifest, router, rules};
+use super::{apk, audit, hardcoded, manifest, router, rules};
 
 #[derive(Clone)]
 struct UniversalTask {
@@ -246,9 +246,12 @@ pub fn run_universal_import(
         }
     }
 
+    let hardcoded_rules = hardcoded::generate_rules();
     let mut final_extraction_queue: Vec<(String, Vec<UniversalTask>, PathBuf)> = Vec::new();
 
     for (resolved_filename, duplicate_tasks) in universal_task_map {
+        let matched_rule = duplicate_tasks.first().and_then(|task| hardcoded_rules.get(&task.original_name).copied());
+
         let mut tasks_by_region: HashMap<String, Vec<UniversalTask>> = HashMap::new();
         for processing_task in duplicate_tasks {
             tasks_by_region.entry(processing_task.region_code.clone()).or_default().push(processing_task);
@@ -256,9 +259,18 @@ pub fn run_universal_import(
 
         let mut regional_winners_to_decrypt: Vec<UniversalTask> = Vec::new();
         for (_, mut regional_tasks) in tasks_by_region {
-            regional_tasks.sort_by_key(|task| task.chrono_score);
-            if let Some(newest_task_for_region) = regional_tasks.pop() {
-                regional_winners_to_decrypt.push(newest_task_for_region);
+            if let Some(rule) = matched_rule {
+                match rule {
+                    hardcoded::HardcodedType::Oldest => {
+                        regional_tasks.sort_by_key(|task| std::cmp::Reverse(task.chrono_score));
+                    }
+                }
+            } else {
+                regional_tasks.sort_by_key(|task| task.chrono_score);
+            }
+
+            if let Some(winning_task) = regional_tasks.pop() {
+                regional_winners_to_decrypt.push(winning_task);
             }
         }
 
