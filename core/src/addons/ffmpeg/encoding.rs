@@ -21,7 +21,6 @@ pub fn encode(
 ) -> bool {
     let Some(ffmpeg_path) = download::get_ffmpeg_path() else { return false; };
 
-    // BUILD ARGUMENTS BASED ON FORMAT
     let mut arguments = vec![
         "-nostdin".to_string(),
         "-f".to_string(), "rawvideo".to_string(),
@@ -71,24 +70,21 @@ pub fn encode(
                 arguments.extend_from_slice(&["-vf".to_string(), "crop=trunc(iw/2)*2:trunc(ih/2)*2".to_string()]);
             }
 
-            // AV1 LOGIC
             if use_av1 {
                 let crf_value = 63.0 - (config.quality_percent as f32 / 100.0 * 63.0); 
                 let cpu_used_value = 4.0 + (config.compression_percent as f32 / 100.0 * 4.0);
                 
                 arguments.extend_from_slice(&[
                     "-c:v".to_string(), "libaom-av1".to_string(),
-                    "-pix_fmt".to_string(), "yuv420p".to_string(), // Strict
+                    "-pix_fmt".to_string(), "yuv420p".to_string(),
                     "-crf".to_string(), format!("{:.0}", crf_value),
                     "-cpu-used".to_string(), format!("{:.0}", cpu_used_value),
-                    "-b:v".to_string(), "0".to_string(), // Constant quality mode
+                    "-b:v".to_string(), "0".to_string(),
                     "-strict".to_string(), "experimental".to_string(),
                 ]);
             } else {
-                // Standard Codecs
                 match config.format {
                     ExportFormat::Webm => {
-                        // VP9
                         let crf_value = 63.0 - (config.quality_percent as f32 / 100.0 * 63.0);
                         arguments.extend_from_slice(&[
                             "-c:v".to_string(), "libvpx-vp9".to_string(),
@@ -98,7 +94,6 @@ pub fn encode(
                         ]);
                     },
                     _ => {
-                        // H.264
                         let crf_value = 51.0 - (config.quality_percent as f32 / 100.0 * 33.0); 
                         let presets = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"];
                         let preset_index = (config.compression_percent as f32 / 100.0 * 8.0).round() as usize;
@@ -114,7 +109,6 @@ pub fn encode(
                 }
             }
 
-            // Container Format
             let container_format = match config.format {
                 ExportFormat::Mp4 => "mp4",
                 ExportFormat::Mkv => "matroska",
@@ -126,7 +120,6 @@ pub fn encode(
         _ => return false,
     }
 
-    // Output path and overwrite flag
     arguments.push("-y".to_string());
     arguments.push(temp_path.to_string_lossy().to_string());
 
@@ -151,7 +144,6 @@ pub fn encode(
     let progress_sender = status_sender.clone();
     let abort_signal_clone = abort_signal.clone();
     
-    // Pump Thread
     let input_handle = thread::spawn(move || {
         let mut frames_processed = 0;
         let mut finished_cleanly = false;
@@ -177,7 +169,6 @@ pub fn encode(
 
     let did_input_succeed = input_handle.join().unwrap_or(false);
     
-    // KILL IF ABORTED OR FAILED
     if abort_signal.load(Ordering::Relaxed) || !did_input_succeed {
         let _ = child_process.kill();
         let _ = child_process.wait();

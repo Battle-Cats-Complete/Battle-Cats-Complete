@@ -74,7 +74,6 @@ pub fn render_evolve(
         ui.add_space(2.0);
     }
 
-    // Materials
     if has_mats {
         let icon_size = 64.0;
         let spacing = 5.0;
@@ -114,7 +113,6 @@ pub fn render_evolve(
                     );
                 }
 
-                // Amount
                 let text = format!("×{}", amount);
                 let font_id = egui::FontId::proportional(13.0);
                 let text_color = egui::Color32::WHITE;
@@ -139,7 +137,6 @@ pub fn render_evolve(
         });
     }
 
-    // XP
     if has_xp {
         ui.add_space(2.0); 
 

@@ -25,7 +25,6 @@ impl RuleHandling {
     }
 }
 
-// NEW: Define the source tracker
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleSource {
@@ -59,7 +58,7 @@ impl Default for ExceptionRule {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExceptionList {
-    #[serde(default)] // Automatically becomes RuleSource::Default if missing
+    #[serde(default)]
     pub source: RuleSource,
     pub rules: Vec<ExceptionRule>,
 }

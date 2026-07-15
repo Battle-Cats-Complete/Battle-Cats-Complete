@@ -121,8 +121,6 @@ impl Default for DataConfigState {
     }
 }
 
-// We extract the pure data update logic here.
-// The GUI will read the return flags from this function to decide when to trigger a repaint.
 pub struct UpdateFlags {
     pub import_finished_just_now: bool,
     pub needs_repaint: bool,

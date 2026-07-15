@@ -49,7 +49,6 @@ pub fn collect_ability_data(
 
     let target_label = if ctx.is_conjure_unit { "Enemies" } else { "Target Traits" };
 
-    // --- STANDARD ABILITIES LOOP ---
     for pure_def in REGISTRY {
         let display_def = registry::get_display_def(pure_def.identity);
 
@@ -77,7 +76,6 @@ pub fn collect_ability_data(
                 AbilityIcon::None => (None, CustomIcon::None),
             };
 
-            // Override icons based on pure mathematical flags
             if pure_def.identity == Identity::WaveAttack && ctx.final_stats.mini_wave_flag > 0 {
                 final_icon = Some(img015::ICON_MINI_WAVE);
             } else if pure_def.identity == Identity::SurgeAttack && ctx.final_stats.mini_surge_flag > 0 {
@@ -98,7 +96,6 @@ pub fn collect_ability_data(
         }
     }
 
-    // --- TALENT-ONLY STATS LOOP ---
     if let (Some(t_data), Some(levels)) = (ctx.talent_data, ctx.talent_levels) {
         let mut talent_headline = Vec::new();
 
@@ -116,14 +113,12 @@ pub fn collect_ability_data(
                 };
 
                 match group.ability_id {
-                    // Stat Buffs: Leverage the dynamic Diff Engine
                     25 | 26 | 27 | 31 | 32 | 61 | 82 => {
                         if let Some(text) = crate::cat::logic::talents::calculate_talent_display(group, ctx.base_stats, lv, ctx.level_curve, ctx.current_level) {
                             let item = AbilityItem { icon_id: final_icon, text, custom_icon: final_custom, border_id: get_talent_border(pure_def.talent_id) };
                             talent_headline.push(item);
                         }
                     },
-                    // Resistances: Calculate the value and use the registry's base formatter
                     18 | 19 | 20 | 21 | 22 | 24 | 30 | 52 | 54 => {
                         let val = crate::cat::logic::talents::calculate_talent_value(group.min_1, group.max_1, lv, group.max_level);
                         let text = (display_def.formatter)(val, ctx.final_stats, target_label, 0, ctx.global.param);

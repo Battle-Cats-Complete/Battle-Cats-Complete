@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[derive(Default)]
 pub enum UpdateMode {
-    AutoReset, // Check -> Download -> Restart (Immediate)
-    AutoLoad,  // Check -> Download -> Wait (Apply Next Run)
+    AutoReset,
+    AutoLoad,
     #[default]
-    Prompt,    // Prompt -> Download -> Prompt (User choice)
-    Ignore,    // Nothing
+    Prompt,
+    Ignore,
 }
 
 

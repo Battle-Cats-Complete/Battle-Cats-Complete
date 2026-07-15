@@ -29,7 +29,6 @@ pub fn show_popup(
     available_anims: &[(usize, PathBuf)],
     drag_guard: &mut DragGuard,
 ) {
-    // TOOL VALIDATION CHECK
     let is_ffmpeg_missing = toolpaths::ffmpeg_status() != Presence::Installed;
     let is_avif_missing = toolpaths::avifenc_status() != Presence::Installed;
 
@@ -45,7 +44,6 @@ pub fn show_popup(
         _ => {}
     }
 
-    // EXPORT STATUS POLLING
     if state.is_processing {
         ui.ctx().request_repaint_after(Duration::from_millis(100));
         if let Ok(receiver_lock) = STATUS_RX.lock()
@@ -64,7 +62,6 @@ pub fn show_popup(
             }
     }
 
-    // LOOP SEARCH STATUS POLLING
     let mut is_loop_finished = false;
 
     if state.is_loop_searching {
@@ -109,7 +106,6 @@ pub fn show_popup(
         state.loop_abort = None;
     }
 
-    // UI RENDERING
     if !settings.animation.export_popup_open { return; }
 
     let context = ui.ctx().clone();
@@ -173,7 +169,6 @@ fn render_content(
         ui.heading("Input");
         ui.add_space(5.0);
 
-        // Export Mode Dropdown
         ui.add_enabled_ui(!is_ui_locked, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Mode");
@@ -195,7 +190,6 @@ fn render_content(
                     ui.selectable_value(&mut selected_mode, ExportMode::Showcase, "Showcase");
                 });
                 if selected_mode != state.export_mode {
-                    // Mode Switch Logic
                     if selected_mode == ExportMode::Showcase {
                         state.showcase_walk_str.clear();
                         state.showcase_idle_str.clear();
@@ -260,7 +254,6 @@ fn render_content(
             ExportMode::Loop => {
                 ui.add_enabled_ui(!is_ui_locked, |ui| {
                     egui::Grid::new("loop_settings_grid").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
-                        // Row 1: Tolerance
                         ui.label("Loop Tolerance");
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
@@ -273,7 +266,6 @@ fn render_content(
                         });
                         ui.end_row();
 
-                        // Row 2: Minimum
                         ui.label("Loop Minimum");
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
@@ -286,7 +278,6 @@ fn render_content(
                         });
                         ui.end_row();
 
-                        // Row 3: Maximum
                         ui.label("Loop Maximum");
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = EXPORT_MODE_SPACING;
@@ -304,7 +295,6 @@ fn render_content(
                     });
                 });
 
-                // Locked Frames Fields
                 ui.add_space(5.0);
                 ui.add_enabled_ui(!is_ui_locked, |ui| {
                     ui.horizontal(|ui| {
@@ -336,7 +326,6 @@ fn render_content(
                     }
                 } else {
                     ui.add_enabled_ui(!state.is_processing, |ui| {
-                        // CHECK FOR LOOP TERMINATION
                         let mut is_loop_terminated = false;
                         if let Some(loop_message) = &state.loop_result_msg
                             && (loop_message.contains("Terminated") || loop_message.contains("Aborted"))
@@ -385,7 +374,6 @@ fn render_content(
                                 abort_signal
                             );
 
-                            // Reset termination msg
                             state.loop_result_msg = None;
                             state.completion_time = None;
                         };
@@ -688,7 +676,6 @@ fn render_content(
                 });
                 ui.end_row();
 
-                // COMPRESSION
                 let compression_tooltip = "Compression percentage dictates file size, with higher compression correlating with slower encoding speeds";
                 let (is_compression_enabled, compression_reason) = match state.format {
                     ExportFormat::WebP | ExportFormat::Gif | ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm =>
@@ -727,7 +714,6 @@ fn render_content(
                 ui.end_row();
             });
 
-            // BACKGROUND LOGIC
             ui.horizontal(|ui| {
                 let is_forced_opaque = matches!(state.format, ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm);
 
@@ -757,7 +743,6 @@ fn render_content(
         ui.label("Tools that enhance the Exporters functionality\nManage through the Settings > Add-Ons page");
         ui.add_space(8.0);
 
-        // FFMPEG Status
         let is_ffmpeg_installed = toolpaths::ffmpeg_status() == Presence::Installed;
         let ffmpeg_text = if is_ffmpeg_installed { "FFMPEG Installed" } else { "FFMPEG Missing" };
         let ffmpeg_color = if is_ffmpeg_installed { egui::Color32::from_rgb(40, 160, 40) } else { egui::Color32::from_rgb(180, 50, 50) };
@@ -777,7 +762,6 @@ fn render_content(
         }
 
         ui.add_space(5.0);
-        // AVIFENC Status
         let is_avif_installed = toolpaths::avifenc_status() == Presence::Installed;
         let avif_text = if is_avif_installed { "AVIFENC Installed" } else { "AVIFENC Missing" };
         let avif_color = if is_avif_installed { egui::Color32::from_rgb(40, 160, 40) } else { egui::Color32::from_rgb(180, 50, 50) };

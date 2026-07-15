@@ -170,7 +170,6 @@ pub fn entity_passes_filter(cat: &CatEntry, filter: &CatFilterState) -> bool {
     false
 }
 
-// --- FLAT HELPER FUNCTIONS ---
 
 fn evaluate_single_form(
     cat: &CatEntry,

@@ -15,7 +15,6 @@ pub fn get_app_data_dir() -> PathBuf {
     path
 }
 
-// Safely writes data to a JSON file using an atomic temporary file swap to prevent corruption
 pub fn save<T: Serialize>(filename: &str, data: &T) {
     let mut path = get_app_data_dir();
     path.push(filename);
@@ -28,7 +27,6 @@ pub fn save<T: Serialize>(filename: &str, data: &T) {
     }
 }
 
-// Loads JSON and automatically fills in missing fields with defaults
 pub fn load<T: DeserializeOwned>(filename: &str) -> Option<T> {
     let mut path = get_app_data_dir();
     path.push(filename);

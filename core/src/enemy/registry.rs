@@ -45,7 +45,6 @@ pub struct EnemyAbilityDisplayDef {
     pub formatter: fn(primary_value: i32, stats: &Battle, duration_frames: i32, magnification: Magnification, param: &Param) -> String,
 }
 
-// --- FORMATTERS ---
 
 fn fmt_time(frames: i32) -> String {
     format!("{:.2}s^{}f", frames as f32 / 30.0, frames)
@@ -189,11 +188,9 @@ fn fmt_sage(param: &Param) -> String {
     }
 }
 
-// --- EXHAUSTIVE PRESENTATION MATCH ---
 
 pub fn get_display_def(identity: Identity) -> EnemyAbilityDisplayDef {
     match identity {
-        // --- TYPES ---
         Identity::TypeRed => EnemyAbilityDisplayDef {
             name: "Red",
             fallback: "Red",
@@ -265,7 +262,6 @@ pub fn get_display_def(identity: Identity) -> EnemyAbilityDisplayDef {
             formatter: |_,_,_,_,_| "Traitless".into(),
         },
 
-        // --- HEADLINE 1 ---
         Identity::TypeDojo => EnemyAbilityDisplayDef {
             name: "Dojo",
             fallback: "Dojo",
@@ -330,7 +326,6 @@ pub fn get_display_def(identity: Identity) -> EnemyAbilityDisplayDef {
             formatter: |_,_,_,_,_| "EVA Angel".into(),
         },
 
-        // --- HEADLINE 2 ---
         Identity::Kamikaze => EnemyAbilityDisplayDef {
             name: "Kamikaze",
             fallback: "Kamik",
@@ -381,7 +376,6 @@ pub fn get_display_def(identity: Identity) -> EnemyAbilityDisplayDef {
             formatter: |_,_,_,_,_| "When hit with a Surge Attack, create a Surge of equal Type, Level, and Range".into(),
         },
 
-        // --- BODY 1 ---
         Identity::SingleAttack => EnemyAbilityDisplayDef {
             name: "Single Attack",
             fallback: "Sngl",
@@ -532,7 +526,6 @@ pub fn get_display_def(identity: Identity) -> EnemyAbilityDisplayDef {
             formatter: |chance,_,_,_,_| format!("{}% Chance to Survive a lethal strike", chance),
         },
 
-        // --- BODY 2 ---
         Identity::Barrier => EnemyAbilityDisplayDef {
             name: "Barrier",
             fallback: "Barri",
@@ -641,7 +634,6 @@ pub fn get_display_def(identity: Identity) -> EnemyAbilityDisplayDef {
             formatter: |_,_,_,_,_| "This Enemy may have an undefined ability\nBattle Cats Complete may need to be updated".into(),
         },
 
-        // --- FOOTER (IMMUNITIES) ---
         Identity::ImmuneWave => EnemyAbilityDisplayDef {
             name: "Immune Wave",
             fallback: "NoWav",
@@ -708,7 +700,6 @@ pub fn get_display_def(identity: Identity) -> EnemyAbilityDisplayDef {
     }
 }
 
-// --- STATS REGISTRY ---
 pub struct EnemyStatsDef {
     pub name: &'static str,
     pub display_name: &'static str,
@@ -799,7 +790,6 @@ pub const ENEMY_STATS_REGISTRY: &[EnemyStatsDef] = &[
     },
 ];
 
-// --- REGISTRY HELPER FUNCTIONS ---
 pub fn get_enemy_stat(name: &str) -> &'static EnemyStatsDef {
     ENEMY_STATS_REGISTRY.iter().find(|s| s.name == name).expect("Stat not found in registry")
 }

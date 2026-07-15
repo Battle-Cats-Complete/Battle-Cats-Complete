@@ -3,11 +3,10 @@ use nyanko::common::tools::variant::Region;
 use serde::{Deserialize, Serialize};
 
 pub const EXPECTED_HASHES: [(&str, &str); 4] = [
-    // (Key, IV)
-    ("bac299d3cf278544782427ff7c71ef58", "6910fae125547fd957a505c67e1c72bd"), // JA
-    ("b9e48b02312e5b3dd60194a03157d70c", "45cad482726268e341f5759230ce8cff"), // EN
-    ("264a0ffd5f69d257284b93ae881ce2b6", "213cecb58af008964303ecb2cf0f5373"), // TW
-    ("3d22eafdcc4fc2a1379b103970b36217", "4cacdb0839634116caaf0b966638865b"), // KO
+    ("bac299d3cf278544782427ff7c71ef58", "6910fae125547fd957a505c67e1c72bd"),
+    ("b9e48b02312e5b3dd60194a03157d70c", "45cad482726268e341f5759230ce8cff"),
+    ("264a0ffd5f69d257284b93ae881ce2b6", "213cecb58af008964303ecb2cf0f5373"),
+    ("3d22eafdcc4fc2a1379b103970b36217", "4cacdb0839634116caaf0b966638865b"),
 ];
 
 #[derive(Clone, Serialize, Deserialize, Default, PartialEq, Debug)]

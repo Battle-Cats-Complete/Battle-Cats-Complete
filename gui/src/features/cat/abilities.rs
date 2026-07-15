@@ -92,12 +92,10 @@ fn render_single_icon(
 ) -> egui::Response {
     let size = egui::vec2(ICON_SIZE, ICON_SIZE);
 
-    // Try Custom Icon first
     if let Some(tex) = assets.get_icon_texture(item.custom_icon) {
         return ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)));
     }
 
-    // Cascade through available language sheets for Standard Icons
     if let Some(icon_id) = item.icon_id {
         for sheet in sheets {
             if let Some(cut) = sheet.core.cuts_map.get(&icon_id) {

@@ -100,7 +100,6 @@ impl StageMatcher {
             _ => {}
         }
 
-        // Regex matches
         if self.drop_item.is_match(target_file) { return Some(base_dir.to_path_buf()); }
         if self.charagroup.is_match(target_file) { return Some(base_dir.to_path_buf()); }
         if self.difficulty.is_match(target_file) { return Some(base_dir.to_path_buf()); }
@@ -114,7 +113,6 @@ impl StageMatcher {
         if self.limit_msg.is_match(target_file) { return Some(base_dir.join("MapStageLimitMessage")); }
         if self.first_msg.is_match(target_file) { return Some(base_dir.join("StageFirstMessage")); }
 
-        // StageName{N}_{cc}.csv
         if let Some(caps) = self.stage_numeric.captures(target_file) {
             let num_match = caps.get(1).map(|m| m.as_str()).unwrap_or("");
             return match num_match {
@@ -125,17 +123,14 @@ impl StageMatcher {
             };
         }
 
-        // StageName_{cc}.csv
         if self.stage_base.is_match(target_file) {
             return Some(cat_dir.join("EC").join("StageName"));
         }
 
-        // StageName_{Category}_{cc}.csv
         if let Some(caps) = self.stage_name.captures(target_file) {
             return Some(cat_dir.join(Self::format_prefix(&caps[1])).join("StageName"));
         }
 
-        // Legacy Images (Forced to Category/image/StageID)
         if let Some(caps) = self.legacy_stage.captures(target_file) {
             let raw_prefix = caps[1].to_lowercase();
             let mut mapped_prefix = match raw_prefix.as_str() {
@@ -156,7 +151,6 @@ impl StageMatcher {
             return Some(cat_dir.join(mapped_prefix).join("image").join(format!("{:02}", target_folder)));
         }
 
-        // Stage Normal (EoC, ItF, CotC, and Zombies)
         if let Some(caps) = self.stage_normal.captures(target_file) {
             let chapter_str = &caps[1];
             let sub_chapter = caps.get(2).map(|m| m.as_str()).unwrap_or("0");
@@ -189,7 +183,6 @@ impl StageMatcher {
             return Some(cat_dir.join(category_str).join(map_id));
         }
 
-        // Stage Files (Unified to Category/Map/Stage)
         if let Some(caps) = self.stage_file.captures(target_file) {
             let cap_prefix = caps.get(1).map(|m| m.as_str());
             let Ok(parsed_map) = caps[2].parse::<u32>() else { return None; };
@@ -226,7 +219,6 @@ impl StageMatcher {
             }
         }
 
-        // Map & Stage Dynamic Content
         if let Some(caps) = self.map_data.captures(target_file) {
             let Ok(parsed_map) = caps[2].parse::<u32>() else { return None; };
             return Some(cat_dir.join(Self::format_prefix(&caps[1])).join(format!("{:03}", parsed_map)));
@@ -243,7 +235,6 @@ impl StageMatcher {
             return Some(cat_dir.join(Self::format_prefix(&caps[3])).join(format!("{:03}", parsed_map)).join(format!("{:02}", parsed_stage)));
         }
 
-        // Assorted Assets
         if let Some(caps) = self.castle.captures(target_file) {
             if target_file.starts_with("fc000") { return None; }
             return Some(base_dir.join("castles").join(&caps[1]));

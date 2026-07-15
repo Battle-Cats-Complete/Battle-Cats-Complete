@@ -10,7 +10,6 @@ pub fn render(user_interface: &mut egui::Ui, name_text: &str) {
         egui::Sense::hover()
     );
 
-    // Iteratively shrink font until name fits
     let mut current_font_size = 22.0; 
     while current_font_size > 8.0 { 
         let font_identifier = egui::FontId::proportional(current_font_size);
@@ -32,7 +31,6 @@ pub fn render(user_interface: &mut egui::Ui, name_text: &str) {
         current_font_size -= 1.0;
     }
     
-    // Fallback if name still doesn't fit
     let fallback_font_identifier = egui::FontId::proportional(8.0);
     let fallback_layout_job = egui::text::LayoutJob::simple(
         name_text.to_owned(), 

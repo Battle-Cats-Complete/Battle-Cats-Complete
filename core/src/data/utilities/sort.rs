@@ -64,7 +64,6 @@ pub fn process_raw_files(
                 }
             }
 
-        // Apply regex exceptions
         let matched_user_rule = compiled_regex_set.matches(file_name).into_iter().next().map(|index| &compiled_exception_rules[index]);
         
         if let Some(rule) = matched_user_rule
@@ -110,7 +109,6 @@ pub fn process_raw_files(
             });
     }
 
-    // Resolve collisions based on language priority
     let mut final_files = Vec::new();
     for (_, mut versions) in file_groups {
         if versions.len() == 1 {

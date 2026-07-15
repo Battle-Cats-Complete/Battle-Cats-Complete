@@ -82,7 +82,7 @@ fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>, ctx: egui
                     for path in pending_paths.drain() {
                         let _ = final_sender.send(path);
                     }
-                    ctx.request_repaint(); // THIS is what wakes up the app!
+                    ctx.request_repaint();
                 }
                 deadline = None;
                 max_deadline = None;

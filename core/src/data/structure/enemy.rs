@@ -42,12 +42,10 @@ impl EnemyMatcher {
     }
 
     pub fn get_dest(&self, name: &str, enemy_dir: &Path) -> Option<PathBuf> {
-        // Root files
         if self.stats.is_match(name) || self.dict_list.is_match(name) || self.autoset_exclude.is_match(name) {
             return Some(enemy_dir.to_path_buf());
         }
         
-        // Base Enemy Assets
         if let Some(caps) = self.icon.captures(name) {
             return Some(enemy_dir.join(&caps[1]));
         }
@@ -58,7 +56,6 @@ impl EnemyMatcher {
             return Some(enemy_dir.join(&caps[1]).join("anim"));
         }
 
-        // Translation / Name Files
         if self.name.is_match(name) {
             return Some(enemy_dir.join("Enemyname"));
         }
@@ -72,7 +69,6 @@ impl EnemyMatcher {
             return Some(enemy_dir.join("EnemyPictureBookQuestion"));
         }
 
-        // Shared Zombie Effects
         if self.zombie_effect.is_match(name) {
             return Some(enemy_dir.join("zombie"));
         }

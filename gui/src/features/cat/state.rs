@@ -27,14 +27,12 @@ pub const SPACE_AFTER_SEPARATOR: f32 = 2.0;
 pub struct CatListState {
     pub data: CatDataState,
 
-    // UI Elements
     #[serde(skip)] pub cat_list: CatList,
     #[serde(skip)] pub anim_viewer: AnimViewer,
     #[serde(skip)] pub filter_state: CatFilterState,
     #[serde(skip)] pub drag_guard: DragGuard,
     #[serde(skip)] pub custom_assets: Option<CustomAssets>,
 
-    // Texture Caches
     #[serde(skip)] pub detail_texture: Option<egui::TextureHandle>,
     #[serde(skip)] pub img015_sheets: Vec<SpriteSheet>,
     #[serde(skip)] pub img022_sheets: Vec<SpriteSheet>,
@@ -99,7 +97,6 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
             if state.data.selected_cat != old_selection_id {
                 state.detail_texture = None;
                 state.data.detail_key.clear();
-                // FIX: Clear rig instead of model and sheet
                 state.rig = None;
                 state.data.saved_pre_ultra_level = None;
                 state.data.is_in_ultra_state = false;

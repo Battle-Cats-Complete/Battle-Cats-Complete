@@ -144,7 +144,6 @@ fn encode_via_pipe(
     is_success && avif_status.map(|status| status.success()).unwrap_or(false)
 }
 
-// Raw Frames -> Folder -> Avifenc
 fn encode_via_folder(
     config: ExportConfig, 
     receiver: mpsc::Receiver<EncoderMessage>, 

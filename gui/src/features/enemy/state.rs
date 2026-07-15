@@ -27,18 +27,15 @@ pub const SPACE_AFTER_SEPARATOR: f32 = 2.0;
 pub struct EnemyListState {
     pub data: EnemyDataState,
 
-    // UI Elements
     #[serde(skip)] pub enemy_list: EnemyList,
     #[serde(skip)] pub anim_viewer: AnimViewer,
     #[serde(skip)] pub filter_state: EnemyFilterState,
     #[serde(skip)] pub drag_guard: DragGuard,
     #[serde(skip)] pub custom_assets: Option<CustomAssets>,
 
-    // Texture Caches
     #[serde(skip)] pub detail_texture: Option<egui::TextureHandle>,
     #[serde(skip)] pub img015_sheets: Vec<SpriteSheet>,
 
-    // NEW: Replaces old Model and SpriteSheet with the unified pure Rig
     #[serde(skip)] pub rig: Option<Arc<Unit>>,
 }
 
@@ -107,7 +104,6 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
     if state.data.selected_enemy != old_selection_id {
         state.detail_texture = None;
         state.data.detail_key.clear();
-        // FIX: Clear rig instead of model and sheet
         state.rig = None;
     }
 

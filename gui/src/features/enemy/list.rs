@@ -227,7 +227,6 @@ impl EnemyList {
             }
         }
 
-        // We add usize::MAX as a dummy index at the very end of the list
         if !self.cached_indices.is_empty() {
             self.cached_indices.push(usize::MAX);
         }

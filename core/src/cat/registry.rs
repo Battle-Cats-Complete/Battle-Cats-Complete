@@ -32,7 +32,6 @@ pub struct AbilityDisplayDef {
     pub formatter: fn(val1: i32, stats: &Battle, target: &str, duration_frames: i32, param: &Param) -> String,
 }
 
-// --- CORE STRING FORMATTERS ---
 
 fn fmt_time(frames: i32) -> String {
     format!("{:.2}s^{}f", frames as f32 / 30.0, frames)
@@ -176,7 +175,6 @@ fn fmt_sage(param: &Param) -> String {
     format!("{}\n{}", base_description, formatted_resistance_lines.join("\n"))
 }
 
-// --- EXHAUSTIVE PRESENTATION MATCH ---
 
 pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
     match identity {
@@ -265,7 +263,6 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             formatter: |_,_,_,_,_| "Targets EVA Angels".into(),
         },
 
-        // --- HEADLINE 1 ---
         Identity::AttackOnly => AbilityDisplayDef {
             name: "Attack Only",
             fallback: "AtkOnly",
@@ -309,7 +306,6 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             formatter: |_, _, target, _, _| format!("Takes 1/6×~1/7× Damage from {}", target),
         },
 
-        // --- HEADLINE 2 ---
         Identity::Metal => AbilityDisplayDef {
             name: "Metal",
             fallback: "Metal",
@@ -427,7 +423,6 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             },
         },
 
-        // --- BODY 1 ---
         Identity::SingleAttack => AbilityDisplayDef {
             name: "Single Attack",
             fallback: "Sngl",
@@ -592,7 +587,6 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             formatter: |chance, _, _, _, _| format!("{}% Chance to pierce enemy Shields", chance),
         },
 
-        // --- BODY 2 ---
         Identity::Dodge => AbilityDisplayDef {
             name: "Dodge",
             fallback: "Dodge",
@@ -650,7 +644,6 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             formatter: |_,_,_,_,_| "This Cat may have an undefined ability\nBattle Cats Complete may need to be updated".into(),
         },
 
-        // --- FOOTER (IMMUNITIES) ---
         Identity::ImmuneWave => AbilityDisplayDef {
             name: "Immune Wave",
             fallback: "NoWav",
@@ -729,7 +722,6 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             formatter: |_,_,_,_,_| "Immune to Boss Shockwaves".into(),
         },
 
-        // --- FOOTER (RESISTANCES) ---
         Identity::ResistWeaken => AbilityDisplayDef {
             name: "Resist Weaken",
             fallback: "ReWkn",
@@ -794,7 +786,6 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             formatter: |percent,_,_,_,_| format!("Resist Surge ({}%)", percent),
         },
 
-        // --- STAT TALENTS ---
         Identity::CostDown => AbilityDisplayDef {
             name: "Cost Down",
             fallback: "Cost-",
@@ -847,7 +838,6 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
     }
 }
 
-// --- STATS REGISTRY ---
 
 pub struct CatStatsDef {
     pub name: &'static str,
@@ -977,7 +967,6 @@ pub const CAT_STATS_REGISTRY: &[CatStatsDef] = &[
     },
 ];
 
-// --- REGISTRY HELPER FUNCTIONS ---
 
 pub fn get_cat_stat(name: &str) -> &'static CatStatsDef {
     CAT_STATS_REGISTRY.iter().find(|stat_definition| stat_definition.name == name).expect("CRITICAL: Hardcoded stat name was not found in CAT_STATS_REGISTRY")

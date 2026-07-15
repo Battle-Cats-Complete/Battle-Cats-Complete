@@ -1,12 +1,10 @@
 use std::path::{Path, PathBuf};
 
-// Global File Constants
 pub const UNIT_BUY: &str = "unitbuy.csv";
 pub const UNIT_LEVEL: &str = "unitlevel.csv";
 pub const SKILL_ACQUISITION: &str = "SkillAcquisition.csv";
 pub const SKILL_LEVEL: &str = "SkillLevel.csv"; 
 
-// Directory Constants
 pub const DIR_CATS: &str = "game/cats";
 pub const DIR_ANIM: &str = "anim";
 pub const DIR_LANG: &str = "lang";
@@ -14,21 +12,20 @@ pub const DIR_UNIT_EVOLVE: &str = "unitevolve";
 pub const DIR_SKILL_DESCRIPTIONS: &str = "SkillDescriptions";
 pub const DIR_SKILL_NAME: &str = "game/cats/Skill_name"; 
 
-// Asset Constants
 pub const FALLBACK_ICON: &str = "game/cats/uni.png"; 
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum AssetType {
-    Icon,   // uni
-    Banner, // udi
+    Icon,
+    Banner,
 }
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum AnimType {
-    Maanim,  // Animation Data
-    Mamodel, // Model Data
-    Imgcut,  // Sprite Cuts
-    Png,     // Sprite Sheet
+    Maanim,
+    Mamodel,
+    Imgcut,
+    Png,
 }
 
 impl AnimType {
@@ -69,7 +66,6 @@ pub fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     }
 }
 
-// Path Functions
 
 pub fn folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf {
     let (egg_norm, egg_evol) = egg_ids;
@@ -117,7 +113,6 @@ pub fn image(root: &Path, asset_type: AssetType, id: u32, form: usize, egg_ids: 
     None
 }
 
-// Retrieves paths for standard animation files (Png, Imgcut, Mamodel)
 pub fn anim(root: &Path, id: u32, form: usize, egg_ids: (i32, i32), file_type: AnimType) -> PathBuf {
     let folder = anim_folder(root, id, form, egg_ids);
     let filename = anim_base_filename(id, form, egg_ids);
@@ -125,7 +120,6 @@ pub fn anim(root: &Path, id: u32, form: usize, egg_ids: (i32, i32), file_type: A
     folder.join(format!("{}.{}", filename, ext))
 }
 
-// Retrieves paths specifically for Maanim files, handling the 2-digit index suffix
 pub fn maanim(root: &Path, id: u32, form: usize, egg_ids: (i32, i32), index: usize) -> PathBuf {
     let folder = anim_folder(root, id, form, egg_ids);
     let filename = anim_base_filename(id, form, egg_ids);

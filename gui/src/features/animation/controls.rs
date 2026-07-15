@@ -17,7 +17,6 @@ const NAV_W: f32 = 30.0;
 const INPUT_W: f32 = 80.0;
 const COL3_W: f32 = 100.0;
 
-// Animation Indices
 pub const IDX_WALK: usize = 0;
 pub const IDX_IDLE: usize = 1;
 pub const IDX_ATTACK: usize = 2;
@@ -149,7 +148,6 @@ fn render_internal_ui(
     let controls_response = ui.horizontal(|ui| {
         ui.style_mut().spacing.item_spacing.x = GAP;
 
-        // Column 1
         ui.vertical(|ui| {
             let play_icon = if is_playing { "⏸" } else { "▶" };
             let is_enabled = anim_viewer.loaded_anim_index != IDX_NONE && base_assets_available && !is_locked;
@@ -171,7 +169,6 @@ fn render_internal_ui(
 
         ui.add_sized(egui::vec2(10.0, (TILE_HEIGHT * 2.0) + GAP), egui::Separator::default().vertical());
 
-        // Column 2
         ui.vertical(|ui| {
             ui.add_enabled_ui(!is_locked, |ui| {
                 ui.allocate_ui(egui::vec2(COL2_W, TILE_HEIGHT), |ui| {
@@ -225,7 +222,6 @@ fn render_internal_ui(
                                 }
                             }
                         } else {
-                            // Range Controls
                             tile_frame.show(ui, |ui| {
                                 ui.set_width(60.0); ui.set_height(TILE_HEIGHT);
                                 ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
@@ -286,7 +282,6 @@ fn render_internal_ui(
 
             ui.add_space(GAP);
 
-            // Info Row
             ui.allocate_ui(egui::vec2(COL2_W, TILE_HEIGHT), |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = GAP;
@@ -299,15 +294,12 @@ fn render_internal_ui(
 
         ui.add_sized(egui::vec2(10.0, (TILE_HEIGHT * 2.0) + GAP), egui::Separator::default().vertical());
 
-        // Column 3
         ui.vertical(|ui| {
-            // EXPORT BUTTON LOGIC
             let button_response = ui.add_enabled_ui(base_assets_available, |ui| {
                 ui.add_sized(egui::vec2(COL3_W, TILE_HEIGHT), egui::Button::new("Export"))
             }).inner;
 
             if button_response.clicked() {
-                // Write directly to settings!
                 settings.animation.export_popup_open = true;
             }
 
@@ -372,7 +364,6 @@ fn render_internal_ui(
                         }
                     };
 
-                    // ALL animations are checked against the generic path list supplied by the caller
                     let has_walk = available_anims.iter().any(|(index, _)| *index == IDX_WALK); draw_anim_button(ui, "Walk", IDX_WALK, has_walk);
                     let has_idle = available_anims.iter().any(|(index, _)| *index == IDX_IDLE); draw_anim_button(ui, "Idle", IDX_IDLE, has_idle);
                     let has_atk = available_anims.iter().any(|(index, _)| *index == IDX_ATTACK); draw_anim_button(ui, "Attack", IDX_ATTACK, has_atk);
@@ -382,7 +373,6 @@ fn render_internal_ui(
                     let has_burrow = available_anims.iter().any(|(index, _)| *index == IDX_BURROW); draw_anim_button(ui, "Burrow", IDX_BURROW, has_burrow);
                     let has_surface = available_anims.iter().any(|(index, _)| *index == IDX_SURFACE); draw_anim_button(ui, "Surface", IDX_SURFACE, has_surface);
 
-                    // Spirit / Secondary Pack validation
                     let secondary_available = secondary_pack.is_some();
                     draw_anim_button(ui, "Spirit", IDX_SPIRIT, secondary_available);
 
@@ -429,7 +419,6 @@ fn render_internal_ui(
     }
 }
 
-// Handles all user input for the animation viewport
 pub fn handle_viewport_input(
     ui: &egui::Ui,
     response: &egui::Response,
@@ -440,29 +429,24 @@ pub fn handle_viewport_input(
     block_input: bool,
     is_viewport_dragging: &mut bool,
 ) {
-    // Determine Drag Validity on Start
     if response.drag_started() {
         if block_input {
-            *is_viewport_dragging = false; // Started on controls, ignore
+            *is_viewport_dragging = false;
         } else {
-            *is_viewport_dragging = true;  // Started on viewport, valid
+            *is_viewport_dragging = true;
         }
     }
 
-    // Clear state on release
     if response.drag_stopped() {
         *is_viewport_dragging = false;
     }
 
-    // Pan Logic
     if response.dragged() && *is_viewport_dragging {
         *pan_offset += response.drag_delta() / *zoom_level;
 
-        // Cancel any pending auto-center if the user takes control
         *pending_initial_center = false;
     }
 
-    // Mouse Zoom
     if !block_input && response.hovered() {
         ui.input(|i| {
             let scroll = i.raw_scroll_delta.y;
@@ -473,7 +457,6 @@ pub fn handle_viewport_input(
         });
     }
 
-    // Pinch Zoom
     if !block_input {
         ui.input(|i| {
             let delta = i.zoom_delta();

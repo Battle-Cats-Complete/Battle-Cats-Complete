@@ -31,11 +31,10 @@ pub fn check_and_show(ctx: &egui::Context, drag_guard: &mut DragGuard) {
 
     let current_version = env!("CARGO_PKG_VERSION").to_string();
 
-    // Check version once per session using the universal JSON loader
     if is_open.is_none() {
         let needs_notice = match core::global::io::json::load::<AppMeta>("meta.json") {
             Some(meta) => meta.app_version != current_version,
-            None => true, // If file doesn't exist, show notice
+            None => true,
         };
 
         is_open = Some(needs_notice);
@@ -73,7 +72,6 @@ pub fn check_and_show(ctx: &egui::Context, drag_guard: &mut DragGuard) {
                     show_window = false;
                     ctx.data_mut(|d| d.insert_temp(state_id, Some(false)));
                     
-                    // Mark as read by atomically saving version to disk via utility
                     let new_meta = AppMeta { app_version: current_version.clone() };
                     core::global::io::json::save("meta.json", &new_meta);
                 }

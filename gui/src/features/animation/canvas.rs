@@ -24,7 +24,6 @@ pub fn paint(
             };
 
             if renderer_lock.is_none() {
-                // Safely handle the Result without unwrapping/panicking
                 let Ok(new_renderer) = GlowRenderer::new(painter.gl()) else {
                     return;
                 };
@@ -38,14 +37,12 @@ pub fn paint(
             let viewport_width = info.viewport.width();
             let viewport_height = info.viewport.height();
 
-            // 1. Get the pure world geometry from the library
             let frame_geometry = resolve_frame(
                 &unit,
-                animation.as_deref(), // Converts Option<Arc<Animation>> to Option<&Animation>
+                animation.as_deref(),
                 current_frame
             );
 
-            // 2. Delegate hardware rendering to the core's canvas
             let _ = renderer.draw_frame(
                 painter.gl(),
                 &frame_geometry,

@@ -19,7 +19,6 @@ pub fn get_label_for_code(target_code: &str) -> String {
     format!("Unknown ({})", target_code)
 }
 
-/// Returns the default initialization array
 pub fn default_priority() -> Vec<String> {
     vec![
         "".to_string(), "en".to_string(), "ja".to_string(), "tw".to_string(), 
@@ -28,19 +27,16 @@ pub fn default_priority() -> Vec<String> {
     ]
 }
 
-/// Run this when loading Settings to ensure the list has all languages and the separator
 pub fn ensure_complete_list(priority_list: &mut Vec<String>) {
     if priority_list.is_empty() {
         *priority_list = default_priority();
         return;
     }
     
-    // Ensure "--" exists so the user can always disable things
     if !priority_list.contains(&"--".to_string()) {
         priority_list.push("--".to_string());
     }
 
-    // Append any newly added languages to the very bottom
     for &(code, _) in LANGUAGE_LIST {
         let c = code.to_string();
         if !priority_list.contains(&c) {
@@ -48,6 +44,5 @@ pub fn ensure_complete_list(priority_list: &mut Vec<String>) {
         }
     }
     
-    // Clean up any deprecated language codes
     priority_list.retain(|code| LANGUAGE_LIST.iter().any(|(c, _)| *c == code));
 }

@@ -26,14 +26,12 @@ pub fn render(ui: &mut egui::Ui, enemy: &EnemyEntry, magnification: Magnificatio
             .min_col_width(cell_w)
             .spacing([4.0, 4.0])
             .show(ui, |ui| {
-                // Row 1 Header
                 grid_cell(ui, get_enemy_stat("Attack").display_name, true);
                 grid_cell(ui, get_enemy_stat("Dps").display_name, true);
                 grid_cell(ui, get_enemy_stat("Range").display_name, true);
                 grid_cell(ui, get_enemy_stat("Atk Cycle").display_name, true);
                 ui.end_row();
 
-                // Row 1 Data
                 grid_cell(ui, &atk_str, false);
                 grid_cell(ui, &dps_str, false);
                 grid_cell(ui, &range_str, false);
@@ -43,14 +41,12 @@ pub fn render(ui: &mut egui::Ui, enemy: &EnemyEntry, magnification: Magnificatio
                 );
                 ui.end_row();
 
-                // Row 2 Header
                 grid_cell(ui, get_enemy_stat("Hitpoints").display_name, true);
                 grid_cell(ui, get_enemy_stat("Knockbacks").display_name, true);
                 grid_cell(ui, get_enemy_stat("Speed").display_name, true);
                 grid_cell(ui, get_enemy_stat("Cash Drop").display_name, true);
                 ui.end_row();
 
-                // Row 2 Data
                 grid_cell(ui, &hp_str, false);
                 grid_cell(ui, &kb_str, false);
                 grid_cell(ui, &speed_str, false);

@@ -221,7 +221,6 @@ fn build_statblock_image(
         }
     }
 
-    // === HEADER ===
     if let Some(path) = &data.icon_path
         && let Ok(icon_img) = image::open(path) {
         let mut rgba = autocrop(icon_img.to_rgba8());
@@ -275,7 +274,6 @@ fn build_statblock_image(
 
     draw_text_mut(&mut target_image, text_weak, text_start_x, final_id_y, PxScale::from(14.0 * HEADER_CONTENT_SCALE * scale_f), font, &format!("ID: {}", data.id_str));
 
-    // --- STYLIZED LEVEL FIELD ---
     let lvl_prefix_scale = PxScale::from(16.0 * HEADER_CONTENT_SCALE * scale_f);
     let (prefix_width, _) = text_size(lvl_prefix_scale, font, &data.top_label);
 
@@ -301,7 +299,6 @@ fn build_statblock_image(
     draw_filled_rect_mut(&mut target_image, Rect::at(padding, current_y_global).of_size(canvas_width as u32 - (padding * 2) as u32, scale as u32 ), separator_color);
     current_y_global += STAT_GRID_PADDING_Y * scale;
 
-    // === STAT GRID ===
     let row_height = 24 * scale;
     let cell_radius = 4 * scale;
 
@@ -338,7 +335,6 @@ fn build_statblock_image(
     draw_filled_rect_mut(&mut target_image, Rect::at(padding, current_y_global).of_size(canvas_width as u32 - (padding * 2) as u32, scale as u32 ), separator_color);
     current_y_global += 10 * scale;
 
-    // === ABILITIES ===
     let ability_line_height = (ABILITY_FONT_SIZE * scale_f).round() as i32 + (ABILITY_LINE_SPACING * scale);
 
     let draw_icon_row = |canvas_image: &mut RgbaImage, items: &Vec<AbilityItem>, start_y: i32, start_x: i32| -> i32 {

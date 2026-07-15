@@ -21,7 +21,6 @@ pub fn spawn_mod_import(tx: Sender<ModAdbEvent>, suffix: String) {
         let pkg = format!("jp.co.ponos.battlecats{}", suffix);
         let _ = tx.send(ModAdbEvent::Status(format!("Targeting Package: {}", pkg)));
 
-        // Locate Device
         let serial = match driver::find_usb_device().or_else(driver::find_emulator) {
             Some(s) => s,
             None => {
@@ -30,13 +29,11 @@ pub fn spawn_mod_import(tx: Sender<ModAdbEvent>, suffix: String) {
             }
         };
 
-        // Create the temporary staging directory
         let target_dir = PathBuf::from(format!("mods/packages/{}", pkg));
         if !target_dir.exists() { let _ = fs::create_dir_all(&target_dir); }
 
         let _ = tx.send(ModAdbEvent::Status(format!("Pulling base.apk for {}...", pkg)));
 
-        // Look for base.apk on the device
         let pm_path = driver::run_command(&["-s", &serial, "shell", "pm", "path", &pkg]).unwrap_or_default();
         let remote_path = pm_path.lines()
             .find(|line| line.contains("base.apk"))
@@ -50,7 +47,6 @@ pub fn spawn_mod_import(tx: Sender<ModAdbEvent>, suffix: String) {
             return;
         }
 
-        // Pull the APK to our temporary folder
         let local_apk_path = target_dir.join("base.apk");
         if driver::run_command(&["-s", &serial, "pull", remote_path, local_apk_path.to_str().unwrap()]).is_err() {
             let _ = tx.send(ModAdbEvent::Error("Failed to pull base.apk from device.".to_string()));
@@ -59,7 +55,6 @@ pub fn spawn_mod_import(tx: Sender<ModAdbEvent>, suffix: String) {
 
         let _ = tx.send(ModAdbEvent::Status("Extracting DownloadLocal data...".to_string()));
 
-        // Setup a proxy channel to catch the String messages from extract/decrypt
         let (e_tx, e_rx) = std::sync::mpsc::channel();
         let tx_clone = tx.clone();
         thread::spawn(move || {
@@ -68,7 +63,6 @@ pub fn spawn_mod_import(tx: Sender<ModAdbEvent>, suffix: String) {
             }
         });
 
-        // Load Settings and Verify Keys
         let settings: Settings = crate::global::io::json::load("settings.json").unwrap_or_default();
         let user_keys = match keys::verify(settings.game_data.enforce_key_validation, &e_tx) {
             Ok(k) => k,
@@ -78,15 +72,13 @@ pub fn spawn_mod_import(tx: Sender<ModAdbEvent>, suffix: String) {
             }
         };
 
-        // Run the extraction and decryption pipeline
         if let Err(e) = extract::run_archive(&local_apk_path, &target_dir, e_tx, &user_keys) {
             let _ = tx.send(ModAdbEvent::Error(format!("Extraction/Decryption failed: {}", e)));
             return;
         }
 
-        // CLEANUP
         let _ = tx.send(ModAdbEvent::Status("Cleaning up temporary base.apk and pack files...".to_string()));
-        let _ = fs::remove_dir_all(&target_dir); // Nukes the APK, the .list, and the .pack
+        let _ = fs::remove_dir_all(&target_dir);
 
         let _ = tx.send(ModAdbEvent::Success("ADB Mod Import Complete!".to_string()));
     });

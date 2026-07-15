@@ -185,13 +185,9 @@ impl GlowRenderer {
 
             for data in frame_data {
                 match data.glow {
-                    // Mode 1 (Light): Add colors, protect destination alpha
                     1 => gl_context.blend_func_separate(glow::ONE, glow::ONE, glow::ZERO, glow::ONE),
-                    // Mode 2 (Shadow): Multiply colors, protect destination alpha
                     2 => gl_context.blend_func_separate(glow::DST_COLOR, glow::ZERO, glow::ZERO, glow::ONE),
-                    // Mode 3 (Projected Light): Screen colors, protect destination alpha
                     3 => gl_context.blend_func_separate(glow::ONE, glow::ONE_MINUS_SRC_COLOR, glow::ZERO, glow::ONE),
-                    // Mode 0 (Matter): Standard blend for both color and alpha
                     _ => gl_context.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA),
                 }
 
@@ -207,7 +203,6 @@ impl GlowRenderer {
                 gl_context.draw_arrays(glow::TRIANGLES, 0, 6);
             }
 
-            // Reset standard premultiplied blending after batch completes
             gl_context.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
 
             Ok(())

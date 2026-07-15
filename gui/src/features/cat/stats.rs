@@ -29,23 +29,19 @@ pub fn render(
 
     let cell_w = 60.0;
 
-    // Stats Grid
     ui.horizontal_top(|ui| {
         egui::Grid::new("stats_grid_right")
             .min_col_width(cell_w)
             .spacing([4.0, 4.0])
             .show(ui, |ui| {
-                // Row 1 Header
                 grid_cell(ui, get_cat_stat("Attack").display_name, true);
                 grid_cell(ui, get_cat_stat("Dps").display_name, true);
                 grid_cell(ui, get_cat_stat("Range").display_name, true);
                 grid_cell(ui, get_cat_stat("Atk Cycle").display_name, true);
 
-                // Changed header to Rarity
                 grid_cell(ui, get_cat_stat("Rarity").display_name, true);
                 ui.end_row();
 
-                // Row 1 Data
                 grid_cell(ui, &atk_str, false);
                 grid_cell(ui, &dps_str, false);
                 grid_cell(ui, &range_str, false);
@@ -57,7 +53,6 @@ pub fn render(
                 grid_cell(ui, &rarity_str, false);
                 ui.end_row();
 
-                // Row 2 Header
                 grid_cell(ui, get_cat_stat("Hitpoints").display_name, true);
                 grid_cell(ui, get_cat_stat("Knockbacks").display_name, true);
                 grid_cell(ui, get_cat_stat("Speed").display_name, true);
@@ -65,7 +60,6 @@ pub fn render(
                 grid_cell(ui, get_cat_stat("Cost").display_name, true);
                 ui.end_row();
 
-                // Row 2 Data
                 grid_cell(ui, &hp_str, false);
                 grid_cell(ui, &kb_str, false);
                 grid_cell(ui, &speed_str, false);

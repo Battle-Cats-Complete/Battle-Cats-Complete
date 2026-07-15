@@ -31,7 +31,6 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GeneralSettings, runtime
         .auto_shrink([false, true])
         .show(ui_container, |scroll_ui| {
 
-            // --- SYSTEM SECTION ---
             scroll_ui.heading("System");
             scroll_ui.add_space(5.0);
 
@@ -120,7 +119,6 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GeneralSettings, runtime
                 }
             }
 
-            // --- BEHAVIOR SECTION ---
             scroll_ui.add_space(20.0);
             scroll_ui.heading("Behavior");
             scroll_ui.add_space(5.0);
@@ -194,7 +192,6 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GeneralSettings, runtime
                     });
             });
 
-            // --- LANGUAGE SECTION ---
             scroll_ui.add_space(20.0);
             scroll_ui.heading("Language");
             scroll_ui.add_space(5.0);

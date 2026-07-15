@@ -54,18 +54,15 @@ pub fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
 
     let mut parts = text.split('^');
 
-    // First part is always standard text before any ^ character
     if let Some(first) = parts.next()
         && !first.is_empty() {
             job.append(first, 0.0, normal_format.clone());
         }
 
-    // Subsequent parts start as superscript, and revert to normal at the first space or newline
     for part in parts {
-        // Find the index of either a space or a newline
         if let Some(break_idx) = part.find([' ', '\n']) {
             let super_str = &part[..break_idx];
-            let normal_str = &part[break_idx..]; // Includes the space or newline
+            let normal_str = &part[break_idx..];
 
             if !super_str.is_empty() {
                 job.append(super_str, 0.0, super_format.clone());
@@ -74,7 +71,6 @@ pub fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
                 job.append(normal_str, 0.0, normal_format.clone());
             }
         } else {
-            // No space or newline found, the entire remaining text is superscript
             if !part.is_empty() {
                 job.append(part, 0.0, super_format.clone());
             }

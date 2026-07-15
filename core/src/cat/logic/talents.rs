@@ -5,7 +5,6 @@ use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
 
 use crate::cat::registry::{get_display_def, CAT_STATS_REGISTRY};
 
-// --- CORE MATH ---
 pub fn calculate_talent_value(minimum: u16, maximum: u16, level: u8, max_level: u8) -> i32 {
     if level == 0 { return 0; }
     if max_level <= 1 { return minimum as i32; }
@@ -21,8 +20,6 @@ pub fn calculate_talent_value(minimum: u16, maximum: u16, level: u8, max_level: 
     calculated_value.round() as i32
 }
 
-// --- DYNAMIC UI TEXT ENGINE ---
-// --- DYNAMIC UI TEXT ENGINE ---
 pub fn calculate_talent_display(
     talent_group: &TalentGroup,
     base_stats: &Battle,
@@ -57,12 +54,10 @@ pub fn calculate_talent_display(
 
     let maximum_attributes = (pure_definition.attributes)(&dummy_max_stats);
 
-    // 1. GENERIC VECTOR ENGINE
     if !maximum_attributes.is_empty() {
         return process_generic_attributes(pure_definition, &leveled_base_stats, &mutated_stats, &dummy_min_stats, &maximum_attributes);
     }
 
-    // 2. RESISTANCES
     if display_definition.name.starts_with("Resist ") {
         if value_one == 0 {
             let value_one_minimum = calculate_talent_value(talent_group.min_1, talent_group.max_1, 1, talent_group.max_level);
@@ -76,7 +71,6 @@ pub fn calculate_talent_display(
         return Some(format!("Resist: 0% (+{}%) -> {}%", value_one, value_one));
     }
 
-    // 3. BASE STATS
     let target_stat_definition = CAT_STATS_REGISTRY.iter().find(|stat_definition| stat_definition.linked_talent_id == Some(talent_group.ability_id));
 
     if let Some(stat_definition) = target_stat_definition {
@@ -101,7 +95,6 @@ pub fn calculate_talent_display(
     None
 }
 
-// --- FLAT VECTOR PROCESSOR ---
 
 fn process_generic_attributes(
     pure_definition: &nyanko::cat::abilities::Ability,
@@ -261,7 +254,6 @@ fn process_single_attribute(
     strings_changed.push(format!("{}: {} {} -> {}", attribute_key, format_value(old_value), difference_string, format_value(new_value)));
 }
 
-// --- STATE MUTATION ENGINE ---
 fn apply_target_traits(battle_stats: &mut Battle, target_name_id: i16, bitmask_type_id: u16) {
     let mut apply_trait_bit = |bit_index: u16| {
         match bit_index {
@@ -317,7 +309,6 @@ pub fn apply_talent_stats(base_stats: &Battle, talent_data: &Talent, talent_leve
     mutated_stats
 }
 
-// --- COST CALCULATIONS ---
 pub fn get_talent_np_cost(cost_id: u8, current_level: u8, costs_map: &HashMap<u8, TalentCost>) -> i32 {
     if current_level == 0 { return 0; }
 

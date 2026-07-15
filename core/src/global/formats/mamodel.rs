@@ -78,7 +78,6 @@ impl Model {
         let mut part_count = 0;
         let mut data_start_index = 0;
 
-        // Get Part Count
         for (index, line) in lines.iter().take(5).enumerate() {
             if line.contains(',') { break; }
             
@@ -98,7 +97,6 @@ impl Model {
         let mut alpha_unit = 1000.0;
         let mut metadata_start_index = usize::MAX;
 
-        // Read Custom Units
         for index in unit_line_index..lines.len() {
             let columns: Vec<&str> = lines[index].split(delimiter).collect();
             if columns.len() < 3 { continue; }
@@ -117,7 +115,6 @@ impl Model {
 
         let mut parts = Vec::new();
 
-        // Parse Parts
         for index in 0..part_count {
             let target_line_idx = data_start_index + index;
             if target_line_idx >= lines.len() { break; }
@@ -148,7 +145,6 @@ impl Model {
             });
         }
 
-        // Apply Metadata Global Offset
         let _ = (|| -> Option<()> {
             if parts.is_empty() { return None; }
             

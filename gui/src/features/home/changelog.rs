@@ -144,7 +144,6 @@ pub fn window(ctx: &egui::Context, drag_guard: &mut DragGuard) {
                                 
                                 ui.vertical(|ui| {
                                 ui.add_space(LABEL_OFFSET_Y);
-                                //    ui.label(egui::RichText::new("Battle Cats Complete").size(HEADER_TEXT_SIZE).strong());
                                 });
 
                                 let mut selected = locked.selected_version.clone();

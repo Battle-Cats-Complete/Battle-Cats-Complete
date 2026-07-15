@@ -38,7 +38,6 @@ pub fn process_frame(
         return;
     }
 
-    // Pass the dereferenced Option to the math calculator
     let frame_time = calculate_export_time(state, animation.as_deref(), current_time);
     let frame_delay_milliseconds = 1000.0 / state.fps as f32;
 
