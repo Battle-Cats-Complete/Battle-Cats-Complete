@@ -34,6 +34,7 @@ pub struct AnimViewer {
     pub loaded_anim_index: usize,
     pub last_anim_index: usize,
     pub loaded_id: String,
+    pub failed_load_id: String,
     pub summoner_id: String,
     last_loaded_id: String,
     pub pending_initial_center: bool,
@@ -71,6 +72,7 @@ impl Default for AnimViewer {
             loaded_anim_index: 0,
             last_anim_index: usize::MAX,
             loaded_id: String::new(),
+            failed_load_id: String::new(),
             summoner_id: String::new(),
             last_loaded_id: "FORCE_INIT".to_string(),
             pending_initial_center: false,
@@ -132,11 +134,11 @@ impl AnimViewer {
 
         if id_parts.len() >= 2
             && id_parts[0].chars().all(char::is_numeric) {
-                let form_number = match id_parts[1].chars().next() {
-                    Some('f') => 1, Some('c') => 2, Some('s') => 3, Some('u') => 4, _ => 0
-                };
-                if form_number > 0 { clean_id = format!("{}-{}", id_parts[0], form_number); }
-            }
+            let form_number = match id_parts[1].chars().next() {
+                Some('f') => 1, Some('c') => 2, Some('s') => 3, Some('u') => 4, _ => 0
+            };
+            if form_number > 0 { clean_id = format!("{}-{}", id_parts[0], form_number); }
+        }
 
         self.export_state.name_prefix = format!("{}.{}", clean_id, type_string);
     }
@@ -144,15 +146,15 @@ impl AnimViewer {
     pub fn load_anim(&mut self, path: &Path, settings: &Settings) {
         if let Ok(anim_bytes) = std::fs::read(path)
             && let Some(anim) = Animation::parse(&anim_bytes) {
-                self.current_frame = 0.0;
-                self.loop_range = (None, None);
-                self.range_str_cache = (String::new(), String::new());
-                self.single_frame_str = "0".to_string();
+            self.current_frame = 0.0;
+            self.loop_range = (None, None);
+            self.range_str_cache = (String::new(), String::new());
+            self.single_frame_str = "0".to_string();
 
-                self.current_anim = Some(Arc::new(anim));
-                self.update_export_state(settings);
-                return;
-            }
+            self.current_anim = Some(Arc::new(anim));
+            self.update_export_state(settings);
+            return;
+        }
 
         self.current_anim = None;
         self.current_frame = 0.0;
@@ -228,6 +230,7 @@ impl AnimViewer {
         let target_viewer_id = if self.loaded_anim_index == IDX_SPIRIT { secondary_id.to_string() } else { primary_id.to_string() };
 
         let is_stable = self.loaded_id == target_viewer_id;
+        let has_failed = self.failed_load_id == target_viewer_id;
         let is_first_launch = self.held_unit.is_none() && unit_sync.is_none();
 
         if valid_index == IDX_NONE && !is_stable {
@@ -236,37 +239,40 @@ impl AnimViewer {
 
         if is_stable
             && let Some(unit) = unit_sync {
-                self.held_unit = Some(unit.clone());
-            }
-        
-        if (!is_stable || is_first_launch) && valid_index != IDX_NONE {
+            self.held_unit = Some(unit.clone());
+        }
+
+        if (!is_stable || (is_first_launch && !has_failed)) && valid_index != IDX_NONE {
             let (resolved_png, resolved_cut, resolved_model, resolved_anim) = resolve_paths(valid_index, &primary_assets, &secondary_assets, available_anims);
 
             let mut load_success = false;
             if let (Some(png_path), Some(cut_path), Some(model_path)) = (resolved_png, resolved_cut, resolved_model)
                 && let (Ok(png_bytes), Ok(cut_bytes), Ok(model_bytes)) = (
-                    std::fs::read(png_path), std::fs::read(cut_path), std::fs::read(model_path)
-                )
-                    && let Some(parsed_unit) = Unit::parse(&png_bytes, &cut_bytes, &model_bytes) {
-                        let arc_unit = Arc::new(parsed_unit);
-                        self.held_unit = Some(arc_unit.clone());
-                        *unit_sync = Some(arc_unit);
+                std::fs::read(png_path), std::fs::read(cut_path), std::fs::read(model_path)
+            )
+                && let Some(parsed_unit) = Unit::parse(&png_bytes, &cut_bytes, &model_bytes) {
+                let arc_unit = Arc::new(parsed_unit);
+                self.held_unit = Some(arc_unit.clone());
+                *unit_sync = Some(arc_unit);
 
-                        self.loaded_id = target_viewer_id.clone();
-                        self.pending_initial_center = true;
-                        load_success = true;
-                    }
+                self.loaded_id = target_viewer_id.clone();
+                self.failed_load_id.clear();
+                self.pending_initial_center = true;
+                load_success = true;
+            }
 
             if !load_success {
                 self.loaded_id = target_viewer_id.clone();
+                self.failed_load_id = target_viewer_id.clone(); // Lock this unit out so it stops trying to load every frame
                 self.held_unit = None;
+                *unit_sync = None;
             } else if let Some(animation_path) = resolved_anim {
                 self.load_anim(animation_path, settings);
             } else {
                 self.current_anim = None;
                 self.update_export_state(settings);
             }
-        } else if anim_index_changed && is_stable && valid_index != IDX_NONE {
+        } else if anim_index_changed && is_stable && valid_index != IDX_NONE && !has_failed {
             let (_, _, _, resolved_anim) = resolve_paths(valid_index, &primary_assets, &secondary_assets, available_anims);
             if let Some(animation_path) = resolved_anim {
                 self.load_anim(animation_path, settings);
@@ -275,7 +281,7 @@ impl AnimViewer {
                 self.update_export_state(settings);
             }
         }
-        
+
         if self.is_expanded {
             egui::Area::new("expanded_anim_viewer_area".into())
                 .fixed_pos(egui::pos2(0.0, 0.0))
@@ -384,12 +390,12 @@ impl AnimViewer {
 
         if self.export_state.export_mode == ExportMode::Loop
             && !self.export_state.loop_supported {
-                self.export_state.export_mode = ExportMode::Manual;
-                self.export_state.frame_start = 0;
-                self.export_state.frame_end = 0;
-                self.export_state.frame_start_str.clear();
-                self.export_state.frame_end_str.clear();
-            }
+            self.export_state.export_mode = ExportMode::Manual;
+            self.export_state.frame_start = 0;
+            self.export_state.frame_end = 0;
+            self.export_state.frame_start_str.clear();
+            self.export_state.frame_end_str.clear();
+        }
 
         let mut new_center: Option<(egui::Vec2, f32)> = None;
         let mut should_clear_pending = false;
@@ -491,8 +497,8 @@ impl AnimViewer {
                 if right_mouse_down {
                     if self.export_selection_start.is_none()
                         && rect_alloc.contains(pointer_pos) && ui.input(|input_state| input_state.pointer.button_pressed(egui::PointerButton::Secondary)) {
-                            self.export_selection_start = Some(pointer_pos);
-                        }
+                        self.export_selection_start = Some(pointer_pos);
+                    }
                     if let Some(selection_start) = self.export_selection_start {
                         let selection_rect = egui::Rect::from_two_pos(selection_start, pointer_pos);
                         ui.painter().with_clip_rect(rect_alloc).rect_stroke(selection_rect, 0.0, egui::Stroke::new(2.0, egui::Color32::YELLOW));
@@ -537,33 +543,33 @@ impl AnimViewer {
 
             if settings.animation.auto_set_camera_region && !self.is_selecting_export_region
                 && let Some(unit_data) = &self.held_unit {
-                    let tolerance_level = if settings.animation.use_tight_bounds { 1.0 } else { 0.0 };
-                    let mut showcase_anims = Vec::new();
-                    let mut anim_refs = Vec::new();
+                let tolerance_level = if settings.animation.use_tight_bounds { 1.0 } else { 0.0 };
+                let mut showcase_anims = Vec::new();
+                let mut anim_refs = Vec::new();
 
-                    if self.export_state.export_mode == ExportMode::Showcase {
-                        for target_idx in [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB] {
-                            if let Some((_, path)) = available_anims.iter().find(|(idx, _)| *idx == target_idx)
-                                && let Ok(bytes) = std::fs::read(path)
-                                    && let Some(anim) = Animation::parse(&bytes) {
-                                        showcase_anims.push(anim);
-                                    }
-                        }
-                        for anim in &showcase_anims { anim_refs.push(anim); }
-                    } else {
-                        if let Some(anim) = &self.current_anim {
-                            anim_refs.push(anim.as_ref());
+                if self.export_state.export_mode == ExportMode::Showcase {
+                    for target_idx in [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB] {
+                        if let Some((_, path)) = available_anims.iter().find(|(idx, _)| *idx == target_idx)
+                            && let Ok(bytes) = std::fs::read(path)
+                            && let Some(anim) = Animation::parse(&bytes) {
+                            showcase_anims.push(anim);
                         }
                     }
-
-                    if let Some((x, y, w, h)) = unit_data.calculate_bounds(&anim_refs, tolerance_level) {
-                        self.export_state.region_x = x;
-                        self.export_state.region_y = y;
-                        self.export_state.region_w = w;
-                        self.export_state.region_h = h;
-                        self.export_state.zoom = 1.0;
+                    for anim in &showcase_anims { anim_refs.push(anim); }
+                } else {
+                    if let Some(anim) = &self.current_anim {
+                        anim_refs.push(anim.as_ref());
                     }
                 }
+
+                if let Some((x, y, w, h)) = unit_data.calculate_bounds(&anim_refs, tolerance_level) {
+                    self.export_state.region_x = x;
+                    self.export_state.region_y = y;
+                    self.export_state.region_w = w;
+                    self.export_state.region_h = h;
+                    self.export_state.zoom = 1.0;
+                }
+            }
         }
         self.was_export_popup_open = settings.animation.export_popup_open;
 
@@ -665,9 +671,9 @@ impl AnimViewer {
 
             if self.loaded_anim_index != target_index
                 && let Some((_, path)) = available_anims.iter().find(|(index, _)| *index == target_index) {
-                    self.load_anim(path, settings);
-                    self.loaded_anim_index = target_index;
-                }
+                self.load_anim(path, settings);
+                self.loaded_anim_index = target_index;
+            }
         }
 
         if let Some(unit_data) = &self.held_unit {
@@ -700,12 +706,12 @@ impl AnimViewer {
 
             if settings.animation.export_popup_open
                 && self.export_state.region_w > 0.1 && self.export_state.region_h > 0.1 {
-                    let screen_center = rect_alloc.center();
-                    let to_screen = |world_x: f32, world_y: f32| -> egui::Pos2 { let world_pos = egui::vec2(world_x, world_y); screen_center + (world_pos + self.pan_offset) * self.zoom_level };
-                    let min = to_screen(self.export_state.region_x, self.export_state.region_y);
-                    let max = to_screen(self.export_state.region_x + self.export_state.region_w, self.export_state.region_y + self.export_state.region_h);
-                    ui.painter().with_clip_rect(rect_alloc).rect_stroke(egui::Rect::from_min_max(min, max), 0.0, egui::Stroke::new(1.0, egui::Color32::YELLOW));
-                }
+                let screen_center = rect_alloc.center();
+                let to_screen = |world_x: f32, world_y: f32| -> egui::Pos2 { let world_pos = egui::vec2(world_x, world_y); screen_center + (world_pos + self.pan_offset) * self.zoom_level };
+                let min = to_screen(self.export_state.region_x, self.export_state.region_y);
+                let max = to_screen(self.export_state.region_x + self.export_state.region_w, self.export_state.region_y + self.export_state.region_h);
+                ui.painter().with_clip_rect(rect_alloc).rect_stroke(egui::Rect::from_min_max(min, max), 0.0, egui::Stroke::new(1.0, egui::Color32::YELLOW));
+            }
         } else { ui.painter().rect_filled(rect_alloc, 0.0, egui::Color32::from_rgb(20, 20, 20)); }
 
         let border_rect = rect_alloc.shrink(2.0);
