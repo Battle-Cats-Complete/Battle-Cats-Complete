@@ -135,6 +135,10 @@ impl BattleCatsApp {
             }
         }
 
+        let game_dir = Path::new("game");
+        let is_empty = !game_dir.exists() || std::fs::read_dir(game_dir).map(|mut iterator| iterator.next().is_none()).unwrap_or(true);
+        ctx.data_mut(|data_map| data_map.insert_temp(egui::Id::new("is_game_empty"), is_empty));
+
         if mod_changed || global_cat || global_enemy {
             tracing::info!("Global files or active mod changed. Triggering full reload.");
             resolver::clear_override_cache();
@@ -201,10 +205,6 @@ impl BattleCatsApp {
                 core::global::io::cache::save("enemies_cache.bin", hash, &enemies);
             });
         }
-
-        let game_dir = Path::new("game");
-        let is_empty = !game_dir.exists() || std::fs::read_dir(game_dir).map(|mut iterator| iterator.next().is_none()).unwrap_or(true);
-        ctx.data_mut(|data_map| data_map.insert_temp(egui::Id::new("is_game_empty"), is_empty));
 
         ctx.request_repaint();
     }

@@ -176,7 +176,11 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GameDataSettings, runtim
 
             scroll_ui.add_space(5.0);
 
-            if raw_deleter.is_deleting() {
+            if game_deleter.is_deleting() {
+                let button_widget = egui::Button::new("No \"raw\" Folder")
+                    .fill(egui::Color32::from_rgb(60, 60, 60));
+                scroll_ui.add_sized([180.0, 30.0], button_widget);
+            } else if raw_deleter.is_deleting() {
                 let button_widget = egui::Button::new("Deleting \"raw\" Folder...")
                     .fill(egui::Color32::from_rgb(200, 180, 50));
                 scroll_ui.add_sized([180.0, 30.0], button_widget);
@@ -322,6 +326,10 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GameDataSettings, runtim
         });
 
     if show_folder_delete_modal(&context, drag_guard, "delete_game_modal", "Are you sure you want to delete the \"game\" folder?\nMost app function will be lost.") {
+        if raw_deleter.is_active() {
+            tracing::info!("Pre-empting raw folder deletion UI state in favor of full game deletion");
+            raw_deleter = FolderDeleter::default();
+        }
         game_deleter.start("game");
     }
 
@@ -331,8 +339,8 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GameDataSettings, runtim
 
     if show_folder_delete_modal(&context, drag_guard, "delete_cache_modal", "Are you sure you want to clear the Cache?\nIt will automatically rebuild the next time the app loads.")
         && let Some(cache_directory) = core::global::io::cache::get_cache_dir() {
-            cache_deleter.start(cache_directory);
-        }
+        cache_deleter.start(cache_directory);
+    }
 
     crate::features::settings::exceptions::show(&context, drag_guard);
     crate::features::settings::keys::show(&context, drag_guard);
