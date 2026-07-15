@@ -1050,7 +1050,7 @@ checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 
 [[package]]
 name = "core"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2168,7 +2168,7 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "ab_glyph",
  "arboard",
