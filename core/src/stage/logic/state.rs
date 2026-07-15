@@ -8,7 +8,7 @@ use nyanko::chapter::map::LockSkipDataEntry;
 use nyanko::chapter::stage::ScatCpuSetting;
 use serde::{Deserialize, Serialize};
 
-use crate::cat::waiter::unitbuy;
+use crate::cat::waiter::{unitbuy, unitexplanation};
 use crate::enemy::logic::scanner::EnemyEntry;
 use crate::enemy::waiter::enemyname;
 use crate::global::formats::gatyaitembuy::{self, GatyaItemBuy};
@@ -36,6 +36,7 @@ pub struct StageDataState {
     #[serde(skip)] pub item_name_registry: HashMap<usize, GatyaItemName>,
     #[serde(skip)] pub drop_chara_registry: HashMap<u32, u32>,
     #[serde(skip)] pub unit_buy_registry: HashMap<u32, UnitBuy>,
+    #[serde(skip)] pub cat_name_registry: HashMap<u32, Vec<String>>,
     #[serde(skip)] pub lock_skip_registry: HashMap<u32, LockSkipDataEntry>,
     #[serde(skip)] pub scat_cpu_setting: ScatCpuSetting,
     #[serde(skip)] pub active_language_priority: Vec<String>,
@@ -65,6 +66,19 @@ impl StageDataState {
 
         let cats_dir = Path::new(paths::DIR_CATS);
         self.unit_buy_registry = unitbuy(cats_dir, langs);
+
+        let mut cat_names = HashMap::new();
+        for &unit_id in self.unit_buy_registry.keys() {
+            let cat_folder = paths::cat_folder(unit_id);
+            let expl = unitexplanation(unit_id, &cat_folder, langs);
+            let names: Vec<String> = expl.names
+                .into_iter()
+                .flatten()
+                .map(|n| n.to_lowercase())
+                .collect();
+            cat_names.insert(unit_id, names);
+        }
+        self.cat_name_registry = cat_names;
     }
 
     #[tracing::instrument(level = "debug", skip(self, config))]

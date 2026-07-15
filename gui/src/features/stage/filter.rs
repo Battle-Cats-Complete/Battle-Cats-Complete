@@ -542,31 +542,18 @@ fn draw_stat_range(ui: &mut egui::Ui, label: &str, range: &mut StatRange) {
 }
 
 fn tristate_btn(ui: &mut egui::Ui, val: &mut Option<bool>) {
-    let (label, bg_color) = match val {
-        None => ("Any", ui.visuals().widgets.inactive.bg_fill),
-        Some(true) => ("Yes", egui::Color32::from_rgb(31, 106, 165)),
-        Some(false) => ("No", egui::Color32::from_rgb(210, 50, 50)),
-    };
+    let label = val.map(|v| if v { "Yes" } else { "No" }).unwrap_or("Any");
+    let bg_color = val.map(|v| if v { egui::Color32::from_rgb(31, 106, 165) } else { egui::Color32::from_rgb(210, 50, 50) }).unwrap_or_else(|| ui.visuals().widgets.inactive.bg_fill);
 
     let btn = egui::Button::new(label).fill(bg_color).min_size(egui::vec2(50.0, 20.0));
 
     if ui.add(btn).clicked() {
-        *val = match val {
-            None => Some(true),
-            Some(true) => Some(false),
-            Some(false) => None,
-        };
+        *val = val.map(|v| if v { Some(false) } else { None }).unwrap_or(Some(true));
     }
 }
 
 fn boss_type_combo(ui: &mut egui::Ui, id_source: impl std::hash::Hash, val: &mut Option<u32>) {
-    let label = match val {
-        None => "Any",
-        Some(0) => "None",
-        Some(1) => "Boss",
-        Some(2) => "Screen Shake",
-        _ => "Unknown",
-    };
+    let label = val.map(|v| ["None", "Boss", "Screen Shake"].get(v as usize).copied().unwrap_or("Unknown")).unwrap_or("Any");
 
     egui::ComboBox::from_id_salt(id_source).selected_text(label).show_ui(ui, |ui| {
         ui.selectable_value(val, None, "Any");

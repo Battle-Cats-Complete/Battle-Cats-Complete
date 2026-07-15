@@ -1,3 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use eframe::egui;
 use nyanko::chapter::{Category, Map};
 
@@ -23,7 +26,17 @@ pub fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
         return;
     }
 
-    let compiled_filter = state.filter_state.compile();
+    let mut hasher = DefaultHasher::new();
+    state.filter_state.hash(&mut hasher);
+    let current_hash = hasher.finish();
+
+    if state.compiled_filter.as_ref().map_or(true, |cf| cf.source_hash != current_hash) {
+        let mut new_compiled = state.filter_state.compile();
+        new_compiled.source_hash = current_hash;
+        state.compiled_filter = Some(new_compiled);
+    }
+
+    let Some(compiled_filter) = state.compiled_filter.take() else { return; };
 
     ui.vertical(|ui| {
         ui.add_space(FILTER_BTN_PAD);
@@ -65,6 +78,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
             }
         });
     });
+
+    state.compiled_filter = Some(compiled_filter);
 }
 
 fn has_matching_stage_in_map(state: &StageListState, compiled_filter: &CompiledStageFilter, cat: &Category, map_key: &GlobalMapId, map: &Map) -> bool {
@@ -85,7 +100,7 @@ fn has_matching_stage_in_map(state: &StageListState, compiled_filter: &CompiledS
             &state.data.item_name_registry,
             &state.data.drop_chara_registry,
             &state.data.unit_buy_registry,
-            &state.data.active_language_priority,
+            &state.data.cat_name_registry,
         ) {
             return true;
         }
@@ -224,7 +239,7 @@ fn draw_stages(ui: &mut egui::Ui, state: &mut StageListState, compiled_filter: &
                         &state.data.item_name_registry,
                         &state.data.drop_chara_registry,
                         &state.data.unit_buy_registry,
-                        &state.data.active_language_priority,
+                        &state.data.cat_name_registry,
                     ) {
                         continue;
                     }
