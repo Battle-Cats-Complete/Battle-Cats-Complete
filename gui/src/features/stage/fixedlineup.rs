@@ -174,10 +174,6 @@ fn draw_upgrades_section(ui: &mut egui::Ui, preset_data: &CertificationPreset) {
         let available_width = ui.available_width();
         let estimated_grid_width = 140.0;
 
-        if available_width > estimated_grid_width {
-            ui.add_space((available_width - estimated_grid_width) / 2.0);
-        }
-
         egui::Grid::new("fixed_lineup_cannon_grid")
             .striped(true)
             .spacing([24.0, 6.0])
@@ -208,6 +204,10 @@ fn draw_upgrades_section(ui: &mut egui::Ui, preset_data: &CertificationPreset) {
                 });
                 ui.end_row();
             });
+
+        if available_width > estimated_grid_width {
+            ui.add_space((available_width - estimated_grid_width) / 2.0);
+        }
     });
 
     ui.add_space(16.0);

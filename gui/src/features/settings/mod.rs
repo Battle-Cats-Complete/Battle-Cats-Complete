@@ -10,5 +10,6 @@ pub mod keys;
 mod about;
 pub mod mods;
 pub mod pem;
+pub mod stages;
 
 pub use tabs::{show, toggle_ui};

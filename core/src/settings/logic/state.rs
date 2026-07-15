@@ -4,6 +4,19 @@ use super::lang;
 use super::upd::UpdateMode;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default, Debug)]
+pub enum SidebarBehavior {
+    #[default]
+    Cover,
+    Push,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct StageDataSettings {
+    pub sidebar_behavior: SidebarBehavior,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Default, Debug)]
 pub enum ExportBehavior {
     #[default]
     Automatic,
@@ -20,6 +33,7 @@ pub struct Settings {
     pub game_data: GameDataSettings,
     pub animation: AnimSettings,
     pub mods: ModsSettings,
+    pub stages: StageDataSettings,
 
     #[serde(skip)]
     pub runtime: RuntimeState,

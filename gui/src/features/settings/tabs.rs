@@ -7,7 +7,7 @@ use crate::global::shared::DragGuard;
 pub fn show(context: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) -> bool {
     let mut refresh_needed = false;
     let mut save_needed = false;
-    let tabs = ["General", "Cats", "Enemies", "Mods", "Data", "Animation", "Add-Ons", "About"];
+    let tabs = ["General", "Cats", "Enemies", "Stages", "Mods", "Data", "Animation", "Add-Ons", "About"];
 
     egui::CentralPanel::default().show(context, |ui_container| {
         ui_container.horizontal(|ui_row| {
@@ -49,6 +49,7 @@ pub fn show(context: &egui::Context, settings: &mut Settings, drag_guard: &mut D
                     "General" => super::general::show(tab_ui, &mut settings.general, &mut settings.runtime),
                     "Cats" => super::cats::show(tab_ui, &mut settings.cat_data),
                     "Enemies" => super::enemies::show(tab_ui, &mut settings.enemy_data),
+                    "Stages" => super::stages::show(tab_ui, &mut settings.stages),
                     "Mods" => super::mods::show(tab_ui, &mut settings.mods, drag_guard),
                     "Data" => super::data::show(tab_ui, &mut settings.game_data, &mut settings.runtime, drag_guard),
                     "Animation" => super::animation::show(tab_ui, &mut settings.animation),

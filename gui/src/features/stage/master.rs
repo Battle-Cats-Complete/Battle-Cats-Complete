@@ -1,15 +1,18 @@
 use eframe::egui;
+use tracing::trace;
 
 use core::global::context::GlobalContext;
 use core::settings::logic::Settings;
+use core::settings::logic::state::SidebarBehavior;
 
 use super::{list, state::StageListState, view};
 
 const ANIM_SPEED: f32 = 0.15;
 const TOGGLE_BTN_GAP: f32 = 5.0;
 const LIST_BG_COLOR: egui::Color32 = egui::Color32::from_rgb(20, 20, 20);
+pub const SIDEBAR_PUSH_GAP: f32 = 10.0;
 
-pub fn show(ctx: &egui::Context, state: &mut StageListState, _settings: &mut Settings, global_ctx: GlobalContext) {
+pub fn show(ctx: &egui::Context, state: &mut StageListState, settings: &mut Settings, global_ctx: GlobalContext) {
     let screen_rect = ctx.screen_rect();
 
     let mut inner_w = 180.0;
@@ -29,6 +32,11 @@ pub fn show(ctx: &egui::Context, state: &mut StageListState, _settings: &mut Set
         ctx.request_repaint();
     }
 
+    let hidden_x = -total_w - 30.0;
+    let sidebar_x = egui::lerp(hidden_x..=0.0, open_factor);
+    let sidebar_edge = sidebar_x + total_w;
+    let btn_x = (sidebar_edge + TOGGLE_BTN_GAP).max(TOGGLE_BTN_GAP);
+
     egui::CentralPanel::default().show(ctx, |ui| {
         if state.data.scan_receiver.is_some() {
             ui.centered_and_justified(|ui| {
@@ -37,13 +45,28 @@ pub fn show(ctx: &egui::Context, state: &mut StageListState, _settings: &mut Set
             });
             return;
         }
-        view::draw(ctx, ui, state, global_ctx);
-    });
 
-    let hidden_x = -total_w - 30.0;
-    let sidebar_x = egui::lerp(hidden_x..=0.0, open_factor);
-    let sidebar_edge = sidebar_x + total_w;
-    let btn_x = (sidebar_edge + TOGGLE_BTN_GAP).max(TOGGLE_BTN_GAP);
+        let push_offset = if settings.stages.sidebar_behavior == SidebarBehavior::Push {
+            let edge = sidebar_edge.max(0.0);
+            if edge > 0.0 {
+                edge + SIDEBAR_PUSH_GAP
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        if push_offset > 0.0 {
+            trace!(push_offset, "Applying stage view push offset");
+        }
+
+        egui::Frame::none()
+            .inner_margin(egui::Margin { left: push_offset, right: 0.0, top: 0.0, bottom: 0.0 })
+            .show(ui, |ui| {
+                view::draw(ctx, ui, state, global_ctx);
+            });
+    });
 
     egui::Area::new("stage_sidebar_area".into())
         .constrain(false)
@@ -99,6 +122,6 @@ pub fn show(ctx: &egui::Context, state: &mut StageListState, _settings: &mut Set
                 state.is_list_open = !state.is_list_open;
             }
         });
-    
+
     crate::features::stage::filter::show_popup(ctx, &mut state.filter_state, &mut state.drag_guard);
 }
