@@ -31,8 +31,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings)
         ui.horizontal(|ui| {
             let active_color = egui::Color32::from_rgb(31, 106, 165);
             let inactive_color = egui::Color32::from_gray(60);
-
-            // COLUMN 1: ANDROID
+            
             ui.vertical(|ui| {
                 ui.set_min_width(col_width);
                 ui.set_max_width(col_width);
@@ -103,8 +102,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings)
             ui.add_space(spacing / 2.0);
             ui.add(egui::Separator::default().vertical().spacing(0.0));
             ui.add_space(spacing / 2.0);
-
-            // COLUMN 2: PACK
+            
             ui.vertical(|ui| {
                 ui.set_min_width(col_width);
                 ui.set_max_width(col_width);
@@ -130,8 +128,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings)
                 ui.horizontal(|ui| {
                     ui.add_space(10.0);
                     ui.label("Region:");
-
-                    // FIX: Automatically extracts the correct display string from the table!
+                    
                     let region_text = state.config.adb_target.as_name();
 
                     egui::ComboBox::from_id_salt("dec_region")
@@ -161,8 +158,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings)
             ui.add_space(spacing / 2.0);
             ui.add(egui::Separator::default().vertical().spacing(0.0));
             ui.add_space(spacing / 2.0);
-
-            // COLUMN 3: RAW
+            
             ui.vertical(|ui| {
                 ui.set_min_width(col_width);
                 ui.set_max_width(col_width);

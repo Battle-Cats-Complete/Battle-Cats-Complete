@@ -92,7 +92,7 @@ impl Default for DataConfigState {
             active_tab: DataTab::Import,
             selected_job: None,
             import_path: String::new(),
-            import_mode: ImportMode::Zip,
+            import_mode: ImportMode::Folder,
             adb_import_type: AdbImportType::All,
             adb_target: AdbTarget::Specific(Region::En),
             decrypt_path: String::new(),

@@ -4,10 +4,16 @@ use serde::{Deserialize, Serialize};
 use crate::global::shared::DragGuard;
 use crate::global::utils::process_markdown;
 
-// Note: No notice will appear if NOTICE_CONTENT is empty
-pub const NOTICE_TITLE: &str = "NOTICE";
+// NOTE: No notice will appear if NOTICE_CONTENT is empty
+pub const NOTICE_TITLE: &str = "VERSION 1.0.0 UPDATE";
 pub const NOTICE_CONTENT: &str = r#"
+Battle Cats Complete has officially hit version 1.0.0! Featuring Cat stats, Enemy stats, Animations, Stages, and Mods!
 
+You will have to re-sort your database to allow stages to be parsed correctly. If you have a pre-existing database go to "Data" page, select "Raw" import type, change the drop down from "Archive" to "Folder" (if it isnt already), and select your "game" folder for import.
+
+Updates will not cease entirely, the project will only slow down. Extra utilities will occasionally be added, as well as minor features. And of course, bugs will always be fixed. The backend may also be reworked a few times, which will allow to app to grow faster!
+
+That doesnt mean Battle Cats Complete is "done" however. There are plans for more daunting daunting features in the future. But for now, the developer is going to take a break and go in "Maintenence Mode" for a while.
 "#;
 
 #[derive(Serialize, Deserialize, Default)]

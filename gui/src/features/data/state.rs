@@ -16,14 +16,11 @@ pub struct ImportState {
 
 impl ImportState {
     pub fn update(&mut self, egui_context: &egui::Context) -> bool {
-        // Update the UI strings based on the current core paths
         self.import_censored = censor_path(&self.config.import_path);
         self.decrypt_censored = censor_path(&self.config.decrypt_path);
 
-        // Tick the background threads and capture the state changes
         let flags = self.config.tick_threads();
 
-        // Trigger UI repaints ONLY if the core data tells us to
         if flags.needs_repaint {
             egui_context.request_repaint();
         }
