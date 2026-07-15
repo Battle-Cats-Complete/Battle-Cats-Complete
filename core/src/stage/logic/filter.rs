@@ -25,7 +25,7 @@ impl StatRange {
         let min_val = if self.min.trim().is_empty() {
             i64::MIN
         } else {
-            self.min.trim().parse::<i64>().map(|v| v + offset).unwrap_or_else(|_| {
+            self.min.trim().parse::<i64>().map(|val| val + offset).unwrap_or_else(|_| {
                 trace!("Failed to parse min filter value: {}", self.min);
                 i64::MIN
             })
@@ -34,7 +34,7 @@ impl StatRange {
         let max_val = if self.max.trim().is_empty() {
             i64::MAX
         } else {
-            self.max.trim().parse::<i64>().map(|v| v + offset).unwrap_or_else(|_| {
+            self.max.trim().parse::<i64>().map(|val| val + offset).unwrap_or_else(|_| {
                 trace!("Failed to parse max filter value: {}", self.max);
                 i64::MAX
             })
@@ -148,17 +148,17 @@ pub struct CompiledEnemyFilter {
 
 impl CompiledEnemyFilter {
     pub fn matches(&self, enemy: &BattlegroundEntry, enemy_name_registry: &[String]) -> bool {
-        let internal_amount = if let EnemyAmount::Limit(v) = enemy.amount { v as i64 } else { 0 };
+        let internal_amount = if let EnemyAmount::Limit(val) = enemy.amount { val as i64 } else { 0 };
 
         let internal_boss_type = match enemy.boss_type {
             BossType::None => 0,
             BossType::Boss => 1,
             BossType::ScreenShake => 2,
-            BossType::Unknown(v) => v,
+            BossType::Unknown(val) => val,
         };
 
-        if let Some(bt) = self.boss_type { if internal_boss_type != bt { return false; } }
-        if let Some(ib) = self.is_base { if enemy.is_base != ib { return false; } }
+        if let Some(boss_type) = self.boss_type { if internal_boss_type != boss_type { return false; } }
+        if let Some(is_base) = self.is_base { if enemy.is_base != is_base { return false; } }
         if !self.amount.matches(internal_amount) { return false; }
         if !self.start_frame.matches(enemy.start_frame as i64) { return false; }
         if !self.respawn_min.matches(enemy.respawn_min as i64) { return false; }
@@ -177,9 +177,9 @@ impl CompiledEnemyFilter {
 
         enemy_name_registry
             .get(enemy.enemy_id as usize)
-            .filter(|n| !n.is_empty())
+            .filter(|name| !name.is_empty())
             .map_or_else(
-                || format!("{:03}-E", enemy.enemy_id).to_lowercase().contains(&self.name_or_id),
+                || format!("{:03}-e", enemy.enemy_id).contains(&self.name_or_id),
                 |name| name.to_lowercase().contains(&self.name_or_id)
             )
     }
@@ -243,17 +243,17 @@ impl CompiledTreasureFilter {
 
         if let Some(item_buy) = buy_reg.get(&target_id) {
             return name_reg.get(&(item_buy.row_index as usize))
-                .map_or(false, |n| n.name.to_lowercase().contains(&self.name_or_id));
+                .map_or(false, |name| name.name.to_lowercase().contains(&self.name_or_id));
         }
 
         if let Some(&chara_id) = drop_chara_reg.get(&target_id) {
             return cat_name_reg.get(&chara_id)
-                .map_or(false, |names| names.iter().any(|n| n.contains(&self.name_or_id)));
+                .map_or(false, |names| names.iter().any(|name| name.contains(&self.name_or_id)));
         }
 
         if let Some((&unit_id, _)) = unit_buy_reg.iter().find(|(_, row)| row.true_form_id == target_id as i32) {
             return cat_name_reg.get(&unit_id)
-                .map_or(false, |names| names.iter().any(|n| n.contains(&self.name_or_id)));
+                .map_or(false, |names| names.iter().any(|name| name.contains(&self.name_or_id)));
         }
 
         false
@@ -295,15 +295,15 @@ pub struct CompiledMaterialFilter {
 impl CompiledMaterialFilter {
     pub fn matches_material(
         &self,
-        idx: usize,
-        drop_amt: u32,
+        index: usize,
+        drop_amount: u32,
         buy_reg: &HashMap<u32, GatyaItemBuy>,
         name_reg: &HashMap<usize, GatyaItemName>,
     ) -> bool {
-        if !self.amount.matches(drop_amt as i64) { return false; }
+        if !self.amount.matches(drop_amount as i64) { return false; }
         if self.name_or_id.is_empty() { return true; }
 
-        let Some(&item_id) = crate::stage::logic::materials::MAT_IDS.get(idx) else { return false; };
+        let Some(&item_id) = crate::stage::logic::materials::MAT_IDS.get(index) else { return false; };
         if self.parsed_id == Some(item_id) { return true; }
 
         let Some(item_buy) = buy_reg.get(&item_id) else { return false; };
@@ -352,15 +352,27 @@ impl CompiledLineupFilter {
         cat_name_reg: &HashMap<u32, Vec<String>>
     ) -> bool {
         for preset in stage.fixed_lineups.values() {
-            for (&unit_id, chara) in &preset.characters {
+            for &unit_id in &preset.slot_units {
+                let Some(chara) = preset.characters.get(&unit_id) else {
+                    continue;
+                };
+
                 let total_level = chara.level as i64 + chara.plus_level as i64;
-                if !self.level.matches(total_level) { continue; }
+                if !self.level.matches(total_level) {
+                    continue;
+                }
 
-                if self.name_or_id.is_empty() { return !self.is_exclude; }
-                if self.parsed_id == Some(unit_id) { return !self.is_exclude; }
+                if self.name_or_id.is_empty() {
+                    return !self.is_exclude;
+                }
 
-                let name_match = cat_name_reg.get(&unit_id)
-                    .map_or(false, |names| names.iter().any(|n| n.contains(&self.name_or_id)));
+                if self.parsed_id == Some(unit_id) {
+                    return !self.is_exclude;
+                }
+
+                let name_match = cat_name_reg.get(&unit_id).map_or(false, |names| {
+                    names.iter().any(|name| name.contains(&self.name_or_id))
+                });
 
                 if name_match {
                     return !self.is_exclude;
@@ -543,10 +555,10 @@ impl StageFilterState {
             || self.init_track.is_active()
             || self.boss_track.is_active()
             || self.bgm_change_percent.is_active()
-            || !self.enemies.is_empty()
-            || !self.treasures.is_empty()
-            || !self.materials.is_empty()
-            || !self.lineup_cats.is_empty()
+            || self.enemies.iter().any(|enemy| enemy.is_active())
+            || self.treasures.iter().any(|treasure| treasure.is_active())
+            || self.materials.iter().any(|material| material.is_active())
+            || self.lineup_cats.iter().any(|lineup| lineup.is_active())
     }
 
     pub fn compile(&self) -> CompiledStageFilter {
@@ -604,10 +616,10 @@ impl StageFilterState {
             boss_track: self.boss_track.compile(0),
             bgm_change_percent: self.bgm_change_percent.compile(0),
 
-            enemies: self.enemies.iter().map(|e| e.compile()).collect(),
-            treasures: self.treasures.iter().map(|t| t.compile()).collect(),
-            materials: self.materials.iter().map(|m| m.compile()).collect(),
-            lineup_cats: self.lineup_cats.iter().map(|c| c.compile()).collect(),
+            enemies: self.enemies.iter().filter(|enemy| enemy.is_active()).map(|enemy| enemy.compile()).collect(),
+            treasures: self.treasures.iter().filter(|treasure| treasure.is_active()).map(|treasure| treasure.compile()).collect(),
+            materials: self.materials.iter().filter(|material| material.is_active()).map(|material| material.compile()).collect(),
+            lineup_cats: self.lineup_cats.iter().filter(|lineup| lineup.is_active()).map(|lineup| lineup.compile()).collect(),
         }
     }
 }
@@ -683,24 +695,24 @@ impl CompiledStageFilter {
     ) -> bool {
         if !self.is_active() { return true; }
 
-        if let Some(c) = self.continues { if stage.is_no_continues == c { return false; } }
-        if let Some(bg) = self.boss_guard { if stage.is_base_indestructible != bg { return false; } }
+        if let Some(has_continues) = self.continues { if stage.is_no_continues == has_continues { return false; } }
+        if let Some(has_boss_guard) = self.boss_guard { if stage.is_base_indestructible != has_boss_guard { return false; } }
 
-        if let Some(usc) = self.use_super_cpu {
+        if let Some(use_super_cpu) = self.use_super_cpu {
             let mut cpu_allowed = cpu_setting.super_cpu_consume_amount > 0;
             if let Some(global_id) = stage.category.global_map_id(stage.map_id) {
                 if let Some(entry) = lock_registry.get(&global_id) {
                     if entry.excluded_map_id == global_id { cpu_allowed = false; }
                 }
             }
-            if cpu_allowed != usc { return false; }
+            if cpu_allowed != use_super_cpu { return false; }
         }
 
         macro_rules! check_rule {
             ($opt:expr, $variant:pat) => {
                 if let Some(expected) = $opt {
                     let has_rule = map.special_rules.as_ref()
-                        .map_or(false, |sr| sr.rules.iter().any(|r| matches!(r, $variant)));
+                        .map_or(false, |special_rules| special_rules.rules.iter().any(|rule| matches!(rule, $variant)));
                     if has_rule != expected { return false; }
                 }
             };
@@ -717,16 +729,16 @@ impl CompiledStageFilter {
         check_rule!(self.rule_mega_cat_cannon, RuleType::MegaCatCannon(_));
         check_rule!(self.rule_uniform_motion, RuleType::UniformMotion(_));
 
-        if let Some(ic) = self.invalid_combos {
+        if let Some(has_invalid_combos) = self.invalid_combos {
             let has_ic = !map.invalid_combos.is_empty();
-            if has_ic != ic { return false; }
+            if has_ic != has_invalid_combos { return false; }
         }
 
         macro_rules! check_bonus {
             ($opt:expr, $variant:pat) => {
                 if let Some(expected) = $opt {
                     let has_bonus = map.score_bonuses.as_ref()
-                        .map_or(false, |sb| sb.bonuses.iter().any(|b| matches!(b, $variant)));
+                        .map_or(false, |score_bonuses| score_bonuses.bonuses.iter().any(|bonus| matches!(bonus, $variant)));
                     if has_bonus != expected { return false; }
                 }
             };
@@ -749,13 +761,13 @@ impl CompiledStageFilter {
         let target_crown = self.target_crowns.min.max(1) as u32;
 
         if stage.anim_base_id != 0 && target_crown > 1 {
-            let mag = match target_crown {
+            let magnification = match target_crown {
                 2 => map.crown_2_mag.unwrap_or(100),
                 3 => map.crown_3_mag.unwrap_or(100),
                 4 => map.crown_4_mag.unwrap_or(100),
                 _ => 100,
             };
-            actual_hp = (actual_hp * mag as i64) / 100;
+            actual_hp = (actual_hp * magnification as i64) / 100;
         }
 
         if !self.base_hp.matches(actual_hp) { return false; }
@@ -792,42 +804,42 @@ impl CompiledStageFilter {
         }
 
         if !self.enemies.is_empty() {
-            for e_filter in &self.enemies {
-                let found = stage.enemies.iter().any(|e| e_filter.matches(e, enemy_name_registry));
-                if e_filter.is_exclude { if found { return false; } } else if !found { return false; }
+            for enemy_filter in &self.enemies {
+                let found = stage.enemies.iter().any(|enemy| enemy_filter.matches(enemy, enemy_name_registry));
+                if enemy_filter.is_exclude { if found { return false; } } else if !found { return false; }
             }
         }
 
         if !self.treasures.is_empty() {
-            for t_filter in &self.treasures {
+            for treasure_filter in &self.treasures {
                 let found = match &stage.rewards {
                     RewardStructure::Treasure { drops, .. } => {
-                        drops.iter().any(|d| t_filter.matches_drop(d.item_id, d.amount, d.chance, item_buy_registry, item_name_registry, drop_chara_registry, unit_buy_registry, cat_name_registry))
+                        drops.iter().any(|drop| treasure_filter.matches_drop(drop.item_id, drop.amount, drop.chance, item_buy_registry, item_name_registry, drop_chara_registry, unit_buy_registry, cat_name_registry))
                     }
                     RewardStructure::Timed(scores) => {
-                        scores.iter().any(|s| t_filter.matches_drop(s.item_id, s.amount, 100, item_buy_registry, item_name_registry, drop_chara_registry, unit_buy_registry, cat_name_registry))
+                        scores.iter().any(|score| treasure_filter.matches_drop(score.item_id, score.amount, 100, item_buy_registry, item_name_registry, drop_chara_registry, unit_buy_registry, cat_name_registry))
                     }
                     _ => false,
                 };
-                if t_filter.is_exclude { if found { return false; } } else if !found { return false; }
+                if treasure_filter.is_exclude { if found { return false; } } else if !found { return false; }
             }
         }
 
         if !self.materials.is_empty() {
             let drop_items_opt = map.drop_items.as_ref();
-            for m_filter in &self.materials {
+            for material_filter in &self.materials {
                 let found = drop_items_opt.map_or(false, |drop_items| {
-                    drop_items.material_drops.iter().enumerate().any(|(idx, &amt)| {
-                        amt > 0 && m_filter.matches_material(idx, amt, item_buy_registry, item_name_registry)
+                    drop_items.material_drops.iter().enumerate().any(|(index, &amount)| {
+                        amount > 0 && material_filter.matches_material(index, amount, item_buy_registry, item_name_registry)
                     })
                 });
-                if m_filter.is_exclude { if found { return false; } } else if !found { return false; }
+                if material_filter.is_exclude { if found { return false; } } else if !found { return false; }
             }
         }
 
         if !self.lineup_cats.is_empty() {
-            for l_filter in &self.lineup_cats {
-                if !l_filter.matches_lineup(stage, cat_name_registry) { return false; }
+            for lineup_filter in &self.lineup_cats {
+                if !lineup_filter.matches_lineup(stage, cat_name_registry) { return false; }
             }
         }
 

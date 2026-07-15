@@ -28,7 +28,7 @@ pub struct CatDataState {
     #[serde(skip)] pub incoming_cats: Vec<CatEntry>,
     #[serde(skip)] pub is_cold_scan: bool,
     #[serde(skip)] pub last_update_time: Option<Instant>,
-    #[serde(alias = "persistent_id")] pub selected_cat: Option<u32>,
+    pub selected_cat: Option<u32>,
     pub search_query: String,
     pub selected_form: usize,
     pub selected_detail_tab: DetailTab,
