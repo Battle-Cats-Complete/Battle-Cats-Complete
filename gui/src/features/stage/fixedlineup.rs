@@ -170,45 +170,36 @@ fn draw_slot(
 }
 
 fn draw_upgrades_section(ui: &mut egui::Ui, preset_data: &CertificationPreset) {
-    ui.horizontal(|ui| {
-        let available_width = ui.available_width();
-        let estimated_grid_width = 140.0;
+    egui::Grid::new("fixed_lineup_cannon_grid")
+        .striped(true)
+        .spacing([24.0, 6.0])
+        .show(ui, |ui| {
+            let cannon_name = match preset_data.slot_cannon_type {
+                CannonType::Basic => "Basic",
+                CannonType::SlowBeam => "Slow Beam",
+                CannonType::IronWall => "Iron Wall",
+                CannonType::Thunderbolt => "Thunderbolt",
+                CannonType::Waterblast => "Waterblast",
+                CannonType::HolyBlast => "HolyBlast",
+                CannonType::Breakerblast => "Breakerblast",
+                CannonType::Curseblast => "Curseblast",
+                CannonType::Unknown(_) => "Unknown",
+            };
 
-        egui::Grid::new("fixed_lineup_cannon_grid")
-            .striped(true)
-            .spacing([24.0, 6.0])
-            .show(ui, |ui| {
-                let cannon_name = match preset_data.slot_cannon_type {
-                    CannonType::Basic => "Basic",
-                    CannonType::SlowBeam => "Slow Beam",
-                    CannonType::IronWall => "Iron Wall",
-                    CannonType::Thunderbolt => "Thunderbolt",
-                    CannonType::Waterblast => "Waterblast",
-                    CannonType::HolyBlast => "HolyBlast",
-                    CannonType::Breakerblast => "Breakerblast",
-                    CannonType::Curseblast => "Curseblast",
-                    CannonType::Unknown(_) => "Unknown",
-                };
+            let cannon_level = preset_data.cannon_levels.get(&preset_data.slot_cannon_type).copied().unwrap_or(0);
 
-                let cannon_level = preset_data.cannon_levels.get(&preset_data.slot_cannon_type).copied().unwrap_or(0);
-
-                ui.strong("Cannon");
-                ui.centered_and_justified(|ui| {
-                    ui.strong("Level");
-                });
-                ui.end_row();
-
-                ui.label(cannon_name);
-                ui.centered_and_justified(|ui| {
-                    ui.label(cannon_level.to_string());
-                });
-                ui.end_row();
+            ui.strong("Cannon");
+            ui.centered_and_justified(|ui| {
+                ui.strong("Level");
             });
+            ui.end_row();
 
-        if available_width > estimated_grid_width {
-            ui.add_space((available_width - estimated_grid_width) / 2.0);
-        }
-    });
+            ui.label(cannon_name);
+            ui.centered_and_justified(|ui| {
+                ui.label(cannon_level.to_string());
+            });
+            ui.end_row();
+        });
 
     ui.add_space(16.0);
 

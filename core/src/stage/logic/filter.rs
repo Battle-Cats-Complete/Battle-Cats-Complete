@@ -173,7 +173,7 @@ impl CompiledEnemyFilter {
         if !self.kill_count.matches(enemy.kill_count as i64) { return false; }
 
         if self.name_or_id.is_empty() { return true; }
-        if self.parsed_id.map_or(false, |id| (enemy.enemy_id + 2) == id) { return true; }
+        if self.parsed_id.map_or(false, |id| enemy.enemy_id == id) { return true; }
 
         enemy_name_registry
             .get(enemy.enemy_id as usize)
@@ -322,7 +322,7 @@ pub struct LineupFilter {
 
 impl LineupFilter {
     pub fn is_active(&self) -> bool {
-        !self.name_or_id.trim().is_empty() || self.level.is_active()
+        true
     }
 
     pub fn compile(&self) -> CompiledLineupFilter {
