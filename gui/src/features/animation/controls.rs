@@ -195,8 +195,8 @@ fn render_internal_ui(
                                         .frame(false).desired_width(INPUT_W).vertical_align(egui::Align::Center).horizontal_align(egui::Align::Center));
                                     if text_response.changed()
                                         && let Ok(parsed_value) = anim_viewer.single_frame_str.parse::<i32>() {
-                                            anim_viewer.current_frame = parsed_value as f32 / display_multiplier;
-                                        }
+                                        anim_viewer.current_frame = parsed_value as f32 / display_multiplier;
+                                    }
                                     if !text_response.has_focus() {
                                         anim_viewer.single_frame_str = format!("{}", current_display_value);
                                     }
@@ -232,15 +232,21 @@ fn render_internal_ui(
                                     ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
                                     if let Some(range_start) = loop_range_start
                                         && anim_viewer.range_str_cache.0.is_empty() {
-                                            let display_value = (range_start as f32 * display_multiplier).trunc() as i32;
-                                            anim_viewer.range_str_cache.0 = display_value.to_string();
-                                        }
+                                        let display_value = (range_start as f32 * display_multiplier).trunc() as i32;
+                                        anim_viewer.range_str_cache.0 = display_value.to_string();
+                                    }
                                     let text_response = ui.add_enabled(is_enabled, egui::TextEdit::singleline(&mut anim_viewer.range_str_cache.0)
                                         .hint_text(egui::RichText::new("0").color(egui::Color32::GRAY)).frame(false).desired_width(60.0).vertical_align(egui::Align::Center).horizontal_align(egui::Align::Center));
                                     if text_response.changed() {
-                                        if anim_viewer.range_str_cache.0.is_empty() { anim_viewer.loop_range.0 = None; }
+                                        if anim_viewer.range_str_cache.0.is_empty() {
+                                            anim_viewer.loop_range.0 = None;
+                                        }
                                         else if let Ok(parsed_value) = anim_viewer.range_str_cache.0.parse::<i32>() {
-                                            anim_viewer.loop_range.0 = Some((parsed_value as f32 / display_multiplier).trunc() as i32);
+                                            let new_start = (parsed_value as f32 / display_multiplier).trunc() as i32;
+                                            anim_viewer.loop_range.0 = Some(new_start);
+                                            if anim_viewer.current_frame < new_start as f32 {
+                                                anim_viewer.current_frame = new_start as f32;
+                                            }
                                         }
                                     }
                                     if text_response.secondary_clicked() { anim_viewer.loop_range.0 = None; anim_viewer.range_str_cache.0.clear(); }
@@ -253,15 +259,21 @@ fn render_internal_ui(
                                     ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
                                     if let Some(range_end) = loop_range_end
                                         && anim_viewer.range_str_cache.1.is_empty() {
-                                            let display_value = (range_end as f32 * display_multiplier).trunc() as i32;
-                                            anim_viewer.range_str_cache.1 = display_value.to_string();
-                                        }
+                                        let display_value = (range_end as f32 * display_multiplier).trunc() as i32;
+                                        anim_viewer.range_str_cache.1 = display_value.to_string();
+                                    }
                                     let text_response = ui.add_enabled(is_enabled, egui::TextEdit::singleline(&mut anim_viewer.range_str_cache.1)
                                         .hint_text(egui::RichText::new(&display_max_string).color(egui::Color32::GRAY)).frame(false).desired_width(60.0).vertical_align(egui::Align::Center).horizontal_align(egui::Align::Center));
                                     if text_response.changed() {
-                                        if anim_viewer.range_str_cache.1.is_empty() { anim_viewer.loop_range.1 = None; }
+                                        if anim_viewer.range_str_cache.1.is_empty() {
+                                            anim_viewer.loop_range.1 = None;
+                                        }
                                         else if let Ok(parsed_value) = anim_viewer.range_str_cache.1.parse::<i32>() {
-                                            anim_viewer.loop_range.1 = Some((parsed_value as f32 / display_multiplier).trunc() as i32);
+                                            let new_end = (parsed_value as f32 / display_multiplier).trunc() as i32;
+                                            anim_viewer.loop_range.1 = Some(new_end);
+                                            if anim_viewer.current_frame > new_end as f32 {
+                                                anim_viewer.current_frame = new_end as f32;
+                                            }
                                         }
                                     }
                                     if text_response.secondary_clicked() { anim_viewer.loop_range.1 = None; anim_viewer.range_str_cache.1.clear(); }

@@ -263,7 +263,7 @@ impl AnimViewer {
 
             if !load_success {
                 self.loaded_id = target_viewer_id.clone();
-                self.failed_load_id = target_viewer_id.clone(); // Lock this unit out so it stops trying to load every frame
+                self.failed_load_id = target_viewer_id.clone();
                 self.held_unit = None;
                 *unit_sync = None;
             } else if let Some(animation_path) = resolved_anim {
