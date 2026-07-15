@@ -91,7 +91,7 @@ pub fn draw(app: &mut BattleCatsApp, ctx: &egui::Context) {
     };
 
     match app.current_page {
-        Page::Home => home::show(ctx, &mut app.current_page, &mut app.drag_guard),
+        Page::Home => home::show(ctx, &mut app.current_page, &mut app.settings, &mut app.drag_guard),
         Page::Cats => show_cats(ctx, &mut app.cat_list_state, &mut app.settings, global_ctx, &mut app.drag_guard),
         Page::Enemies => show_enemies(ctx, &mut app.enemy_list_state, &mut app.settings, global_ctx, &mut app.drag_guard),
         Page::Stages => show_stages(ctx, &mut app.stage_list_state, &mut app.settings, global_ctx),

@@ -204,6 +204,10 @@ impl BattleCatsApp {
             });
         }
 
+        let game_dir = Path::new("game");
+        let is_empty = !game_dir.exists() || std::fs::read_dir(game_dir).map(|mut iterator| iterator.next().is_none()).unwrap_or(true);
+        ctx.data_mut(|data_map| data_map.insert_temp(egui::Id::new("is_game_empty"), is_empty));
+
         ctx.request_repaint();
     }
 
