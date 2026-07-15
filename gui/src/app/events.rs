@@ -45,17 +45,14 @@ impl BattleCatsApp {
 
         let active_mod = self.mod_state.data.loaded_mods.iter()
             .find(|m| m.enabled)
-            .map(|m| m.folder_name.to_lowercase());
+            .map(|m| m.folder_name.clone());
 
         resolver::set_active_mod(active_mod.clone());
 
         for path in paths {
             let path_str = path.to_string_lossy().to_lowercase();
 
-            let file_name = match path.file_name().and_then(|n| n.to_str()) {
-                Some(name) => name,
-                None => "",
-            };
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or_else(|| "");
 
             tracing::trace!("Processing modified path: {}", path_str);
 
@@ -140,6 +137,7 @@ impl BattleCatsApp {
 
         if mod_changed || global_cat || global_enemy {
             tracing::info!("Global files or active mod changed. Triggering full reload.");
+            resolver::clear_override_cache();
             self.perform_full_data_reload();
             ctx.request_repaint();
             return;
@@ -221,7 +219,7 @@ impl BattleCatsApp {
         let Some(idx) = comps.iter().position(|c| c == "mods") else { return false; };
         let Some(folder) = comps.get(idx + 1) else { return false; };
 
-        folder == active
+        folder == &active.to_lowercase()
     }
 
     pub fn process_cat_path(&mut self, path: &Path, cat_ids: &mut HashSet<u32>) -> bool {

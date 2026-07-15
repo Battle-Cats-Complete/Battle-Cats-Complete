@@ -6,9 +6,21 @@ static ACTIVE_MOD: RwLock<Option<String>> = RwLock::new(None);
 static OVERRIDE_CACHE: RwLock<Option<HashMap<String, Option<PathBuf>>>> = RwLock::new(None);
 
 pub fn set_active_mod(mod_name: Option<String>) {
+    let mut changed = false;
+
     if let Ok(mut active) = ACTIVE_MOD.write() {
-        *active = mod_name;
+        if *active != mod_name {
+            *active = mod_name;
+            changed = true;
+        }
     }
+
+    if changed {
+        clear_override_cache();
+    }
+}
+
+pub fn clear_override_cache() {
     if let Ok(mut cache) = OVERRIDE_CACHE.write() {
         *cache = Some(HashMap::new());
     }
@@ -51,13 +63,11 @@ where
     for target in &targets {
         if let Some(p) = check_mod_override(target) {
             paths.push(p);
-        }
-    }
-
-    for target in &targets {
-        let local_path = dir.join(target);
-        if local_path.exists() {
-            paths.push(local_path);
+        } else {
+            let local_path = dir.join(target);
+            if local_path.exists() {
+                paths.push(local_path);
+            }
         }
     }
 
@@ -66,11 +76,13 @@ where
 }
 
 fn check_mod_override(filename: &str) -> Option<PathBuf> {
-    if let Ok(cache) = OVERRIDE_CACHE.read()
-        && let Some(map) = cache.as_ref()
-            && let Some(cached_result) = map.get(filename) {
+    if let Ok(cache) = OVERRIDE_CACHE.read() {
+        if let Some(map) = cache.as_ref() {
+            if let Some(cached_result) = map.get(filename) {
                 return cached_result.clone();
             }
+        }
+    }
 
     let active_mod = {
         let guard = ACTIVE_MOD.read().ok()?;
@@ -83,20 +95,21 @@ fn check_mod_override(filename: &str) -> Option<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(&mod_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
-                let target = path.join(filename);
-                if target.exists() {
-                    found_path = Some(target);
-                    break;
-                }
+            if !path.is_dir() { continue; }
+
+            let target = path.join(filename);
+            if target.exists() {
+                found_path = Some(target);
+                break;
             }
         }
     }
 
-    if let Ok(mut cache) = OVERRIDE_CACHE.write()
-        && let Some(map) = cache.as_mut() {
+    if let Ok(mut cache) = OVERRIDE_CACHE.write() {
+        if let Some(map) = cache.as_mut() {
             map.insert(filename.to_string(), found_path.clone());
         }
+    }
 
     found_path
 }
