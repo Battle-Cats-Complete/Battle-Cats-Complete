@@ -4,8 +4,7 @@
 
 An all-in-one desktop toolkit for The Battle Cats. Load raw game data, load modded data, accurately render in-game animations, and export animations to formats like MP4, AVIF, WebP, and GIF.
 
-## In Development
-Battle Cats Complete is still far from its fully functional state. This app is a hobby and passion project. Join the [Discord Server](https://discord.gg/SNSE8HNhmP) if you have any questions, suggestions, or if you found any bugs!
+This app is a hobby and passion project. Join the [Discord Server](https://discord.gg/SNSE8HNhmP) if you have any questions, suggestions, or if you found any bugs!
 
 ## Usage
 To use this app, you must provide game files for it to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
@@ -28,6 +27,10 @@ To use this app, you must provide game files for it to read. These files are not
 - **Displaying Enemy Data**
   - Icons, Stats, and Abilities
   - In-game Descriptions
+- **Displaying Stage Data**
+  - Battleground, Treasure, and Materials
+  - Niche features like Fixed Line-Ups
+  - Uses data/images from Cats & Enemies
 - **Unit Animations**
   - View Walk, Idle, Attack, and Knockback
   - View Burrow, Surface, and Spirit animations
