@@ -8,8 +8,10 @@ use core::cat::logic::loader as cat_loader;
 use core::cat::{paths as cat_paths, patterns as cat_patterns};
 use core::enemy::logic::loader as enemy_loader;
 use core::global::resolver;
+use core::stage::logic::filter::{EnemyFilter, StageFilterState};
 
 use crate::global::watcher::GuiWatcher;
+use crate::app::frame::Page;
 
 use super::BattleCatsApp;
 
@@ -279,5 +281,23 @@ impl BattleCatsApp {
         self.enemy_list_state.anim_viewer.texture_version += 1;
 
         false
+    }
+
+    pub fn process_ui_events(&mut self, ctx: &egui::Context) {
+        if let Some(enemy_id) = ctx.data_mut(|d| d.remove_temp::<u32>(egui::Id::new("navigate_to_stage_appearances"))) {
+            tracing::info!("Navigating to stage appearances for enemy ID: {}", enemy_id);
+
+            self.current_page = Page::Stages;
+            self.stage_list_state.is_list_open = true;
+
+            self.stage_list_state.filter_state.is_open = false;
+            self.stage_list_state.filter_state = StageFilterState::default();
+
+            let mut enemy_filter = EnemyFilter::default();
+            enemy_filter.name_or_id = enemy_id.to_string();
+            self.stage_list_state.filter_state.enemies.push(enemy_filter);
+
+            self.settings.runtime.show_ip_field = false;
+        }
     }
 }

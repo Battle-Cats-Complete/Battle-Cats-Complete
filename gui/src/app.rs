@@ -117,6 +117,7 @@ impl eframe::App for BattleCatsApp {
         self.updater.show_ui(ctx, &mut self.settings, &mut self.drag_guard);
 
         self.process_file_events(ctx);
+        self.process_ui_events(ctx);
 
         self.cat_list_state.data.update_data();
         self.enemy_list_state.data.update_data();
