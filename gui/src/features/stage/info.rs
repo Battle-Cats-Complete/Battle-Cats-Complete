@@ -45,7 +45,7 @@ fn format_energy(category: &Category, raw_energy: u32) -> String {
 fn format_base(anim_id: u32, standard_id: i32) -> (String, String) {
     if anim_id != 0 {
         let calculated_id = anim_id.saturating_sub(2);
-        return ("Base Enemy".to_string(), format!("E-{:03}", calculated_id));
+        return ("Base Enemy".to_string(), format!("{:03}-E", calculated_id));
     }
     ("Base Img".to_string(), standard_id.to_string())
 }

@@ -3,8 +3,8 @@ use eframe::egui;
 use core::stage::logic::filter::{EnemyFilter, LineupFilter, MaterialFilter, StageFilterState, StatRange, TreasureFilter};
 use crate::global::shared::DragGuard;
 
-pub const WINDOW_WIDTH: f32 = 460.0;
-pub const WINDOW_HEIGHT: f32 = 650.0;
+pub const WINDOW_WIDTH: f32 = 400.0;
+pub const WINDOW_HEIGHT: f32 = 500.0;
 pub const TILDE_SPACING: f32 = 5.0;
 
 pub fn show_popup(
