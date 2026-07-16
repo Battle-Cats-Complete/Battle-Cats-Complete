@@ -4,10 +4,10 @@ use std::sync::atomic::Ordering;
 
 use eframe::egui;
 
-use core::modules::cat::logic::loader as cat_loader;
-use core::modules::cat::{paths as cat_paths, patterns as cat_patterns};
+use core::modules::cat::scanner as cat_loader;
 use core::modules::enemy::logic::loader as enemy_loader;
 use core::common::resolver;
+use core::modules::cat::{paths as cat_paths, patterns as cat_patterns};
 use core::modules::stage::logic::filter::{EnemyFilter, StageFilterState};
 
 use crate::common::watcher::GuiWatcher;

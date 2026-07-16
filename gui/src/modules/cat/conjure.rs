@@ -1,9 +1,9 @@
 use eframe::egui;
 use nyanko::common::data::img015;
 
-use core::modules::cat::logic::abilities;
-use core::modules::cat::logic::context::CatRenderContext;
-use core::modules::cat::logic::stats;
+use core::modules::cat::game::abilities;
+use core::modules::cat::game::CatRenderContext;
+use core::modules::cat::game::stats;
 use core::modules::cat::waiter::unitid;
 use core::common::game::abilities::ABILITY_Y;
 use core::modules::settings::logic::Settings;
@@ -91,7 +91,7 @@ pub(crate) fn render_conjure_details(
                         }
                 }
                 if !drawn {
-                    let alt = core::modules::cat::registry::get_fallback_by_icon(core::modules::cat::registry::AbilityIcon::Standard(icon));
+                    let alt = core::modules::cat::game::registry::get_fallback_by_icon(core::modules::cat::game::registry::AbilityIcon::Standard(icon));
                     render_fallback_icon(ui, alt, spirit_border);
                 }
                 ui.label(format!("Damage {}\nRange {}", dmg, conjure_final.standing_range));

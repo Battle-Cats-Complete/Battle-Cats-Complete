@@ -1,9 +1,0 @@
-pub const IDX_WALK: usize = 0;
-pub const IDX_IDLE: usize = 1;
-pub const IDX_ATTACK: usize = 2;
-pub const IDX_KB: usize = 3;
-pub const IDX_SPIRIT: usize = 4;
-pub const IDX_BURROW: usize = 5;
-pub const IDX_SURFACE: usize = 6;
-pub const IDX_MODEL: usize = 99;
-pub const IDX_NONE: usize = 999;

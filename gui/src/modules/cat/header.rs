@@ -2,12 +2,13 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use eframe::egui;
-use nyanko::cat::unit::TalentCost;
+use nyanko::cat::unit::{Talent, TalentCost};
 use nyanko::common::data::img022;
 
-use core::modules::cat::logic::scanner::CatEntry;
-use core::modules::cat::logic::state::DetailTab;
+use core::modules::cat::scanner::CatEntry;
+use core::modules::cat::DetailTab;
 use core::modules::cat::paths;
+use core::modules::cat::game::talents::get_total_np_cost;
 use core::common::utils::autocrop;
 use core::modules::settings::logic::Settings;
 
@@ -139,13 +140,13 @@ pub(crate) fn render(
 
 fn render_talent_controls(
     ui: &mut egui::Ui,
-    talent_data: &nyanko::cat::unit::Talent,
+    talent_data: &Talent,
     talent_levels: &mut HashMap<u8, u8>,
     talent_costs: &HashMap<u8, TalentCost>,
     img022_sheets: &[SpriteSheet],
 ) {
     ui.vertical(|ui| {
-        let total_np = core::modules::cat::logic::talents::get_total_np_cost(talent_data, talent_levels, talent_costs);
+        let total_np = get_total_np_cost(talent_data, talent_levels, talent_costs);
         
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;

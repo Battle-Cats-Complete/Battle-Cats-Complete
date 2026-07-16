@@ -6,7 +6,7 @@ use nyanko::cat::abilities::get_talent;
 use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
 use nyanko::common::data::img022;
 
-use core::modules::cat::logic::talents;
+use core::modules::cat::game::talents;
 use core::modules::cat::paths;
 use core::common::utils::autocrop;
 use core::modules::settings::logic::Settings;
@@ -152,19 +152,19 @@ fn render_header(
             let def_opt = get_talent(group.ability_id);
 
             if let Some(def) = &def_opt {
-                let display_def = core::modules::cat::registry::get_display_def(def.identity);
+                let display_def = core::modules::cat::game::registry::get_display_def(def.identity);
                 let size = egui::vec2(40.0, 40.0);
 
                 let mut drawn = false;
 
                 match display_def.icon {
-                    core::modules::cat::registry::AbilityIcon::Custom(custom) => {
+                    core::modules::cat::game::registry::AbilityIcon::Custom(custom) => {
                         if let Some(tex) = assets.get_icon_texture(custom) {
                             ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)));
                             drawn = true;
                         }
                     },
-                    core::modules::cat::registry::AbilityIcon::Standard(icon_id) => {
+                    core::modules::cat::game::registry::AbilityIcon::Standard(icon_id) => {
                         for sheet in sheets {
                             if let Some(cut) = sheet.core.cuts_map.get(&icon_id)
                                 && let Some(tex) = &sheet.texture_handle {
@@ -174,7 +174,7 @@ fn render_header(
                                 }
                         }
                     },
-                    core::modules::cat::registry::AbilityIcon::None => {}
+                    core::modules::cat::game::registry::AbilityIcon::None => {}
                 }
 
                 if !drawn {
@@ -188,7 +188,7 @@ fn render_header(
                 ui.image((texture.id(), texture.size_vec2()));
             } else {
                 let fallback_text = match &def_opt {
-                    Some(def) => core::modules::cat::registry::get_display_def(def.identity).name.to_string(),
+                    Some(def) => core::modules::cat::game::registry::get_display_def(def.identity).name.to_string(),
                     None => format!("Unknown Skill (ID: {})", group.ability_id),
                 };
                 ui.label(

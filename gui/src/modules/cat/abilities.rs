@@ -1,10 +1,10 @@
 use eframe::egui;
 use nyanko::common::data::img015;
 
-use core::modules::cat::logic::abilities;
-use core::modules::cat::logic::context::CatRenderContext;
-use core::modules::cat::logic::scanner::CatEntry;
-use core::modules::cat::registry::AbilityIcon;
+use core::modules::cat::game::abilities;
+use core::modules::cat::game::CatRenderContext;
+use core::modules::cat::scanner::CatEntry;
+use core::modules::cat::game::registry::AbilityIcon;
 use core::common::game::abilities::{
     AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y,
 };
@@ -119,7 +119,7 @@ fn render_single_icon(
         AbilityIcon::Standard(item.icon_id.unwrap_or(9999)) 
     };
 
-    let alt = core::modules::cat::registry::get_fallback_by_icon(icon_enum);
+    let alt = core::modules::cat::game::registry::get_fallback_by_icon(icon_enum);
     render_fallback_icon(ui, alt, border)
 }
 

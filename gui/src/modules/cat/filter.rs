@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use eframe::egui;
 use nyanko::cat::abilities::REGISTRY;
 
-use core::modules::cat::logic::filter::{ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
-use core::modules::cat::registry::{AbilityIcon, DisplayGroup};
+use core::modules::cat::filter::{icons, ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
+use core::modules::cat::game::registry::{AbilityIcon, DisplayGroup};
 use core::modules::settings::logic::Settings;
 
 use crate::common::assets::CustomAssets;
@@ -203,7 +203,7 @@ pub(crate) fn show_popup(
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                     for def in REGISTRY.iter() {
-                        let display_def = core::modules::cat::registry::get_display_def(def.identity);
+                        let display_def = core::modules::cat::game::registry::get_display_def(def.identity);
                         if display_def.group == DisplayGroup::Trait {
                             render_filter_icon(ui, &display_def.icon, &mut state.active_icons, sheets, assets);
                         }
@@ -236,7 +236,7 @@ pub(crate) fn show_popup(
                 if check_talents {
                     let mut talent_icons = Vec::new();
                     for def in REGISTRY.iter() {
-                        let display_def = core::modules::cat::registry::get_display_def(def.identity);
+                        let display_def = core::modules::cat::game::registry::get_display_def(def.identity);
                         if display_def.group == DisplayGroup::Trait { continue; }
                         if rendered_icons.contains(&display_def.icon) { continue; }
                         if ATTACK_TYPE_ICONS.contains(&display_def.icon) { continue; }
@@ -298,7 +298,7 @@ fn render_display_group(
     let mut icons_in_group = Vec::new();
 
     for def in REGISTRY.iter() {
-        let display_def = core::modules::cat::registry::get_display_def(def.identity);
+        let display_def = core::modules::cat::game::registry::get_display_def(def.identity);
         if display_def.group != target_group { continue; }
         if display_def.group == DisplayGroup::Trait { continue; }
         if ATTACK_TYPE_ICONS.contains(&display_def.icon) { continue; }
@@ -358,9 +358,9 @@ fn render_filter_icon_row(
     assets: &CustomAssets,
 ) {
     let is_active = state.active_icons.contains(icon);
-    let name = core::modules::cat::logic::filter::get_icon_name(icon);
+    let name = icons::get_icon_name(icon);
 
-    let ability_def = REGISTRY.iter().find(|d| core::modules::cat::registry::get_display_def(d.identity).icon == *icon);
+    let ability_def = REGISTRY.iter().find(|d| core::modules::cat::game::registry::get_display_def(d.identity).icon == *icon);
     let schema = ability_def.map(|d| d.schema).unwrap_or(&[]);
     let has_adv = !schema.is_empty();
 
@@ -444,7 +444,7 @@ fn render_filter_icon(
                     if is_active { active_icons.remove(icon); }
                     else { active_icons.insert(*icon); }
                 }
-                response.on_hover_text(core::modules::cat::logic::filter::get_icon_name(icon));
+                response.on_hover_text(icons::get_icon_name(icon));
                 return;
             }
         },
@@ -462,7 +462,7 @@ fn render_filter_icon(
                     if is_active { active_icons.remove(icon); }
                     else { active_icons.insert(*icon); }
                 }
-                response.on_hover_text(core::modules::cat::logic::filter::get_icon_name(icon));
+                response.on_hover_text(icons::get_icon_name(icon));
                 return;
             }
         },
@@ -479,5 +479,5 @@ fn render_filter_icon(
         if is_active { active_icons.remove(icon); }
         else { active_icons.insert(*icon); }
     }
-    response.on_hover_text(core::modules::cat::logic::filter::get_icon_name(icon));
+    response.on_hover_text(icons::get_icon_name(icon));
 }

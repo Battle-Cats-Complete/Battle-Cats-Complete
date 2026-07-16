@@ -5,10 +5,11 @@ use eframe::egui;
 use nyanko::cat::unit::TalentCost;
 use nyanko::graphics::rig::Unit;
 
-use core::modules::cat::logic::context::CatRenderContext;
-use core::modules::cat::logic::scanner::CatEntry;
-use core::modules::cat::logic::state::DetailTab;
+use core::modules::cat::game::CatRenderContext;
+use core::modules::cat::scanner::CatEntry;
+use core::modules::cat::DetailTab;
 use core::modules::cat::waiter::unitid;
+use core::modules::cat::game::stats::get_final_stats;
 use core::common::context::GlobalContext;
 use core::modules::settings::logic::Settings;
 
@@ -58,7 +59,7 @@ pub(crate) fn show(
     let base_stats = dynamic_stats.as_ref().and_then(|v| v.get(*current_form));
     let form_allows_talents = *current_form >= 2;
 
-    let final_stats_owned = base_stats.map(|base| core::modules::cat::logic::stats::get_final_stats(
+    let final_stats_owned = base_stats.map(|base| get_final_stats(
         base,
         cat_entry.curve.as_ref(),
         *current_level,

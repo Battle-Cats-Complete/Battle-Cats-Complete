@@ -5,8 +5,8 @@ use eframe::egui;
 use nyanko::graphics::rig::Unit;
 use serde::{Deserialize, Serialize};
 
-use core::modules::cat::logic::filter::CatFilterState;
-use core::modules::cat::logic::state::{CatDataState, DetailTab};
+use core::modules::cat::filter::CatFilterState;
+use core::modules::cat::{CatDataState, DetailTab};
 use core::common::context::GlobalContext;
 use core::modules::settings::logic::Settings;
 

@@ -1,7 +1,7 @@
-use core::modules::cat::logic::abilities::collect_ability_data;
-use core::modules::cat::logic::context::CatRenderContext;
-use core::modules::cat::logic::scanner::CatEntry;
-use core::modules::cat::registry::{format_cat_stat, get_cat_stat};
+use core::modules::cat::game::abilities::collect_ability_data;
+use core::modules::cat::game::CatRenderContext;
+use core::modules::cat::scanner::CatEntry;
+use core::modules::cat::game::registry::{format_cat_stat, get_cat_stat};
 use core::modules::settings::logic::Settings;
 
 use crate::modules::statblock::builder::{StatCell, StatblockData};

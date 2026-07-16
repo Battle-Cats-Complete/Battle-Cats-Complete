@@ -7,8 +7,8 @@ use std::time::Duration;
 use eframe::egui;
 use image::imageops;
 
-use core::modules::cat::logic::filter::{entity_passes_filter, CatFilterState};
-use core::modules::cat::logic::scanner::CatEntry;
+use core::modules::cat::filter::{evaluation::entity_passes_filter, CatFilterState};
+use core::modules::cat::scanner::CatEntry;
 
 struct LoadedImage {
     id: u32,

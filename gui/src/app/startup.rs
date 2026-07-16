@@ -48,7 +48,7 @@ impl BattleCatsApp {
         let mut expected_hash = 0;
         let mut needs_validation = false;
 
-        if let Some((hash, cached_cats)) = core::common::io::cache::load_with_hash::<Vec<core::modules::cat::logic::scanner::CatEntry>>("cats_cache.bin") {
+        if let Some((hash, cached_cats)) = core::common::io::cache::load_with_hash::<Vec<core::modules::cat::scanner::CatEntry>>("cats_cache.bin") {
             tracing::info!("Found cats_cache.bin (Hash: {})", hash);
             expected_hash = hash;
             needs_validation = true;
