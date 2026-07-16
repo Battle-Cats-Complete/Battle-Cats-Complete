@@ -7,4 +7,3 @@ pub mod global;
 pub mod mods;
 pub mod settings;
 pub mod stage;
-pub mod assets;

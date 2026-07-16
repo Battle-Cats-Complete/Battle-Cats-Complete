@@ -25,7 +25,7 @@ pub fn show(ui: &mut egui::Ui) -> bool {
 
         ui.separator();
 
-        let license_text = core::assets::LICENSES;
+        let license_text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../core/src/assets/licenses.txt"));
 
         egui::ScrollArea::vertical()
             .id_salt("about_scroll_area")

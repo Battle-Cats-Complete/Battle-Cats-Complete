@@ -1,6 +1,7 @@
 use eframe::egui;
 
 use core::stage::logic::filter::{EnemyFilter, LineupFilter, MaterialFilter, StageFilterState, StatRange, TreasureFilter};
+
 use crate::global::shared::DragGuard;
 
 pub const WINDOW_WIDTH: f32 = 400.0;
