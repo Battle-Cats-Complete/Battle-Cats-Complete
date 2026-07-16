@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use eframe::egui;
 
 use core::modules::addons::adb::AdbManager;
-use core::modules::addons::apkeditor::download::ApkeditorManager;
+use core::modules::addons::apkeditor::ApkeditorManager;
 use core::modules::addons::avifenc::download::AvifManager;
 use core::modules::addons::ffmpeg::download::FfmpegManager;
 #[cfg(target_os = "windows")]
