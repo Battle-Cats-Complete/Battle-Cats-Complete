@@ -1,7 +1,10 @@
+pub mod abilities;
+pub mod registry;
+
 use nyanko::enemy::unit::Battle;
 
-use crate::modules::enemy::registry::Magnification;
 use crate::common::context::GlobalContext;
+use crate::modules::enemy::game::registry::Magnification;
 
 #[derive(Clone, Copy)]
 pub struct EnemyRenderContext<'a> {

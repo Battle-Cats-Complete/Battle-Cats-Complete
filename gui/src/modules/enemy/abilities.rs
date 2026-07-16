@@ -1,8 +1,8 @@
 use eframe::egui;
 
-use core::modules::enemy::logic::abilities;
-use core::modules::enemy::logic::context::EnemyRenderContext;
-use core::modules::enemy::registry;
+use core::modules::enemy::game::abilities;
+use core::modules::enemy::game::EnemyRenderContext;
+use core::modules::enemy::game::registry;
 use core::common::game::abilities::AbilityItem;
 
 use crate::common::assets::CustomAssets;

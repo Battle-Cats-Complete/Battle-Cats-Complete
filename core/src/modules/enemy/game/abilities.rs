@@ -1,14 +1,12 @@
 use nyanko::enemy::abilities::{AttrUnit, REGISTRY};
 
-use crate::modules::enemy::registry::{self, AbilityIcon, DisplayGroup};
 use crate::common::game::abilities::{AbilityItem, CustomIcon};
-
-use super::context::EnemyRenderContext;
+use crate::modules::enemy::game::registry::{self, AbilityIcon, DisplayGroup};
+use crate::modules::enemy::game::EnemyRenderContext;
 
 pub fn collect_ability_data(
     ctx: &EnemyRenderContext,
 ) -> (Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>) {
-
     let mut group_trait = Vec::new();
     let mut group_headline_1 = Vec::new();
     let mut group_headline_2 = Vec::new();

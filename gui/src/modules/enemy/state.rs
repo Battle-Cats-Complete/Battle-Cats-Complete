@@ -4,8 +4,8 @@ use eframe::egui;
 use nyanko::graphics::rig::Unit;
 use serde::{Deserialize, Serialize};
 
-use core::modules::enemy::logic::filter::EnemyFilterState;
-use core::modules::enemy::logic::state::EnemyDataState;
+use core::modules::enemy::filter::EnemyFilterState;
+use core::modules::enemy::EnemyDataState;
 use core::common::context::GlobalContext;
 use core::modules::settings::logic::Settings;
 

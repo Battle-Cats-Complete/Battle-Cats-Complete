@@ -1,7 +1,7 @@
 use eframe::egui;
 
-use core::modules::enemy::logic::scanner::EnemyEntry;
-use core::modules::enemy::registry::{format_enemy_stat, get_enemy_stat, Magnification};
+use core::modules::enemy::scanner::EnemyEntry;
+use core::modules::enemy::game::registry::{format_enemy_stat, get_enemy_stat, Magnification};
 
 use crate::common::stat_grid::{grid_cell, grid_cell_custom, render_frames};
 

@@ -1,8 +1,8 @@
 use eframe::egui;
 
-use core::modules::enemy::logic::scanner::EnemyEntry;
-use core::modules::enemy::logic::state::EnemyDetailTab;
-use core::modules::enemy::registry::Magnification;
+use core::modules::enemy::scanner::EnemyEntry;
+use core::modules::enemy::EnemyDetailTab;
+use core::modules::enemy::game::registry::Magnification;
 use core::common::utils::autocrop;
 
 use crate::common::name_box;

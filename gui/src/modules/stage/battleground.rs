@@ -7,7 +7,7 @@ use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
 use nyanko::chapter::map::{BonusType, ScoreBonusMapEntry, SpecialRulesMapEntry, RuleType};
 use tracing::{debug, instrument, warn};
 
-use core::modules::enemy::logic::scanner::EnemyEntry;
+use core::modules::enemy::scanner::EnemyEntry;
 use core::common::context::GlobalContext;
 use core::common::utils::autocrop;
 use core::modules::stage::registry::{Map, Stage};

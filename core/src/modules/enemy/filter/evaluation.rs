@@ -1,62 +1,9 @@
-use std::collections::{HashMap, HashSet};
-
 use nyanko::enemy::abilities::{Identity, REGISTRY};
 use nyanko::enemy::unit::Battle;
 
-use crate::modules::enemy::registry::{get_display_def, Magnification, ENEMY_STATS_REGISTRY};
-
-use super::scanner::EnemyEntry;
-
-pub const ATTACK_TYPE_IDENTITIES: &[Identity] = &[
-    Identity::SingleAttack,
-    Identity::AreaAttack,
-    Identity::OmniStrike,
-    Identity::LongDistance,
-    Identity::MultiHit,
-];
-
-#[derive(Clone, Copy, PartialEq, Default)]
-pub enum MatchMode {
-    #[default]
-    And,
-    Or,
-}
-
-#[derive(Clone, PartialEq, Default)]
-pub struct RangeInput {
-    pub min: String,
-    pub max: String,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct EnemyFilterState {
-    pub is_open: bool,
-    pub active_identities: HashSet<Identity>,
-    pub match_mode: MatchMode,
-    pub adv_ranges: HashMap<Identity, HashMap<&'static str, RangeInput>>,
-    pub mag_input: String,
-    pub stat_ranges: HashMap<&'static str, RangeInput>,
-}
-
-impl Default for EnemyFilterState {
-    fn default() -> Self {
-        Self {
-            is_open: false,
-            active_identities: HashSet::new(),
-            match_mode: MatchMode::And,
-            adv_ranges: HashMap::new(),
-            mag_input: String::new(),
-            stat_ranges: HashMap::new(),
-        }
-    }
-}
-
-impl EnemyFilterState {
-    pub fn is_active(&self) -> bool {
-        !self.active_identities.is_empty()
-            || self.stat_ranges.values().any(|r| !r.min.is_empty() || !r.max.is_empty())
-    }
-}
+use crate::modules::enemy::filter::{EnemyFilterState, MatchMode};
+use crate::modules::enemy::game::registry::{get_display_def, Magnification, ENEMY_STATS_REGISTRY};
+use crate::modules::enemy::scanner::EnemyEntry;
 
 pub fn get_stat_value(s: &Battle, stat: &str, anim_frames: i32, mag: i32) -> i32 {
     let reg_name = match stat {
@@ -136,20 +83,20 @@ pub fn entity_passes_filter(enemy: &EnemyEntry, filter: &EnemyFilterState) -> bo
 
                         if let Some(def) = ability_def
                             && def.minus_one_is_inf && val == -1 {
-                                val = i32::MAX;
-                            }
+                            val = i32::MAX;
+                        }
 
                         if let Ok(min) = range.min.parse::<i32>()
                             && val < min {
-                                build_passed_all_attrs = false;
-                                break;
-                            }
+                            build_passed_all_attrs = false;
+                            break;
+                        }
 
                         if let Ok(max) = range.max.parse::<i32>()
                             && val > max {
-                                build_passed_all_attrs = false;
-                                break;
-                            }
+                            build_passed_all_attrs = false;
+                            break;
+                        }
                     }
 
                     if build_passed_all_attrs {

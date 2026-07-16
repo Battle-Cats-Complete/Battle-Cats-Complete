@@ -9,7 +9,7 @@ use core::modules::animation::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB,
     IDX_SURFACE, IDX_WALK,
 };
-use core::modules::enemy::logic::scanner::EnemyEntry;
+use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::enemy::paths::{self, AnimType};
 use core::modules::settings::logic::state::Settings;
 

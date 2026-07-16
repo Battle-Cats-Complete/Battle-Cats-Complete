@@ -69,7 +69,7 @@ impl BattleCatsApp {
             app.cat_list_state.data.restart_scan(app.settings.scanner_config());
         }
 
-        if let Some((hash, cached_enemies)) = core::common::io::cache::load_with_hash::<Vec<core::modules::enemy::logic::scanner::EnemyEntry>>("enemies_cache.bin") {
+        if let Some((hash, cached_enemies)) = core::common::io::cache::load_with_hash::<Vec<core::modules::enemy::scanner::EnemyEntry>>("enemies_cache.bin") {
             tracing::info!("Found enemies_cache.bin (Hash: {})", hash);
             expected_hash = hash;
             needs_validation = true;

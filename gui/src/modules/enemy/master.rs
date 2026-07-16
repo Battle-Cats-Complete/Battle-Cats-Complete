@@ -3,10 +3,10 @@ use std::sync::Arc;
 use eframe::egui;
 use nyanko::graphics::rig::Unit;
 
-use core::modules::enemy::logic::context::EnemyRenderContext;
-use core::modules::enemy::logic::scanner::{self, EnemyEntry};
-use core::modules::enemy::logic::state::EnemyDetailTab;
-use core::modules::enemy::registry::Magnification;
+use core::modules::enemy::game::EnemyRenderContext;
+use core::modules::enemy::scanner::{self, EnemyEntry};
+use core::modules::enemy::EnemyDetailTab;
+use core::modules::enemy::game::registry::Magnification;
 use core::common::context::GlobalContext;
 use core::modules::settings::logic::Settings;
 

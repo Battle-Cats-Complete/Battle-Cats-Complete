@@ -6,8 +6,8 @@ use std::thread;
 use eframe::egui;
 use image::imageops;
 
-use core::modules::enemy::logic::filter::{self, EnemyFilterState};
-use core::modules::enemy::logic::scanner::EnemyEntry;
+use core::modules::enemy::filter::{evaluation::entity_passes_filter, EnemyFilterState};
+use core::modules::enemy::scanner::EnemyEntry;
 
 struct LoadedImage {
     id: u32,
@@ -205,7 +205,7 @@ impl EnemyList {
         let is_empty = query.is_empty();
 
         for (i, entry) in entries.iter().enumerate() {
-            if !filter::entity_passes_filter(entry, filter) {
+            if !entity_passes_filter(entry, filter) {
                 continue;
             }
 

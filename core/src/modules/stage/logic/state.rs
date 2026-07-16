@@ -9,7 +9,7 @@ use nyanko::chapter::stage::ScatCpuSetting;
 use serde::{Deserialize, Serialize};
 
 use crate::modules::cat::waiter::{unitbuy, unitexplanation};
-use crate::modules::enemy::logic::scanner::EnemyEntry;
+use crate::modules::enemy::scanner::EnemyEntry;
 use crate::modules::enemy::waiter::enemyname;
 use crate::common::formats::gatyaitembuy::{self, GatyaItemBuy};
 use crate::common::formats::gatyaitemname::{self, GatyaItemName};
