@@ -3,7 +3,7 @@ use std::sync::mpsc::Receiver;
 
 use serde::{Deserialize, Serialize};
 
-use crate::modules::addons::adb::mods::ModAdbEvent;
+use crate::modules::addons::adb::ModAdbEvent;
 use crate::common::region::Region;
 
 use super::metadata::ModMetadata;

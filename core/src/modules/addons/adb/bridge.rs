@@ -4,8 +4,8 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
-use crate::modules::data::state::{AdbImportType, AdbTarget};
 use crate::common::region::Region;
+use crate::modules::data::state::{AdbImportType, AdbTarget};
 use crate::modules::settings::logic::state::EmulatorConfig;
 
 use super::driver;
@@ -77,8 +77,8 @@ fn establish_connection(emulator_config: &EmulatorConfig, status_sender: &Sender
 
     if !emulator_config.manual_ip.is_empty()
         && let Some(serial) = try_manual_ip_connection(&emulator_config.manual_ip, status_sender) {
-            return Ok((serial, None));
-        }
+        return Ok((serial, None));
+    }
 
     if let Some(serial) = try_emulator_connection(status_sender) {
         return Ok((serial, None));
@@ -172,8 +172,8 @@ fn ensure_root_access(current_serial: &mut String, status_sender: &Sender<String
         let _ = driver::connect_wireless(current_serial);
     } else if !current_serial.starts_with("emulator")
         && let Some(new_serial) = driver::find_usb_device() {
-            *current_serial = new_serial;
-        }
+        *current_serial = new_serial;
+    }
 
     let _ = status_sender.send("Waiting for device to reconnect...".to_string());
     let _ = driver::run_command(&["-s", current_serial, "wait-for-device"]);

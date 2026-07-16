@@ -1,17 +1,15 @@
-use std::path::PathBuf;
-use std::thread;
-use std::sync::mpsc::Sender;
 use std::fs;
+use std::path::PathBuf;
+use std::sync::mpsc::Sender;
+use std::thread;
+
+use crate::common::io::json;
 use crate::modules::addons::adb::driver;
+use crate::modules::data::utilities::keys;
 use crate::modules::mods::import::extract;
 use crate::modules::settings::logic::state::Settings;
-use crate::modules::data::utilities::keys;
 
-pub enum ModAdbEvent {
-    Status(String),
-    Success(String),
-    Error(String),
-}
+use super::ModAdbEvent;
 
 pub fn spawn_mod_import(tx: Sender<ModAdbEvent>, suffix: String) {
     thread::spawn(move || {
@@ -30,12 +28,15 @@ pub fn spawn_mod_import(tx: Sender<ModAdbEvent>, suffix: String) {
         };
 
         let target_dir = PathBuf::from(format!("mods/packages/{}", pkg));
-        if !target_dir.exists() { let _ = fs::create_dir_all(&target_dir); }
+        if !target_dir.exists() {
+            let _ = fs::create_dir_all(&target_dir);
+        }
 
         let _ = tx.send(ModAdbEvent::Status(format!("Pulling base.apk for {}...", pkg)));
 
         let pm_path = driver::run_command(&["-s", &serial, "shell", "pm", "path", &pkg]).unwrap_or_default();
-        let remote_path = pm_path.lines()
+        let remote_path = pm_path
+            .lines()
             .find(|line| line.contains("base.apk"))
             .unwrap_or("")
             .trim()
@@ -48,7 +49,13 @@ pub fn spawn_mod_import(tx: Sender<ModAdbEvent>, suffix: String) {
         }
 
         let local_apk_path = target_dir.join("base.apk");
-        if driver::run_command(&["-s", &serial, "pull", remote_path, local_apk_path.to_str().unwrap()]).is_err() {
+        
+        let Some(local_apk_str) = local_apk_path.to_str() else {
+            let _ = tx.send(ModAdbEvent::Error("Invalid local APK path.".to_string()));
+            return;
+        };
+
+        if driver::run_command(&["-s", &serial, "pull", remote_path, local_apk_str]).is_err() {
             let _ = tx.send(ModAdbEvent::Error("Failed to pull base.apk from device.".to_string()));
             return;
         }
@@ -63,7 +70,7 @@ pub fn spawn_mod_import(tx: Sender<ModAdbEvent>, suffix: String) {
             }
         });
 
-        let settings: Settings = crate::common::io::json::load("settings.json").unwrap_or_default();
+        let settings: Settings = json::load("settings.json").unwrap_or_default();
         let user_keys = match keys::verify(settings.game_data.enforce_key_validation, &e_tx) {
             Ok(k) => k,
             Err(e) => {

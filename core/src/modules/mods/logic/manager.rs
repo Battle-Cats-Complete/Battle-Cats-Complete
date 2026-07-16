@@ -5,7 +5,7 @@ use std::thread;
 
 use tracing::{error, info, trace, warn};
 
-use crate::modules::addons::adb::mods::{self, ModAdbEvent};
+use crate::modules::addons::adb::{ModAdbEvent, spawn_mod_import};
 use crate::modules::mods::import::{decrypt, extract};
 use super::state::{ModDataState, ModPackType};
 
@@ -75,7 +75,7 @@ pub fn start_adb_import(state: &mut ModDataState) {
 
     let (tx, rx) = mpsc::channel();
     state.import.adb_rx = Some(rx);
-    mods::spawn_mod_import(tx, state.import.package_suffix.clone());
+    spawn_mod_import(tx, state.import.package_suffix.clone());
 }
 
 pub fn start_bcm_import(state: &mut ModDataState, path: PathBuf) {
