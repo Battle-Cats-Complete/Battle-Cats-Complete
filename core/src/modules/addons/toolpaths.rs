@@ -1,19 +1,9 @@
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Clone, PartialEq, Debug)]
-pub enum AddonStatus {
-    NotInstalled,
-    Installed,
-    Downloading(f32, String),
-    Error(String),
-}
+use tracing::{debug, error};
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Presence {
-    Installed,
-    Missing,
-}
+pub use super::{AddonStatus, Presence};
 
 #[cfg(target_os = "windows")]
 pub const ADB_BIN: &str = "adb.exe";
@@ -45,7 +35,10 @@ pub fn get_tools_dir() -> PathBuf {
     };
 
     if !base_dir.exists() {
-        let _ = fs::create_dir_all(&base_dir);
+        debug!("Tools directory missing, creating at {:?}", base_dir);
+        if let Err(err) = fs::create_dir_all(&base_dir) {
+            error!("Failed to create base tools directory: {}", err);
+        }
     }
 
     base_dir

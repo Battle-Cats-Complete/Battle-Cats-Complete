@@ -6,7 +6,7 @@ use std::sync::mpsc::Receiver;
 
 use tracing::{error, info};
 
-use crate::modules::addons::manager::{self, DownloadConfig};
+use crate::modules::addons::{manager, DownloadConfig};
 use crate::modules::addons::toolpaths::{get_tools_dir, AddonStatus, APKEDITOR_JAR, JAVA_BIN};
 
 pub struct ApkeditorManager {

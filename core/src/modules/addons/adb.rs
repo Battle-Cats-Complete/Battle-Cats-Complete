@@ -8,7 +8,7 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::Duration;
 
-use crate::modules::addons::manager::{self, DownloadConfig};
+use crate::modules::addons::{manager, DownloadConfig};
 use crate::modules::addons::toolpaths::{get_tools_dir, AddonStatus, ADB_BIN};
 
 pub use bridge::execute_pull;
