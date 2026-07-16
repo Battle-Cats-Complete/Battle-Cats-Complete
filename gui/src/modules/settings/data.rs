@@ -3,10 +3,10 @@ use std::path::Path;
 
 use eframe::egui;
 
-use core::settings::logic::delete::FolderDeleter;
-use core::settings::logic::state::{GameDataSettings, RuntimeState};
+use core::modules::settings::logic::delete::FolderDeleter;
+use core::modules::settings::logic::state::{GameDataSettings, RuntimeState};
 
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 use super::tabs::toggle_ui;
 
@@ -142,7 +142,7 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GameDataSettings, runtim
     let game_exists = Path::new("game").exists();
     let raw_exists = Path::new("game/raw").exists();
 
-    let cache_directory_optional = core::global::io::cache::get_cache_dir();
+    let cache_directory_optional = core::common::io::cache::get_cache_dir();
     let cache_size = cache_directory_optional.as_ref().map(|path| get_folder_size(path)).unwrap_or(0);
     let cache_exists = cache_size > 0;
 
@@ -338,7 +338,7 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GameDataSettings, runtim
     }
 
     if show_folder_delete_modal(&context, drag_guard, "delete_cache_modal", "Are you sure you want to clear the Cache?\nIt will automatically rebuild the next time the app loads.")
-        && let Some(cache_directory) = core::global::io::cache::get_cache_dir() {
+        && let Some(cache_directory) = core::common::io::cache::get_cache_dir() {
         cache_deleter.start(cache_directory);
     }
 

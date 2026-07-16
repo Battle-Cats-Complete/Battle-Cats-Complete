@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use eframe::egui;
 
-use core::addons::toolpaths::{self, Presence};
-use core::mods::logic::manager;
-use core::mods::logic::state::{ModImportTab, ModPackType};
-use core::settings::logic::Settings;
+use core::modules::addons::toolpaths::{self, Presence};
+use core::modules::mods::logic::manager;
+use core::modules::mods::logic::state::{ModImportTab, ModPackType};
+use core::modules::settings::logic::Settings;
 
 use super::state::ModListState;
 

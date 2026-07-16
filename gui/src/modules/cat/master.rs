@@ -5,19 +5,19 @@ use eframe::egui;
 use nyanko::cat::unit::TalentCost;
 use nyanko::graphics::rig::Unit;
 
-use core::cat::logic::context::CatRenderContext;
-use core::cat::logic::scanner::CatEntry;
-use core::cat::logic::state::DetailTab;
-use core::cat::waiter::unitid;
-use core::global::context::GlobalContext;
-use core::settings::logic::Settings;
+use core::modules::cat::logic::context::CatRenderContext;
+use core::modules::cat::logic::scanner::CatEntry;
+use core::modules::cat::logic::state::DetailTab;
+use core::modules::cat::waiter::unitid;
+use core::common::context::GlobalContext;
+use core::modules::settings::logic::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
 use crate::modules::cat::statblock::build_cat_statblock;
 use crate::modules::statblock::builder::{generate_and_copy, generate_and_save};
-use crate::global::assets::CustomAssets;
-use crate::global::shared::DragGuard;
-use crate::global::sheet::SpriteSheet;
+use crate::common::assets::CustomAssets;
+use crate::common::shared::DragGuard;
+use crate::common::sheet::SpriteSheet;
 
 use super::{abilities, details, header, stats, talents, viewer};
 use super::header::ExportAction;
@@ -47,8 +47,8 @@ pub fn show(
     assets: &CustomAssets,
     drag_guard: &mut DragGuard,
 ) {
-    crate::global::img015::ensure_loaded(ctx, img015_sheets, settings);
-    crate::global::img022::ensure_loaded(ctx, img022_sheets, settings);
+    crate::common::img015::ensure_loaded(ctx, img015_sheets, settings);
+    crate::common::img022::ensure_loaded(ctx, img022_sheets, settings);
 
     let export_action = header::render(
         ctx, ui, cat_entry, current_form, current_tab, current_level, level_input, texture_cache, current_key, settings, talent_levels, talent_costs, img022_sheets
@@ -58,7 +58,7 @@ pub fn show(
     let base_stats = dynamic_stats.as_ref().and_then(|v| v.get(*current_form));
     let form_allows_talents = *current_form >= 2;
 
-    let final_stats_owned = base_stats.map(|base| core::cat::logic::stats::get_final_stats(
+    let final_stats_owned = base_stats.map(|base| core::modules::cat::logic::stats::get_final_stats(
         base,
         cat_entry.curve.as_ref(),
         *current_level,

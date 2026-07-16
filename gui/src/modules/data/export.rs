@@ -4,8 +4,8 @@ use std::thread;
 
 use eframe::egui;
 
-use core::data::leaders::export;
-use core::settings::logic::Settings;
+use core::modules::data::leaders::export;
+use core::modules::settings::logic::Settings;
 
 use crate::modules::settings::tabs::toggle_ui;
 

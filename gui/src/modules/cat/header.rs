@@ -5,14 +5,14 @@ use eframe::egui;
 use nyanko::cat::unit::TalentCost;
 use nyanko::common::data::img022;
 
-use core::cat::logic::scanner::CatEntry;
-use core::cat::logic::state::DetailTab;
-use core::cat::paths;
-use core::global::utils::autocrop;
-use core::settings::logic::Settings;
+use core::modules::cat::logic::scanner::CatEntry;
+use core::modules::cat::logic::state::DetailTab;
+use core::modules::cat::paths;
+use core::common::utils::autocrop;
+use core::modules::settings::logic::Settings;
 
-use crate::global::name_box;
-use crate::global::sheet::SpriteSheet;
+use crate::common::name_box;
+use crate::common::sheet::SpriteSheet;
 
 pub const HEADER_NP_ICON_SIZE: f32 = 24.0;
 pub const HEADER_NP_TEXT_SIZE: f32 = 20.0;
@@ -145,7 +145,7 @@ fn render_talent_controls(
     img022_sheets: &[SpriteSheet],
 ) {
     ui.vertical(|ui| {
-        let total_np = core::cat::logic::talents::get_total_np_cost(talent_data, talent_levels, talent_costs);
+        let total_np = core::modules::cat::logic::talents::get_total_np_cost(talent_data, talent_levels, talent_costs);
         
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;

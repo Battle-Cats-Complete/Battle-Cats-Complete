@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use core::settings::logic::state::CatDataSettings;
+use core::modules::settings::logic::state::CatDataSettings;
 
 use super::tabs::toggle_ui;
 

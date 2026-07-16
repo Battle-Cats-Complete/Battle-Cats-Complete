@@ -3,9 +3,9 @@ use std::path::Path;
 
 use eframe::egui;
 
-use core::settings::logic::exceptions::{ExceptionList, ExceptionRule, RuleHandling};
+use core::modules::settings::logic::exceptions::{ExceptionList, ExceptionRule, RuleHandling};
 
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 use super::tabs::toggle_ui;
 
@@ -240,7 +240,7 @@ pub fn show(context: &egui::Context, drag_guard: &mut DragGuard) {
                         let active_count = rule.languages.values().filter(|&&is_enabled| is_enabled).count();
                         inner_vertical_ui.menu_button(format!("Manage ({})", active_count), |menu_ui| {
                             egui::Grid::new(format!("lang_popup_grid_{}", index)).num_columns(2).spacing(egui::vec2(10.0, 5.0)).show(menu_ui, |menu_grid_ui| {
-                                for &(language_code, _) in core::global::io::patterns::APP_LANGUAGES {
+                                for &(language_code, _) in core::common::io::patterns::APP_LANGUAGES {
                                     if let Some(is_enabled) = rule.languages.get_mut(language_code) {
                                         menu_grid_ui.label(language_code.to_uppercase());
                                         toggle_ui(menu_grid_ui, is_enabled);

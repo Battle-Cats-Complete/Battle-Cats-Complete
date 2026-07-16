@@ -1,7 +1,7 @@
-use core::enemy::logic::abilities::collect_ability_data;
-use core::enemy::logic::context::EnemyRenderContext;
-use core::enemy::logic::scanner::EnemyEntry;
-use core::enemy::registry::{format_enemy_stat, get_enemy_stat};
+use core::modules::enemy::logic::abilities::collect_ability_data;
+use core::modules::enemy::logic::context::EnemyRenderContext;
+use core::modules::enemy::logic::scanner::EnemyEntry;
+use core::modules::enemy::registry::{format_enemy_stat, get_enemy_stat};
 
 use crate::modules::statblock::builder::{StatCell, StatblockData};
 

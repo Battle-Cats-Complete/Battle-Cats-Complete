@@ -4,10 +4,10 @@ use eframe::egui::{self, RichText};
 use nyanko::chapter::stage::{AbilityType, CannonType, EvolutionForm, CertificationPreset, TreasureType};
 use tracing::{error, warn, trace};
 
-use core::cat::waiter::unitexplanation;
-use core::global::utils::autocrop;
-use core::stage::paths;
-use core::stage::logic::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
+use core::modules::cat::waiter::unitexplanation;
+use core::common::utils::autocrop;
+use core::modules::stage::paths;
+use core::modules::stage::logic::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
 
 const ICON_SCALE: f32 = 0.45;
 const ICON_SPACING: f32 = 8.0;

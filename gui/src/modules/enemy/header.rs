@@ -1,11 +1,11 @@
 use eframe::egui;
 
-use core::enemy::logic::scanner::EnemyEntry;
-use core::enemy::logic::state::EnemyDetailTab;
-use core::enemy::registry::Magnification;
-use core::global::utils::autocrop;
+use core::modules::enemy::logic::scanner::EnemyEntry;
+use core::modules::enemy::logic::state::EnemyDetailTab;
+use core::modules::enemy::registry::Magnification;
+use core::common::utils::autocrop;
 
-use crate::global::name_box;
+use crate::common::name_box;
 
 pub const INPUT_SPACING: f32 = 4.0;
 

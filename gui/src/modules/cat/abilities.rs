@@ -1,17 +1,17 @@
 use eframe::egui;
 use nyanko::common::data::img015;
 
-use core::cat::logic::abilities;
-use core::cat::logic::context::CatRenderContext;
-use core::cat::logic::scanner::CatEntry;
-use core::cat::registry::AbilityIcon;
-use core::global::game::abilities::{
+use core::modules::cat::logic::abilities;
+use core::modules::cat::logic::context::CatRenderContext;
+use core::modules::cat::logic::scanner::CatEntry;
+use core::modules::cat::registry::AbilityIcon;
+use core::common::game::abilities::{
     AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y,
 };
 
-use crate::global::assets::CustomAssets;
-use crate::global::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};
-use crate::global::sheet::SpriteSheet;
+use crate::common::assets::CustomAssets;
+use crate::common::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};
+use crate::common::sheet::SpriteSheet;
 
 pub fn render(
     ui: &mut egui::Ui, 
@@ -19,7 +19,7 @@ pub fn render(
     cat: &CatEntry, 
     sheets: &[SpriteSheet],
     assets: &CustomAssets,
-    settings: &core::settings::logic::Settings
+    settings: &core::modules::settings::logic::Settings
 ) {
     ui.spacing_mut().item_spacing.y = 0.0;
     
@@ -66,11 +66,11 @@ pub fn render(
 }
 
 pub fn render_icon_row(
-    ui: &mut egui::Ui, 
-    items: &Vec<AbilityItem>, 
+    ui: &mut egui::Ui,
+    items: &Vec<AbilityItem>,
     sheets: &[SpriteSheet],
     border_color: egui::Color32,
-    assets: &crate::global::assets::CustomAssets,
+    assets: &crate::common::assets::CustomAssets,
 ) {
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(ABILITY_X, ABILITY_Y);
@@ -84,11 +84,11 @@ pub fn render_icon_row(
 }
 
 fn render_single_icon(
-    ui: &mut egui::Ui, 
-    item: &AbilityItem, 
+    ui: &mut egui::Ui,
+    item: &AbilityItem,
     sheets: &[SpriteSheet],
     border: egui::Color32,
-    assets: &crate::global::assets::CustomAssets,
+    assets: &crate::common::assets::CustomAssets,
 ) -> egui::Response {
     let size = egui::vec2(ICON_SIZE, ICON_SIZE);
 
@@ -119,19 +119,19 @@ fn render_single_icon(
         AbilityIcon::Standard(item.icon_id.unwrap_or(9999)) 
     };
 
-    let alt = core::cat::registry::get_fallback_by_icon(icon_enum);
+    let alt = core::modules::cat::registry::get_fallback_by_icon(icon_enum);
     render_fallback_icon(ui, alt, border)
 }
 
 pub fn render_list_view(
-    ui: &mut egui::Ui, 
-    items: &Vec<AbilityItem>, 
+    ui: &mut egui::Ui,
+    items: &Vec<AbilityItem>,
     sheets: &[SpriteSheet],
     cat_id: u32,
-    ctx: &CatRenderContext, 
+    ctx: &CatRenderContext,
     border_color: egui::Color32,
-    assets: &crate::global::assets::CustomAssets,
-    settings: &core::settings::logic::Settings
+    assets: &crate::common::assets::CustomAssets,
+    settings: &core::modules::settings::logic::Settings
 ) {
     for (i, item) in items.iter().enumerate() {
         let is_conjure = item.icon_id == Some(img015::ICON_CONJURE) && item.custom_icon == CustomIcon::None;

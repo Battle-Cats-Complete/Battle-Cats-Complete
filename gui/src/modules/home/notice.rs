@@ -1,8 +1,8 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 
-use crate::global::shared::DragGuard;
-use crate::global::utils::process_markdown;
+use crate::common::shared::DragGuard;
+use crate::common::utils::process_markdown;
 
 // NOTE: No notice will appear if NOTICE_CONTENT is empty
 pub const NOTICE_TITLE: &str = "VERSION 1.0.0 UPDATE";
@@ -32,7 +32,7 @@ pub fn check_and_show(ctx: &egui::Context, drag_guard: &mut DragGuard) {
     let current_version = env!("CARGO_PKG_VERSION").to_string();
 
     if is_open.is_none() {
-        let needs_notice = match core::global::io::json::load::<AppMeta>("meta.json") {
+        let needs_notice = match core::common::io::json::load::<AppMeta>("meta.json") {
             Some(meta) => meta.app_version != current_version,
             None => true,
         };
@@ -73,7 +73,7 @@ pub fn check_and_show(ctx: &egui::Context, drag_guard: &mut DragGuard) {
                     ctx.data_mut(|d| d.insert_temp(state_id, Some(false)));
                     
                     let new_meta = AppMeta { app_version: current_version.clone() };
-                    core::global::io::json::save("meta.json", &new_meta);
+                    core::common::io::json::save("meta.json", &new_meta);
                 }
             });
         });

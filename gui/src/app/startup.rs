@@ -2,12 +2,12 @@ use std::path::Path;
 
 use eframe::egui;
 
-use core::cat::paths as cat_paths;
-use core::cat::waiter::{skilldescriptions, skilllevel};
-use core::global::assets;
-use core::global::game::waiter::{localizable, param};
-use core::global::io::json;
-use core::settings::logic::{lang, upd::UpdateMode};
+use core::modules::cat::paths as cat_paths;
+use core::modules::cat::waiter::{skilldescriptions, skilllevel};
+use core::common::assets;
+use core::common::game::waiter::{localizable, param};
+use core::common::io::json;
+use core::modules::settings::logic::{lang, upd::UpdateMode};
 
 use crate::app::updater;
 
@@ -20,12 +20,12 @@ impl BattleCatsApp {
         crate::app::tracing::init(app.settings.general.enable_logging);
         tracing::info!("Starting initialization sequence...");
 
-        core::settings::logic::exceptions::ExceptionList::sync_on_boot();
+        core::modules::settings::logic::exceptions::ExceptionList::sync_on_boot();
 
         #[cfg(target_os = "linux")]
         {
             tracing::debug!("Syncing Linux desktop data");
-            let _ = core::settings::logic::desktop::sync_desktop_data();
+            let _ = core::modules::settings::logic::desktop::sync_desktop_data();
         }
 
         lang::ensure_complete_list(&mut app.settings.general.language_priority);
@@ -48,7 +48,7 @@ impl BattleCatsApp {
         let mut expected_hash = 0;
         let mut needs_validation = false;
 
-        if let Some((hash, cached_cats)) = core::global::io::cache::load_with_hash::<Vec<core::cat::logic::scanner::CatEntry>>("cats_cache.bin") {
+        if let Some((hash, cached_cats)) = core::common::io::cache::load_with_hash::<Vec<core::modules::cat::logic::scanner::CatEntry>>("cats_cache.bin") {
             tracing::info!("Found cats_cache.bin (Hash: {})", hash);
             expected_hash = hash;
             needs_validation = true;
@@ -69,7 +69,7 @@ impl BattleCatsApp {
             app.cat_list_state.data.restart_scan(app.settings.scanner_config());
         }
 
-        if let Some((hash, cached_enemies)) = core::global::io::cache::load_with_hash::<Vec<core::enemy::logic::scanner::EnemyEntry>>("enemies_cache.bin") {
+        if let Some((hash, cached_enemies)) = core::common::io::cache::load_with_hash::<Vec<core::modules::enemy::logic::scanner::EnemyEntry>>("enemies_cache.bin") {
             tracing::info!("Found enemies_cache.bin (Hash: {})", hash);
             expected_hash = hash;
             needs_validation = true;
@@ -80,7 +80,7 @@ impl BattleCatsApp {
             app.enemy_list_state.data.restart_scan(app.settings.scanner_config());
         }
 
-        if let Some((hash, cached_registry)) = core::global::io::cache::load_with_hash::<core::stage::registry::StageRegistry>("stages_cache.bin") {
+        if let Some((hash, cached_registry)) = core::common::io::cache::load_with_hash::<core::modules::stage::registry::StageRegistry>("stages_cache.bin") {
             tracing::info!("Found stages_cache.bin (Hash: {})", hash);
             expected_hash = hash;
             needs_validation = true;
@@ -106,10 +106,10 @@ impl BattleCatsApp {
             tracing::debug!("Spawning hash validation thread");
             let (tx, rx) = std::sync::mpsc::channel();
             app.hash_rx = Some(rx);
-            let active_mod = core::global::resolver::get_active_mod();
+            let active_mod = core::common::resolver::get_active_mod();
 
             std::thread::spawn(move || {
-                let cur_hash = core::global::io::cache::get_game_hash(active_mod.as_deref());
+                let cur_hash = core::common::io::cache::get_game_hash(active_mod.as_deref());
                 let is_valid = cur_hash == expected_hash && active_mod.is_none();
                 let _ = tx.send(is_valid);
             });

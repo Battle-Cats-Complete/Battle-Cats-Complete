@@ -1,16 +1,16 @@
 use eframe::egui;
 use nyanko::common::data::img015;
 
-use core::cat::logic::abilities;
-use core::cat::logic::context::CatRenderContext;
-use core::cat::logic::stats;
-use core::cat::waiter::unitid;
-use core::global::game::abilities::ABILITY_Y;
-use core::settings::logic::Settings;
+use core::modules::cat::logic::abilities;
+use core::modules::cat::logic::context::CatRenderContext;
+use core::modules::cat::logic::stats;
+use core::modules::cat::waiter::unitid;
+use core::common::game::abilities::ABILITY_Y;
+use core::modules::settings::logic::Settings;
 
 use crate::modules::statblock::builder::SpiritData;
-use crate::global::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};
-use crate::global::sheet::SpriteSheet;
+use crate::common::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};
+use crate::common::sheet::SpriteSheet;
 
 pub fn render_conjure_toggle(ui: &mut egui::Ui, text: &str, id: egui::Id, settings: &Settings) {
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -35,7 +35,7 @@ pub fn render_conjure_details(
     ui: &mut egui::Ui,
     ctx: &CatRenderContext,
     sheets: &[SpriteSheet],
-    assets: &crate::global::assets::CustomAssets,
+    assets: &crate::common::assets::CustomAssets,
     settings: &Settings
 ) {
     egui::Frame::none()
@@ -91,7 +91,7 @@ pub fn render_conjure_details(
                         }
                 }
                 if !drawn {
-                    let alt = core::cat::registry::get_fallback_by_icon(core::cat::registry::AbilityIcon::Standard(icon));
+                    let alt = core::modules::cat::registry::get_fallback_by_icon(core::modules::cat::registry::AbilityIcon::Standard(icon));
                     render_fallback_icon(ui, alt, spirit_border);
                 }
                 ui.label(format!("Damage {}\nRange {}", dmg, conjure_final.standing_range));
@@ -111,20 +111,20 @@ pub fn render_conjure_details(
             }
 
             if !spirit_head_1.is_empty() {
-                if prev { ui.add_space(if last_was_trait { core::global::game::abilities::TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
+                if prev { ui.add_space(if last_was_trait { core::common::game::abilities::TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
                 crate::modules::cat::abilities::render_icon_row(ui, &spirit_head_1, sheets, spirit_border, assets);
                 prev = true;
             }
 
             if !spirit_head_2.is_empty() {
-                if prev { ui.add_space(if last_was_trait { core::global::game::abilities::TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
+                if prev { ui.add_space(if last_was_trait { core::common::game::abilities::TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
                 crate::modules::cat::abilities::render_icon_row(ui, &spirit_head_2, sheets, spirit_border, assets);
                 prev = true;
             }
             
             let has_body = !spirit_body_1.is_empty() || !spirit_body_2.is_empty();
             if has_body {
-                if prev { ui.add_space(if last_was_trait { core::global::game::abilities::TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
+                if prev { ui.add_space(if last_was_trait { core::common::game::abilities::TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
                 crate::modules::cat::abilities::render_list_view(ui, &spirit_body_1, sheets, 0, &spirit_ctx, spirit_border, assets, settings);
                 if !spirit_body_1.is_empty() && !spirit_body_2.is_empty() { ui.add_space(ABILITY_Y); }
                 crate::modules::cat::abilities::render_list_view(ui, &spirit_body_2, sheets, 0, &spirit_ctx, spirit_border, assets, settings);
@@ -132,7 +132,7 @@ pub fn render_conjure_details(
             }
             
             if !spirit_footer.is_empty() {
-                if prev { ui.add_space(if last_was_trait { core::global::game::abilities::TRAIT_Y } else { ABILITY_Y }); }
+                if prev { ui.add_space(if last_was_trait { core::common::game::abilities::TRAIT_Y } else { ABILITY_Y }); }
                 crate::modules::cat::abilities::render_icon_row(ui, &spirit_footer, sheets, spirit_border, assets);
             }
         });

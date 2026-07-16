@@ -3,9 +3,9 @@ use std::path::Path;
 
 use eframe::egui;
 
-use core::settings::logic::keys::UserKeys;
+use core::modules::settings::logic::keys::UserKeys;
 
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 const COLUMN_REGION_WIDTH: f32 = 40.0;
 const COLUMN_INPUT_WIDTH: f32 = 250.0;

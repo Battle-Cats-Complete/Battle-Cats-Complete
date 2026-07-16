@@ -6,14 +6,14 @@ use nyanko::cat::abilities::get_talent;
 use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
 use nyanko::common::data::img022;
 
-use core::cat::logic::talents;
-use core::cat::paths;
-use core::global::utils::autocrop;
-use core::settings::logic::Settings;
+use core::modules::cat::logic::talents;
+use core::modules::cat::paths;
+use core::common::utils::autocrop;
+use core::modules::settings::logic::Settings;
 
-use crate::global::assets::CustomAssets;
-use crate::global::shared::render_fallback_icon;
-use crate::global::sheet::SpriteSheet;
+use crate::common::assets::CustomAssets;
+use crate::common::shared::render_fallback_icon;
+use crate::common::sheet::SpriteSheet;
 
 pub const TALENT_NP_ICON_SIZE: f32 = 20.0;
 pub const TALENT_NP_TEXT_SIZE: f32 = 18.0;
@@ -152,19 +152,19 @@ fn render_header(
             let def_opt = get_talent(group.ability_id);
 
             if let Some(def) = &def_opt {
-                let display_def = core::cat::registry::get_display_def(def.identity);
+                let display_def = core::modules::cat::registry::get_display_def(def.identity);
                 let size = egui::vec2(40.0, 40.0);
 
                 let mut drawn = false;
 
                 match display_def.icon {
-                    core::cat::registry::AbilityIcon::Custom(custom) => {
+                    core::modules::cat::registry::AbilityIcon::Custom(custom) => {
                         if let Some(tex) = assets.get_icon_texture(custom) {
                             ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)));
                             drawn = true;
                         }
                     },
-                    core::cat::registry::AbilityIcon::Standard(icon_id) => {
+                    core::modules::cat::registry::AbilityIcon::Standard(icon_id) => {
                         for sheet in sheets {
                             if let Some(cut) = sheet.core.cuts_map.get(&icon_id)
                                 && let Some(tex) = &sheet.texture_handle {
@@ -174,7 +174,7 @@ fn render_header(
                                 }
                         }
                     },
-                    core::cat::registry::AbilityIcon::None => {}
+                    core::modules::cat::registry::AbilityIcon::None => {}
                 }
 
                 if !drawn {
@@ -188,7 +188,7 @@ fn render_header(
                 ui.image((texture.id(), texture.size_vec2()));
             } else {
                 let fallback_text = match &def_opt {
-                    Some(def) => core::cat::registry::get_display_def(def.identity).name.to_string(),
+                    Some(def) => core::modules::cat::registry::get_display_def(def.identity).name.to_string(),
                     None => format!("Unknown Skill (ID: {})", group.ability_id),
                 };
                 ui.label(
@@ -369,5 +369,5 @@ fn get_or_load_skill_name(
 fn find_skill_image_path(image_id: i16, settings: &Settings) -> Option<PathBuf> {
     let dir = Path::new(paths::DIR_SKILL_NAME);
     let base_filename = format!("Skill_name_{:03}.png", image_id);
-    core::global::get(dir, [base_filename.as_str()], &settings.general.language_priority).into_iter().next()
+    core::common::get(dir, [base_filename.as_str()], &settings.general.language_priority).into_iter().next()
 }

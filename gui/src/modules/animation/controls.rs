@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use eframe::egui;
 use nyanko::graphics::rig::Animation;
 
-use core::settings::logic::state::Settings;
+use core::modules::settings::logic::state::Settings;
 
 use super::viewer::AnimViewer;
 

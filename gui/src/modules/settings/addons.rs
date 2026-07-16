@@ -2,15 +2,15 @@ use std::sync::Mutex;
 
 use eframe::egui;
 
-use core::addons::adb::download::AdbManager;
-use core::addons::apkeditor::download::ApkeditorManager;
-use core::addons::avifenc::download::AvifManager;
-use core::addons::ffmpeg::download::FfmpegManager;
+use core::modules::addons::adb::download::AdbManager;
+use core::modules::addons::apkeditor::download::ApkeditorManager;
+use core::modules::addons::avifenc::download::AvifManager;
+use core::modules::addons::ffmpeg::download::FfmpegManager;
 #[cfg(target_os = "windows")]
-use core::addons::oem::download::{OemDriver, OemManager};
-use core::addons::toolpaths::AddonStatus;
+use core::modules::addons::oem::download::{OemDriver, OemManager};
+use core::modules::addons::toolpaths::AddonStatus;
 
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 #[derive(Default, Clone)]
 pub struct AddonDeleteState {

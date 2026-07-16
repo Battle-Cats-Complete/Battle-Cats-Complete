@@ -6,9 +6,9 @@ use std::thread;
 use eframe::egui;
 use self_update::cargo_crate_version;
 
-use core::settings::logic::{upd::UpdateMode, Settings};
+use core::modules::settings::logic::{upd::UpdateMode, Settings};
 
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "battle-cats-complete";

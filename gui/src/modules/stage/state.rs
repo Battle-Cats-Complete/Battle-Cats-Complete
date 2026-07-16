@@ -4,11 +4,11 @@ use eframe::egui;
 use egui::TextureHandle;
 use serde::{Deserialize, Serialize};
 
-use core::enemy::logic::scanner::EnemyEntry;
-use core::stage::logic::filter::{CompiledStageFilter, StageFilterState};
-use core::stage::logic::state::StageDataState;
+use core::modules::enemy::logic::scanner::EnemyEntry;
+use core::modules::stage::logic::filter::{CompiledStageFilter, StageFilterState};
+use core::modules::stage::logic::state::StageDataState;
 
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 #[derive(Deserialize, Serialize, Default)]
 #[serde(default)]

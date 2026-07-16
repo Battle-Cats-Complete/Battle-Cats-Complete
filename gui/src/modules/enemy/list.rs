@@ -6,8 +6,8 @@ use std::thread;
 use eframe::egui;
 use image::imageops;
 
-use core::enemy::logic::filter::{self, EnemyFilterState};
-use core::enemy::logic::scanner::EnemyEntry;
+use core::modules::enemy::logic::filter::{self, EnemyFilterState};
+use core::modules::enemy::logic::scanner::EnemyEntry;
 
 struct LoadedImage {
     id: u32,
@@ -40,7 +40,7 @@ impl Default for EnemyList {
         let (tx_result, rx_result) = mpsc::channel::<LoadedImage>();
 
         thread::spawn(move || {
-            let bg_cache = image::load_from_memory(core::global::assets::UDI_F).ok().map(|img| img.to_rgba8());
+            let bg_cache = image::load_from_memory(core::common::assets::UDI_F).ok().map(|img| img.to_rgba8());
             let bg_cache = std::sync::Arc::new(bg_cache);
 
             while let Ok(req) = rx_request.recv() {
@@ -93,7 +93,7 @@ impl EnemyList {
         filter: &EnemyFilterState,
     ) {
         if self.placeholder_texture.is_none()
-            && let Ok(img) = image::load_from_memory(core::global::assets::UDI_F) {
+            && let Ok(img) = image::load_from_memory(core::common::assets::UDI_F) {
                 let rgba = img.to_rgba8();
                 let size = [rgba.width() as usize, rgba.height() as usize];
                 let pixels = rgba.as_flat_samples();

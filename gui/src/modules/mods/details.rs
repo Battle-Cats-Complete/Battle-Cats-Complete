@@ -2,10 +2,10 @@ use std::path::Path;
 
 use eframe::egui;
 
-use core::mods::logic::manager;
-use core::settings::logic::Settings;
+use core::modules::mods::logic::manager;
+use core::modules::settings::logic::Settings;
 
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 use super::state::ModListState;
 
@@ -60,7 +60,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut ModListState, _settings: &mut Setti
 
                 if !new_path.exists() && old_path.exists() && std::fs::rename(&old_path, &new_path).is_ok() {
                     if state.data.loaded_mods[mod_idx].enabled {
-                        core::global::resolver::set_active_mod(Some(new_name.clone()));
+                        core::common::resolver::set_active_mod(Some(new_name.clone()));
                     }
                     state.data.loaded_mods[mod_idx].folder_name = new_name.clone();
                     state.data.selected_mod = Some(new_name.clone());
@@ -181,9 +181,9 @@ pub fn render(ui: &mut egui::Ui, state: &mut ModListState, _settings: &mut Setti
             if let Some(m) = state.data.loaded_mods.iter_mut().find(|m| m.folder_name == mod_folder) {
                 m.enabled = true;
             }
-            core::global::resolver::set_active_mod(Some(mod_folder));
+            core::common::resolver::set_active_mod(Some(mod_folder));
         } else {
-            core::global::resolver::set_active_mod(None);
+            core::common::resolver::set_active_mod(None);
         }
         state.data.needs_rescan = true;
     }

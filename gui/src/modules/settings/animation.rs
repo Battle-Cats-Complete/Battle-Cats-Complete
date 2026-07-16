@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use core::settings::logic::state::AnimSettings;
+use core::modules::settings::logic::state::AnimSettings;
 
 use super::tabs::toggle_ui;
 

@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use core::settings::logic::state::EnemyDataSettings;
+use core::modules::settings::logic::state::EnemyDataSettings;
 
 use super::tabs::toggle_ui;
 

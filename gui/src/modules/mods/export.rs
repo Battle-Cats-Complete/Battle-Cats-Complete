@@ -1,10 +1,10 @@
 use eframe::egui;
 
-use core::global::region::Region;
-use core::mods::export::{apk, pack, patch};
-use core::mods::logic::{bcm, metadata};
-use core::mods::logic::state::ExportType;
-use core::settings::logic::Settings;
+use core::common::region::Region;
+use core::modules::mods::export::{apk, pack, patch};
+use core::modules::mods::logic::{bcm, metadata};
+use core::modules::mods::logic::state::ExportType;
+use core::modules::settings::logic::Settings;
 
 use super::state::ModListState;
 

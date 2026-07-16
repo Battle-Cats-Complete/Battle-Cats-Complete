@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use core::mods::logic::state::ModDataState;
+use core::modules::mods::logic::state::ModDataState;
 
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 use super::list::ModList;
 

@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use core::global::context::GlobalContext;
+use core::common::context::GlobalContext;
 
 use crate::modules::cat::state::show as show_cats;
 use crate::modules::data::manager::show as show_data;

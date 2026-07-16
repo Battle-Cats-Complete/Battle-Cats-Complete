@@ -4,13 +4,13 @@ use std::sync::atomic::Ordering;
 
 use eframe::egui;
 
-use core::cat::logic::loader as cat_loader;
-use core::cat::{paths as cat_paths, patterns as cat_patterns};
-use core::enemy::logic::loader as enemy_loader;
-use core::global::resolver;
-use core::stage::logic::filter::{EnemyFilter, StageFilterState};
+use core::modules::cat::logic::loader as cat_loader;
+use core::modules::cat::{paths as cat_paths, patterns as cat_patterns};
+use core::modules::enemy::logic::loader as enemy_loader;
+use core::common::resolver;
+use core::modules::stage::logic::filter::{EnemyFilter, StageFilterState};
 
-use crate::global::watcher::GuiWatcher;
+use crate::common::watcher::GuiWatcher;
 use crate::app::frame::Page;
 
 use super::BattleCatsApp;
@@ -202,9 +202,9 @@ impl BattleCatsApp {
             let enemies = self.enemy_list_state.data.enemies.clone();
 
             std::thread::spawn(move || {
-                let hash = core::global::io::cache::get_game_hash(None);
-                core::global::io::cache::save("cats_cache.bin", hash, &cats);
-                core::global::io::cache::save("enemies_cache.bin", hash, &enemies);
+                let hash = core::common::io::cache::get_game_hash(None);
+                core::common::io::cache::save("cats_cache.bin", hash, &cats);
+                core::common::io::cache::save("enemies_cache.bin", hash, &enemies);
             });
         }
 

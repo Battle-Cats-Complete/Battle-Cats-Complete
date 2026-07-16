@@ -5,15 +5,15 @@ use eframe::egui;
 use nyanko::graphics::rig::Unit;
 use serde::{Deserialize, Serialize};
 
-use core::cat::logic::filter::CatFilterState;
-use core::cat::logic::state::{CatDataState, DetailTab};
-use core::global::context::GlobalContext;
-use core::settings::logic::Settings;
+use core::modules::cat::logic::filter::CatFilterState;
+use core::modules::cat::logic::state::{CatDataState, DetailTab};
+use core::common::context::GlobalContext;
+use core::modules::settings::logic::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
-use crate::global::assets::CustomAssets;
-use crate::global::shared::DragGuard;
-use crate::global::sheet::SpriteSheet;
+use crate::common::assets::CustomAssets;
+use crate::common::shared::DragGuard;
+use crate::common::sheet::SpriteSheet;
 
 use super::list::CatList;
 

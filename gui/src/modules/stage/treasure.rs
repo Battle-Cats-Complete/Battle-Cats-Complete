@@ -5,11 +5,11 @@ use eframe::egui::{self,  RichText};
 use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::stage::RewardStructure;
 
-use core::global::formats::gatyaitembuy::GatyaItemBuy;
-use core::global::formats::gatyaitemname::GatyaItemName;
-use core::global::utils::autocrop;
-use core::stage::logic::treasure;
-use core::stage::registry::Stage;
+use core::common::formats::gatyaitembuy::GatyaItemBuy;
+use core::common::formats::gatyaitemname::GatyaItemName;
+use core::common::utils::autocrop;
+use core::modules::stage::logic::treasure;
+use core::modules::stage::registry::Stage;
 
 pub const TREASURE_TABLE_WIDTH: f32 = 345.0;
 

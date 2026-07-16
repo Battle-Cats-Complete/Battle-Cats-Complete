@@ -5,16 +5,16 @@ use std::sync::Arc;
 use eframe::egui;
 use nyanko::graphics::rig::Unit;
 
-use core::animation::logic::constants::{
+use core::modules::animation::logic::constants::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB,
     IDX_SURFACE, IDX_WALK,
 };
-use core::cat::logic::scanner::CatEntry;
-use core::cat::paths::{self, AnimType};
-use core::settings::logic::state::Settings;
+use core::modules::cat::logic::scanner::CatEntry;
+use core::modules::cat::paths::{self, AnimType};
+use core::modules::settings::logic::state::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 thread_local! {
     static PATH_CACHE: RefCell<(String, String, Vec<(usize, PathBuf)>, Option<(PathBuf, PathBuf, PathBuf)>, Option<(PathBuf, PathBuf, PathBuf, PathBuf)>)> = Default::default();
@@ -49,7 +49,7 @@ pub fn show(
                 let Some(parent) = p.parent() else { continue; };
                 let Some(name) = p.file_name().and_then(|n| n.to_str()) else { continue; };
 
-                if let Some(resolved) = core::global::get(parent, [name], priority).into_iter().next() {
+                if let Some(resolved) = core::common::get(parent, [name], priority).into_iter().next() {
                     available_anims.push((idx, resolved));
                 }
             }
@@ -57,7 +57,7 @@ pub fn show(
             let resolve = |p: PathBuf| {
                 let parent = p.parent()?;
                 let name = p.file_name()?.to_str()?;
-                core::global::get(parent, [name], priority).into_iter().next()
+                core::common::get(parent, [name], priority).into_iter().next()
             };
 
             let primary_assets = (|| {

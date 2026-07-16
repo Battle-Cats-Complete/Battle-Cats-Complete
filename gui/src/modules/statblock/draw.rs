@@ -6,7 +6,7 @@ use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use imageproc::rect::Rect;
 use nyanko::graphics::rig::SpriteCut;
 
-use core::global::game::abilities::{AbilityItem, CustomIcon};
+use core::common::game::abilities::{AbilityItem, CustomIcon};
 
 pub const SUPERSCRIPT_SCALE: f32 = 0.75;
 pub const SUPERSCRIPT_OFFSET_Y: f32 = 0.0;

@@ -1,13 +1,13 @@
 use eframe::egui;
 
-use core::enemy::logic::abilities;
-use core::enemy::logic::context::EnemyRenderContext;
-use core::enemy::registry;
-use core::global::game::abilities::AbilityItem;
+use core::modules::enemy::logic::abilities;
+use core::modules::enemy::logic::context::EnemyRenderContext;
+use core::modules::enemy::registry;
+use core::common::game::abilities::AbilityItem;
 
-use crate::global::assets::CustomAssets;
-use crate::global::shared::{render_fallback_icon, text_with_superscript};
-use crate::global::sheet::SpriteSheet;
+use crate::common::assets::CustomAssets;
+use crate::common::shared::{render_fallback_icon, text_with_superscript};
+use crate::common::sheet::SpriteSheet;
 
 pub const ABILITY_X: f32 = 3.0;
 pub const ABILITY_Y: f32 = 5.0;

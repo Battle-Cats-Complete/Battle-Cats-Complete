@@ -4,9 +4,9 @@ use std::hash::{Hash, Hasher};
 use eframe::egui;
 use nyanko::chapter::{Category, Map};
 
-use core::stage::logic::filter::CompiledStageFilter;
-use core::stage::logic::navigate;
-use core::stage::registry::{GlobalMapId, GlobalStageId};
+use core::modules::stage::logic::filter::CompiledStageFilter;
+use core::modules::stage::logic::navigate;
+use core::modules::stage::registry::{GlobalMapId, GlobalStageId};
 
 use super::category::CategoryExt;
 use super::state::StageListState;

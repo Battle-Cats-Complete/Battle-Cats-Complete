@@ -3,13 +3,13 @@ use std::collections::HashSet;
 use eframe::egui;
 use nyanko::cat::abilities::REGISTRY;
 
-use core::cat::logic::filter::{ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
-use core::cat::registry::{AbilityIcon, DisplayGroup};
-use core::settings::logic::Settings;
+use core::modules::cat::logic::filter::{ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
+use core::modules::cat::registry::{AbilityIcon, DisplayGroup};
+use core::modules::settings::logic::Settings;
 
-use crate::global::assets::CustomAssets;
-use crate::global::shared::DragGuard;
-use crate::global::sheet::SpriteSheet;
+use crate::common::assets::CustomAssets;
+use crate::common::shared::DragGuard;
+use crate::common::sheet::SpriteSheet;
 
 pub const WINDOW_WIDTH: f32 = 420.0;
 pub const WINDOW_HEIGHT: f32 = 400.0;
@@ -27,7 +27,7 @@ pub fn show_popup(
 ) {
     if !state.is_open { return; }
 
-    crate::global::img015::ensure_loaded(ctx, sheets, settings);
+    crate::common::img015::ensure_loaded(ctx, sheets, settings);
 
     let window_id = egui::Id::new("Cat Filter");
     let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
@@ -203,7 +203,7 @@ pub fn show_popup(
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                     for def in REGISTRY.iter() {
-                        let display_def = core::cat::registry::get_display_def(def.identity);
+                        let display_def = core::modules::cat::registry::get_display_def(def.identity);
                         if display_def.group == DisplayGroup::Trait {
                             render_filter_icon(ui, &display_def.icon, &mut state.active_icons, sheets, assets);
                         }
@@ -236,7 +236,7 @@ pub fn show_popup(
                 if check_talents {
                     let mut talent_icons = Vec::new();
                     for def in REGISTRY.iter() {
-                        let display_def = core::cat::registry::get_display_def(def.identity);
+                        let display_def = core::modules::cat::registry::get_display_def(def.identity);
                         if display_def.group == DisplayGroup::Trait { continue; }
                         if rendered_icons.contains(&display_def.icon) { continue; }
                         if ATTACK_TYPE_ICONS.contains(&display_def.icon) { continue; }
@@ -298,7 +298,7 @@ fn render_display_group(
     let mut icons_in_group = Vec::new();
 
     for def in REGISTRY.iter() {
-        let display_def = core::cat::registry::get_display_def(def.identity);
+        let display_def = core::modules::cat::registry::get_display_def(def.identity);
         if display_def.group != target_group { continue; }
         if display_def.group == DisplayGroup::Trait { continue; }
         if ATTACK_TYPE_ICONS.contains(&display_def.icon) { continue; }
@@ -309,7 +309,7 @@ fn render_display_group(
     }
 
     if target_group == DisplayGroup::Headline2 {
-        let kamikaze = AbilityIcon::Custom(core::global::game::abilities::CustomIcon::Kamikaze);
+        let kamikaze = AbilityIcon::Custom(core::common::game::abilities::CustomIcon::Kamikaze);
 
         if !icons_in_group.contains(&kamikaze) {
             icons_in_group.push(kamikaze);
@@ -358,9 +358,9 @@ fn render_filter_icon_row(
     assets: &CustomAssets,
 ) {
     let is_active = state.active_icons.contains(icon);
-    let name = core::cat::logic::filter::get_icon_name(icon);
+    let name = core::modules::cat::logic::filter::get_icon_name(icon);
 
-    let ability_def = REGISTRY.iter().find(|d| core::cat::registry::get_display_def(d.identity).icon == *icon);
+    let ability_def = REGISTRY.iter().find(|d| core::modules::cat::registry::get_display_def(d.identity).icon == *icon);
     let schema = ability_def.map(|d| d.schema).unwrap_or(&[]);
     let has_adv = !schema.is_empty();
 
@@ -444,7 +444,7 @@ fn render_filter_icon(
                     if is_active { active_icons.remove(icon); }
                     else { active_icons.insert(*icon); }
                 }
-                response.on_hover_text(core::cat::logic::filter::get_icon_name(icon));
+                response.on_hover_text(core::modules::cat::logic::filter::get_icon_name(icon));
                 return;
             }
         },
@@ -462,7 +462,7 @@ fn render_filter_icon(
                     if is_active { active_icons.remove(icon); }
                     else { active_icons.insert(*icon); }
                 }
-                response.on_hover_text(core::cat::logic::filter::get_icon_name(icon));
+                response.on_hover_text(core::modules::cat::logic::filter::get_icon_name(icon));
                 return;
             }
         },
@@ -479,5 +479,5 @@ fn render_filter_icon(
         if is_active { active_icons.remove(icon); }
         else { active_icons.insert(*icon); }
     }
-    response.on_hover_text(core::cat::logic::filter::get_icon_name(icon));
+    response.on_hover_text(core::modules::cat::logic::filter::get_icon_name(icon));
 }

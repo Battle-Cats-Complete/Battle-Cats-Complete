@@ -12,9 +12,9 @@ use imageproc::rect::Rect;
 use nyanko::common::data::img015;
 use nyanko::graphics::rig::SpriteCut;
 
-use core::global::assets;
-use core::global::game::abilities::{AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y};
-use core::global::utils::autocrop;
+use core::common::assets;
+use core::common::game::abilities::{AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y};
+use core::common::utils::autocrop;
 
 use crate::modules::statblock::draw::*;
 
@@ -209,9 +209,9 @@ fn build_statblock_image(
     let header_bg = Rgba([20, 20, 20, 255]);
     let data_bg = Rgba([60, 60, 60, 255]);
 
-    let img015_folder = core::global::io::paths::img015_folder(Path::new(""));
+    let img015_folder = core::common::io::paths::img015_folder(Path::new(""));
     let mut img015_base = RgbaImage::new(1024, 1024);
-    if let Some(resolved_path) = core::global::get(&img015_folder, ["img015.png"], priority).into_iter().next()
+    if let Some(resolved_path) = core::common::get(&img015_folder, ["img015.png"], priority).into_iter().next()
         && let Ok(loaded) = image::open(&resolved_path) { img015_base = loaded.to_rgba8(); }
 
     let mut custom_assets = HashMap::new();

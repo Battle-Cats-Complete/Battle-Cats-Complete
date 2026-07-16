@@ -5,7 +5,7 @@ use eframe::egui;
 use image::GenericImageView;
 use nyanko::cat::unit::UnitBuy;
 
-use core::global::io::paths;
+use core::common::io::paths;
 
 pub fn render(ui: &mut egui::Ui, description: &[String]) {
     ui.add_space(10.0);
@@ -210,7 +210,7 @@ fn load_material_icon_legacy(ctx: &egui::Context, id: i32, version: u64, priorit
     let file_name = expected_path.file_name()?.to_string_lossy().to_string();
     let parent_dir = expected_path.parent().unwrap_or(Path::new(""));
 
-    let paths = core::global::get(parent_dir, [file_name.as_str()], priority);
+    let paths = core::common::get(parent_dir, [file_name.as_str()], priority);
 
     let mut final_image = egui::ColorImage::new([128, 128], egui::Color32::TRANSPARENT);
     let mut loaded = false;
@@ -292,7 +292,7 @@ fn load_xp_icon_trimmed(ctx: &egui::Context, id: i32, version: u64, priority: &[
     let file_name = expected_path.file_name()?.to_string_lossy().to_string();
     let parent_dir = expected_path.parent().unwrap_or(Path::new(""));
 
-    let paths = core::global::get(parent_dir, [file_name.as_str()], priority);
+    let paths = core::common::get(parent_dir, [file_name.as_str()], priority);
 
     let mut final_image = egui::ColorImage::new([1, 1], egui::Color32::TRANSPARENT);
     let mut loaded = false;

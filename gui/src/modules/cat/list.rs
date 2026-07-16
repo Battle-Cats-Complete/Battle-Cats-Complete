@@ -7,8 +7,8 @@ use std::time::Duration;
 use eframe::egui;
 use image::imageops;
 
-use core::cat::logic::filter::{entity_passes_filter, CatFilterState};
-use core::cat::logic::scanner::CatEntry;
+use core::modules::cat::logic::filter::{entity_passes_filter, CatFilterState};
+use core::modules::cat::logic::scanner::CatEntry;
 
 struct LoadedImage {
     id: u32,
@@ -46,7 +46,7 @@ impl Default for CatList {
         let (tx_result, rx_result) = mpsc::channel::<LoadedImage>();
 
         thread::spawn(move || {
-            let bg_cache = image::load_from_memory(core::global::assets::UDI_F).ok().map(|img| img.to_rgba8());
+            let bg_cache = image::load_from_memory(core::common::assets::UDI_F).ok().map(|img| img.to_rgba8());
             let bg_cache = std::sync::Arc::new(bg_cache);
 
             while let Ok(req) = rx_request.recv() {
@@ -104,7 +104,7 @@ impl CatList {
         high_banner_quality: bool
     ) {
         if self.placeholder_texture.is_none()
-            && let Ok(img) = image::load_from_memory(core::global::assets::UDI_F) {
+            && let Ok(img) = image::load_from_memory(core::common::assets::UDI_F) {
             let rgba = img.to_rgba8();
             let size = [rgba.width() as usize, rgba.height() as usize];
             let pixels = rgba.as_flat_samples();

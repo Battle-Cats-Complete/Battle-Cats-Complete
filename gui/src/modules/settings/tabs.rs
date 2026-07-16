@@ -1,8 +1,8 @@
 use eframe::egui;
 
-use core::settings::logic::Settings;
+use core::modules::settings::logic::Settings;
 
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 pub fn show(context: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) -> bool {
     let mut refresh_needed = false;
@@ -73,7 +73,7 @@ pub fn show(context: &egui::Context, settings: &mut Settings, drag_guard: &mut D
     });
 
     if save_needed {
-        core::global::io::json::save("settings.json", &*settings);
+        core::common::io::json::save("settings.json", &*settings);
     }
 
     refresh_needed

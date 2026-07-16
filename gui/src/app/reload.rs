@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use core::global::game::waiter::{localizable, param};
+use core::common::game::waiter::{localizable, param};
 
 use super::BattleCatsApp;
 

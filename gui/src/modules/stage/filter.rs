@@ -1,8 +1,8 @@
 use eframe::egui;
 
-use core::stage::logic::filter::{EnemyFilter, LineupFilter, MaterialFilter, StageFilterState, StatRange, TreasureFilter};
+use core::modules::stage::logic::filter::{EnemyFilter, LineupFilter, MaterialFilter, StageFilterState, StatRange, TreasureFilter};
 
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 pub const WINDOW_WIDTH: f32 = 400.0;
 pub const WINDOW_HEIGHT: f32 = 500.0;

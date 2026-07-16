@@ -6,15 +6,15 @@ use std::time::Duration;
 use eframe::egui;
 use nyanko::graphics::rig::{Animation, Unit};
 
-use core::addons::toolpaths::{self, Presence};
-use core::animation::export::encoding::{EncoderStatus, ExportFormat};
-use core::animation::export::findloop;
-use core::animation::export::process::{start_export, STATUS_RX};
-use core::animation::export::state::{ExportMode, ExporterState, LoopStatus};
-use core::settings::logic::state::Settings;
+use core::modules::addons::toolpaths::{self, Presence};
+use core::modules::animation::export::encoding::{EncoderStatus, ExportFormat};
+use core::modules::animation::export::findloop;
+use core::modules::animation::export::process::{start_export, STATUS_RX};
+use core::modules::animation::export::state::{ExportMode, ExporterState, LoopStatus};
+use core::modules::settings::logic::state::Settings;
 
 use crate::modules::settings::toggle_ui;
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 const EXPORT_MODE_SPACING: f32 = 2.0;
 const CAMERA_COLUMN_WIDTH: f32 = 5.0;
@@ -497,10 +497,10 @@ fn render_content(
 
                         if state.export_mode == ExportMode::Showcase {
                             let target_indices = [
-                                core::animation::logic::constants::IDX_WALK,
-                                core::animation::logic::constants::IDX_IDLE,
-                                core::animation::logic::constants::IDX_ATTACK,
-                                core::animation::logic::constants::IDX_KB,
+                                core::modules::animation::logic::constants::IDX_WALK,
+                                core::modules::animation::logic::constants::IDX_IDLE,
+                                core::modules::animation::logic::constants::IDX_ATTACK,
+                                core::modules::animation::logic::constants::IDX_KB,
                             ];
 
                             for target_index in target_indices {

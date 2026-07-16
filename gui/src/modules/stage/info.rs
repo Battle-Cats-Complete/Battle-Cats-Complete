@@ -6,10 +6,10 @@ use nyanko::chapter::Category;
 use nyanko::chapter::map::LockSkipDataEntry;
 use nyanko::chapter::stage::ScatCpuSetting;
 
-use core::global::resolver;
-use core::global::utils::autocrop;
-use core::stage::paths;
-use core::stage::registry::{Map, Stage};
+use core::common::resolver;
+use core::common::utils::autocrop;
+use core::modules::stage::paths;
+use core::modules::stage::registry::{Map, Stage};
 
 const MAP_IMG_HEIGHT: f32 = 50.0;
 const STAGE_IMG_HEIGHT: f32 = 35.0;

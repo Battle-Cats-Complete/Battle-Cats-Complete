@@ -5,16 +5,16 @@ use std::sync::Arc;
 use eframe::egui;
 use nyanko::graphics::rig::Unit;
 
-use core::animation::logic::constants::{
+use core::modules::animation::logic::constants::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB,
     IDX_SURFACE, IDX_WALK,
 };
-use core::enemy::logic::scanner::EnemyEntry;
-use core::enemy::paths::{self, AnimType};
-use core::settings::logic::state::Settings;
+use core::modules::enemy::logic::scanner::EnemyEntry;
+use core::modules::enemy::paths::{self, AnimType};
+use core::modules::settings::logic::state::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
-use crate::global::shared::DragGuard;
+use crate::common::shared::DragGuard;
 
 thread_local! {
     static PATH_CACHE: RefCell<(String, Vec<(usize, PathBuf)>, Option<(PathBuf, PathBuf, PathBuf)>)> = Default::default();
@@ -43,7 +43,7 @@ pub fn show(
                 let parent = p.parent()?;
                 let name = p.file_name()?.to_str()?;
                 let iname = format!("i{}", name);
-                core::global::get(parent, [name, &iname], priority).into_iter().next()
+                core::common::get(parent, [name, &iname], priority).into_iter().next()
             };
 
             for idx in [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB] {

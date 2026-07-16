@@ -7,10 +7,10 @@ use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
 use nyanko::chapter::map::{BonusType, ScoreBonusMapEntry, SpecialRulesMapEntry, RuleType};
 use tracing::{debug, instrument, warn};
 
-use core::enemy::logic::scanner::EnemyEntry;
-use core::global::context::GlobalContext;
-use core::global::utils::autocrop;
-use core::stage::registry::{Map, Stage};
+use core::modules::enemy::logic::scanner::EnemyEntry;
+use core::common::context::GlobalContext;
+use core::common::utils::autocrop;
+use core::modules::stage::registry::{Map, Stage};
 
 use super::treasure::center_header;
 
@@ -215,7 +215,7 @@ pub fn draw(
     ui.label(RichText::new("Battleground").strong().heading());
     ui.separator();
 
-    let restrictions = core::stage::logic::restrictions::parse_restrictions(stage_data, selected_crown as i8, global_ctx.clone());
+    let restrictions = core::modules::stage::logic::restrictions::parse_restrictions(stage_data, selected_crown as i8, global_ctx.clone());
 
     if !restrictions.is_empty() {
         ui.add_space(4.0);

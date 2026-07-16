@@ -3,18 +3,18 @@ use std::sync::Arc;
 use eframe::egui;
 use nyanko::graphics::rig::Unit;
 
-use core::enemy::logic::context::EnemyRenderContext;
-use core::enemy::logic::scanner::{self, EnemyEntry};
-use core::enemy::logic::state::EnemyDetailTab;
-use core::enemy::registry::Magnification;
-use core::global::context::GlobalContext;
-use core::settings::logic::Settings;
+use core::modules::enemy::logic::context::EnemyRenderContext;
+use core::modules::enemy::logic::scanner::{self, EnemyEntry};
+use core::modules::enemy::logic::state::EnemyDetailTab;
+use core::modules::enemy::registry::Magnification;
+use core::common::context::GlobalContext;
+use core::modules::settings::logic::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
 use crate::modules::statblock::builder::{generate_and_copy, generate_and_save};
-use crate::global::assets::CustomAssets;
-use crate::global::shared::DragGuard;
-use crate::global::sheet::SpriteSheet;
+use crate::common::assets::CustomAssets;
+use crate::common::shared::DragGuard;
+use crate::common::sheet::SpriteSheet;
 
 use super::statblock::build_enemy_statblock;
 use super::{abilities, details, header, stats, viewer};
@@ -37,7 +37,7 @@ pub fn show(
     assets: &CustomAssets,
     drag_guard: &mut DragGuard,
 ) {
-    crate::global::img015::ensure_loaded(ctx, img015_sheets, settings);
+    crate::common::img015::ensure_loaded(ctx, img015_sheets, settings);
 
     let export_action = header::render(
         ctx, ui, enemy_entry, current_tab, mag_input, magnification, detail_texture, detail_key,

@@ -4,16 +4,16 @@ use eframe::egui;
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
 
-use core::global::io::json;
-use core::settings::logic::state::Settings;
+use core::common::io::json;
+use core::modules::settings::logic::state::Settings;
 
 use crate::modules::cat::state::CatListState;
 use crate::modules::data::state::ImportState;
 use crate::modules::enemy::state::EnemyListState;
 use crate::modules::mods::state::ModListState;
 use crate::modules::stage::state::StageListState;
-use crate::global::shared::DragGuard;
-use crate::global::watcher::GuiWatcher;
+use crate::common::shared::DragGuard;
+use crate::common::watcher::GuiWatcher;
 use updater::Updater;
 
 pub mod startup;

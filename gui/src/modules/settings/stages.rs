@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use core::settings::logic::state::{SidebarBehavior, StageDataSettings};
+use core::modules::settings::logic::state::{SidebarBehavior, StageDataSettings};
 
 pub fn show(ui_container: &mut egui::Ui, settings: &mut StageDataSettings) -> bool {
     let mut refresh_needed = false;

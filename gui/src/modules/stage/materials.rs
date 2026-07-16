@@ -3,11 +3,11 @@ use std::path::Path;
 
 use eframe::egui::{self, RichText};
 
-use core::global::formats::gatyaitembuy::GatyaItemBuy;
-use core::global::formats::gatyaitemname::GatyaItemName;
-use core::global::utils::autocrop;
-use core::stage::logic::materials;
-use core::stage::registry::{Map, Stage};
+use core::common::formats::gatyaitembuy::GatyaItemBuy;
+use core::common::formats::gatyaitemname::GatyaItemName;
+use core::common::utils::autocrop;
+use core::modules::stage::logic::materials;
+use core::modules::stage::registry::{Map, Stage};
 
 pub const MAT_TABLE_WIDTH: f32 = 345.0;
 pub const MAX_ICON_SIZE: f32 = 32.0;

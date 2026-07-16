@@ -3,13 +3,13 @@ use std::collections::HashSet;
 use eframe::egui;
 use nyanko::enemy::abilities::{Identity, REGISTRY};
 
-use core::enemy::logic::filter::{get_identity_name, ATTACK_TYPE_IDENTITIES, EnemyFilterState, MatchMode};
-use core::enemy::registry::{get_display_def, AbilityIcon, DisplayGroup};
-use core::settings::logic::state::Settings;
+use core::modules::enemy::logic::filter::{get_identity_name, ATTACK_TYPE_IDENTITIES, EnemyFilterState, MatchMode};
+use core::modules::enemy::registry::{get_display_def, AbilityIcon, DisplayGroup};
+use core::modules::settings::logic::state::Settings;
 
-use crate::global::assets::CustomAssets;
-use crate::global::shared::DragGuard;
-use crate::global::sheet::SpriteSheet;
+use crate::common::assets::CustomAssets;
+use crate::common::shared::DragGuard;
+use crate::common::sheet::SpriteSheet;
 
 pub const WINDOW_WIDTH: f32 = 420.0;
 pub const WINDOW_HEIGHT: f32 = 400.0;
@@ -25,7 +25,7 @@ pub fn show_popup(
 ) {
     if !state.is_open { return; }
 
-    crate::global::img015::ensure_loaded(ctx, sheets, settings);
+    crate::common::img015::ensure_loaded(ctx, sheets, settings);
 
     let window_id = egui::Id::new("Enemy Filter");
     let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);

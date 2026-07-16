@@ -2,7 +2,7 @@
 
 mod app;
 mod modules;
-mod global;
+mod common;
 
 use std::panic;
 use std::fs;
@@ -38,7 +38,7 @@ fn main() -> eframe::Result<()> {
 
 fn load_icon() -> egui::IconData {
     let (icon_rgba, icon_width, icon_height) = {
-        let image = image::load_from_memory(core::global::assets::ICON)
+        let image = image::load_from_memory(core::common::assets::ICON)
             .expect("Failed to open icon path")
             .into_rgba8();
 

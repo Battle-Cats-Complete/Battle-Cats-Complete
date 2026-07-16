@@ -2,10 +2,10 @@ use std::sync::atomic::Ordering;
 
 use eframe::egui;
 
-use core::settings::logic::state::{GeneralSettings, RuntimeState};
-use core::settings::logic::{lang, nightly, upd::UpdateMode};
+use core::modules::settings::logic::state::{GeneralSettings, RuntimeState};
+use core::modules::settings::logic::{lang, nightly, upd::UpdateMode};
 #[cfg(target_os = "linux")]
-use core::settings::logic::desktop;
+use core::modules::settings::logic::desktop;
 
 use super::tabs::toggle_ui;
 
