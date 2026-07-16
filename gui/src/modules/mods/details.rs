@@ -19,7 +19,7 @@ const META_LEFT_TOP_PADDING: f32 = 13.0;
 const META_LEFT_INNER_PADDING: f32 = 9.0;
 const META_LEFT_BOTTOM_PADDING: f32 = 0.0;
 
-pub fn render(ui: &mut egui::Ui, state: &mut ModListState, _settings: &mut Settings) {
+pub(crate) fn render(ui: &mut egui::Ui, state: &mut ModListState, _settings: &mut Settings) {
     let Some(selected_id) = state.data.selected_mod.clone() else {
         ui.centered_and_justified(|ui| {
             ui.label(egui::RichText::new("Please select or import a Mod").weak());

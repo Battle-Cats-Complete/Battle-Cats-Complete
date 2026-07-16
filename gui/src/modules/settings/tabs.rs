@@ -4,7 +4,7 @@ use core::modules::settings::logic::Settings;
 
 use crate::common::shared::DragGuard;
 
-pub fn show(context: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) -> bool {
+pub(crate) fn show(context: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) -> bool {
     let mut refresh_needed = false;
     let mut save_needed = false;
     let tabs = ["General", "Cats", "Enemies", "Stages", "Mods", "Data", "Animation", "Add-Ons", "About"];
@@ -79,7 +79,7 @@ pub fn show(context: &egui::Context, settings: &mut Settings, drag_guard: &mut D
     refresh_needed
 }
 
-pub fn toggle_ui(ui_container: &mut egui::Ui, on: &mut bool) -> egui::Response {
+pub(crate) fn toggle_ui(ui_container: &mut egui::Ui, on: &mut bool) -> egui::Response {
     let desired_size = ui_container.spacing().interact_size.y * egui::vec2(2.0, 1.0);
     let (allocation_rect, mut response) = ui_container.allocate_exact_size(desired_size, egui::Sense::click());
 

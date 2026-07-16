@@ -13,7 +13,7 @@ use core::modules::addons::toolpaths::AddonStatus;
 use crate::common::shared::DragGuard;
 
 #[derive(Default, Clone)]
-pub struct AddonDeleteState {
+pub(crate) struct AddonDeleteState {
     pub is_open: bool,
     pub target_name: String,
 }
@@ -26,7 +26,7 @@ static FFMPEG_MANAGER: Mutex<Option<FfmpegManager>> = Mutex::new(None);
 #[cfg(target_os = "windows")]
 static OEM_MANAGER: Mutex<Option<OemManager>> = Mutex::new(None);
 
-pub fn show(ui: &mut egui::Ui, drag_guard: &mut DragGuard) -> bool {
+pub(crate) fn show(ui: &mut egui::Ui, drag_guard: &mut DragGuard) -> bool {
     {
         let mut adb_lock = ADB_MANAGER.lock().unwrap();
         let adb_manager = adb_lock.get_or_insert_with(AdbManager::default);

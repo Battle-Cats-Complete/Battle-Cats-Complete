@@ -26,7 +26,7 @@ fn run_cargo(args: &[&str]) {
 
 fn is_lockfile_dirty() -> bool {
     let output = Command::new("git")
-        .args(&["status", "--porcelain", "Cargo.lock"])
+        .args(["status", "--porcelain", "Cargo.lock"])
         .output()
         .expect("Failed to execute git status");
 

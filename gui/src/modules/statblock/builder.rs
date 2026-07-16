@@ -19,7 +19,7 @@ use core::common::utils::autocrop;
 use crate::modules::statblock::draw::*;
 
 #[derive(Clone)]
-pub struct SpiritData {
+pub(crate) struct SpiritData {
     pub dmg_text: String,
     pub traits: Vec<AbilityItem>,
     pub h1: Vec<AbilityItem>,
@@ -30,13 +30,13 @@ pub struct SpiritData {
 }
 
 #[derive(Clone)]
-pub enum StatCell {
+pub(crate) enum StatCell {
     Text(String),
     Frames(i32),
 }
 
 #[derive(Clone)]
-pub struct StatblockData {
+pub(crate) struct StatblockData {
     pub is_cat: bool,
     pub id_str: String,
     pub name: String,
@@ -565,7 +565,7 @@ fn build_statblock_image(
     final_background_layer
 }
 
-pub fn generate_and_copy(
+pub(crate) fn generate_and_copy(
     ctx: egui::Context,
     priority: Vec<String>,
     data: StatblockData,
@@ -602,7 +602,7 @@ pub fn generate_and_copy(
     });
 }
 
-pub fn generate_and_save(
+pub(crate) fn generate_and_save(
     ctx: egui::Context,
     priority: Vec<String>,
     data: StatblockData,

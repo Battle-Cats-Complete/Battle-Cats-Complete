@@ -9,7 +9,7 @@ use core::modules::animation::export::process::calculate_export_time;
 use core::modules::animation::export::state::ExporterState;
 use core::modules::animation::logic::canvas::GlowRenderer;
 
-pub fn process_frame(
+pub(crate) fn process_frame(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     state: &mut ExporterState,

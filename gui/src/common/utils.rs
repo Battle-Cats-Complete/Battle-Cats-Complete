@@ -2,7 +2,7 @@ use eframe::egui;
 
 use core::common::utils::strip_markdown;
 
-pub fn process_markdown(ui: &mut egui::Ui, raw_text: &str) {
+pub(crate) fn process_markdown(ui: &mut egui::Ui, raw_text: &str) {
     let content = strip_markdown(raw_text);
 
     for line in content.lines() {

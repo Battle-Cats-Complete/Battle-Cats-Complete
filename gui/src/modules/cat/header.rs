@@ -14,20 +14,20 @@ use core::modules::settings::logic::Settings;
 use crate::common::name_box;
 use crate::common::sheet::SpriteSheet;
 
-pub const HEADER_NP_ICON_SIZE: f32 = 24.0;
-pub const HEADER_NP_TEXT_SIZE: f32 = 20.0;
-pub const TALENT_BTN_WIDTH: f32 = 100.0;
-pub const TALENT_BTN_HEIGHT: f32 = 23.0;
-pub const INPUT_SPACING: f32 = 4.0;
+pub(crate) const HEADER_NP_ICON_SIZE: f32 = 24.0;
+pub(crate) const HEADER_NP_TEXT_SIZE: f32 = 20.0;
+pub(crate) const TALENT_BTN_WIDTH: f32 = 100.0;
+pub(crate) const TALENT_BTN_HEIGHT: f32 = 23.0;
+pub(crate) const INPUT_SPACING: f32 = 4.0;
 
 #[derive(PartialEq)]
-pub enum ExportAction {
+pub(crate) enum ExportAction {
     None,
     Copy,
     Save,
 }
 
-pub fn render(
+pub(crate) fn render(
     ctx: &egui::Context,
     ui: &mut egui::Ui,
     cat: &CatEntry,

@@ -5,7 +5,7 @@ use core::modules::enemy::registry::{format_enemy_stat, get_enemy_stat, Magnific
 
 use crate::common::stat_grid::{grid_cell, grid_cell_custom, render_frames};
 
-pub fn render(ui: &mut egui::Ui, enemy: &EnemyEntry, magnification: Magnification) {
+pub(crate) fn render(ui: &mut egui::Ui, enemy: &EnemyEntry, magnification: Magnification) {
     let stats = &enemy.stats;
     let frames = enemy.atk_anim_frames;
 

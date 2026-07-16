@@ -8,7 +8,7 @@ use core::modules::settings::logic::Settings;
 
 use super::state::ModListState;
 
-pub fn show(context: &egui::Context, state: &mut ModListState, settings: &Settings) {
+pub(super) fn show(context: &egui::Context, state: &mut ModListState, settings: &Settings) {
     let mut is_open = state.data.export.is_open;
     let window_id = egui::Id::new("export_mod_window");
     let tracking_open_id = egui::Id::new("export_was_open");

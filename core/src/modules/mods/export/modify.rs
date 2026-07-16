@@ -401,24 +401,22 @@ pub fn inject_and_build_apk(
         let file_name = archive_file.name().to_string();
         let upper_name = file_name.to_ascii_uppercase();
 
-        if upper_name.starts_with("META-INF/") || upper_name.starts_with("META-INF\\") {
-            if upper_name.ends_with(".SF")
+        if (upper_name.starts_with("META-INF/") || upper_name.starts_with("META-INF\\"))
+            && (upper_name.ends_with(".SF")
                 || upper_name.ends_with(".RSA")
                 || upper_name.ends_with(".DSA")
                 || upper_name.ends_with(".EC")
                 || upper_name.ends_with("MANIFEST.MF")
-                || upper_name.contains("STAMP-CERT")
+                || upper_name.contains("STAMP-CERT"))
             {
                 trace!("Skipping original signature file: {}", file_name);
                 continue;
             }
-        }
 
-        if file_name.starts_with("res/") {
-            if let Some(parent) = Path::new(&file_name).parent() {
+        if file_name.starts_with("res/")
+            && let Some(parent) = Path::new(&file_name).parent() {
                 existing_res_folders.insert(parent.to_string_lossy().replace('\\', "/"));
             }
-        }
 
         if files_to_inject.contains(&file_name) { continue; }
 

@@ -81,13 +81,11 @@ fn get_skip_status(
     lock_registry: &HashMap<u32, LockSkipDataEntry>,
     cpu_setting: &ScatCpuSetting
 ) -> String {
-    if let Some(global_id) = category.global_map_id(map_id) {
-        if let Some(entry) = lock_registry.get(&global_id) {
-            if entry.excluded_map_id == global_id {
+    if let Some(global_id) = category.global_map_id(map_id)
+        && let Some(entry) = lock_registry.get(&global_id)
+            && entry.excluded_map_id == global_id {
                 return "N/A".to_string();
             }
-        }
-    }
 
     if cpu_setting.super_cpu_consume_amount > 0 {
         return format!("{} CPUs", cpu_setting.super_cpu_consume_amount);
@@ -112,9 +110,9 @@ fn get_story_stage_info(category: &Category, map_id: u32, stage_id: u32) -> Opti
         Category::IntoTheFuture => ("W", "wc"),
         Category::CatsOfTheCosmos => ("Space", "sc"),
         Category::ZombieOutbreaks => match map_id {
-            0 | 1 | 2 => ("EC", "ec"),
-            4 | 5 | 6 => ("W", "wc"),
-            7 | 8 | 9 => ("Space", "sc"),
+            0..=2 => ("EC", "ec"),
+            4..=6 => ("W", "wc"),
+            7..=9 => ("Space", "sc"),
             _ => return None,
         },
         _ => return None,
@@ -183,7 +181,7 @@ fn center_text(ui: &mut egui::Ui, display_text: impl Into<String>) {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn draw(
+pub(crate) fn draw(
     context: &egui::Context,
     ui: &mut egui::Ui,
     stage: &Stage,
@@ -204,12 +202,11 @@ pub fn draw(
 
     if !texture_cache.contains_key(&map_key) {
         let map_file = get_map_file(stage.map_id, &image_prefix);
-        if let Some(texture_path) = find_texture(&[map_directory.clone()], &[map_file], languages) {
-            if let Some(processed_image) = process_texture(&texture_path) {
+        if let Some(texture_path) = find_texture(&[map_directory.clone()], &[map_file], languages)
+            && let Some(processed_image) = process_texture(&texture_path) {
                 tracing::trace!("Caching map texture: {}", map_key);
                 texture_cache.insert(map_key.clone(), context.load_texture(&map_key, processed_image, egui::TextureOptions::LINEAR));
             }
-        }
     }
 
     if !texture_cache.contains_key(&stage_key) {
@@ -221,12 +218,11 @@ pub fn draw(
             (vec![stage_directory], vec![stage_file])
         };
 
-        if let Some(texture_path) = find_texture(&search_dirs, &files, languages) {
-            if let Some(processed_image) = process_texture(&texture_path) {
+        if let Some(texture_path) = find_texture(&search_dirs, &files, languages)
+            && let Some(processed_image) = process_texture(&texture_path) {
                 tracing::trace!("Caching stage texture: {}", stage_key);
                 texture_cache.insert(stage_key.clone(), context.load_texture(&stage_key, processed_image, egui::TextureOptions::LINEAR));
             }
-        }
     }
 
     let mut map_width = 0.0;
@@ -234,19 +230,17 @@ pub fn draw(
     let has_map = texture_cache.contains_key(&map_key);
     let has_stage = texture_cache.contains_key(&stage_key);
 
-    if has_map {
-        if let Some(cached_texture) = texture_cache.get(&map_key) {
+    if has_map
+        && let Some(cached_texture) = texture_cache.get(&map_key) {
             let texture_size = cached_texture.size_vec2();
             map_width = texture_size.x * (MAP_IMG_HEIGHT / texture_size.y);
         }
-    }
 
-    if has_stage {
-        if let Some(cached_texture) = texture_cache.get(&stage_key) {
+    if has_stage
+        && let Some(cached_texture) = texture_cache.get(&stage_key) {
             let texture_size = cached_texture.size_vec2();
             stage_width = texture_size.x * (STAGE_IMG_HEIGHT / texture_size.y);
         }
-    }
 
     let max_image_height = MAP_IMG_HEIGHT.max(STAGE_IMG_HEIGHT);
 
@@ -291,7 +285,7 @@ pub fn draw(
         2 => map.crown_3_mag.unwrap_or(100),
         3 => map.crown_4_mag.unwrap_or(100),
         _ => map.crown_1_mag.unwrap_or(100),
-    } as u32;
+    };
 
     let final_hp = if stage.anim_base_id != 0 {
         (stage.base_hp * crown_magnification) / 100

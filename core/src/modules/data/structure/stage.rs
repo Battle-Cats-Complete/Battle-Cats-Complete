@@ -201,11 +201,10 @@ impl StageMatcher {
 
                 if is_invasion {
                     path = path.join("Invasion");
-                } else if let Some(stage_cap) = caps.get(3) {
-                    if let Ok(parsed_stage) = stage_cap.as_str().parse::<u32>() {
+                } else if let Some(stage_cap) = caps.get(3)
+                    && let Ok(parsed_stage) = stage_cap.as_str().parse::<u32>() {
                         path = path.join(format!("{:02}", parsed_stage));
                     }
-                }
 
                 return Some(path);
             } else {
@@ -240,23 +239,20 @@ impl StageMatcher {
             return Some(base_dir.join("castles").join(&caps[1]));
         }
 
-        if let Some(caps) = self.bg_map.captures(target_file) {
-            if let Ok(parsed_id) = caps[1].parse::<u32>() {
+        if let Some(caps) = self.bg_map.captures(target_file)
+            && let Ok(parsed_id) = caps[1].parse::<u32>() {
                 return Some(base_dir.join("backgrounds").join("maps").join(format!("{:03}", parsed_id)));
             }
-        }
 
-        if let Some(caps) = self.bg_battle.captures(target_file) {
-            if let Ok(parsed_id) = caps[1].parse::<u32>() {
+        if let Some(caps) = self.bg_battle.captures(target_file)
+            && let Ok(parsed_id) = caps[1].parse::<u32>() {
                 return Some(base_dir.join("backgrounds").join("battle").join(format!("{:03}", parsed_id)));
             }
-        }
 
-        if let Some(caps) = self.bg_effect.captures(target_file) {
-            if let Ok(parsed_id) = caps[1].parse::<u32>() {
+        if let Some(caps) = self.bg_effect.captures(target_file)
+            && let Ok(parsed_id) = caps[1].parse::<u32>() {
                 return Some(base_dir.join("backgrounds").join("effects").join(format!("{:03}", parsed_id)));
             }
-        }
 
         if self.bg_data.is_match(target_file) {
             return Some(base_dir.join("backgrounds").join("effects").join("data"));

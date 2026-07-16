@@ -16,16 +16,16 @@ use crate::common::shared::DragGuard;
 use crate::common::watcher::GuiWatcher;
 use updater::Updater;
 
-pub mod startup;
-pub mod frame;
-pub mod reload;
-pub mod events;
-pub mod tracing;
+pub(crate) mod startup;
+pub(crate) mod frame;
+pub(crate) mod reload;
+pub(crate) mod events;
+pub(crate) mod tracing;
 mod updater;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
-pub struct BattleCatsApp {
+pub(crate) struct BattleCatsApp {
     #[serde(skip)] pub(crate) current_page: frame::Page,
     #[serde(skip)] pub(crate) sidebar_open: bool,
     #[serde(skip)] pub(crate) import_state: ImportState,

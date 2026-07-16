@@ -6,7 +6,7 @@ use nyanko::graphics::rig::{Animation, Unit};
 
 use core::modules::animation::logic::canvas::GlowRenderer;
 
-pub fn paint(
+pub(crate) fn paint(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     renderer_reference: Arc<Mutex<Option<GlowRenderer>>>,

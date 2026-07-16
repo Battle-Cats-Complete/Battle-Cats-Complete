@@ -14,7 +14,7 @@ use crate::app::updater;
 use super::BattleCatsApp;
 
 impl BattleCatsApp {
-    pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
+    pub(crate) fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         let mut app: Self = json::load("settings.json").unwrap_or_default();
 
         crate::app::tracing::init(app.settings.general.enable_logging);
@@ -42,7 +42,7 @@ impl BattleCatsApp {
         let loc_dir = Path::new("game/tables/localizable");
         let priority = &app.settings.general.language_priority;
 
-        app.param = param(tables_dir, priority).unwrap_or_else(|| Default::default());
+        app.param = param(tables_dir, priority).unwrap_or_default();
         app.localizable = localizable(loc_dir, priority);
 
         let mut expected_hash = 0;

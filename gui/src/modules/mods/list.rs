@@ -35,7 +35,7 @@ struct LoadRequest {
     ctx: egui::Context,
 }
 
-pub struct ModList {
+pub(crate) struct ModList {
     texture_cache: HashMap<String, egui::TextureHandle>,
     tx_request: Sender<LoadRequest>,
     rx_result: Receiver<LoadedImage>,
@@ -80,7 +80,7 @@ impl Default for ModList {
 }
 
 impl ModList {
-    pub fn render(&mut self, ui: &mut egui::Ui, state: &mut ModDataState, _settings: &mut Settings) {
+    pub(crate) fn render(&mut self, ui: &mut egui::Ui, state: &mut ModDataState, _settings: &mut Settings) {
         self.process_incoming_textures(ui.ctx());
         self.render_top_panel(ui, state);
 
@@ -102,7 +102,7 @@ impl ModList {
             });
     }
     
-    pub fn flush_icon(&mut self, folder_name: &str) {
+    pub(crate) fn flush_icon(&mut self, folder_name: &str) {
         self.texture_cache.remove(folder_name);
         self.missing_ids.remove(folder_name);
         self.pending_requests.remove(folder_name);

@@ -35,8 +35,8 @@ pub fn parse(
         &String::new()
     };
 
-    let mut title = strip_html_tags(&raw_title, BreakHandling::Space);
-    let mut description = strip_html_tags(&raw_desc, BreakHandling::Space);
+    let mut title = strip_html_tags(raw_title, BreakHandling::Space);
+    let mut description = strip_html_tags(raw_desc, BreakHandling::Space);
 
     if title.is_empty() && !rule.name_label.is_empty() {
         warn!(key = %rule.name_label, "missing localization for special rule title");

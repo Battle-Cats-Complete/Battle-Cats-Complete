@@ -12,7 +12,7 @@ use crate::modules::statblock::builder::SpiritData;
 use crate::common::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};
 use crate::common::sheet::SpriteSheet;
 
-pub fn render_conjure_toggle(ui: &mut egui::Ui, text: &str, id: egui::Id, settings: &Settings) {
+pub(crate) fn render_conjure_toggle(ui: &mut egui::Ui, text: &str, id: egui::Id, settings: &Settings) {
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = 7.0;
         let mut expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.cat_data.expand_spirit_details));
@@ -31,7 +31,7 @@ pub fn render_conjure_toggle(ui: &mut egui::Ui, text: &str, id: egui::Id, settin
     });
 }
 
-pub fn render_conjure_details(
+pub(crate) fn render_conjure_details(
     ui: &mut egui::Ui,
     ctx: &CatRenderContext,
     sheets: &[SpriteSheet],
@@ -138,7 +138,7 @@ pub fn render_conjure_details(
         });
 }
 
-pub fn build_spirit_data(
+pub(crate) fn build_spirit_data(
     ctx: &CatRenderContext,
     settings: &Settings
 ) -> Option<SpiritData> {

@@ -8,11 +8,11 @@ use nyanko::graphics::rig::SpriteCut;
 
 use core::common::game::abilities::{AbilityItem, CustomIcon};
 
-pub const SUPERSCRIPT_SCALE: f32 = 0.75;
-pub const SUPERSCRIPT_OFFSET_Y: f32 = 0.0;
-pub const SUPERSCRIPT_MARGIN_X: i32 = 2;
+pub(crate) const SUPERSCRIPT_SCALE: f32 = 0.75;
+pub(crate) const SUPERSCRIPT_OFFSET_Y: f32 = 0.0;
+pub(crate) const SUPERSCRIPT_MARGIN_X: i32 = 2;
 
-pub fn draw_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgba<u8>) {
+pub(crate) fn draw_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgba<u8>) {
     if r <= 0 { draw_filled_rect_mut(img, rect, color); return; }
 
     let (w, h) = (rect.width() as i32, rect.height() as i32);
@@ -31,7 +31,7 @@ pub fn draw_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgb
     imageproc::drawing::draw_filled_circle_mut(img, (x + w - 1 - r, y + h - 1 - r), r, color);
 }
 
-pub fn draw_bottom_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgba<u8>) {
+pub(crate) fn draw_bottom_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgba<u8>) {
     if r <= 0 { draw_filled_rect_mut(img, rect, color); return; }
 
     let (w, h) = (rect.width() as i32, rect.height() as i32);
@@ -48,7 +48,7 @@ pub fn draw_bottom_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, col
     imageproc::drawing::draw_filled_circle_mut(img, (x + w - 1 - r, y + h - 1 - r), r, color);
 }
 
-pub fn get_icon_image(
+pub(crate) fn get_icon_image(
     item: &AbilityItem, cuts_map: &HashMap<usize, SpriteCut>,
     img015_base: &RgbaImage, custom_assets: &HashMap<CustomIcon, RgbaImage>, export_size: u32,
 ) -> RgbaImage {
@@ -95,7 +95,7 @@ pub fn get_icon_image(
     icon
 }
 
-pub fn measure_text_with_superscript(scale: PxScale, font: &impl ab_glyph::Font, text: &str) -> u32 {
+pub(crate) fn measure_text_with_superscript(scale: PxScale, font: &impl ab_glyph::Font, text: &str) -> u32 {
     let mut total_w = 0;
     let mut parts = text.split('^');
 
@@ -118,7 +118,7 @@ pub fn measure_text_with_superscript(scale: PxScale, font: &impl ab_glyph::Font,
     total_w
 }
 
-pub fn draw_text_with_superscript(
+pub(crate) fn draw_text_with_superscript(
     img: &mut RgbaImage, color: Rgba<u8>, mut x: i32, y: i32, base_scale: PxScale, font: &impl ab_glyph::Font, text: &str,
 ) {
     let mut parts = text.split('^');
@@ -151,7 +151,7 @@ pub fn draw_text_with_superscript(
     }
 }
 
-pub fn wrap_text(text: &str, font: &impl ab_glyph::Font, scale: PxScale, max_width: f32) -> Vec<String> {
+pub(crate) fn wrap_text(text: &str, font: &impl ab_glyph::Font, scale: PxScale, max_width: f32) -> Vec<String> {
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {
         process_paragraph(paragraph, font, scale, max_width, &mut lines);
@@ -206,14 +206,14 @@ fn flush_word(line: String, word: &str, font: &impl ab_glyph::Font, scale: PxSca
     }
 }
 
-pub fn draw_centered_text(img: &mut RgbaImage, color: Rgba<u8>, rect: Rect, scale: PxScale, font: &impl ab_glyph::Font, text: &str) {
+pub(crate) fn draw_centered_text(img: &mut RgbaImage, color: Rgba<u8>, rect: Rect, scale: PxScale, font: &impl ab_glyph::Font, text: &str) {
     let (tw, _) = text_size(scale, font, text);
     let tx = rect.left() + (rect.width() as i32 - tw as i32) / 2;
     let ty = rect.top() + (rect.height() as i32 - scale.y as i32) / 2;
     draw_text_mut(img, color, tx.max(rect.left()), ty.max(rect.top()), scale, font, text);
 }
 
-pub fn draw_time_cell(
+pub(crate) fn draw_time_cell(
     img: &mut RgbaImage, bg: Rgba<u8>, rect: Rect, frames: i32, font: &impl ab_glyph::Font,
     scale_f: f32, scale_i: i32, radius: i32, text_scale: f32
 ) {

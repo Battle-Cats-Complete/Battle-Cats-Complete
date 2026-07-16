@@ -50,11 +50,10 @@ fn hash_directory_parallel(directory_path: &Path) -> u64 {
         if child_path.is_dir() {
             let subdirectory_hash = hash_directory_parallel(child_path);
             subdirectory_hash.hash(&mut local_hasher);
-        } else if let Ok(file_metadata) = child_path.metadata() {
-            if let Ok(modified_time) = file_metadata.modified() {
+        } else if let Ok(file_metadata) = child_path.metadata()
+            && let Ok(modified_time) = file_metadata.modified() {
                 modified_time.hash(&mut local_hasher);
             }
-        }
 
         local_hasher.finish()
     }).collect();

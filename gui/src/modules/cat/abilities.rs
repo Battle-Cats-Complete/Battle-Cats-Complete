@@ -13,7 +13,7 @@ use crate::common::assets::CustomAssets;
 use crate::common::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};
 use crate::common::sheet::SpriteSheet;
 
-pub fn render(
+pub(crate) fn render(
     ui: &mut egui::Ui, 
     ctx: &CatRenderContext,
     cat: &CatEntry, 
@@ -65,7 +65,7 @@ pub fn render(
     }
 }
 
-pub fn render_icon_row(
+pub(crate) fn render_icon_row(
     ui: &mut egui::Ui,
     items: &Vec<AbilityItem>,
     sheets: &[SpriteSheet],
@@ -123,7 +123,7 @@ fn render_single_icon(
     render_fallback_icon(ui, alt, border)
 }
 
-pub fn render_list_view(
+pub(crate) fn render_list_view(
     ui: &mut egui::Ui,
     items: &Vec<AbilityItem>,
     sheets: &[SpriteSheet],

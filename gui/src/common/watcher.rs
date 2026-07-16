@@ -7,13 +7,13 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 
-pub struct GuiWatcher {
+pub(crate) struct GuiWatcher {
     _watcher: RecommendedWatcher,
     pub rx: Receiver<PathBuf>,
 }
 
 impl GuiWatcher {
-    pub fn new(ctx: egui::Context) -> Option<Self> {
+    pub(crate) fn new(ctx: egui::Context) -> Option<Self> {
         let (internal_tx, internal_rx) = channel();
         let (final_tx, final_rx) = channel();
 
@@ -33,12 +33,11 @@ impl GuiWatcher {
                     }
 
                     let components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase()).collect();
-                    if let Some(mods_idx) = components.iter().position(|c| c == "mods") {
-                        if let Some(sub_folder) = components.get(mods_idx + 2)
+                    if let Some(mods_idx) = components.iter().position(|c| c == "mods")
+                        && let Some(sub_folder) = components.get(mods_idx + 2)
                             && sub_folder != "patch" && sub_folder != "icons" && sub_folder != "loose" {
                             continue;
                         }
-                    }
 
                     let _ = internal_tx.send(path);
                 }

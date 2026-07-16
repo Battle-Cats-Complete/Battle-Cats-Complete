@@ -1,6 +1,6 @@
 use nyanko::chapter::Category;
 
-pub trait CategoryExt {
+pub(crate) trait CategoryExt {
     fn display_name(&self) -> &str;
     fn sort_order(&self) -> u32;
 }

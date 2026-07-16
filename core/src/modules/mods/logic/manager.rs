@@ -241,7 +241,7 @@ fn copy_dir_all_with_log(
     interval: usize,
     processed: &mut usize
 ) -> std::io::Result<()> {
-    fs::create_dir_all(&dst)?;
+    fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
@@ -251,7 +251,7 @@ fn copy_dir_all_with_log(
             fs::copy(entry.path(), dst.join(entry.file_name()))?;
             *processed += 1;
 
-            if *processed % interval == 0 || *processed == total {
+            if (*processed).is_multiple_of(interval) || *processed == total {
                 let name = entry.file_name().to_string_lossy().into_owned();
                 let display_name = format_log_name(&name, &entry.path());
                 trace!("Copied folder content: {}", display_name);

@@ -6,7 +6,7 @@ use core::modules::settings::logic::state::Settings;
 
 use crate::common::sheet::SpriteSheet;
 
-pub fn ensure_loaded(ctx: &egui::Context, sheets: &mut Vec<SpriteSheet>, settings: &Settings) {
+pub(crate) fn ensure_loaded(ctx: &egui::Context, sheets: &mut Vec<SpriteSheet>, settings: &Settings) {
     let base_dir = paths::img015_folder(std::path::Path::new(""));
 
     let png_paths = resolver::get(&base_dir, ["img015.png"], &settings.general.language_priority);

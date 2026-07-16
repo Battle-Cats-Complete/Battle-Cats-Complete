@@ -4,11 +4,11 @@ use core::modules::stage::logic::filter::{EnemyFilter, LineupFilter, MaterialFil
 
 use crate::common::shared::DragGuard;
 
-pub const WINDOW_WIDTH: f32 = 400.0;
-pub const WINDOW_HEIGHT: f32 = 500.0;
-pub const TILDE_SPACING: f32 = 5.0;
+pub(crate) const WINDOW_WIDTH: f32 = 400.0;
+pub(crate) const WINDOW_HEIGHT: f32 = 500.0;
+pub(crate) const TILDE_SPACING: f32 = 5.0;
 
-pub fn show_popup(
+pub(crate) fn show_popup(
     ctx: &egui::Context,
     state: &mut StageFilterState,
     drag_guard: &mut DragGuard,

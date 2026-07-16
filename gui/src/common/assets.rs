@@ -4,7 +4,7 @@ use core::common::assets::*;
 use core::common::game::abilities::CustomIcon;
 
 #[derive(Clone)]
-pub struct CustomAssets {
+pub(crate) struct CustomAssets {
     pub multihit: egui::TextureHandle,
     pub kamikaze: egui::TextureHandle,
     pub boss_wave: egui::TextureHandle,
@@ -20,7 +20,7 @@ pub struct CustomAssets {
 }
 
 impl CustomAssets {
-    pub fn new(ctx: &egui::Context) -> Self {
+    pub(crate) fn new(ctx: &egui::Context) -> Self {
         let load = |name: &str, bytes: &[u8]| {
             let img = image::load_from_memory(bytes).expect("Failed to load embedded asset");
             let rgba = img.to_rgba8();
@@ -47,7 +47,7 @@ impl CustomAssets {
         }
     }
 
-    pub fn get_icon_texture(&self, icon: CustomIcon) -> Option<&egui::TextureHandle> {
+    pub(crate) fn get_icon_texture(&self, icon: CustomIcon) -> Option<&egui::TextureHandle> {
         match icon {
             CustomIcon::Multihit => Some(&self.multihit),
             CustomIcon::Kamikaze => Some(&self.kamikaze),

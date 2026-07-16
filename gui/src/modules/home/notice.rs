@@ -5,8 +5,8 @@ use crate::common::shared::DragGuard;
 use crate::common::utils::process_markdown;
 
 // NOTE: No notice will appear if NOTICE_CONTENT is empty
-pub const NOTICE_TITLE: &str = "VERSION 1.0.0 UPDATE";
-pub const NOTICE_CONTENT: &str = r#"
+pub(crate) const NOTICE_TITLE: &str = "VERSION 1.0.0 UPDATE";
+pub(crate) const NOTICE_CONTENT: &str = r#"
 Battle Cats Complete has officially hit version 1.0.0! Featuring Cat stats, Enemy stats, Animations, Stages, and Mods!
 
 You will have to re-sort your database to allow stages to be parsed correctly. If you have a pre-existing database go to "Data" page, select "Raw" import type, change the drop down from "Archive" to "Folder" (if it isnt already), and select your "game" folder for import.
@@ -21,7 +21,7 @@ struct AppMeta {
     app_version: String,
 }
 
-pub fn check_and_show(ctx: &egui::Context, drag_guard: &mut DragGuard) {
+pub(crate) fn check_and_show(ctx: &egui::Context, drag_guard: &mut DragGuard) {
     if NOTICE_CONTENT.trim().is_empty() {
         return;
     }

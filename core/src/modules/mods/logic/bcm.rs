@@ -106,15 +106,14 @@ fn count_target_files(source_dir: &Path, target_directories: &[&str]) -> usize {
     let mut count = 0;
     for dir_name in target_directories {
         let dir_path = source_dir.join(dir_name);
-        if dir_path.is_dir() {
-            if let Ok(entries) = fs::read_dir(&dir_path) {
+        if dir_path.is_dir()
+            && let Ok(entries) = fs::read_dir(&dir_path) {
                 for entry in entries.flatten() {
                     if entry.path().is_file() {
                         count += 1;
                     }
                 }
             }
-        }
     }
     count
 }
@@ -237,7 +236,7 @@ fn write_flat_directory_to_zip(
 
             *processed_files += 1;
 
-            if *processed_files % log_interval == 0 || *processed_files == total_files {
+            if (*processed_files).is_multiple_of(log_interval) || *processed_files == total_files {
                 log_callback(format!("Packed {} files | Streaming: {}", *processed_files, file_name));
             }
         }

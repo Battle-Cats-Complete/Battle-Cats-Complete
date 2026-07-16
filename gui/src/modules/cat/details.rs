@@ -7,7 +7,7 @@ use nyanko::cat::unit::UnitBuy;
 
 use core::common::io::paths;
 
-pub fn render(ui: &mut egui::Ui, description: &[String]) {
+pub(crate) fn render(ui: &mut egui::Ui, description: &[String]) {
     ui.add_space(10.0);
     ui.vertical_centered(|ui| {
         ui.heading(egui::RichText::new("Description").size(20.0).strong());
@@ -30,7 +30,7 @@ pub fn render(ui: &mut egui::Ui, description: &[String]) {
     });
 }
 
-pub fn render_evolve(
+pub(crate) fn render_evolve(
     ui: &mut egui::Ui, 
     ctx: &egui::Context,
     unit_buy: &UnitBuy, 

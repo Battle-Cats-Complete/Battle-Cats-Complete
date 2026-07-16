@@ -26,7 +26,7 @@ fn load_cat_icon(path: &std::path::Path) -> Option<egui::ColorImage> {
     Some(egui::ColorImage::from_rgba_unmultiplied(dimensions, cropped_image.as_flat_samples().as_slice()))
 }
 
-pub fn draw(
+pub(crate) fn draw(
     context: &egui::Context,
     ui: &mut egui::Ui,
     resolved_lineup: &ResolvedFixedLineup,
@@ -144,7 +144,7 @@ fn draw_slot(
     });
 
     let mut display_name = format!("Unit {}", padded_id);
-    if let Some(Some(name)) = explanation.names.get(form_index).or_else(|| explanation.names.get(0)) {
+    if let Some(Some(name)) = explanation.names.get(form_index).or_else(|| explanation.names.first()) {
         display_name = name.clone();
     }
 

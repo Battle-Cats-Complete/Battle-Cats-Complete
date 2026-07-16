@@ -7,7 +7,7 @@ use core::modules::settings::logic::Settings;
 
 use super::{export, import, state::ImportState};
 
-pub fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings) {
+pub(crate) fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings) {
     ui.vertical(|ui| {
 
         ui.horizontal(|ui| {

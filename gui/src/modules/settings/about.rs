@@ -5,7 +5,7 @@ const SPACING_AFTER_TITLE: f32 = 2.0;
 const SPACING_AFTER_SUBTITLE: f32 = 12.0;
 const SPACING_AFTER_HEADER: f32 = 4.0;
 
-pub fn show(ui: &mut egui::Ui) -> bool {
+pub(super) fn show(ui: &mut egui::Ui) -> bool {
     ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 
     ui.vertical(|ui| {

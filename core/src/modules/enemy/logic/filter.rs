@@ -134,25 +134,22 @@ pub fn entity_passes_filter(enemy: &EnemyEntry, filter: &EnemyFilterState) -> bo
                             .map(|(_, v, _)| *v)
                             .unwrap_or(0);
 
-                        if let Some(def) = ability_def {
-                            if def.minus_one_is_inf && val == -1 {
+                        if let Some(def) = ability_def
+                            && def.minus_one_is_inf && val == -1 {
                                 val = i32::MAX;
                             }
-                        }
 
-                        if let Ok(min) = range.min.parse::<i32>() {
-                            if val < min {
+                        if let Ok(min) = range.min.parse::<i32>()
+                            && val < min {
                                 build_passed_all_attrs = false;
                                 break;
                             }
-                        }
 
-                        if let Ok(max) = range.max.parse::<i32>() {
-                            if val > max {
+                        if let Ok(max) = range.max.parse::<i32>()
+                            && val > max {
                                 build_passed_all_attrs = false;
                                 break;
                             }
-                        }
                     }
 
                     if build_passed_all_attrs {

@@ -7,16 +7,16 @@ use core::common::utils::autocrop;
 
 use crate::common::name_box;
 
-pub const INPUT_SPACING: f32 = 4.0;
+pub(crate) const INPUT_SPACING: f32 = 4.0;
 
 #[derive(PartialEq)]
-pub enum ExportAction {
+pub(crate) enum ExportAction {
     None,
     Copy,
     Save,
 }
 
-pub fn render(
+pub(crate) fn render(
     ctx: &egui::Context,
     ui: &mut egui::Ui,
     enemy: &EnemyEntry,

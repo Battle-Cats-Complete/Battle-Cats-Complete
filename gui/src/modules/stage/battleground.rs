@@ -93,7 +93,7 @@ fn format_special_rule(rule: &SpecialRulesMapEntry, global_ctx: &GlobalContext) 
         &String::new()
     };
 
-    let mut description = strip_html_tags(&raw_description, BreakHandling::Space);
+    let mut description = strip_html_tags(raw_description, BreakHandling::Space);
 
     if description.is_empty() {
         let mut fallback = String::new();
@@ -149,7 +149,7 @@ fn format_score_bonus(score_bonus: &ScoreBonusMapEntry, global_ctx: &GlobalConte
     };
 
     let raw_description = global_ctx.localizable.lookup(lookup_key).unwrap_or_default();
-    let mut description = strip_html_tags(&raw_description, BreakHandling::Space);
+    let mut description = strip_html_tags(raw_description, BreakHandling::Space);
 
     if description.is_empty() {
         description = format!("【{}】 Localization data missing.", lookup_key);
@@ -201,7 +201,7 @@ fn center_enemy_text(ui: &mut egui::Ui, display_text: impl Into<String>) {
 }
 
 #[instrument(skip_all, fields(stage_id = %stage_data.stage_id))]
-pub fn draw(
+pub(crate) fn draw(
     egui_context: &egui::Context,
     ui: &mut egui::Ui,
     stage_data: &Stage,
@@ -215,7 +215,7 @@ pub fn draw(
     ui.label(RichText::new("Battleground").strong().heading());
     ui.separator();
 
-    let restrictions = core::modules::stage::logic::restrictions::parse_restrictions(stage_data, selected_crown as i8, global_ctx.clone());
+    let restrictions = core::modules::stage::logic::restrictions::parse_restrictions(stage_data, selected_crown as i8, global_ctx);
 
     if !restrictions.is_empty() {
         ui.add_space(4.0);

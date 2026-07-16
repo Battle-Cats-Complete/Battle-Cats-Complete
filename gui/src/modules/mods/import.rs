@@ -11,7 +11,7 @@ use super::state::ModListState;
 
 const PACKAGE_INPUT_PADDING: f32 = 5.0;
 
-pub fn show(ctx: &egui::Context, state: &mut ModListState, settings: &Settings) {
+pub(crate) fn show(ctx: &egui::Context, state: &mut ModListState, settings: &Settings) {
     let mut is_open = state.data.import.is_open;
     let window_id = egui::Id::new("import_mod_window");
 
@@ -125,12 +125,11 @@ fn show_bcm_view(ui: &mut egui::Ui, state: &mut ModListState) {
 
     ui.horizontal(|ui| {
         let enabled = !state.data.import.is_busy;
-        if ui.add_enabled(enabled, egui::Button::new("Select Archive")).clicked() {
-            if let Some(p) = rfd::FileDialog::new().add_filter("Archive", &["bcm", "zip"]).pick_file() {
+        if ui.add_enabled(enabled, egui::Button::new("Select Archive")).clicked()
+            && let Some(p) = rfd::FileDialog::new().add_filter("Archive", &["bcm", "zip"]).pick_file() {
                 selected_path = Some(p.clone());
                 ui.data_mut(|d| d.insert_temp(path_id, Some(p)));
             }
-        }
 
         let label_text = if let Some(p) = &selected_path {
             crate::modules::data::state::censor_path(&p.to_string_lossy())

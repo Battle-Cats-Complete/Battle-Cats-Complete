@@ -29,7 +29,7 @@ impl Default for ManageKeysState {
     }
 }
 
-pub fn open(context: &egui::Context) {
+pub(crate) fn open(context: &egui::Context) {
     let state_id = egui::Id::new("manage_keys_state");
     let mut state = context.data(|data_map| data_map.get_temp::<ManageKeysState>(state_id)).unwrap_or_default();
     state.is_open = true;
@@ -37,7 +37,7 @@ pub fn open(context: &egui::Context) {
     context.data_mut(|data_map| data_map.insert_temp(state_id, state));
 }
 
-pub fn show(context: &egui::Context, drag_guard: &mut DragGuard) {
+pub(crate) fn show(context: &egui::Context, drag_guard: &mut DragGuard) {
     let state_id = egui::Id::new("manage_keys_state");
     let mut state = context.data(|data_map| data_map.get_temp::<ManageKeysState>(state_id)).unwrap_or_default();
 

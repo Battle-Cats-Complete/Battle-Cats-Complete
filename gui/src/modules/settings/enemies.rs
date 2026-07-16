@@ -4,7 +4,7 @@ use core::modules::settings::logic::state::EnemyDataSettings;
 
 use super::tabs::toggle_ui;
 
-pub fn show(ui: &mut egui::Ui, settings: &mut EnemyDataSettings) -> bool {
+pub(crate) fn show(ui: &mut egui::Ui, settings: &mut EnemyDataSettings) -> bool {
     let mut refresh_needed = false;
     egui::ScrollArea::vertical()
         .id_salt("enemy_data_scroll")

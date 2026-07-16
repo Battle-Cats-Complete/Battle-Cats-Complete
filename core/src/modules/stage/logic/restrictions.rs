@@ -40,7 +40,7 @@ pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) 
         stage.rarity_mask
     };
 
-    if let Some(rarity_str) = parse_rarity_mask(effective_rarity_mask, ctx.clone()) {
+    if let Some(rarity_str) = parse_rarity_mask(effective_rarity_mask, ctx) {
         debug!(mask = effective_rarity_mask, "parsed rarity restriction");
         restrictions.push(rarity_str);
     }
@@ -48,7 +48,7 @@ pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) 
     if stage.deploy_limit > 0 {
         trace!(limit = stage.deploy_limit, "adding deploy limit restriction");
         let raw_str = ctx.localizable.lookup("stage_restriction_limit_2").unwrap_or_default();
-        let clean_str = strip_html_tags(&raw_str, BreakHandling::Space);
+        let clean_str = strip_html_tags(raw_str, BreakHandling::Space);
 
         if !clean_str.is_empty() {
             restrictions.push(clean_str.replace("%d", &stage.deploy_limit.to_string()));
@@ -60,7 +60,7 @@ pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) 
     if stage.allowed_rows > 0 {
         trace!(rows = stage.allowed_rows, "adding row restriction");
         let raw_str = ctx.localizable.lookup("stage_restriction_limit_3").unwrap_or_default();
-        let clean_str = strip_html_tags(&raw_str, BreakHandling::Space);
+        let clean_str = strip_html_tags(raw_str, BreakHandling::Space);
 
         if !clean_str.is_empty() {
             restrictions.push(clean_str.replace("%d", &stage.allowed_rows.to_string()));
@@ -75,10 +75,10 @@ pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) 
     } else if stage.min_cost > 0 {
         trace!(min = stage.min_cost, "adding min cost restriction");
         let raw_cost = ctx.localizable.lookup("stage_restriction_cost_over").unwrap_or_default();
-        let clean_cost = strip_html_tags(&raw_cost, BreakHandling::Space).replace("%d", &stage.min_cost.to_string());
+        let clean_cost = strip_html_tags(raw_cost, BreakHandling::Space).replace("%d", &stage.min_cost.to_string());
 
         let raw_base = ctx.localizable.lookup("stage_restriction_limit_4").unwrap_or_default();
-        let clean_base = strip_html_tags(&raw_base, BreakHandling::Space);
+        let clean_base = strip_html_tags(raw_base, BreakHandling::Space);
 
         if !clean_base.is_empty() && !clean_cost.is_empty() {
             restrictions.push(clean_base.replace("%@", &clean_cost));
@@ -88,10 +88,10 @@ pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) 
     } else if stage.max_cost > 0 {
         trace!(max = stage.max_cost, "adding max cost restriction");
         let raw_cost = ctx.localizable.lookup("stage_restriction_cost_under").unwrap_or_default();
-        let clean_cost = strip_html_tags(&raw_cost, BreakHandling::Space).replace("%d", &stage.max_cost.to_string());
+        let clean_cost = strip_html_tags(raw_cost, BreakHandling::Space).replace("%d", &stage.max_cost.to_string());
 
         let raw_base = ctx.localizable.lookup("stage_restriction_limit_4").unwrap_or_default();
-        let clean_base = strip_html_tags(&raw_base, BreakHandling::Space);
+        let clean_base = strip_html_tags(raw_base, BreakHandling::Space);
 
         if !clean_base.is_empty() && !clean_cost.is_empty() {
             restrictions.push(clean_base.replace("%@", &clean_cost));
@@ -101,7 +101,7 @@ pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) 
     }
 
     if let Some(charagroup) = &stage.charagroup {
-        if let Some(group_str) = parse_charagroup(charagroup, ctx.clone()) {
+        if let Some(group_str) = parse_charagroup(charagroup, ctx) {
             debug!("parsed charagroup restriction");
             restrictions.push(group_str);
         } else {
@@ -143,7 +143,7 @@ fn parse_rarity_mask(mask: u8, ctx: GlobalContext) -> Option<String> {
     };
 
     let raw_str = ctx.localizable.lookup("stage_restriction_limit_1").unwrap_or_default();
-    let clean_str = strip_html_tags(&raw_str, BreakHandling::Space);
+    let clean_str = strip_html_tags(raw_str, BreakHandling::Space);
 
     if !clean_str.is_empty() {
         Some(clean_str.replace("%@", &rarity_list))
@@ -164,7 +164,7 @@ fn parse_charagroup(group: &CharaGroupEntry, ctx: GlobalContext) -> Option<Strin
 
     let group_key = format!("stage_restriction_charagroup_{}", group.id);
     let raw_group_name = ctx.localizable.lookup(&group_key).unwrap_or_default();
-    let mut group_name = strip_html_tags(&raw_group_name, BreakHandling::Space);
+    let mut group_name = strip_html_tags(raw_group_name, BreakHandling::Space);
 
     if group_name.is_empty() {
         group_name = format!("{}: {} units", group_key, group.units.len());
@@ -173,7 +173,7 @@ fn parse_charagroup(group: &CharaGroupEntry, ctx: GlobalContext) -> Option<Strin
     let combined_val = format!("{} {}", mode_str, group_name);
 
     let raw_base = ctx.localizable.lookup("stage_restriction_limit_5").unwrap_or_default();
-    let clean_base = strip_html_tags(&raw_base, BreakHandling::Space);
+    let clean_base = strip_html_tags(raw_base, BreakHandling::Space);
 
     if !clean_base.is_empty() {
         Some(clean_base.replace("%@", &combined_val))

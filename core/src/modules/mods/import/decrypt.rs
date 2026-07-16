@@ -89,7 +89,7 @@ pub fn run(pack_file: &Path, workspace_dir: &Path, status_sender: Sender<String>
 
             let current = extracted_count.fetch_add(1, Ordering::Relaxed) + 1;
 
-            if current % log_interval == 0 || current == total_entries {
+            if current.is_multiple_of(log_interval) || current == total_entries {
                 let path = Path::new(&entry.name);
                 let file_name = path.file_name().unwrap_or_default().to_string_lossy();
                 let display_name = format_log_name(&file_name, path);

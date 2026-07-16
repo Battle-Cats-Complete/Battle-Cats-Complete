@@ -1,8 +1,8 @@
 use eframe::egui;
 
-pub const ICON_SIZE: f32 = 40.0;
+pub(crate) const ICON_SIZE: f32 = 40.0;
 
-pub fn paint_fallback_at(ui: &mut egui::Ui, rect: egui::Rect, text: &str, border_color: egui::Color32) {
+pub(crate) fn paint_fallback_at(ui: &mut egui::Ui, rect: egui::Rect, text: &str, border_color: egui::Color32) {
     if !ui.is_rect_visible(rect) { return; }
 
     ui.painter().rect_stroke(
@@ -20,14 +20,14 @@ pub fn paint_fallback_at(ui: &mut egui::Ui, rect: egui::Rect, text: &str, border
     );
 }
 
-pub fn render_fallback_icon(ui: &mut egui::Ui, text: &str, border_color: egui::Color32) -> egui::Response {
+pub(crate) fn render_fallback_icon(ui: &mut egui::Ui, text: &str, border_color: egui::Color32) -> egui::Response {
     let size = egui::vec2(40.0, 40.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
     paint_fallback_at(ui, rect, text, border_color);
     response
 }
 
-pub fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
+pub(crate) fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
     if !text.contains('^') {
         ui.label(text);
         return;
@@ -81,12 +81,12 @@ pub fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
 }
 
 #[derive(Default)]
-pub struct DragGuard {
+pub(crate) struct DragGuard {
     broken: bool,
 }
 
 impl DragGuard {
-    pub fn update(&mut self, ctx: &egui::Context) -> bool {
+    pub(crate) fn update(&mut self, ctx: &egui::Context) -> bool {
         let screen_rect = ctx.screen_rect();
         let (pointer_pos, mouse_down) = ctx.input(|i| {
             (i.pointer.interact_pos(), i.pointer.primary_down())
@@ -102,12 +102,12 @@ impl DragGuard {
         in_window && !self.broken
     }
 
-    pub fn assign_bounds(&mut self, ctx: &egui::Context, window_id: egui::Id) -> (bool, Option<egui::Pos2>) {
+    pub(crate) fn assign_bounds(&mut self, ctx: &egui::Context, window_id: egui::Id) -> (bool, Option<egui::Pos2>) {
         (self.update(ctx), clamp_window_to_screen(ctx, window_id))
     }
 }
 
-pub fn clamp_window_to_screen(ctx: &egui::Context, window_id: egui::Id) -> Option<egui::Pos2> {
+pub(crate) fn clamp_window_to_screen(ctx: &egui::Context, window_id: egui::Id) -> Option<egui::Pos2> {
     if let Some(rect) = ctx.memory(|mem| mem.area_rect(window_id)) {
         let screen_rect = ctx.screen_rect();
         let mut new_pos = rect.min;

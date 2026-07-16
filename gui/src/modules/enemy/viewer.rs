@@ -20,7 +20,7 @@ thread_local! {
     static PATH_CACHE: RefCell<(String, Vec<(usize, PathBuf)>, Option<(PathBuf, PathBuf, PathBuf)>)> = Default::default();
 }
 
-pub fn show(
+pub(crate) fn show(
     ui: &mut egui::Ui,
     ctx: &egui::Context,
     enemy_entry: &EnemyEntry,

@@ -123,7 +123,7 @@ fn show_folder_delete_modal(
     yes_clicked
 }
 
-pub fn show(ui_container: &mut egui::Ui, settings: &mut GameDataSettings, runtime: &mut RuntimeState, drag_guard: &mut DragGuard) -> bool {
+pub(crate) fn show(ui_container: &mut egui::Ui, settings: &mut GameDataSettings, runtime: &mut RuntimeState, drag_guard: &mut DragGuard) -> bool {
     let mut refresh_needed = false;
     let context = ui_container.ctx().clone();
 

@@ -2,7 +2,7 @@ use eframe::egui;
 
 use core::modules::settings::logic::state::{SidebarBehavior, StageDataSettings};
 
-pub fn show(ui_container: &mut egui::Ui, settings: &mut StageDataSettings) -> bool {
+pub(crate) fn show(ui_container: &mut egui::Ui, settings: &mut StageDataSettings) -> bool {
     let mut refresh_needed = false;
 
     egui::ScrollArea::vertical()

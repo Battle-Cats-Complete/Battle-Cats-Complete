@@ -1,6 +1,6 @@
 use eframe::egui;
 
-pub fn render(ui: &mut egui::Ui, description: &[String]) {
+pub(crate) fn render(ui: &mut egui::Ui, description: &[String]) {
     ui.add_space(10.0);
     ui.vertical_centered(|ui| {
         ui.heading(egui::RichText::new("Description").size(20.0).strong());

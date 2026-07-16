@@ -11,7 +11,7 @@ use core::common::utils::autocrop;
 use core::modules::stage::logic::treasure;
 use core::modules::stage::registry::Stage;
 
-pub const TREASURE_TABLE_WIDTH: f32 = 345.0;
+pub(crate) const TREASURE_TABLE_WIDTH: f32 = 345.0;
 
 fn format_drop_chance(raw_chance: u32, drop_rule: i32) -> String {
     if drop_rule == -3 || drop_rule == -4 {
@@ -56,20 +56,20 @@ fn format_treasure_rule(drop_rule: i32) -> &'static str {
     }
 }
 
-pub fn center_header(ui: &mut egui::Ui, display_text: &str) {
+pub(crate) fn center_header(ui: &mut egui::Ui, display_text: &str) {
     ui.centered_and_justified(|ui| {
         ui.add(egui::Label::new(RichText::new(display_text).strong()).wrap_mode(egui::TextWrapMode::Extend));
     });
 }
 
-pub fn center_text(ui: &mut egui::Ui, display_text: impl Into<String>) {
+pub(crate) fn center_text(ui: &mut egui::Ui, display_text: impl Into<String>) {
     ui.centered_and_justified(|ui| {
         ui.add(egui::Label::new(display_text.into()).wrap_mode(egui::TextWrapMode::Extend));
     });
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn draw(
+pub(crate) fn draw(
     egui_context: &egui::Context,
     ui: &mut egui::Ui,
     stage_data: &Stage,
@@ -122,8 +122,8 @@ pub fn draw(
                             let mut has_rendered_icon = false;
 
                             if let Some(resolved_image_path) = drop_info.image_path {
-                                if !item_texture_cache.contains_key(&drop_data.item_id) {
-                                    if let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
+                                if !item_texture_cache.contains_key(&drop_data.item_id)
+                                    && let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
                                         let generated_texture_handle = egui_context.load_texture(
                                             format!("treasure_item_icon_{}", drop_data.item_id),
                                             processed_color_image,
@@ -131,7 +131,6 @@ pub fn draw(
                                         );
                                         item_texture_cache.insert(drop_data.item_id, generated_texture_handle);
                                     }
-                                }
 
                                 if let Some(cached_texture_handle) = item_texture_cache.get(&drop_data.item_id) {
                                     let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
@@ -187,8 +186,8 @@ pub fn draw(
                             let mut has_rendered_icon = false;
 
                             if let Some(resolved_image_path) = drop_info.image_path {
-                                if !item_texture_cache.contains_key(&score_data.item_id) {
-                                    if let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
+                                if !item_texture_cache.contains_key(&score_data.item_id)
+                                    && let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
                                         let generated_texture_handle = egui_context.load_texture(
                                             format!("treasure_item_icon_{}", score_data.item_id),
                                             processed_color_image,
@@ -196,7 +195,6 @@ pub fn draw(
                                         );
                                         item_texture_cache.insert(score_data.item_id, generated_texture_handle);
                                     }
-                                }
 
                                 if let Some(cached_texture_handle) = item_texture_cache.get(&score_data.item_id) {
                                     let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));

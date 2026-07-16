@@ -11,11 +11,11 @@ use core::modules::stage::registry::{GlobalMapId, GlobalStageId};
 use super::category::CategoryExt;
 use super::state::StageListState;
 
-pub const BTN_SPACING_X: f32 = 14.0;
-pub const BTN_SPACING_Y: f32 = 6.0;
-pub const FILTER_BTN_PAD: f32 = 5.0;
+pub(crate) const BTN_SPACING_X: f32 = 14.0;
+pub(crate) const BTN_SPACING_Y: f32 = 6.0;
+pub(crate) const FILTER_BTN_PAD: f32 = 5.0;
 
-pub fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
+pub(crate) fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
     let categories = navigate::get_categories(&state.data.registry);
 
     if categories.is_empty() {
@@ -30,7 +30,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
     state.filter_state.hash(&mut hasher);
     let current_hash = hasher.finish();
 
-    if state.compiled_filter.as_ref().map_or(true, |cf| cf.source_hash != current_hash) {
+    if state.compiled_filter.as_ref().is_none_or(|cf| cf.source_hash != current_hash) {
         let mut new_compiled = state.filter_state.compile();
         new_compiled.source_hash = current_hash;
         state.compiled_filter = Some(new_compiled);

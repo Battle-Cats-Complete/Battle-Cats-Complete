@@ -1,13 +1,13 @@
-pub mod header;
-pub mod stats;
-pub mod abilities;
-pub mod talents;
-pub mod details;
-pub mod list;
-pub mod viewer;
-pub mod master;
-pub mod filter;
-pub mod conjure;
-pub mod state;
-pub mod statblock;
+pub(crate) mod header;
+pub(crate) mod stats;
+pub(crate) mod abilities;
+pub(crate) mod talents;
+pub(crate) mod details;
+pub(crate) mod list;
+pub(crate) mod viewer;
+pub(crate) mod master;
+pub(crate) mod filter;
+pub(crate) mod conjure;
+pub(crate) mod state;
+pub(crate) mod statblock;
 

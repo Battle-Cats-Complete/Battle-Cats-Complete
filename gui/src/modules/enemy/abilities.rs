@@ -9,11 +9,11 @@ use crate::common::assets::CustomAssets;
 use crate::common::shared::{render_fallback_icon, text_with_superscript};
 use crate::common::sheet::SpriteSheet;
 
-pub const ABILITY_X: f32 = 3.0;
-pub const ABILITY_Y: f32 = 5.0;
-pub const TRAIT_Y: f32 = 7.0;
+pub(crate) const ABILITY_X: f32 = 3.0;
+pub(crate) const ABILITY_Y: f32 = 5.0;
+pub(crate) const TRAIT_Y: f32 = 7.0;
 
-pub fn render(
+pub(crate) fn render(
     ui: &mut egui::Ui,
     ctx: &EnemyRenderContext,
     sheets: &[SpriteSheet],
@@ -63,7 +63,7 @@ pub fn render(
     }
 }
 
-pub fn render_icon_row(
+pub(crate) fn render_icon_row(
     ui: &mut egui::Ui,
     items: &Vec<AbilityItem>,
     sheets: &[SpriteSheet],
@@ -118,7 +118,7 @@ fn render_single_icon(
     render_fallback_icon(ui, "???", border)
 }
 
-pub fn render_list_view(
+pub(crate) fn render_list_view(
     ui: &mut egui::Ui,
     items: &Vec<AbilityItem>,
     sheets: &[SpriteSheet],

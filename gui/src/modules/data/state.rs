@@ -8,14 +8,14 @@ use core::modules::data::state::DataConfigState;
 
 #[derive(Default, Deserialize, Serialize)]
 #[serde(default)]
-pub struct ImportState {
+pub(crate) struct ImportState {
     pub config: DataConfigState,
     #[serde(skip)] pub import_censored: String,
     #[serde(skip)] pub decrypt_censored: String,
 }
 
 impl ImportState {
-    pub fn update(&mut self, egui_context: &egui::Context) -> bool {
+    pub(crate) fn update(&mut self, egui_context: &egui::Context) -> bool {
         self.import_censored = censor_path(&self.config.import_path);
         self.decrypt_censored = censor_path(&self.config.decrypt_path);
 
@@ -29,7 +29,7 @@ impl ImportState {
     }
 }
 
-pub fn censor_path(path_string: &str) -> String {
+pub(crate) fn censor_path(path_string: &str) -> String {
     if path_string.is_empty() || path_string == "No source selected" { return String::new(); }
 
     let mut clean_string = path_string.to_string();

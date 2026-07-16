@@ -12,7 +12,7 @@ use crate::common::shared::DragGuard;
 
 #[derive(Deserialize, Serialize, Default)]
 #[serde(default)]
-pub struct StageListState {
+pub(crate) struct StageListState {
     pub data: StageDataState,
     pub is_list_open: bool,
     pub selected_crown: u8,
@@ -27,11 +27,11 @@ pub struct StageListState {
 }
 
 impl StageListState {
-    pub fn update_data(&mut self) {
+    pub(crate) fn update_data(&mut self) {
         self.data.update_data();
     }
 
-    pub fn sync_enemies(&mut self, extracted_enemies_array: &[EnemyEntry]) {
+    pub(crate) fn sync_enemies(&mut self, extracted_enemies_array: &[EnemyEntry]) {
         self.data.sync_enemies(extracted_enemies_array);
     }
 }

@@ -15,7 +15,7 @@ use super::BattleCatsApp;
 
 
 #[derive(PartialEq, Clone, Copy, serde::Deserialize, serde::Serialize)]
-pub enum Page {
+pub(crate) enum Page {
     Home,
     Cats,
     Enemies,
@@ -26,7 +26,7 @@ pub enum Page {
 }
 
 impl Page {
-    pub fn tab_name(self) -> &'static str {
+    pub(crate) fn tab_name(self) -> &'static str {
         match self {
             Self::Home => "Home",
             Self::Cats => "Cats",
@@ -39,7 +39,7 @@ impl Page {
     }
 }
 
-pub const ALL_PAGES: &[Page] = &[
+pub(crate) const ALL_PAGES: &[Page] = &[
     Page::Home,
     Page::Cats,
     Page::Enemies,
@@ -49,7 +49,7 @@ pub const ALL_PAGES: &[Page] = &[
     Page::Settings,
 ];
 
-pub fn draw(app: &mut BattleCatsApp, ctx: &egui::Context) {
+pub(crate) fn draw(app: &mut BattleCatsApp, ctx: &egui::Context) {
     let screen_rect = ctx.screen_rect();
 
     let sidebar_inner_width = 150.0;

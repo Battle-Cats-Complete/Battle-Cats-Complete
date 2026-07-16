@@ -39,7 +39,7 @@ struct ResetConfirmState {
     reset_position: bool,
 }
 
-pub fn open(context: &egui::Context) {
+pub(crate) fn open(context: &egui::Context) {
     let state_id = egui::Id::new("manage_exceptions_state");
     let mut state = context.data(|data_map| data_map.get_temp::<ManageExceptionsState>(state_id)).unwrap_or_default();
     state.is_open = true;
@@ -104,7 +104,7 @@ fn show_reset_confirm_modal(context: &egui::Context, drag_guard: &mut DragGuard)
     yes_clicked
 }
 
-pub fn show(context: &egui::Context, drag_guard: &mut DragGuard) {
+pub(crate) fn show(context: &egui::Context, drag_guard: &mut DragGuard) {
     let state_id = egui::Id::new("manage_exceptions_state");
     let mut state = context.data(|data_map| data_map.get_temp::<ManageExceptionsState>(state_id)).unwrap_or_default();
 

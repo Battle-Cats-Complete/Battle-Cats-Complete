@@ -4,7 +4,7 @@ use core::modules::settings::logic::Settings;
 
 use super::{details, import, state::ModListState};
 
-pub fn show(ctx: &egui::Context, state: &mut ModListState, settings: &mut Settings) {
+pub(crate) fn show(ctx: &egui::Context, state: &mut ModListState, settings: &mut Settings) {
     let mut list = state.list.take().unwrap_or_default();
 
     egui::SidePanel::left("mod_list_panel")

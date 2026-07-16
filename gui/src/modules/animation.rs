@@ -1,5 +1,5 @@
-pub mod viewer;
-pub mod controls;
-pub mod export;
-pub mod canvas;
-pub mod process;
+pub(crate) mod viewer;
+pub(crate) mod controls;
+pub(crate) mod export;
+pub(crate) mod canvas;
+pub(crate) mod process;

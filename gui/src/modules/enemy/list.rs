@@ -20,7 +20,7 @@ struct LoadRequest {
     ctx: egui::Context,
 }
 
-pub struct EnemyList {
+pub(crate) struct EnemyList {
     texture_cache: HashMap<u32, egui::TextureHandle>,
     placeholder_texture: Option<egui::TextureHandle>,
     tx_request: Sender<LoadRequest>,
@@ -73,17 +73,17 @@ impl Default for EnemyList {
 }
 
 impl EnemyList {
-    pub fn force_search_rebuild(&mut self) {
+    pub(crate) fn force_search_rebuild(&mut self) {
         self.last_unit_count = usize::MAX;
     }
 
-    pub fn flush_icon(&mut self, id: u32) {
+    pub(crate) fn flush_icon(&mut self, id: u32) {
         self.missing_ids.remove(&id);
         self.pending_requests.remove(&id);
         self.texture_cache.remove(&id);
     }
 
-    pub fn show(
+    pub(crate) fn show(
         &mut self, 
         ctx: &egui::Context, 
         ui: &mut egui::Ui, 

@@ -157,8 +157,8 @@ impl CompiledEnemyFilter {
             BossType::Unknown(val) => val,
         };
 
-        if let Some(boss_type) = self.boss_type { if internal_boss_type != boss_type { return false; } }
-        if let Some(is_base) = self.is_base { if enemy.is_base != is_base { return false; } }
+        if let Some(boss_type) = self.boss_type && internal_boss_type != boss_type { return false; }
+        if let Some(is_base) = self.is_base && enemy.is_base != is_base { return false; }
         if !self.amount.matches(internal_amount) { return false; }
         if !self.start_frame.matches(enemy.start_frame as i64) { return false; }
         if !self.respawn_min.matches(enemy.respawn_min as i64) { return false; }
@@ -173,7 +173,7 @@ impl CompiledEnemyFilter {
         if !self.kill_count.matches(enemy.kill_count as i64) { return false; }
 
         if self.name_or_id.is_empty() { return true; }
-        if self.parsed_id.map_or(false, |id| enemy.enemy_id == id) { return true; }
+        if self.parsed_id == Some(enemy.enemy_id) { return true; }
 
         enemy_name_registry
             .get(enemy.enemy_id as usize)
@@ -242,18 +242,18 @@ impl CompiledTreasureFilter {
         if self.parsed_id == Some(target_id) { return true; }
 
         if let Some(item_buy) = buy_reg.get(&target_id) {
-            return name_reg.get(&(item_buy.row_index as usize))
-                .map_or(false, |name| name.name.to_lowercase().contains(&self.name_or_id));
+            return name_reg.get(&{ item_buy.row_index })
+                .is_some_and(|name| name.name.to_lowercase().contains(&self.name_or_id));
         }
 
         if let Some(&chara_id) = drop_chara_reg.get(&target_id) {
             return cat_name_reg.get(&chara_id)
-                .map_or(false, |names| names.iter().any(|name| name.contains(&self.name_or_id)));
+                .is_some_and(|names| names.iter().any(|name| name.contains(&self.name_or_id)));
         }
 
         if let Some((&unit_id, _)) = unit_buy_reg.iter().find(|(_, row)| row.true_form_id == target_id as i32) {
             return cat_name_reg.get(&unit_id)
-                .map_or(false, |names| names.iter().any(|name| name.contains(&self.name_or_id)));
+                .is_some_and(|names| names.iter().any(|name| name.contains(&self.name_or_id)));
         }
 
         false
@@ -307,7 +307,7 @@ impl CompiledMaterialFilter {
         if self.parsed_id == Some(item_id) { return true; }
 
         let Some(item_buy) = buy_reg.get(&item_id) else { return false; };
-        let Some(name_entry) = name_reg.get(&(item_buy.row_index as usize)) else { return false; };
+        let Some(name_entry) = name_reg.get(&{ item_buy.row_index }) else { return false; };
 
         name_entry.name.to_lowercase().contains(&self.name_or_id)
     }
@@ -370,7 +370,7 @@ impl CompiledLineupFilter {
                     return !self.is_exclude;
                 }
 
-                let name_match = cat_name_reg.get(&unit_id).map_or(false, |names| {
+                let name_match = cat_name_reg.get(&unit_id).is_some_and(|names| {
                     names.iter().any(|name| name.contains(&self.name_or_id))
                 });
 
@@ -695,16 +695,14 @@ impl CompiledStageFilter {
     ) -> bool {
         if !self.is_active() { return true; }
 
-        if let Some(has_continues) = self.continues { if stage.is_no_continues == has_continues { return false; } }
-        if let Some(has_boss_guard) = self.boss_guard { if stage.is_base_indestructible != has_boss_guard { return false; } }
+        if let Some(has_continues) = self.continues && stage.is_no_continues == has_continues { return false; }
+        if let Some(has_boss_guard) = self.boss_guard && stage.is_base_indestructible != has_boss_guard { return false; }
 
         if let Some(use_super_cpu) = self.use_super_cpu {
             let mut cpu_allowed = cpu_setting.super_cpu_consume_amount > 0;
-            if let Some(global_id) = stage.category.global_map_id(stage.map_id) {
-                if let Some(entry) = lock_registry.get(&global_id) {
-                    if entry.excluded_map_id == global_id { cpu_allowed = false; }
-                }
-            }
+            if let Some(global_id) = stage.category.global_map_id(stage.map_id)
+                && let Some(entry) = lock_registry.get(&global_id)
+                    && entry.excluded_map_id == global_id { cpu_allowed = false; }
             if cpu_allowed != use_super_cpu { return false; }
         }
 
@@ -828,7 +826,7 @@ impl CompiledStageFilter {
         if !self.materials.is_empty() {
             let drop_items_opt = map.drop_items.as_ref();
             for material_filter in &self.materials {
-                let found = drop_items_opt.map_or(false, |drop_items| {
+                let found = drop_items_opt.is_some_and(|drop_items| {
                     drop_items.material_drops.iter().enumerate().any(|(index, &amount)| {
                         amount > 0 && material_filter.matches_material(index, amount, item_buy_registry, item_name_registry)
                     })

@@ -1,15 +1,15 @@
-pub mod addons;
-pub mod animation;
-pub mod cats;
-pub mod data;
-pub mod general;
-pub mod tabs;
-pub mod exceptions;
-pub mod enemies;
-pub mod keys;
+pub(crate) mod addons;
+pub(crate) mod animation;
+pub(crate) mod cats;
+pub(crate) mod data;
+pub(crate) mod general;
+pub(crate) mod tabs;
+pub(crate) mod exceptions;
+pub(crate) mod enemies;
+pub(crate) mod keys;
 mod about;
-pub mod mods;
-pub mod pem;
-pub mod stages;
+pub(crate) mod mods;
+pub(crate) mod pem;
+pub(crate) mod stages;
 
-pub use tabs::{show, toggle_ui};
+pub(crate) use tabs::{show, toggle_ui};

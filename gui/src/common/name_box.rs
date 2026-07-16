@@ -1,9 +1,9 @@
 use eframe::egui;
 
-pub const NAME_BOX_WIDTH: f32 = 150.0;
-pub const NAME_BOX_HEIGHT: f32 = 15.0;
+pub(crate) const NAME_BOX_WIDTH: f32 = 150.0;
+pub(crate) const NAME_BOX_HEIGHT: f32 = 15.0;
 
-pub fn render(user_interface: &mut egui::Ui, name_text: &str) {
+pub(crate) fn render(user_interface: &mut egui::Ui, name_text: &str) {
     let text_color = user_interface.visuals().text_color();
     let (allocation_rect, _) = user_interface.allocate_exact_size(
         egui::vec2(NAME_BOX_WIDTH, NAME_BOX_HEIGHT), 

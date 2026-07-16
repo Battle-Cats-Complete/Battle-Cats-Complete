@@ -5,7 +5,7 @@ use core::common::game::waiter::{localizable, param};
 use super::BattleCatsApp;
 
 impl BattleCatsApp {
-    pub fn perform_full_data_reload(&mut self) {
+    pub(crate) fn perform_full_data_reload(&mut self) {
         tracing::info!("Executing perform_full_data_reload");
 
         self.cat_list_state.texture_cache_version += 1;
@@ -60,7 +60,7 @@ impl BattleCatsApp {
         let tables_dir = Path::new("game/tables");
         let loc_dir = Path::new("game/tables/localizable");
 
-        self.param = param(tables_dir, langs).unwrap_or_else(|| Default::default());
+        self.param = param(tables_dir, langs).unwrap_or_default();
         self.localizable = localizable(loc_dir, langs);
     }
 }

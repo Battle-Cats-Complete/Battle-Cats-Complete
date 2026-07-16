@@ -16,7 +16,7 @@ use crate::app::frame::Page;
 use super::BattleCatsApp;
 
 impl BattleCatsApp {
-    pub fn process_file_events(&mut self, ctx: &egui::Context) {
+    pub(crate) fn process_file_events(&mut self, ctx: &egui::Context) {
         if self.global_watcher.is_none() {
             self.global_watcher = GuiWatcher::new(ctx.clone());
         }
@@ -54,7 +54,7 @@ impl BattleCatsApp {
         for path in paths {
             let path_str = path.to_string_lossy().to_lowercase();
 
-            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or_else(|| "");
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             tracing::trace!("Processing modified path: {}", path_str);
 
@@ -65,13 +65,11 @@ impl BattleCatsApp {
                     mod_changed = true;
                 }
 
-                if path_str.contains("icons") && file_name == "icon.png" {
-                    if let Some(idx) = path.components().position(|c| c.as_os_str().to_string_lossy().to_lowercase() == "mods") {
-                        if let Some(folder) = path.components().nth(idx + 1) {
+                if path_str.contains("icons") && file_name == "icon.png"
+                    && let Some(idx) = path.components().position(|c| c.as_os_str().to_string_lossy().to_lowercase() == "mods")
+                        && let Some(folder) = path.components().nth(idx + 1) {
                             mod_icons.insert(folder.as_os_str().to_string_lossy().into_owned());
                         }
-                    }
-                }
             }
 
             if path_str.contains("img015") || path_str.contains("img022") {
@@ -129,13 +127,12 @@ impl BattleCatsApp {
             self.mod_state.data.refresh_mods();
         }
 
-        if !mod_icons.is_empty() {
-            if let Some(list) = &mut self.mod_state.list {
+        if !mod_icons.is_empty()
+            && let Some(list) = &mut self.mod_state.list {
                 for name in mod_icons {
                     list.flush_icon(&name);
                 }
             }
-        }
 
         let game_dir = Path::new("game");
         let is_empty = !game_dir.exists() || std::fs::read_dir(game_dir).map(|mut iterator| iterator.next().is_none()).unwrap_or(true);
@@ -211,7 +208,7 @@ impl BattleCatsApp {
         ctx.request_repaint();
     }
 
-    pub fn check_if_active_mod_changed(path: &Path, active_mod: Option<&str>) -> bool {
+    pub(crate) fn check_if_active_mod_changed(path: &Path, active_mod: Option<&str>) -> bool {
         let Some(active) = active_mod else { return false; };
 
         let comps: Vec<_> = path.components()
@@ -224,7 +221,7 @@ impl BattleCatsApp {
         folder == &active.to_lowercase()
     }
 
-    pub fn process_cat_path(&mut self, path: &Path, cat_ids: &mut HashSet<u32>) -> bool {
+    pub(crate) fn process_cat_path(&mut self, path: &Path, cat_ids: &mut HashSet<u32>) -> bool {
         let comps: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
 
         let Some(idx) = comps.iter().position(|c| c == "cats") else { return false; };
@@ -262,7 +259,7 @@ impl BattleCatsApp {
         false
     }
 
-    pub fn process_enemy_path(&mut self, path: &Path, enemy_ids: &mut HashSet<u32>) -> bool {
+    pub(crate) fn process_enemy_path(&mut self, path: &Path, enemy_ids: &mut HashSet<u32>) -> bool {
         let comps: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
 
         let Some(idx) = comps.iter().position(|c| c == "enemies") else { return false; };
@@ -283,7 +280,7 @@ impl BattleCatsApp {
         false
     }
 
-    pub fn process_ui_events(&mut self, ctx: &egui::Context) {
+    pub(crate) fn process_ui_events(&mut self, ctx: &egui::Context) {
         if let Some(enemy_id) = ctx.data_mut(|d| d.remove_temp::<u32>(egui::Id::new("navigate_to_stage_appearances"))) {
             tracing::info!("Navigating to stage appearances for enemy ID: {}", enemy_id);
 

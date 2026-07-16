@@ -17,7 +17,7 @@ const BIN_NAME: &str = "Battle Cats Complete";
 const PROMPT_BUTTON_SIZE: [f32; 2] = [80.0, 40.0];
 const RESTART_BUTTON_SIZE: [f32; 2] = [80.0, 40.0];
 
-pub fn cleanup_temp_files() {
+pub(super) fn cleanup_temp_files() {
     let temp_files = [
         "tmp_update.zip",
         "tmp_new_version.exe",
@@ -52,7 +52,7 @@ fn restart_app() {
 }
 
 #[derive(Clone)]
-pub enum UpdateStatus {
+pub(crate) enum UpdateStatus {
     Idle,
     Checking,
     UpdateFound(String, self_update::update::Release),
@@ -62,7 +62,7 @@ pub enum UpdateStatus {
     UpToDate,
 }
 
-pub enum UpdaterMsg {
+pub(super) enum UpdaterMsg {
     UpdateFound(self_update::update::Release),
     UpToDate,
     CheckFailed,
@@ -71,7 +71,7 @@ pub enum UpdaterMsg {
     SilentFail,
 }
 
-pub struct Updater {
+pub(crate) struct Updater {
     rx: Receiver<UpdaterMsg>,
     tx: Sender<UpdaterMsg>,
     pub status: UpdateStatus,
@@ -91,7 +91,7 @@ impl Default for Updater {
 }
 
 impl Updater {
-    pub fn check_for_updates(&mut self, ctx: egui::Context, is_manual: bool) {
+    pub(crate) fn check_for_updates(&mut self, ctx: egui::Context, is_manual: bool) {
         let is_valid_state = matches!(self.status, UpdateStatus::Idle | UpdateStatus::UpToDate | UpdateStatus::CheckFailed);
         if !is_valid_state { return; }
 
@@ -122,7 +122,7 @@ impl Updater {
         });
     }
 
-    pub fn download_and_install(&mut self, release: self_update::update::Release) {
+    pub(crate) fn download_and_install(&mut self, release: self_update::update::Release) {
         let tx = self.tx.clone();
         let version = release.version.clone();
         self.status = UpdateStatus::Downloading(version.clone());
@@ -171,7 +171,7 @@ impl Updater {
         });
     }
 
-    pub fn update_state(&mut self, ctx: &egui::Context) {
+    pub(crate) fn update_state(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
                 UpdaterMsg::UpdateFound(release) => {
@@ -207,7 +207,7 @@ impl Updater {
         ctx.request_repaint();
     }
 
-    pub fn show_ui(&mut self, ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) {
+    pub(crate) fn show_ui(&mut self, ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) {
         let status = self.status.clone();
         match status {
             UpdateStatus::UpdateFound(tag, release) => {

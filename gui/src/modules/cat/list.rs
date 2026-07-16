@@ -22,7 +22,7 @@ struct LoadRequest {
     ctx: egui::Context,
 }
 
-pub struct CatList {
+pub(crate) struct CatList {
     texture_cache: HashMap<u32, egui::TextureHandle>,
     placeholder_texture: Option<egui::TextureHandle>,
     tx_request: Sender<LoadRequest>,
@@ -83,17 +83,17 @@ impl Default for CatList {
 }
 
 impl CatList {
-    pub fn flush_icon(&mut self, id: u32) {
+    pub(crate) fn flush_icon(&mut self, id: u32) {
         self.invalidated_ids.insert(id);
         self.missing_ids.remove(&id);
         self.pending_requests.remove(&id);
     }
 
-    pub fn force_search_rebuild(&mut self) {
+    pub(crate) fn force_search_rebuild(&mut self) {
         self.last_unit_count = usize::MAX;
     }
 
-    pub fn show(
+    pub(crate) fn show(
         &mut self,
         ctx: &egui::Context,
         ui: &mut egui::Ui,

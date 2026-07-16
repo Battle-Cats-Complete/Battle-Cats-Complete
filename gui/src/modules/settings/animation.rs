@@ -4,7 +4,7 @@ use core::modules::settings::logic::state::AnimSettings;
 
 use super::tabs::toggle_ui;
 
-pub fn show(ui: &mut egui::Ui, settings: &mut AnimSettings) -> bool {
+pub(crate) fn show(ui: &mut egui::Ui, settings: &mut AnimSettings) -> bool {
     let refresh_needed = false;
 
     egui::ScrollArea::vertical()

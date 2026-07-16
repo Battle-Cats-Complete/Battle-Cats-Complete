@@ -6,7 +6,7 @@ use core::modules::cat::registry::{format_cat_stat, get_cat_stat};
 
 use crate::common::stat_grid::{grid_cell, grid_cell_custom, render_frames};
 
-pub fn render(
+pub(crate) fn render(
     ui: &mut egui::Ui,
     cat: &CatEntry,
     final_stats: &Battle,

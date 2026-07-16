@@ -1,6 +1,6 @@
 use eframe::egui;
 
-pub fn grid_cell_custom<F>(
+pub(crate) fn grid_cell_custom<F>(
     ui: &mut egui::Ui, 
     is_header: bool, 
     tooltip_renderer: Option<Box<dyn Fn(&mut egui::Ui)>>, 
@@ -20,7 +20,7 @@ pub fn grid_cell_custom<F>(
     }
 }
 
-pub fn grid_cell(ui: &mut egui::Ui, text: &str, is_header: bool) {
+pub(crate) fn grid_cell(ui: &mut egui::Ui, text: &str, is_header: bool) {
     let text_clone = text.to_string();
     grid_cell_custom(ui, is_header, 
         Some(Box::new(move |ui| { ui.label(&text_clone); })), 
@@ -31,7 +31,7 @@ pub fn grid_cell(ui: &mut egui::Ui, text: &str, is_header: bool) {
     );
 }
 
-pub fn render_frames(ui: &mut egui::Ui, frames: i32, max_width: f32) {
+pub(crate) fn render_frames(ui: &mut egui::Ui, frames: i32, max_width: f32) {
     let seconds = frames as f32 / 30.0;
     let body_font = ui.style().text_styles.get(&egui::TextStyle::Body).cloned().unwrap_or(egui::FontId::proportional(14.0));
     

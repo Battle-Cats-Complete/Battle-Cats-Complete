@@ -3,7 +3,6 @@ use std::thread;
 use std::time::Instant;
 
 use eframe::egui;
-use self_update;
 
 use crate::common::shared::DragGuard;
 use crate::common::utils::process_markdown;
@@ -27,7 +26,7 @@ struct ChangelogState {
 }
 
 
-pub fn link(ui: &mut egui::Ui, ctx: &egui::Context) {
+pub(crate) fn link(ui: &mut egui::Ui, ctx: &egui::Context) {
     if ui.link("Changelogs").clicked() {
         let state_id = egui::Id::new("changelog_state");
         let state = ctx.data(|temp_storage| temp_storage.get_temp::<Arc<Mutex<ChangelogState>>>(state_id))
@@ -99,7 +98,7 @@ pub fn link(ui: &mut egui::Ui, ctx: &egui::Context) {
     }
 }
 
-pub fn window(ctx: &egui::Context, drag_guard: &mut DragGuard) {
+pub(crate) fn window(ctx: &egui::Context, drag_guard: &mut DragGuard) {
     let state_id = egui::Id::new("changelog_state");
     let state_arc = ctx.data(|temp_storage| temp_storage.get_temp::<Arc<Mutex<ChangelogState>>>(state_id));
 

@@ -20,7 +20,7 @@ use super::statblock::build_enemy_statblock;
 use super::{abilities, details, header, stats, viewer};
 use super::header::ExportAction;
 
-pub fn show(
+pub(crate) fn show(
     ctx: &egui::Context,
     ui: &mut egui::Ui,
     enemy_entry: &EnemyEntry,

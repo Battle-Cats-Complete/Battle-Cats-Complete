@@ -5,7 +5,7 @@ use core::common::context::GlobalContext;
 use core::modules::stage::registry::GlobalMapId;
 use super::state::StageListState;
 
-pub fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, global_ctx: GlobalContext) {
+pub(crate) fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, global_ctx: GlobalContext) {
     let Some(stage_id) = &state.data.selected_stage else {
         ui.centered_and_justified(|ui| {
             ui.label(egui::RichText::new("Select a stage to view details").color(egui::Color32::DARK_GRAY));

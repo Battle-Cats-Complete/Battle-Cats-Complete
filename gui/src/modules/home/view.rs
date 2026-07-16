@@ -19,7 +19,7 @@ const BUTTON_WIDTH: f32 = 120.0;
 const BUTTON_HEIGHT: f32 = 35.0;
 const BUTTON_SPACING: f32 = 10.0;
 
-pub fn show(ctx: &egui::Context, current_page: &mut Page, settings: &mut Settings, drag_guard: &mut DragGuard) {
+pub(crate) fn show(ctx: &egui::Context, current_page: &mut Page, settings: &mut Settings, drag_guard: &mut DragGuard) {
     let is_game_empty = ctx.data_mut(|data_map| {
         let state_id = egui::Id::new("is_game_empty");
         if let Some(val) = data_map.get_temp::<bool>(state_id) {

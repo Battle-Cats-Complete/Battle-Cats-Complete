@@ -5,7 +5,7 @@ use core::modules::enemy::registry::{format_enemy_stat, get_enemy_stat};
 
 use crate::modules::statblock::builder::{StatCell, StatblockData};
 
-pub fn build_enemy_statblock(
+pub(crate) fn build_enemy_statblock(
     ctx: &EnemyRenderContext,
     enemy_entry: &EnemyEntry,
 ) -> StatblockData {

@@ -17,14 +17,14 @@ use crate::common::sheet::SpriteSheet;
 use super::list::EnemyList;
 use super::master;
 
-pub const TOP_PANEL_PADDING: f32 = 2.5;
-pub const SEARCH_FILTER_GAP: f32 = 5.0;
-pub const SPACE_BEFORE_SEPARATOR: f32 = 2.0;
-pub const SPACE_AFTER_SEPARATOR: f32 = 2.0;
+pub(crate) const TOP_PANEL_PADDING: f32 = 2.5;
+pub(crate) const SEARCH_FILTER_GAP: f32 = 5.0;
+pub(crate) const SPACE_BEFORE_SEPARATOR: f32 = 2.0;
+pub(crate) const SPACE_AFTER_SEPARATOR: f32 = 2.0;
 
 #[derive(Deserialize, Serialize, Default)]
 #[serde(default)]
-pub struct EnemyListState {
+pub(crate) struct EnemyListState {
     pub data: EnemyDataState,
 
     #[serde(skip)] pub enemy_list: EnemyList,
@@ -39,7 +39,7 @@ pub struct EnemyListState {
     #[serde(skip)] pub rig: Option<Arc<Unit>>,
 }
 
-pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Settings, global_ctx: GlobalContext, drag_guard: &mut DragGuard) {
+pub(crate) fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Settings, global_ctx: GlobalContext, drag_guard: &mut DragGuard) {
     if state.custom_assets.is_none() {
         state.custom_assets = Some(CustomAssets::new(ctx));
     }

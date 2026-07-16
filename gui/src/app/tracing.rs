@@ -10,7 +10,7 @@ fn find_override_file(cwd: &Path, names: &[&str]) -> Option<PathBuf> {
     names.iter().map(|name| cwd.join(name)).find(|path| path.exists())
 }
 
-pub fn init(enable_logging: bool) {
+pub(crate) fn init(enable_logging: bool) {
     let cwd = env::current_dir().unwrap_or_default();
 
     let trace_file = find_override_file(&cwd, &["trace.txt", "trace"]);

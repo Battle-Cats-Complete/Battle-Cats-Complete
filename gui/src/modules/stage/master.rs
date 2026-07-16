@@ -10,9 +10,9 @@ use super::{list, state::StageListState, view};
 const ANIM_SPEED: f32 = 0.15;
 const TOGGLE_BTN_GAP: f32 = 5.0;
 const LIST_BG_COLOR: egui::Color32 = egui::Color32::from_rgb(20, 20, 20);
-pub const SIDEBAR_PUSH_GAP: f32 = 10.0;
+pub(crate) const SIDEBAR_PUSH_GAP: f32 = 10.0;
 
-pub fn show(ctx: &egui::Context, state: &mut StageListState, settings: &mut Settings, global_ctx: GlobalContext) {
+pub(crate) fn show(ctx: &egui::Context, state: &mut StageListState, settings: &mut Settings, global_ctx: GlobalContext) {
     let screen_rect = ctx.screen_rect();
 
     let mut inner_w = 180.0;

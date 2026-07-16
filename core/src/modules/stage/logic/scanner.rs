@@ -58,14 +58,12 @@ pub fn start_scan(config: &ScannerConfig) -> Receiver<StageRegistry> {
             }
 
             let mut is_different = true;
-            if let Some((_, cached_registry)) = crate::common::io::cache::load_with_hash::<StageRegistry>("stages_cache.bin") {
-                if let (Ok(new_bytes), Ok(old_bytes)) = (serde_json::to_vec(&registry), serde_json::to_vec(&cached_registry)) {
-                    if !new_bytes.is_empty() && new_bytes == old_bytes {
+            if let Some((_, cached_registry)) = crate::common::io::cache::load_with_hash::<StageRegistry>("stages_cache.bin")
+                && let (Ok(new_bytes), Ok(old_bytes)) = (serde_json::to_vec(&registry), serde_json::to_vec(&cached_registry))
+                    && !new_bytes.is_empty() && new_bytes == old_bytes {
                         is_different = false;
                         info!("Scanned stages perfectly match existing cache. Discarding scan and doing nothing.");
                     }
-                }
-            }
 
             if is_different {
                 debug!("Scanned stages differ from cache (or cache is stale/missing). Overwriting stages_cache.bin");
@@ -191,9 +189,9 @@ fn scan_category(reg_mtx: &Mutex<StageRegistry>, cat_path: &Path, ctx: &ScanCont
 
         if cat_prefix == "Z" {
             let proxy_prefix = match map_id {
-                0 | 1 | 2 => "EC",
-                4 | 5 | 6 => "W",
-                7 | 8 | 9 => "Space",
+                0..=2 => "EC",
+                4..=6 => "W",
+                7..=9 => "Space",
                 _ => "",
             };
 
@@ -359,7 +357,7 @@ fn load_story_stages(
         }
     } else {
         match global_map_id {
-            Some(3000 | 3001 | 3002) => "stageNormal0.csv",
+            Some(3000..=3002) => "stageNormal0.csv",
             Some(3003) => "stageNormal1_0.csv",
             Some(3004) => "stageNormal1_1.csv",
             Some(3005) => "stageNormal1_2.csv",
@@ -409,8 +407,8 @@ fn load_story_stages(
 
     if !inv_story_file.is_empty() {
         let resolved_paths = crate::common::resolver::get(map_path, [inv_story_file], ctx.lang_priority);
-        if let Some(inv_story_path) = resolved_paths.first() {
-            if let Ok(content) = fs::read_to_string(inv_story_path) {
+        if let Some(inv_story_path) = resolved_paths.first()
+            && let Ok(content) = fs::read_to_string(inv_story_path) {
                 let sep = file::detect_separator(&content);
                 for line in content.lines().skip(2) {
                     let clean = line.split("//").next().unwrap_or("").trim();
@@ -426,7 +424,6 @@ fn load_story_stages(
                     }
                 }
             }
-        }
     }
 
     let Ok(stages_dir) = fs::read_dir(map_path) else { return (id_list, stage_list); };
@@ -611,7 +608,7 @@ fn build_base_stage(
         let is_ec = category.map_prefix() == "EC";
         let is_z_ec = category.map_prefix() == "Z" && map_id <= 2;
 
-        if (is_ec || is_z_ec) && matches!(stage_id, 48 | 49 | 50) {
+        if (is_ec || is_z_ec) && matches!(stage_id, 48..=50) {
             lookup_id = 47;
         }
 

@@ -9,8 +9,8 @@ use core::common::utils::autocrop;
 use core::modules::stage::logic::materials;
 use core::modules::stage::registry::{Map, Stage};
 
-pub const MAT_TABLE_WIDTH: f32 = 345.0;
-pub const MAX_ICON_SIZE: f32 = 32.0;
+pub(crate) const MAT_TABLE_WIDTH: f32 = 345.0;
+pub(crate) const MAX_ICON_SIZE: f32 = 32.0;
 const COL_SPACING: f32 = 8.0;
 
 fn process_item_icon_texture(p: &Path) -> Option<egui::ColorImage> {
@@ -26,12 +26,12 @@ fn process_item_icon_texture(p: &Path) -> Option<egui::ColorImage> {
     Some(egui::ColorImage::from_rgba_unmultiplied(dims, res.as_flat_samples().as_slice()))
 }
 
-pub fn has_drops(_s: &Stage, m: &Map) -> bool {
+pub(crate) fn has_drops(_s: &Stage, m: &Map) -> bool {
     m.drop_items.as_ref().is_some_and(|d| d.material_drops.iter().any(|&c| c > 0))
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn draw(
+pub(crate) fn draw(
     ctx: &egui::Context,
     ui: &mut egui::Ui,
     s: &Stage,

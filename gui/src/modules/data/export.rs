@@ -11,7 +11,7 @@ use crate::modules::settings::tabs::toggle_ui;
 
 use super::state::ImportState;
 
-pub fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings) {
+pub(crate) fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings) {
     let current_status = state.config.export_job_status.load(Ordering::Relaxed);
     let is_running = current_status == 1;
 

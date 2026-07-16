@@ -15,12 +15,12 @@ use crate::common::assets::CustomAssets;
 use crate::common::shared::render_fallback_icon;
 use crate::common::sheet::SpriteSheet;
 
-pub const TALENT_NP_ICON_SIZE: f32 = 20.0;
-pub const TALENT_NP_TEXT_SIZE: f32 = 18.0;
+pub(crate) const TALENT_NP_ICON_SIZE: f32 = 20.0;
+pub(crate) const TALENT_NP_TEXT_SIZE: f32 = 18.0;
 
-pub const TALENT_SECTION_SPACING: f32 = 2.0;
+pub(crate) const TALENT_SECTION_SPACING: f32 = 2.0;
 
-pub fn render(
+pub(crate) fn render(
     ui: &mut egui::Ui,
     talent_data: &Talent,
     sheets: &[SpriteSheet],

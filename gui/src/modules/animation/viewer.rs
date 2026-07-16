@@ -17,7 +17,7 @@ use crate::common::shared::DragGuard;
 use super::controls::render_controls_overlay;
 use super::{canvas, controls, export, process};
 
-pub struct AnimViewer {
+pub(crate) struct AnimViewer {
     pub zoom_level: f32,
     pub target_zoom_level: f32,
     pub pan_offset: egui::Vec2,
@@ -143,7 +143,7 @@ impl AnimViewer {
         self.export_state.name_prefix = format!("{}.{}", clean_id, type_string);
     }
 
-    pub fn load_anim(&mut self, path: &Path, settings: &Settings) {
+    pub(crate) fn load_anim(&mut self, path: &Path, settings: &Settings) {
         if let Ok(anim_bytes) = std::fs::read(path)
             && let Some(anim) = Animation::parse(&anim_bytes) {
             self.current_frame = 0.0;
@@ -163,7 +163,7 @@ impl AnimViewer {
         self.single_frame_str = "0".to_string();
     }
 
-    pub fn show(
+    pub(crate) fn show(
         &mut self,
         ui: &mut egui::Ui,
         ctx: &egui::Context,

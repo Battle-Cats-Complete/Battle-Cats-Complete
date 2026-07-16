@@ -22,7 +22,7 @@ use crate::common::sheet::SpriteSheet;
 use super::{abilities, details, header, stats, talents, viewer};
 use super::header::ExportAction;
 
-pub fn show(
+pub(crate) fn show(
     ctx: &egui::Context,
     ui: &mut egui::Ui,
     cat_entry: &CatEntry,

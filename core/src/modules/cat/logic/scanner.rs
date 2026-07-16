@@ -43,11 +43,10 @@ impl CatEntry {
     pub fn id_str(&self, form_index: usize) -> String { format!("{:03}-{}", self.id, form_index + 1) }
 
     pub fn display_name(&self, form_index: usize) -> String {
-        if let Some(Some(name)) = self.names.get(form_index) {
-            if !name.is_empty() {
+        if let Some(Some(name)) = self.names.get(form_index)
+            && !name.is_empty() {
                 return name.clone();
             }
-        }
         self.id_str(form_index)
     }
 

@@ -11,13 +11,13 @@ use crate::common::assets::CustomAssets;
 use crate::common::shared::DragGuard;
 use crate::common::sheet::SpriteSheet;
 
-pub const WINDOW_WIDTH: f32 = 420.0;
-pub const WINDOW_HEIGHT: f32 = 400.0;
-pub const TILDE_SPACING: f32 = 5.0;
-pub const BTN_SIZE_RARITY: [f32; 2] = [77.0, 24.0];
-pub const BTN_SIZE_FORM: [f32; 2] = [118.0, 24.0];
+pub(crate) const WINDOW_WIDTH: f32 = 420.0;
+pub(crate) const WINDOW_HEIGHT: f32 = 400.0;
+pub(crate) const TILDE_SPACING: f32 = 5.0;
+pub(crate) const BTN_SIZE_RARITY: [f32; 2] = [77.0, 24.0];
+pub(crate) const BTN_SIZE_FORM: [f32; 2] = [118.0, 24.0];
 
-pub fn show_popup(
+pub(crate) fn show_popup(
     ctx: &egui::Context,
     state: &mut CatFilterState,
     sheets: &mut Vec<SpriteSheet>,

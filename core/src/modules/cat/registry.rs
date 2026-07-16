@@ -924,7 +924,7 @@ pub const CAT_STATS_REGISTRY: &[CatStatsDef] = &[
         display_name: "Rarity",
         get_value: |_, _, unitbuy| {
             if let Some(unitbuy) = unitbuy {
-                unitbuy.rarity as i32
+                unitbuy.rarity
             } else {
                 -1
             }

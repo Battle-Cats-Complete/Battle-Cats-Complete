@@ -1,5 +1,5 @@
-pub mod changelog;
-pub mod view;
-pub mod notice;
+pub(crate) mod changelog;
+pub(crate) mod view;
+pub(crate) mod notice;
 
-pub use view::show;
+pub(crate) use view::show;

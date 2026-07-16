@@ -10,24 +10,24 @@ use super::viewer::AnimViewer;
 const TILE_HEIGHT: f32 = 28.0;
 const GAP: f32 = 4.0;
 const OVERLAY_BOTTOM_OFFSET: f32 = 35.0;
-pub const CONTROLS_SLIDE_DISTANCE: f32 = 180.0;
+pub(crate) const CONTROLS_SLIDE_DISTANCE: f32 = 180.0;
 const ICON_W: f32 = 60.0;
 const COL2_W: f32 = 148.0;
 const NAV_W: f32 = 30.0;
 const INPUT_W: f32 = 80.0;
 const COL3_W: f32 = 100.0;
 
-pub const IDX_WALK: usize = 0;
-pub const IDX_IDLE: usize = 1;
-pub const IDX_ATTACK: usize = 2;
-pub const IDX_KB: usize = 3;
-pub const IDX_SPIRIT: usize = 4;
-pub const IDX_BURROW: usize = 5;
-pub const IDX_SURFACE: usize = 6;
-pub const IDX_MODEL: usize = 99;
-pub const IDX_NONE: usize = 999;
+pub(crate) const IDX_WALK: usize = 0;
+pub(crate) const IDX_IDLE: usize = 1;
+pub(crate) const IDX_ATTACK: usize = 2;
+pub(crate) const IDX_KB: usize = 3;
+pub(crate) const IDX_SPIRIT: usize = 4;
+pub(crate) const IDX_BURROW: usize = 5;
+pub(crate) const IDX_SURFACE: usize = 6;
+pub(crate) const IDX_MODEL: usize = 99;
+pub(crate) const IDX_NONE: usize = 999;
 
-pub fn render_controls_overlay(
+pub(crate) fn render_controls_overlay(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     anim_viewer: &mut AnimViewer,
@@ -419,7 +419,7 @@ fn render_internal_ui(
     }
 }
 
-pub fn handle_viewport_input(
+pub(crate) fn handle_viewport_input(
     ui: &egui::Ui,
     response: &egui::Response,
     pan_offset: &mut egui::Vec2,
@@ -430,11 +430,7 @@ pub fn handle_viewport_input(
     is_viewport_dragging: &mut bool,
 ) {
     if response.drag_started() {
-        if block_input {
-            *is_viewport_dragging = false;
-        } else {
-            *is_viewport_dragging = true;
-        }
+        *is_viewport_dragging = !block_input;
     }
 
     if response.drag_stopped() {

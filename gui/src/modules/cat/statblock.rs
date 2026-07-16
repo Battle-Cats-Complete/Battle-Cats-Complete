@@ -8,7 +8,7 @@ use crate::modules::statblock::builder::{StatCell, StatblockData};
 
 use super::conjure::build_spirit_data;
 
-pub fn build_cat_statblock(
+pub(crate) fn build_cat_statblock(
     ctx: &CatRenderContext,
     cat_entry: &CatEntry,
     current_form: usize,

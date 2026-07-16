@@ -19,7 +19,7 @@ use crate::common::shared::DragGuard;
 const EXPORT_MODE_SPACING: f32 = 2.0;
 const CAMERA_COLUMN_WIDTH: f32 = 5.0;
 
-pub fn show_popup(
+pub(crate) fn show_popup(
     ui: &mut egui::Ui,
     state: &mut ExporterState,
     unit: Option<Arc<Unit>>,

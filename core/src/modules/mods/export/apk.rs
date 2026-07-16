@@ -131,12 +131,11 @@ pub fn start_export(state: &mut ModDataState, settings: &Settings) {
                 if let Ok(mut output_file) = fs::File::create(&manifest_path) {
                     let _ = std::io::copy(&mut archive_file, &mut output_file);
                 }
-            } else if file_name == "resources.arsc" {
-                if let Ok(mut output_file) = fs::File::create(&arsc_path) {
+            } else if file_name == "resources.arsc"
+                && let Ok(mut output_file) = fs::File::create(&arsc_path) {
                     let _ = std::io::copy(&mut archive_file, &mut output_file);
                     extracted_arsc = true;
                 }
-            }
         }
         drop(archive);
 
@@ -303,13 +302,12 @@ pub fn start_export(state: &mut ModDataState, settings: &Settings) {
         info!("Export completed successfully: {}", success_message);
         let _ = transmitter.send(ExportEvent::Success(success_message));
 
-        if let Some((version_code, version_name)) = apk_version_info {
-            if version_code <= 1401010 {
+        if let Some((version_code, version_name)) = apk_version_info
+            && version_code <= 1401010 {
                 log_callback(String::new());
                 log_callback(format!("Legacy game version {} detected", version_name));
                 log_callback("Legacy versions are known to crash on load".to_string());
                 log_callback("Please update to a more stable game version".to_string());
             }
-        }
     });
 }
