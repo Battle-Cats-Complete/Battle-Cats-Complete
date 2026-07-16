@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use eframe::egui;
 
-use core::modules::addons::toolpaths::{self, Presence};
+use core::modules::addons::paths::{self, Presence};
 use core::modules::mods::logic::manager;
 use core::modules::mods::logic::state::{ModImportTab, ModPackType};
 use core::modules::settings::logic::Settings;
@@ -88,7 +88,7 @@ pub(crate) fn show(ctx: &egui::Context, state: &mut ModListState, settings: &Set
 }
 
 fn show_adb_view(ui: &mut egui::Ui, state: &mut ModListState, _settings: &Settings) {
-    let is_present = toolpaths::adb_status() == Presence::Installed;
+    let is_present = paths::adb_status() == Presence::Installed;
 
     if is_present {
         ui.label("Import mod package using Android/Emulator");

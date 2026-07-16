@@ -8,7 +8,7 @@ use core::modules::addons::avifenc::AvifManager;
 use core::modules::addons::ffmpeg::FfmpegManager;
 #[cfg(target_os = "windows")]
 use core::modules::addons::oem::{OemDriver, OemManager};
-use core::modules::addons::toolpaths::AddonStatus;
+use core::modules::addons::paths::AddonStatus;
 
 use crate::common::shared::DragGuard;
 

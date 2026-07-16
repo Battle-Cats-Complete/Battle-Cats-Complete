@@ -6,9 +6,9 @@ use std::time::Duration;
 use eframe::egui;
 use nyanko::graphics::rig::{Animation, Unit};
 
-use core::modules::addons::toolpaths::{self, Presence};
+use core::modules::addons::paths::{self, Presence};
 use core::modules::animation::export::encoding::{EncoderStatus, ExportFormat};
-use core::modules::animation::export::findloop;
+use core::modules::animation::export::find_loop;
 use core::modules::animation::export::process::{start_export, STATUS_RX};
 use core::modules::animation::export::state::{ExportMode, ExporterState, LoopStatus};
 use core::modules::settings::logic::state::Settings;
@@ -29,8 +29,8 @@ pub(crate) fn show_popup(
     available_anims: &[(usize, PathBuf)],
     drag_guard: &mut DragGuard,
 ) {
-    let is_ffmpeg_missing = toolpaths::ffmpeg_status() != Presence::Installed;
-    let is_avif_missing = toolpaths::avifenc_status() != Presence::Installed;
+    let is_ffmpeg_missing = paths::ffmpeg_status() != Presence::Installed;
+    let is_avif_missing = paths::avifenc_status() != Presence::Installed;
 
     if state.format == ExportFormat::Avif && is_avif_missing {
         state.format = ExportFormat::Gif;
@@ -364,7 +364,7 @@ fn render_content(
                             let abort_signal = Arc::new(AtomicBool::new(false));
                             state.loop_abort = Some(abort_signal.clone());
 
-                            findloop::start_search(
+                            find_loop::start_search(
                                 unit_arc,
                                 animation_arc,
                                 parsed_tolerance as f32,
@@ -597,12 +597,12 @@ fn render_content(
                     ui.selectable_value(&mut selected_format, ExportFormat::Gif, "GIF");
                     ui.selectable_value(&mut selected_format, ExportFormat::WebP, "WebP");
 
-                    let is_avif_installed = toolpaths::avifenc_status() == Presence::Installed;
+                    let is_avif_installed = paths::avifenc_status() == Presence::Installed;
                     let avif_button = ui.add_enabled(is_avif_installed, egui::SelectableLabel::new(selected_format == ExportFormat::Avif, "AVIF"));
                     if avif_button.clicked() { selected_format = ExportFormat::Avif; }
                     if !is_avif_installed { avif_button.on_disabled_hover_text("Requires AVIFENC Add-On"); }
 
-                    let is_ffmpeg_installed = toolpaths::ffmpeg_status() == Presence::Installed;
+                    let is_ffmpeg_installed = paths::ffmpeg_status() == Presence::Installed;
                     let png_button = ui.add_enabled(is_ffmpeg_installed, egui::SelectableLabel::new(selected_format == ExportFormat::Png, "PNG"));
                     if png_button.clicked() { selected_format = ExportFormat::Png; }
                     if !is_ffmpeg_installed { png_button.on_disabled_hover_text("Requires FFMPEG Add-On"); }
@@ -637,8 +637,8 @@ fn render_content(
                 }
                 ui.end_row();
 
-                let is_ffmpeg_installed = toolpaths::ffmpeg_status() == Presence::Installed;
-                let is_avif_installed = toolpaths::avifenc_status() == Presence::Installed;
+                let is_ffmpeg_installed = paths::ffmpeg_status() == Presence::Installed;
+                let is_avif_installed = paths::avifenc_status() == Presence::Installed;
 
                 let quality_tooltip = "Quality percentage dictates image quality, with lower quality correlating with lower file size";
                 let (is_quality_enabled, quality_reason) = match state.format {
@@ -743,7 +743,7 @@ fn render_content(
         ui.label("Tools that enhance the Exporters functionality\nManage through the Settings > Add-Ons page");
         ui.add_space(8.0);
 
-        let is_ffmpeg_installed = toolpaths::ffmpeg_status() == Presence::Installed;
+        let is_ffmpeg_installed = paths::ffmpeg_status() == Presence::Installed;
         let ffmpeg_text = if is_ffmpeg_installed { "FFMPEG Installed" } else { "FFMPEG Missing" };
         let ffmpeg_color = if is_ffmpeg_installed { egui::Color32::from_rgb(40, 160, 40) } else { egui::Color32::from_rgb(180, 50, 50) };
 
@@ -762,7 +762,7 @@ fn render_content(
         }
 
         ui.add_space(5.0);
-        let is_avif_installed = toolpaths::avifenc_status() == Presence::Installed;
+        let is_avif_installed = paths::avifenc_status() == Presence::Installed;
         let avif_text = if is_avif_installed { "AVIFENC Installed" } else { "AVIFENC Missing" };
         let avif_color = if is_avif_installed { egui::Color32::from_rgb(40, 160, 40) } else { egui::Color32::from_rgb(180, 50, 50) };
 

@@ -7,7 +7,7 @@ use std::sync::mpsc::Receiver;
 use tracing::{error, info};
 
 use crate::modules::addons::{manager, DownloadConfig};
-use crate::modules::addons::toolpaths::{get_tools_dir, AddonStatus, FFMPEG_BIN};
+use crate::modules::addons::paths::{get_tools_dir, AddonStatus, FFMPEG_BIN};
 
 pub struct FfmpegManager {
     pub status: AddonStatus,

@@ -9,7 +9,7 @@ use std::thread;
 use tracing::{debug, error, info, warn};
 
 use crate::modules::addons::ffmpeg as ffmpeg_dl;
-use crate::modules::addons::toolpaths::{self, Presence};
+use crate::modules::addons::paths::{self, Presence};
 use crate::modules::animation::export::encoding::{
     prepare_image, EncoderMessage, EncoderStatus, ExportConfig,
 };
@@ -23,7 +23,7 @@ pub fn encode(
     temp_path: &PathBuf,
     abort_signal: Arc<AtomicBool>
 ) -> bool {
-    if toolpaths::ffmpeg_status() == Presence::Installed {
+    if paths::ffmpeg_status() == Presence::Installed {
         info!("FFmpeg detected. Starting AVIF encoding via pipe stream.");
         encode_via_pipe(config, receiver, status_sender, temp_path, abort_signal)
     } else {

@@ -4,7 +4,7 @@ pub mod avifenc;
 pub mod ffmpeg;
 pub mod manager;
 pub mod oem;
-pub mod toolpaths;
+pub mod paths;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum AddonStatus {

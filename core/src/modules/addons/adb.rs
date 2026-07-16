@@ -9,7 +9,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::modules::addons::{manager, DownloadConfig};
-use crate::modules::addons::toolpaths::{get_tools_dir, AddonStatus, ADB_BIN};
+use crate::modules::addons::paths::{get_tools_dir, AddonStatus, ADB_BIN};
 
 pub use bridge::execute_pull;
 pub use mods::spawn_mod_import;

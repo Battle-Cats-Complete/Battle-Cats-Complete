@@ -1,5 +1,5 @@
 pub mod encoding;
 pub mod state;
 pub mod process;
-pub mod findloop;
+pub mod find_loop;
 pub mod leader;

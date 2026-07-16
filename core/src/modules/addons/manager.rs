@@ -7,7 +7,7 @@ use std::thread;
 use tracing::{debug, error, info};
 use zip::ZipArchive;
 
-use super::toolpaths::get_tools_dir;
+use super::paths::get_tools_dir;
 use super::AddonStatus;
 
 use crate::modules::addons::DownloadConfig;

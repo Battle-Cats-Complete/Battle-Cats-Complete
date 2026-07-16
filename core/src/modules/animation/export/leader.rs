@@ -5,7 +5,7 @@ use std::thread;
 
 use crate::modules::addons::avifenc::encoding as avifenc;
 use crate::modules::addons::ffmpeg::encoding as ffmpeg;
-use crate::modules::addons::toolpaths::{self, Presence};
+use crate::modules::addons::paths::{self, Presence};
 
 use super::encoding::{
     self, EncoderMessage, EncoderStatus, 
@@ -41,12 +41,12 @@ pub fn start_encoding_thread(
         let final_sender = status_sender.clone();
 
         let is_success = match config.format {
-            ExportFormat::Avif if toolpaths::avifenc_status() == Presence::Installed => {
+            ExportFormat::Avif if paths::avifenc_status() == Presence::Installed => {
                 avifenc::encode(config.clone(), receiver, status_sender, &temporary_path, abort_signal.clone())
             },
 
             ExportFormat::Gif | ExportFormat::WebP | ExportFormat::Png | ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm | ExportFormat::Avif
-            if toolpaths::ffmpeg_status() == Presence::Installed => {
+            if paths::ffmpeg_status() == Presence::Installed => {
                 ffmpeg::encode(config.clone(), receiver, status_sender, &temporary_path, abort_signal.clone())
             },
 

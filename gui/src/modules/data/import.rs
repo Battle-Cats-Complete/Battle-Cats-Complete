@@ -4,7 +4,7 @@ use std::thread;
 
 use eframe::egui;
 
-use core::modules::addons::toolpaths::{self, Presence};
+use core::modules::addons::paths::{self, Presence};
 use core::modules::data::leaders::{android, pack, raw};
 use core::modules::data::state::{AdbImportType, AdbTarget, ImportMode, ImportSubTab};
 use core::common::region::Region;
@@ -37,7 +37,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Se
                 ui.set_max_width(col_width);
                 ui.set_min_height(column_min_height);
 
-                let adb_installed = toolpaths::adb_status() == Presence::Installed;
+                let adb_installed = paths::adb_status() == Presence::Installed;
 
                 ui.vertical_centered(|ui| {
                     let header_width = col_width * 0.8;
@@ -230,7 +230,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Se
 
         let (button_text, can_run, active_color) = match state.config.selected_job {
             Some(ImportSubTab::Emulator) => {
-                let is_installed = toolpaths::adb_status() == Presence::Installed;
+                let is_installed = paths::adb_status() == Presence::Installed;
                 (if is_installed { "Start Job" } else { "Bridge Missing" }, is_installed, egui::Color32::from_rgb(31, 106, 165))
             },
             Some(ImportSubTab::Decrypt) => {
