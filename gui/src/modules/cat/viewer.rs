@@ -13,7 +13,7 @@ use core::cat::logic::scanner::CatEntry;
 use core::cat::paths::{self, AnimType};
 use core::settings::logic::state::Settings;
 
-use crate::features::animation::viewer::AnimViewer;
+use crate::modules::animation::viewer::AnimViewer;
 use crate::global::shared::DragGuard;
 
 thread_local! {

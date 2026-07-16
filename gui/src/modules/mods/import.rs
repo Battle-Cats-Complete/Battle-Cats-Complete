@@ -133,7 +133,7 @@ fn show_bcm_view(ui: &mut egui::Ui, state: &mut ModListState) {
         }
 
         let label_text = if let Some(p) = &selected_path {
-            crate::features::data::state::censor_path(&p.to_string_lossy())
+            crate::modules::data::state::censor_path(&p.to_string_lossy())
         } else {
             "No archive selected".to_string()
         };
@@ -273,5 +273,5 @@ fn render_pack_selection_label(
         return;
     }
 
-    ui.label(crate::features::data::state::censor_path(&p.to_string_lossy()));
+    ui.label(crate::modules::data::state::censor_path(&p.to_string_lossy()));
 }

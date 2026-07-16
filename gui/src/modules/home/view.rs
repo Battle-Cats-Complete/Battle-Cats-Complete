@@ -66,7 +66,7 @@ pub fn show(ctx: &egui::Context, current_page: &mut Page, settings: &mut Setting
                     tracing::debug!("Start guide navigated to Manage Keys modal");
                     *current_page = Page::Settings;
                     settings.runtime.active_tab = "Data".to_string();
-                    crate::features::settings::keys::open(ctx);
+                    crate::modules::settings::keys::open(ctx);
                 }
 
                 ui_center.add_space(35.0);

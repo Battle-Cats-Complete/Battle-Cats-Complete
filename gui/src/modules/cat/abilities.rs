@@ -144,14 +144,14 @@ pub fn render_list_view(
             if !is_conjure {
                 text_with_superscript(ui, &item.text);
             } else {
-                crate::features::cat::conjure::render_conjure_toggle(ui, &item.text, id, settings);
+                crate::modules::cat::conjure::render_conjure_toggle(ui, &item.text, id, settings);
             }
         }); 
 
         let expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.cat_data.expand_spirit_details));
         if is_conjure && expanded {
             ui.add_space(ABILITY_Y);
-            crate::features::cat::conjure::render_conjure_details(ui, ctx, sheets, assets, settings);
+            crate::modules::cat::conjure::render_conjure_details(ui, ctx, sheets, assets, settings);
         }
         
         if i < items.len() - 1 {

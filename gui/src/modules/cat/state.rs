@@ -10,7 +10,7 @@ use core::cat::logic::state::{CatDataState, DetailTab};
 use core::global::context::GlobalContext;
 use core::settings::logic::Settings;
 
-use crate::features::animation::viewer::AnimViewer;
+use crate::modules::animation::viewer::AnimViewer;
 use crate::global::assets::CustomAssets;
 use crate::global::shared::DragGuard;
 use crate::global::sheet::SpriteSheet;
@@ -197,7 +197,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
         let talent_map = state.data.talent_levels.entry(selected_id).or_default();
         let prev_form = state.data.selected_form;
 
-        crate::features::cat::master::show(
+        crate::modules::cat::master::show(
             ctx, ui, cat_entry,
             &mut state.data.selected_form, &mut state.data.selected_detail_tab,
             &mut state.data.level_input, &mut state.data.current_level,
@@ -250,7 +250,7 @@ pub fn show(ctx: &egui::Context, state: &mut CatListState, settings: &mut Settin
         }
     });
 
-    crate::features::cat::filter::show_popup(
+    crate::modules::cat::filter::show_popup(
         ctx, &mut state.filter_state, &mut state.img015_sheets,
         &assets,
         settings, &mut state.drag_guard,

@@ -8,7 +8,7 @@ use core::cat::waiter::unitid;
 use core::global::game::abilities::ABILITY_Y;
 use core::settings::logic::Settings;
 
-use crate::features::statblock::builder::SpiritData;
+use crate::modules::statblock::builder::SpiritData;
 use crate::global::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};
 use crate::global::sheet::SpriteSheet;
 
@@ -105,35 +105,35 @@ pub fn render_conjure_details(
             let mut last_was_trait = false;
 
             if !spirit_traits.is_empty() { 
-                crate::features::cat::abilities::render_icon_row(ui, &spirit_traits, sheets, spirit_border, assets);
+                crate::modules::cat::abilities::render_icon_row(ui, &spirit_traits, sheets, spirit_border, assets);
                 prev = true;
                 last_was_trait = true;
             }
 
             if !spirit_head_1.is_empty() {
                 if prev { ui.add_space(if last_was_trait { core::global::game::abilities::TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
-                crate::features::cat::abilities::render_icon_row(ui, &spirit_head_1, sheets, spirit_border, assets);
+                crate::modules::cat::abilities::render_icon_row(ui, &spirit_head_1, sheets, spirit_border, assets);
                 prev = true;
             }
 
             if !spirit_head_2.is_empty() {
                 if prev { ui.add_space(if last_was_trait { core::global::game::abilities::TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
-                crate::features::cat::abilities::render_icon_row(ui, &spirit_head_2, sheets, spirit_border, assets);
+                crate::modules::cat::abilities::render_icon_row(ui, &spirit_head_2, sheets, spirit_border, assets);
                 prev = true;
             }
             
             let has_body = !spirit_body_1.is_empty() || !spirit_body_2.is_empty();
             if has_body {
                 if prev { ui.add_space(if last_was_trait { core::global::game::abilities::TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
-                crate::features::cat::abilities::render_list_view(ui, &spirit_body_1, sheets, 0, &spirit_ctx, spirit_border, assets, settings);
+                crate::modules::cat::abilities::render_list_view(ui, &spirit_body_1, sheets, 0, &spirit_ctx, spirit_border, assets, settings);
                 if !spirit_body_1.is_empty() && !spirit_body_2.is_empty() { ui.add_space(ABILITY_Y); }
-                crate::features::cat::abilities::render_list_view(ui, &spirit_body_2, sheets, 0, &spirit_ctx, spirit_border, assets, settings);
+                crate::modules::cat::abilities::render_list_view(ui, &spirit_body_2, sheets, 0, &spirit_ctx, spirit_border, assets, settings);
                 prev = true;
             }
             
             if !spirit_footer.is_empty() {
                 if prev { ui.add_space(if last_was_trait { core::global::game::abilities::TRAIT_Y } else { ABILITY_Y }); }
-                crate::features::cat::abilities::render_icon_row(ui, &spirit_footer, sheets, spirit_border, assets);
+                crate::modules::cat::abilities::render_icon_row(ui, &spirit_footer, sheets, spirit_border, assets);
             }
         });
 }

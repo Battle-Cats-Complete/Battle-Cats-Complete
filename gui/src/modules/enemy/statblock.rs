@@ -3,7 +3,7 @@ use core::enemy::logic::context::EnemyRenderContext;
 use core::enemy::logic::scanner::EnemyEntry;
 use core::enemy::registry::{format_enemy_stat, get_enemy_stat};
 
-use crate::features::statblock::builder::{StatCell, StatblockData};
+use crate::modules::statblock::builder::{StatCell, StatblockData};
 
 pub fn build_enemy_statblock(
     ctx: &EnemyRenderContext,

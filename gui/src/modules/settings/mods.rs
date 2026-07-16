@@ -21,7 +21,7 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut ModsSettings, drag_guard
 
             if scroll_ui.add_sized([180.0, 30.0], manage_pem_button).clicked() {
                 trace!("Manage PEM button clicked");
-                crate::features::settings::pem::open(&context);
+                crate::modules::settings::pem::open(&context);
             }
 
             scroll_ui.add_space(10.0);
@@ -56,7 +56,7 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut ModsSettings, drag_guard
             scroll_ui.add_space(20.0);
         });
 
-    crate::features::settings::pem::show(&context, drag_guard);
+    crate::modules::settings::pem::show(&context, drag_guard);
 
     refresh_needed
 }

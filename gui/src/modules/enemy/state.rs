@@ -9,7 +9,7 @@ use core::enemy::logic::state::EnemyDataState;
 use core::global::context::GlobalContext;
 use core::settings::logic::Settings;
 
-use crate::features::animation::viewer::AnimViewer;
+use crate::modules::animation::viewer::AnimViewer;
 use crate::global::assets::CustomAssets;
 use crate::global::shared::DragGuard;
 use crate::global::sheet::SpriteSheet;
@@ -151,7 +151,7 @@ pub fn show(ctx: &egui::Context, state: &mut EnemyListState, settings: &mut Sett
         );
     });
 
-    crate::features::enemy::filter::show_popup(
+    crate::modules::enemy::filter::show_popup(
         ctx, &mut state.filter_state, &mut state.img015_sheets,
         &assets, settings, &mut state.drag_guard,
     );

@@ -13,7 +13,7 @@ use core::animation::export::process::{start_export, STATUS_RX};
 use core::animation::export::state::{ExportMode, ExporterState, LoopStatus};
 use core::settings::logic::state::Settings;
 
-use crate::features::settings::toggle_ui;
+use crate::modules::settings::toggle_ui;
 use crate::global::shared::DragGuard;
 
 const EXPORT_MODE_SPACING: f32 = 2.0;

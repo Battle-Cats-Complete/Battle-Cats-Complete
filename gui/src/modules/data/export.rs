@@ -7,7 +7,7 @@ use eframe::egui;
 use core::data::leaders::export;
 use core::settings::logic::Settings;
 
-use crate::features::settings::tabs::toggle_ui;
+use crate::modules::settings::tabs::toggle_ui;
 
 use super::state::ImportState;
 

@@ -123,5 +123,5 @@ pub fn show(ctx: &egui::Context, state: &mut StageListState, settings: &mut Sett
             }
         });
 
-    crate::features::stage::filter::show_popup(ctx, &mut state.filter_state, &mut state.drag_guard);
+    crate::modules::stage::filter::show_popup(ctx, &mut state.filter_state, &mut state.drag_guard);
 }

@@ -239,7 +239,7 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GameDataSettings, runtim
             let keys_button = egui::Button::new("Manage Keys")
                 .fill(egui::Color32::from_rgb(40, 90, 160));
             if scroll_ui.add_sized([180.0, 30.0], keys_button).clicked() {
-                crate::features::settings::keys::open(&context);
+                crate::modules::settings::keys::open(&context);
             }
 
             scroll_ui.add_space(5.0);
@@ -247,7 +247,7 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GameDataSettings, runtim
             let import_button = egui::Button::new("Manage Exceptions")
                 .fill(egui::Color32::from_rgb(40, 90, 160));
             if scroll_ui.add_sized([180.0, 30.0], import_button).clicked() {
-                crate::features::settings::exceptions::open(&context);
+                crate::modules::settings::exceptions::open(&context);
             }
 
             scroll_ui.add_space(10.0);
@@ -342,8 +342,8 @@ pub fn show(ui_container: &mut egui::Ui, settings: &mut GameDataSettings, runtim
         cache_deleter.start(cache_directory);
     }
 
-    crate::features::settings::exceptions::show(&context, drag_guard);
-    crate::features::settings::keys::show(&context, drag_guard);
+    crate::modules::settings::exceptions::show(&context, drag_guard);
+    crate::modules::settings::keys::show(&context, drag_guard);
 
     context.data_mut(|data_map| {
         data_map.insert_temp(egui::Id::new("game_deleter"), game_deleter);

@@ -188,7 +188,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut ModListState, _settings: &mut Setti
         state.data.needs_rescan = true;
     }
 
-    crate::features::mods::export::show(ui.ctx(), state, _settings);
+    crate::modules::mods::export::show(ui.ctx(), state, _settings);
 }
 
 fn render_action_buttons(

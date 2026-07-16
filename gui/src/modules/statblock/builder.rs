@@ -16,7 +16,7 @@ use core::global::assets;
 use core::global::game::abilities::{AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y};
 use core::global::utils::autocrop;
 
-use crate::features::statblock::draw::*;
+use crate::modules::statblock::draw::*;
 
 #[derive(Clone)]
 pub struct SpiritData {

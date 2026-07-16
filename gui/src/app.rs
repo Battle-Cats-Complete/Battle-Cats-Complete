@@ -7,20 +7,21 @@ use rustc_hash::FxHasher;
 use core::global::io::json;
 use core::settings::logic::state::Settings;
 
-use crate::features::cat::state::CatListState;
-use crate::features::data::state::ImportState;
-use crate::features::enemy::state::EnemyListState;
-use crate::features::mods::state::ModListState;
-use crate::features::stage::state::StageListState;
+use crate::modules::cat::state::CatListState;
+use crate::modules::data::state::ImportState;
+use crate::modules::enemy::state::EnemyListState;
+use crate::modules::mods::state::ModListState;
+use crate::modules::stage::state::StageListState;
 use crate::global::shared::DragGuard;
 use crate::global::watcher::GuiWatcher;
-use crate::updater::Updater;
+use updater::Updater;
 
 pub mod startup;
 pub mod frame;
 pub mod reload;
 pub mod events;
 pub mod tracing;
+mod updater;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
@@ -98,13 +99,13 @@ impl eframe::App for BattleCatsApp {
         self.updater.update_state(ctx);
 
         let status_str = match self.updater.status {
-            crate::updater::UpdateStatus::Checking => "Checking",
-            crate::updater::UpdateStatus::UpToDate => "UpToDate",
-            crate::updater::UpdateStatus::UpdateFound(..) => "UpdateFound",
-            crate::updater::UpdateStatus::CheckFailed => "CheckFailed",
-            crate::updater::UpdateStatus::Downloading(_) => "Downloading",
-            crate::updater::UpdateStatus::RestartPending(_) => "RestartPending",
-            crate::updater::UpdateStatus::Idle => "Idle",
+            updater::UpdateStatus::Checking => "Checking",
+            updater::UpdateStatus::UpToDate => "UpToDate",
+            updater::UpdateStatus::UpdateFound(..) => "UpdateFound",
+            updater::UpdateStatus::CheckFailed => "CheckFailed",
+            updater::UpdateStatus::Downloading(_) => "Downloading",
+            updater::UpdateStatus::RestartPending(_) => "RestartPending",
+            updater::UpdateStatus::Idle => "Idle",
         };
         ctx.data_mut(|data| data.insert_temp(egui::Id::new("updater_status"), status_str));
 

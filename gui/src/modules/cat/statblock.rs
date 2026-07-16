@@ -4,7 +4,7 @@ use core::cat::logic::scanner::CatEntry;
 use core::cat::registry::{format_cat_stat, get_cat_stat};
 use core::settings::logic::Settings;
 
-use crate::features::statblock::builder::{StatCell, StatblockData};
+use crate::modules::statblock::builder::{StatCell, StatblockData};
 
 use super::conjure::build_spirit_data;
 

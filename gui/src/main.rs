@@ -1,8 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
-mod updater;
-mod features;
+mod modules;
 mod global;
 
 use std::panic;

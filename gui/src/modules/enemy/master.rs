@@ -10,8 +10,8 @@ use core::enemy::registry::Magnification;
 use core::global::context::GlobalContext;
 use core::settings::logic::Settings;
 
-use crate::features::animation::viewer::AnimViewer;
-use crate::features::statblock::builder::{generate_and_copy, generate_and_save};
+use crate::modules::animation::viewer::AnimViewer;
+use crate::modules::statblock::builder::{generate_and_copy, generate_and_save};
 use crate::global::assets::CustomAssets;
 use crate::global::shared::DragGuard;
 use crate::global::sheet::SpriteSheet;

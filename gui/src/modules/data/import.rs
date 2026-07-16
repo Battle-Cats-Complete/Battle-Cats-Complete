@@ -149,7 +149,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings)
                     if ui.button("Select Folder").clicked()
                         && let Some(folder_path) = rfd::FileDialog::new().pick_folder() {
                             state.config.decrypt_path = folder_path.to_string_lossy().to_string();
-                            state.decrypt_censored = crate::features::data::state::censor_path(&state.config.decrypt_path);
+                            state.decrypt_censored = crate::modules::data::state::censor_path(&state.config.decrypt_path);
                         }
                     ui.label(if state.decrypt_censored.is_empty() { "None selected" } else { &state.decrypt_censored });
                 });
@@ -207,7 +207,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImportState, settings: &mut Settings)
                         };
                         if let Some(file_path) = dialog_result {
                             state.config.import_path = file_path.to_string_lossy().to_string();
-                            state.import_censored = crate::features::data::state::censor_path(&state.config.import_path);
+                            state.import_censored = crate::modules::data::state::censor_path(&state.config.import_path);
                         }
                     }
                     ui.label(if state.import_censored.is_empty() { "None selected" } else { &state.import_censored });

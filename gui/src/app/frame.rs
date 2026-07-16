@@ -2,13 +2,13 @@ use eframe::egui;
 
 use core::global::context::GlobalContext;
 
-use crate::features::cat::state::show as show_cats;
-use crate::features::data::manager::show as show_data;
-use crate::features::enemy::state::show as show_enemies;
-use crate::features::home;
-use crate::features::mods::frame::show as show_mods;
-use crate::features::settings::show as show_settings;
-use crate::features::stage::master::show as show_stages;
+use crate::modules::cat::state::show as show_cats;
+use crate::modules::data::manager::show as show_data;
+use crate::modules::enemy::state::show as show_enemies;
+use crate::modules::home;
+use crate::modules::mods::frame::show as show_mods;
+use crate::modules::settings::show as show_settings;
+use crate::modules::stage::master::show as show_stages;
 
 use super::BattleCatsApp;
 

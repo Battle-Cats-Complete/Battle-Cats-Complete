@@ -12,9 +12,9 @@ use core::cat::waiter::unitid;
 use core::global::context::GlobalContext;
 use core::settings::logic::Settings;
 
-use crate::features::animation::viewer::AnimViewer;
-use crate::features::cat::statblock::build_cat_statblock;
-use crate::features::statblock::builder::{generate_and_copy, generate_and_save};
+use crate::modules::animation::viewer::AnimViewer;
+use crate::modules::cat::statblock::build_cat_statblock;
+use crate::modules::statblock::builder::{generate_and_copy, generate_and_save};
 use crate::global::assets::CustomAssets;
 use crate::global::shared::DragGuard;
 use crate::global::sheet::SpriteSheet;

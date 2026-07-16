@@ -9,7 +9,7 @@ use core::global::game::waiter::{localizable, param};
 use core::global::io::json;
 use core::settings::logic::{lang, upd::UpdateMode};
 
-use crate::updater;
+use crate::app::updater;
 
 use super::BattleCatsApp;
 
