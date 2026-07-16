@@ -7,7 +7,7 @@ use core::modules::addons::apkeditor::ApkeditorManager;
 use core::modules::addons::avifenc::AvifManager;
 use core::modules::addons::ffmpeg::FfmpegManager;
 #[cfg(target_os = "windows")]
-use core::modules::addons::oem::download::{OemDriver, OemManager};
+use core::modules::addons::oem::{OemDriver, OemManager};
 use core::modules::addons::toolpaths::AddonStatus;
 
 use crate::common::shared::DragGuard;

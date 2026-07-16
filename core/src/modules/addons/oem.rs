@@ -1,1 +1,82 @@
-pub mod download;
+#[cfg(target_os = "windows")]
+use tracing::{error, info};
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OemDriver {
+    Universal,
+    Samsung,
+    Google,
+    Xiaomi,
+    Lg,
+    Motorola,
+    Other,
+}
+
+#[cfg(target_os = "windows")]
+impl Default for OemDriver {
+    fn default() -> Self {
+        Self::Universal
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub struct OemManager {
+    pub selected: OemDriver,
+}
+
+#[cfg(target_os = "windows")]
+impl Default for OemManager {
+    fn default() -> Self {
+        Self {
+            selected: OemDriver::Universal,
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl OemManager {
+    pub fn all_drivers() -> Vec<OemDriver> {
+        vec![
+            OemDriver::Universal,
+            OemDriver::Samsung,
+            OemDriver::Google,
+            OemDriver::Xiaomi,
+            OemDriver::Lg,
+            OemDriver::Motorola,
+            OemDriver::Other,
+        ]
+    }
+
+    pub fn label(driver: OemDriver) -> &'static str {
+        match driver {
+            OemDriver::Universal => "Universal",
+            OemDriver::Samsung => "Samsung",
+            OemDriver::Google => "Google (Pixel/Nexus)",
+            OemDriver::Xiaomi => "Xiaomi / Redmi",
+            OemDriver::Lg => "LG",
+            OemDriver::Motorola => "Motorola",
+            OemDriver::Other => "Other",
+        }
+    }
+
+    pub fn execute_action(&self) {
+        match self.selected {
+            OemDriver::Universal => open_url("https://github.com/koush/adb.clockworkmod.com/releases/latest/download/UniversalAdbDriverSetup.msi"),
+            OemDriver::Samsung => open_url("https://developer.samsung.com/mobile/android-usb-driver.html"),
+            OemDriver::Google => open_url("https://developer.android.com/studio/run/win-usb"),
+            OemDriver::Xiaomi => open_url("https://xiaomidriver.com/adb-driver"),
+            OemDriver::Lg => open_url("https://www.lg.com/us/support?popup=software"),
+            OemDriver::Motorola => open_url("https://support.motorola.com/us/en/solution/MS88481"),
+            OemDriver::Other => open_url("https://developer.android.com/studio/run/oem-usb#Drivers"),
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn open_url(url: &str) {
+    info!("Opening OEM driver URL: {}", url);
+    if let Err(err) = open::that(url) {
+        error!("Failed to open URL '{}': {}", url, err);
+    }
+}
