@@ -4,7 +4,7 @@ use eframe::egui;
 
 use core::modules::addons::adb::AdbManager;
 use core::modules::addons::apkeditor::ApkeditorManager;
-use core::modules::addons::avifenc::download::AvifManager;
+use core::modules::addons::avifenc::AvifManager;
 use core::modules::addons::ffmpeg::download::FfmpegManager;
 #[cfg(target_os = "windows")]
 use core::modules::addons::oem::download::{OemDriver, OemManager};
