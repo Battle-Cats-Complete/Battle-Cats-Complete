@@ -6,58 +6,18 @@ use std::sync::{mpsc, Arc};
 
 use gif::{
     DisposalMethod, Encoder as GifEncoder,
-    Frame as GifFrame, Repeat as GifRepeat
+    Frame as GifFrame, Repeat as GifRepeat,
 };
 use glow::HasContext;
 use image::RgbaImage;
 use nyanko::graphics::engine::resolve_frame;
 use nyanko::graphics::rig::{Animation, Unit};
+use tracing::{error, info, warn};
 use webp_animation::Encoder as WebpEncoder;
 
-use crate::modules::animation::logic::canvas::GlowRenderer;
+use crate::modules::animation::GlowRenderer;
 
-#[derive(Clone, Debug)]
-pub struct ExportConfig {
-    pub width: u32,
-    pub height: u32,
-    pub camera_x: f32,
-    pub camera_y: f32,
-    pub camera_zoom: f32,
-    pub format: ExportFormat,
-    pub quality_percent: u32,
-    pub compression_percent: u32,
-    pub fps: u32,
-    pub start_frame: i32,
-    pub end_frame: i32,
-    pub interpolation: bool,
-    pub output_path: PathBuf,
-    pub base_name: String,
-    pub background: bool,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ExportFormat {
-    Gif,
-    WebP,
-    Avif,
-    Png,
-    Mp4,
-    Mkv,
-    Webm,
-    Zip
-}
-
-pub enum EncoderMessage {
-    Frame(Vec<u8>, u32, u32, u32),
-    Finish,
-}
-
-#[derive(Debug, Clone)]
-pub enum EncoderStatus {
-    #[allow(dead_code)] Encoding,
-    Progress(u32),
-    Finished,
-}
+use super::{EncoderMessage, EncoderStatus, ExportConfig, ExportFormat};
 
 pub fn encode_native(
     config: ExportConfig,
@@ -71,14 +31,26 @@ pub fn encode_native(
 
     match config.format {
         ExportFormat::Gif => {
-            let Ok(file) = fs::File::create(temp_path) else { return false; };
+            let Ok(file) = fs::File::create(temp_path) else {
+                error!("Failed to create temporary GIF file at {:?}", temp_path);
+                return false;
+            };
             let mut buffered_writer = BufWriter::new(file);
 
-            let Ok(mut gif_encoder) = GifEncoder::new(&mut buffered_writer, config.width as u16, config.height as u16, &[]) else { return false; };
-            let _ = gif_encoder.set_repeat(GifRepeat::Infinite);
+            let Ok(mut gif_encoder) = GifEncoder::new(&mut buffered_writer, config.width as u16, config.height as u16, &[]) else {
+                error!("Failed to instantiate native GIF encoder.");
+                return false;
+            };
+
+            if let Err(e) = gif_encoder.set_repeat(GifRepeat::Infinite) {
+                warn!("Failed to set GIF repeat loop: {}", e);
+            }
 
             while let Ok(message) = receiver.recv() {
-                if abort_signal.load(Ordering::Relaxed) { return false; }
+                if abort_signal.load(Ordering::Relaxed) {
+                    info!("GIF encoding aborted midway.");
+                    return false;
+                }
 
                 match message {
                     EncoderMessage::Frame(raw_pixels, width, height, delay_milliseconds) => {
@@ -101,36 +73,70 @@ pub fn encode_native(
                         gif_frame.dispose = DisposalMethod::Background;
                         gif_frame.delay = frame_ticks;
 
-                        if gif_encoder.write_frame(&gif_frame).is_err() { break; }
+                        if let Err(e) = gif_encoder.write_frame(&gif_frame) {
+                            error!("Native GIF encoder broke during write_frame: {}", e);
+                            break;
+                        }
+
                         frames_processed += 1;
-                        let _ = status_sender.send(EncoderStatus::Progress(frames_processed));
+                        if let Err(e) = status_sender.send(EncoderStatus::Progress(frames_processed)) {
+                            warn!("Failed to dispatch EncoderStatus::Progress message: {}", e);
+                        }
                     },
-                    EncoderMessage::Finish => { is_success = true; break; }
+                    EncoderMessage::Finish => {
+                        is_success = true;
+                        break;
+                    }
                 }
             }
         },
         ExportFormat::WebP => {
-            let Ok(mut webp_encoder) = WebpEncoder::new((config.width, config.height)) else { return false; };
+            let Ok(mut webp_encoder) = WebpEncoder::new((config.width, config.height)) else {
+                error!("Failed to instantiate native WebP encoder.");
+                return false;
+            };
             let mut timestamp_milliseconds = 0;
 
             while let Ok(message) = receiver.recv() {
-                if abort_signal.load(Ordering::Relaxed) { return false; }
+                if abort_signal.load(Ordering::Relaxed) {
+                    info!("WebP encoding aborted midway.");
+                    return false;
+                }
 
                 match message {
                     EncoderMessage::Frame(raw_pixels, width, height, delay_milliseconds) => {
                         let image_data = prepare_image(raw_pixels, width, height, config.background);
-                        let _ = webp_encoder.add_frame(&image_data.into_vec(), timestamp_milliseconds);
+
+                        if let Err(e) = webp_encoder.add_frame(&image_data.into_vec(), timestamp_milliseconds) {
+                            error!("Failed adding frame to WebP encoder: {}", e);
+                            break;
+                        }
+
                         timestamp_milliseconds += delay_milliseconds as i32;
                         frames_processed += 1;
-                        let _ = status_sender.send(EncoderStatus::Progress(frames_processed));
+
+                        if let Err(e) = status_sender.send(EncoderStatus::Progress(frames_processed)) {
+                            warn!("Failed to dispatch EncoderStatus::Progress message: {}", e);
+                        }
                     },
-                    EncoderMessage::Finish => { is_success = true; break; }
+                    EncoderMessage::Finish => {
+                        is_success = true;
+                        break;
+                    }
                 }
             }
 
             if is_success && !abort_signal.load(Ordering::Relaxed) {
-                let Ok(final_data) = webp_encoder.finalize(timestamp_milliseconds) else { return false; };
-                is_success = fs::write(temp_path, final_data).is_ok();
+                match webp_encoder.finalize(timestamp_milliseconds) {
+                    Ok(final_data) => {
+                        is_success = fs::write(temp_path, final_data).is_ok();
+                        if !is_success { error!("Failed writing finalized WebP data to disk."); }
+                    },
+                    Err(e) => {
+                        error!("Failed to finalize WebP encoding: {:?}", e);
+                        is_success = false;
+                    }
+                }
             } else {
                 is_success = false;
             }
@@ -138,7 +144,12 @@ pub fn encode_native(
         ExportFormat::Zip => {
             let mut frame_index = 0;
             let step_direction = if config.start_frame <= config.end_frame { 1 } else { -1 };
-            let Ok(file) = fs::File::create(temp_path) else { return false; };
+
+            let Ok(file) = fs::File::create(temp_path) else {
+                error!("Failed to create temporary Zip file at {:?}", temp_path);
+                return false;
+            };
+
             let mut zip_writer = zip::ZipWriter::new(BufWriter::new(file));
 
             let compression_method = if config.compression_percent == 0 {
@@ -150,7 +161,10 @@ pub fn encode_native(
             let zip_options = zip::write::SimpleFileOptions::default().compression_method(compression_method);
 
             while let Ok(message) = receiver.recv() {
-                if abort_signal.load(Ordering::Relaxed) { return false; }
+                if abort_signal.load(Ordering::Relaxed) {
+                    info!("Zip exporting aborted midway.");
+                    return false;
+                }
 
                 match message {
                     EncoderMessage::Frame(raw_pixels, width, height, _) => {
@@ -158,23 +172,43 @@ pub fn encode_native(
                         let current_frame = config.start_frame + (frame_index * step_direction);
                         let entry_name = format!("{}.{}f.png", config.base_name, current_frame);
 
-                        let _ = zip_writer.start_file(entry_name, zip_options);
-                        let mut memory_buffer = Cursor::new(Vec::new());
+                        if let Err(e) = zip_writer.start_file(entry_name, zip_options) {
+                            error!("Failed to start Zip file entry: {}", e);
+                            break;
+                        }
 
-                        if image_data.write_to(&mut memory_buffer, image::ImageFormat::Png).is_ok() {
-                            let _ = zip_writer.write_all(memory_buffer.get_ref());
+                        let mut memory_buffer = Cursor::new(Vec::new());
+                        if let Err(e) = image_data.write_to(&mut memory_buffer, image::ImageFormat::Png) {
+                            error!("Failed compiling PNG frame to buffer: {}", e);
+                            break;
+                        }
+
+                        if let Err(e) = zip_writer.write_all(memory_buffer.get_ref()) {
+                            error!("Failed to write PNG buffer to Zip entry: {}", e);
+                            break;
                         }
 
                         frame_index += 1;
                         frames_processed += 1;
-                        let _ = status_sender.send(EncoderStatus::Progress(frames_processed));
+
+                        if let Err(e) = status_sender.send(EncoderStatus::Progress(frames_processed)) {
+                            warn!("Failed to dispatch EncoderStatus::Progress message: {}", e);
+                        }
                     },
-                    EncoderMessage::Finish => { is_success = true; break; },
+                    EncoderMessage::Finish => {
+                        is_success = true;
+                        break;
+                    },
                 }
             }
-            let _ = zip_writer.finish();
+            if let Err(e) = zip_writer.finish() {
+                error!("Failed finalizing the Zip archive structure: {}", e);
+                is_success = false;
+            }
         },
-        _ => {}
+        _ => {
+            warn!("Native export method unsupported for requested format.");
+        }
     }
     is_success
 }
@@ -231,7 +265,7 @@ pub fn render_frame(
             }
         }
 
-        let _ = renderer.draw_frame(
+        if let Err(e) = renderer.draw_frame(
             gl_context,
             &geometry,
             &unit.sheet,
@@ -240,7 +274,9 @@ pub fn render_frame(
             pan_x,
             pan_y,
             zoom
-        );
+        ) {
+            error!("Renderer failed to draw frame internally: {}", e);
+        }
 
         gl_context.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
 
@@ -275,8 +311,12 @@ pub fn prepare_image(mut pixel_buffer: Vec<u8>, width: u32, height: u32, is_opaq
         }
     }
 
-    let Some(image_buffer) = RgbaImage::from_raw(width, height, pixel_buffer) else {
-        return RgbaImage::new(width, height);
+    let image_buffer = match RgbaImage::from_raw(width, height, pixel_buffer) {
+        Some(buffer) => buffer,
+        None => {
+            error!("Failed converting raw frame array back to structured RgbaImage. Recovering with empty image.");
+            return RgbaImage::new(width, height);
+        }
     };
 
     image::imageops::flip_vertical(&image_buffer)

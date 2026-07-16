@@ -4,7 +4,7 @@ use eframe::egui;
 use nyanko::graphics::engine::resolve_frame;
 use nyanko::graphics::rig::{Animation, Unit};
 
-use core::modules::animation::logic::canvas::GlowRenderer;
+use core::modules::animation::GlowRenderer;
 
 pub(crate) fn paint(
     ui: &mut egui::Ui,

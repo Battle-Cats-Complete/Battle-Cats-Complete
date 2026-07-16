@@ -5,7 +5,7 @@ use std::sync::Arc;
 use eframe::egui;
 use nyanko::graphics::rig::Unit;
 
-use core::modules::animation::logic::constants::{
+use core::modules::animation::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB,
     IDX_SURFACE, IDX_WALK,
 };

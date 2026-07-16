@@ -4,10 +4,10 @@ use std::sync::{Arc, Mutex};
 use eframe::egui;
 use nyanko::graphics::rig::{Animation, Unit};
 
-use core::modules::animation::export::encoding::{self, EncoderMessage};
+use core::modules::animation::export::{encoding, EncoderMessage};
 use core::modules::animation::export::process::calculate_export_time;
-use core::modules::animation::export::state::ExporterState;
-use core::modules::animation::logic::canvas::GlowRenderer;
+use core::modules::animation::export::ExporterState;
+use core::modules::animation::GlowRenderer;
 
 pub(crate) fn process_frame(
     ui: &mut egui::Ui,

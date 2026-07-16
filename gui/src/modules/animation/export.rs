@@ -7,10 +7,10 @@ use eframe::egui;
 use nyanko::graphics::rig::{Animation, Unit};
 
 use core::modules::addons::paths::{self, Presence};
-use core::modules::animation::export::encoding::{EncoderStatus, ExportFormat};
+use core::modules::animation::export::{EncoderStatus, ExportFormat};
 use core::modules::animation::export::find_loop;
 use core::modules::animation::export::process::{start_export, STATUS_RX};
-use core::modules::animation::export::state::{ExportMode, ExporterState, LoopStatus};
+use core::modules::animation::export::{ExportMode, ExporterState, LoopStatus};
 use core::modules::settings::logic::state::Settings;
 
 use crate::modules::settings::toggle_ui;
@@ -497,10 +497,10 @@ fn render_content(
 
                         if state.export_mode == ExportMode::Showcase {
                             let target_indices = [
-                                core::modules::animation::logic::constants::IDX_WALK,
-                                core::modules::animation::logic::constants::IDX_IDLE,
-                                core::modules::animation::logic::constants::IDX_ATTACK,
-                                core::modules::animation::logic::constants::IDX_KB,
+                                core::modules::animation::IDX_WALK,
+                                core::modules::animation::IDX_IDLE,
+                                core::modules::animation::IDX_ATTACK,
+                                core::modules::animation::IDX_KB,
                             ];
 
                             for target_index in target_indices {

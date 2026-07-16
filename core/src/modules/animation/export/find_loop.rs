@@ -4,8 +4,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use nyanko::graphics::rig::{Animation, Unit};
+use tracing::{error, info, warn};
 
-use super::state::LoopStatus;
+use super::LoopStatus;
 
 const TIMEOUT_SECONDS: u64 = 180;
 
@@ -18,6 +19,8 @@ pub fn start_search(
     status_sender: mpsc::Sender<LoopStatus>,
     abort_signal: Arc<AtomicBool>
 ) {
+    info!("Starting loop detection routine");
+
     thread::spawn(move || {
         let start_time = Instant::now();
         let cycle_result = unit.calculate_cycle(
@@ -27,16 +30,22 @@ pub fn start_search(
             maximum_loop_length,
             |current_frame| {
                 if abort_signal.load(Ordering::Relaxed) {
+                    info!("Loop search explicitly aborted by user.");
                     return false;
                 }
 
                 if start_time.elapsed().as_secs() > TIMEOUT_SECONDS {
-                    let _ = status_sender.send(LoopStatus::Error("Timed out (3 mins)".to_string()));
+                    warn!("Loop search timed out after {} seconds.", TIMEOUT_SECONDS);
+                    if let Err(e) = status_sender.send(LoopStatus::Error("Timed out (3 mins)".to_string())) {
+                        error!("Failed to send timeout error: {}", e);
+                    }
                     return false;
                 }
 
                 if current_frame % 5 == 0 {
-                    let _ = status_sender.send(LoopStatus::Searching(current_frame));
+                    if let Err(e) = status_sender.send(LoopStatus::Searching(current_frame)) {
+                        error!("Failed to dispatch Searching status: {}", e);
+                    }
                 }
 
                 if current_frame % 100 == 0 {
@@ -49,11 +58,17 @@ pub fn start_search(
 
         match cycle_result {
             Some((start_frame, end_frame)) => {
-                let _ = status_sender.send(LoopStatus::Found(start_frame, end_frame));
+                info!("Loop boundary found: {} to {}", start_frame, end_frame);
+                if let Err(e) = status_sender.send(LoopStatus::Found(start_frame, end_frame)) {
+                    error!("Failed to send loop found status: {}", e);
+                }
             }
             None => {
                 if !abort_signal.load(Ordering::Relaxed) && start_time.elapsed().as_secs() <= TIMEOUT_SECONDS {
-                    let _ = status_sender.send(LoopStatus::Error("No loop found within limits".to_string()));
+                    warn!("No loops found within limits.");
+                    if let Err(e) = status_sender.send(LoopStatus::Error("No loop found within limits".to_string())) {
+                        error!("Failed to send loop not found error: {}", e);
+                    }
                 }
             }
         }

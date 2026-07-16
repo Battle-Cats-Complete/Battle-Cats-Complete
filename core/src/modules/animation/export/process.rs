@@ -1,17 +1,21 @@
+use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{mpsc, Arc, Mutex};
 
 use nyanko::graphics::rig::Animation;
+use tracing::{error, info, warn};
 
-use super::encoding::{EncoderStatus, ExportConfig, ExportFormat};
 use super::leader;
-use super::state::{ExportMode, ExporterState};
+use super::{EncoderStatus, ExportConfig, ExportFormat, ExportMode, ExporterState};
 
 pub static STATUS_RX: Mutex<Option<mpsc::Receiver<EncoderStatus>>> = Mutex::new(None);
 
 pub fn start_export(state: &mut ExporterState) {
-    if state.is_processing { return; }
+    if state.is_processing {
+        warn!("Export already in progress; ignoring start request.");
+        return;
+    }
 
     state.is_processing = true;
     state.current_progress = 0;
@@ -64,7 +68,7 @@ pub fn start_export(state: &mut ExporterState) {
         (base, state.file_name.clone())
     };
 
-    let mut output_path = std::env::current_dir().unwrap_or(PathBuf::from("../../../../.."));
+    let mut output_path = env::current_dir().unwrap_or_else(|_| PathBuf::from("../../../../.."));
     output_path.push("exports");
 
     let mut final_file_name = file_name;
@@ -87,16 +91,22 @@ pub fn start_export(state: &mut ExporterState) {
         }
     }
 
-    output_path.push(final_file_name);
+    output_path.push(&final_file_name);
+    info!("Starting export process targeted to: {:?}", output_path);
 
     let config = ExportConfig {
-        width: state.region_w as u32, height: state.region_h as u32,
-        camera_x: state.region_x, camera_y: state.region_y, camera_zoom: state.zoom,
+        width: state.region_w as u32,
+        height: state.region_h as u32,
+        camera_x: state.region_x,
+        camera_y: state.region_y,
+        camera_zoom: state.zoom,
         format: state.format.clone(),
         quality_percent: state.quality_percent as u32,
         compression_percent: state.compression_percent as u32,
         fps: state.fps as u32,
-        start_frame: state.frame_start, end_frame: state.frame_end, interpolation: state.interpolation,
+        start_frame: state.frame_start,
+        end_frame: state.frame_end,
+        interpolation: state.interpolation,
         output_path,
         base_name,
         background: state.background,
@@ -105,7 +115,11 @@ pub fn start_export(state: &mut ExporterState) {
     let (sender, receiver) = mpsc::channel();
     let (status_sender, status_receiver) = mpsc::channel();
 
-    if let Ok(mut lock) = STATUS_RX.lock() { *lock = Some(status_receiver); }
+    if let Ok(mut lock) = STATUS_RX.lock() {
+        *lock = Some(status_receiver);
+    } else {
+        error!("Failed to acquire mutex for STATUS_RX");
+    }
 
     state.tx = Some(sender);
     leader::start_encoding_thread(config, receiver, status_sender, abort_signal);
@@ -127,7 +141,7 @@ pub fn calculate_export_time(
         let step = if state.frame_start < state.frame_end { 1 } else { -1 };
         (start + (state.current_progress * step)) as f32
     };
-    
+
     let loop_boundary = animation.calculate_true_loop();
 
     if state.export_mode == ExportMode::Showcase {

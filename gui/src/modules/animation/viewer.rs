@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 use eframe::egui;
 use nyanko::graphics::rig::{Animation, Unit};
 
-use core::modules::animation::export::state::{ExportMode, ExporterState};
-use core::modules::animation::logic::canvas::GlowRenderer;
-use core::modules::animation::logic::constants::{
+use core::modules::animation::export::{ExportMode, ExporterState, ExportFormat};
+use core::modules::animation::GlowRenderer;
+use core::modules::animation::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT,
     IDX_SURFACE, IDX_WALK,
 };
@@ -528,16 +528,16 @@ impl AnimViewer {
 
         let popup_just_opened = settings.animation.export_popup_open && !self.was_export_popup_open;
         if popup_just_opened {
-            if self.export_state.format == core::modules::animation::export::encoding::ExportFormat::Gif && settings.animation.last_export_format != 0 {
+            if self.export_state.format == ExportFormat::Gif && settings.animation.last_export_format != 0 {
                 self.export_state.format = match settings.animation.last_export_format {
-                    1 => core::modules::animation::export::encoding::ExportFormat::WebP,
-                    2 => core::modules::animation::export::encoding::ExportFormat::Avif,
-                    3 => core::modules::animation::export::encoding::ExportFormat::Png,
-                    4 => core::modules::animation::export::encoding::ExportFormat::Mp4,
-                    5 => core::modules::animation::export::encoding::ExportFormat::Mkv,
-                    6 => core::modules::animation::export::encoding::ExportFormat::Webm,
-                    7 => core::modules::animation::export::encoding::ExportFormat::Zip,
-                    _ => core::modules::animation::export::encoding::ExportFormat::Gif,
+                    1 => ExportFormat::WebP,
+                    2 => ExportFormat::Avif,
+                    3 => ExportFormat::Png,
+                    4 => ExportFormat::Mp4,
+                    5 => ExportFormat::Mkv,
+                    6 => ExportFormat::Webm,
+                    7 => ExportFormat::Zip,
+                    _ => ExportFormat::Gif,
                 };
             }
 
