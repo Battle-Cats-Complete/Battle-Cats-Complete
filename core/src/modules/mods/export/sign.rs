@@ -106,11 +106,11 @@ impl Signer {
         &self.public_key
     }
 
-    pub fn sign(&self, data: &[u8]) -> Vec<u8> {
+    pub fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         trace!("Signing payload of length: {}", data.len());
         let digest = Sha256::digest(data);
         let padding = Pkcs1v15Sign::new::<Sha256>();
-        self.private_key.sign(padding, &digest).expect("RSA signing failed")
+        self.private_key.sign(padding, &digest).map_err(|error| anyhow::anyhow!("RSA signing failed: {}", error))
     }
 }
 
@@ -297,7 +297,7 @@ impl ApkSignatureBlockV2 {
         trace!("Constructing APK Signature Block V2 from payload and signer.");
         let mut signed_data = vec![];
         SignedData::new(hash, signer)?.write(&mut signed_data)?;
-        let signature = signer.sign(&signed_data);
+        let signature = signer.sign(&signed_data)?;
 
         Ok(Self {
             signers: vec![ApkSigner {

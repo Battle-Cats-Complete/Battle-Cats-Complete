@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use core::modules::mods::logic::state::ModDataState;
+use core::modules::mods::ModDataState;
 
 use crate::common::shared::DragGuard;
 

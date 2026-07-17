@@ -3,15 +3,12 @@ use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
+use resand::res_value::{ResValue, ResValueType};
+use resand::string_pool::StringPoolHandler;
+use resand::table::{ResTable, ResTableEntryValue};
+use resand::xmltree::{XMLTree, XMLTreeNode};
 use tracing::{debug, error, info, instrument, trace, warn};
 use zip::{ZipArchive, ZipWriter};
-
-use resand::{
-    res_value::{ResValue, ResValueType},
-    string_pool::StringPoolHandler,
-    table::{ResTable, ResTableEntryValue},
-    xmltree::{XMLTree, XMLTreeNode},
-};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ResError {
@@ -403,20 +400,20 @@ pub fn inject_and_build_apk(
 
         if (upper_name.starts_with("META-INF/") || upper_name.starts_with("META-INF\\"))
             && (upper_name.ends_with(".SF")
-                || upper_name.ends_with(".RSA")
-                || upper_name.ends_with(".DSA")
-                || upper_name.ends_with(".EC")
-                || upper_name.ends_with("MANIFEST.MF")
-                || upper_name.contains("STAMP-CERT"))
-            {
-                trace!("Skipping original signature file: {}", file_name);
-                continue;
-            }
+            || upper_name.ends_with(".RSA")
+            || upper_name.ends_with(".DSA")
+            || upper_name.ends_with(".EC")
+            || upper_name.ends_with("MANIFEST.MF")
+            || upper_name.contains("STAMP-CERT"))
+        {
+            trace!("Skipping original signature file: {}", file_name);
+            continue;
+        }
 
         if file_name.starts_with("res/")
             && let Some(parent) = Path::new(&file_name).parent() {
-                existing_res_folders.insert(parent.to_string_lossy().replace('\\', "/"));
-            }
+            existing_res_folders.insert(parent.to_string_lossy().replace('\\', "/"));
+        }
 
         if files_to_inject.contains(&file_name) { continue; }
 

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use eframe::egui;
 
-use core::modules::mods::logic::manager;
+use core::modules::mods::import;
 use core::modules::settings::logic::Settings;
 
 use crate::common::shared::DragGuard;
@@ -239,7 +239,7 @@ fn render_action_buttons(
 
     let mod_msg = format!("Are you sure you want to completely delete {}?", mod_name);
     if show_confirmation_modal(&ctx, &mut state.drag_guard, "confirm_mod_delete", &mod_msg, &mut del_is_open) {
-        manager::delete_mod_folder(path.to_path_buf());
+        import::delete_mod_folder(path.to_path_buf());
         state.data.selected_mod = None;
         state.data.needs_rescan = true;
         del_is_open = false;

@@ -6,7 +6,7 @@ use std::thread;
 use eframe::egui;
 use image::imageops;
 
-use core::modules::mods::logic::state::ModDataState;
+use core::modules::mods::ModDataState;
 use core::modules::settings::logic::Settings;
 
 const TOP_PANEL_PADDING: f32 = 2.5;

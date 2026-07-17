@@ -6,6 +6,7 @@ use tracing::{error, info, trace};
 use zip::ZipArchive;
 
 use crate::modules::settings::logic::keys::UserKeys;
+
 use super::decrypt;
 
 fn format_log_name(name: &str, path: &Path) -> String {

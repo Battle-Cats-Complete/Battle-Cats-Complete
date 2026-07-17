@@ -8,8 +8,8 @@ use tracing::{debug, error, info, info_span, trace, warn};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-use crate::modules::mods::logic::state::ModDataState;
-use crate::modules::mods::export::patch::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
+use super::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
+use super::super::ModDataState;
 
 pub const BCM_COMPRESSION_MIN: i64 = 0;
 pub const BCM_COMPRESSION_MAX: i64 = 9;
@@ -108,12 +108,12 @@ fn count_target_files(source_dir: &Path, target_directories: &[&str]) -> usize {
         let dir_path = source_dir.join(dir_name);
         if dir_path.is_dir()
             && let Ok(entries) = fs::read_dir(&dir_path) {
-                for entry in entries.flatten() {
-                    if entry.path().is_file() {
-                        count += 1;
-                    }
+            for entry in entries.flatten() {
+                if entry.path().is_file() {
+                    count += 1;
                 }
             }
+        }
     }
     count
 }

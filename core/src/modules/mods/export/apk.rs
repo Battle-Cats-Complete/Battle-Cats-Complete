@@ -7,13 +7,14 @@ use resand::res_value::ResValueType;
 use tracing::{debug, error, info, info_span, warn};
 use zip::ZipArchive;
 
+use crate::common::region::Region;
 use crate::modules::addons::apkeditor::xapk;
 use crate::modules::data::engine::keys;
-use crate::common::region::Region;
-use crate::modules::mods::export::patch::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
-use crate::modules::mods::export::{modify, pack, sign};
-use crate::modules::mods::logic::state::ModDataState;
 use crate::modules::settings::logic::state::{ExportBehavior, Settings};
+
+use super::{modify, pack, sign};
+use super::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
+use super::super::ModDataState;
 
 pub fn start_export(state: &mut ModDataState, settings: &Settings) {
     if state.export.is_busy {
@@ -133,9 +134,9 @@ pub fn start_export(state: &mut ModDataState, settings: &Settings) {
                 }
             } else if file_name == "resources.arsc"
                 && let Ok(mut output_file) = fs::File::create(&arsc_path) {
-                    let _ = std::io::copy(&mut archive_file, &mut output_file);
-                    extracted_arsc = true;
-                }
+                let _ = std::io::copy(&mut archive_file, &mut output_file);
+                extracted_arsc = true;
+            }
         }
         drop(archive);
 
@@ -304,10 +305,10 @@ pub fn start_export(state: &mut ModDataState, settings: &Settings) {
 
         if let Some((version_code, version_name)) = apk_version_info
             && version_code <= 1401010 {
-                log_callback(String::new());
-                log_callback(format!("Legacy game version {} detected", version_name));
-                log_callback("Legacy versions are known to crash on load".to_string());
-                log_callback("Please update to a more stable game version".to_string());
-            }
+            log_callback(String::new());
+            log_callback(format!("Legacy game version {} detected", version_name));
+            log_callback("Legacy versions are known to crash on load".to_string());
+            log_callback("Please update to a more stable game version".to_string());
+        }
     });
 }

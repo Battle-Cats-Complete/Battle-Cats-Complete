@@ -3,8 +3,7 @@ use std::path::PathBuf;
 use eframe::egui;
 
 use core::modules::addons::paths::{self, Presence};
-use core::modules::mods::logic::manager;
-use core::modules::mods::logic::state::{ModImportTab, ModPackType};
+use core::modules::mods::import::{self, ModImportTab, ModPackType};
 use core::modules::settings::logic::Settings;
 
 use super::state::ModListState;
@@ -15,7 +14,7 @@ pub(crate) fn show(ctx: &egui::Context, state: &mut ModListState, settings: &Set
     let mut is_open = state.data.import.is_open;
     let window_id = egui::Id::new("import_mod_window");
 
-    let is_busy = manager::process_events(&mut state.data);
+    let is_busy = import::process_events(&mut state.data);
     if is_busy {
         ctx.request_repaint();
     }
@@ -112,7 +111,7 @@ fn show_adb_view(ui: &mut egui::Ui, state: &mut ModListState, _settings: &Settin
 
     let btn_text = if is_present { "Start Import" } else { "ADB Missing" };
     if ui.add_enabled(!state.data.import.is_busy && is_present, egui::Button::new(btn_text)).clicked() {
-        manager::start_adb_import(&mut state.data);
+        import::start_adb_import(&mut state.data);
     }
 }
 
@@ -143,7 +142,7 @@ fn show_bcm_view(ui: &mut egui::Ui, state: &mut ModListState) {
 
     if ui.add_enabled(!state.data.import.is_busy && selected_path.is_some(), egui::Button::new("Start Import")).clicked() {
         let Some(path) = selected_path else { return; };
-        manager::start_bcm_import(&mut state.data, path);
+        import::start_bcm_import(&mut state.data, path);
     }
 }
 
@@ -191,7 +190,7 @@ fn show_pack_view(ui: &mut egui::Ui, state: &mut ModListState) {
 
     if ui.add_enabled(!state.data.import.is_busy && selected_path.is_some(), egui::Button::new("Start Import")).clicked() {
         let Some(path) = selected_path else { return; };
-        manager::start_pack_import(&mut state.data, path);
+        import::start_pack_import(&mut state.data, path);
     }
 }
 

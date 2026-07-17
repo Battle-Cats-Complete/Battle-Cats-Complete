@@ -1,9 +1,9 @@
 use eframe::egui;
 
 use core::common::region::Region;
-use core::modules::mods::export::{apk, pack, patch};
-use core::modules::mods::logic::{bcm, metadata};
-use core::modules::mods::logic::state::ExportType;
+use core::modules::mods::export::{self, apk, pack, bcm};
+use core::modules::mods::ModMetadata;
+use core::modules::mods::export::ExportType;
 use core::modules::settings::logic::Settings;
 
 use super::state::ModListState;
@@ -21,7 +21,7 @@ pub(super) fn show(context: &egui::Context, state: &mut ModListState, settings: 
         context.data_mut(|data_map| data_map.insert_temp(tracking_mod_id, current_mod.clone()));
 
         if let Some(mod_folder) = &state.data.selected_mod {
-            let metadata = metadata::ModMetadata::load(std::path::Path::new("mods").join(mod_folder));
+            let metadata = ModMetadata::load(std::path::Path::new("mods").join(mod_folder));
             state.data.export.app_title = metadata.title;
             state.data.export.package_suffix = metadata.package;
         } else {
@@ -31,7 +31,7 @@ pub(super) fn show(context: &egui::Context, state: &mut ModListState, settings: 
     }
     context.data_mut(|data_map| data_map.insert_temp(tracking_open_id, is_open));
 
-    let is_busy = patch::process_events(&mut state.data);
+    let is_busy = export::process_events(&mut state.data);
     if is_busy {
         context.request_repaint();
     }
