@@ -20,12 +20,14 @@ pub fn process_raw_files(
     let (compiled_regex_set, compiled_exception_rules) = rules::compile();
     let mut file_groups: HashMap<String, Vec<SortedRawFile>> = HashMap::new();
     let source_path = Path::new(source_directory);
+
     let mut folder_region_name = source_path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-    if folder_region_name == "files"
-        && let Some(parent) = source_path.parent() {
+    if folder_region_name == "files" {
+        if let Some(parent) = source_path.parent() {
             folder_region_name = parent.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
         }
-    
+    }
+
     let inferred_region = match folder_region_name.as_str() {
         s if s.ends_with("tw") => "tw",
         s if s.ends_with("ko") => "ko",
@@ -36,12 +38,14 @@ pub fn process_raw_files(
 
     let mut has_global_siblings = false;
     for path in &files {
-        if let Some(parent) = path.parent()
-            && let Some(parent_name) = parent.file_name().and_then(|n| n.to_str())
-                && parent_name.starts_with("resLocal_") {
+        if let Some(parent) = path.parent() {
+            if let Some(parent_name) = parent.file_name().and_then(|n| n.to_str()) {
+                if parent_name.starts_with("resLocal_") {
                     has_global_siblings = true;
                     break;
                 }
+            }
+        }
     }
 
     let base_pack_region = if has_global_siblings {
@@ -51,53 +55,75 @@ pub fn process_raw_files(
     };
 
     for path in files {
-        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else { continue; };
-        
+        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+
         let mut region_code = base_pack_region.clone();
-        
-        if let Some(parent) = path.parent()
-            && let Some(parent_name) = parent.file_name().and_then(|n| n.to_str()) {
+
+        if let Some(parent) = path.parent() {
+            if let Some(parent_name) = parent.file_name().and_then(|n| n.to_str()) {
                 if parent_name == "resLocal" {
                     region_code = "en".to_string();
                 } else if let Some(stripped) = parent_name.strip_prefix("resLocal_") {
                     region_code = stripped.to_string();
                 }
             }
+        }
 
-        let matched_user_rule = compiled_regex_set.matches(file_name).into_iter().next().map(|index| &compiled_exception_rules[index]);
-        
-        if let Some(rule) = matched_user_rule
-            && rule.handling == RuleHandling::Ignore { continue; }
+        let matched_user_rule = compiled_regex_set
+            .matches(file_name)
+            .into_iter()
+            .next()
+            .map(|index| &compiled_exception_rules[index]);
+
+        if let Some(rule) = matched_user_rule {
+            if rule.handling == RuleHandling::Ignore {
+                continue;
+            }
+        }
 
         let mut final_resolved_filename = file_name.to_string();
 
-        if let Some(rule) = matched_user_rule
-            && !region_code.is_empty() && rule.languages.values().any(|&is_active| is_active) {
+        if let Some(rule) = matched_user_rule {
+            if !region_code.is_empty() && rule.languages.values().any(|&is_active| is_active) {
                 let asset_stem_string = path.file_stem().unwrap_or_default().to_string_lossy();
                 let asset_extension_string = path.extension().unwrap_or_default().to_string_lossy();
-                
+
                 let mut cleaned_stem = asset_stem_string.to_string();
                 for &(code, _) in patterns::APP_LANGUAGES {
                     let suffix = format!("_{}", code);
-                    if cleaned_stem.ends_with(&suffix) { 
-                        cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string(); 
-                        break; 
+                    if cleaned_stem.ends_with(&suffix) {
+                        cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string();
+                        break;
                     }
                 }
 
                 let is_region_enabled = rule.languages.get(&region_code).copied().unwrap_or(false);
-                if rule.handling == RuleHandling::Only && !is_region_enabled { continue; }
-                
-                let is_single = rule.handling == RuleHandling::Only && rule.languages.values().filter(|&&is_active| is_active).count() == 1;
+                if rule.handling == RuleHandling::Only && !is_region_enabled {
+                    continue;
+                }
+
+                let is_single = rule.handling == RuleHandling::Only
+                    && rule.languages.values().filter(|&&is_active| is_active).count() == 1;
 
                 if is_region_enabled {
                     if is_single {
-                        final_resolved_filename = if asset_extension_string.is_empty() { cleaned_stem } else { format!("{}.{}", cleaned_stem, asset_extension_string) };
+                        final_resolved_filename = if asset_extension_string.is_empty() {
+                            cleaned_stem
+                        } else {
+                            format!("{}.{}", cleaned_stem, asset_extension_string)
+                        };
                     } else {
-                        final_resolved_filename = if asset_extension_string.is_empty() { format!("{}_{}", cleaned_stem, region_code) } else { format!("{}_{}.{}", cleaned_stem, region_code, asset_extension_string) };
+                        final_resolved_filename = if asset_extension_string.is_empty() {
+                            format!("{}_{}", cleaned_stem, region_code)
+                        } else {
+                            format!("{}_{}.{}", cleaned_stem, region_code, asset_extension_string)
+                        };
                     }
                 }
             }
+        }
 
         file_groups
             .entry(final_resolved_filename.clone())
@@ -126,6 +152,7 @@ pub fn process_raw_files(
                 .iter()
                 .position(|l| l == &file.region_code)
                 .unwrap_or(usize::MAX);
+
             if rank < best_rank {
                 best_rank = rank;
                 best_file = Some(file);

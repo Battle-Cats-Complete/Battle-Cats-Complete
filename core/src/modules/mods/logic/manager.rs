@@ -98,7 +98,7 @@ pub fn start_bcm_import(state: &mut ModDataState, path: PathBuf) {
         };
 
         let settings: crate::modules::settings::logic::state::Settings = crate::common::io::json::load("settings.json").unwrap_or_default();
-        let user_keys = match crate::modules::data::utilities::keys::verify(settings.game_data.enforce_key_validation, &tx) {
+        let user_keys = match crate::modules::data::engine::keys::verify(settings.game_data.enforce_key_validation, &tx) {
             Ok(keys) => keys,
             Err(_) => return,
         };
@@ -127,7 +127,7 @@ pub fn start_pack_import(state: &mut ModDataState, path: PathBuf) {
     thread::spawn(move || {
         let settings: crate::modules::settings::logic::state::Settings = crate::common::io::json::load("settings.json").unwrap_or_default();
 
-        let user_keys = match crate::modules::data::utilities::keys::verify(settings.game_data.enforce_key_validation, &tx) {
+        let user_keys = match crate::modules::data::engine::keys::verify(settings.game_data.enforce_key_validation, &tx) {
             Ok(keys) => keys,
             Err(_) => return,
         };

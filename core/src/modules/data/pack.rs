@@ -1,11 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
-use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use std::sync::mpsc::Sender;
 
-use crate::modules::data::state::{AdbTarget, ImportMode};
-use crate::modules::data::utilities::{engine, keys};
+use super::engine;
+use super::engine::keys;
+use super::{AdbTarget, ImportMode};
 
 pub fn run(
     source_path_string: &str,
@@ -15,19 +16,18 @@ pub fn run(
     status_sender: Sender<String>,
     abort_flag: Arc<AtomicBool>,
     progress_current: Arc<AtomicUsize>,
-    progress_maximum: Arc<AtomicUsize>
+    progress_maximum: Arc<AtomicUsize>,
 ) -> Result<(), String> {
-    
     if keys::verify(enforce_validation, &status_sender).is_err() {
         return Err("Decryption blocked: Invalid signature keys detected.".to_string());
     }
-    
+
     let source_directory = match import_mode {
         ImportMode::Folder => PathBuf::from(source_path_string),
         ImportMode::Zip => {
             let _ = status_sender.send("Extracting archive to temporary workspace...".to_string());
             PathBuf::from("temp_workspace")
-        },
+        }
         _ => return Err("Invalid Import Mode selected.".to_string()),
     };
 
@@ -38,7 +38,7 @@ pub fn run(
         &status_sender,
         &abort_flag,
         &progress_current,
-        &progress_maximum
+        &progress_maximum,
     );
 
     if import_mode == ImportMode::Zip {

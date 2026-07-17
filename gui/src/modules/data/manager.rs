@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use eframe::egui;
 
-use core::modules::data::state::DataTab;
+use core::modules::data::DataTab;
 use core::modules::settings::logic::Settings;
 
 use super::{export, import, state::ImportState};

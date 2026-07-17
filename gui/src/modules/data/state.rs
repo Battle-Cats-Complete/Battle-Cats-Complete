@@ -4,7 +4,7 @@ use std::path::Path;
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 
-use core::modules::data::state::DataConfigState;
+use core::modules::data::DataConfigState;
 
 #[derive(Default, Deserialize, Serialize)]
 #[serde(default)]

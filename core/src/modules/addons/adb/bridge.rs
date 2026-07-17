@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::common::region::Region;
-use crate::modules::data::state::{AdbImportType, AdbTarget};
+use crate::modules::data::{AdbImportType, AdbTarget};
 use crate::modules::settings::logic::state::EmulatorConfig;
 
 use super::driver;
