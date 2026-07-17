@@ -1,6 +1,7 @@
 use eframe::egui;
 
-use core::modules::stage::logic::filter::{EnemyFilter, LineupFilter, MaterialFilter, StageFilterState, StatRange, TreasureFilter};
+use core::modules::stage::filter::{enemy::EnemyFilter, lineup::LineupFilter, material::MaterialFilter, range::StatRange, treasure::TreasureFilter};
+use core::modules::stage::filter::StageFilterState;
 
 use crate::common::shared::DragGuard;
 

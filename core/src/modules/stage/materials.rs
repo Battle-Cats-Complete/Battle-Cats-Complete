@@ -3,7 +3,8 @@ use std::path::Path;
 
 use crate::common::formats::gatyaitembuy::GatyaItemBuy;
 use crate::common::formats::gatyaitemname::GatyaItemName;
-use crate::modules::stage::paths;
+
+use super::paths;
 use super::treasure::ResolvedDrop;
 
 pub const MAT_IDS: [u32; 16] = [

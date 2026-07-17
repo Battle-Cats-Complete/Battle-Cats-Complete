@@ -10,7 +10,7 @@ use tracing::{debug, instrument, warn};
 use core::modules::enemy::scanner::EnemyEntry;
 use core::common::context::GlobalContext;
 use core::common::utils::autocrop;
-use core::modules::stage::registry::{Map, Stage};
+use core::modules::stage::{Map, Stage};
 
 use super::treasure::center_header;
 
@@ -215,7 +215,7 @@ pub(crate) fn draw(
     ui.label(RichText::new("Battleground").strong().heading());
     ui.separator();
 
-    let restrictions = core::modules::stage::logic::restrictions::parse_restrictions(stage_data, selected_crown as i8, global_ctx);
+    let restrictions = core::modules::stage::restrictions::parse_restrictions(stage_data, selected_crown as i8, global_ctx);
 
     if !restrictions.is_empty() {
         ui.add_space(4.0);

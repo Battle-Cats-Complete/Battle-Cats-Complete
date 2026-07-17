@@ -9,7 +9,7 @@ use nyanko::chapter::stage::ScatCpuSetting;
 use core::common::resolver;
 use core::common::utils::autocrop;
 use core::modules::stage::paths;
-use core::modules::stage::registry::{Map, Stage};
+use core::modules::stage::{Map, Stage};
 
 const MAP_IMG_HEIGHT: f32 = 50.0;
 const STAGE_IMG_HEIGHT: f32 = 35.0;

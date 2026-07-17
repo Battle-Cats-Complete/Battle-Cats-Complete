@@ -1,7 +1,7 @@
 use crate::modules::settings::ScannerConfig;
 
 use super::scanner;
-use super::state::StageDataState;
+use super::StageDataState;
 
 #[tracing::instrument(level = "debug", skip(state, config))]
 pub fn restart_scan(state: &mut StageDataState, config: ScannerConfig) {

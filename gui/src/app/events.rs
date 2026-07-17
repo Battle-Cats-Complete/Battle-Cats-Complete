@@ -8,7 +8,8 @@ use core::modules::cat::scanner as cat_loader;
 use core::modules::enemy::scanner as enemy_loader;
 use core::common::resolver;
 use core::modules::cat::{paths as cat_paths, patterns as cat_patterns};
-use core::modules::stage::logic::filter::{EnemyFilter, StageFilterState};
+use core::modules::stage::filter::StageFilterState;
+use core::modules::stage::filter::enemy::EnemyFilter;
 
 use crate::common::watcher::GuiWatcher;
 use crate::app::frame::Page;

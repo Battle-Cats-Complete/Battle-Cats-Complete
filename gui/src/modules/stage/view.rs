@@ -2,7 +2,7 @@ use eframe::egui;
 use tracing::{trace, warn, debug};
 
 use core::common::context::GlobalContext;
-use core::modules::stage::registry::GlobalMapId;
+use core::modules::stage::GlobalMapId;
 use super::state::StageListState;
 
 pub(crate) fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageListState, global_ctx: GlobalContext) {
@@ -121,7 +121,7 @@ pub(crate) fn draw(ctx: &egui::Context, ui: &mut egui::Ui, state: &mut StageList
                     ui.add_space(20.0);
 
                     if let Some(preset) = stage.fixed_lineups.get(&state.selected_crown) {
-                        let resolved = core::modules::stage::logic::fixedlineup::resolve_lineup(preset, langs);
+                        let resolved = core::modules::stage::fixedlineup::resolve_lineup(preset, langs);
 
                         super::fixedlineup::draw(
                             ctx,

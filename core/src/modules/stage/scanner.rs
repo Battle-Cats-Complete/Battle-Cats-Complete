@@ -6,21 +6,22 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::thread;
 
-use nyanko::common::tools::file;
 use nyanko::chapter::Category;
-use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, get_hardcoded_xp, StageOptionEntry, StageNameEntry};
-use nyanko::chapter::map::{DropItemEntry, MapOptionEntry, ScoreBonusMapEntry, SpecialRulesMapEntry, RuleType, SpecialRulesMapOptionEntry};
+use nyanko::chapter::map::{DropItemEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
+use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
+use nyanko::common::tools::file;
 use rayon::prelude::*;
 use tracing::{debug, info, instrument, warn};
 
 use crate::modules::settings::ScannerConfig;
-use crate::modules::stage::paths;
-use crate::modules::stage::registry::{Map, Stage, StageRegistry, GlobalMapId, GlobalStageId};
-use crate::modules::stage::waiter::{
+
+use super::paths;
+use super::waiter::{
     battleground, certification_preset, charagroup, difficulty_level, dropitem,
     ex_option, fixed_formation, map_name, map_option, mapstagedata, scorebonusmap,
     specialrulesmap, specialrulesmapoption, stage_option, stagename
 };
+use super::{GlobalMapId, GlobalStageId, Map, Stage, StageDataState, StageRegistry};
 
 pub struct ScanContext<'a> {
     pub lang_priority: &'a [String],
@@ -35,6 +36,29 @@ pub struct ScanContext<'a> {
     pub ex_options: HashMap<u32, u32>,
     pub difficulties: HashMap<u32, Vec<u16>>,
     pub fixed_formations: HashMap<(u32, u8, u32), FixedFormationEntry>,
+}
+
+#[tracing::instrument(level = "debug", skip(state, config))]
+pub fn restart_scan(state: &mut StageDataState, config: ScannerConfig) {
+    info!("Initializing stage data scan sequence");
+
+    state.initialized = false;
+    state.load_dictionaries(&config);
+
+    debug!("Clearing stage cache and starting background scan");
+    state.registry.clear_cache();
+    state.scan_receiver = Some(start_scan(&config));
+}
+
+pub fn update_data(state: &mut StageDataState) {
+    let Some(rx) = &state.scan_receiver else { return; };
+
+    let Ok(new_reg) = rx.try_recv() else { return; };
+
+    info!("Stage scan complete. Updating memory registry.");
+    state.registry = new_reg;
+    state.scan_receiver = None;
+    state.initialized = true;
 }
 
 #[instrument(skip(config))]
@@ -60,10 +84,10 @@ pub fn start_scan(config: &ScannerConfig) -> Receiver<StageRegistry> {
             let mut is_different = true;
             if let Some((_, cached_registry)) = crate::common::io::cache::load_with_hash::<StageRegistry>("stages_cache.bin")
                 && let (Ok(new_bytes), Ok(old_bytes)) = (serde_json::to_vec(&registry), serde_json::to_vec(&cached_registry))
-                    && !new_bytes.is_empty() && new_bytes == old_bytes {
-                        is_different = false;
-                        info!("Scanned stages perfectly match existing cache. Discarding scan and doing nothing.");
-                    }
+                && !new_bytes.is_empty() && new_bytes == old_bytes {
+                is_different = false;
+                info!("Scanned stages perfectly match existing cache. Discarding scan and doing nothing.");
+            }
 
             if is_different {
                 debug!("Scanned stages differ from cache (or cache is stale/missing). Overwriting stages_cache.bin");
@@ -409,21 +433,21 @@ fn load_story_stages(
         let resolved_paths = crate::common::resolver::get(map_path, [inv_story_file], ctx.lang_priority);
         if let Some(inv_story_path) = resolved_paths.first()
             && let Ok(content) = fs::read_to_string(inv_story_path) {
-                let sep = file::detect_separator(&content);
-                for line in content.lines().skip(2) {
-                    let clean = line.split("//").next().unwrap_or("").trim();
-                    if clean.is_empty() { continue; }
+            let sep = file::detect_separator(&content);
+            for line in content.lines().skip(2) {
+                let clean = line.split("//").next().unwrap_or("").trim();
+                if clean.is_empty() { continue; }
 
-                    let parts: Vec<&str> = clean.split(sep).collect();
-                    if parts.len() >= 6 {
-                        let energy = parts[0].trim().parse().unwrap_or(0);
-                        let init_track: i16 = parts[2].trim().parse().unwrap_or(0);
-                        let boss_track: i16 = parts[5].trim().parse().unwrap_or(-1);
-                        inv_story_data = Some((energy, init_track, boss_track));
-                        break;
-                    }
+                let parts: Vec<&str> = clean.split(sep).collect();
+                if parts.len() >= 6 {
+                    let energy = parts[0].trim().parse().unwrap_or(0);
+                    let init_track: i16 = parts[2].trim().parse().unwrap_or(0);
+                    let boss_track: i16 = parts[5].trim().parse().unwrap_or(-1);
+                    inv_story_data = Some((energy, init_track, boss_track));
+                    break;
                 }
             }
+        }
     }
 
     let Ok(stages_dir) = fs::read_dir(map_path) else { return (id_list, stage_list); };

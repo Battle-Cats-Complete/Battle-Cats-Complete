@@ -8,8 +8,8 @@ use nyanko::chapter::stage::RewardStructure;
 use core::common::formats::gatyaitembuy::GatyaItemBuy;
 use core::common::formats::gatyaitemname::GatyaItemName;
 use core::common::utils::autocrop;
-use core::modules::stage::logic::treasure;
-use core::modules::stage::registry::Stage;
+use core::modules::stage::treasure;
+use core::modules::stage::Stage;
 
 pub(crate) const TREASURE_TABLE_WIDTH: f32 = 345.0;
 

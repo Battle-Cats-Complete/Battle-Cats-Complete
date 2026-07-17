@@ -7,7 +7,7 @@ use tracing::{error, warn, trace};
 use core::modules::cat::waiter::unitexplanation;
 use core::common::utils::autocrop;
 use core::modules::stage::paths;
-use core::modules::stage::logic::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
+use core::modules::stage::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
 
 const ICON_SCALE: f32 = 0.45;
 const ICON_SPACING: f32 = 8.0;

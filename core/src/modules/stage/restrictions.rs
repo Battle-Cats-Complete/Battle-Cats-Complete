@@ -1,9 +1,9 @@
-use tracing::{debug, trace, warn};
-use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
 use nyanko::chapter::stage::{CharaGroupEntry, CharaGroupType};
+use nyanko::chapter::Stage;
+use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
+use tracing::{debug, trace, warn};
 
 use crate::common::context::GlobalContext;
-use crate::modules::stage::registry::Stage;
 
 pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) -> Vec<String> {
     trace!(
@@ -33,7 +33,7 @@ pub fn parse_restrictions(stage: &Stage, current_crown: i8, ctx: GlobalContext) 
     }
 
     let mut restrictions = Vec::new();
-    
+
     let effective_rarity_mask = if current_crown == 3 {
         6
     } else {

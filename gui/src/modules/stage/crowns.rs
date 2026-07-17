@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use core::modules::stage::registry::Stage;
+use core::modules::stage::Stage;
 
 pub(crate) fn draw(ui: &mut egui::Ui, stage: &Stage, selected_crown: &mut u8) {
     if stage.max_crowns <= 1 {

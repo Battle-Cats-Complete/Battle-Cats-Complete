@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 use nyanko::cat::unit::UnitBuy;
 use tracing::{debug, trace};
 
-use crate::modules::cat::waiter::unitexplanation;
 use crate::common::formats::gatyaitembuy::GatyaItemBuy;
 use crate::common::formats::gatyaitemname::GatyaItemName;
-use crate::modules::stage::paths;
+use crate::modules::cat::waiter::unitexplanation;
+
+use super::paths;
 
 pub struct ResolvedDrop {
     pub name: String,

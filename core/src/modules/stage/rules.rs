@@ -1,5 +1,5 @@
-use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
 use nyanko::chapter::map::{RuleType, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
+use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
 use tracing::{debug, instrument, warn};
 
 use crate::common::context::GlobalContext;

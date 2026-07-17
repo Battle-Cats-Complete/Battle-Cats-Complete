@@ -80,7 +80,7 @@ impl BattleCatsApp {
             app.enemy_list_state.data.restart_scan(app.settings.scanner_config());
         }
 
-        if let Some((hash, cached_registry)) = core::common::io::cache::load_with_hash::<core::modules::stage::registry::StageRegistry>("stages_cache.bin") {
+        if let Some((hash, cached_registry)) = core::common::io::cache::load_with_hash::<core::modules::stage::StageRegistry>("stages_cache.bin") {
             tracing::info!("Found stages_cache.bin (Hash: {})", hash);
             expected_hash = hash;
             needs_validation = true;

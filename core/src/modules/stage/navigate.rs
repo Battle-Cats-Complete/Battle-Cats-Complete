@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 use nyanko::chapter::Category;
-use crate::modules::stage::registry::{StageRegistry, Map, Stage, GlobalMapId, GlobalStageId};
+
+use super::{GlobalMapId, GlobalStageId, Map, Stage, StageRegistry};
 
 pub fn get_categories(registry: &StageRegistry) -> Vec<Category> {
     let unique_categories: HashSet<Category> = registry.maps.keys()

@@ -6,8 +6,8 @@ use eframe::egui::{self, RichText};
 use core::common::formats::gatyaitembuy::GatyaItemBuy;
 use core::common::formats::gatyaitemname::GatyaItemName;
 use core::common::utils::autocrop;
-use core::modules::stage::logic::materials;
-use core::modules::stage::registry::{Map, Stage};
+use core::modules::stage::materials;
+use core::modules::stage::{Map, Stage};
 
 pub(crate) const MAT_TABLE_WIDTH: f32 = 345.0;
 pub(crate) const MAX_ICON_SIZE: f32 = 32.0;

@@ -2,8 +2,9 @@ use std::path::Path;
 use tracing::warn;
 
 use crate::common::resolver;
-use crate::modules::stage::paths;
-use nyanko::chapter::stage::{CertificationPreset, PresetChara, EvolutionForm};
+use nyanko::chapter::stage::{CertificationPreset, EvolutionForm, PresetChara};
+
+use super::paths;
 
 pub struct ResolvedSlot {
     pub unit_id: Option<u32>,

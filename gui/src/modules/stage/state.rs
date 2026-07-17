@@ -5,8 +5,8 @@ use egui::TextureHandle;
 use serde::{Deserialize, Serialize};
 
 use core::modules::enemy::scanner::EnemyEntry;
-use core::modules::stage::logic::filter::{CompiledStageFilter, StageFilterState};
-use core::modules::stage::logic::state::StageDataState;
+use core::modules::stage::filter::{CompiledStageFilter, StageFilterState};
+use core::modules::stage::StageDataState;
 
 use crate::common::shared::DragGuard;
 
