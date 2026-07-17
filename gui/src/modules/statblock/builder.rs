@@ -104,10 +104,10 @@ fn build_statblock_image(
     let max_cols = data.headers_1.len().max(data.headers_2.len()) as f32;
     let base_grid_width: f32 = (8.0 * 2.0) + (66.0 * max_cols) + (4.0 * (max_cols - 1.0).max(0.0));
 
-    let jp_font = FontRef::try_from_slice(include_bytes!("../../../../core/src/assets/NotoSansJP-Regular.ttf")).expect("Failed to load JP font");
-    let kr_font = FontRef::try_from_slice(include_bytes!("../../../../core/src/assets/NotoSansKR-Regular.ttf")).expect("Failed to load KR font");
-    let tc_font = FontRef::try_from_slice(include_bytes!("../../../../core/src/assets/NotoSansTC-Regular.ttf")).expect("Failed to load TC font");
-    let th_font = FontRef::try_from_slice(include_bytes!("../../../../core/src/assets/NotoSansThai-Regular.ttf")).expect("Failed to load TH font");
+    let jp_font = FontRef::try_from_slice(include_bytes!("../../../../core/assets/NotoSansJP-Regular.ttf")).expect("Failed to load JP font");
+    let kr_font = FontRef::try_from_slice(include_bytes!("../../../../core/assets/NotoSansKR-Regular.ttf")).expect("Failed to load KR font");
+    let tc_font = FontRef::try_from_slice(include_bytes!("../../../../core/assets/NotoSansTC-Regular.ttf")).expect("Failed to load TC font");
+    let th_font = FontRef::try_from_slice(include_bytes!("../../../../core/assets/NotoSansThai-Regular.ttf")).expect("Failed to load TH font");
 
     let get_font = |lang: &str| -> &FontRef {
         match lang {
