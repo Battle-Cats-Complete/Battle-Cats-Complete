@@ -5,7 +5,7 @@ use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
 
 use core::common::io::json;
-use core::modules::settings::logic::state::Settings;
+use core::modules::settings::Settings;
 
 use crate::modules::cat::state::CatListState;
 use crate::modules::data::state::ImportState;

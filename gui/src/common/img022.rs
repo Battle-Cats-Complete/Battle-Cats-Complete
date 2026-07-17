@@ -2,7 +2,7 @@ use eframe::egui;
 
 use core::common::io::paths;
 use core::common::resolver;
-use core::modules::settings::logic::state::Settings;
+use core::modules::settings::Settings;
 
 use crate::common::sheet::SpriteSheet;
 

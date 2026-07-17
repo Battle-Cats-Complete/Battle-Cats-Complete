@@ -5,7 +5,7 @@ use nyanko::cat::abilities::REGISTRY;
 
 use core::modules::cat::filter::{icons, ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
 use core::modules::cat::game::registry::{AbilityIcon, DisplayGroup};
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use crate::common::assets::CustomAssets;
 use crate::common::shared::DragGuard;

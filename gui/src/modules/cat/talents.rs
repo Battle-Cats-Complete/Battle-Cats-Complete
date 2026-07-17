@@ -9,7 +9,7 @@ use nyanko::common::data::img022;
 use core::modules::cat::game::talents;
 use core::modules::cat::paths;
 use core::common::utils::autocrop;
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use crate::common::assets::CustomAssets;
 use crate::common::shared::render_fallback_icon;

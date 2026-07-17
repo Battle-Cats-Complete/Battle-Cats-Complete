@@ -13,7 +13,7 @@ use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest as _, Sha256};
 use tracing::{debug, info, trace};
 
-use crate::modules::settings::logic::pem::get_active_pem;
+use crate::modules::settings::pem::get_active_pem;
 
 const APK_SIGNING_BLOCK_MAGIC: &[u8] = b"APK Sig Block 42";
 const APK_SIGNING_BLOCK_V2_ID: u32 = 0x7109871a;

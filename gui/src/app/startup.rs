@@ -7,7 +7,7 @@ use core::modules::cat::waiter::{skilldescriptions, skilllevel};
 use core::common::assets;
 use core::common::game::waiter::{localizable, param};
 use core::common::io::json;
-use core::modules::settings::logic::{lang, upd::UpdateMode};
+use core::modules::settings::{lang, UpdateMode};
 
 use crate::app::updater;
 
@@ -20,12 +20,12 @@ impl BattleCatsApp {
         crate::app::tracing::init(app.settings.general.enable_logging);
         tracing::info!("Starting initialization sequence...");
 
-        core::modules::settings::logic::exceptions::ExceptionList::sync_on_boot();
+        core::modules::settings::ExceptionList::sync_on_boot();
 
         #[cfg(target_os = "linux")]
         {
             tracing::debug!("Syncing Linux desktop data");
-            let _ = core::modules::settings::logic::desktop::sync_desktop_data();
+            let _ = core::modules::settings::desktop::sync_desktop_data();
         }
 
         lang::ensure_complete_list(&mut app.settings.general.language_priority);

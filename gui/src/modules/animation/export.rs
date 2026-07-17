@@ -11,7 +11,7 @@ use core::modules::animation::export::{EncoderStatus, ExportFormat};
 use core::modules::animation::export::find_loop;
 use core::modules::animation::export::process::{start_export, STATUS_RX};
 use core::modules::animation::export::{ExportMode, ExporterState, LoopStatus};
-use core::modules::settings::logic::state::Settings;
+use core::modules::settings::Settings;
 
 use crate::modules::settings::toggle_ui;
 use crate::common::shared::DragGuard;

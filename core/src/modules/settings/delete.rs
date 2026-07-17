@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use tracing::{debug, error};
+
 const IDLE: u8 = 0;
 const DELETING: u8 = 1;
 const DONE: u8 = 2;
@@ -25,31 +27,37 @@ impl Default for FolderDeleter {
 }
 
 impl FolderDeleter {
-    pub fn start(&mut self, path: impl Into<PathBuf>) {
-        let path = path.into();
-        let state_clone = Arc::clone(&self.state);
+    pub fn start(&mut self, target_path: impl Into<PathBuf>) {
+        let path = target_path.into();
+        let atomic_state = Arc::clone(&self.state);
 
+        debug!("Initializing folder deletion for path: {:?}", path);
         self.state.store(DELETING, Ordering::SeqCst);
         self.success_time = None;
 
         thread::spawn(move || {
-            let _ = fs::remove_dir_all(&path);
-            state_clone.store(DONE, Ordering::SeqCst);
+            if let Err(delete_error) = fs::remove_dir_all(&path) {
+                error!("Failed to delete folder {:?}: {}", path, delete_error);
+            } else {
+                debug!("Folder deletion completed successfully.");
+            }
+            atomic_state.store(DONE, Ordering::SeqCst);
         });
     }
 
     pub fn update(&mut self) {
-        let current = self.state.load(Ordering::SeqCst);
+        let current_state = self.state.load(Ordering::SeqCst);
 
-        if current == DONE && self.success_time.is_none() {
+        if current_state == DONE && self.success_time.is_none() {
             self.success_time = Some(Instant::now());
         }
 
-        if let Some(time) = self.success_time
-            && time.elapsed() > Duration::from_secs(2) {
+        if let Some(time) = self.success_time {
+            if time.elapsed() > Duration::from_secs(2) {
                 self.state.store(IDLE, Ordering::SeqCst);
                 self.success_time = None;
             }
+        }
     }
 
     pub fn is_deleting(&self) -> bool {

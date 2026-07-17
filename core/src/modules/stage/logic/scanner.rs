@@ -13,7 +13,7 @@ use nyanko::chapter::map::{DropItemEntry, MapOptionEntry, ScoreBonusMapEntry, Sp
 use rayon::prelude::*;
 use tracing::{debug, info, instrument, warn};
 
-use crate::modules::settings::logic::state::ScannerConfig;
+use crate::modules::settings::ScannerConfig;
 use crate::modules::stage::paths;
 use crate::modules::stage::registry::{Map, Stage, StageRegistry, GlobalMapId, GlobalStageId};
 use crate::modules::stage::waiter::{

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::common::formats::mamodel::Model;
 use crate::modules::enemy::game::registry::Magnification;
 use crate::modules::enemy::scanner::EnemyEntry;
-use crate::modules::settings::logic::state::ScannerConfig;
+use crate::modules::settings::ScannerConfig;
 
 #[derive(Deserialize, Serialize, PartialEq, Clone, Copy, Default)]
 pub enum EnemyDetailTab {

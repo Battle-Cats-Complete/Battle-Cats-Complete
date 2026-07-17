@@ -3,7 +3,7 @@ use std::path::Path;
 
 use eframe::egui;
 
-use core::modules::settings::logic::keys::UserKeys;
+use core::modules::settings::UserKeys;
 
 use crate::common::shared::DragGuard;
 

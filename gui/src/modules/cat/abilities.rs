@@ -19,7 +19,7 @@ pub(crate) fn render(
     cat: &CatEntry, 
     sheets: &[SpriteSheet],
     assets: &CustomAssets,
-    settings: &core::modules::settings::logic::Settings
+    settings: &core::modules::settings::Settings
 ) {
     ui.spacing_mut().item_spacing.y = 0.0;
     
@@ -131,7 +131,7 @@ pub(crate) fn render_list_view(
     ctx: &CatRenderContext,
     border_color: egui::Color32,
     assets: &crate::common::assets::CustomAssets,
-    settings: &core::modules::settings::logic::Settings
+    settings: &core::modules::settings::Settings
 ) {
     for (i, item) in items.iter().enumerate() {
         let is_conjure = item.icon_id == Some(img015::ICON_CONJURE) && item.custom_icon == CustomIcon::None;

@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc, Mutex};
 
 use eframe::egui;
 
-use core::modules::settings::logic::pem;
+use core::modules::settings::pem;
 
 use crate::common::shared::DragGuard;
 

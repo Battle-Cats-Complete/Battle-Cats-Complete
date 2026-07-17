@@ -6,7 +6,7 @@ use core::modules::cat::game::CatRenderContext;
 use core::modules::cat::game::stats;
 use core::modules::cat::waiter::unitid;
 use core::common::game::abilities::ABILITY_Y;
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use crate::modules::statblock::builder::SpiritData;
 use crate::common::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};

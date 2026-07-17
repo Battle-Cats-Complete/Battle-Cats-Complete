@@ -4,7 +4,7 @@ use eframe::egui;
 
 use core::modules::addons::paths::{self, Presence};
 use core::modules::mods::import::{self, ModImportTab, ModPackType};
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use super::state::ModListState;
 

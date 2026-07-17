@@ -11,7 +11,7 @@ use tracing::{error, info, trace, warn};
 
 use crate::modules::addons::adb::{spawn_mod_import, ModAdbEvent};
 use crate::modules::data::engine::keys;
-use crate::modules::settings::logic::state::Settings;
+use crate::modules::settings::Settings;
 
 use super::ModDataState;
 use super::ModMetadata;

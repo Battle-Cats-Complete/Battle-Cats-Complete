@@ -11,7 +11,7 @@ use core::modules::animation::{
 };
 use core::modules::cat::scanner::CatEntry;
 use core::modules::cat::paths::{self, AnimType};
-use core::modules::settings::logic::state::Settings;
+use core::modules::settings::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
 use crate::common::shared::DragGuard;

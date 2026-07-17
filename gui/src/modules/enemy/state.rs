@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use core::modules::enemy::filter::EnemyFilterState;
 use core::modules::enemy::EnemyDataState;
 use core::common::context::GlobalContext;
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
 use crate::common::assets::CustomAssets;

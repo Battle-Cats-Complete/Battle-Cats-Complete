@@ -9,8 +9,8 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::common::region::Region;
 use crate::modules::data::engine::keys;
-use crate::modules::settings::logic::keys::RegionKey;
-use crate::modules::settings::logic::state::Settings;
+use crate::modules::settings::RegionKey;
+use crate::modules::settings::Settings;
 
 use super::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
 use super::super::ModDataState;

@@ -2,8 +2,8 @@ use eframe::egui;
 use tracing::trace;
 
 use core::common::context::GlobalContext;
-use core::modules::settings::logic::Settings;
-use core::modules::settings::logic::state::SidebarBehavior;
+use core::modules::settings::Settings;
+use core::modules::settings::SidebarBehavior;
 
 use super::{list, state::StageListState, view};
 

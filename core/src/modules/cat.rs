@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::formats::mamodel::Model;
 use crate::modules::cat::scanner::CatEntry;
-use crate::modules::settings::logic::state::ScannerConfig;
+use crate::modules::settings::ScannerConfig;
 
 #[derive(Deserialize, Serialize, PartialEq, Clone, Copy, Default)]
 pub enum DetailTab {

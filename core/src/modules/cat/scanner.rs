@@ -16,7 +16,7 @@ use tracing::{debug, trace};
 use crate::common::io::cache;
 use crate::common::resolver;
 use crate::modules::cat::{paths, CatDataState};
-use crate::modules::settings::logic::state::ScannerConfig;
+use crate::modules::settings::ScannerConfig;
 
 use crate::modules::cat::waiter::{
     skillacquisition, skilldescriptions, skilllevel, unitbuy, unitevolve, unitexplanation, unitlevel,

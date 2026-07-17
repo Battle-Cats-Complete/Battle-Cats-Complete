@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 
-use crate::modules::settings::logic::state::Settings;
+use crate::modules::settings::Settings;
 
 use super::encoding::{EncoderMessage, ExportFormat};
 

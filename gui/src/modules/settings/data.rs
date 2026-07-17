@@ -3,8 +3,8 @@ use std::path::Path;
 
 use eframe::egui;
 
-use core::modules::settings::logic::delete::FolderDeleter;
-use core::modules::settings::logic::state::{GameDataSettings, RuntimeState};
+use core::modules::settings::delete::FolderDeleter;
+use core::modules::settings::{GameDataSettings, RuntimeState};
 
 use crate::common::shared::DragGuard;
 

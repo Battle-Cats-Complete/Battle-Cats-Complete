@@ -5,7 +5,7 @@ use std::sync::mpsc::Sender;
 use std::thread;
 
 use crate::modules::addons::adb::bridge;
-use crate::modules::settings::logic::state::EmulatorConfig;
+use crate::modules::settings::EmulatorConfig;
 
 use super::engine;
 use super::engine::keys;

@@ -1,4 +1,4 @@
-use crate::modules::settings::logic::state::ScannerConfig;
+use crate::modules::settings::ScannerConfig;
 
 use super::scanner;
 use super::state::StageDataState;

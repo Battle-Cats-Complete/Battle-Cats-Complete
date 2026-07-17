@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use super::{details, import, state::ModListState};
 

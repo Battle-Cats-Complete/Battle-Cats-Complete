@@ -11,7 +11,7 @@ use core::modules::cat::DetailTab;
 use core::modules::cat::waiter::unitid;
 use core::modules::cat::game::stats::get_final_stats;
 use core::common::context::GlobalContext;
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
 use crate::modules::cat::statblock::build_cat_statblock;

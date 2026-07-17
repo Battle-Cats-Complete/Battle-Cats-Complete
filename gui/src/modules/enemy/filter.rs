@@ -5,7 +5,7 @@ use nyanko::enemy::abilities::{Identity, REGISTRY};
 
 use core::modules::enemy::filter::{evaluation::get_identity_name, ATTACK_TYPE_IDENTITIES, EnemyFilterState, MatchMode};
 use core::modules::enemy::game::registry::{get_display_def, AbilityIcon, DisplayGroup};
-use core::modules::settings::logic::state::Settings;
+use core::modules::settings::Settings;
 
 use crate::common::assets::CustomAssets;
 use crate::common::shared::DragGuard;

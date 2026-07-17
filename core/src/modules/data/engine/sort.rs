@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::common::io::patterns;
-use crate::modules::settings::logic::exceptions::RuleHandling;
+use crate::modules::settings::RuleHandling;
 
 use super::rules;
 

@@ -8,7 +8,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 
-use crate::modules::settings::logic::state::Settings;
+use crate::modules::settings::Settings;
 
 pub const DEFAULT_WALK_LEN: i32 = 90;
 pub const DEFAULT_IDLE_LEN: i32 = 90;

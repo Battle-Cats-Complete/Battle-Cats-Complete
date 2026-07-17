@@ -1,13 +1,19 @@
 #![cfg(target_os = "linux")]
+
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use image::ImageFormat;
+use tracing::{debug, info};
+
+use crate::common::assets;
+
 fn get_base_directory(sub_path: &str) -> Option<PathBuf> {
     env::var("HOME").ok().map(|home_directory| {
-        let mut path = PathBuf::from(home_directory);
-        path.push(sub_path);
-        path
+        let mut base_path = PathBuf::from(home_directory);
+        base_path.push(sub_path);
+        base_path
     })
 }
 
@@ -31,10 +37,10 @@ pub fn create_desktop_data() -> Result<(), String> {
     fs::create_dir_all(&icons_directory).map_err(|error| error.to_string())?;
 
     let icon_path = icons_directory.join("battle_cats_complete.png");
-    let image_data = image::load_from_memory(crate::common::assets::ICON)
+    let image_data = image::load_from_memory(assets::ICON)
         .map_err(|error| format!("Failed to load embedded icon: {}", error))?;
 
-    image_data.save_with_format(&icon_path, image::ImageFormat::Png)
+    image_data.save_with_format(&icon_path, ImageFormat::Png)
         .map_err(|error| format!("Failed to save PNG icon: {}", error))?;
 
     let current_executable = env::current_exe()
@@ -72,6 +78,7 @@ pub fn create_desktop_data() -> Result<(), String> {
     fs::write(desktop_file_path, desktop_file_content)
         .map_err(|error| format!("Failed to write .desktop file: {}", error))?;
 
+    info!("Successfully created desktop entry and icon metadata.");
     Ok(())
 }
 
@@ -80,6 +87,7 @@ pub fn delete_desktop_data() -> Result<(), String> {
         let desktop_file_path = applications_directory.join("battle_cats_complete.desktop");
         if desktop_file_path.exists() {
             fs::remove_file(desktop_file_path).map_err(|error| error.to_string())?;
+            debug!("Removed .desktop entry file.");
         }
     }
 
@@ -87,6 +95,7 @@ pub fn delete_desktop_data() -> Result<(), String> {
         let icon_path = icons_directory.join("battle_cats_complete.png");
         if icon_path.exists() {
             fs::remove_file(icon_path).map_err(|error| error.to_string())?;
+            debug!("Removed desktop application icon.");
         }
     }
 
@@ -120,13 +129,14 @@ pub fn sync_desktop_data() -> Result<(), String> {
     let cargo_version = env!("CARGO_PKG_VERSION");
 
     let expected_exec_line = format!("Exec=\"{}\"", executable_string);
-    let expected_path_line = format!("Path=\"{}\"", working_directory_string);
+    let expected_path_line = format!("Path={}", working_directory_string);
     let expected_version_line = format!("X-AppVersion={}", cargo_version);
 
     if !file_content.contains(&expected_exec_line)
         || !file_content.contains(&expected_path_line)
         || !file_content.contains(&expected_version_line)
     {
+        debug!("Desktop entry is out of date. Initiating sync regeneration...");
         create_desktop_data()?;
     }
 

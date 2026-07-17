@@ -5,7 +5,7 @@ use std::sync::mpsc::Sender;
 use tracing::{error, info, trace};
 use zip::ZipArchive;
 
-use crate::modules::settings::logic::keys::UserKeys;
+use crate::modules::settings::UserKeys;
 
 use super::decrypt;
 

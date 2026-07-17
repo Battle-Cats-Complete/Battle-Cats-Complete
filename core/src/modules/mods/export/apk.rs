@@ -10,7 +10,7 @@ use zip::ZipArchive;
 use crate::common::region::Region;
 use crate::modules::addons::apkeditor::xapk;
 use crate::modules::data::engine::keys;
-use crate::modules::settings::logic::state::{ExportBehavior, Settings};
+use crate::modules::settings::{ExportBehavior, Settings};
 
 use super::{modify, pack, sign};
 use super::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};

@@ -13,7 +13,7 @@ use crate::modules::enemy::scanner::EnemyEntry;
 use crate::modules::enemy::waiter::enemyname;
 use crate::common::formats::gatyaitembuy::{self, GatyaItemBuy};
 use crate::common::formats::gatyaitemname::{self, GatyaItemName};
-use crate::modules::settings::logic::ScannerConfig;
+use crate::modules::settings::ScannerConfig;
 use crate::modules::stage::paths;
 use crate::modules::stage::registry::{GlobalMapId, GlobalStageId, StageRegistry};
 use crate::modules::stage::waiter::{drop_chara, lockskipdata, scatcpusetting};

@@ -10,7 +10,7 @@ use core::modules::cat::DetailTab;
 use core::modules::cat::paths;
 use core::modules::cat::game::talents::get_total_np_cost;
 use core::common::utils::autocrop;
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use crate::common::name_box;
 use crate::common::sheet::SpriteSheet;

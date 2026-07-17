@@ -8,7 +8,7 @@ use nyanko::pack::cryptology;
 use rayon::prelude::*;
 use tracing::{error, info, trace};
 
-use crate::modules::settings::logic::keys::UserKeys;
+use crate::modules::settings::UserKeys;
 
 struct PackEntry {
     name: String,

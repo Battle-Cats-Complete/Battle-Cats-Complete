@@ -21,8 +21,8 @@ use nyanko::pack::cryptology;
 use rayon::prelude::*;
 
 use crate::common::io::patterns;
-use crate::modules::settings::logic::exceptions::RuleHandling;
-use crate::modules::settings::logic::keys::UserKeys;
+use crate::modules::settings::RuleHandling;
+use crate::modules::settings::UserKeys;
 
 #[derive(Clone)]
 pub struct UniversalTask {

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use eframe::egui;
 
-use core::modules::settings::logic::exceptions::{ExceptionList, ExceptionRule, RuleHandling};
+use core::modules::settings::{ExceptionList, ExceptionRule, RuleHandling};
 
 use crate::common::shared::DragGuard;
 

@@ -1,7 +1,7 @@
 use eframe::egui;
 use tracing::{debug, trace};
 
-use core::modules::settings::logic::state::{ExportBehavior, ModsSettings};
+use core::modules::settings::{ExportBehavior, ModsSettings};
 
 use crate::common::shared::DragGuard;
 

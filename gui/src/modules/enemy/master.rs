@@ -8,7 +8,7 @@ use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::EnemyDetailTab;
 use core::modules::enemy::game::registry::Magnification;
 use core::common::context::GlobalContext;
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
 use crate::modules::statblock::builder::{generate_and_copy, generate_and_save};

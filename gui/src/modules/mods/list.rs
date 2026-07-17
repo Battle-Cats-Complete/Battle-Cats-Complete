@@ -7,7 +7,7 @@ use eframe::egui;
 use image::imageops;
 
 use core::modules::mods::ModDataState;
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 const TOP_PANEL_PADDING: f32 = 2.5;
 const SEARCH_FILTER_GAP: f32 = 5.0;

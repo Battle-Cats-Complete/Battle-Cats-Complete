@@ -16,7 +16,7 @@ use crate::common::resolver;
 use crate::modules::enemy::paths;
 use crate::modules::enemy::waiter::{enemyname, enemypicturebook, t_unit};
 use crate::modules::enemy::EnemyDataState;
-use crate::modules::settings::logic::state::ScannerConfig;
+use crate::modules::settings::ScannerConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EnemyEntry {

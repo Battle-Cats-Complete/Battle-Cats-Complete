@@ -1,6 +1,6 @@
 use std::sync::mpsc::Sender;
 
-use crate::modules::settings::logic::keys::UserKeys;
+use crate::modules::settings::UserKeys;
 
 pub fn verify(enforce_validation: bool, status_sender: &Sender<String>) -> Result<UserKeys, String> {
     let _ = status_sender.send("Validating keys...".to_string());

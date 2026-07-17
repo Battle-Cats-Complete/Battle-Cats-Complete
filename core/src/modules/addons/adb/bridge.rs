@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::common::region::Region;
 use crate::modules::data::{AdbImportType, AdbTarget};
-use crate::modules::settings::logic::state::EmulatorConfig;
+use crate::modules::settings::EmulatorConfig;
 
 use super::driver;
 

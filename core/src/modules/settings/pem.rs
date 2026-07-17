@@ -7,6 +7,9 @@ use rasn_pkix::{Certificate, SubjectPublicKeyInfo};
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use rsa::{Pkcs1v15Sign, RsaPrivateKey};
 use sha2::{Digest, Sha256};
+use tracing::{debug, error, info};
+
+use crate::common::io::json;
 
 pub const DEFAULT_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCmBNx3G6wn5h63
@@ -58,31 +61,42 @@ R8lCToYI1d9YTN3UwkzWp1Id0b6DLMrKznir6uiWsiOKc9s4fMILOK0ehSlZ6V6H
 -----END CERTIFICATE-----"#;
 
 fn get_pem_path() -> PathBuf {
-    let mut path = crate::common::io::json::get_app_data_dir();
-    path.push("identity.pem");
-    path
+    let mut config_path = json::get_app_data_dir();
+    config_path.push("identity.pem");
+    config_path
 }
 
 pub fn get_active_pem() -> (String, bool) {
-    let path = get_pem_path();
-    if let Ok(content) = fs::read_to_string(&path)
-        && content.contains("-----BEGIN PRIVATE KEY-----") && content.contains("-----BEGIN CERTIFICATE-----") {
-            return (content, true);
+    let certificate_path = get_pem_path();
+
+    if let Ok(pem_content) = fs::read_to_string(&certificate_path) {
+        if pem_content.contains("-----BEGIN PRIVATE KEY-----") && pem_content.contains("-----BEGIN CERTIFICATE-----") {
+            debug!("Successfully loaded active PEM certificate from disk.");
+            return (pem_content, true);
         }
+    }
+
     (DEFAULT_PEM.to_string(), false)
 }
 
 pub fn save_pem(pem_content: &str) -> Result<()> {
-    let path = get_pem_path();
-    fs::write(path, pem_content).context("Failed to write identity.pem")
+    let certificate_path = get_pem_path();
+    info!("Writing new PEM certificate payload to {:?}", certificate_path);
+    fs::write(certificate_path, pem_content).context("Failed to write identity.pem")
 }
 
 pub fn delete_pem() {
-    let path = get_pem_path();
-    let _ = fs::remove_file(path);
+    let certificate_path = get_pem_path();
+    if let Err(delete_error) = fs::remove_file(&certificate_path) {
+        error!("Could not remove PEM file: {}", delete_error);
+    } else {
+        info!("Successfully removed active PEM certificate.");
+    }
 }
 
 pub fn generate_pem() -> Result<String> {
+    info!("Generating new RSA hardware-backed PEM certificate...");
+
     let mut hardware_rng = rsa::rand_core::OsRng;
     let private_key = RsaPrivateKey::new(&mut hardware_rng, 2048).context("Failed to generate RSA Key")?;
 
@@ -94,8 +108,9 @@ pub fn generate_pem() -> Result<String> {
 
     let cert_start_tag = "-----BEGIN CERTIFICATE-----";
     let cert_end_tag = "-----END CERTIFICATE-----";
-    let cert_start_index = DEFAULT_PEM.find(cert_start_tag).context("No cert start")?;
-    let cert_end_index = DEFAULT_PEM.find(cert_end_tag).context("No cert end")?;
+
+    let cert_start_index = DEFAULT_PEM.find(cert_start_tag).context("Missing cert start tag in default PEM")?;
+    let cert_end_index = DEFAULT_PEM.find(cert_end_tag).context("Missing cert end tag in default PEM")?;
 
     let base64_certificate = &DEFAULT_PEM[cert_start_index + cert_start_tag.len()..cert_end_index]
         .replace(['\n', '\r'], "");
@@ -109,12 +124,13 @@ pub fn generate_pem() -> Result<String> {
 
     let digest = Sha256::digest(&tbs_der);
     let padding = Pkcs1v15Sign::new::<Sha256>();
-    let signature = private_key.sign(padding, &digest).context("Failed to sign certificate")?;
+    let signature = private_key.sign(padding, &digest).context("Failed to sign certificate generated object")?;
 
     certificate_template.signature_value = rasn::types::BitString::from_vec(signature);
 
     let final_certificate_der = rasn::der::encode(&certificate_template)?;
     let base64_final_certificate = BASE64_STANDARD.encode(&final_certificate_der);
+
     let estimated_capacity = private_pem_string.len() + base64_final_certificate.len() + 100;
     let mut final_combined_pem = String::with_capacity(estimated_capacity);
 
@@ -122,10 +138,13 @@ pub fn generate_pem() -> Result<String> {
     final_combined_pem.push_str("\n-----BEGIN CERTIFICATE-----\n");
 
     for chunk in base64_final_certificate.as_bytes().chunks(64) {
-        final_combined_pem.push_str(std::str::from_utf8(chunk).unwrap());
+        let chunk_string = std::str::from_utf8(chunk).context("Invalid UTF-8 sequence generated during base64 encoding")?;
+        final_combined_pem.push_str(chunk_string);
         final_combined_pem.push('\n');
     }
+
     final_combined_pem.push_str("-----END CERTIFICATE-----\n");
+    debug!("Successfully bundled RSA and Certificate payload to single PEM structure.");
 
     Ok(final_combined_pem)
 }

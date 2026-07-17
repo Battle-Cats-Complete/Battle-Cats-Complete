@@ -4,7 +4,7 @@ use core::common::region::Region;
 use core::modules::mods::export::{self, apk, pack, bcm};
 use core::modules::mods::ModMetadata;
 use core::modules::mods::export::ExportType;
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use super::state::ModListState;
 

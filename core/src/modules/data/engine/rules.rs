@@ -1,7 +1,7 @@
 use regex::{Regex, RegexSet};
 
 use crate::common::io::patterns;
-use crate::modules::settings::logic::exceptions::{ExceptionList, ExceptionRule};
+use crate::modules::settings::{ExceptionList, ExceptionRule};
 
 pub fn compile() -> (RegexSet, Vec<ExceptionRule>) {
     let exceptions = ExceptionList::load_or_default();

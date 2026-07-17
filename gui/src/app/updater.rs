@@ -6,7 +6,7 @@ use std::thread;
 use eframe::egui;
 use self_update::cargo_crate_version;
 
-use core::modules::settings::logic::{upd::UpdateMode, Settings};
+use core::modules::settings::{UpdateMode, Settings};
 
 use crate::common::shared::DragGuard;
 

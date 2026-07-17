@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use core::modules::cat::filter::CatFilterState;
 use core::modules::cat::{CatDataState, DetailTab};
 use core::common::context::GlobalContext;
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
 use crate::common::assets::CustomAssets;

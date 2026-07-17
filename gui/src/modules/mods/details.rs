@@ -3,7 +3,7 @@ use std::path::Path;
 use eframe::egui;
 
 use core::modules::mods::import;
-use core::modules::settings::logic::Settings;
+use core::modules::settings::Settings;
 
 use crate::common::shared::DragGuard;
 
