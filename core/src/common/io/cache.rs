@@ -1,13 +1,19 @@
-use std::fs::{self, File};
-use std::hash::{Hash, Hasher};
-use std::io::{BufReader, BufWriter};
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::fs::File;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::io::BufReader;
+use std::io::BufWriter;
+use std::path::Path;
+use std::path::PathBuf;
 
 use bincode::Options;
 use directories::BaseDirs;
 use rayon::prelude::*;
 use rustc_hash::FxHasher;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::Deserialize;
+use serde::Serialize;
 
 pub fn get_cache_dir() -> Option<PathBuf> {
     let Some(base_dirs) = BaseDirs::new() else {
@@ -52,8 +58,8 @@ fn hash_directory_parallel(directory_path: &Path) -> u64 {
             subdirectory_hash.hash(&mut local_hasher);
         } else if let Ok(file_metadata) = child_path.metadata()
             && let Ok(modified_time) = file_metadata.modified() {
-                modified_time.hash(&mut local_hasher);
-            }
+            modified_time.hash(&mut local_hasher);
+        }
 
         local_hasher.finish()
     }).collect();
@@ -71,7 +77,7 @@ fn hash_directory_parallel(directory_path: &Path) -> u64 {
 pub fn get_game_hash(active_mod: Option<&str>) -> u64 {
     tracing::trace!("Calculating global game hash across assets and tables...");
     let mut final_game_hasher = FxHasher::default();
-    
+
     let target_paths = ["game/tables", "game/cats", "game/enemies", "game/stages", "mods"];
     for path_string in target_paths {
         let directory_hash = hash_directory_parallel(Path::new(path_string));

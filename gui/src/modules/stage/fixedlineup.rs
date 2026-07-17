@@ -5,7 +5,7 @@ use nyanko::chapter::stage::{AbilityType, CannonType, EvolutionForm, Certificati
 use tracing::{error, warn, trace};
 
 use core::modules::cat::waiter::unitexplanation;
-use core::common::utils::autocrop;
+use core::common::gfx::autocrop;
 use core::modules::stage::paths;
 use core::modules::stage::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
 

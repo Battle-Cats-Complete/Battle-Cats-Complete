@@ -5,7 +5,7 @@ use eframe::egui;
 use image::GenericImageView;
 use nyanko::cat::unit::UnitBuy;
 
-use core::common::io::paths;
+use core::common::io;
 
 pub(crate) fn render(ui: &mut egui::Ui, description: &[String]) {
     ui.add_space(10.0);
@@ -205,7 +205,7 @@ pub(crate) fn render_evolve(
 }
 
 fn load_material_icon_legacy(ctx: &egui::Context, id: i32, version: u64, priority: &[String]) -> Option<egui::TextureHandle> {
-    let expected_path = paths::gatya_item_icon(Path::new(""), id)?;
+    let expected_path = io::gatya_item_icon(Path::new(""), id)?;
     
     let file_name = expected_path.file_name()?.to_string_lossy().to_string();
     let parent_dir = expected_path.parent().unwrap_or(Path::new(""));
@@ -288,7 +288,7 @@ fn load_material_icon_legacy(ctx: &egui::Context, id: i32, version: u64, priorit
 }
 
 fn load_xp_icon_trimmed(ctx: &egui::Context, id: i32, version: u64, priority: &[String]) -> Option<egui::TextureHandle> {
-    let expected_path = paths::gatya_item_icon(Path::new(""), id)?;
+    let expected_path = io::gatya_item_icon(Path::new(""), id)?;
     let file_name = expected_path.file_name()?.to_string_lossy().to_string();
     let parent_dir = expected_path.parent().unwrap_or(Path::new(""));
 

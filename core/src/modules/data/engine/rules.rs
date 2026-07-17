@@ -1,6 +1,6 @@
 use regex::{Regex, RegexSet};
 
-use crate::common::io::patterns;
+use crate::common::io;
 use crate::modules::settings::{ExceptionList, ExceptionRule};
 
 pub fn compile() -> (RegexSet, Vec<ExceptionRule>) {
@@ -9,7 +9,7 @@ pub fn compile() -> (RegexSet, Vec<ExceptionRule>) {
     let mut patterns_for_set = Vec::new();
     let mut active_rules = Vec::new();
 
-    let lang_codes: Vec<&str> = patterns::APP_LANGUAGES.iter().map(|&(code, _)| code).collect();
+    let lang_codes: Vec<&str> = io::APP_LANGUAGES.iter().map(|&(code, _)| code).collect();
     let lang_string = format!(r"(?:_(?:{}))?", lang_codes.join("|"));
 
     for rule in exceptions.rules {

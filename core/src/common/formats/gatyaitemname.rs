@@ -2,34 +2,29 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use nyanko::common::tools::file::detect_separator;
+use nyanko::common::tools::file;
 
-use crate::common::resolver;
-
-#[derive(Debug, Clone)]
-pub struct GatyaItemName {
-    pub name: String,
-    pub description: Vec<String>,
-}
+use super::super::resolver;
+use super::GatyaItemName;
 
 pub fn load(dir_path: &Path, filename: &str, lang_priority: &[String]) -> HashMap<usize, GatyaItemName> {
     let mut item_name_map = HashMap::new();
     let file_paths = resolver::get(dir_path, [filename], lang_priority);
-    
-    let Some(first_path) = file_paths.first() else { 
-        return item_name_map; 
-    };
-    
-    let Ok(file_content) = fs::read_to_string(first_path) else { 
-        return item_name_map; 
+
+    let Some(first_path) = file_paths.first() else {
+        return item_name_map;
     };
 
-    let csv_separator = detect_separator(&file_content);
+    let Ok(file_content) = fs::read_to_string(first_path) else {
+        return item_name_map;
+    };
+
+    let csv_separator = file::detect_separator(&file_content);
 
     for (current_row_index, line_string) in file_content.lines().enumerate() {
         let clean_line = line_string.split("//").next().unwrap_or("").trim();
-        if clean_line.is_empty() { 
-            continue; 
+        if clean_line.is_empty() {
+            continue;
         }
 
         let line_parts: Vec<&str> = clean_line.split(csv_separator).collect();
@@ -38,7 +33,7 @@ pub fn load(dir_path: &Path, filename: &str, lang_priority: &[String]) -> HashMa
         }
 
         let item_name_string = line_parts[0].trim().to_string();
-        
+
         let description_lines_array: Vec<String> = line_parts.iter()
             .skip(1)
             .map(|description_part| description_part.trim().to_string())

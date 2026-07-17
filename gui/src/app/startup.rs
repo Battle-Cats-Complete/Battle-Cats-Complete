@@ -5,7 +5,7 @@ use eframe::egui;
 use core::modules::cat::paths as cat_paths;
 use core::modules::cat::waiter::{skilldescriptions, skilllevel};
 use core::common::assets;
-use core::common::game::waiter::{localizable, param};
+use core::common::game::{localizable, param};
 use core::common::io::json;
 use core::modules::settings::{lang, UpdateMode};
 

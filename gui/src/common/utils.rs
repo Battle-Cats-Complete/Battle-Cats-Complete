@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use core::common::utils::strip_markdown;
+use core::common::text::strip_markdown;
 
 pub(crate) fn process_markdown(ui: &mut egui::Ui, raw_text: &str) {
     let content = strip_markdown(raw_text);

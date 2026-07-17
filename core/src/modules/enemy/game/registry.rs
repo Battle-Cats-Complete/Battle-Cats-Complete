@@ -5,7 +5,7 @@ use nyanko::enemy::abilities::{Identity, REGISTRY};
 use nyanko::enemy::unit::Battle;
 use serde::{Deserialize, Serialize};
 
-use crate::common::game::abilities::CustomIcon;
+use crate::common::game::CustomIcon;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Magnification {

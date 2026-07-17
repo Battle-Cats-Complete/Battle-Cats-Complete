@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::common::formats::gatyaitembuy::GatyaItemBuy;
-use crate::common::formats::gatyaitemname::GatyaItemName;
+use crate::common::formats::GatyaItemBuy;
+use crate::common::formats::GatyaItemName;
 
 use super::paths;
 use super::treasure::ResolvedDrop;

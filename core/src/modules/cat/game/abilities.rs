@@ -2,7 +2,7 @@ use nyanko::cat::abilities::{get_talent, AttrUnit, Identity, REGISTRY};
 use nyanko::common::data::img015;
 use tracing::trace;
 
-use crate::common::game::abilities::{AbilityItem, CustomIcon};
+use crate::common::game::{AbilityItem, CustomIcon};
 use crate::modules::cat::game::registry::{self, AbilityIcon, DisplayGroup};
 use crate::modules::cat::game::talents;
 use crate::modules::cat::game::CatRenderContext;

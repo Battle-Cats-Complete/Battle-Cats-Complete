@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum Region {

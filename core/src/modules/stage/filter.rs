@@ -13,8 +13,8 @@ use nyanko::chapter::{Map, Stage};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::common::formats::gatyaitembuy::GatyaItemBuy;
-use crate::common::formats::gatyaitemname::GatyaItemName;
+use crate::common::formats::GatyaItemBuy;
+use crate::common::formats::GatyaItemName;
 
 use self::enemy::{CompiledEnemyFilter, EnemyFilter};
 use self::lineup::{CompiledLineupFilter, LineupFilter};

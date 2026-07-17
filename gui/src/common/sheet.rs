@@ -2,7 +2,7 @@ use std::path::Path;
 
 use eframe::egui;
 
-use core::common::formats::imgcut::SpriteSheet as CoreSpriteSheet;
+use core::common::formats::SpriteSheet as CoreSpriteSheet;
 
 #[derive(Default, Clone)]
 pub(crate) struct SpriteSheet {

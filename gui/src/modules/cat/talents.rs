@@ -8,7 +8,7 @@ use nyanko::common::data::img022;
 
 use core::modules::cat::game::talents;
 use core::modules::cat::paths;
-use core::common::utils::autocrop;
+use core::common::gfx::autocrop;
 use core::modules::settings::Settings;
 
 use crate::common::assets::CustomAssets;

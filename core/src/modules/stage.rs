@@ -21,8 +21,8 @@ pub use nyanko::chapter::Map;
 pub use nyanko::chapter::Stage;
 use serde::{Deserialize, Serialize};
 
-use crate::common::formats::gatyaitembuy::GatyaItemBuy;
-use crate::common::formats::gatyaitemname::GatyaItemName;
+use crate::common::formats::GatyaItemBuy;
+use crate::common::formats::GatyaItemName;
 use crate::modules::cat::waiter::{unitbuy, unitexplanation};
 use crate::modules::enemy::scanner::EnemyEntry;
 use crate::modules::enemy::waiter::enemyname;

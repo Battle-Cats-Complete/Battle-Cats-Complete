@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use nyanko::cat::unit::UnitBuy;
 use serde::{Deserialize, Serialize};
 
-use crate::common::formats::gatyaitembuy::GatyaItemBuy;
-use crate::common::formats::gatyaitemname::GatyaItemName;
+use crate::common::formats::GatyaItemBuy;
+use crate::common::formats::GatyaItemName;
 
 use super::range::{CompiledStatRange, StatRange};
 

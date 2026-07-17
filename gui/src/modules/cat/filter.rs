@@ -309,7 +309,7 @@ fn render_display_group(
     }
 
     if target_group == DisplayGroup::Headline2 {
-        let kamikaze = AbilityIcon::Custom(core::common::game::abilities::CustomIcon::Kamikaze);
+        let kamikaze = AbilityIcon::Custom(core::common::game::CustomIcon::Kamikaze);
 
         if !icons_in_group.contains(&kamikaze) {
             icons_in_group.push(kamikaze);

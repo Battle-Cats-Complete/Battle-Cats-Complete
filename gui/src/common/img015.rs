@@ -1,13 +1,13 @@
 use eframe::egui;
 
-use core::common::io::paths;
+use core::common::io;
 use core::common::resolver;
 use core::modules::settings::Settings;
 
 use crate::common::sheet::SpriteSheet;
 
 pub(crate) fn ensure_loaded(ctx: &egui::Context, sheets: &mut Vec<SpriteSheet>, settings: &Settings) {
-    let base_dir = paths::img015_folder(std::path::Path::new(""));
+    let base_dir = io::img015_folder(std::path::Path::new(""));
 
     let png_paths = resolver::get(&base_dir, ["img015.png"], &settings.general.language_priority);
     let cut_paths = resolver::get(&base_dir, ["img015.imgcut"], &settings.general.language_priority);

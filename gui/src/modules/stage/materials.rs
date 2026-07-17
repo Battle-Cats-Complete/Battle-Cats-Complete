@@ -3,9 +3,9 @@ use std::path::Path;
 
 use eframe::egui::{self, RichText};
 
-use core::common::formats::gatyaitembuy::GatyaItemBuy;
-use core::common::formats::gatyaitemname::GatyaItemName;
-use core::common::utils::autocrop;
+use core::common::formats::GatyaItemBuy;
+use core::common::formats::GatyaItemName;
+use core::common::gfx::autocrop;
 use core::modules::stage::materials;
 use core::modules::stage::{Map, Stage};
 

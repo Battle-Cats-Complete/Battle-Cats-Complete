@@ -1,7 +1,7 @@
 use eframe::egui;
 
 use core::common::assets::*;
-use core::common::game::abilities::CustomIcon;
+use core::common::game::CustomIcon;
 
 #[derive(Clone)]
 pub(crate) struct CustomAssets {

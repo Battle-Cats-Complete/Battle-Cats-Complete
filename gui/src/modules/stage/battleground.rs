@@ -9,7 +9,7 @@ use tracing::{debug, instrument, warn};
 
 use core::modules::enemy::scanner::EnemyEntry;
 use core::common::context::GlobalContext;
-use core::common::utils::autocrop;
+use core::common::gfx::autocrop;
 use core::modules::stage::{Map, Stage};
 
 use super::treasure::center_header;

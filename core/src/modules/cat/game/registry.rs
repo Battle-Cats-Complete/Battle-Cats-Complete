@@ -4,7 +4,7 @@ use nyanko::cat::abilities::{Identity, REGISTRY};
 use nyanko::cat::unit::{Battle, UnitBuy};
 use nyanko::common::data::{img015, Param};
 
-use crate::common::game::abilities::CustomIcon;
+use crate::common::game::CustomIcon;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum DisplayGroup {

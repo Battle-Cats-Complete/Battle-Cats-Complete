@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use regex::Regex;
 
-use crate::common::io::patterns as global_patterns;
+use crate::common::io as global_patterns;
 use crate::modules::cat::patterns as cat_patterns;
 use crate::modules::enemy::patterns as enemy_patterns;
 use crate::modules::stage::patterns as stage_patterns;

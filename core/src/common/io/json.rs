@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 pub fn get_app_data_dir() -> PathBuf {
     let mut path = if cfg!(target_os = "windows") {
@@ -33,8 +34,8 @@ pub fn load<T: DeserializeOwned>(filename: &str) -> Option<T> {
 
     if path.exists()
         && let Ok(data) = fs::read_to_string(&path)
-            && let Ok(parsed) = serde_json::from_str::<T>(&data) {
-                return Some(parsed);
-            }
+        && let Ok(parsed) = serde_json::from_str::<T>(&data) {
+        return Some(parsed);
+    }
     None
 }

@@ -7,7 +7,7 @@ use nyanko::chapter::map::LockSkipDataEntry;
 use nyanko::chapter::stage::ScatCpuSetting;
 
 use core::common::resolver;
-use core::common::utils::autocrop;
+use core::common::gfx::autocrop;
 use core::modules::stage::paths;
 use core::modules::stage::{Map, Stage};
 

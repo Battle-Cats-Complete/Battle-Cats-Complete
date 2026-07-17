@@ -9,7 +9,7 @@ use core::modules::cat::scanner::CatEntry;
 use core::modules::cat::DetailTab;
 use core::modules::cat::paths;
 use core::modules::cat::game::talents::get_total_np_cost;
-use core::common::utils::autocrop;
+use core::common::gfx::autocrop;
 use core::modules::settings::Settings;
 
 use crate::common::name_box;

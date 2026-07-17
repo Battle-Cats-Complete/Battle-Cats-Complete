@@ -5,9 +5,9 @@ use eframe::egui::{self,  RichText};
 use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::stage::RewardStructure;
 
-use core::common::formats::gatyaitembuy::GatyaItemBuy;
-use core::common::formats::gatyaitemname::GatyaItemName;
-use core::common::utils::autocrop;
+use core::common::formats::GatyaItemBuy;
+use core::common::formats::GatyaItemName;
+use core::common::gfx::autocrop;
 use core::modules::stage::treasure;
 use core::modules::stage::Stage;
 

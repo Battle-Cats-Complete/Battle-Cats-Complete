@@ -3,7 +3,7 @@ use eframe::egui;
 use core::modules::enemy::game::abilities;
 use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::game::registry;
-use core::common::game::abilities::AbilityItem;
+use core::common::game::AbilityItem;
 
 use crate::common::assets::CustomAssets;
 use crate::common::shared::{render_fallback_icon, text_with_superscript};

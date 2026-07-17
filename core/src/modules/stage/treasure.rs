@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use nyanko::cat::unit::UnitBuy;
 use tracing::{debug, trace};
 
-use crate::common::formats::gatyaitembuy::GatyaItemBuy;
-use crate::common::formats::gatyaitemname::GatyaItemName;
+use crate::common::formats::GatyaItemBuy;
+use crate::common::formats::GatyaItemName;
 use crate::modules::cat::waiter::unitexplanation;
 
 use super::paths;

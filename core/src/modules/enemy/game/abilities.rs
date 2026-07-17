@@ -1,6 +1,6 @@
 use nyanko::enemy::abilities::{AttrUnit, REGISTRY};
 
-use crate::common::game::abilities::{AbilityItem, CustomIcon};
+use crate::common::game::{AbilityItem, CustomIcon};
 use crate::modules::enemy::game::registry::{self, AbilityIcon, DisplayGroup};
 use crate::modules::enemy::game::EnemyRenderContext;
 

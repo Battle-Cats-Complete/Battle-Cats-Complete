@@ -3,7 +3,7 @@ use eframe::egui;
 use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::enemy::EnemyDetailTab;
 use core::modules::enemy::game::registry::Magnification;
-use core::common::utils::autocrop;
+use core::common::gfx::autocrop;
 
 use crate::common::name_box;
 

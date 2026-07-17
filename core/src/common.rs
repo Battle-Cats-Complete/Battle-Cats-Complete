@@ -1,10 +1,11 @@
-pub mod io;
-pub mod game;
-pub mod formats;
 pub mod assets;
-pub mod utils;
-pub mod resolver;
-pub mod region;
 pub mod context;
+pub mod formats;
+pub mod game;
+pub mod gfx;
+pub mod io;
+pub mod region;
+pub mod resolver;
+pub mod text;
 
-pub use self::resolver::get;
+pub use resolver::get;

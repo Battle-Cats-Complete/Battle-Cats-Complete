@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use nyanko::common::data::img015;
 
-use crate::common::game::abilities::CustomIcon;
+use crate::common::game::CustomIcon;
 use crate::modules::cat::game::registry::AbilityIcon;
 
 pub const ATTACK_TYPE_ICONS: &[AbilityIcon] = &[

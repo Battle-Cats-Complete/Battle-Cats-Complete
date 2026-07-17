@@ -2,51 +2,34 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use nyanko::common::tools::file::detect_separator;
+use nyanko::common::tools::file;
 
-use crate::common::resolver;
-
-#[derive(Debug, Clone)]
-pub struct GatyaItemBuy {
-    pub rarity: i32,
-    pub reflect_or_storage: i32,
-    pub price: i32,
-    pub stage_drop_item_id: u32,
-    pub quantity: i32,
-    pub server_id: i32,
-    pub category: i32,
-    pub index: i32,
-    pub src_item_id: i32,
-    pub main_menu_type: i32,
-    pub gatya_ticket_id: i32,
-    pub img_id: i32,
-    pub comment: String,
-    pub row_index: usize,
-}
+use super::super::resolver;
+use super::GatyaItemBuy;
 
 pub fn load(dir_path: &Path, filename: &str, lang_priority: &[String]) -> HashMap<u32, GatyaItemBuy> {
     let mut item_buy_map = HashMap::new();
     let file_paths = resolver::get(dir_path, [filename], lang_priority);
-    
-    let Some(first_path) = file_paths.first() else { 
-        return item_buy_map; 
-    };
-    
-    let Ok(file_content) = fs::read_to_string(first_path) else { 
-        return item_buy_map; 
+
+    let Some(first_path) = file_paths.first() else {
+        return item_buy_map;
     };
 
-    let csv_separator = detect_separator(&file_content);
+    let Ok(file_content) = fs::read_to_string(first_path) else {
+        return item_buy_map;
+    };
+
+    let csv_separator = file::detect_separator(&file_content);
 
     for (calculated_row_index, line_string) in file_content.lines().skip(1).enumerate() {
         let clean_line = line_string.split("//").next().unwrap_or("").trim();
-        if clean_line.is_empty() { 
-            continue; 
+        if clean_line.is_empty() {
+            continue;
         }
 
         let line_parts: Vec<&str> = clean_line.split(csv_separator).collect();
-        if line_parts.len() < 12 { 
-            continue; 
+        if line_parts.len() < 12 {
+            continue;
         }
 
         let Ok(stage_drop_item_id) = line_parts[3].trim().parse::<u32>() else {

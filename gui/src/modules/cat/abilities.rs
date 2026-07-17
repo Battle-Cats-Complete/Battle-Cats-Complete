@@ -5,7 +5,7 @@ use core::modules::cat::game::abilities;
 use core::modules::cat::game::CatRenderContext;
 use core::modules::cat::scanner::CatEntry;
 use core::modules::cat::game::registry::AbilityIcon;
-use core::common::game::abilities::{
+use core::common::game::{
     AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y,
 };
 

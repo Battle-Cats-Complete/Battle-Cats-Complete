@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::common::io::patterns;
+use crate::common::io;
 use crate::modules::settings::RuleHandling;
 
 use super::rules;
@@ -91,7 +91,7 @@ pub fn process_raw_files(
                 let asset_extension_string = path.extension().unwrap_or_default().to_string_lossy();
 
                 let mut cleaned_stem = asset_stem_string.to_string();
-                for &(code, _) in patterns::APP_LANGUAGES {
+                for &(code, _) in io::APP_LANGUAGES {
                     let suffix = format!("_{}", code);
                     if cleaned_stem.ends_with(&suffix) {
                         cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string();

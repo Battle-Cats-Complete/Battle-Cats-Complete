@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::formats::mamodel::Model;
+use crate::common::formats::Model;
 use crate::modules::enemy::game::registry::Magnification;
 use crate::modules::enemy::scanner::EnemyEntry;
 use crate::modules::settings::ScannerConfig;
