@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use eframe::egui;
 use tracing::{debug, trace};
 
 use core::common::io;
@@ -9,7 +8,7 @@ use core::modules::settings::Settings;
 
 use super::SpriteSheet;
 
-pub(crate) fn ensure_loaded(ctx: &egui::Context, sheets: &mut Vec<SpriteSheet>, settings: &Settings) {
+pub fn ensure_loaded(sheets: &mut Vec<SpriteSheet>, settings: &Settings) {
     let base_dir = io::img022_folder(Path::new(""));
 
     let png_paths = resolver::get(&base_dir, ["img022.png"], &settings.general.language_priority);
@@ -21,7 +20,7 @@ pub(crate) fn ensure_loaded(ctx: &egui::Context, sheets: &mut Vec<SpriteSheet>, 
     }
 
     for (i, (png_path, imgcut_path)) in png_paths.into_iter().zip(cut_paths).enumerate() {
-        sheets[i].update(ctx);
+        sheets[i].update();
 
         if sheets[i].texture_handle.is_none() && !sheets[i].core.is_loading_active {
             let key = png_path

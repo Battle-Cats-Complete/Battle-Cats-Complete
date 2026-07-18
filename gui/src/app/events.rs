@@ -3,26 +3,19 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::thread;
 
-use eframe::egui;
 use tracing::{debug, info, trace};
 
 use core::common::io::cache;
 use core::common::resolver;
-use core::modules::cat::paths as cat_paths;
-use core::modules::cat::patterns as cat_patterns;
-use core::modules::cat::scanner as cat_loader;
+use core::modules::cat::{paths as cat_paths, patterns as cat_patterns, scanner as cat_loader};
 use core::modules::enemy::scanner as enemy_loader;
-use core::modules::stage::filter::enemy::EnemyFilter;
-use core::modules::stage::filter::StageFilterState;
 
-use crate::common::GuiWatcher;
-
-use super::{BattleCatsApp, Page};
+use super::BattleCatsApp;
 
 impl BattleCatsApp {
-    pub(crate) fn process_file_events(&mut self, ctx: &egui::Context) {
+    pub(crate) fn process_file_events(&mut self) {
         if self.global_watcher.is_none() {
-            self.global_watcher = GuiWatcher::new(ctx.clone());
+            return;
         }
 
         let Some(watcher) = &self.global_watcher else { return; };
@@ -141,15 +134,10 @@ impl BattleCatsApp {
             }
         }
 
-        let game_dir = Path::new("game");
-        let is_empty = !game_dir.exists() || std::fs::read_dir(game_dir).map(|mut iterator| iterator.next().is_none()).unwrap_or(true);
-        ctx.data_mut(|data_map| data_map.insert_temp(egui::Id::new("is_game_empty"), is_empty));
-
         if mod_changed || global_cat || global_enemy {
             info!("Global files or active mod changed. Triggering full reload.");
             resolver::clear_override_cache();
             self.perform_full_data_reload();
-            ctx.request_repaint();
             return;
         }
 
@@ -211,11 +199,9 @@ impl BattleCatsApp {
                 cache::save("enemies_cache.bin", current_hash, &enemies);
             });
         }
-
-        ctx.request_repaint();
     }
 
-    pub(crate) fn check_if_active_mod_changed(path: &Path, active_mod: Option<&str>) -> bool {
+    fn check_if_active_mod_changed(path: &Path, active_mod: Option<&str>) -> bool {
         let Some(active) = active_mod else { return false; };
 
         let path_components: Vec<_> = path.components()
@@ -228,7 +214,7 @@ impl BattleCatsApp {
         folder == &active.to_lowercase()
     }
 
-    pub(crate) fn process_cat_path(&mut self, path: &Path, cat_ids: &mut HashSet<u32>) -> bool {
+    fn process_cat_path(&mut self, path: &Path, cat_ids: &mut HashSet<u32>) -> bool {
         let path_components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
 
         let Some(index) = path_components.iter().position(|c| c == "cats") else { return false; };
@@ -266,7 +252,7 @@ impl BattleCatsApp {
         false
     }
 
-    pub(crate) fn process_enemy_path(&mut self, path: &Path, enemy_ids: &mut HashSet<u32>) -> bool {
+    fn process_enemy_path(&mut self, path: &Path, enemy_ids: &mut HashSet<u32>) -> bool {
         let path_components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
 
         let Some(index) = path_components.iter().position(|c| c == "enemies") else { return false; };
@@ -285,23 +271,5 @@ impl BattleCatsApp {
         self.enemy_list_state.anim_viewer.texture_version += 1;
 
         false
-    }
-
-    pub(crate) fn process_ui_events(&mut self, ctx: &egui::Context) {
-        let Some(enemy_id) = ctx.data_mut(|d| d.remove_temp::<u32>(egui::Id::new("navigate_to_stage_appearances"))) else { return; };
-
-        info!("Navigating to stage appearances for enemy ID: {}", enemy_id);
-
-        self.current_page = Page::Stages;
-        self.stage_list_state.is_list_open = true;
-
-        self.stage_list_state.filter_state.is_open = false;
-        self.stage_list_state.filter_state = StageFilterState::default();
-
-        let mut enemy_filter = EnemyFilter::default();
-        enemy_filter.name_or_id = enemy_id.to_string();
-        self.stage_list_state.filter_state.enemies.push(enemy_filter);
-
-        self.settings.runtime.show_ip_field = false;
     }
 }

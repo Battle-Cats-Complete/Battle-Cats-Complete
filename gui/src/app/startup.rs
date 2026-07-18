@@ -2,10 +2,9 @@ use std::path::Path;
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use eframe::egui;
+use iced::Task;
 use tracing::{debug, info};
 
-use core::common::assets;
 use core::common::game::{localizable, param};
 use core::common::io::{cache, json};
 use core::common::resolver;
@@ -16,15 +15,13 @@ use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::{desktop, lang, ExceptionList, UpdateMode};
 use core::modules::stage::StageRegistry;
 
-use super::logging;
-use super::updater;
-use super::BattleCatsApp;
+use super::{logging, updater, BattleCatsApp, Message};
 
 impl BattleCatsApp {
-    pub(crate) fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
+    pub fn new() -> (Self, Task<Message>) {
         let mut app: Self = json::load("settings.json").unwrap_or_default();
 
-        logging::init(app.settings.general.enable_logging);
+        logging::init_logging(app.settings.general.enable_logging);
         info!("Starting initialization sequence...");
 
         ExceptionList::sync_on_boot();
@@ -36,9 +33,6 @@ impl BattleCatsApp {
         }
 
         lang::ensure_complete_list(&mut app.settings.general.language_priority);
-
-        debug!("Setting up custom fonts");
-        setup_custom_fonts(&creation_context.egui_ctx);
 
         debug!("Refreshing mod state and cleaning up temp update files");
         app.mod_state.data.refresh_mods();
@@ -122,31 +116,17 @@ impl BattleCatsApp {
             });
         }
 
+        let (up_tx, up_rx) = mpsc::channel();
+        app.updater_tx = Some(up_tx);
+        app.updater_rx = Some(up_rx);
+
         if app.settings.general.update_mode != UpdateMode::Ignore {
             info!("Checking for app updates at startup");
-            app.updater.check_for_updates(creation_context.egui_ctx.clone(), false);
+            app.check_for_updates(false);
         }
 
         info!("Initialization sequence complete");
-        app
+
+        (app, Task::none())
     }
-}
-
-fn setup_custom_fonts(context: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert("jp_font".to_owned(), egui::FontData::from_static(assets::FONT_JP));
-    fonts.font_data.insert("kr_font".to_owned(), egui::FontData::from_static(assets::FONT_KR));
-    fonts.font_data.insert("tc_font".to_owned(), egui::FontData::from_static(assets::FONT_TC));
-    fonts.font_data.insert("thai_font".to_owned(), egui::FontData::from_static(assets::FONT_TH));
-
-    let families = [egui::FontFamily::Proportional, egui::FontFamily::Monospace];
-    for family in families {
-        let Some(list_ref) = fonts.families.get_mut(&family) else { continue; };
-
-        list_ref.push("jp_font".to_owned());
-        list_ref.push("kr_font".to_owned());
-        list_ref.push("tc_font".to_owned());
-        list_ref.push("thai_font".to_owned());
-    }
-    context.set_fonts(fonts);
 }

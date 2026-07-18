@@ -30,18 +30,17 @@ impl BattleCatsApp {
         self.stage_list_state.stage_texture_cache.clear();
         self.stage_list_state.cat_texture_cache.clear();
 
-        let viewers = [
-            &mut self.cat_list_state.anim_viewer,
-            &mut self.enemy_list_state.anim_viewer,
-        ];
+        self.cat_list_state.anim_viewer.loaded_id.clear();
+        self.cat_list_state.anim_viewer.held_unit = None;
+        self.cat_list_state.anim_viewer.current_anim = None;
+        self.cat_list_state.anim_viewer.current_frame = 0.0;
+        self.cat_list_state.anim_viewer.texture_version += 1;
 
-        for viewer in viewers {
-            viewer.loaded_id.clear();
-            viewer.held_unit = None;
-            viewer.current_anim = None;
-            viewer.current_frame = 0.0;
-            viewer.texture_version += 1;
-        }
+        self.enemy_list_state.anim_viewer.loaded_id.clear();
+        self.enemy_list_state.anim_viewer.held_unit = None;
+        self.enemy_list_state.anim_viewer.current_anim = None;
+        self.enemy_list_state.anim_viewer.current_frame = 0.0;
+        self.enemy_list_state.anim_viewer.texture_version += 1;
 
         let config = self.settings.scanner_config();
 

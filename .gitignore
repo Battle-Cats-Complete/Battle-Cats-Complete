@@ -14,6 +14,7 @@ crash*
 
 # Quality of Life
 .cargo/
+*.py
 
 # Extracted Game Data
 /game/

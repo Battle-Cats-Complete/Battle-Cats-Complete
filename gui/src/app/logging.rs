@@ -4,21 +4,21 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use directories::BaseDirs;
-use tracing::Level;
+use tracing::{debug, info, Level};
 use tracing_subscriber::{fmt, EnvFilter};
 
 fn find_override_file(cwd: &Path, names: &[&str]) -> Option<PathBuf> {
     names.iter().map(|name| cwd.join(name)).find(|path| path.exists())
 }
 
-pub(crate) fn init(enable_logging: bool) {
+pub(crate) fn init_logging(enable_logging: bool) {
     let cwd = env::current_dir().unwrap_or_default();
 
     let trace_file = find_override_file(&cwd, &["trace.txt", "trace"]);
     let debug_file = find_override_file(&cwd, &["debug.txt", "debug"]);
 
     let app_dir = BaseDirs::new().map(|base| base.data_local_dir().join("battle_cats_complete"));
-    
+
     let (log_level, filter_directive, file_path) = if let Some(path) = trace_file {
         (Level::TRACE, "info,gui=trace,core=trace,nyanko=trace,zbus=error", path)
     } else if let Some(path) = debug_file {
@@ -64,7 +64,7 @@ pub(crate) fn init(enable_logging: bool) {
 
         let _ = tracing::subscriber::set_global_default(subscriber);
 
-        tracing::info!("Tracing initialized at {} level", log_level);
-        tracing::debug!("Active filter directive: {}", filter_directive);
+        info!("Tracing initialized at {} level", log_level);
+        debug!("Active filter directive: {}", filter_directive);
     }
 }

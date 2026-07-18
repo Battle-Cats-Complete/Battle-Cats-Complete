@@ -1,12 +1,87 @@
-use std::collections::HashSet;
-use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, Sender};
-use std::time::{Duration, Instant};
+use std::{collections::HashSet, path::PathBuf, sync::mpsc::{channel, Receiver, Sender}, time::{Duration, Instant}};
 
-use eframe::egui;
-use tracing::{debug, trace};
+use notify::{recommended_watcher, Event, EventKind, RecursiveMode, Watcher};
+use tracing::{debug, info, trace, warn};
 
-pub(crate) fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>, ctx: egui::Context) {
+pub struct GuiWatcher {
+    _watcher: notify::RecommendedWatcher,
+    pub rx: Receiver<PathBuf>,
+}
+
+impl GuiWatcher {
+    pub fn new() -> Option<Self> {
+        info!("Initializing GuiWatcher");
+
+        let (internal_tx, internal_rx) = channel();
+        let (final_tx, final_rx) = channel();
+
+        std::thread::spawn(move || {
+            debounce_loop(internal_rx, final_tx);
+        });
+
+        let mut watcher = recommended_watcher(move |res: notify::Result<Event>| {
+            match res {
+                Ok(event) => {
+                    if !matches!(event.kind, EventKind::Access(_)) {
+                        for path in event.paths {
+                            let path_str = path.to_string_lossy().to_lowercase();
+                            if path_str.contains("raw") {
+                                continue;
+                            }
+
+                            if !path_str.contains("game") && !path_str.contains("mods") {
+                                continue;
+                            }
+
+                            let components: Vec<_> = path
+                                .components()
+                                .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+                                .collect();
+
+                            if let Some(mods_idx) = components.iter().position(|c| c == "mods") {
+                                if let Some(sub_folder) = components.get(mods_idx + 2) {
+                                    if sub_folder != "patch" && sub_folder != "icons" && sub_folder != "loose" {
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            trace!("GuiWatcher detected file change: {:?}", path);
+                            let _ = internal_tx.send(path);
+                        }
+                    }
+                }
+                Err(e) => warn!("GuiWatcher received an event error: {}", e),
+            }
+        }).ok()?;
+
+        let current_dir = std::path::Path::new(".");
+        if let Err(e) = watcher.watch(current_dir, RecursiveMode::NonRecursive) {
+            warn!("Failed to watch current directory: {e}");
+        }
+
+        let game_path = std::path::Path::new("game");
+        if game_path.exists() {
+            if let Err(e) = watcher.watch(game_path, RecursiveMode::Recursive) {
+                warn!("Failed to watch game directory: {e}");
+            }
+        }
+
+        let mods_path = std::path::Path::new("mods");
+        if mods_path.exists() {
+            if let Err(e) = watcher.watch(mods_path, RecursiveMode::Recursive) {
+                warn!("Failed to watch mods directory: {e}");
+            }
+        }
+
+        Some(Self {
+            _watcher: watcher,
+            rx: final_rx,
+        })
+    }
+}
+
+fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>) {
     let mut pending_paths: HashSet<PathBuf> = HashSet::new();
     let mut deadline: Option<Instant> = None;
     let mut max_deadline: Option<Instant> = None;
@@ -25,7 +100,6 @@ pub(crate) fn debounce_loop(rx: Receiver<PathBuf>, final_sender: Sender<PathBuf>
                     for path in pending_paths.drain() {
                         let _ = final_sender.send(path);
                     }
-                    ctx.request_repaint();
                 }
                 deadline = None;
                 max_deadline = None;

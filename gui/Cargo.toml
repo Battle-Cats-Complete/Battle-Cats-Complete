@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 nyanko = { workspace = true }
 core = { path = "../core" }
-eframe = { version = "0.29", features = ["persistence", "glow"] }
+iced = {version = "0.14", features = ["wgpu", "canvas", "markdown", "image", "smol"]}
 image = { version = "0.25", features = ["png", "ico"] }
 rfd = "0.15"
 rayon = "1.10"
