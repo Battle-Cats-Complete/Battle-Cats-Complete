@@ -14,7 +14,7 @@ use core::modules::cat::paths::{self, AnimType};
 use core::modules::settings::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 thread_local! {
     static PATH_CACHE: RefCell<(String, String, Vec<(usize, PathBuf)>, Option<(PathBuf, PathBuf, PathBuf)>, Option<(PathBuf, PathBuf, PathBuf, PathBuf)>)> = Default::default();

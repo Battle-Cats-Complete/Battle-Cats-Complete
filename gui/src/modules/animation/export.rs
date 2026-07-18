@@ -14,7 +14,7 @@ use core::modules::animation::export::{ExportMode, ExporterState, LoopStatus};
 use core::modules::settings::Settings;
 
 use crate::modules::settings::toggle_ui;
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 const EXPORT_MODE_SPACING: f32 = 2.0;
 const CAMERA_COLUMN_WIDTH: f32 = 5.0;

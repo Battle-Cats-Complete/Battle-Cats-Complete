@@ -16,9 +16,9 @@ use core::modules::settings::Settings;
 use crate::modules::animation::viewer::AnimViewer;
 use crate::modules::cat::statblock::build_cat_statblock;
 use crate::modules::statblock::builder::{generate_and_copy, generate_and_save};
-use crate::common::assets::CustomAssets;
-use crate::common::shared::DragGuard;
-use crate::common::sheet::SpriteSheet;
+use crate::common::CustomAssets;
+use crate::common::DragGuard;
+use crate::common::SpriteSheet;
 
 use super::{abilities, details, header, stats, talents, viewer};
 use super::header::ExportAction;

@@ -11,9 +11,9 @@ use core::modules::cat::paths;
 use core::common::gfx::autocrop;
 use core::modules::settings::Settings;
 
-use crate::common::assets::CustomAssets;
+use crate::common::CustomAssets;
 use crate::common::shared::render_fallback_icon;
-use crate::common::sheet::SpriteSheet;
+use crate::common::SpriteSheet;
 
 pub(crate) const TALENT_NP_ICON_SIZE: f32 = 20.0;
 pub(crate) const TALENT_NP_TEXT_SIZE: f32 = 18.0;

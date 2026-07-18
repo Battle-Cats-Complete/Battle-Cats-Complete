@@ -4,8 +4,8 @@ use std::time::Instant;
 
 use eframe::egui;
 
-use crate::common::shared::DragGuard;
-use crate::common::utils::process_markdown;
+use crate::common::DragGuard;
+use crate::common::text::process_markdown;
 
 const HEADER_TEXT_SIZE: f32 = 22.0;
 const DROPDOWN_ITEM_SIZE: f32 = 15.0;

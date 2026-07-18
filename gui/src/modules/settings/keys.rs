@@ -5,7 +5,7 @@ use eframe::egui;
 
 use core::modules::settings::UserKeys;
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 const COLUMN_REGION_WIDTH: f32 = 40.0;
 const COLUMN_INPUT_WIDTH: f32 = 250.0;

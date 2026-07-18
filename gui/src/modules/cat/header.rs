@@ -13,7 +13,7 @@ use core::common::gfx::autocrop;
 use core::modules::settings::Settings;
 
 use crate::common::name_box;
-use crate::common::sheet::SpriteSheet;
+use crate::common::SpriteSheet;
 
 pub(crate) const HEADER_NP_ICON_SIZE: f32 = 24.0;
 pub(crate) const HEADER_NP_TEXT_SIZE: f32 = 20.0;

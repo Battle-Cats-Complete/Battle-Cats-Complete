@@ -5,7 +5,7 @@ use eframe::egui;
 
 use core::modules::settings::{ExceptionList, ExceptionRule, RuleHandling};
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 use super::tabs::toggle_ui;
 

@@ -8,7 +8,7 @@ use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::stage::filter::{CompiledStageFilter, StageFilterState};
 use core::modules::stage::StageDataState;
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 #[derive(Deserialize, Serialize, Default)]
 #[serde(default)]

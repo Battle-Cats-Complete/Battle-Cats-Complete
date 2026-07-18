@@ -2,7 +2,7 @@ use eframe::egui;
 
 use core::modules::settings::Settings;
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 pub(crate) fn show(context: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) -> bool {
     let mut refresh_needed = false;

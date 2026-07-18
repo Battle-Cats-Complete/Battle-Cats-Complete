@@ -10,7 +10,7 @@ use core::modules::addons::ffmpeg::FfmpegManager;
 use core::modules::addons::oem::{OemDriver, OemManager};
 use core::modules::addons::paths::AddonStatus;
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 #[derive(Default, Clone)]
 pub(crate) struct AddonDeleteState {

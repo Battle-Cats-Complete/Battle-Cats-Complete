@@ -1,8 +1,8 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 
-use crate::common::shared::DragGuard;
-use crate::common::utils::process_markdown;
+use crate::common::DragGuard;
+use crate::common::text::process_markdown;
 
 // NOTE: No notice will appear if NOTICE_CONTENT is empty
 pub(crate) const NOTICE_TITLE: &str = "VERSION 1.0.0 UPDATE";

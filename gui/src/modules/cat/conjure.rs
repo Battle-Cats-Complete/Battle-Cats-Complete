@@ -10,7 +10,7 @@ use core::modules::settings::Settings;
 
 use crate::modules::statblock::builder::SpiritData;
 use crate::common::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};
-use crate::common::sheet::SpriteSheet;
+use crate::common::SpriteSheet;
 
 pub(crate) fn render_conjure_toggle(ui: &mut egui::Ui, text: &str, id: egui::Id, settings: &Settings) {
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -35,7 +35,7 @@ pub(crate) fn render_conjure_details(
     ui: &mut egui::Ui,
     ctx: &CatRenderContext,
     sheets: &[SpriteSheet],
-    assets: &crate::common::assets::CustomAssets,
+    assets: &crate::common::CustomAssets,
     settings: &Settings
 ) {
     egui::Frame::none()

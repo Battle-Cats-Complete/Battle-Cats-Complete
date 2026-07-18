@@ -1,14 +1,19 @@
 use std::fs;
 use std::process::Command;
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 use eframe::egui;
+use self_update::backends::github::{ReleaseList, Update as GithubUpdate};
 use self_update::cargo_crate_version;
+use self_update::update::Release;
+use self_update::version;
+use tracing::{error, info};
 
-use core::modules::settings::{UpdateMode, Settings};
+use core::modules::settings::{Settings, UpdateMode};
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
+
+use super::{UpdateStatus, Updater, UpdaterMsg};
 
 const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "battle-cats-complete";
@@ -31,7 +36,7 @@ pub(super) fn cleanup_temp_files() {
 
 #[cfg(unix)]
 fn restart_app() {
-    tracing::info!("Executing unix restart sequence");
+    info!("Executing unix restart sequence");
     let Ok(exe) = std::env::current_exe() else { return; };
     let path = exe.to_string_lossy();
     let clean_path = path.trim_end_matches(" (deleted)");
@@ -45,49 +50,10 @@ fn restart_app() {
 
 #[cfg(not(unix))]
 fn restart_app() {
-    tracing::info!("Executing non-unix restart sequence");
+    info!("Executing non-unix restart sequence");
     let Ok(exe) = std::env::current_exe() else { return; };
     let _ = Command::new(exe).spawn();
     std::process::exit(0);
-}
-
-#[derive(Clone)]
-pub(crate) enum UpdateStatus {
-    Idle,
-    Checking,
-    UpdateFound(String, self_update::update::Release),
-    Downloading(String),
-    RestartPending(String),
-    CheckFailed,
-    UpToDate,
-}
-
-pub(super) enum UpdaterMsg {
-    UpdateFound(self_update::update::Release),
-    UpToDate,
-    CheckFailed,
-    DownloadStarted(String),
-    DownloadFinished(String),
-    SilentFail,
-}
-
-pub(crate) struct Updater {
-    rx: Receiver<UpdaterMsg>,
-    tx: Sender<UpdaterMsg>,
-    pub status: UpdateStatus,
-    pub clear_time: Option<f64>,
-}
-
-impl Default for Updater {
-    fn default() -> Self {
-        let (tx, rx) = mpsc::channel();
-        Self {
-            rx,
-            tx,
-            status: UpdateStatus::Idle,
-            clear_time: None,
-        }
-    }
 }
 
 impl Updater {
@@ -95,7 +61,7 @@ impl Updater {
         let is_valid_state = matches!(self.status, UpdateStatus::Idle | UpdateStatus::UpToDate | UpdateStatus::CheckFailed);
         if !is_valid_state { return; }
 
-        tracing::info!("Checking Github for releases...");
+        info!("Checking Github for releases...");
 
         let tx = self.tx.clone();
         self.status = UpdateStatus::Checking;
@@ -103,16 +69,16 @@ impl Updater {
         thread::spawn(move || {
             match check_remote() {
                 Ok(Some(release)) => {
-                    tracing::info!("Found new release: {}", release.version);
+                    info!("Found new release: {}", release.version);
                     let _ = tx.send(UpdaterMsg::UpdateFound(release));
                 },
                 Ok(None) if is_manual => {
-                    tracing::info!("Software is up to date");
+                    info!("Software is up to date");
                     let _ = tx.send(UpdaterMsg::UpToDate);
                 },
                 Ok(None) => { let _ = tx.send(UpdaterMsg::SilentFail); },
-                Err(e) if is_manual => {
-                    tracing::error!("Update check failed: {}", e);
+                Err(err) if is_manual => {
+                    error!("Update check failed: {}", err);
                     let _ = tx.send(UpdaterMsg::CheckFailed);
                 }
                 Err(_) => { let _ = tx.send(UpdaterMsg::SilentFail); }
@@ -122,18 +88,18 @@ impl Updater {
         });
     }
 
-    pub(crate) fn download_and_install(&mut self, release: self_update::update::Release) {
+    pub(crate) fn download_and_install(&mut self, release: Release) {
         let tx = self.tx.clone();
-        let version = release.version.clone();
-        self.status = UpdateStatus::Downloading(version.clone());
+        let target_version = release.version.clone();
+        self.status = UpdateStatus::Downloading(target_version.clone());
 
-        tracing::info!("Initializing download process for version: {}", version);
+        info!("Initializing download process for version: {}", target_version);
 
         thread::spawn(move || {
             cleanup_temp_files();
-            let _ = tx.send(UpdaterMsg::DownloadStarted(version.clone()));
+            let _ = tx.send(UpdaterMsg::DownloadStarted(target_version.clone()));
 
-            let target_tag = if version.starts_with('v') { version.clone() } else { format!("v{}", version) };
+            let target_tag = if target_version.starts_with('v') { target_version.clone() } else { format!("v{}", target_version) };
 
             let target_asset_name = match () {
                 _ if cfg!(target_os = "windows") => "bcc_windows.zip",
@@ -141,7 +107,7 @@ impl Updater {
                 _ => "bcc_linux.zip",
             };
 
-            let Ok(update_box) = self_update::backends::github::Update::configure()
+            let Ok(update_box) = GithubUpdate::configure()
                 .repo_owner(REPO_OWNER)
                 .repo_name(REPO_NAME)
                 .bin_name(BIN_NAME)
@@ -153,21 +119,21 @@ impl Updater {
                 .target(target_asset_name)
                 .build() else {
                 cleanup_temp_files();
-                tracing::error!("Failed to build download configurator");
+                error!("Failed to build download configurator");
                 let _ = tx.send(UpdaterMsg::CheckFailed);
                 return;
             };
 
             if update_box.update().is_err() {
                 cleanup_temp_files();
-                tracing::error!("Failed during update installation sequence");
+                error!("Failed during update installation sequence");
                 let _ = tx.send(UpdaterMsg::CheckFailed);
                 return;
             }
 
-            tracing::info!("Download and extraction finished");
+            info!("Download and extraction finished");
             cleanup_temp_files();
-            let _ = tx.send(UpdaterMsg::DownloadFinished(version));
+            let _ = tx.send(UpdaterMsg::DownloadFinished(target_version));
         });
     }
 
@@ -185,11 +151,11 @@ impl Updater {
                     self.status = UpdateStatus::CheckFailed;
                     self.clear_time = Some(ctx.input(|i| i.time) + 2.0);
                 },
-                UpdaterMsg::DownloadStarted(ver) => {
-                    self.status = UpdateStatus::Downloading(ver);
+                UpdaterMsg::DownloadStarted(version) => {
+                    self.status = UpdateStatus::Downloading(version);
                 },
-                UpdaterMsg::DownloadFinished(ver) => {
-                    self.status = UpdateStatus::RestartPending(ver);
+                UpdaterMsg::DownloadFinished(version) => {
+                    self.status = UpdateStatus::RestartPending(version);
                 },
                 UpdaterMsg::SilentFail => {
                     self.status = UpdateStatus::Idle;
@@ -197,9 +163,9 @@ impl Updater {
             }
         }
 
-        let Some(t) = self.clear_time else { return; };
+        let Some(clear_time) = self.clear_time else { return; };
 
-        if ctx.input(|i| i.time) >= t {
+        if ctx.input(|i| i.time) >= clear_time {
             self.status = UpdateStatus::Idle;
             self.clear_time = None;
         }
@@ -223,7 +189,7 @@ impl Updater {
         }
     }
 
-    fn show_update_found_window(&mut self, ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard, tag: String, release: self_update::update::Release) {
+    fn show_update_found_window(&mut self, ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard, tag: String, release: Release) {
         if matches!(settings.general.update_mode, UpdateMode::AutoReset | UpdateMode::AutoLoad) {
             self.download_and_install(release);
             return;
@@ -233,7 +199,7 @@ impl Updater {
         let mut start_download = false;
         let mut close_modal = false;
         let mut disable_future = false;
-        let display_ver = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
+        let display_version = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
         let screen_rect = ctx.screen_rect();
 
         let window_id = egui::Id::new(format!("Update_Available_{}", tag));
@@ -250,7 +216,7 @@ impl Updater {
 
         window.show(ctx, |ui| {
             ui.vertical_centered(|ui| {
-                ui.label(format!("New Battle Cats Complete update found: {}", display_ver));
+                ui.label(format!("New Battle Cats Complete update found: {}", display_version));
                 ui.add_space(10.0);
                 ui.label("Would you like to download the update now?");
             });
@@ -265,13 +231,13 @@ impl Updater {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
 
-                let btn_w = PROMPT_BUTTON_SIZE[0];
-                let count = 3.0;
+                let button_width = PROMPT_BUTTON_SIZE[0];
+                let button_count = 3.0;
                 let spacing = 10.0;
-                let total_w = (btn_w * count) + (spacing * (count - 1.0));
+                let total_width = (button_width * button_count) + (spacing * (button_count - 1.0));
 
-                let available_w = ui.available_width();
-                let margin_left = (available_w - total_w) / 2.0;
+                let available_width = ui.available_width();
+                let margin_left = (available_width - total_width) / 2.0;
 
                 ui.add_space(margin_left.max(0.0));
 
@@ -286,7 +252,7 @@ impl Updater {
 
         if start_download { self.download_and_install(release); }
         if disable_future {
-            tracing::info!("User selected Never update, changing mode to Ignore");
+            info!("User selected Never update, changing mode to Ignore");
             settings.general.update_mode = UpdateMode::Ignore;
             close_modal = true;
         }
@@ -333,7 +299,7 @@ impl Updater {
 
         ctx.request_repaint();
         let mut should_restart = false;
-        let mut close = false;
+        let mut close_modal = false;
         let display_tag = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
         let screen_rect = ctx.screen_rect();
 
@@ -366,39 +332,39 @@ impl Updater {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
 
-                let btn_w = RESTART_BUTTON_SIZE[0];
-                let count = 2.0;
+                let button_width = RESTART_BUTTON_SIZE[0];
+                let button_count = 2.0;
                 let spacing = 10.0;
-                let total_w = (btn_w * count) + (spacing * (count - 1.0));
+                let total_width = (button_width * button_count) + (spacing * (button_count - 1.0));
 
-                let available_w = ui.available_width();
-                let margin_left = (available_w - total_w) / 2.0;
+                let available_width = ui.available_width();
+                let margin_left = (available_width - total_width) / 2.0;
 
                 ui.add_space(margin_left.max(0.0));
 
                 if ui.add_sized(RESTART_BUTTON_SIZE, egui::Button::new("Yes")).clicked() { should_restart = true; }
-                if ui.add_sized(RESTART_BUTTON_SIZE, egui::Button::new("No")).clicked() { close = true; }
+                if ui.add_sized(RESTART_BUTTON_SIZE, egui::Button::new("No")).clicked() { close_modal = true; }
             });
         });
 
         if should_restart { restart_app(); }
-        if close { self.status = UpdateStatus::Idle; }
+        if close_modal { self.status = UpdateStatus::Idle; }
     }
 }
 
-fn check_remote() -> Result<Option<self_update::update::Release>, Box<dyn std::error::Error>> {
-    let current = cargo_crate_version!();
-    let releases = self_update::backends::github::ReleaseList::configure()
+fn check_remote() -> Result<Option<Release>, Box<dyn std::error::Error>> {
+    let current_version = cargo_crate_version!();
+    let releases = ReleaseList::configure()
         .repo_owner(REPO_OWNER)
         .repo_name(REPO_NAME)
         .build()?
         .fetch()?;
 
-    let Some(latest) = releases.first() else { return Ok(None); };
+    let Some(latest_release) = releases.first() else { return Ok(None); };
 
-    if !self_update::version::bump_is_greater(current, &latest.version)? {
+    if !version::bump_is_greater(current_version, &latest_release.version)? {
         return Ok(None);
     }
 
-    Ok(Some(latest.clone()))
+    Ok(Some(latest_release.clone()))
 }

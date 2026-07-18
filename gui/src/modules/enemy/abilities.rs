@@ -5,9 +5,9 @@ use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::game::registry;
 use core::common::game::AbilityItem;
 
-use crate::common::assets::CustomAssets;
+use crate::common::CustomAssets;
 use crate::common::shared::{render_fallback_icon, text_with_superscript};
-use crate::common::sheet::SpriteSheet;
+use crate::common::SpriteSheet;
 
 pub(crate) const ABILITY_X: f32 = 3.0;
 pub(crate) const ABILITY_Y: f32 = 5.0;

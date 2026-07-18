@@ -9,9 +9,9 @@ use core::common::game::{
     AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y,
 };
 
-use crate::common::assets::CustomAssets;
+use crate::common::CustomAssets;
 use crate::common::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};
-use crate::common::sheet::SpriteSheet;
+use crate::common::SpriteSheet;
 
 pub(crate) fn render(
     ui: &mut egui::Ui, 
@@ -70,7 +70,7 @@ pub(crate) fn render_icon_row(
     items: &Vec<AbilityItem>,
     sheets: &[SpriteSheet],
     border_color: egui::Color32,
-    assets: &crate::common::assets::CustomAssets,
+    assets: &crate::common::CustomAssets,
 ) {
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(ABILITY_X, ABILITY_Y);
@@ -88,7 +88,7 @@ fn render_single_icon(
     item: &AbilityItem,
     sheets: &[SpriteSheet],
     border: egui::Color32,
-    assets: &crate::common::assets::CustomAssets,
+    assets: &crate::common::CustomAssets,
 ) -> egui::Response {
     let size = egui::vec2(ICON_SIZE, ICON_SIZE);
 
@@ -130,7 +130,7 @@ pub(crate) fn render_list_view(
     cat_id: u32,
     ctx: &CatRenderContext,
     border_color: egui::Color32,
-    assets: &crate::common::assets::CustomAssets,
+    assets: &crate::common::CustomAssets,
     settings: &core::modules::settings::Settings
 ) {
     for (i, item) in items.iter().enumerate() {

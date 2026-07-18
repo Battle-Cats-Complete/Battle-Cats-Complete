@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use directories::BaseDirs;
+use tracing::Level;
 use tracing_subscriber::{fmt, EnvFilter};
 
 fn find_override_file(cwd: &Path, names: &[&str]) -> Option<PathBuf> {
@@ -19,9 +20,9 @@ pub(crate) fn init(enable_logging: bool) {
     let app_dir = BaseDirs::new().map(|base| base.data_local_dir().join("battle_cats_complete"));
     
     let (log_level, filter_directive, file_path) = if let Some(path) = trace_file {
-        (tracing::Level::TRACE, "info,gui=trace,core=trace,nyanko=trace,zbus=error", path)
+        (Level::TRACE, "info,gui=trace,core=trace,nyanko=trace,zbus=error", path)
     } else if let Some(path) = debug_file {
-        (tracing::Level::DEBUG, "info,gui=debug,core=debug,nyanko=debug,zbus=error", path)
+        (Level::DEBUG, "info,gui=debug,core=debug,nyanko=debug,zbus=error", path)
     } else if enable_logging {
         let Some(dir) = app_dir else { return };
 
@@ -36,7 +37,7 @@ pub(crate) fn init(enable_logging: bool) {
             let _ = fs::rename(&log_file, &prev_log);
         }
 
-        (tracing::Level::INFO, "info,zbus=error", log_file)
+        (Level::INFO, "info,zbus=error", log_file)
     } else {
         if let Some(dir) = app_dir {
             let _ = fs::remove_file(dir.join("logs.txt"));

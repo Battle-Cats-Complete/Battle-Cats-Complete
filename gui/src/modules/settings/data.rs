@@ -6,7 +6,7 @@ use eframe::egui;
 use core::modules::settings::delete::FolderDeleter;
 use core::modules::settings::{GameDataSettings, RuntimeState};
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 use super::tabs::toggle_ui;
 

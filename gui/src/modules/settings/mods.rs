@@ -3,7 +3,7 @@ use tracing::{debug, trace};
 
 use core::modules::settings::{ExportBehavior, ModsSettings};
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 pub(crate) fn show(ui_container: &mut egui::Ui, settings: &mut ModsSettings, drag_guard: &mut DragGuard) -> bool {
     let context = ui_container.ctx().clone();

@@ -4,8 +4,8 @@ use eframe::egui;
 
 use core::modules::settings::Settings;
 
-use crate::common::shared::DragGuard;
-use crate::app::frame::Page;
+use crate::common::DragGuard;
+use crate::app::Page;
 
 use super::{changelog, notice};
 

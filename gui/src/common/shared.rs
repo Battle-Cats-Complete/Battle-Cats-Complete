@@ -1,9 +1,12 @@
 use eframe::egui;
+use tracing::trace;
 
 pub(crate) const ICON_SIZE: f32 = 40.0;
 
 pub(crate) fn paint_fallback_at(ui: &mut egui::Ui, rect: egui::Rect, text: &str, border_color: egui::Color32) {
-    if !ui.is_rect_visible(rect) { return; }
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
 
     ui.painter().rect_stroke(
         rect,
@@ -34,7 +37,8 @@ pub(crate) fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
     }
 
     let body_font = ui.style().text_styles.get(&egui::TextStyle::Body)
-        .cloned().unwrap_or(egui::FontId::proportional(14.0));
+        .cloned()
+        .unwrap_or_else(|| egui::FontId::proportional(14.0));
 
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = ui.spacing().tooltip_width;
@@ -54,10 +58,11 @@ pub(crate) fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
 
     let mut parts = text.split('^');
 
-    if let Some(first) = parts.next()
-        && !first.is_empty() {
+    if let Some(first) = parts.next() {
+        if !first.is_empty() {
             job.append(first, 0.0, normal_format.clone());
         }
+    }
 
     for part in parts {
         if let Some(break_idx) = part.find([' ', '\n']) {
@@ -80,43 +85,33 @@ pub(crate) fn text_with_superscript(ui: &mut egui::Ui, text: &str) {
     ui.label(job);
 }
 
-#[derive(Default)]
-pub(crate) struct DragGuard {
-    broken: bool,
-}
-
-impl DragGuard {
-    pub(crate) fn update(&mut self, ctx: &egui::Context) -> bool {
-        let screen_rect = ctx.screen_rect();
-        let (pointer_pos, mouse_down) = ctx.input(|i| {
-            (i.pointer.interact_pos(), i.pointer.primary_down())
-        });
-        let in_window = pointer_pos.is_some_and(|p| screen_rect.contains(p));
-
-        if !mouse_down {
-            self.broken = false;
-        } else if !in_window {
-            self.broken = true;
-        }
-
-        in_window && !self.broken
-    }
-
-    pub(crate) fn assign_bounds(&mut self, ctx: &egui::Context, window_id: egui::Id) -> (bool, Option<egui::Pos2>) {
-        (self.update(ctx), clamp_window_to_screen(ctx, window_id))
-    }
-}
-
 pub(crate) fn clamp_window_to_screen(ctx: &egui::Context, window_id: egui::Id) -> Option<egui::Pos2> {
     if let Some(rect) = ctx.memory(|mem| mem.area_rect(window_id)) {
         let screen_rect = ctx.screen_rect();
         let mut new_pos = rect.min;
         let mut changed = false;
-        if new_pos.y < screen_rect.top() { new_pos.y = screen_rect.top(); changed = true; }
-        if new_pos.y > screen_rect.bottom() - 30.0 { new_pos.y = screen_rect.bottom() - 30.0; changed = true; }
-        if new_pos.x + rect.width() - 50.0 < screen_rect.left() { new_pos.x = screen_rect.left() - rect.width() + 50.0; changed = true; }
-        if new_pos.x + 50.0 > screen_rect.right() { new_pos.x = screen_rect.right() - 50.0; changed = true; }
-        if changed { return Some(new_pos); }
+
+        if new_pos.y < screen_rect.top() {
+            new_pos.y = screen_rect.top();
+            changed = true;
+        }
+        if new_pos.y > screen_rect.bottom() - 30.0 {
+            new_pos.y = screen_rect.bottom() - 30.0;
+            changed = true;
+        }
+        if new_pos.x + rect.width() - 50.0 < screen_rect.left() {
+            new_pos.x = screen_rect.left() - rect.width() + 50.0;
+            changed = true;
+        }
+        if new_pos.x + 50.0 > screen_rect.right() {
+            new_pos.x = screen_rect.right() - 50.0;
+            changed = true;
+        }
+
+        if changed {
+            trace!("Window clamped to physical screen boundary");
+            return Some(new_pos);
+        }
     }
     None
 }

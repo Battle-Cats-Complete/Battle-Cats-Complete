@@ -12,9 +12,9 @@ use core::modules::settings::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
 use crate::modules::statblock::builder::{generate_and_copy, generate_and_save};
-use crate::common::assets::CustomAssets;
-use crate::common::shared::DragGuard;
-use crate::common::sheet::SpriteSheet;
+use crate::common::CustomAssets;
+use crate::common::DragGuard;
+use crate::common::SpriteSheet;
 
 use super::statblock::build_enemy_statblock;
 use super::{abilities, details, header, stats, viewer};

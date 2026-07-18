@@ -5,7 +5,7 @@ use eframe::egui;
 
 use core::modules::settings::pem;
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 #[derive(Clone)]
 struct ManagePemState {

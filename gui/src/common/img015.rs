@@ -1,18 +1,22 @@
+use std::path::Path;
+
 use eframe::egui;
+use tracing::{debug, trace};
 
 use core::common::io;
 use core::common::resolver;
 use core::modules::settings::Settings;
 
-use crate::common::sheet::SpriteSheet;
+use super::SpriteSheet;
 
 pub(crate) fn ensure_loaded(ctx: &egui::Context, sheets: &mut Vec<SpriteSheet>, settings: &Settings) {
-    let base_dir = io::img015_folder(std::path::Path::new(""));
+    let base_dir = io::img015_folder(Path::new(""));
 
     let png_paths = resolver::get(&base_dir, ["img015.png"], &settings.general.language_priority);
     let cut_paths = resolver::get(&base_dir, ["img015.imgcut"], &settings.general.language_priority);
 
     if sheets.len() != png_paths.len() {
+        debug!("Resizing img015 sheets matrix to match resolved paths ({})", png_paths.len());
         sheets.resize_with(png_paths.len(), SpriteSheet::default);
     }
 
@@ -25,6 +29,7 @@ pub(crate) fn ensure_loaded(ctx: &egui::Context, sheets: &mut Vec<SpriteSheet>, 
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "unknown_sheet".to_string());
 
+            trace!("Loading sprite sheet img015: {}", key);
             sheets[i].load(&png_path, &imgcut_path, key);
         }
     }

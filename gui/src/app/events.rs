@@ -1,20 +1,23 @@
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::Ordering;
+use std::thread;
 
 use eframe::egui;
+use tracing::{debug, info, trace};
 
+use core::common::io::cache;
+use core::common::resolver;
+use core::modules::cat::paths as cat_paths;
+use core::modules::cat::patterns as cat_patterns;
 use core::modules::cat::scanner as cat_loader;
 use core::modules::enemy::scanner as enemy_loader;
-use core::common::resolver;
-use core::modules::cat::{paths as cat_paths, patterns as cat_patterns};
-use core::modules::stage::filter::StageFilterState;
 use core::modules::stage::filter::enemy::EnemyFilter;
+use core::modules::stage::filter::StageFilterState;
 
-use crate::common::watcher::GuiWatcher;
-use crate::app::frame::Page;
+use crate::common::GuiWatcher;
 
-use super::BattleCatsApp;
+use super::{BattleCatsApp, Page};
 
 impl BattleCatsApp {
     pub(crate) fn process_file_events(&mut self, ctx: &egui::Context) {
@@ -34,7 +37,7 @@ impl BattleCatsApp {
         if self.import_state.config.import_rx.is_some() || self.import_state.config.import_job_status.load(Ordering::Relaxed) == 1 { return; }
         if self.import_state.config.export_rx.is_some() || self.import_state.config.export_job_status.load(Ordering::Relaxed) == 1 { return; }
 
-        tracing::trace!("File watcher received {} paths to process", paths.len());
+        trace!("File watcher received {} paths to process", paths.len());
 
         let mut cat_ids = HashSet::new();
         let mut enemy_ids = HashSet::new();
@@ -54,10 +57,9 @@ impl BattleCatsApp {
 
         for path in paths {
             let path_str = path.to_string_lossy().to_lowercase();
-
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-            tracing::trace!("Processing modified path: {}", path_str);
+            trace!("Processing modified path: {}", path_str);
 
             let is_mod = path_str.contains("mods") && !path_str.contains("packages");
             if is_mod {
@@ -66,11 +68,14 @@ impl BattleCatsApp {
                     mod_changed = true;
                 }
 
-                if path_str.contains("icons") && file_name == "icon.png"
-                    && let Some(idx) = path.components().position(|c| c.as_os_str().to_string_lossy().to_lowercase() == "mods")
-                        && let Some(folder) = path.components().nth(idx + 1) {
+                if path_str.contains("icons") && file_name == "icon.png" {
+                    let index_option = path.components().position(|c| c.as_os_str().to_string_lossy().to_lowercase() == "mods");
+                    if let Some(index) = index_option {
+                        if let Some(folder) = path.components().nth(index + 1) {
                             mod_icons.insert(folder.as_os_str().to_string_lossy().into_owned());
                         }
+                    }
+                }
             }
 
             if path_str.contains("img015") || path_str.contains("img022") {
@@ -124,23 +129,24 @@ impl BattleCatsApp {
         }
 
         if refresh_mods {
-            tracing::debug!("Refreshing UI mods list");
+            debug!("Refreshing UI mods list");
             self.mod_state.data.refresh_mods();
         }
 
-        if !mod_icons.is_empty()
-            && let Some(list) = &mut self.mod_state.list {
+        if !mod_icons.is_empty() {
+            if let Some(list) = &mut self.mod_state.list {
                 for name in mod_icons {
                     list.flush_icon(&name);
                 }
             }
+        }
 
         let game_dir = Path::new("game");
         let is_empty = !game_dir.exists() || std::fs::read_dir(game_dir).map(|mut iterator| iterator.next().is_none()).unwrap_or(true);
         ctx.data_mut(|data_map| data_map.insert_temp(egui::Id::new("is_game_empty"), is_empty));
 
         if mod_changed || global_cat || global_enemy {
-            tracing::info!("Global files or active mod changed. Triggering full reload.");
+            info!("Global files or active mod changed. Triggering full reload.");
             resolver::clear_override_cache();
             self.perform_full_data_reload();
             ctx.request_repaint();
@@ -151,7 +157,7 @@ impl BattleCatsApp {
         let config = self.settings.scanner_config();
 
         if cat_ids.len() > limit {
-            tracing::debug!("Mass threshold exceeded for cats, resyncing scan...");
+            debug!("Mass threshold exceeded for cats, resyncing scan...");
             self.cat_list_state.detail_texture = None;
             self.cat_list_state.data.detail_key.clear();
             self.cat_list_state.texture_cache_version += 1;
@@ -170,7 +176,7 @@ impl BattleCatsApp {
         }
 
         if enemy_ids.len() > limit {
-            tracing::debug!("Mass threshold exceeded for enemies, resyncing scan...");
+            debug!("Mass threshold exceeded for enemies, resyncing scan...");
             self.enemy_list_state.detail_texture = None;
             self.enemy_list_state.data.detail_key.clear();
             enemy_loader::resync_scan(&mut self.enemy_list_state.data, config.clone());
@@ -186,7 +192,7 @@ impl BattleCatsApp {
         }
 
         if global_stage {
-            tracing::info!("Cascading stage reload triggered.");
+            info!("Cascading stage reload triggered.");
             self.stage_list_state.data.registry.clear_cache();
             self.stage_list_state.data.sync_enemies(&self.enemy_list_state.data.enemies);
             self.stage_list_state.data.restart_scan(config);
@@ -195,14 +201,14 @@ impl BattleCatsApp {
         let has_changes = !cat_ids.is_empty() || !enemy_ids.is_empty();
 
         if has_changes && !resolver::is_mod_active() {
-            tracing::debug!("Updating vanilla cache bins in background thread");
+            debug!("Updating vanilla cache bins in background thread");
             let cats = self.cat_list_state.data.cats.clone();
             let enemies = self.enemy_list_state.data.enemies.clone();
 
-            std::thread::spawn(move || {
-                let hash = core::common::io::cache::get_game_hash(None);
-                core::common::io::cache::save("cats_cache.bin", hash, &cats);
-                core::common::io::cache::save("enemies_cache.bin", hash, &enemies);
+            thread::spawn(move || {
+                let current_hash = cache::get_game_hash(None);
+                cache::save("cats_cache.bin", current_hash, &cats);
+                cache::save("enemies_cache.bin", current_hash, &enemies);
             });
         }
 
@@ -212,21 +218,21 @@ impl BattleCatsApp {
     pub(crate) fn check_if_active_mod_changed(path: &Path, active_mod: Option<&str>) -> bool {
         let Some(active) = active_mod else { return false; };
 
-        let comps: Vec<_> = path.components()
+        let path_components: Vec<_> = path.components()
             .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
             .collect();
 
-        let Some(idx) = comps.iter().position(|c| c == "mods") else { return false; };
-        let Some(folder) = comps.get(idx + 1) else { return false; };
+        let Some(index) = path_components.iter().position(|c| c == "mods") else { return false; };
+        let Some(folder) = path_components.get(index + 1) else { return false; };
 
         folder == &active.to_lowercase()
     }
 
     pub(crate) fn process_cat_path(&mut self, path: &Path, cat_ids: &mut HashSet<u32>) -> bool {
-        let comps: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+        let path_components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
 
-        let Some(idx) = comps.iter().position(|c| c == "cats") else { return false; };
-        let Some(folder) = comps.get(idx + 1) else { return false; };
+        let Some(index) = path_components.iter().position(|c| c == "cats") else { return false; };
+        let Some(folder) = path_components.get(index + 1) else { return false; };
 
         let parsed = if let Ok(id) = folder.parse::<u32>() {
             Some(id)
@@ -238,13 +244,13 @@ impl BattleCatsApp {
 
         let Some(id) = parsed else { return true; };
 
-        let is_anim = comps.get(idx + 3).map(|s| s.as_ref()) == Some("anim");
+        let is_anim = path_components.get(index + 3).map(|s| s.as_ref()) == Some("anim");
         if !is_anim || self.cat_list_state.data.selected_cat != Some(id) {
             cat_ids.insert(id);
             return false;
         }
 
-        let form = match comps.get(idx + 2) {
+        let form = match path_components.get(index + 2) {
             Some(s) => s.to_string(),
             None => "f".to_string(),
         };
@@ -261,14 +267,14 @@ impl BattleCatsApp {
     }
 
     pub(crate) fn process_enemy_path(&mut self, path: &Path, enemy_ids: &mut HashSet<u32>) -> bool {
-        let comps: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+        let path_components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
 
-        let Some(idx) = comps.iter().position(|c| c == "enemies") else { return false; };
-        let Some(folder) = comps.get(idx + 1) else { return false; };
+        let Some(index) = path_components.iter().position(|c| c == "enemies") else { return false; };
+        let Some(folder) = path_components.get(index + 1) else { return false; };
 
         let Ok(id) = folder.parse::<u32>() else { return true; };
 
-        let is_anim = comps.get(idx + 2).map(|s| s.as_ref()) == Some("anim");
+        let is_anim = path_components.get(index + 2).map(|s| s.as_ref()) == Some("anim");
         if !is_anim || self.enemy_list_state.data.selected_enemy != Some(id) {
             enemy_ids.insert(id);
             return false;
@@ -282,20 +288,20 @@ impl BattleCatsApp {
     }
 
     pub(crate) fn process_ui_events(&mut self, ctx: &egui::Context) {
-        if let Some(enemy_id) = ctx.data_mut(|d| d.remove_temp::<u32>(egui::Id::new("navigate_to_stage_appearances"))) {
-            tracing::info!("Navigating to stage appearances for enemy ID: {}", enemy_id);
+        let Some(enemy_id) = ctx.data_mut(|d| d.remove_temp::<u32>(egui::Id::new("navigate_to_stage_appearances"))) else { return; };
 
-            self.current_page = Page::Stages;
-            self.stage_list_state.is_list_open = true;
+        info!("Navigating to stage appearances for enemy ID: {}", enemy_id);
 
-            self.stage_list_state.filter_state.is_open = false;
-            self.stage_list_state.filter_state = StageFilterState::default();
+        self.current_page = Page::Stages;
+        self.stage_list_state.is_list_open = true;
 
-            let mut enemy_filter = EnemyFilter::default();
-            enemy_filter.name_or_id = enemy_id.to_string();
-            self.stage_list_state.filter_state.enemies.push(enemy_filter);
+        self.stage_list_state.filter_state.is_open = false;
+        self.stage_list_state.filter_state = StageFilterState::default();
 
-            self.settings.runtime.show_ip_field = false;
-        }
+        let mut enemy_filter = EnemyFilter::default();
+        enemy_filter.name_or_id = enemy_id.to_string();
+        self.stage_list_state.filter_state.enemies.push(enemy_filter);
+
+        self.settings.runtime.show_ip_field = false;
     }
 }

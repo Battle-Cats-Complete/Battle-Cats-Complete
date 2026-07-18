@@ -7,9 +7,9 @@ use core::modules::cat::filter::{icons, ATTACK_TYPE_ICONS, CatFilterState, Match
 use core::modules::cat::game::registry::{AbilityIcon, DisplayGroup};
 use core::modules::settings::Settings;
 
-use crate::common::assets::CustomAssets;
-use crate::common::shared::DragGuard;
-use crate::common::sheet::SpriteSheet;
+use crate::common::CustomAssets;
+use crate::common::DragGuard;
+use crate::common::SpriteSheet;
 
 pub(crate) const WINDOW_WIDTH: f32 = 420.0;
 pub(crate) const WINDOW_HEIGHT: f32 = 400.0;

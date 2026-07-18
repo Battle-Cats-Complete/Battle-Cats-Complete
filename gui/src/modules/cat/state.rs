@@ -11,9 +11,9 @@ use core::common::context::GlobalContext;
 use core::modules::settings::Settings;
 
 use crate::modules::animation::viewer::AnimViewer;
-use crate::common::assets::CustomAssets;
-use crate::common::shared::DragGuard;
-use crate::common::sheet::SpriteSheet;
+use crate::common::CustomAssets;
+use crate::common::DragGuard;
+use crate::common::SpriteSheet;
 
 use super::list::CatList;
 

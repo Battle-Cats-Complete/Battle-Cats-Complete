@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use core::modules::mods::ModDataState;
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 use super::list::ModList;
 

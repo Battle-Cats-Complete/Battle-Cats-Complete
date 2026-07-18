@@ -3,7 +3,7 @@ use eframe::egui;
 use core::modules::stage::filter::{enemy::EnemyFilter, lineup::LineupFilter, material::MaterialFilter, range::StatRange, treasure::TreasureFilter};
 use core::modules::stage::filter::StageFilterState;
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 pub(crate) const WINDOW_WIDTH: f32 = 400.0;
 pub(crate) const WINDOW_HEIGHT: f32 = 500.0;

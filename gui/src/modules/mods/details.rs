@@ -5,7 +5,7 @@ use eframe::egui;
 use core::modules::mods::import;
 use core::modules::settings::Settings;
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 use super::state::ModListState;
 

@@ -12,7 +12,7 @@ use core::modules::animation::{
 };
 use core::modules::settings::Settings;
 
-use crate::common::shared::DragGuard;
+use crate::common::DragGuard;
 
 use super::controls::render_controls_overlay;
 use super::{canvas, controls, export, process};
