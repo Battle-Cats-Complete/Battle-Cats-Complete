@@ -15,7 +15,7 @@ use core::modules::settings::Settings;
 use crate::common::DragGuard;
 
 use super::controls::render_controls_overlay;
-use super::{canvas, controls, export, process};
+use super::{scene, controls, export, process};
 
 pub(crate) struct AnimViewer {
     pub zoom_level: f32,
@@ -693,7 +693,7 @@ impl AnimViewer {
                 ui.ctx().request_repaint();
             }
 
-            canvas::paint(ui, rect_alloc, self.renderer.clone(), unit_data.clone(), self.current_anim.clone(), self.current_frame, self.pan_offset, self.zoom_level);
+            scene::paint(ui, rect_alloc, self.renderer.clone(), unit_data.clone(), self.current_anim.clone(), self.current_frame, self.pan_offset, self.zoom_level);
 
             if debug_show_info {
                 let cross_center = rect_alloc.center() + self.pan_offset * self.zoom_level;
