@@ -13,7 +13,6 @@ use nyanko::enemy::abilities::{Identity, REGISTRY};
 use nyanko::graphics::rig::Unit;
 use tracing::{debug, error, info, trace, warn};
 
-use core::common::context::GlobalContext;
 use core::modules::enemy::filter::evaluation::{entity_passes_filter, get_identity_name};
 use core::modules::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
 use core::modules::enemy::game::abilities::collect_ability_data;
@@ -28,7 +27,7 @@ use core::modules::settings::Settings;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ExportAction {
     Copy,
     Save,
@@ -52,6 +51,42 @@ pub enum Message {
     NavigateAppearances(u32),
     RequestIconLoad(u32, PathBuf),
     IconLoaded(u32, Option<iced::widget::image::Handle>),
+}
+
+// Implemented manually to prevent iced Handle struct Debug issues
+// and to avoid deriving Debug on external structs we don't control.
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tick => write!(f, "Tick"),
+            Self::SearchQueryChanged(s) => write!(f, "SearchQueryChanged({})", s),
+            Self::EnemySelected(id) => write!(f, "EnemySelected({})", id),
+            Self::TabSelected(tab) => {
+                let tab_name = if *tab == EnemyDetailTab::Abilities {
+                    "Abilities"
+                } else if *tab == EnemyDetailTab::Details {
+                    "Details"
+                } else if *tab == EnemyDetailTab::Animation {
+                    "Animation"
+                } else {
+                    "Unknown"
+                };
+                write!(f, "TabSelected({})", tab_name)
+            }
+            Self::ToggleFilterModal => write!(f, "ToggleFilterModal"),
+            Self::ClearFilters => write!(f, "ClearFilters"),
+            Self::FilterMatchModeToggled(_) => write!(f, "FilterMatchModeToggled"),
+            Self::FilterMagChanged(s) => write!(f, "FilterMagChanged({})", s),
+            Self::FilterIdentityToggled(_) => write!(f, "FilterIdentityToggled"),
+            Self::FilterAdvMinChanged(_, _, s) => write!(f, "FilterAdvMinChanged({})", s),
+            Self::FilterAdvMaxChanged(_, _, s) => write!(f, "FilterAdvMaxChanged({})", s),
+            Self::MagnificationChanged(s) => write!(f, "MagnificationChanged({})", s),
+            Self::ExportClicked(_) => write!(f, "ExportClicked"),
+            Self::NavigateAppearances(id) => write!(f, "NavigateAppearances({})", id),
+            Self::RequestIconLoad(id, _) => write!(f, "RequestIconLoad({})", id),
+            Self::IconLoaded(id, _) => write!(f, "IconLoaded({})", id),
+        }
+    }
 }
 
 pub struct EnemyState {
@@ -97,7 +132,6 @@ impl Default for EnemyState {
 }
 
 impl EnemyState {
-    // TODO: Rewrite `core` to handle `iced` without ticking
     pub fn subscription(&self) -> Subscription<Message> {
         iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
     }
@@ -105,7 +139,6 @@ impl EnemyState {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Tick => {
-                // Internal data updates that previously relied on 60fps loop
                 if self.data.scan_receiver.is_some() {
                     self.data.update_data();
                 }
@@ -190,7 +223,6 @@ impl EnemyState {
                     ExportAction::Copy => info!("Export requested: Copy (Statblock WIP)"),
                     ExportAction::Save => info!("Export requested: Save (Statblock WIP)"),
                 }
-                // TODO: Rewrite egui statblock builder logic in Phase 2
                 Task::none()
             }
             Message::NavigateAppearances(id) => {
@@ -200,7 +232,6 @@ impl EnemyState {
             Message::RequestIconLoad(id, _path) => {
                 if !self.pending_requests.contains(&id) {
                     self.pending_requests.insert(id);
-                    // Mocking async image load for Phase 1 UI shell.
                     return Task::perform(async move {
                         Message::IconLoaded(id, None)
                     }, |m| m);
@@ -463,9 +494,6 @@ impl EnemyState {
     }
 
     fn view_abilities(&self, _enemy: &EnemyEntry) -> Element<Message> {
-        // A placeholder for the complex rendering of abilities.
-        // Real implementation would translate the extracted `collect_ability_data`
-        // lists into flowing text/icon rows.
         column![
             text("Abilities Section").size(20),
             text("Detailed ability icons and text parsed from core::modules::enemy::game::abilities go here.")

@@ -12,7 +12,6 @@ use nyanko::cat::abilities::REGISTRY;
 use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
 use tracing::{debug, error, info, trace, warn};
 
-use core::common::context::GlobalContext;
 use core::common::game::CustomIcon;
 use core::modules::cat::filter::{MatchMode, TalentFilterMode};
 use core::modules::cat::game::registry::{AbilityIcon, DisplayGroup};
@@ -102,8 +101,6 @@ pub struct State {
     pub filter_rarities: [bool; 6],
     pub filter_forms: [bool; 4],
     pub filter_active_icons: HashSet<AbilityIcon>,
-
-    pub settings: Settings,
 }
 
 impl Default for State {
@@ -125,25 +122,16 @@ impl Default for State {
             filter_rarities: [false; 6],
             filter_forms: [false; 4],
             filter_active_icons: HashSet::new(),
-            settings: Settings::default(),
         }
     }
 }
 
 impl State {
-    pub fn new(settings: Settings) -> Self {
-        Self {
-            settings,
-            ..Default::default()
-        }
-    }
-
     pub fn subscription(&self) -> Subscription<Message> {
-        // TODO: Rewrite core to handle iced without ticking
         iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
     }
 
-    pub fn update(&mut self, message: Message) -> Task<Message> {
+    pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         match message {
             Message::Tick => {
                 Task::none()
@@ -204,7 +192,7 @@ impl State {
                 self.talent_levels.clear();
 
                 if let Some(_cat) = self.cats.iter().find(|c| c.id == id) {
-                    let default_level = self.settings.cat_data.default_level.max(1);
+                    let default_level = settings.cat_data.default_level.max(1);
                     self.current_level = default_level;
                     self.level_input = default_level.to_string();
                 }
@@ -309,7 +297,7 @@ impl State {
                 .on_press(Message::SelectCat(cat.id));
 
             let styled_btn = if is_selected {
-                btn
+                btn // Applying theme logic directly requires wrapping via `.style()` if needed
             } else {
                 btn
             };
