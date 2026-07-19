@@ -15,6 +15,8 @@ crash*
 # Quality of Life
 .cargo/
 *.py
+CL*.md
+ST*.md
 
 # Extracted Game Data
 /game/
@@ -26,6 +28,7 @@ tmp_update.zip
 tmp_new_version.exe
 tmp_new_version
 CHANGELOG.md
+*legacy
 
 # IDE Settings
 .vscode/
