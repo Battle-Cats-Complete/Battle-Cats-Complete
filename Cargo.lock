@@ -2002,7 +2002,6 @@ dependencies = [
  "self_update",
  "serde",
  "serde_json",
- "tokio",
  "tracing",
  "tracing-subscriber",
  "winres",

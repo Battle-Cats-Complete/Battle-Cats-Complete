@@ -1,0 +1,287 @@
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
+use iced::widget::image::Handle;
+use iced::widget::{button, column, container, image as iced_image, row, scrollable, text, tooltip};
+use iced::{Border, Color, Element, Length, Task, Theme};
+use image::{imageops, RgbaImage};
+use tracing::{info, warn};
+
+use core::common::{assets, gfx};
+use core::modules::cat::filter::{evaluation, CatFilterState};
+use core::modules::cat::scanner::CatEntry;
+
+const ROW_HEIGHT: f32 = 50.0;
+const MAX_REQUESTS_PER_TICK: usize = 16;
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    Tick,
+    SelectCat(u32),
+}
+
+struct LoadRequest {
+    id: u32,
+    path: PathBuf,
+    background: Arc<RgbaImage>,
+    high_quality: bool,
+}
+
+struct LoadResult {
+    id: u32,
+    payload: Option<(u32, u32, Vec<u8>)>,
+}
+
+pub struct State {
+    texture_cache: HashMap<u32, Handle>,
+    placeholder: Handle,
+    background: Option<Arc<RgbaImage>>,
+    pending_requests: HashSet<u32>,
+    missing_ids: HashSet<u32>,
+    last_search_query: String,
+    last_unit_count: usize,
+    last_filter_state: CatFilterState,
+    cached_indices: Vec<usize>,
+    tx_request: Sender<LoadRequest>,
+    rx_result: Receiver<LoadResult>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        let background = image::load_from_memory(assets::UDI_F).ok().map(|img| Arc::new(img.to_rgba8()));
+
+        let placeholder = match &background {
+            Some(bg) => Handle::from_rgba(bg.width(), bg.height(), bg.as_raw().clone()),
+            None => {
+                warn!("Failed to decode embedded banner background asset");
+                Handle::from_rgba(1, 1, vec![80, 80, 80, 255])
+            }
+        };
+
+        let (tx_request, rx_request) = mpsc::channel::<LoadRequest>();
+        let (tx_result, rx_result) = mpsc::channel::<LoadResult>();
+
+        // Dedicated dispatcher thread hands each request off to rayon's pool for the
+        // actual decode/composite work. Plain std::thread + mpsc: no async runtime
+        // needed, so this can't panic on a missing Tokio reactor.
+        thread::spawn(move || {
+            while let Ok(request) = rx_request.recv() {
+                let tx = tx_result.clone();
+                rayon::spawn(move || {
+                    let payload = composite_banner(&request.path, &request.background, request.high_quality);
+                    let _ = tx.send(LoadResult { id: request.id, payload });
+                });
+            }
+        });
+
+        Self {
+            texture_cache: HashMap::new(),
+            placeholder,
+            background,
+            pending_requests: HashSet::new(),
+            missing_ids: HashSet::new(),
+            last_search_query: String::new(),
+            last_unit_count: usize::MAX,
+            last_filter_state: CatFilterState::default(),
+            cached_indices: Vec::new(),
+            tx_request,
+            rx_result,
+        }
+    }
+}
+
+impl State {
+    pub fn update(
+        &mut self,
+        message: Message,
+        cats: &[CatEntry],
+        search_query: &str,
+        filter_state: &CatFilterState,
+        high_banner_quality: bool,
+    ) -> Task<Message> {
+        self.refresh(cats, search_query, filter_state);
+
+        if let Message::Tick = message {
+            self.drain_results();
+            self.dispatch_pending_requests(cats, high_banner_quality);
+        }
+
+        Task::none()
+    }
+
+    // Called from every `update`, not just `Tick`, so the list reflects new data/search/filter state immediately.
+    pub fn refresh(&mut self, cats: &[CatEntry], query: &str, filter_state: &CatFilterState) {
+        if query == self.last_search_query && cats.len() == self.last_unit_count && filter_state == &self.last_filter_state {
+            return;
+        }
+
+        self.last_search_query = query.to_string();
+        self.last_unit_count = cats.len();
+        self.last_filter_state = filter_state.clone();
+        self.cached_indices.clear();
+
+        let query_lower = query.to_lowercase();
+
+        for (index, cat) in cats.iter().enumerate() {
+            if !evaluation::entity_passes_filter(cat, filter_state) {
+                continue;
+            }
+
+            if query_lower.is_empty() || cat.base_id_str().contains(&query_lower) {
+                self.cached_indices.push(index);
+                continue;
+            }
+
+            if cat.names.iter().flatten().any(|name| name.to_lowercase().contains(&query_lower)) {
+                self.cached_indices.push(index);
+            }
+        }
+
+        info!("Visible cats: {} (of {} total)", self.cached_indices.len(), cats.len());
+    }
+
+    fn drain_results(&mut self) {
+        while let Ok(result) = self.rx_result.try_recv() {
+            self.pending_requests.remove(&result.id);
+            match result.payload {
+                Some((width, height, pixels)) => {
+                    self.texture_cache.insert(result.id, Handle::from_rgba(width, height, pixels));
+                }
+                None => {
+                    self.missing_ids.insert(result.id);
+                }
+            }
+        }
+    }
+
+    fn dispatch_pending_requests(&mut self, cats: &[CatEntry], high_banner_quality: bool) {
+        let Some(background) = self.background.clone() else { return; };
+
+        let mut issued = 0;
+
+        for &index in &self.cached_indices {
+            if issued >= MAX_REQUESTS_PER_TICK {
+                break;
+            }
+
+            let Some(cat) = cats.get(index) else { continue; };
+            let id = cat.id;
+
+            if self.texture_cache.contains_key(&id) || self.missing_ids.contains(&id) || self.pending_requests.contains(&id) {
+                continue;
+            }
+
+            let Some(path) = cat.image_path.clone() else {
+                self.missing_ids.insert(id);
+                continue;
+            };
+
+            self.pending_requests.insert(id);
+            issued += 1;
+
+            let _ = self.tx_request.send(LoadRequest { id, path, background: background.clone(), high_quality: high_banner_quality });
+        }
+    }
+
+    pub fn view<'a>(&'a self, cats: &'a [CatEntry], selected_id: Option<u32>) -> Element<'a, Message> {
+        let mut list_col = column![].spacing(4).width(Length::Fill);
+
+        for &index in &self.cached_indices {
+            let Some(cat) = cats.get(index) else { continue; };
+            list_col = list_col.push(self.view_row(cat, selected_id == Some(cat.id)));
+        }
+
+        scrollable(list_col).height(Length::Fill).width(Length::Fill).into()
+    }
+
+    fn view_row<'a>(&'a self, cat: &'a CatEntry, is_selected: bool) -> Element<'a, Message> {
+        let handle = self.texture_cache.get(&cat.id).cloned().unwrap_or_else(|| self.placeholder.clone());
+        let banner = iced_image(handle).height(Length::Fixed(ROW_HEIGHT));
+
+        let banner_button = button(row![banner].width(Length::Fill))
+            .on_press(Message::SelectCat(cat.id))
+            .width(Length::Fill)
+            .padding(0)
+            .style(move |theme: &Theme, status| {
+                let palette = theme.palette();
+                let background = if is_selected {
+                    palette.primary
+                } else if status == button::Status::Hovered {
+                    Color { a: 0.15, ..palette.text }
+                } else {
+                    Color::TRANSPARENT
+                };
+
+                button::Style {
+                    background: Some(background.into()),
+                    text_color: palette.text,
+                    border: Border::default().rounded(4.0).width(if is_selected { 2.0 } else { 0.0 }).color(palette.primary),
+                    ..Default::default()
+                }
+            });
+
+        tooltip(banner_button, self.view_tooltip(cat), tooltip::Position::Right).into()
+    }
+
+    fn view_tooltip<'a>(&self, cat: &CatEntry) -> Element<'a, Message> {
+        let mut content = column![
+            row![text("[ID]").size(11), text(cat.base_id_str())].spacing(4)
+        ].spacing(2);
+
+        let labels = ["Normal", "Evolved", "True", "Ultra"];
+        for (i, label) in labels.iter().enumerate() {
+            if !cat.forms[i] { continue; }
+            content = content.push(row![text(format!("[{}]", label)).size(11), text(cat.display_name(i))].spacing(4));
+        }
+
+        container(content).padding(8).style(container::bordered_box).into()
+    }
+}
+
+fn composite_banner(path: &PathBuf, background: &RgbaImage, high_quality: bool) -> Option<(u32, u32, Vec<u8>)> {
+    for _ in 0..3 {
+        if !path.exists() {
+            return None;
+        }
+
+        let Ok(opened) = image::open(path) else {
+            thread::sleep(Duration::from_millis(50));
+            continue;
+        };
+
+        let mut unit_img = opened.to_rgba8();
+        let mut final_image = background.clone();
+        let bg_w = final_image.width() as i64;
+        let bg_h = final_image.height() as i64;
+        let (w, h) = unit_img.dimensions();
+        let is_transparent_unit = w > 311 && h > 2 && unit_img.get_pixel(311, 2)[3] == 0;
+
+        let (x, y) = if is_transparent_unit {
+            (-3, 9)
+        } else {
+            unit_img = gfx::autocrop(unit_img);
+            let unit_w = unit_img.width() as i64;
+            let unit_h = unit_img.height() as i64;
+            ((bg_w - unit_w) / 2, (bg_h - unit_h) / 2)
+        };
+
+        imageops::overlay(&mut final_image, &unit_img, x, y);
+
+        let (target_h, filter) = if high_quality {
+            (100, imageops::FilterType::Lanczos3)
+        } else {
+            (50, imageops::FilterType::Nearest)
+        };
+
+        let ratio = target_h as f32 / final_image.height() as f32;
+        let target_w = (final_image.width() as f32 * ratio) as u32;
+        let resized = imageops::resize(&final_image, target_w, target_h, filter);
+
+        return Some((resized.width(), resized.height(), resized.into_raw()));
+    }
+    None
+}

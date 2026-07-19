@@ -1,3 +1,5 @@
+mod list;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,9 +15,10 @@ use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
 use tracing::{debug, error, info, trace, warn};
 
 use core::common::game::CustomIcon;
-use core::modules::cat::filter::{MatchMode, TalentFilterMode};
+use core::modules::cat::filter::{CatFilterState, MatchMode, TalentFilterMode};
 use core::modules::cat::game::registry::{AbilityIcon, DisplayGroup};
 use core::modules::cat::scanner::CatEntry;
+use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
 
 use crate::common::CustomAssets;
@@ -55,6 +58,7 @@ pub enum Message {
     ChangeTalentLevel(u8, u8),
     MaximizeTalents(bool),
     ExportStatblock(ExportAction),
+    List(list::Message),
 }
 
 impl std::fmt::Debug for Message {
@@ -78,12 +82,13 @@ impl std::fmt::Debug for Message {
             Self::ChangeTalentLevel(i, l) => write!(f, "ChangeTalentLevel({}, {})", i, l),
             Self::MaximizeTalents(b) => write!(f, "MaximizeTalents({})", b),
             Self::ExportStatblock(e) => write!(f, "ExportStatblock({:?})", e),
+            Self::List(msg) => write!(f, "List({:?})", msg),
         }
     }
 }
 
 pub struct State {
-    pub cats: Vec<CatEntry>,
+    pub data: CatDataState,
     pub selected_cat: Option<u32>,
     pub selected_form: usize,
     pub selected_tab: DetailTab,
@@ -101,12 +106,14 @@ pub struct State {
     pub filter_rarities: [bool; 6],
     pub filter_forms: [bool; 4],
     pub filter_active_icons: HashSet<AbilityIcon>,
+
+    list: list::State,
 }
 
 impl Default for State {
     fn default() -> Self {
         Self {
-            cats: Vec::new(),
+            data: CatDataState::default(),
             selected_cat: None,
             selected_form: 0,
             selected_tab: DetailTab::Abilities,
@@ -122,6 +129,8 @@ impl Default for State {
             filter_rarities: [false; 6],
             filter_forms: [false; 4],
             filter_active_icons: HashSet::new(),
+
+            list: list::State::default(),
         }
     }
 }
@@ -132,9 +141,29 @@ impl State {
     }
 
     pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
+        let task = self.update_inner(message, settings);
+
+        let filter_state = self.build_filter_state();
+        self.list.refresh(&self.data.cats, &self.search_query, &filter_state);
+
+        task
+    }
+
+    fn update_inner(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         match message {
             Message::Tick => {
-                Task::none()
+                if !self.data.initialized {
+                    self.data.initialized = true;
+                    info!("Triggering initial cat scan");
+                    self.data.restart_scan(settings.scanner_config());
+                } else if self.data.scan_receiver.is_some() {
+                    self.data.update_data();
+                }
+
+                let filter_state = self.build_filter_state();
+                self.list
+                    .update(list::Message::Tick, &self.data.cats, &self.search_query, &filter_state, settings.cat_data.high_banner_quality)
+                    .map(Message::List)
             }
             Message::SearchChanged(query) => {
                 self.search_query = query;
@@ -191,7 +220,7 @@ impl State {
                 self.selected_tab = DetailTab::Abilities;
                 self.talent_levels.clear();
 
-                if let Some(_cat) = self.cats.iter().find(|c| c.id == id) {
+                if let Some(_cat) = self.data.cats.iter().find(|c| c.id == id) {
                     let default_level = settings.cat_data.default_level.max(1);
                     self.current_level = default_level;
                     self.level_input = default_level.to_string();
@@ -230,7 +259,7 @@ impl State {
             }
             Message::MaximizeTalents(is_ultra) => {
                 if let Some(cat_id) = self.selected_cat {
-                    if let Some(cat) = self.cats.iter().find(|c| c.id == cat_id) {
+                    if let Some(cat) = self.data.cats.iter().find(|c| c.id == cat_id) {
                         if let Some(talent_data) = &cat.talent_data {
                             for (index, group) in talent_data.groups.iter().enumerate() {
                                 let target_group = if is_ultra { group.limit == 1 } else { group.limit != 1 };
@@ -250,6 +279,31 @@ impl State {
                 }
                 Task::none()
             }
+            Message::List(msg) => {
+                if let list::Message::SelectCat(id) = msg {
+                    return self.update(Message::SelectCat(id), settings);
+                }
+
+                let filter_state = self.build_filter_state();
+                self.list
+                    .update(msg, &self.data.cats, &self.search_query, &filter_state, settings.cat_data.high_banner_quality)
+                    .map(Message::List)
+            }
+        }
+    }
+
+    fn build_filter_state(&self) -> CatFilterState {
+        CatFilterState {
+            is_open: self.is_filter_open,
+            active_icons: self.filter_active_icons.clone(),
+            rarities: self.filter_rarities,
+            forms: self.filter_forms,
+            match_mode: self.filter_match_mode,
+            talent_mode: self.filter_talent_mode,
+            ultra_talent_mode: self.filter_ultra_talent_mode,
+            adv_ranges: HashMap::new(),
+            level_input: String::new(),
+            stat_ranges: HashMap::new(),
         }
     }
 
@@ -287,35 +341,16 @@ impl State {
             .on_press(Message::ToggleFilter)
             .width(Length::Fill);
 
-        let mut cat_list_col = column![].spacing(4).width(Length::Fill);
-
-        for cat in &self.cats {
-            let is_selected = self.selected_cat == Some(cat.id);
-
-            let btn = button(text(format!("{} - {}", cat.id, cat.display_name(0))))
-                .width(Length::Fill)
-                .on_press(Message::SelectCat(cat.id));
-
-            let styled_btn = if is_selected {
-                btn // Applying theme logic directly requires wrapping via `.style()` if needed
-            } else {
-                btn
-            };
-
-            cat_list_col = cat_list_col.push(styled_btn);
-        }
-
-        let cat_scrollable = scrollable(cat_list_col)
-            .height(Length::Fill)
-            .width(Length::Fill);
+        let cat_list = self.list.view(&self.data.cats, self.selected_cat).map(Message::List);
 
         container(
             column![
                 row![search_input, filter_button].spacing(4),
                 Space::new().height(Length::Fixed(8.0)),
-                cat_scrollable
+                cat_list
             ]
                 .spacing(4)
+                .height(Length::Fill)
         )
             .width(Length::Fixed(220.0))
             .height(Length::Fill)
@@ -334,7 +369,7 @@ impl State {
                 .into();
         };
 
-        let Some(cat) = self.cats.iter().find(|c| c.id == selected_id) else {
+        let Some(cat) = self.data.cats.iter().find(|c| c.id == selected_id) else {
             return container(text("Loading Unit Data..."))
                 .width(Length::Fill)
                 .height(Length::Fill)

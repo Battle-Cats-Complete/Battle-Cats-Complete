@@ -1,6 +1,8 @@
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::sync::mpsc;
+use std::thread;
 use std::time::Duration;
 
 use iced::time;
@@ -8,7 +10,6 @@ use iced::widget::{button, column, container, pick_list, row, scrollable, stack,
 use iced::{Alignment, Background, Color, Element, Length, Subscription, Task, Theme};
 use self_update::backends::github::ReleaseList;
 use serde::{Deserialize, Serialize};
-use tokio::task;
 use tracing::{debug, error, info};
 
 use core::common::io::json;
@@ -46,6 +47,7 @@ pub struct State {
     releases: Vec<(String, String)>,
     selected_version: Option<String>,
     notice_open: bool,
+    changelog_rx: Option<mpsc::Receiver<Result<Vec<(String, String)>, String>>>,
 }
 
 impl Default for State {
@@ -58,6 +60,7 @@ impl Default for State {
             releases: Vec::new(),
             selected_version: None,
             notice_open: false,
+            changelog_rx: None,
         }
     }
 }
@@ -93,7 +96,14 @@ impl State {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Tick => Task::none(),
+            Message::Tick => {
+                if let Some(rx) = &self.changelog_rx
+                    && let Ok(result) = rx.try_recv() {
+                    self.changelog_rx = None;
+                    return self.update(Message::ChangelogsFetched(result));
+                }
+                Task::none()
+            }
 
             Message::CheckInit => {
                 Task::perform(check_initialization(), |(is_empty, needs_notice)| {
@@ -125,10 +135,14 @@ impl State {
                 if self.releases.is_empty() && !self.changelog_loading {
                     self.changelog_loading = true;
                     self.changelog_error = false;
-                    Task::perform(fetch_changelogs(), Message::ChangelogsFetched)
-                } else {
-                    Task::none()
+
+                    let (tx, rx) = mpsc::channel();
+                    self.changelog_rx = Some(rx);
+                    thread::spawn(move || {
+                        let _ = tx.send(fetch_changelogs());
+                    });
                 }
+                Task::none()
             }
 
             Message::CloseChangelog => {
@@ -425,20 +439,16 @@ async fn check_initialization() -> (bool, bool) {
     (is_empty, needs_notice)
 }
 
-async fn fetch_changelogs() -> Result<Vec<(String, String)>, String> {
+fn fetch_changelogs() -> Result<Vec<(String, String)>, String> {
     info!("Fetching GitHub releases...");
 
-    let result = task::spawn_blocking(|| {
-        ReleaseList::configure()
-            .repo_owner("omochikaeri15")
-            .repo_name("battle-cats-complete")
-            .build()
-            .map_err(|e| e.to_string())?
-            .fetch()
-            .map_err(|e| e.to_string())
-    })
-        .await
-        .unwrap_or_else(|_| Err("Thread failure".to_string()))?;
+    let result = ReleaseList::configure()
+        .repo_owner("omochikaeri15")
+        .repo_name("battle-cats-complete")
+        .build()
+        .map_err(|e| e.to_string())?
+        .fetch()
+        .map_err(|e| e.to_string())?;
 
     let mut formatted = Vec::new();
     for r in result {
