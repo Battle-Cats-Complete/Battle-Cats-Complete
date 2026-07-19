@@ -1,8 +1,7 @@
 mod abilities;
 mod filter;
+mod list;
 
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,7 +17,6 @@ use nyanko::graphics::rig::Unit;
 use tracing::{debug, error, info, trace, warn};
 
 use core::common::context::GlobalContext;
-use core::modules::enemy::filter::evaluation::entity_passes_filter;
 use core::modules::enemy::game::registry::{
     format_enemy_stat, get_display_def, get_enemy_stat, Magnification,
 };
@@ -46,9 +44,8 @@ pub enum Message {
     MagnificationChanged(String),
     ExportClicked(ExportAction),
     NavigateAppearances(u32),
-    RequestIconLoad(u32, PathBuf),
-    IconLoaded(u32, Option<iced::widget::image::Handle>),
     Filter(filter::Message),
+    List(list::Message),
 }
 
 impl std::fmt::Debug for Message {
@@ -72,9 +69,8 @@ impl std::fmt::Debug for Message {
             Self::MagnificationChanged(s) => write!(f, "MagnificationChanged({})", s),
             Self::ExportClicked(_) => write!(f, "ExportClicked"),
             Self::NavigateAppearances(id) => write!(f, "NavigateAppearances({})", id),
-            Self::RequestIconLoad(id, _) => write!(f, "RequestIconLoad({})", id),
-            Self::IconLoaded(id, _) => write!(f, "IconLoaded({})", id),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
+            Self::List(msg) => write!(f, "List({:?})", msg),
         }
     }
 }
@@ -85,14 +81,12 @@ pub struct EnemyState {
     pub mag_input: String,
     pub magnification: Magnification,
     pub selected_tab: EnemyDetailTab,
-    pub texture_cache: HashMap<u32, iced::widget::image::Handle>,
-    pub pending_requests: HashSet<u32>,
-    pub missing_ids: HashSet<u32>,
     pub img015_sheets: Vec<SpriteSheet>,
     pub custom_assets: CustomAssets,
     pub rig: Option<Arc<Unit>>,
 
     filter: filter::State,
+    list: list::State,
     abilities: abilities::State,
 }
 
@@ -104,14 +98,12 @@ impl Default for EnemyState {
             mag_input: "100".to_string(),
             magnification: Magnification { hitpoints: 100, attack: 100 },
             selected_tab: EnemyDetailTab::Abilities,
-            texture_cache: HashMap::new(),
-            pending_requests: HashSet::new(),
-            missing_ids: HashSet::new(),
             img015_sheets: Vec::new(),
             custom_assets: CustomAssets::new(),
             rig: None,
 
             filter: filter::State::default(),
+            list: list::State::default(),
             abilities: abilities::State::default(),
         }
     }
@@ -123,6 +115,14 @@ impl EnemyState {
     }
 
     pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
+        let task = self.update_inner(message, settings);
+
+        self.list.refresh(&self.data.enemies, &self.search_query, &self.filter.filter_state);
+
+        task
+    }
+
+    fn update_inner(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         match message {
             Message::Tick => {
                 if !self.data.initialized {
@@ -134,7 +134,10 @@ impl EnemyState {
                 }
 
                 crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
-                Task::none()
+
+                self.list
+                    .update(list::Message::Tick, &self.data.enemies, &self.search_query, &self.filter.filter_state)
+                    .map(Message::List)
             }
             Message::SearchQueryChanged(query) => {
                 self.search_query = query;
@@ -179,27 +182,18 @@ impl EnemyState {
                 info!("Navigating to stage appearances for enemy {}", id);
                 Task::none()
             }
-            Message::RequestIconLoad(id, _path) => {
-                if !self.pending_requests.contains(&id) {
-                    self.pending_requests.insert(id);
-                    return Task::perform(async move {
-                        Message::IconLoaded(id, None)
-                    }, |m| m);
-                }
-                Task::none()
-            }
-            Message::IconLoaded(id, handle_opt) => {
-                self.pending_requests.remove(&id);
-                if let Some(handle) = handle_opt {
-                    self.texture_cache.insert(id, handle);
-                } else {
-                    self.missing_ids.insert(id);
-                }
-                Task::none()
-            }
             Message::Filter(msg) => {
                 self.filter.update(msg);
                 Task::none()
+            }
+            Message::List(msg) => {
+                if let list::Message::SelectEnemy(id) = msg {
+                    return self.update(Message::EnemySelected(id), settings);
+                }
+
+                self.list
+                    .update(msg, &self.data.enemies, &self.search_query, &self.filter.filter_state)
+                    .map(Message::List)
             }
         }
     }
@@ -246,45 +240,14 @@ impl EnemyState {
             .spacing(5)
             .padding(5);
 
-        let mut list_col = column![].spacing(2).width(Length::Fill);
-
-        let query_lower = self.search_query.to_lowercase();
-        let is_empty = query_lower.is_empty();
-
-        for entry in &self.data.enemies {
-            if !entity_passes_filter(entry, &self.filter.filter_state) {
-                continue;
-            }
-
-            let full_id = entry.id_str().to_lowercase();
-            let is_id_search = query_lower.chars().next().map_or(false, |c| c.is_ascii_digit());
-
-            let matches_search = is_empty
-                || (is_id_search && full_id.contains(&query_lower))
-                || entry.name.to_lowercase().contains(&query_lower);
-
-            if matches_search {
-                let is_selected = self.data.selected_enemy == Some(entry.id);
-
-                let btn = button(
-                    row![
-                        text(entry.id_str()).size(12),
-                        text(entry.display_name()).size(14)
-                    ].spacing(8).align_y(Alignment::Center)
-                )
-                    .width(Length::Fill)
-                    .style(if is_selected { iced::widget::button::primary } else { iced::widget::button::secondary })
-                    .on_press(Message::EnemySelected(entry.id));
-
-                list_col = list_col.push(btn);
-            }
-        }
+        let enemy_list = self.list.view(&self.data.enemies, self.data.selected_enemy).map(Message::List);
 
         container(
             column![
                 search_bar,
-                scrollable(list_col).height(Length::Fill)
+                enemy_list
             ]
+                .height(Length::Fill)
         )
             .width(Length::Fixed(200.0))
             .height(Length::Fill)
