@@ -136,10 +136,14 @@ impl EnemyState {
         iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
     }
 
-    pub fn update(&mut self, message: Message) -> Task<Message> {
+    pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         match message {
             Message::Tick => {
-                if self.data.scan_receiver.is_some() {
+                if !self.data.initialized {
+                    self.data.initialized = true;
+                    info!("Triggering initial enemy scan");
+                    self.data.restart_scan(settings.scanner_config());
+                } else if self.data.scan_receiver.is_some() {
                     self.data.update_data();
                 }
                 Task::none()

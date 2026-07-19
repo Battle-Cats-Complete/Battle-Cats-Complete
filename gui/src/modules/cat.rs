@@ -1,22 +1,19 @@
+mod filter;
 mod list;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
-    button, checkbox, column, container, image as iced_image, pick_list, row, scrollable,
+    button, checkbox, column, container, image as iced_image, row, scrollable,
     stack, text, text_input, tooltip, Space, Tooltip,
 };
 use iced::{Alignment, Element, Length, Subscription, Task, Theme};
-use nyanko::cat::abilities::REGISTRY;
 use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
 use tracing::{debug, error, info, trace, warn};
 
-use core::common::game::CustomIcon;
-use core::modules::cat::filter::{CatFilterState, MatchMode, TalentFilterMode};
-use core::modules::cat::game::registry::{AbilityIcon, DisplayGroup};
 use core::modules::cat::scanner::CatEntry;
 use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
@@ -42,14 +39,6 @@ pub enum ExportAction {
 pub enum Message {
     Tick,
     SearchChanged(String),
-    ToggleFilter,
-    ClearFilter,
-    FilterMatchModeChanged(MatchMode),
-    FilterTalentModeChanged(TalentFilterMode),
-    FilterUltraTalentModeChanged(TalentFilterMode),
-    FilterRarityToggled(usize),
-    FilterFormToggled(usize),
-    FilterIconToggled(AbilityIcon),
     SelectCat(u32),
     SelectForm(usize),
     SelectTab(DetailTab),
@@ -59,6 +48,7 @@ pub enum Message {
     MaximizeTalents(bool),
     ExportStatblock(ExportAction),
     List(list::Message),
+    Filter(filter::Message),
 }
 
 impl std::fmt::Debug for Message {
@@ -66,14 +56,6 @@ impl std::fmt::Debug for Message {
         match self {
             Self::Tick => write!(f, "Tick"),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
-            Self::ToggleFilter => write!(f, "ToggleFilter"),
-            Self::ClearFilter => write!(f, "ClearFilter"),
-            Self::FilterMatchModeChanged(_) => write!(f, "FilterMatchModeChanged"),
-            Self::FilterTalentModeChanged(_) => write!(f, "FilterTalentModeChanged"),
-            Self::FilterUltraTalentModeChanged(_) => write!(f, "FilterUltraTalentModeChanged"),
-            Self::FilterRarityToggled(i) => write!(f, "FilterRarityToggled({})", i),
-            Self::FilterFormToggled(i) => write!(f, "FilterFormToggled({})", i),
-            Self::FilterIconToggled(_) => write!(f, "FilterIconToggled"),
             Self::SelectCat(id) => write!(f, "SelectCat({})", id),
             Self::SelectForm(i) => write!(f, "SelectForm({})", i),
             Self::SelectTab(t) => write!(f, "SelectTab({:?})", t),
@@ -83,6 +65,7 @@ impl std::fmt::Debug for Message {
             Self::MaximizeTalents(b) => write!(f, "MaximizeTalents({})", b),
             Self::ExportStatblock(e) => write!(f, "ExportStatblock({:?})", e),
             Self::List(msg) => write!(f, "List({:?})", msg),
+            Self::Filter(msg) => write!(f, "Filter({:?})", msg),
         }
     }
 }
@@ -99,15 +82,8 @@ pub struct State {
     pub is_conjure_expanded: bool,
     pub talent_levels: HashMap<u8, u8>,
 
-    pub is_filter_open: bool,
-    pub filter_match_mode: MatchMode,
-    pub filter_talent_mode: TalentFilterMode,
-    pub filter_ultra_talent_mode: TalentFilterMode,
-    pub filter_rarities: [bool; 6],
-    pub filter_forms: [bool; 4],
-    pub filter_active_icons: HashSet<AbilityIcon>,
-
     list: list::State,
+    filter: filter::State,
 }
 
 impl Default for State {
@@ -122,15 +98,9 @@ impl Default for State {
             level_input: String::from("1"),
             is_conjure_expanded: false,
             talent_levels: HashMap::new(),
-            is_filter_open: false,
-            filter_match_mode: MatchMode::Or,
-            filter_talent_mode: TalentFilterMode::Ignore,
-            filter_ultra_talent_mode: TalentFilterMode::Ignore,
-            filter_rarities: [false; 6],
-            filter_forms: [false; 4],
-            filter_active_icons: HashSet::new(),
 
             list: list::State::default(),
+            filter: filter::State::default(),
         }
     }
 }
@@ -143,8 +113,7 @@ impl State {
     pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         let task = self.update_inner(message, settings);
 
-        let filter_state = self.build_filter_state();
-        self.list.refresh(&self.data.cats, &self.search_query, &filter_state);
+        self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
 
         task
     }
@@ -160,58 +129,12 @@ impl State {
                     self.data.update_data();
                 }
 
-                let filter_state = self.build_filter_state();
                 self.list
-                    .update(list::Message::Tick, &self.data.cats, &self.search_query, &filter_state, settings.cat_data.high_banner_quality)
+                    .update(list::Message::Tick, &self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality)
                     .map(Message::List)
             }
             Message::SearchChanged(query) => {
                 self.search_query = query;
-                Task::none()
-            }
-            Message::ToggleFilter => {
-                self.is_filter_open = !self.is_filter_open;
-                Task::none()
-            }
-            Message::ClearFilter => {
-                self.filter_match_mode = MatchMode::Or;
-                self.filter_talent_mode = TalentFilterMode::Ignore;
-                self.filter_ultra_talent_mode = TalentFilterMode::Ignore;
-                self.filter_rarities = [false; 6];
-                self.filter_forms = [false; 4];
-                self.filter_active_icons.clear();
-                Task::none()
-            }
-            Message::FilterMatchModeChanged(mode) => {
-                self.filter_match_mode = mode;
-                Task::none()
-            }
-            Message::FilterTalentModeChanged(mode) => {
-                self.filter_talent_mode = mode;
-                Task::none()
-            }
-            Message::FilterUltraTalentModeChanged(mode) => {
-                self.filter_ultra_talent_mode = mode;
-                Task::none()
-            }
-            Message::FilterRarityToggled(index) => {
-                if let Some(val) = self.filter_rarities.get_mut(index) {
-                    *val = !*val;
-                }
-                Task::none()
-            }
-            Message::FilterFormToggled(index) => {
-                if let Some(val) = self.filter_forms.get_mut(index) {
-                    *val = !*val;
-                }
-                Task::none()
-            }
-            Message::FilterIconToggled(icon) => {
-                if self.filter_active_icons.contains(&icon) {
-                    self.filter_active_icons.remove(&icon);
-                } else {
-                    self.filter_active_icons.insert(icon);
-                }
                 Task::none()
             }
             Message::SelectCat(id) => {
@@ -284,26 +207,14 @@ impl State {
                     return self.update(Message::SelectCat(id), settings);
                 }
 
-                let filter_state = self.build_filter_state();
                 self.list
-                    .update(msg, &self.data.cats, &self.search_query, &filter_state, settings.cat_data.high_banner_quality)
+                    .update(msg, &self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality)
                     .map(Message::List)
             }
-        }
-    }
-
-    fn build_filter_state(&self) -> CatFilterState {
-        CatFilterState {
-            is_open: self.is_filter_open,
-            active_icons: self.filter_active_icons.clone(),
-            rarities: self.filter_rarities,
-            forms: self.filter_forms,
-            match_mode: self.filter_match_mode,
-            talent_mode: self.filter_talent_mode,
-            ultra_talent_mode: self.filter_ultra_talent_mode,
-            adv_ranges: HashMap::new(),
-            level_input: String::new(),
-            stat_ranges: HashMap::new(),
+            Message::Filter(msg) => {
+                self.filter.update(msg);
+                Task::none()
+            }
         }
     }
 
@@ -315,8 +226,8 @@ impl State {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        if self.is_filter_open {
-            let filter_modal = self.view_filter_modal();
+        if self.filter.filter_state.is_open {
+            let filter_modal = self.filter.view().map(Message::Filter);
             stack![
                 base_layout,
                 container(filter_modal)
@@ -338,7 +249,7 @@ impl State {
             .width(Length::Fill);
 
         let filter_button = button(text("Filter").align_x(Horizontal::Center))
-            .on_press(Message::ToggleFilter)
+            .on_press(Message::Filter(filter::Message::Toggle))
             .width(Length::Fill);
 
         let cat_list = self.list.view(&self.data.cats, self.selected_cat).map(Message::List);
@@ -521,64 +432,5 @@ impl State {
                 text(description),
             ].spacing(16)
         ).into()
-    }
-
-    fn view_filter_modal(&self) -> Element<Message> {
-        let title = text("Advanced Cat Filter").size(24);
-
-        let mut rarity_row = row![].spacing(8);
-        let rarities = ["Normal", "Special", "Rare", "Super Rare", "Uber Rare", "Legend Rare"];
-        for (i, label) in rarities.iter().enumerate() {
-            let mut btn = button(*label);
-            btn = btn.on_press(Message::FilterRarityToggled(i));
-            rarity_row = rarity_row.push(btn);
-        }
-
-        let mut forms_row = row![].spacing(8);
-        let forms = ["Normal Form", "Evolved Form", "True Form", "Ultra Form"];
-        for (i, label) in forms.iter().enumerate() {
-            let mut btn = button(*label);
-            btn = btn.on_press(Message::FilterFormToggled(i));
-            forms_row = forms_row.push(btn);
-        }
-
-        let selected_mode_str = if self.filter_match_mode == MatchMode::And { "And" } else { "Or" };
-
-        let match_mode_picker = row![
-            text("Mode:").align_y(Vertical::Center),
-            pick_list(
-                vec!["And", "Or"],
-                Some(selected_mode_str),
-                |s| if s == "And" { Message::FilterMatchModeChanged(MatchMode::And) } else { Message::FilterMatchModeChanged(MatchMode::Or) }
-            )
-        ].spacing(8);
-
-        let clear_btn = button(text("Clear Filter").style(text::danger))
-            .on_press(Message::ClearFilter)
-            .padding([8, 16]);
-
-        let close_btn = button("Close")
-            .on_press(Message::ToggleFilter)
-            .padding([8, 16]);
-
-        let filter_content = column![
-            title,
-            Space::new().height(Length::Fixed(16.0)),
-            text("Rarities").size(18),
-            rarity_row,
-            Space::new().height(Length::Fixed(12.0)),
-            text("Forms").size(18),
-            forms_row,
-            Space::new().height(Length::Fixed(12.0)),
-            match_mode_picker,
-            Space::new().height(Length::Fixed(24.0)),
-            row![clear_btn, close_btn].spacing(16)
-        ].spacing(8).padding(24);
-
-        container(scrollable(filter_content))
-            .width(Length::Fixed(600.0))
-            .height(Length::Fixed(500.0))
-            .style(container::bordered_box)
-            .into()
     }
 }

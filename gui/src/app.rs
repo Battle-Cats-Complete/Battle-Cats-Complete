@@ -293,8 +293,8 @@ impl BattleCatsApp {
                 }
             }
             Message::Cat(msg) => self.cat_state.update(msg, &self.settings).map(Message::Cat),
-            Message::Enemy(msg) => self.enemy_state.update(msg).map(Message::Enemy),
-            Message::Stage(msg) => self.stage_state.update(msg).map(Message::Stage),
+            Message::Enemy(msg) => self.enemy_state.update(msg, &self.settings).map(Message::Enemy),
+            Message::Stage(msg) => self.stage_state.update(msg, &self.settings).map(Message::Stage),
             Message::Mod(msg) => self.mods_state.update(msg, &self.settings).map(Message::Mod),
             Message::Data(msg) => self.data_state.update(msg, &mut self.settings).map(Message::Data),
             Message::Animation(msg) => self.animation_state.update(msg).map(Message::Animation),

@@ -16,6 +16,7 @@ use core::modules::stage::filter::{CompiledStageFilter, StageFilterState};
 use core::modules::stage::{
     materials, navigate, paths, treasure, GlobalMapId, GlobalStageId, Stage, StageDataState,
 };
+use core::modules::settings::Settings;
 
 use crate::common::watcher::GuiWatcher;
 
@@ -62,9 +63,17 @@ impl State {
         iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::Tick)
     }
 
-    pub fn update(&mut self, message: Message) -> Task<Message> {
+    pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         match message {
-            Message::Tick => Task::none(),
+            Message::Tick => {
+                if self.data.scan_receiver.is_none() && !self.data.initialized {
+                    debug!("Triggering initial stage scan");
+                    self.data.restart_scan(settings.scanner_config());
+                } else if self.data.scan_receiver.is_some() {
+                    self.data.update_data();
+                }
+                Task::none()
+            }
             Message::ToggleSidebar => {
                 self.is_sidebar_open = !self.is_sidebar_open;
                 Task::none()
