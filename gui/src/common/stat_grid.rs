@@ -18,6 +18,22 @@ pub fn grid_cell<'a, Message: 'a>(text_content: &str, is_header: bool) -> Elemen
         .into()
 }
 
+pub fn grid_cell_element<'a, Message: 'a>(content: Element<'a, Message>, is_header: bool) -> Element<'a, Message> {
+    container(content)
+        .padding(1.5)
+        .width(Length::Fixed(60.0))
+        .center_x(Length::Fill)
+        .style(move |theme: &Theme| {
+            let palette = theme.palette();
+            container::Style {
+                background: Some(if is_header { palette.background.into() } else { palette.primary.into() }),
+                border: border::rounded(4).color(palette.text).width(1),
+                ..Default::default()
+            }
+        })
+        .into()
+}
+
 pub fn render_frames<'a, Message: 'a>(frames: i32, max_width: f32) -> Element<'a, Message> {
     let seconds = frames as f32 / 30.0;
 

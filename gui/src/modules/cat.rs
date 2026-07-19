@@ -1,23 +1,29 @@
+mod abilities;
 mod filter;
 mod list;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
-    button, checkbox, column, container, image as iced_image, row, scrollable,
-    stack, text, text_input, tooltip, Space, Tooltip,
+    button, column, container, row, scrollable,
+    stack, text, text_input, Space,
 };
-use iced::{Alignment, Element, Length, Subscription, Task, Theme};
-use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
-use tracing::{debug, error, info, trace, warn};
+use iced::{Element, Length, Subscription, Task};
+use nyanko::cat::unit::Battle;
+use tracing::info;
 
+use core::common::context::GlobalContext;
+use core::modules::cat::game::registry::{format_cat_stat, get_cat_stat};
+use core::modules::cat::game::stats::get_final_stats;
+use core::modules::cat::game::CatRenderContext;
 use core::modules::cat::scanner::CatEntry;
+use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
 
+use crate::common::stat_grid;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 
@@ -43,12 +49,12 @@ pub enum Message {
     SelectForm(usize),
     SelectTab(DetailTab),
     LevelInputChanged(String),
-    ToggleConjureExpand,
     ChangeTalentLevel(u8, u8),
     MaximizeTalents(bool),
     ExportStatblock(ExportAction),
     List(list::Message),
     Filter(filter::Message),
+    Abilities(abilities::Message),
 }
 
 impl std::fmt::Debug for Message {
@@ -60,12 +66,12 @@ impl std::fmt::Debug for Message {
             Self::SelectForm(i) => write!(f, "SelectForm({})", i),
             Self::SelectTab(t) => write!(f, "SelectTab({:?})", t),
             Self::LevelInputChanged(s) => write!(f, "LevelInputChanged({})", s),
-            Self::ToggleConjureExpand => write!(f, "ToggleConjureExpand"),
             Self::ChangeTalentLevel(i, l) => write!(f, "ChangeTalentLevel({}, {})", i, l),
             Self::MaximizeTalents(b) => write!(f, "MaximizeTalents({})", b),
             Self::ExportStatblock(e) => write!(f, "ExportStatblock({:?})", e),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
+            Self::Abilities(msg) => write!(f, "Abilities({:?})", msg),
         }
     }
 }
@@ -79,11 +85,14 @@ pub struct State {
 
     pub current_level: i32,
     pub level_input: String,
-    pub is_conjure_expanded: bool,
     pub talent_levels: HashMap<u8, u8>,
+
+    img015_sheets: Vec<SpriteSheet>,
+    custom_assets: CustomAssets,
 
     list: list::State,
     filter: filter::State,
+    abilities: abilities::State,
 }
 
 impl Default for State {
@@ -96,11 +105,14 @@ impl Default for State {
             search_query: String::new(),
             current_level: 1,
             level_input: String::from("1"),
-            is_conjure_expanded: false,
             talent_levels: HashMap::new(),
+
+            img015_sheets: Vec::new(),
+            custom_assets: CustomAssets::new(),
 
             list: list::State::default(),
             filter: filter::State::default(),
+            abilities: abilities::State::default(),
         }
     }
 }
@@ -128,6 +140,8 @@ impl State {
                 } else if self.data.scan_receiver.is_some() {
                     self.data.update_data();
                 }
+
+                crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
 
                 self.list
                     .update(list::Message::Tick, &self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality)
@@ -172,10 +186,6 @@ impl State {
                 self.current_level = if parsed <= 0 { 1 } else { parsed };
                 Task::none()
             }
-            Message::ToggleConjureExpand => {
-                self.is_conjure_expanded = !self.is_conjure_expanded;
-                Task::none()
-            }
             Message::ChangeTalentLevel(index, level) => {
                 self.talent_levels.insert(index, level);
                 Task::none()
@@ -215,12 +225,22 @@ impl State {
                 self.filter.update(msg);
                 Task::none()
             }
+            Message::Abilities(msg) => {
+                self.abilities.update(msg);
+                Task::none()
+            }
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    // `'a` unifies `&self`, `settings`, and `global_ctx` because `abilities::State::view`
+    // (called several layers down, inside `view_abilities`) wraps its content in an
+    // `iced::widget::responsive` closure — that closure must be callable on every layout
+    // pass, so every reference it captures needs one shared lifetime bound. Plain elision
+    // would otherwise give `settings`/`global_ctx` their own independent lifetimes here,
+    // which doesn't satisfy that requirement.
+    pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let sidebar = self.view_sidebar();
-        let main_content = self.view_main_content();
+        let main_content = self.view_main_content(settings, global_ctx);
 
         let base_layout = row![sidebar, main_content]
             .width(Length::Fill)
@@ -270,7 +290,7 @@ impl State {
             .into()
     }
 
-    fn view_main_content(&self) -> Element<Message> {
+    fn view_main_content<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let Some(selected_id) = self.selected_cat else {
             return container(text("Select a Unit").size(24))
                 .width(Length::Fill)
@@ -292,7 +312,7 @@ impl State {
         let header = self.view_header(cat);
 
         let content = match self.selected_tab {
-            DetailTab::Abilities => self.view_abilities(cat),
+            DetailTab::Abilities => self.view_abilities(cat, settings, global_ctx),
             DetailTab::Talents => self.view_talents(cat),
             DetailTab::Details => self.view_details(cat),
             DetailTab::Animation => container(text("Animation Viewer Placeholder")).center_x(Length::Fill).center_y(Length::Fill).into(),
@@ -374,16 +394,88 @@ impl State {
         ].into()
     }
 
-    fn view_abilities(&self, _cat: &CatEntry) -> Element<Message> {
-        scrollable(
-            column![
-                text("Traits").size(18),
-                row![text("Trait Icon Placeholder")].spacing(4),
-                Space::new().height(Length::Fixed(16.0)),
-                text("Abilities").size(18),
-                row![text("Ability Icon Placeholder")].spacing(4),
-            ].spacing(8)
-        ).into()
+    fn view_abilities<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+        let dynamic_stats = unitid(cat.id as i32, &settings.general.language_priority);
+        let Some(base_stats) = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form)) else {
+            return container(text("Stats data not found")).into();
+        };
+
+        let form_allows_talents = self.selected_form >= 2;
+        let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
+        let talent_levels = if form_allows_talents { Some(&self.talent_levels) } else { None };
+
+        let final_stats = get_final_stats(base_stats, cat.curve.as_ref(), self.current_level, talent_data, talent_levels);
+
+        let cat_ctx = CatRenderContext {
+            global: global_ctx,
+            base_stats,
+            final_stats: &final_stats,
+            current_level: self.current_level,
+            level_curve: cat.curve.as_ref(),
+            talent_data,
+            talent_levels,
+            is_conjure_unit: false,
+        };
+
+        column![
+            self.view_stats(cat, &final_stats, self.selected_form),
+            Space::new().height(Length::Fixed(8.0)),
+            self.abilities.view(&cat_ctx, cat, global_ctx, &self.img015_sheets, &self.custom_assets, settings).map(Message::Abilities)
+        ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn view_stats(&self, cat: &CatEntry, final_stats: &Battle, form: usize) -> Element<Message> {
+        let anim_frames = cat.atk_anim_frames[form];
+        let unitbuy_opt = Some(&cat.unitbuy);
+
+        let atk_str = format_cat_stat("Attack", final_stats, anim_frames, unitbuy_opt);
+        let dps_str = format_cat_stat("Dps", final_stats, anim_frames, unitbuy_opt);
+        let range_str = format_cat_stat("Range", final_stats, anim_frames, unitbuy_opt);
+        let rarity_str = format_cat_stat("Rarity", final_stats, anim_frames, unitbuy_opt);
+        let hp_str = format_cat_stat("Hitpoints", final_stats, anim_frames, unitbuy_opt);
+        let kb_str = format_cat_stat("Knockbacks", final_stats, anim_frames, unitbuy_opt);
+        let speed_str = format_cat_stat("Speed", final_stats, anim_frames, unitbuy_opt);
+        let cost_str = format_cat_stat("Cost", final_stats, anim_frames, unitbuy_opt);
+
+        let cycle = (get_cat_stat("Atk Cycle").get_value)(final_stats, anim_frames, unitbuy_opt);
+        let cd_val = (get_cat_stat("Cooldown").get_value)(final_stats, anim_frames, unitbuy_opt);
+
+        let header_row = row![
+            stat_grid::grid_cell(get_cat_stat("Attack").display_name, true),
+            stat_grid::grid_cell(get_cat_stat("Dps").display_name, true),
+            stat_grid::grid_cell(get_cat_stat("Range").display_name, true),
+            stat_grid::grid_cell(get_cat_stat("Atk Cycle").display_name, true),
+            stat_grid::grid_cell(get_cat_stat("Rarity").display_name, true),
+        ].spacing(4);
+
+        let value_row = row![
+            stat_grid::grid_cell(&atk_str, false),
+            stat_grid::grid_cell(&dps_str, false),
+            stat_grid::grid_cell(&range_str, false),
+            stat_grid::grid_cell_element(stat_grid::render_frames(cycle, 60.0), false),
+            stat_grid::grid_cell(&rarity_str, false),
+        ].spacing(4);
+
+        let header_row2 = row![
+            stat_grid::grid_cell(get_cat_stat("Hitpoints").display_name, true),
+            stat_grid::grid_cell(get_cat_stat("Knockbacks").display_name, true),
+            stat_grid::grid_cell(get_cat_stat("Speed").display_name, true),
+            stat_grid::grid_cell(get_cat_stat("Cooldown").display_name, true),
+            stat_grid::grid_cell(get_cat_stat("Cost").display_name, true),
+        ].spacing(4);
+
+        let value_row2 = row![
+            stat_grid::grid_cell(&hp_str, false),
+            stat_grid::grid_cell(&kb_str, false),
+            stat_grid::grid_cell(&speed_str, false),
+            stat_grid::grid_cell_element(stat_grid::render_frames(cd_val, 60.0), false),
+            stat_grid::grid_cell(&cost_str, false),
+        ].spacing(4);
+
+        column![header_row, value_row, header_row2, value_row2].spacing(4).into()
     }
 
     fn view_talents(&self, cat: &CatEntry) -> Element<Message> {

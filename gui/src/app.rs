@@ -9,6 +9,7 @@ use rustc_hash::FxHasher;
 use self_update::update::Release;
 use tracing::{info, trace, warn};
 
+use core::common::context::GlobalContext;
 use core::common::io::json;
 use core::modules::settings::{Settings, UpdateMode};
 
@@ -305,7 +306,7 @@ impl BattleCatsApp {
     pub fn view(&self) -> Element<Message> {
         let content = match self.current_page {
             Page::Home => self.home_state.view().map(Message::Home),
-            Page::Cats => self.cat_state.view().map(Message::Cat),
+            Page::Cats => self.cat_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Cat),
             Page::Enemies => self.enemy_state.view().map(Message::Enemy),
             Page::Stages => self.stage_state.view().map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
