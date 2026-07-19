@@ -1,4 +1,5 @@
 mod abilities;
+mod filter;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -11,14 +12,13 @@ use iced::widget::{
     button, column, container, image as iced_image, opaque, row, scrollable, stack, text, text_input, Button, Column, Container, Row, Scrollable, Space, Text
 };
 use iced::{Alignment, Element, Length, Subscription, Task, Theme};
-use nyanko::enemy::abilities::{Identity, REGISTRY};
+use nyanko::enemy::abilities::REGISTRY;
 use nyanko::enemy::unit::Battle;
 use nyanko::graphics::rig::Unit;
 use tracing::{debug, error, info, trace, warn};
 
 use core::common::context::GlobalContext;
-use core::modules::enemy::filter::evaluation::{entity_passes_filter, get_identity_name};
-use core::modules::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
+use core::modules::enemy::filter::evaluation::entity_passes_filter;
 use core::modules::enemy::game::registry::{
     format_enemy_stat, get_display_def, get_enemy_stat, Magnification,
 };
@@ -43,18 +43,12 @@ pub enum Message {
     SearchQueryChanged(String),
     EnemySelected(u32),
     TabSelected(EnemyDetailTab),
-    ToggleFilterModal,
-    ClearFilters,
-    FilterMatchModeToggled(MatchMode),
-    FilterMagChanged(String),
-    FilterIdentityToggled(Identity),
-    FilterAdvMinChanged(Identity, &'static str, String),
-    FilterAdvMaxChanged(Identity, &'static str, String),
     MagnificationChanged(String),
     ExportClicked(ExportAction),
     NavigateAppearances(u32),
     RequestIconLoad(u32, PathBuf),
     IconLoaded(u32, Option<iced::widget::image::Handle>),
+    Filter(filter::Message),
 }
 
 impl std::fmt::Debug for Message {
@@ -75,30 +69,22 @@ impl std::fmt::Debug for Message {
                 };
                 write!(f, "TabSelected({})", tab_name)
             }
-            Self::ToggleFilterModal => write!(f, "ToggleFilterModal"),
-            Self::ClearFilters => write!(f, "ClearFilters"),
-            Self::FilterMatchModeToggled(_) => write!(f, "FilterMatchModeToggled"),
-            Self::FilterMagChanged(s) => write!(f, "FilterMagChanged({})", s),
-            Self::FilterIdentityToggled(_) => write!(f, "FilterIdentityToggled"),
-            Self::FilterAdvMinChanged(_, _, s) => write!(f, "FilterAdvMinChanged({})", s),
-            Self::FilterAdvMaxChanged(_, _, s) => write!(f, "FilterAdvMaxChanged({})", s),
             Self::MagnificationChanged(s) => write!(f, "MagnificationChanged({})", s),
             Self::ExportClicked(_) => write!(f, "ExportClicked"),
             Self::NavigateAppearances(id) => write!(f, "NavigateAppearances({})", id),
             Self::RequestIconLoad(id, _) => write!(f, "RequestIconLoad({})", id),
             Self::IconLoaded(id, _) => write!(f, "IconLoaded({})", id),
+            Self::Filter(msg) => write!(f, "Filter({:?})", msg),
         }
     }
 }
 
 pub struct EnemyState {
     pub data: EnemyDataState,
-    pub filter_state: EnemyFilterState,
     pub search_query: String,
     pub mag_input: String,
     pub magnification: Magnification,
     pub selected_tab: EnemyDetailTab,
-    pub show_filter_modal: bool,
     pub texture_cache: HashMap<u32, iced::widget::image::Handle>,
     pub pending_requests: HashSet<u32>,
     pub missing_ids: HashSet<u32>,
@@ -106,6 +92,7 @@ pub struct EnemyState {
     pub custom_assets: CustomAssets,
     pub rig: Option<Arc<Unit>>,
 
+    filter: filter::State,
     abilities: abilities::State,
 }
 
@@ -113,12 +100,10 @@ impl Default for EnemyState {
     fn default() -> Self {
         Self {
             data: EnemyDataState::default(),
-            filter_state: EnemyFilterState::default(),
             search_query: String::new(),
             mag_input: "100".to_string(),
             magnification: Magnification { hitpoints: 100, attack: 100 },
             selected_tab: EnemyDetailTab::Abilities,
-            show_filter_modal: false,
             texture_cache: HashMap::new(),
             pending_requests: HashSet::new(),
             missing_ids: HashSet::new(),
@@ -126,6 +111,7 @@ impl Default for EnemyState {
             custom_assets: CustomAssets::new(),
             rig: None,
 
+            filter: filter::State::default(),
             abilities: abilities::State::default(),
         }
     }
@@ -165,48 +151,6 @@ impl EnemyState {
             }
             Message::TabSelected(tab) => {
                 self.selected_tab = tab;
-                Task::none()
-            }
-            Message::ToggleFilterModal => {
-                self.show_filter_modal = !self.show_filter_modal;
-                Task::none()
-            }
-            Message::ClearFilters => {
-                self.filter_state = EnemyFilterState::default();
-                Task::none()
-            }
-            Message::FilterMatchModeToggled(mode) => {
-                self.filter_state.match_mode = mode;
-                Task::none()
-            }
-            Message::FilterMagChanged(mag) => {
-                self.filter_state.mag_input = mag;
-                Task::none()
-            }
-            Message::FilterIdentityToggled(identity) => {
-                if self.filter_state.active_identities.contains(&identity) {
-                    self.filter_state.active_identities.remove(&identity);
-                } else {
-                    self.filter_state.active_identities.insert(identity);
-                }
-                Task::none()
-            }
-            Message::FilterAdvMinChanged(identity, attr, val) => {
-                let range = self.filter_state.adv_ranges
-                    .entry(identity)
-                    .or_default()
-                    .entry(attr)
-                    .or_default();
-                range.min = val;
-                Task::none()
-            }
-            Message::FilterAdvMaxChanged(identity, attr, val) => {
-                let range = self.filter_state.adv_ranges
-                    .entry(identity)
-                    .or_default()
-                    .entry(attr)
-                    .or_default();
-                range.max = val;
                 Task::none()
             }
             Message::MagnificationChanged(input) => {
@@ -253,6 +197,10 @@ impl EnemyState {
                 }
                 Task::none()
             }
+            Message::Filter(msg) => {
+                self.filter.update(msg);
+                Task::none()
+            }
         }
     }
 
@@ -264,9 +212,9 @@ impl EnemyState {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        if self.show_filter_modal {
+        if self.filter.filter_state.is_open {
             let modal = opaque(
-                container(self.view_filter_modal())
+                container(self.filter.view().map(Message::Filter))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .center_x(Length::Fill)
@@ -292,8 +240,8 @@ impl EnemyState {
                 .on_input(Message::SearchQueryChanged)
                 .width(Length::Fill),
             button(text("Filter"))
-                .on_press(Message::ToggleFilterModal)
-                .style(if self.filter_state.is_active() { iced::widget::button::primary } else { iced::widget::button::secondary })
+                .on_press(Message::Filter(filter::Message::Toggle))
+                .style(if self.filter.filter_state.is_active() { iced::widget::button::primary } else { iced::widget::button::secondary })
         ]
             .spacing(5)
             .padding(5);
@@ -304,7 +252,7 @@ impl EnemyState {
         let is_empty = query_lower.is_empty();
 
         for entry in &self.data.enemies {
-            if !entity_passes_filter(entry, &self.filter_state) {
+            if !entity_passes_filter(entry, &self.filter.filter_state) {
                 continue;
             }
 
@@ -520,53 +468,5 @@ impl EnemyState {
         }
 
         container(col).width(Length::Fill).into()
-    }
-
-    fn view_filter_modal(&self) -> Element<Message> {
-        let match_mode_row = row![
-            text("Mode:"),
-            button(if self.filter_state.match_mode == MatchMode::And { "And" } else { "Or" })
-                .on_press(Message::FilterMatchModeToggled(
-                    if self.filter_state.match_mode == MatchMode::And { MatchMode::Or } else { MatchMode::And }
-                ))
-        ].spacing(10).align_y(Alignment::Center);
-
-        let mag_row = row![
-            text("Target Magnification:"),
-            text_input("100", &self.filter_state.mag_input).on_input(Message::FilterMagChanged).width(Length::Fixed(60.0)),
-            text("%")
-        ].spacing(10).align_y(Alignment::Center);
-
-        let actions = row![
-            button("Clear Filter").on_press(Message::ClearFilters).style(iced::widget::button::danger),
-            button("Close").on_press(Message::ToggleFilterModal).style(iced::widget::button::primary)
-        ].spacing(15);
-
-        let content = column![
-            text("Advanced Enemy Filter").size(24),
-            Space::new().height(Length::Fixed(10.0)),
-            match_mode_row,
-            mag_row,
-            Space::new().height(Length::Fixed(20.0)),
-            text("Trait & Attack Types... (Filter groups parsed from REGISTRY)"),
-            Space::new().height(Length::Fixed(20.0)),
-            actions
-        ].spacing(10).padding(20);
-
-        container(scrollable(content))
-            .width(Length::Fixed(450.0))
-            .height(Length::Fixed(500.0))
-            .style(|theme: &Theme| {
-                container::Style {
-                    background: Some(theme.palette().background.into()),
-                    border: iced::Border {
-                        width: 2.0,
-                        color: theme.palette().text,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                }
-            })
-            .into()
     }
 }

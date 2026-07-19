@@ -232,12 +232,6 @@ impl State {
         }
     }
 
-    // `'a` unifies `&self`, `settings`, and `global_ctx` because `abilities::State::view`
-    // (called several layers down, inside `view_abilities`) wraps its content in an
-    // `iced::widget::responsive` closure — that closure must be callable on every layout
-    // pass, so every reference it captures needs one shared lifetime bound. Plain elision
-    // would otherwise give `settings`/`global_ctx` their own independent lifetimes here,
-    // which doesn't satisfy that requirement.
     pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let sidebar = self.view_sidebar();
         let main_content = self.view_main_content(settings, global_ctx);

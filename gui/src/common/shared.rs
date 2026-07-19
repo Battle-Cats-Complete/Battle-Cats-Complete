@@ -4,8 +4,6 @@ use iced::widget::{column, container, row, text};
 
 pub const ICON_SIZE: f32 = 40.0;
 
-// Ability/trait description text size. Some entries (e.g. Multihit) span 3 lines —
-// shrink this if longer descriptions still don't fit their row.
 pub const ABILITY_TEXT_SIZE: f32 = 13.0;
 const ABILITY_SUPERSCRIPT_SIZE: f32 = ABILITY_TEXT_SIZE - 3.0;
 
@@ -25,12 +23,6 @@ pub fn fallback_icon<'a, Message: 'a>(icon_text: &str) -> Element<'a, Message> {
         .into()
 }
 
-// Ability text (e.g. Multihit's damage/timing/ability-flag breakdown) is made of
-// real `\n`-separated lines, each of which may independently contain `^` superscript
-// markers. Splitting must happen on lines first, then superscripts within each line —
-// doing it the other way around (as this used to) stuffs embedded newlines into a
-// single row cell, which neither grows the row's height nor pushes sibling cells
-// after it onto their own line, breaking layout for every element that follows.
 pub fn text_with_superscript<'a, Message: 'a>(raw_text: &str) -> Element<'a, Message> {
     let mut lines_col = column![];
 
