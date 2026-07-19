@@ -1,8 +1,9 @@
 use std::hash::{Hash, Hasher};
 use std::sync::mpsc::{Receiver, Sender};
 
-use iced::widget::{button, column, container, row, text, Space};
-use iced::{Alignment, Element, Length, Subscription, Task, Theme};
+use iced::alignment;
+use iced::widget::{button, column, container, progress_bar, row, scrollable, stack, text, Space};
+use iced::{Alignment, Color, Element, Length, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
 use self_update::update::Release;
@@ -302,12 +303,6 @@ impl BattleCatsApp {
     }
 
     pub fn view(&self) -> Element<Message> {
-        let sidebar = if self.sidebar_open {
-            self.view_sidebar()
-        } else {
-            Space::new().width(Length::Fixed(0.0)).into()
-        };
-
         let content = match self.current_page {
             Page::Home => self.home_state.view().map(Message::Home),
             Page::Cats => self.cat_state.view().map(Message::Cat),
@@ -319,55 +314,165 @@ impl BattleCatsApp {
             Page::Settings => self.settings_state.view(&self.settings).map(Message::Settings),
         };
 
-        row![
-            sidebar,
-            container(content).width(Length::Fill).height(Length::Fill)
+        let content_container = container(content)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        // Right side list block
+        let sidebar_list: Element<Message> = if self.sidebar_open {
+            let mut tabs: iced::widget::Column<'_, Message> = column![].spacing(10);
+            for page in ALL_PAGES {
+                let is_active = self.current_page == *page;
+                let btn = button(text(page.tab_name()).size(16).align_x(alignment::Horizontal::Center))
+                    .width(Length::Fill)
+                    .padding(10)
+                    .on_press(Message::Navigate(*page))
+                    .style(move |theme: &Theme, _status| {
+                        if is_active {
+                            button::primary(theme, _status)
+                        } else {
+                            button::secondary(theme, _status)
+                        }
+                    });
+
+                tabs = tabs.push(btn);
+            }
+
+            container(tabs)
+                .width(Length::Fixed(180.0))
+                .height(Length::Fill)
+                .padding(15)
+                .style(|theme: &Theme| {
+                    let palette = theme.palette();
+                    container::Style {
+                        background: Some(palette.background.into()),
+                        border: iced::border::rounded(10).color(palette.text).width(1),
+                        ..Default::default()
+                    }
+                })
+                .into()
+        } else {
+            Space::new().width(Length::Fixed(0.0)).into()
+        };
+
+        // Standalone toggle button at the top
+        let arrow_text = if self.sidebar_open { "▶" } else { "◀" };
+        let toggle_btn = button(text(arrow_text).size(20).align_x(alignment::Horizontal::Center))
+            .width(Length::Fixed(40.0))
+            .height(Length::Fixed(40.0))
+            .on_press(Message::ToggleSidebar)
+            .style(|theme: &Theme, _status| button::primary(theme, _status));
+
+        let toggle_container = column![toggle_btn]
+            .padding(iced::Padding {
+                top: 2.5,
+                right: 10.0,
+                bottom: 0.0,
+                left: 0.0,
+            }); // Matches egui's gap positioning
+
+        // Right panel containing the separate toggle button and the list
+        let right_panel = row![
+            toggle_container,
+            sidebar_list
+        ]
+            .height(Length::Fill);
+
+        // Base UI structure: main content on left, sidebar on right
+        let base_ui = row![
+            content_container,
+            right_panel
         ]
             .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+            .height(Length::Fill);
+
+        // Modal overlay handling
+        if let Some(modal) = self.build_modal() {
+            stack![base_ui, modal].into()
+        } else {
+            base_ui.into()
+        }
     }
 
-    fn view_sidebar(&self) -> Element<Message> {
-        let mut nav_col = column![].spacing(8).width(Length::Fill);
+    fn build_modal(&self) -> Option<Element<Message>> {
+        let modal_content: Element<Message> = match &self.updater_status {
+            UpdateStatus::UpdateFound(tag, release) => {
+                let display_version = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
 
-        for page in ALL_PAGES {
-            let is_active = self.current_page == *page;
+                column![
+                    text("Update Available").size(24),
+                    text(format!("New Battle Cats Complete update found: {}", display_version)),
+                    text("Would you like to download the update now?"),
+                    row![
+                        button("Yes").on_press(Message::UpdaterAction(UpdaterAction::StartDownload(release.clone()))),
+                        button("No").on_press(Message::UpdaterAction(UpdaterAction::DismissUpdate)),
+                        button("Never").on_press(Message::UpdaterAction(UpdaterAction::NeverUpdate)),
+                    ].spacing(15)
+                ]
+                    .spacing(20)
+                    .align_x(alignment::Horizontal::Center)
+                    .into()
+            }
+            UpdateStatus::Downloading(tag) => {
+                let display_tag = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
 
-            let btn = button(text(page.tab_name()).size(16).align_x(Alignment::Center))
+                column![
+                    text("Downloading Update").size(24),
+                    text(format!("Downloading {}...", display_tag)),
+                    progress_bar(0.0..=1.0, self.download_progress)
+                ]
+                    .spacing(20)
+                    .align_x(alignment::Horizontal::Center)
+                    .into()
+            }
+            UpdateStatus::RestartPending(tag) => {
+                let display_tag = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
+
+                column![
+                    text("Update Complete").size(24),
+                    text(format!("{} update complete!", display_tag)),
+                    text("Would you like to restart and apply the update now?"),
+                    row![
+                        button("Yes").on_press(Message::UpdaterAction(UpdaterAction::RestartApp)),
+                        button("No").on_press(Message::UpdaterAction(UpdaterAction::DismissUpdate)),
+                    ].spacing(15)
+                ]
+                    .spacing(20)
+                    .align_x(alignment::Horizontal::Center)
+                    .into()
+            }
+            _ => return None,
+        };
+
+        let modal_card = container(
+            scrollable(modal_content)
                 .width(Length::Fill)
-                .padding(10)
-                .on_press(Message::Navigate(*page))
-                .style(move |theme: &Theme, _status| {
-                    if is_active {
-                        button::primary(theme, _status)
-                    } else {
-                        button::secondary(theme, _status)
-                    }
-                });
-
-            nav_col = nav_col.push(btn);
-        }
-
-        let toggle_btn = button(text("<<").align_x(Alignment::Center))
-            .width(Length::Fill)
-            .padding(10)
-            .on_press(Message::ToggleSidebar)
-            .style(button::secondary);
-
-        container(
-            column![
-                nav_col,
-                Space::new().height(Length::Fill),
-                toggle_btn
-            ]
-                .spacing(10)
+                .height(Length::Shrink)
         )
-            .width(Length::Fixed(180.0))
+            .padding(30)
+            .width(Length::Fixed(400.0))
+            .style(|theme: &Theme| {
+                let palette = theme.palette();
+                container::Style {
+                    background: Some(palette.background.into()),
+                    border: iced::border::rounded(10).color(palette.text).width(2),
+                    ..Default::default()
+                }
+            });
+
+        let overlay = container(modal_card)
+            .width(Length::Fill)
             .height(Length::Fill)
-            .padding(10)
-            .style(container::bordered_box)
-            .into()
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .style(|_theme| {
+                container::Style {
+                    background: Some(Color::from_rgba8(0, 0, 0, 0.7).into()),
+                    ..Default::default()
+                }
+            });
+
+        Some(overlay.into())
     }
 
     fn check_auto_save(&mut self) {
