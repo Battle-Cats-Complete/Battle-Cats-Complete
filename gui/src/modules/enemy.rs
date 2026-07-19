@@ -1,3 +1,5 @@
+mod abilities;
+
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,20 +12,22 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length, Subscription, Task, Theme};
 use nyanko::enemy::abilities::{Identity, REGISTRY};
+use nyanko::enemy::unit::Battle;
 use nyanko::graphics::rig::Unit;
 use tracing::{debug, error, info, trace, warn};
 
+use core::common::context::GlobalContext;
 use core::modules::enemy::filter::evaluation::{entity_passes_filter, get_identity_name};
 use core::modules::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
-use core::modules::enemy::game::abilities::collect_ability_data;
 use core::modules::enemy::game::registry::{
-    format_enemy_stat, get_display_def, get_enemy_stat, AbilityIcon, DisplayGroup, Magnification,
+    format_enemy_stat, get_display_def, get_enemy_stat, Magnification,
 };
 use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::{EnemyDataState, EnemyDetailTab};
 use core::modules::settings::Settings;
 
+use crate::common::stat_grid;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 
@@ -53,8 +57,6 @@ pub enum Message {
     IconLoaded(u32, Option<iced::widget::image::Handle>),
 }
 
-// Implemented manually to prevent iced Handle struct Debug issues
-// and to avoid deriving Debug on external structs we don't control.
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -92,23 +94,19 @@ impl std::fmt::Debug for Message {
 pub struct EnemyState {
     pub data: EnemyDataState,
     pub filter_state: EnemyFilterState,
-
-    // UI State
     pub search_query: String,
     pub mag_input: String,
     pub magnification: Magnification,
     pub selected_tab: EnemyDetailTab,
     pub show_filter_modal: bool,
-
-    // Caches
     pub texture_cache: HashMap<u32, iced::widget::image::Handle>,
     pub pending_requests: HashSet<u32>,
     pub missing_ids: HashSet<u32>,
-
-    // External Context
     pub img015_sheets: Vec<SpriteSheet>,
-    pub custom_assets: Option<CustomAssets>,
+    pub custom_assets: CustomAssets,
     pub rig: Option<Arc<Unit>>,
+
+    abilities: abilities::State,
 }
 
 impl Default for EnemyState {
@@ -125,8 +123,10 @@ impl Default for EnemyState {
             pending_requests: HashSet::new(),
             missing_ids: HashSet::new(),
             img015_sheets: Vec::new(),
-            custom_assets: None,
+            custom_assets: CustomAssets::new(),
             rig: None,
+
+            abilities: abilities::State::default(),
         }
     }
 }
@@ -146,6 +146,8 @@ impl EnemyState {
                 } else if self.data.scan_receiver.is_some() {
                     self.data.update_data();
                 }
+
+                crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
                 Task::none()
             }
             Message::SearchQueryChanged(query) => {
@@ -254,10 +256,10 @@ impl EnemyState {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let content = row![
             self.view_sidebar(),
-            self.view_main_panel(),
+            self.view_main_panel(settings, global_ctx),
         ]
             .width(Length::Fill)
             .height(Length::Fill);
@@ -352,7 +354,7 @@ impl EnemyState {
             .into()
     }
 
-    fn view_main_panel(&self) -> Element<Message> {
+    fn view_main_panel<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let Some(selected_id) = self.data.selected_enemy else {
             return container(text("Select an Enemy").size(24))
                 .width(Length::Fill)
@@ -374,13 +376,7 @@ impl EnemyState {
         let header = self.view_header(enemy_entry);
 
         let content = match self.selected_tab {
-            EnemyDetailTab::Abilities => {
-                column![
-                    self.view_stats(enemy_entry),
-                    Space::new().height(Length::Fixed(10.0)),
-                    self.view_abilities(enemy_entry)
-                ].into()
-            }
+            EnemyDetailTab::Abilities => self.view_abilities(enemy_entry, settings, global_ctx),
             EnemyDetailTab::Details => {
                 self.view_details(enemy_entry)
             }
@@ -442,66 +438,70 @@ impl EnemyState {
         ].into()
     }
 
-    fn view_stats(&self, enemy: &EnemyEntry) -> Element<Message> {
-        let stats = &enemy.stats;
+    fn view_abilities<'a>(&'a self, enemy: &'a EnemyEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+        let dynamic_entry = scanner::scan_single(enemy.id, &settings.scanner_config());
+        let stats = dynamic_entry.as_ref().map(|e| &e.stats).unwrap_or(&enemy.stats);
+
+        let ctx = EnemyRenderContext {
+            global: global_ctx,
+            stats,
+            magnification: self.magnification,
+        };
+
+        column![
+            self.view_stats(enemy, stats),
+            Space::new().height(Length::Fixed(8.0)),
+            self.abilities.view(&ctx, &self.img015_sheets, &self.custom_assets)
+        ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn view_stats(&self, enemy: &EnemyEntry, stats: &Battle) -> Element<Message> {
         let frames = enemy.atk_anim_frames;
         let mag = self.magnification;
 
         let atk_str = format_enemy_stat("Attack", stats, frames, mag);
         let dps_str = format_enemy_stat("Dps", stats, frames, mag);
         let range_str = format_enemy_stat("Range", stats, frames, mag);
-        let cycle = (get_enemy_stat("Atk Cycle").get_value)(stats, frames, mag);
+        let cash_str = format_enemy_stat("Cash Drop", stats, frames, mag);
 
         let hp_str = format_enemy_stat("Hitpoints", stats, frames, mag);
         let kb_str = format_enemy_stat("Knockbacks", stats, frames, mag);
         let speed_str = format_enemy_stat("Speed", stats, frames, mag);
-        let cash_str = format_enemy_stat("Cash Drop", stats, frames, mag);
 
-        column![
-            row![
-                self.stat_cell(get_enemy_stat("Attack").display_name.to_string(), atk_str),
-                self.stat_cell(get_enemy_stat("Dps").display_name.to_string(), dps_str),
-                self.stat_cell(get_enemy_stat("Range").display_name.to_string(), range_str),
-                self.stat_cell(get_enemy_stat("Atk Cycle").display_name.to_string(), format!("{}f", cycle)),
-            ].spacing(10),
-            Space::new().height(Length::Fixed(10.0)),
-            row![
-                self.stat_cell(get_enemy_stat("Hitpoints").display_name.to_string(), hp_str),
-                self.stat_cell(get_enemy_stat("Knockbacks").display_name.to_string(), kb_str),
-                self.stat_cell(get_enemy_stat("Speed").display_name.to_string(), speed_str),
-                self.stat_cell(get_enemy_stat("Cash Drop").display_name.to_string(), cash_str),
-            ].spacing(10)
-        ].into()
-    }
+        let cycle = (get_enemy_stat("Atk Cycle").get_value)(stats, frames, mag);
 
-    fn stat_cell<'a>(&self, label: String, value: String) -> Element<'a, Message> {
-        container(
-            column![
-                text(label).size(12),
-                text(value).size(16)
-            ].align_x(Alignment::Center)
-        )
-            .width(Length::Fixed(120.0))
-            .padding(5)
-            .style(|theme: &Theme| {
-                container::Style {
-                    background: Some(theme.palette().background.into()),
-                    border: iced::Border {
-                        width: 1.0,
-                        color: theme.palette().text,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                }
-            })
-            .into()
-    }
+        let header_row = row![
+            stat_grid::grid_cell(get_enemy_stat("Attack").display_name, true),
+            stat_grid::grid_cell(get_enemy_stat("Dps").display_name, true),
+            stat_grid::grid_cell(get_enemy_stat("Range").display_name, true),
+            stat_grid::grid_cell(get_enemy_stat("Atk Cycle").display_name, true),
+        ].spacing(4);
 
-    fn view_abilities(&self, _enemy: &EnemyEntry) -> Element<Message> {
-        column![
-            text("Abilities Section").size(20),
-            text("Detailed ability icons and text parsed from core::modules::enemy::game::abilities go here.")
-        ].into()
+        let value_row = row![
+            stat_grid::grid_cell(&atk_str, false),
+            stat_grid::grid_cell(&dps_str, false),
+            stat_grid::grid_cell(&range_str, false),
+            stat_grid::grid_cell_element(stat_grid::render_frames(cycle, 60.0), false),
+        ].spacing(4);
+
+        let header_row2 = row![
+            stat_grid::grid_cell(get_enemy_stat("Hitpoints").display_name, true),
+            stat_grid::grid_cell(get_enemy_stat("Knockbacks").display_name, true),
+            stat_grid::grid_cell(get_enemy_stat("Speed").display_name, true),
+            stat_grid::grid_cell(get_enemy_stat("Cash Drop").display_name, true),
+        ].spacing(4);
+
+        let value_row2 = row![
+            stat_grid::grid_cell(&hp_str, false),
+            stat_grid::grid_cell(&kb_str, false),
+            stat_grid::grid_cell(&speed_str, false),
+            stat_grid::grid_cell(&cash_str, false),
+        ].spacing(4);
+
+        column![header_row, value_row, header_row2, value_row2].spacing(4).into()
     }
 
     fn view_details(&self, enemy: &EnemyEntry) -> Element<Message> {

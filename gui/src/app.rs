@@ -307,7 +307,7 @@ impl BattleCatsApp {
         let content = match self.current_page {
             Page::Home => self.home_state.view().map(Message::Home),
             Page::Cats => self.cat_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Cat),
-            Page::Enemies => self.enemy_state.view().map(Message::Enemy),
+            Page::Enemies => self.enemy_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Enemy),
             Page::Stages => self.stage_state.view().map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Data => self.data_state.view(&self.settings).map(Message::Data),
@@ -318,8 +318,7 @@ impl BattleCatsApp {
         let content_container = container(content)
             .width(Length::Fill)
             .height(Length::Fill);
-
-        // Right side list block
+        
         let sidebar_list: Element<Message> = if self.sidebar_open {
             let mut tabs: iced::widget::Column<'_, Message> = column![].spacing(10);
             for page in ALL_PAGES {
@@ -355,8 +354,7 @@ impl BattleCatsApp {
         } else {
             Space::new().width(Length::Fixed(0.0)).into()
         };
-
-        // Standalone toggle button at the top
+        
         let arrow_text = if self.sidebar_open { "▶" } else { "◀" };
         let toggle_btn = button(text(arrow_text).size(20).align_x(alignment::Horizontal::Center))
             .width(Length::Fixed(40.0))
@@ -370,24 +368,21 @@ impl BattleCatsApp {
                 right: 10.0,
                 bottom: 0.0,
                 left: 0.0,
-            }); // Matches egui's gap positioning
-
-        // Right panel containing the separate toggle button and the list
+            });
+        
         let right_panel = row![
             toggle_container,
             sidebar_list
         ]
             .height(Length::Fill);
-
-        // Base UI structure: main content on left, sidebar on right
+        
         let base_ui = row![
             content_container,
             right_panel
         ]
             .width(Length::Fill)
             .height(Length::Fill);
-
-        // Modal overlay handling
+        
         if let Some(modal) = self.build_modal() {
             stack![base_ui, modal].into()
         } else {
