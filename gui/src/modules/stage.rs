@@ -1,13 +1,14 @@
-use std::hash::{Hash, Hasher};
+mod category;
+mod list;
 
+use iced::alignment;
 use iced::widget::{button, column, container, row, scrollable, space, stack, text, text_input};
 use iced::{font, Alignment, Element, Length, Subscription, Task, Theme};
-use nyanko::chapter::Category;
 use nyanko::chapter::stage::{BossType, EnemyAmount};
 use tracing::{debug, warn};
 
-use core::modules::stage::filter::{CompiledStageFilter, StageFilterState};
-use core::modules::stage::{navigate, GlobalMapId, GlobalStageId, Stage, StageDataState};
+use core::modules::stage::filter::StageFilterState;
+use core::modules::stage::{Stage, StageDataState};
 use core::modules::settings::Settings;
 
 fn bold_text<'a>(content: impl ToString) -> iced::widget::Text<'a> {
@@ -21,11 +22,7 @@ fn bold_text<'a>(content: impl ToString) -> iced::widget::Text<'a> {
 pub enum Message {
     Tick,
     ToggleSidebar,
-    ToggleFilter,
     ClearFilter,
-    SelectCategory(Category),
-    SelectMap(GlobalMapId),
-    SelectStage(GlobalStageId),
     SelectCrown(u8),
     FilterCategoryChanged(String),
     FilterMapChanged(String),
@@ -33,16 +30,25 @@ pub enum Message {
     FilterContinuesToggled(Option<bool>),
     FilterBossGuardToggled(Option<bool>),
     FilterCpuToggled(Option<bool>),
+    List(list::Message),
 }
 
-#[derive(Default)]
 pub struct State {
     pub data: StageDataState,
     pub is_sidebar_open: bool,
-    pub is_filter_open: bool,
     pub selected_crown: u8,
-    pub filter_state: StageFilterState,
-    pub compiled_filter: Option<CompiledStageFilter>,
+    list: list::State,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            data: StageDataState::default(),
+            is_sidebar_open: true,
+            selected_crown: 0,
+            list: list::State::default(),
+        }
+    }
 }
 
 impl State {
@@ -59,200 +65,71 @@ impl State {
                 } else if self.data.scan_receiver.is_some() {
                     self.data.update_data();
                 }
-                Task::none()
             }
-            Message::ToggleSidebar => {
-                self.is_sidebar_open = !self.is_sidebar_open;
-                Task::none()
-            }
-            Message::ToggleFilter => {
-                self.is_filter_open = !self.is_filter_open;
-                Task::none()
-            }
-            Message::ClearFilter => {
-                self.filter_state = StageFilterState::default();
-                self.compile_filters();
-                Task::none()
-            }
-            Message::SelectCategory(category) => {
-                self.data.selected_category = Some(category);
-                self.data.selected_map = None;
-                self.data.selected_stage = None;
-                Task::none()
-            }
-            Message::SelectMap(map_id) => {
-                self.data.selected_map = Some(map_id);
-                self.data.selected_stage = None;
-                Task::none()
-            }
-            Message::SelectStage(stage_id) => {
-                self.data.selected_stage = Some(stage_id);
-                Task::none()
-            }
-            Message::SelectCrown(crown) => {
-                self.selected_crown = crown;
-                Task::none()
-            }
-            Message::FilterCategoryChanged(val) => {
-                self.filter_state.category_name = val;
-                self.compile_filters();
-                Task::none()
-            }
-            Message::FilterMapChanged(val) => {
-                self.filter_state.map_name = val;
-                self.compile_filters();
-                Task::none()
-            }
-            Message::FilterStageChanged(val) => {
-                self.filter_state.stage_name = val;
-                self.compile_filters();
-                Task::none()
-            }
-            Message::FilterContinuesToggled(val) => {
-                self.filter_state.continues = val;
-                self.compile_filters();
-                Task::none()
-            }
-            Message::FilterBossGuardToggled(val) => {
-                self.filter_state.boss_guard = val;
-                self.compile_filters();
-                Task::none()
-            }
-            Message::FilterCpuToggled(val) => {
-                self.filter_state.use_super_cpu = val;
-                self.compile_filters();
-                Task::none()
-            }
+            Message::ToggleSidebar => self.is_sidebar_open = !self.is_sidebar_open,
+            Message::ClearFilter => self.list.filter_state = StageFilterState::default(),
+            Message::SelectCrown(crown) => self.selected_crown = crown,
+            Message::FilterCategoryChanged(val) => self.list.filter_state.category_name = val,
+            Message::FilterMapChanged(val) => self.list.filter_state.map_name = val,
+            Message::FilterStageChanged(val) => self.list.filter_state.stage_name = val,
+            Message::FilterContinuesToggled(val) => self.list.filter_state.continues = val,
+            Message::FilterBossGuardToggled(val) => self.list.filter_state.boss_guard = val,
+            Message::FilterCpuToggled(val) => self.list.filter_state.use_super_cpu = val,
+            Message::List(msg) => self.list.update(msg, &mut self.data),
         }
-    }
 
-    fn compile_filters(&mut self) {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.filter_state.hash(&mut hasher);
-        let hash = hasher.finish();
-
-        let mut compiled = self.filter_state.compile();
-        compiled.source_hash = hash;
-        self.compiled_filter = Some(compiled);
+        self.list.refresh();
+        Task::none()
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let main_content = row![
-            self.view_sidebar(),
-            self.view_main_panel(),
-        ]
-            .width(Length::Fill)
-            .height(Length::Fill);
+        let base = self.view_main_panel();
+        let sidebar_overlay = self.view_sidebar_overlay();
 
-        if self.is_filter_open {
-            stack![main_content, self.view_filter_modal()]
+        if self.list.filter_state.is_open {
+            stack![base, sidebar_overlay, self.view_filter_modal()]
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into()
         } else {
-            main_content.into()
-        }
-    }
-
-    fn view_sidebar(&self) -> Element<'_, Message> {
-        if !self.is_sidebar_open {
-            return space().width(0).into();
-        }
-
-        let categories = navigate::get_categories(&self.data.registry);
-        if categories.is_empty() {
-            return container(text("No Stages Found").style(|theme: &Theme| text::Style {
-                color: Some(theme.palette().danger),
-            }))
-                .width(180)
+            stack![base, sidebar_overlay]
+                .width(Length::Fill)
                 .height(Length::Fill)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill)
-                .into();
+                .into()
         }
-
-        let mut sidebar_row = row![].height(Length::Fill);
-
-        // Category Column
-        let mut cat_col = column![].spacing(6).width(180);
-        let mut sorted_categories = categories.to_vec();
-        sorted_categories.sort_by_key(|c| format!("{:?}", c));
-
-        for cat in sorted_categories {
-            let is_selected = self.data.selected_category.as_ref() == Some(&cat);
-            cat_col = cat_col.push(self.sidebar_button(
-                format!("{:?}", cat),
-                is_selected,
-                Message::SelectCategory(cat)
-            ));
-        }
-        sidebar_row = sidebar_row.push(scrollable(cat_col));
-
-        // Maps Column
-        if let Some(cat) = &self.data.selected_category {
-            let mut map_col = column![].spacing(6).width(200);
-            let maps = navigate::get_maps(&self.data.registry, cat);
-
-            for map in maps {
-                let map_key = GlobalMapId { category: cat.clone(), map: map.map_id };
-                let is_selected = self.data.selected_map.as_ref() == Some(&map_key);
-                map_col = map_col.push(self.sidebar_button(
-                    map.name.clone(),
-                    is_selected,
-                    Message::SelectMap(map_key)
-                ));
-            }
-            sidebar_row = sidebar_row.push(scrollable(map_col));
-        }
-
-        // Stages Column
-        if let Some(map_id) = &self.data.selected_map {
-            let mut stage_col = column![].spacing(6).width(200);
-            let stages = navigate::get_stages(&self.data.registry, map_id);
-
-            for stage in stages {
-                let stage_key = GlobalStageId {
-                    category: map_id.category.clone(),
-                    map: map_id.map,
-                    stage: stage.stage_id,
-                };
-                let is_selected = self.data.selected_stage.as_ref() == Some(&stage_key);
-                stage_col = stage_col.push(self.sidebar_button(
-                    stage.name.clone(),
-                    is_selected,
-                    Message::SelectStage(stage_key)
-                ));
-            }
-            sidebar_row = sidebar_row.push(scrollable(stage_col));
-        }
-
-        container(sidebar_row)
-            .style(|theme: &Theme| container::Style {
-                background: Some(theme.palette().background.into()),
-                ..Default::default()
-            })
-            .height(Length::Fill)
-            .into()
     }
 
-    fn sidebar_button(&self, label: String, is_selected: bool, msg: Message) -> Element<'_, Message> {
-        let btn = button(text(label).size(13))
-            .width(Length::Fill)
-            .on_press(msg);
+    fn view_sidebar_overlay(&self) -> Element<'_, Message> {
+        let arrow_text = if self.is_sidebar_open { "◀" } else { "▶" };
+        let toggle_btn = button(text(arrow_text).size(20).align_x(alignment::Horizontal::Center))
+            .width(40)
+            .height(40)
+            .on_press(Message::ToggleSidebar)
+            .style(|theme: &Theme, status| button::primary(theme, status));
 
-        if is_selected {
-            btn.style(|theme: &Theme, _status| button::Style {
-                background: Some(theme.palette().primary.into()),
-                text_color: theme.palette().text,
-                ..Default::default()
-            }).into()
-        } else {
-            btn.style(|theme: &Theme, _status| button::Style {
-                background: Some(theme.palette().background.into()),
-                text_color: theme.palette().text,
-                ..Default::default()
-            }).into()
+        let toggle_container = column![toggle_btn]
+            .padding(iced::Padding { top: 2.5, right: 0.0, bottom: 0.0, left: 10.0 });
+
+        let mut layer = row![].height(Length::Fill);
+
+        if self.is_sidebar_open {
+            let sidebar_panel = container(self.list.view(&self.data).map(Message::List))
+                .style(|theme: &Theme| container::Style {
+                    background: Some(theme.palette().background.into()),
+                    ..Default::default()
+                })
+                .height(Length::Fill);
+
+            layer = layer.push(sidebar_panel);
         }
+
+        layer = layer.push(toggle_container);
+
+        container(layer)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_left(Length::Fill)
+            .into()
     }
 
     fn view_main_panel(&self) -> Element<'_, Message> {
@@ -390,17 +267,17 @@ impl State {
             bold_text("Advanced Stage Filter").size(24),
             row![
                 text("Category:").width(80),
-                text_input("Any", &self.filter_state.category_name)
+                text_input("Any", &self.list.filter_state.category_name)
                     .on_input(Message::FilterCategoryChanged)
             ].align_y(Alignment::Center),
             row![
                 text("Map:").width(80),
-                text_input("Any", &self.filter_state.map_name)
+                text_input("Any", &self.list.filter_state.map_name)
                     .on_input(Message::FilterMapChanged)
             ].align_y(Alignment::Center),
             row![
                 text("Stage:").width(80),
-                text_input("Any", &self.filter_state.stage_name)
+                text_input("Any", &self.list.filter_state.stage_name)
                     .on_input(Message::FilterStageChanged)
             ].align_y(Alignment::Center),
 
@@ -412,7 +289,7 @@ impl State {
                     ..Default::default()
                 }),
             button("Close")
-                .on_press(Message::ToggleFilter)
+                .on_press(Message::List(list::Message::ToggleFilter))
         ]
             .spacing(15)
             .padding(20);

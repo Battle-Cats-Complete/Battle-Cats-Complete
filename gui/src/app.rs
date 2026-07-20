@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::mpsc::{Receiver, Sender};
 
 use iced::alignment;
-use iced::widget::{button, column, container, progress_bar, row, scrollable, stack, text, Space};
+use iced::widget::{button, column, container, progress_bar, row, scrollable, stack, text};
 use iced::{Color, Element, Length, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
@@ -317,8 +317,35 @@ impl BattleCatsApp {
         let content_container = container(content)
             .width(Length::Fill)
             .height(Length::Fill);
-        
-        let sidebar_list: Element<Message> = if self.sidebar_open {
+
+        let sidebar_overlay = self.view_sidebar_overlay();
+
+        if let Some(modal) = self.build_modal() {
+            stack![content_container, sidebar_overlay, modal].into()
+        } else {
+            stack![content_container, sidebar_overlay].into()
+        }
+    }
+
+    fn view_sidebar_overlay(&self) -> Element<'_, Message> {
+        let arrow_text = if self.sidebar_open { "▶" } else { "◀" };
+        let toggle_btn = button(text(arrow_text).size(20).align_x(alignment::Horizontal::Center))
+            .width(Length::Fixed(40.0))
+            .height(Length::Fixed(40.0))
+            .on_press(Message::ToggleSidebar)
+            .style(|theme: &Theme, _status| button::primary(theme, _status));
+
+        let toggle_container = column![toggle_btn]
+            .padding(iced::Padding {
+                top: 2.5,
+                right: 10.0,
+                bottom: 0.0,
+                left: 0.0,
+            });
+
+        let mut layer = row![toggle_container].height(Length::Fill);
+
+        if self.sidebar_open {
             let mut tabs: iced::widget::Column<'_, Message> = column![].spacing(10);
             for page in ALL_PAGES {
                 let is_active = self.current_page == *page;
@@ -337,7 +364,7 @@ impl BattleCatsApp {
                 tabs = tabs.push(btn);
             }
 
-            container(tabs)
+            let sidebar_panel = container(tabs)
                 .width(Length::Fixed(180.0))
                 .height(Length::Fill)
                 .padding(15)
@@ -348,45 +375,16 @@ impl BattleCatsApp {
                         border: iced::border::rounded(10).color(palette.text).width(1),
                         ..Default::default()
                     }
-                })
-                .into()
-        } else {
-            Space::new().width(Length::Fixed(0.0)).into()
-        };
-        
-        let arrow_text = if self.sidebar_open { "▶" } else { "◀" };
-        let toggle_btn = button(text(arrow_text).size(20).align_x(alignment::Horizontal::Center))
-            .width(Length::Fixed(40.0))
-            .height(Length::Fixed(40.0))
-            .on_press(Message::ToggleSidebar)
-            .style(|theme: &Theme, _status| button::primary(theme, _status));
+                });
 
-        let toggle_container = column![toggle_btn]
-            .padding(iced::Padding {
-                top: 2.5,
-                right: 10.0,
-                bottom: 0.0,
-                left: 0.0,
-            });
-        
-        let right_panel = row![
-            toggle_container,
-            sidebar_list
-        ]
-            .height(Length::Fill);
-        
-        let base_ui = row![
-            content_container,
-            right_panel
-        ]
-            .width(Length::Fill)
-            .height(Length::Fill);
-        
-        if let Some(modal) = self.build_modal() {
-            stack![base_ui, modal].into()
-        } else {
-            base_ui.into()
+            layer = layer.push(sidebar_panel);
         }
+
+        container(layer)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_right(Length::Fill)
+            .into()
     }
 
     fn build_modal(&self) -> Option<Element<'_, Message>> {
