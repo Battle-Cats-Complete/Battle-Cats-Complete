@@ -5,21 +5,16 @@ mod list;
 use std::sync::Arc;
 use std::time::Duration;
 
-use iced::alignment::{Horizontal, Vertical};
-use iced::theme::{self, Palette};
 use iced::widget::{
-    button, column, container, image as iced_image, opaque, row, scrollable, stack, text, text_input, Button, Column, Container, Row, Scrollable, Space, Text
+    button, column, container, opaque, row, scrollable, stack, text, text_input, Space,
 };
 use iced::{Alignment, Element, Length, Subscription, Task, Theme};
-use nyanko::enemy::abilities::REGISTRY;
 use nyanko::enemy::unit::Battle;
 use nyanko::graphics::rig::Unit;
-use tracing::{debug, error, info, trace, warn};
+use tracing::info;
 
 use core::common::context::GlobalContext;
-use core::modules::enemy::game::registry::{
-    format_enemy_stat, get_display_def, get_enemy_stat, Magnification,
-};
+use core::modules::enemy::game::registry::{format_enemy_stat, get_enemy_stat, Magnification};
 use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::{EnemyDataState, EnemyDetailTab};

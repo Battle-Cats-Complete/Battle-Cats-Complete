@@ -3,16 +3,13 @@ use std::time::Duration;
 
 use iced::widget::{
     button, column, container, opaque, pick_list, row, scrollable, stack, text, text_input, toggler,
-    Container, Scrollable,
 };
 use iced::{Alignment, Element, Length, Subscription, Task, Theme};
-use tracing::{debug, error, info, trace, warn};
+use tracing::info;
 
 use core::modules::settings::{
-    ExportBehavior, ExceptionRule, RuleHandling, Settings as CoreSettings, SidebarBehavior, UpdateMode,
+    ExportBehavior, Settings as CoreSettings, SidebarBehavior, UpdateMode,
 };
-
-use crate::app::UpdaterAction;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {

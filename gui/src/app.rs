@@ -3,14 +3,13 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use iced::alignment;
 use iced::widget::{button, column, container, progress_bar, row, scrollable, stack, text, Space};
-use iced::{Alignment, Color, Element, Length, Subscription, Task, Theme};
+use iced::{Color, Element, Length, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
 use self_update::update::Release;
 use tracing::{info, trace, warn};
 
 use core::common::context::GlobalContext;
-use core::common::io::json;
 use core::modules::settings::{Settings, UpdateMode};
 
 use crate::common::watcher::GuiWatcher;

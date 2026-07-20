@@ -4,13 +4,13 @@ use iced::widget::{
     button, column, container, image, pick_list, row, scrollable, slider, space, stack, text, text_input
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, Task, Theme};
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use core::common::region::Region;
 use core::modules::addons::paths;
 use core::modules::mods::export::{self, apk, bcm, pack, ExportType};
 use core::modules::mods::import::{self, ModImportTab, ModPackType};
-use core::modules::mods::{ModDataState, ModMetadata};
+use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
 #[derive(Debug, Clone, PartialEq, Default)]

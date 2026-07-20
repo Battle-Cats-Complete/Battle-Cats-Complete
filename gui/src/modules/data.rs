@@ -10,7 +10,7 @@ use iced::widget::{
     text_input, Space,
 };
 use iced::{Alignment, Element, Font, Length, Subscription, Task};
-use tracing::{error, info, trace, warn};
+use tracing::{info, trace, warn};
 
 use core::common::region::Region;
 use core::modules::addons::paths::{self, Presence};
@@ -266,7 +266,6 @@ impl State {
             AdbTarget::Specific(Region::Tw) => "Taiwan",
             AdbTarget::Specific(Region::Ko) => "Korea",
             AdbTarget::All => "All Regions",
-            _ => "Global",
         };
         let dec_region_picker = pick_list(dec_regions, Some(dec_selected), |sel| {
             let target = match sel {

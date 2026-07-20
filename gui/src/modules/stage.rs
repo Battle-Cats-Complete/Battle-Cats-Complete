@@ -1,27 +1,14 @@
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
-use iced::widget::{
-    button, checkbox, column, container, image, pick_list, row, scrollable, space, stack, text,
-    text_input,
-};
+use iced::widget::{button, column, container, row, scrollable, space, stack, text, text_input};
 use iced::{font, Alignment, Element, Length, Subscription, Task, Theme};
-use nyanko::chapter::{Category, Map};
-use nyanko::chapter::stage::{BossType, EnemyAmount, RewardStructure};
-use tracing::{debug, error, trace, warn};
+use nyanko::chapter::Category;
+use nyanko::chapter::stage::{BossType, EnemyAmount};
+use tracing::{debug, warn};
 
-use core::common::formats::{GatyaItemBuy, GatyaItemName};
-use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::stage::filter::{CompiledStageFilter, StageFilterState};
-use core::modules::stage::{
-    materials, navigate, paths, treasure, GlobalMapId, GlobalStageId, Stage, StageDataState,
-};
+use core::modules::stage::{navigate, GlobalMapId, GlobalStageId, Stage, StageDataState};
 use core::modules::settings::Settings;
-
-use crate::common::watcher::GuiWatcher;
-
-const ICON_SCALE: f32 = 0.45;
-const MAX_ICON_SIZE: f32 = 32.0;
 
 fn bold_text<'a>(content: impl ToString) -> iced::widget::Text<'a> {
     text(content.to_string()).font(font::Font {
