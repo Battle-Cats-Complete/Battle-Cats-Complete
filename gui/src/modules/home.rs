@@ -187,7 +187,7 @@ impl State {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let is_empty = self.is_game_empty.unwrap_or(true);
 
         let main_content = column![
@@ -239,7 +239,7 @@ impl State {
         }
     }
 
-    fn view_setup_guide(&self) -> Element<Message> {
+    fn view_setup_guide(&self) -> Element<'_, Message> {
         column![
             Space::new().height(10.0),
             text("To get started, you will need to populate the \"game\" folder with game files using the \"Data\" page.").size(15.0),
@@ -268,7 +268,7 @@ impl State {
             .into()
     }
 
-    fn view_navigation(&self) -> Element<Message> {
+    fn view_navigation(&self) -> Element<'_, Message> {
         let nav_row = |buttons: &[(&'static str, Page)]| -> Element<Message> {
             let mut row = row![].spacing(BUTTON_SPACING).align_y(Alignment::Center);
             for (label, page) in buttons {
@@ -301,7 +301,7 @@ impl State {
             .into()
     }
 
-    fn view_notice_modal(&self) -> Element<Message> {
+    fn view_notice_modal(&self) -> Element<'_, Message> {
         let content = column![
             text(NOTICE_TITLE).size(24.0),
             Space::new().height(15.0),
@@ -337,7 +337,7 @@ impl State {
             .into()
     }
 
-    fn view_changelog_modal(&self) -> Element<Message> {
+    fn view_changelog_modal(&self) -> Element<'_, Message> {
         let mut content = column![
             row![
                 text("Changelogs").size(24.0),

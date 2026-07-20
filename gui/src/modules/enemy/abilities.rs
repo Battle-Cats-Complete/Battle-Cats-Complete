@@ -96,7 +96,7 @@ impl State {
         }).into()
     }
 
-    fn icon_row(&self, items: &[AbilityItem], sheets: &[SpriteSheet], assets: &CustomAssets, per_row: usize) -> Element<Message> {
+    fn icon_row(&self, items: &[AbilityItem], sheets: &[SpriteSheet], assets: &CustomAssets, per_row: usize) -> Element<'_, Message> {
         let mut col = column![].spacing(ABILITY_Y);
         for chunk in items.chunks(per_row) {
             let mut wrapped_row = row![].spacing(ABILITY_X).align_y(Alignment::Center);
@@ -114,7 +114,7 @@ impl State {
         col.into()
     }
 
-    fn ability_list(&self, items: &[AbilityItem], sheets: &[SpriteSheet], assets: &CustomAssets) -> Element<Message> {
+    fn ability_list(&self, items: &[AbilityItem], sheets: &[SpriteSheet], assets: &CustomAssets) -> Element<'_, Message> {
         let mut col = column![].spacing(0).width(Length::Fill);
         let count = items.len();
 
@@ -132,7 +132,7 @@ impl State {
         col.into()
     }
 
-    fn icon_element(&self, item: &AbilityItem, sheets: &[SpriteSheet], assets: &CustomAssets) -> Element<Message> {
+    fn icon_element(&self, item: &AbilityItem, sheets: &[SpriteSheet], assets: &CustomAssets) -> Element<'_, Message> {
         if item.custom_icon != CustomIcon::None {
             if let Some(handle) = assets.get_icon_texture(item.custom_icon) {
                 return iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();

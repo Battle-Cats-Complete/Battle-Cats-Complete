@@ -64,7 +64,7 @@ impl State {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let match_mode_row = row![
             text("Mode:"),
             button(if self.filter_state.match_mode == MatchMode::And { "And" } else { "Or" })

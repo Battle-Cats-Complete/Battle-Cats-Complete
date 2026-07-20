@@ -294,7 +294,7 @@ impl State {
         }
     }
 
-    fn view_sidebar(&self) -> Element<Message> {
+    fn view_sidebar(&self) -> Element<'_, Message> {
         let search_input = text_input("Search Cat...", &self.search_query)
             .on_input(Message::SearchChanged)
             .padding(8)
@@ -361,7 +361,7 @@ impl State {
             .into()
     }
 
-    fn view_header(&self, cat: &CatEntry) -> Element<Message> {
+    fn view_header(&self, cat: &CatEntry) -> Element<'_, Message> {
         let mut form_row = row![].spacing(8);
         let form_labels = ["Normal", "Evolved", "True", "Ultra"];
 
@@ -459,7 +459,7 @@ impl State {
             .into()
     }
 
-    fn view_stats(&self, cat: &CatEntry, final_stats: &Battle, form: usize) -> Element<Message> {
+    fn view_stats(&self, cat: &CatEntry, final_stats: &Battle, form: usize) -> Element<'_, Message> {
         let anim_frames = cat.atk_anim_frames[form];
         let unitbuy_opt = Some(&cat.unitbuy);
 
@@ -549,7 +549,7 @@ impl State {
             .into()
     }
 
-    fn view_details(&self, cat: &CatEntry) -> Element<Message> {
+    fn view_details(&self, cat: &CatEntry) -> Element<'_, Message> {
         let description = cat.description.get(self.selected_form)
             .and_then(|d| d.as_ref())
             .map(|lines| lines.join("\n"))

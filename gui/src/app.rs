@@ -302,7 +302,7 @@ impl BattleCatsApp {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let content = match self.current_page {
             Page::Home => self.home_state.view().map(Message::Home),
             Page::Cats => self.cat_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Cat),
@@ -389,7 +389,7 @@ impl BattleCatsApp {
         }
     }
 
-    fn build_modal(&self) -> Option<Element<Message>> {
+    fn build_modal(&self) -> Option<Element<'_, Message>> {
         let modal_content: Element<Message> = match &self.updater_status {
             UpdateStatus::UpdateFound(tag, release) => {
                 let display_version = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };

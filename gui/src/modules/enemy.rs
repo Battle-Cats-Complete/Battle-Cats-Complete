@@ -223,7 +223,7 @@ impl EnemyState {
         }
     }
 
-    fn view_sidebar(&self) -> Element<Message> {
+    fn view_sidebar(&self) -> Element<'_, Message> {
         let search_bar = row![
             text_input("Search Enemy...", &self.search_query)
                 .on_input(Message::SearchQueryChanged)
@@ -304,7 +304,7 @@ impl EnemyState {
             .into()
     }
 
-    fn view_header(&self, enemy: &EnemyEntry) -> Element<Message> {
+    fn view_header(&self, enemy: &EnemyEntry) -> Element<'_, Message> {
         let tabs = row![
             button("Abilities").on_press(Message::TabSelected(EnemyDetailTab::Abilities))
                 .style(if self.selected_tab == EnemyDetailTab::Abilities { iced::widget::button::primary } else { iced::widget::button::secondary }),
@@ -364,7 +364,7 @@ impl EnemyState {
             .into()
     }
 
-    fn view_stats(&self, enemy: &EnemyEntry, stats: &Battle) -> Element<Message> {
+    fn view_stats(&self, enemy: &EnemyEntry, stats: &Battle) -> Element<'_, Message> {
         let frames = enemy.atk_anim_frames;
         let mag = self.magnification;
 
@@ -410,7 +410,7 @@ impl EnemyState {
         column![header_row, value_row, header_row2, value_row2].spacing(4).into()
     }
 
-    fn view_details(&self, enemy: &EnemyEntry) -> Element<Message> {
+    fn view_details(&self, enemy: &EnemyEntry) -> Element<'_, Message> {
         let mut col = column![text("Description").size(20)].spacing(10).align_x(Alignment::Center);
 
         if enemy.description.is_empty() {

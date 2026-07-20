@@ -137,7 +137,7 @@ impl State {
         }).into()
     }
 
-    fn icon_row(&self, items: &[AbilityItem], sheets: &[SpriteSheet], assets: &CustomAssets, per_row: usize) -> Element<Message> {
+    fn icon_row(&self, items: &[AbilityItem], sheets: &[SpriteSheet], assets: &CustomAssets, per_row: usize) -> Element<'_, Message> {
         let mut col = column![].spacing(ABILITY_Y);
         for chunk in items.chunks(per_row) {
             let mut wrapped_row = row![].spacing(ABILITY_X).align_y(Alignment::Center);
@@ -164,7 +164,7 @@ impl State {
         assets: &CustomAssets,
         settings: &Settings,
         per_row: usize,
-    ) -> Element<Message> {
+    ) -> Element<'_, Message> {
         let mut col = column![].spacing(0).width(Length::Fill);
         let count = items.len();
 
@@ -210,7 +210,7 @@ impl State {
         assets: &CustomAssets,
         settings: &Settings,
         per_row: usize,
-    ) -> Element<Message> {
+    ) -> Element<'_, Message> {
         let Some(conjure_stats_vec) = unitid(spirit.conjure_unit_id, &settings.general.language_priority) else {
             return container(text("Spirit data not found")).padding(8).into();
         };
@@ -296,7 +296,7 @@ impl State {
             .into()
     }
 
-    fn icon_element(&self, item: &AbilityItem, sheets: &[SpriteSheet], assets: &CustomAssets) -> Element<Message> {
+    fn icon_element(&self, item: &AbilityItem, sheets: &[SpriteSheet], assets: &CustomAssets) -> Element<'_, Message> {
         if item.custom_icon != CustomIcon::None {
             if let Some(handle) = assets.get_icon_texture(item.custom_icon) {
                 return iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
@@ -327,7 +327,7 @@ impl State {
         fallback_icon(get_fallback_by_icon(icon_enum))
     }
 
-    fn raw_icon(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Element<Message> {
+    fn raw_icon(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Element<'_, Message> {
         match self.icon_handle(icon_id, sheets) {
             Some(handle) => iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into(),
             None => fallback_icon(get_fallback_by_icon(AbilityIcon::Standard(icon_id))),

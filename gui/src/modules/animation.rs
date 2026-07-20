@@ -227,7 +227,7 @@ impl State {
         Task::none()
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let canvas_layer = container(text("OpenGL Canvas Placeholder"))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -257,7 +257,7 @@ impl State {
         layered_stack.into()
     }
 
-    fn view_controls(&self) -> Element<Message> {
+    fn view_controls(&self) -> Element<'_, Message> {
         let play_icon = if self.is_playing { "⏸" } else { "▶" };
         let expand_icon = if self.controls_expanded { "▼" } else { "▲" };
 
@@ -310,7 +310,7 @@ impl State {
             .into()
     }
 
-    fn anim_button(&self, label: &'static str, index: usize) -> Element<Message> {
+    fn anim_button(&self, label: &'static str, index: usize) -> Element<'_, Message> {
         let mut btn = button(text(label)).on_press(Message::SelectAnimation(index)).width(Length::Fixed(80.0));
 
         if self.active_animation_index == index {
@@ -322,7 +322,7 @@ impl State {
         btn.into()
     }
 
-    fn view_export_popup(&self) -> Element<Message> {
+    fn view_export_popup(&self) -> Element<'_, Message> {
         let selected_mode_str = match self.export_mode {
             ExportMode::Manual => "Manual",
             ExportMode::Loop => "Loop",

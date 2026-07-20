@@ -140,7 +140,7 @@ impl State {
         Task::none()
     }
 
-    pub fn view(&self, settings: &Settings) -> Element<Message> {
+    pub fn view(&self, settings: &Settings) -> Element<'_, Message> {
         let is_import = self.config.active_tab == DataTab::Import;
         let is_export = self.config.active_tab == DataTab::Export;
 
@@ -176,7 +176,7 @@ impl State {
             .into()
     }
 
-    fn view_import(&self, settings: &Settings) -> Element<Message> {
+    fn view_import(&self, settings: &Settings) -> Element<'_, Message> {
         let current_status = self.config.import_job_status.load(Ordering::Relaxed);
         let is_running = current_status == 1;
         let adb_installed = paths::adb_status() == Presence::Installed;
@@ -428,7 +428,7 @@ impl State {
         column![sections_row, Space::new().height(20), action_row].into()
     }
 
-    fn view_export(&self, settings: &Settings) -> Element<Message> {
+    fn view_export(&self, settings: &Settings) -> Element<'_, Message> {
         let current_status = self.config.export_job_status.load(Ordering::Relaxed);
         let is_running = current_status == 1;
 
@@ -543,7 +543,7 @@ impl State {
         controls.into()
     }
 
-    fn view_progress_and_console(&self) -> Element<Message> {
+    fn view_progress_and_console(&self) -> Element<'_, Message> {
         let (is_running, log_content, cur, max) = match self.config.active_tab {
             DataTab::Import => (
                 self.config.import_job_status.load(Ordering::Relaxed) == 1,

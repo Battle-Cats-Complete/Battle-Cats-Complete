@@ -315,7 +315,7 @@ impl State {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let content = row![
             self.view_sidebar(),
             self.view_details()
@@ -344,7 +344,7 @@ impl State {
         }
     }
 
-    fn view_sidebar(&self) -> Element<Message> {
+    fn view_sidebar(&self) -> Element<'_, Message> {
         let search_input = text_input("Search Mods...", &self.search_query)
             .on_input(Message::SearchChanged)
             .padding(8);
@@ -418,7 +418,7 @@ impl State {
             .into()
     }
 
-    fn view_details(&self) -> Element<Message> {
+    fn view_details(&self) -> Element<'_, Message> {
         let Some(mod_idx) = self.get_selected_mod_idx() else {
             return container(text("Please select or import a Mod").size(18))
                 .width(Length::Fill)
@@ -522,7 +522,7 @@ impl State {
             .into()
     }
 
-    fn view_active_modal(&self) -> Element<Message> {
+    fn view_active_modal(&self) -> Element<'_, Message> {
         match self.active_modal {
             ActiveModal::None => space().into(),
             ActiveModal::DeleteConfirm => self.view_delete_modal(),
@@ -531,7 +531,7 @@ impl State {
         }
     }
 
-    fn view_delete_modal(&self) -> Element<Message> {
+    fn view_delete_modal(&self) -> Element<'_, Message> {
         let title_str = format!("Are you sure you want to completely delete {}?", self.data.selected_mod.as_deref().unwrap_or("this mod"));
         let title = text(title_str).size(16);
 
@@ -548,7 +548,7 @@ impl State {
         self.modal_container("Confirm Deletion", column![title, row![yes_btn, no_btn].spacing(16)])
     }
 
-    fn view_import_modal(&self) -> Element<Message> {
+    fn view_import_modal(&self) -> Element<'_, Message> {
         let is_busy = self.data.import.is_busy;
 
         let tabs_row = row![
@@ -613,7 +613,7 @@ impl State {
         self.modal_container("Import Mod", body)
     }
 
-    fn view_export_modal(&self) -> Element<Message> {
+    fn view_export_modal(&self) -> Element<'_, Message> {
         let is_busy = self.data.export.is_busy;
         let is_ready = self.data.selected_mod.is_some();
 

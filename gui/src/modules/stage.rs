@@ -136,7 +136,7 @@ impl State {
         self.compiled_filter = Some(compiled);
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let main_content = row![
             self.view_sidebar(),
             self.view_main_panel(),
@@ -154,7 +154,7 @@ impl State {
         }
     }
 
-    fn view_sidebar(&self) -> Element<Message> {
+    fn view_sidebar(&self) -> Element<'_, Message> {
         if !self.is_sidebar_open {
             return space().width(0).into();
         }
@@ -235,7 +235,7 @@ impl State {
             .into()
     }
 
-    fn sidebar_button(&self, label: String, is_selected: bool, msg: Message) -> Element<Message> {
+    fn sidebar_button(&self, label: String, is_selected: bool, msg: Message) -> Element<'_, Message> {
         let btn = button(text(label).size(13))
             .width(Length::Fill)
             .on_press(msg);
@@ -255,7 +255,7 @@ impl State {
         }
     }
 
-    fn view_main_panel(&self) -> Element<Message> {
+    fn view_main_panel(&self) -> Element<'_, Message> {
         let Some(stage_id) = &self.data.selected_stage else {
             return container(text("Select a stage to view details"))
                 .width(Length::Fill)
@@ -284,7 +284,7 @@ impl State {
             .into()
     }
 
-    fn view_stage_header(&self, stage: &Stage) -> Element<Message> {
+    fn view_stage_header(&self, stage: &Stage) -> Element<'_, Message> {
         column![
             bold_text(&stage.name).size(32),
             text(format!("Base HP: {}", stage.base_hp)),
@@ -295,7 +295,7 @@ impl State {
             .into()
     }
 
-    fn view_crowns(&self, stage: &Stage) -> Element<Message> {
+    fn view_crowns(&self, stage: &Stage) -> Element<'_, Message> {
         if stage.max_crowns <= 1 {
             return space().into();
         }
@@ -328,7 +328,7 @@ impl State {
         row_btns.into()
     }
 
-    fn view_battleground(&self, stage: &Stage) -> Element<Message> {
+    fn view_battleground(&self, stage: &Stage) -> Element<'_, Message> {
         if stage.enemies.is_empty() {
             return text("No enemies defined for this stage.").into();
         }
@@ -385,7 +385,7 @@ impl State {
             .into()
     }
 
-    fn view_filter_modal(&self) -> Element<Message> {
+    fn view_filter_modal(&self) -> Element<'_, Message> {
         let content = column![
             bold_text("Advanced Stage Filter").size(24),
             row![
