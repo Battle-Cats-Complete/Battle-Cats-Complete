@@ -1,6 +1,7 @@
 mod abilities;
 mod filter;
 mod list;
+mod talents;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -55,6 +56,7 @@ pub enum Message {
     List(list::Message),
     Filter(filter::Message),
     Abilities(abilities::Message),
+    Talents(talents::Message),
 }
 
 impl std::fmt::Debug for Message {
@@ -72,6 +74,7 @@ impl std::fmt::Debug for Message {
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
             Self::Abilities(msg) => write!(f, "Abilities({:?})", msg),
+            Self::Talents(msg) => write!(f, "Talents({:?})", msg),
         }
     }
 }
@@ -86,13 +89,16 @@ pub struct State {
     pub current_level: i32,
     pub level_input: String,
     pub talent_levels: HashMap<u8, u8>,
+    pub talent_level_inputs: HashMap<u8, String>,
 
     img015_sheets: Vec<SpriteSheet>,
+    img022_sheets: Vec<SpriteSheet>,
     custom_assets: CustomAssets,
 
     list: list::State,
     filter: filter::State,
     abilities: abilities::State,
+    talents: talents::State,
 }
 
 impl Default for State {
@@ -106,13 +112,16 @@ impl Default for State {
             current_level: 1,
             level_input: String::from("1"),
             talent_levels: HashMap::new(),
+            talent_level_inputs: HashMap::new(),
 
             img015_sheets: Vec::new(),
+            img022_sheets: Vec::new(),
             custom_assets: CustomAssets::new(),
 
             list: list::State::default(),
             filter: filter::State::default(),
             abilities: abilities::State::default(),
+            talents: talents::State::default(),
         }
     }
 }
@@ -142,6 +151,7 @@ impl State {
                 }
 
                 crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
+                crate::common::img022::ensure_loaded(&mut self.img022_sheets, settings);
 
                 self.list
                     .update(list::Message::Tick, &self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality)
@@ -156,6 +166,7 @@ impl State {
                 self.selected_form = 0;
                 self.selected_tab = DetailTab::Abilities;
                 self.talent_levels.clear();
+                self.talent_level_inputs.clear();
 
                 if let Some(_cat) = self.data.cats.iter().find(|c| c.id == id) {
                     let default_level = settings.cat_data.default_level.max(1);
@@ -188,6 +199,7 @@ impl State {
             }
             Message::ChangeTalentLevel(index, level) => {
                 self.talent_levels.insert(index, level);
+                self.talent_level_inputs.remove(&index);
                 Task::none()
             }
             Message::MaximizeTalents(is_ultra) => {
@@ -198,6 +210,7 @@ impl State {
                                 let target_group = if is_ultra { group.limit == 1 } else { group.limit != 1 };
                                 if target_group {
                                     self.talent_levels.insert(index as u8, group.max_level.max(1));
+                                    self.talent_level_inputs.remove(&(index as u8));
                                 }
                             }
                         }
@@ -227,6 +240,31 @@ impl State {
             }
             Message::Abilities(msg) => {
                 self.abilities.update(msg);
+                Task::none()
+            }
+            Message::Talents(msg) => {
+                match msg {
+                    talents::Message::LevelChanged(index, level) => {
+                        return self.update(Message::ChangeTalentLevel(index, level), settings);
+                    }
+                    talents::Message::LevelInputChanged(index, input) => {
+                        let max_level = self.selected_cat
+                            .and_then(|cat_id| self.data.cats.iter().find(|c| c.id == cat_id))
+                            .and_then(|cat| cat.talent_data.as_ref())
+                            .and_then(|talent_data| talent_data.groups.get(index as usize))
+                            .map(|group| group.max_level.max(1))
+                            .unwrap_or(u8::MAX);
+
+                        if let Ok(parsed) = input.trim().parse::<u8>() {
+                            self.talent_levels.insert(index, parsed.min(max_level));
+                        } else if input.trim().is_empty() {
+                            self.talent_levels.insert(index, 0);
+                        }
+
+                        self.talent_level_inputs.insert(index, input);
+                    }
+                    other => self.talents.update(other),
+                }
                 Task::none()
             }
         }
@@ -307,7 +345,7 @@ impl State {
 
         let content = match self.selected_tab {
             DetailTab::Abilities => self.view_abilities(cat, settings, global_ctx),
-            DetailTab::Talents => self.view_talents(cat),
+            DetailTab::Talents => self.view_talents(cat, settings),
             DetailTab::Details => self.view_details(cat),
             DetailTab::Animation => container(text("Animation Viewer Placeholder")).center_x(Length::Fill).center_y(Length::Fill).into(),
         };
@@ -472,38 +510,43 @@ impl State {
         column![header_row, value_row, header_row2, value_row2].spacing(4).into()
     }
 
-    fn view_talents(&self, cat: &CatEntry) -> Element<Message> {
+    fn view_talents<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings) -> Element<'a, Message> {
         let Some(talent_data) = &cat.talent_data else {
             return container(text("No Talents Available")).into();
         };
 
-        let mut talent_col = column![].spacing(12);
+        let dynamic_stats = unitid(cat.id as i32, &settings.general.language_priority);
+        let base_stats = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form));
 
         let normal_talents_btn = button("Max Normal Talents")
             .on_press(Message::MaximizeTalents(false));
         let ultra_talents_btn = button("Max Ultra Talents")
             .on_press(Message::MaximizeTalents(true));
 
-        talent_col = talent_col.push(row![normal_talents_btn, ultra_talents_btn].spacing(8));
+        let talents_view = self.talents.view(
+            cat.id,
+            talent_data,
+            &self.talent_levels,
+            &self.talent_level_inputs,
+            &cat.talent_costs,
+            &cat.skill_descriptions,
+            base_stats,
+            cat.curve.as_ref(),
+            self.current_level,
+            &self.img015_sheets,
+            &self.img022_sheets,
+            &self.custom_assets,
+            settings,
+        ).map(Message::Talents);
 
-        for (index, group) in talent_data.groups.iter().enumerate() {
-            let current_lvl = *self.talent_levels.get(&(index as u8)).unwrap_or(&0);
-
-            let max_lvl = group.max_level.max(1);
-            let next_lvl = if current_lvl < max_lvl { current_lvl + 1 } else { max_lvl };
-            let prev_lvl = if current_lvl > 0 { current_lvl - 1 } else { 0 };
-
-            let group_row = row![
-                text(format!("Talent {}", group.ability_id)).width(Length::Fixed(120.0)),
-                button("-").on_press(Message::ChangeTalentLevel(index as u8, prev_lvl)),
-                text(format!("{}/{}", current_lvl, max_lvl)),
-                button("+").on_press(Message::ChangeTalentLevel(index as u8, next_lvl)),
-            ].spacing(8).align_y(Vertical::Center);
-
-            talent_col = talent_col.push(container(group_row).padding(8).style(container::bordered_box));
-        }
-
-        scrollable(talent_col).into()
+        column![
+            row![normal_talents_btn, ultra_talents_btn].spacing(8),
+            Space::new().height(Length::Fixed(12.0)),
+            talents_view
+        ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 
     fn view_details(&self, cat: &CatEntry) -> Element<Message> {
