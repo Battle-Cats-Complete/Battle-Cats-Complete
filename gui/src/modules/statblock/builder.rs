@@ -566,7 +566,7 @@ pub(crate) fn build_statblock_image(
     Ok(final_background_layer)
 }
 
-pub(crate) fn copy_to_clipboard(image: &RgbaImage) -> Result<(), String> {
+pub(crate) fn copy_to_clipboard(clipboard: &mut Clipboard, image: &RgbaImage) -> Result<(), String> {
     let (width, height) = image.dimensions();
     let img_data = ImageData {
         width: width as usize,
@@ -574,9 +574,7 @@ pub(crate) fn copy_to_clipboard(image: &RgbaImage) -> Result<(), String> {
         bytes: Cow::Borrowed(image.as_raw()),
     };
 
-    Clipboard::new()
-        .and_then(|mut clipboard| clipboard.set_image(img_data))
-        .map_err(|err| err.to_string())
+    clipboard.set_image(img_data).map_err(|err| err.to_string())
 }
 
 pub(crate) fn save_to_disk(image: &RgbaImage, is_cat: bool, id_str: &str, top_value: &str) -> Result<PathBuf, String> {

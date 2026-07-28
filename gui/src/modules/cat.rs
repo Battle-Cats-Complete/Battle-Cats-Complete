@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use arboard::Clipboard;
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
     button, column, container, row, scrollable,
@@ -30,9 +31,9 @@ use crate::common::stat_grid;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 use crate::modules::animation;
-use crate::modules::statblock::button_feedback;
+use crate::modules::statblock::{feedback_color, feedback_label};
 
-use super::statblock::builder;
+use super::statblock::{builder, JobResult};
 use statblock::build_cat_statblock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +108,8 @@ pub struct State {
     custom_assets: CustomAssets,
 
     statblock_pending: Option<ExportAction>,
-    statblock_job: Option<mpsc::Receiver<(ExportAction, Result<(), String>)>>,
+    statblock_job: Option<mpsc::Receiver<JobResult>>,
+    statblock_clipboard: Option<Clipboard>,
     statblock_copy_feedback: Option<(bool, Instant)>,
     statblock_save_feedback: Option<(bool, Instant)>,
 
@@ -137,6 +139,7 @@ impl Default for State {
 
             statblock_pending: None,
             statblock_job: None,
+            statblock_clipboard: None,
             statblock_copy_feedback: None,
             statblock_save_feedback: None,
 
@@ -187,14 +190,10 @@ impl State {
                 }
 
                 let received = self.statblock_job.as_ref().and_then(|rx| rx.try_recv().ok());
-                if let Some((action, result)) = received {
+                if let Some(job) = received {
                     self.statblock_pending = None;
                     self.statblock_job = None;
-                    let success = result.is_ok();
-                    match action {
-                        ExportAction::Copy => self.statblock_copy_feedback = Some((success, Instant::now())),
-                        ExportAction::Save => self.statblock_save_feedback = Some((success, Instant::now())),
-                    }
+                    self.finish_statblock_job(job);
                 }
 
                 self.list
@@ -364,18 +363,53 @@ impl State {
         self.statblock_pending = Some(action);
 
         std::thread::spawn(move || {
-            let result = builder::build_statblock_image(&priority, data, cuts_map)
-                .and_then(|image| match action {
-                    ExportAction::Copy => builder::copy_to_clipboard(&image),
-                    ExportAction::Save => builder::save_to_disk(&image, is_cat, &id_str, &top_value).map(|_| ()),
-                });
+            let build_result = builder::build_statblock_image(&priority, data, cuts_map);
 
-            if let Err(err) = &result {
-                error!("Cat statblock export failed: {err}");
-            }
+            let job = match action {
+                ExportAction::Copy => JobResult::Copy(build_result),
+                ExportAction::Save => {
+                    let result = build_result.and_then(|image| builder::save_to_disk(&image, is_cat, &id_str, &top_value).map(|_| ()));
+                    if let Err(err) = &result {
+                        error!("Cat statblock save failed: {err}");
+                    }
+                    JobResult::Save(result)
+                }
+            };
 
-            let _ = tx.send((action, result));
+            let _ = tx.send(job);
         });
+    }
+
+    fn finish_statblock_job(&mut self, job: JobResult) {
+        match job {
+            JobResult::Copy(Ok(image)) => {
+                let result = match self.ensure_clipboard() {
+                    Some(clipboard) => builder::copy_to_clipboard(clipboard, &image),
+                    None => Err("Clipboard unavailable".to_string()),
+                };
+                if let Err(err) = &result {
+                    error!("Cat statblock copy failed: {err}");
+                }
+                self.statblock_copy_feedback = Some((result.is_ok(), Instant::now()));
+            }
+            JobResult::Copy(Err(err)) => {
+                error!("Cat statblock export failed: {err}");
+                self.statblock_copy_feedback = Some((false, Instant::now()));
+            }
+            JobResult::Save(result) => {
+                self.statblock_save_feedback = Some((result.is_ok(), Instant::now()));
+            }
+        }
+    }
+
+    fn ensure_clipboard(&mut self) -> Option<&mut Clipboard> {
+        if self.statblock_clipboard.is_none() {
+            match Clipboard::new() {
+                Ok(clipboard) => self.statblock_clipboard = Some(clipboard),
+                Err(err) => error!("Failed to open system clipboard: {err}"),
+            }
+        }
+        self.statblock_clipboard.as_mut()
     }
 
     pub fn expanded_animation_view(&self) -> Option<Element<'_, Message>> {
@@ -498,29 +532,25 @@ impl State {
             }
         }
 
-        let (copy_label, copy_color) = button_feedback(
-            self.statblock_pending == Some(ExportAction::Copy),
-            self.statblock_copy_feedback,
-            "Copy Image", "Copying...", "Copied!", "Failed!",
-        );
+        let copy_busy = self.statblock_pending == Some(ExportAction::Copy);
+        let copy_feedback = self.statblock_copy_feedback;
+        let copy_label = feedback_label(copy_busy, copy_feedback, "Copy Image", "Copying...", "Copied!", "Failed!");
         let copy_btn = button(text(copy_label).size(12))
             .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportStatblock(ExportAction::Copy)))
-            .style(move |_theme: &Theme, _status| button::Style {
-                background: Some(Background::Color(copy_color)),
+            .style(move |theme: &Theme, _status| button::Style {
+                background: Some(Background::Color(feedback_color(theme, copy_busy, copy_feedback))),
                 text_color: Color::WHITE,
                 border: Border::default().rounded(4.0),
                 ..Default::default()
             });
 
-        let (save_label, save_color) = button_feedback(
-            self.statblock_pending == Some(ExportAction::Save),
-            self.statblock_save_feedback,
-            "Export Image", "Exporting...", "Exported!", "Failed!",
-        );
+        let save_busy = self.statblock_pending == Some(ExportAction::Save);
+        let save_feedback = self.statblock_save_feedback;
+        let save_label = feedback_label(save_busy, save_feedback, "Export Image", "Exporting...", "Exported!", "Failed!");
         let save_btn = button(text(save_label).size(12))
             .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportStatblock(ExportAction::Save)))
-            .style(move |_theme: &Theme, _status| button::Style {
-                background: Some(Background::Color(save_color)),
+            .style(move |theme: &Theme, _status| button::Style {
+                background: Some(Background::Color(feedback_color(theme, save_busy, save_feedback))),
                 text_color: Color::WHITE,
                 border: Border::default().rounded(4.0),
                 ..Default::default()
