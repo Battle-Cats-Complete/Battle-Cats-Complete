@@ -185,9 +185,12 @@ impl State {
             text_input("1.0", &self.speed_input).on_input(Message::SpeedInputChanged).width(Length::Fixed(50.0)),
         ].spacing(4);
 
-        let controls_column = column![transport_row, frame_display, frame_status, speed_row].spacing(6);
+        let expand_icon = if self.controls_expanded { "▼" } else { "▲" };
+        let toggle_button = button(text(expand_icon)).on_press(Message::ToggleExpanded).width(Length::Fill).style(button::text);
 
-        let grid = if self.controls_expanded {
+        let body: Element<'_, Message> = if self.controls_expanded {
+            let controls_column = column![transport_row, frame_display, frame_status, speed_row].spacing(6);
+
             let base_available = data.base_assets_available();
             let secondary_available = data.secondary_available();
 
@@ -212,19 +215,15 @@ impl State {
                 }
                 rows.push(buttons_row.into());
             }
-            column(rows).spacing(4)
+            let grid = column(rows).spacing(4);
+
+            column![controls_column, grid].spacing(8).into()
         } else {
-            column![]
+            column![].into()
         };
 
-        let expand_icon = if self.controls_expanded { "▼" } else { "▲" };
-
         container(
-            column![
-                controls_column,
-                grid,
-                button(text(expand_icon)).on_press(Message::ToggleExpanded).width(Length::Fill).style(button::text),
-            ].spacing(8)
+            column![body, toggle_button].spacing(8)
         )
             .padding(10)
             .style(container::rounded_box)

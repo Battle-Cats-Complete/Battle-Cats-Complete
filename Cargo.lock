@@ -1988,6 +1988,7 @@ version = "1.0.2"
 dependencies = [
  "ab_glyph",
  "arboard",
+ "bytemuck",
  "core",
  "directories",
  "iced",

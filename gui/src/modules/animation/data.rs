@@ -30,6 +30,7 @@ pub struct State {
 
     loaded_id: String,
     failed_load_id: String,
+    current_anim_index: usize,
 }
 
 impl Default for State {
@@ -45,6 +46,7 @@ impl Default for State {
             secondary_assets: None,
             loaded_id: String::new(),
             failed_load_id: String::new(),
+            current_anim_index: IDX_NONE,
         }
     }
 }
@@ -220,27 +222,30 @@ impl State {
                 self.loaded_id = target_id;
                 self.failed_load_id.clear();
                 self.load_anim(anim_path);
+                self.current_anim_index = valid_index;
             }
             None => {
                 self.loaded_id = target_id.clone();
                 self.failed_load_id = target_id;
                 self.held_unit = None;
                 self.current_anim = None;
+                self.current_anim_index = IDX_NONE;
             }
         }
     }
 
-    fn sync_animation(&mut self, valid_index: usize, _settings: &Settings) {
-        let (_, _, _, anim_path) = self.resolve_paths(valid_index);
-        let needs_reload = match (&self.current_anim, &anim_path) {
-            (None, Some(_)) | (Some(_), None) => true,
-            (Some(_), Some(_)) => false,
-            (None, None) => false,
-        };
+    fn needs_animation_reload(loaded_for: usize, target: usize) -> bool {
+        loaded_for != target
+    }
 
-        if needs_reload {
-            self.load_anim(anim_path);
+    fn sync_animation(&mut self, valid_index: usize, _settings: &Settings) {
+        if !Self::needs_animation_reload(self.current_anim_index, valid_index) {
+            return;
         }
+
+        let (_, _, _, anim_path) = self.resolve_paths(valid_index);
+        self.load_anim(anim_path);
+        self.current_anim_index = valid_index;
     }
 
     fn load_anim(&mut self, anim_path: Option<PathBuf>) {

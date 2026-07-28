@@ -1,21 +1,56 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::ops::Range;
+use std::sync::Arc;
 
 use iced::mouse;
-use iced::widget::canvas;
-use iced::widget::canvas::{Cache, Geometry};
-use iced::widget::image::Handle;
-use iced::{Element, Length, Point, Radians, Rectangle, Renderer, Theme, Vector};
-use image::imageops;
+use iced::wgpu;
+use iced::widget::shader::{self, Shader};
+use iced::{Element, Event, Length, Point, Rectangle, Vector};
+use image::RgbaImage;
 
-use nyanko::graphics::engine::resolve_frame;
-use nyanko::graphics::rig::Unit;
+use nyanko::graphics::engine::{resolve_frame, FrameData};
+
+use core::modules::animation::multiply_mat3;
 
 use super::data;
 
 const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 10.0;
 const FRAME_ADVANCE_PER_TICK: f32 = 0.5;
+
+const VERTEX_STRIDE: u64 = 20;
+const VERTS_PER_PART: u32 = 6;
+const FLOATS_PER_PART: usize = 30;
+
+const SHADER_SOURCE: &str = r#"
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) opacity: f32,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) opacity: f32,
+}
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    out.position = vec4<f32>(input.position, 0.0, 1.0);
+    out.uv = input.uv;
+    out.opacity = input.opacity;
+    return out;
+}
+
+@group(0) @binding(0) var atlas: texture_2d<f32>;
+@group(0) @binding(1) var atlas_sampler: sampler;
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    return textureSample(atlas, atlas_sampler, input.uv) * input.opacity;
+}
+"#;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -32,9 +67,6 @@ pub struct State {
     pub playback_speed: f32,
     pub loop_start: Option<f32>,
     pub loop_end: Option<f32>,
-    cache: Cache,
-    sprite_cache: RefCell<HashMap<usize, Handle>>,
-    cached_unit_id: Option<usize>,
 }
 
 impl Default for State {
@@ -47,9 +79,6 @@ impl Default for State {
             playback_speed: 1.0,
             loop_start: None,
             loop_end: None,
-            cache: Cache::new(),
-            sprite_cache: RefCell::new(HashMap::new()),
-            cached_unit_id: None,
         }
     }
 }
@@ -78,49 +107,10 @@ impl State {
                 }
             }
         }
-
-        self.cache.clear();
-    }
-
-    fn sync_sprite_cache(&self, unit: &Unit) {
-        let unit_id = unit as *const Unit as usize;
-        if self.cached_unit_id != Some(unit_id) {
-            self.sprite_cache.borrow_mut().clear();
-        }
-    }
-
-    fn sprite_handle(&self, unit: &Unit, sprite_index: usize) -> Option<Handle> {
-        if let Some(cached) = self.sprite_cache.borrow().get(&sprite_index) {
-            return Some(cached.clone());
-        }
-
-        let cut = unit.sheet.cuts_map.get(&sprite_index)?;
-        let image_data = unit.sheet.image_data.as_ref()?;
-
-        let width = image_data.width();
-        let height = image_data.height();
-
-        let px = (cut.uv_coordinates.min.x * width as f32).round() as u32;
-        let py = (cut.uv_coordinates.min.y * height as f32).round() as u32;
-        let pw = cut.original_size.x.round() as u32;
-        let ph = cut.original_size.y.round() as u32;
-
-        if pw == 0 || ph == 0 || px + pw > width || py + ph > height {
-            return None;
-        }
-
-        let cropped = imageops::crop_imm(image_data.as_ref(), px, py, pw, ph).to_image();
-        let handle = Handle::from_rgba(pw, ph, cropped.into_raw());
-        self.sprite_cache.borrow_mut().insert(sprite_index, handle.clone());
-        Some(handle)
     }
 
     pub fn view<'a>(&'a self, data: &'a data::State) -> Element<'a, Message> {
-        if let Some(unit) = &data.held_unit {
-            self.sync_sprite_cache(unit);
-        }
-
-        canvas(Viewport { state: self, data })
+        Shader::new(Viewport { state: self, data })
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -137,36 +127,38 @@ struct Interaction {
     drag_origin: Option<Point>,
 }
 
-impl<'a> canvas::Program<Message> for Viewport<'a> {
+impl<'a> shader::Program<Message> for Viewport<'a> {
     type State = Interaction;
+    type Primitive = Scene;
 
     fn update(
         &self,
         interaction: &mut Interaction,
-        event: &canvas::Event,
+        event: &Event,
         bounds: Rectangle,
         cursor: mouse::Cursor,
-    ) -> Option<canvas::Action<Message>> {
+    ) -> Option<shader::Action<Message>> {
         match event {
-            canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let position = cursor.position_in(bounds)?;
                 interaction.drag_origin = Some(position);
-                Some(canvas::Action::capture())
+                Some(shader::Action::capture())
             }
-            canvas::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 if interaction.drag_origin.take().is_some() {
-                    Some(canvas::Action::capture())
+                    Some(shader::Action::capture())
                 } else {
                     None
                 }
             }
-            canvas::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 let origin = interaction.drag_origin?;
-                interaction.drag_origin = Some(*position);
-                let delta = *position - origin;
-                Some(canvas::Action::publish(Message::Panned(delta)).and_capture())
+                let position = cursor.position_in(bounds)?;
+                interaction.drag_origin = Some(position);
+                let delta = position - origin;
+                Some(shader::Action::publish(Message::Panned(delta)).and_capture())
             }
-            canvas::Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
+            Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 if !cursor.is_over(bounds) {
                     return None;
                 }
@@ -181,62 +173,27 @@ impl<'a> canvas::Program<Message> for Viewport<'a> {
                 }
 
                 let factor = 1.0 + (amount * 0.1);
-                Some(canvas::Action::publish(Message::Zoomed(factor)).and_capture())
+                Some(shader::Action::publish(Message::Zoomed(factor)).and_capture())
             }
             _ => None,
         }
     }
 
-    fn draw(
-        &self,
-        _interaction: &Interaction,
-        renderer: &Renderer,
-        _theme: &Theme,
-        bounds: Rectangle,
-        _cursor: mouse::Cursor,
-    ) -> Vec<Geometry> {
-        let geometry = self.state.cache.draw(renderer, bounds.size(), |frame| {
-            let Some(unit) = &self.data.held_unit else {
-                return;
-            };
+    fn draw(&self, _interaction: &Interaction, _cursor: mouse::Cursor, _bounds: Rectangle) -> Scene {
+        let (parts, image) = match &self.data.held_unit {
+            Some(unit) => (
+                resolve_frame(unit, self.data.current_anim.as_deref(), self.state.current_frame),
+                unit.sheet.image_data.clone(),
+            ),
+            None => (Vec::new(), None),
+        };
 
-            let center = frame.center();
-            let origin = Vector::new(center.x + self.state.pan.x * self.state.zoom, center.y + self.state.pan.y * self.state.zoom);
-
-            let parts = resolve_frame(unit, self.data.current_anim.as_deref(), self.state.current_frame);
-
-            for part in &parts {
-                let Some(handle) = self.state.sprite_handle(unit, part.sprite_index) else {
-                    continue;
-                };
-
-                let (translation, angle, scale) = decompose(&part.final_matrix);
-
-                let top_left_x = part.vertices[0];
-                let top_left_y = part.vertices[1];
-                let bottom_right_x = part.vertices[10];
-                let bottom_right_y = part.vertices[11];
-                let local_rect = Rectangle {
-                    x: top_left_x,
-                    y: top_left_y,
-                    width: bottom_right_x - top_left_x,
-                    height: bottom_right_y - top_left_y,
-                };
-
-                frame.with_save(|frame| {
-                    frame.translate(origin);
-                    frame.scale(self.state.zoom);
-                    frame.translate(translation);
-                    frame.rotate(Radians(angle));
-                    frame.scale_nonuniform(scale);
-
-                    let image = canvas::Image::new(handle).opacity(part.opacity);
-                    frame.draw_image(local_rect, image);
-                });
-            }
-        });
-
-        vec![geometry]
+        Scene {
+            image,
+            parts,
+            pan: self.state.pan,
+            zoom: self.state.zoom,
+        }
     }
 
     fn mouse_interaction(&self, interaction: &Interaction, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
@@ -250,18 +207,386 @@ impl<'a> canvas::Program<Message> for Viewport<'a> {
     }
 }
 
-/// Decomposes nyanko's fully hierarchy-solved `final_matrix` into translate/rotate/scale.
-///
-/// The matrix is constructed in `nyanko::graphics::engine::transform::solve_single_part` as an
-/// exact `T * R * S` composition (no shear), so this recovers the original components losslessly.
-fn decompose(matrix: &[f32; 9]) -> (Vector, f32, Vector) {
-    let (m0, m1, m3, m4, m6, m7) = (matrix[0], matrix[1], matrix[3], matrix[4], matrix[6], matrix[7]);
+pub struct Scene {
+    image: Option<Arc<RgbaImage>>,
+    parts: Vec<FrameData>,
+    pan: Vector,
+    zoom: f32,
+}
 
-    let scale_x = (m0 * m0 + m1 * m1).sqrt();
-    let angle = m1.atan2(m0);
-    let (sin_a, cos_a) = angle.sin_cos();
+impl std::fmt::Debug for Scene {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Scene")
+            .field("parts", &self.parts.len())
+            .field("pan", &self.pan)
+            .field("zoom", &self.zoom)
+            .finish()
+    }
+}
 
-    let scale_y = if cos_a.abs() > sin_a.abs() { m4 / cos_a } else { -m3 / sin_a };
+impl shader::Primitive for Scene {
+    type Pipeline = Pipeline;
 
-    (Vector::new(m6, m7), angle, Vector::new(scale_x, scale_y))
+    fn prepare(
+        &self,
+        pipeline: &mut Pipeline,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bounds: &Rectangle,
+        viewport: &shader::Viewport,
+    ) {
+        pipeline.batches.clear();
+
+        let Some(image) = &self.image else {
+            return;
+        };
+
+        if self.parts.is_empty() {
+            return;
+        }
+
+        let physical = viewport.physical_size();
+        let window_width = physical.width as f32;
+        let window_height = physical.height as f32;
+
+        if window_width <= 0.0 || window_height <= 0.0 {
+            return;
+        }
+
+        pipeline.upload_atlas(device, queue, image);
+
+        let scale = viewport.scale_factor();
+        let zoom = self.zoom * scale;
+
+        let projection = [
+            2.0 / window_width, 0.0, 0.0,
+            0.0, -2.0 / window_height, 0.0,
+            -1.0, 1.0, 1.0,
+        ];
+
+        let camera = [
+            zoom, 0.0, 0.0,
+            0.0, zoom, 0.0,
+            (bounds.x + bounds.width / 2.0) * scale + self.pan.x * zoom,
+            (bounds.y + bounds.height / 2.0) * scale + self.pan.y * zoom,
+            1.0,
+        ];
+
+        let view_proj = multiply_mat3(&projection, &camera);
+
+        let mut vertex_data = Vec::with_capacity(self.parts.len() * FLOATS_PER_PART);
+
+        for (part_index, part) in self.parts.iter().enumerate() {
+            let mvp = multiply_mat3(&view_proj, &part.final_matrix);
+
+            for i in 0..VERTS_PER_PART as usize {
+                let x = part.vertices[2 * i];
+                let y = part.vertices[2 * i + 1];
+
+                vertex_data.push(mvp[0] * x + mvp[3] * y + mvp[6]);
+                vertex_data.push(mvp[1] * x + mvp[4] * y + mvp[7]);
+                vertex_data.push(part.uvs[2 * i]);
+                vertex_data.push(part.uvs[2 * i + 1]);
+                vertex_data.push(part.opacity);
+            }
+
+            let variant = blend_variant(part.glow);
+            let start = part_index as u32 * VERTS_PER_PART;
+
+            match pipeline.batches.last_mut() {
+                Some(batch) if batch.variant == variant => batch.range.end = start + VERTS_PER_PART,
+                _ => pipeline.batches.push(Batch { variant, range: start..start + VERTS_PER_PART }),
+            }
+        }
+
+        let bytes: &[u8] = bytemuck::cast_slice(&vertex_data);
+        let needed = bytes.len() as u64;
+
+        if pipeline.vertices.is_none() || pipeline.vertex_capacity < needed {
+            pipeline.vertices = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("animation_viewer_vertices"),
+                size: needed,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+            pipeline.vertex_capacity = needed;
+        }
+
+        if let Some(buffer) = &pipeline.vertices {
+            queue.write_buffer(buffer, 0, bytes);
+        }
+    }
+
+    fn render(
+        &self,
+        pipeline: &Pipeline,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        clip_bounds: &Rectangle<u32>,
+    ) {
+        if pipeline.batches.is_empty() || clip_bounds.width == 0 || clip_bounds.height == 0 {
+            return;
+        }
+
+        let Some(atlas) = &pipeline.atlas else {
+            return;
+        };
+
+        let Some(vertices) = &pipeline.vertices else {
+            return;
+        };
+
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("animation_viewer"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        pass.set_scissor_rect(clip_bounds.x, clip_bounds.y, clip_bounds.width, clip_bounds.height);
+        pass.set_bind_group(0, &atlas.bind_group, &[]);
+        pass.set_vertex_buffer(0, vertices.slice(..));
+
+        for batch in &pipeline.batches {
+            pass.set_pipeline(&pipeline.pipelines[batch.variant]);
+            pass.draw(batch.range.clone(), 0..1);
+        }
+    }
+}
+
+struct Batch {
+    variant: usize,
+    range: Range<u32>,
+}
+
+struct AtlasBinding {
+    bind_group: wgpu::BindGroup,
+    image_id: usize,
+}
+
+pub struct Pipeline {
+    pipelines: [wgpu::RenderPipeline; 4],
+    sampler: wgpu::Sampler,
+    bind_group_layout: wgpu::BindGroupLayout,
+    atlas: Option<AtlasBinding>,
+    vertices: Option<wgpu::Buffer>,
+    vertex_capacity: u64,
+    batches: Vec<Batch>,
+}
+
+impl shader::Pipeline for Pipeline {
+    fn new(device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("animation_viewer"),
+            source: wgpu::ShaderSource::Wgsl(SHADER_SOURCE.into()),
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("animation_viewer_atlas"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("animation_viewer"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let pipelines = blend_modes().map(|blend| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("animation_viewer"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: VERTEX_STRIDE,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32],
+                    }],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..wgpu::PrimitiveState::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(blend),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview: None,
+                cache: None,
+            })
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("animation_viewer_atlas"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..wgpu::SamplerDescriptor::default()
+        });
+
+        Self {
+            pipelines,
+            sampler,
+            bind_group_layout,
+            atlas: None,
+            vertices: None,
+            vertex_capacity: 0,
+            batches: Vec::new(),
+        }
+    }
+}
+
+impl Pipeline {
+    fn upload_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, image: &Arc<RgbaImage>) {
+        let image_id = Arc::as_ptr(image) as usize;
+
+        if self.atlas.as_ref().is_some_and(|atlas| atlas.image_id == image_id) {
+            return;
+        }
+
+        let size = wgpu::Extent3d {
+            width: image.width(),
+            height: image.height(),
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("animation_viewer_atlas"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            image.as_raw(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * image.width()),
+                rows_per_image: Some(image.height()),
+            },
+            size,
+        );
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("animation_viewer_atlas"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+
+        self.atlas = Some(AtlasBinding { bind_group, image_id });
+    }
+}
+
+fn blend_variant(glow: u8) -> usize {
+    match glow {
+        1 => 1,
+        2 => 2,
+        3 => 3,
+        _ => 0,
+    }
+}
+
+fn blend_modes() -> [wgpu::BlendState; 4] {
+    let keep_dst_alpha = wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+    };
+
+    let premultiplied = wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::One,
+        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+        operation: wgpu::BlendOperation::Add,
+    };
+
+    [
+        wgpu::BlendState {
+            color: premultiplied,
+            alpha: premultiplied,
+        },
+        wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: keep_dst_alpha,
+        },
+        wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Dst,
+                dst_factor: wgpu::BlendFactor::Zero,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: keep_dst_alpha,
+        },
+        wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::OneMinusSrc,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: keep_dst_alpha,
+        },
+    ]
 }

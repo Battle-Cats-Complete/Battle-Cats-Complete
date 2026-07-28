@@ -173,10 +173,6 @@ impl State {
             }
             Message::ToggleBackground(enabled) => self.exporter.background = enabled,
             Message::BeginExport => {
-                // The live preview renders through iced's Canvas (CPU crop-and-draw), which has no
-                // glow::Context — the encoder pipeline's frame production (`encoding::render_frame`)
-                // is still GL-only and has no bridge to it yet, so starting the encoder thread here
-                // would spin up a thread that waits forever for frames nothing produces.
                 warn!("Export not yet wired: the batch encoder still requires a GL frame source, which the new canvas-based viewer doesn't provide");
             }
         }

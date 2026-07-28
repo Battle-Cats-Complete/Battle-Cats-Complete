@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 nyanko = { workspace = true }
 core = { path = "../core" }
+bytemuck = "1"
 iced = {version = "0.14", features = ["wgpu", "canvas", "markdown", "image", "smol"]}
 image = { version = "0.25", features = ["png", "ico"] }
 rfd = "0.15"
