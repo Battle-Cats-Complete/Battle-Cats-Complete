@@ -318,6 +318,11 @@ impl BattleCatsApp {
             layers = layers.push(expanded.map(Message::Cat));
         }
 
+        if matches!(self.current_page, Page::Cats)
+            && let Some(popup) = self.cat_state.export_popup_view() {
+            layers = layers.push(popup.map(Message::Cat));
+        }
+
         if let Some(modal) = self.build_modal() {
             layers = layers.push(modal);
         }

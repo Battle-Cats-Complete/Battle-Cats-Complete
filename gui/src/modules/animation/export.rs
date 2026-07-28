@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use iced::widget::{button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text, text_input, Space};
-use iced::{Alignment, Element, Length};
+use iced::{Alignment, Element, Length, Size};
 
 use nyanko::graphics::rig::Animation;
 
@@ -14,16 +14,20 @@ use core::modules::animation::export::{EncoderStatus, ExportFormat, ExportMode, 
 use core::modules::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
 use core::modules::settings::Settings;
 
+use crate::common::draggable_popup;
+
 use super::data;
 use super::offscreen::{self, Camera, ShowcaseLengths};
 use super::overlay::Region;
 
+const POPUP_SIZE: Size = Size::new(320.0, 500.0);
 const MODE_OPTIONS: [&str; 3] = ["Manual", "Loop", "Showcase"];
 const FORMAT_OPTIONS: [&str; 8] = ["GIF", "WebP", "AVIF", "PNG", "MP4", "MKV", "WebM", "ZIP"];
 
 #[derive(Default)]
 pub struct State {
     pub is_open: bool,
+    popup: draggable_popup::State,
     exporter: ExporterState,
     render_progress: Arc<AtomicI32>,
     done_at: Option<Instant>,
@@ -32,7 +36,7 @@ pub struct State {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Toggle,
+    Popup(draggable_popup::Message),
     SetMode(ExportMode),
     SetFormat(ExportFormat),
     SetFileName(String),
@@ -180,7 +184,11 @@ impl State {
 
     pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings) {
         match message {
-            Message::Toggle => self.is_open = !self.is_open,
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    self.is_open = false;
+                }
+            }
             Message::SetMode(mode) => {
                 if mode == ExportMode::Showcase {
                     self.exporter.showcase_walk_str.clear();
@@ -407,6 +415,10 @@ impl State {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
+        self.popup.view("Export Animation", POPUP_SIZE, Message::Popup, move || self.content_view())
+    }
+
+    fn content_view(&self) -> Element<'_, Message> {
         let is_avif_missing = paths::avifenc_status() != Presence::Installed;
         let is_ffmpeg_missing = paths::ffmpeg_status() != Presence::Installed;
         let is_locked = self.exporter.is_processing || self.exporter.is_loop_searching;
@@ -614,14 +626,7 @@ impl State {
             begin.into()
         };
 
-        let buttons_row = row![
-            button(text("Close")).on_press(Message::Toggle).style(button::secondary),
-            action_button,
-        ].spacing(10);
-
         let popup_content = column![
-            text("Export Animation").size(22),
-            Space::new().height(Length::Fixed(10.0)),
             mode_picker,
             input_section,
             Space::new().height(Length::Fixed(10.0)),
@@ -631,15 +636,15 @@ impl State {
             Space::new().height(Length::Fixed(10.0)),
             progress_section,
             Space::new().height(Length::Fixed(10.0)),
-            buttons_row,
+            action_button,
         ].spacing(10);
 
         container(
-            scrollable(popup_content).height(Length::Fixed(420.0))
+            scrollable(popup_content).height(Length::Fill)
         )
-            .width(Length::Fixed(320.0))
+            .width(Length::Fill)
+            .height(Length::Fill)
             .padding(25)
-            .style(container::rounded_box)
             .into()
     }
 }

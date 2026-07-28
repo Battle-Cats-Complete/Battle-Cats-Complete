@@ -111,6 +111,11 @@ impl State {
         self.viewer_view()
     }
 
+    pub fn export_popup_view(&self) -> Option<Element<'_, Message>> {
+        (self.export.is_open && self.data.held_unit.is_some())
+            .then(|| self.export.view().map(Message::Export))
+    }
+
     pub fn expanded_view(&self) -> Option<Element<'_, Message>> {
         if !self.is_expanded || self.data.held_unit.is_none() {
             return None;
@@ -146,7 +151,7 @@ impl State {
         )
         .padding(8);
 
-        let mut layers = stack![
+        let layers = stack![
             viewport,
             selection_overlay,
             container(controls_overlay)
@@ -155,16 +160,6 @@ impl State {
                 .align_y(iced::alignment::Vertical::Bottom),
             expand_button,
         ];
-
-        if self.export.is_open {
-            let modal = container(self.export.view().map(Message::Export))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill)
-                .style(container::transparent);
-            layers = layers.push(modal);
-        }
 
         container(layers)
             .width(Length::Fill)

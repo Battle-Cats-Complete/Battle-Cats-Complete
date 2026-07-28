@@ -1,3 +1,4 @@
+pub mod draggable_popup;
 pub mod img015;
 pub mod img022;
 pub mod name_box;

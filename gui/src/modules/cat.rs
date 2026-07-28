@@ -295,6 +295,14 @@ impl State {
         self.animation.expanded_view().map(|view| view.map(Message::Animation))
     }
 
+    pub fn export_popup_view(&self) -> Option<Element<'_, Message>> {
+        if self.selected_tab != DetailTab::Animation {
+            return None;
+        }
+
+        self.animation.export_popup_view().map(|view| view.map(Message::Animation))
+    }
+
     pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let sidebar = self.view_sidebar();
         let main_content = self.view_main_content(settings, global_ctx);
