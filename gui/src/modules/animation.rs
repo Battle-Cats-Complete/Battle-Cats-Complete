@@ -10,6 +10,7 @@ use iced::widget::{button, column, container, stack, text};
 use iced::{Alignment, Element, Length, Size, Task, Theme};
 
 use core::modules::cat::scanner::CatEntry;
+use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::Settings;
 
 #[derive(Default)]
@@ -34,6 +35,11 @@ pub enum Message {
 impl State {
     pub fn sync(&mut self, cat: &CatEntry, form: usize, settings: &Settings) {
         self.data.sync(cat, form, settings);
+        self.export.sync(&self.data, settings);
+    }
+
+    pub fn sync_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) {
+        self.data.sync_enemy(enemy, settings);
         self.export.sync(&self.data, settings);
     }
 

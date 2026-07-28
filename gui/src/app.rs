@@ -83,6 +83,7 @@ pub enum UpdaterAction {
 pub enum ActivePopup {
     CatExport,
     CatFilter,
+    EnemyExport,
     EnemyFilter,
     StageFilter,
     ModsImport,
@@ -319,8 +320,9 @@ impl BattleCatsApp {
             }
             Message::Enemy(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
-                let task = self.enemy_state.update(msg, &self.settings, global_ctx).map(Message::Enemy);
+                let task = self.enemy_state.update(msg, &mut self.settings, global_ctx).map(Message::Enemy);
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
+                self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open());
                 task
             }
             Message::Stage(msg) => {
@@ -362,10 +364,10 @@ impl BattleCatsApp {
 
         let sidebar_overlay = self.view_sidebar_overlay();
 
-        let expanded = if matches!(self.current_page, Page::Cats) {
-            self.cat_state.expanded_animation_view()
-        } else {
-            None
+        let expanded: Option<Element<'_, Message>> = match self.current_page {
+            Page::Cats => self.cat_state.expanded_animation_view().map(|view| view.map(Message::Cat)),
+            Page::Enemies => self.enemy_state.expanded_animation_view().map(|view| view.map(Message::Enemy)),
+            _ => None,
         };
 
         let mut layers = stack![content_container];
@@ -379,7 +381,7 @@ impl BattleCatsApp {
         layers = layers.push(sidebar_overlay);
 
         if let Some(expanded) = expanded {
-            layers = layers.push(expanded.map(Message::Cat));
+            layers = layers.push(expanded);
 
             for popup in self.build_popups() {
                 layers = layers.push(popup);
@@ -420,6 +422,13 @@ impl BattleCatsApp {
                     }
 
                     self.cat_state.filter_popup_view(self.window_size).map(|view| view.map(Message::Cat))
+                }
+                ActivePopup::EnemyExport => {
+                    if !matches!(self.current_page, Page::Enemies) || !self.enemy_state.export_popup_visible() {
+                        return None;
+                    }
+
+                    self.enemy_state.export_popup_view(self.window_size).map(|view| view.map(Message::Enemy))
                 }
                 ActivePopup::EnemyFilter => {
                     if !matches!(self.current_page, Page::Enemies) {

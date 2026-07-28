@@ -9,10 +9,15 @@ use core::modules::animation::{
 };
 use core::modules::cat::paths::{self, AnimType};
 use core::modules::cat::scanner::CatEntry;
+use core::modules::enemy::paths::{self as enemy_paths, AnimType as EnemyAnimType};
+use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::Settings;
 
 const ANIM_SLOTS: [usize; 6] = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
 const FALLBACK_PRIORITY: [usize; 6] = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
+
+const ENEMY_ANIM_SLOTS: [usize; 4] = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB];
+const IDX_DIG: usize = 7;
 
 type PrimaryAssets = (PathBuf, PathBuf, PathBuf);
 type SecondaryAssets = (PathBuf, PathBuf, PathBuf, PathBuf);
@@ -156,6 +161,60 @@ impl State {
         self.available_anims = available_anims;
         self.primary_assets = primary_assets;
         self.secondary_assets = secondary_assets;
+    }
+
+    pub fn sync_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) {
+        let primary_id = enemy.id_str();
+
+        if self.primary_id != primary_id {
+            self.rescan_enemy_paths(enemy, &primary_id, settings);
+        }
+
+        self.select_valid_index();
+        self.load_active(settings);
+    }
+
+    fn rescan_enemy_paths(&mut self, enemy: &EnemyEntry, primary_id: &str, settings: &Settings) {
+        let root = Path::new(enemy_paths::DIR_ENEMIES);
+        let priority = &settings.general.language_priority;
+
+        let resolve = |path: PathBuf| -> Option<PathBuf> {
+            let parent = path.parent()?;
+            let name = path.file_name()?.to_str()?;
+            let iname = format!("i{}", name);
+            core::common::get(parent, [name, &iname], priority).into_iter().next()
+        };
+
+        let mut available_anims = Vec::new();
+        for idx in ENEMY_ANIM_SLOTS {
+            let candidate = enemy_paths::maanim(root, enemy.id, idx);
+            if let Some(resolved) = resolve(candidate) {
+                available_anims.push((idx, resolved));
+            }
+        }
+
+        if let Some(p) = resolve(enemy_paths::zombie_maanim(root, enemy.id, 0)) {
+            available_anims.push((IDX_BURROW, p));
+        }
+        if let Some(p) = resolve(enemy_paths::zombie_maanim(root, enemy.id, 1)) {
+            available_anims.push((IDX_DIG, p));
+        }
+        if let Some(p) = resolve(enemy_paths::zombie_maanim(root, enemy.id, 2)) {
+            available_anims.push((IDX_SURFACE, p));
+        }
+
+        let primary_assets = (|| {
+            let png = resolve(enemy_paths::anim(root, enemy.id, EnemyAnimType::Png))?;
+            let cut = resolve(enemy_paths::anim(root, enemy.id, EnemyAnimType::Imgcut))?;
+            let model = resolve(enemy_paths::anim(root, enemy.id, EnemyAnimType::Mamodel))?;
+            Some((png, cut, model))
+        })();
+
+        self.primary_id = primary_id.to_string();
+        self.secondary_id = String::new();
+        self.available_anims = available_anims;
+        self.primary_assets = primary_assets;
+        self.secondary_assets = None;
     }
 
     fn select_valid_index(&mut self) {

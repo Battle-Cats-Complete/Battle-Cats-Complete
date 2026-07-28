@@ -26,6 +26,7 @@ use core::modules::settings::Settings;
 use crate::common::stat_grid;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
+use crate::modules::animation;
 use crate::modules::statblock::{feedback_color, feedback_label};
 
 use super::statblock::{builder, JobResult};
@@ -40,6 +41,7 @@ pub enum ExportAction {
 #[derive(Clone)]
 pub enum Message {
     Tick,
+    AnimationTick,
     SearchQueryChanged(String),
     EnemySelected(u32),
     TabSelected(EnemyDetailTab),
@@ -48,12 +50,14 @@ pub enum Message {
     NavigateAppearances(u32),
     Filter(filter::Message),
     List(list::Message),
+    Animation(animation::Message),
 }
 
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Tick => write!(f, "Tick"),
+            Self::AnimationTick => write!(f, "AnimationTick"),
             Self::SearchQueryChanged(s) => write!(f, "SearchQueryChanged({})", s),
             Self::EnemySelected(id) => write!(f, "EnemySelected({})", id),
             Self::TabSelected(tab) => {
@@ -73,6 +77,7 @@ impl std::fmt::Debug for Message {
             Self::NavigateAppearances(id) => write!(f, "NavigateAppearances({})", id),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
             Self::List(msg) => write!(f, "List({:?})", msg),
+            Self::Animation(msg) => write!(f, "Animation({:?})", msg),
         }
     }
 }
@@ -96,6 +101,7 @@ pub struct EnemyState {
     filter: filter::State,
     list: list::State,
     abilities: abilities::State,
+    animation: animation::State,
 }
 
 impl Default for EnemyState {
@@ -119,16 +125,23 @@ impl Default for EnemyState {
             filter: filter::State::default(),
             list: list::State::default(),
             abilities: abilities::State::default(),
+            animation: animation::State::default(),
         }
     }
 }
 
 impl EnemyState {
     pub fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
+        let mut subscriptions = vec![iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)];
+
+        if self.selected_tab == EnemyDetailTab::Animation {
+            subscriptions.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::AnimationTick));
+        }
+
+        Subscription::batch(subscriptions)
     }
 
-    pub fn update(&mut self, message: Message, settings: &Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
+    pub fn update(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         let task = self.update_inner(message, settings, global_ctx);
 
         self.list.refresh(&self.data.enemies, &self.search_query, &self.filter.filter_state);
@@ -136,7 +149,7 @@ impl EnemyState {
         task
     }
 
-    fn update_inner(&mut self, message: Message, settings: &Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
+    fn update_inner(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
             Message::Tick => {
                 if !self.data.initialized {
@@ -149,6 +162,10 @@ impl EnemyState {
 
                 crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
 
+                if self.selected_tab != EnemyDetailTab::Animation {
+                    self.animation.export_tick();
+                }
+
                 let received = self.statblock_job.as_ref().and_then(|rx| rx.try_recv().ok());
                 if let Some(job) = received {
                     self.statblock_pending = None;
@@ -159,6 +176,13 @@ impl EnemyState {
                 self.list
                     .update(list::Message::Tick, &self.data.enemies, &self.search_query, &self.filter.filter_state)
                     .map(Message::List)
+            }
+            Message::AnimationTick => {
+                if let Some(enemy) = self.data.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
+                    self.animation.sync_enemy(enemy, settings);
+                }
+                self.animation.tick();
+                Task::none()
             }
             Message::SearchQueryChanged(query) => {
                 self.search_query = query;
@@ -213,6 +237,7 @@ impl EnemyState {
                     .update(msg, &self.data.enemies, &self.search_query, &self.filter.filter_state)
                     .map(Message::List)
             }
+            Message::Animation(msg) => self.animation.update(msg, settings).map(Message::Animation),
         }
     }
 
@@ -319,6 +344,22 @@ impl EnemyState {
             .then(|| self.filter.view(&self.img015_sheets, &self.custom_assets, window).map(Message::Filter))
     }
 
+    pub fn expanded_animation_view(&self) -> Option<Element<'_, Message>> {
+        self.animation.expanded_view().map(|view| view.map(Message::Animation))
+    }
+
+    pub fn export_popup_open(&self) -> bool {
+        self.animation.export_popup_open()
+    }
+
+    pub fn export_popup_visible(&self) -> bool {
+        self.selected_tab == EnemyDetailTab::Animation
+    }
+
+    pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.animation.export_popup_view(window).map(|view| view.map(Message::Animation))
+    }
+
     fn view_sidebar(&self) -> Element<'_, Message> {
         let search_bar = row![
             text_input("Search Enemy...", &self.search_query)
@@ -383,15 +424,21 @@ impl EnemyState {
                 self.view_details(enemy_entry)
             }
             EnemyDetailTab::Animation => {
-                column![text("Animation Viewer Placeholder (Phase 1 Constraint)").size(18)].into()
+                self.animation.view().map(Message::Animation)
             }
+        };
+
+        let body: Element<'_, Message> = if self.selected_tab == EnemyDetailTab::Animation {
+            content
+        } else {
+            scrollable(content).height(Length::Fill).into()
         };
 
         container(
             column![
                 header,
                 Space::new().height(Length::Fixed(10.0)),
-                scrollable(content).height(Length::Fill)
+                body
             ]
                 .padding(15)
         )
