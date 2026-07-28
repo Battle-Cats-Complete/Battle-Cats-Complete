@@ -1,7 +1,5 @@
 use std::hash::{Hash, Hasher};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::Arc;
-use std::thread;
 
 use iced::alignment;
 use iced::widget::{button, column, container, progress_bar, row, scrollable, stack, text};
@@ -9,23 +7,16 @@ use iced::{window, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
 use self_update::update::Release;
-use tracing::{debug, info, trace, warn};
+use tracing::{info, trace, warn};
 
 use core::common::context::GlobalContext;
-use core::common::game::{localizable, param};
-use core::common::io::cache;
-use core::common::resolver;
-use core::modules::cat::paths as cat_paths;
-use core::modules::cat::scanner::CatEntry;
-use core::modules::cat::waiter::{skilldescriptions, skilllevel};
-use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::{Settings, UpdateMode};
-use core::modules::stage::StageRegistry;
 
 use crate::common::watcher::GuiWatcher;
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
 
 mod logging;
+mod startup;
 mod updater;
 
 #[derive(PartialEq, Clone, Copy, serde::Deserialize, serde::Serialize, Debug)]
@@ -201,99 +192,6 @@ impl Default for BattleCatsApp {
 }
 
 impl BattleCatsApp {
-    pub fn new() -> (Self, Task<Message>) {
-        let mut app = Self::default();
-
-        logging::init_logging(app.settings.general.enable_logging);
-
-        info!("Loading core tables");
-        let tables_dir = std::path::Path::new("game/tables");
-        let loc_dir = std::path::Path::new("game/tables/localizable");
-        let priority = &app.settings.general.language_priority;
-
-        app.param = param(tables_dir, priority).unwrap_or_default();
-        app.localizable = localizable(loc_dir, priority);
-
-        let mut expected_hash = 0;
-        let mut needs_validation = false;
-
-        if let Some((hash, cached_cats)) = cache::load_with_hash::<Vec<CatEntry>>("cats_cache.bin") {
-            info!("Found cats_cache.bin (Hash: {})", hash);
-            expected_hash = hash;
-            needs_validation = true;
-
-            let cats_dir = std::path::Path::new(cat_paths::DIR_CATS);
-            let costs_arc = Arc::new(skilllevel(cats_dir, priority));
-            let descriptions_arc = Arc::new(skilldescriptions(cats_dir, priority));
-
-            app.cat_state.data.cats = cached_cats.into_iter().map(|mut cat| {
-                cat.talent_costs = Arc::clone(&costs_arc);
-                cat.skill_descriptions = Arc::clone(&descriptions_arc);
-                cat
-            }).collect();
-        } else {
-            info!("No cats_cache.bin found, triggering full cat scan");
-            app.cat_state.data.restart_scan(app.settings.scanner_config());
-        }
-        app.cat_state.data.initialized = true;
-
-        if let Some((hash, cached_enemies)) = cache::load_with_hash::<Vec<EnemyEntry>>("enemies_cache.bin") {
-            info!("Found enemies_cache.bin (Hash: {})", hash);
-            expected_hash = hash;
-            needs_validation = true;
-            app.enemy_state.data.enemies = cached_enemies;
-        } else {
-            info!("No enemies_cache.bin found, triggering full enemy scan");
-            app.enemy_state.data.restart_scan(app.settings.scanner_config());
-        }
-        app.enemy_state.data.initialized = true;
-
-        if let Some((hash, cached_registry)) = cache::load_with_hash::<StageRegistry>("stages_cache.bin") {
-            info!("Found stages_cache.bin (Hash: {})", hash);
-            expected_hash = hash;
-            needs_validation = true;
-
-            app.stage_state.data.registry = cached_registry;
-
-            let config = app.settings.scanner_config();
-            app.stage_state.data.load_dictionaries(&config);
-
-            let enemies_ref = app.enemy_state.data.enemies.clone();
-            app.stage_state.data.sync_enemies(&enemies_ref);
-        } else {
-            info!("No stages_cache.bin found, triggering full stage scan");
-            app.stage_state.data.restart_scan(app.settings.scanner_config());
-        }
-        app.stage_state.data.initialized = true;
-
-        if needs_validation {
-            debug!("Spawning hash validation thread");
-            let (tx, rx) = std::sync::mpsc::channel();
-            app.hash_rx = Some(rx);
-            let active_mod = resolver::get_active_mod();
-
-            thread::spawn(move || {
-                let current_hash = cache::get_game_hash(active_mod.as_deref());
-                let is_valid = current_hash == expected_hash && active_mod.is_none();
-                let _ = tx.send(is_valid);
-            });
-        }
-
-        let (up_tx, up_rx) = std::sync::mpsc::channel();
-        app.updater_tx = Some(up_tx);
-        app.updater_rx = Some(up_rx);
-
-        if app.settings.general.update_mode != UpdateMode::Ignore {
-            info!("Checking for app updates at startup");
-            app.check_for_updates(false);
-        }
-
-        let (home_state, home_task) = home::State::new();
-        app.home_state = home_state;
-
-        (app, home_task.map(Message::Home))
-    }
-
     pub fn subscription(&self) -> Subscription<Message> {
         Subscription::batch(vec![
             window::resize_events().map(|(_, size)| Message::WindowResized(size)),

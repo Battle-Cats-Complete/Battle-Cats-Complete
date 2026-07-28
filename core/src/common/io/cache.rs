@@ -96,8 +96,11 @@ pub fn get_game_hash(active_mod: Option<&str>) -> u64 {
     hash_result
 }
 
+const SCHEMA_VERSION: u32 = 1;
+
 #[derive(Serialize, Deserialize)]
 struct CachePayload<T> {
+    schema_version: u32,
     hash: u64,
     data: T,
 }
@@ -122,6 +125,15 @@ pub fn load_with_hash<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
 
     match options.deserialize_from::<_, CachePayload<T>>(reader) {
         Ok(payload) => {
+            if payload.schema_version != SCHEMA_VERSION {
+                tracing::warn!(
+                    "Cache schema mismatch for {} (found v{}, expected v{}). Purging stale cache file.",
+                    filename, payload.schema_version, SCHEMA_VERSION
+                );
+                let _ = fs::remove_file(&cache_path);
+                return None;
+            }
+
             tracing::debug!("Successfully loaded cache payload for {}", filename);
             Some((payload.hash, payload.data))
         },
@@ -149,7 +161,7 @@ pub fn save<T: Serialize>(filename: &str, hash: u64, data: &T) {
     };
 
     let mut writer = BufWriter::new(cache_file);
-    let payload = CachePayload { hash, data };
+    let payload = CachePayload { schema_version: SCHEMA_VERSION, hash, data };
     let options = bincode::DefaultOptions::new()
         .with_limit(1024 * 1024 * 100);
 

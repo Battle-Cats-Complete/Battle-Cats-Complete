@@ -24,6 +24,8 @@ ST*.md
 /game/
 /exports/
 /mods/
+.csv
+.tsv
 
 # Update Leftovers
 tmp_update.zip

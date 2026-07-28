@@ -15,6 +15,8 @@ use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::{desktop, lang, ExceptionList, UpdateMode};
 use core::modules::stage::StageRegistry;
 
+use crate::modules::home;
+
 use super::{logging, updater, BattleCatsApp, Message};
 
 impl BattleCatsApp {
@@ -34,8 +36,7 @@ impl BattleCatsApp {
 
         lang::ensure_complete_list(&mut app.settings.general.language_priority);
 
-        debug!("Refreshing mod state and cleaning up temp update files");
-        app.mod_state.data.refresh_mods();
+        debug!("Cleaning up temp update files");
         updater::cleanup_temp_files();
 
         info!("Loading core tables");
@@ -58,27 +59,27 @@ impl BattleCatsApp {
             let costs_arc = Arc::new(skilllevel(cats_dir, priority));
             let descriptions_arc = Arc::new(skilldescriptions(cats_dir, priority));
 
-            app.cat_list_state.data.cats = cached_cats.into_iter().map(|mut cat| {
+            app.cat_state.data.cats = cached_cats.into_iter().map(|mut cat| {
                 cat.talent_costs = Arc::clone(&costs_arc);
                 cat.skill_descriptions = Arc::clone(&descriptions_arc);
                 cat
             }).collect();
 
-            app.cat_list_state.data.initialized = true;
+            app.cat_state.data.initialized = true;
         } else {
             info!("No cats_cache.bin found, triggering full cat scan");
-            app.cat_list_state.data.restart_scan(app.settings.scanner_config());
+            app.cat_state.data.restart_scan(app.settings.scanner_config());
         }
 
         if let Some((hash, cached_enemies)) = cache::load_with_hash::<Vec<EnemyEntry>>("enemies_cache.bin") {
             info!("Found enemies_cache.bin (Hash: {})", hash);
             expected_hash = hash;
             needs_validation = true;
-            app.enemy_list_state.data.enemies = cached_enemies;
-            app.enemy_list_state.data.initialized = true;
+            app.enemy_state.data.enemies = cached_enemies;
+            app.enemy_state.data.initialized = true;
         } else {
             info!("No enemies_cache.bin found, triggering full enemy scan");
-            app.enemy_list_state.data.restart_scan(app.settings.scanner_config());
+            app.enemy_state.data.restart_scan(app.settings.scanner_config());
         }
 
         if let Some((hash, cached_registry)) = cache::load_with_hash::<StageRegistry>("stages_cache.bin") {
@@ -86,21 +87,21 @@ impl BattleCatsApp {
             expected_hash = hash;
             needs_validation = true;
 
-            app.stage_list_state.data.registry = cached_registry;
+            app.stage_state.data.registry = cached_registry;
 
             let config = app.settings.scanner_config();
-            app.stage_list_state.data.load_dictionaries(&config);
+            app.stage_state.data.load_dictionaries(&config);
 
-            let enemies_ref = app.enemy_list_state.data.enemies.clone();
-            app.stage_list_state.data.sync_enemies(&enemies_ref);
+            let enemies_ref = app.enemy_state.data.enemies.clone();
+            app.stage_state.data.sync_enemies(&enemies_ref);
 
-            app.stage_list_state.data.initialized = true;
+            app.stage_state.data.initialized = true;
 
             info!("Triggering silent background validation scan for stages...");
-            app.stage_list_state.data.restart_scan(app.settings.scanner_config());
+            app.stage_state.data.restart_scan(app.settings.scanner_config());
         } else {
             info!("No stages_cache.bin found, triggering full stage scan");
-            app.stage_list_state.data.restart_scan(app.settings.scanner_config());
+            app.stage_state.data.restart_scan(app.settings.scanner_config());
         }
 
         if needs_validation {
@@ -125,8 +126,11 @@ impl BattleCatsApp {
             app.check_for_updates(false);
         }
 
+        let (home_state, home_task) = home::State::new();
+        app.home_state = home_state;
+
         info!("Initialization sequence complete");
 
-        (app, Task::none())
+        (app, home_task.map(Message::Home))
     }
 }

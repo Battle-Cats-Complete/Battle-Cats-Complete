@@ -7,6 +7,7 @@ use iced::{font, Alignment, Element, Length};
 use nyanko::chapter::map::{BonusType, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry};
 use nyanko::chapter::stage::{BossType, EnemyAmount};
 use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
+use tracing::warn;
 
 use core::common::context::GlobalContext;
 use core::modules::enemy::scanner::EnemyEntry;
@@ -80,8 +81,8 @@ fn format_base_hp_percentage(base_hp_perc: u32, is_dojo_mechanic: bool) -> Strin
 fn format_special_rule(rule: &SpecialRulesMapEntry, global_ctx: &GlobalContext) -> String {
     let explanation_key = if !rule.explanation_label.is_empty() {
         rule.explanation_label.clone()
-    } else if !rule.name_label.is_empty() {
-        rule.name_label.trim().replace("Name", "Explanation")
+    } else if let Some(prefix) = rule.name_label.trim().strip_suffix("Name") {
+        format!("{prefix}Explanation")
     } else {
         String::new()
     };
@@ -95,6 +96,8 @@ fn format_special_rule(rule: &SpecialRulesMapEntry, global_ctx: &GlobalContext) 
     let mut description = strip_html_tags(raw_description, BreakHandling::Space);
 
     if description.is_empty() {
+        warn!(key = %explanation_key, name_label = %rule.name_label, "missing localization for special rule explanation, falling back to raw enum parsing");
+
         let mut fallback = String::new();
         for target_rule in &rule.rules {
             let formatted_rule = match target_rule {
