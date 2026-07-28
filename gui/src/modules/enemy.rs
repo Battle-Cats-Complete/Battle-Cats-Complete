@@ -203,7 +203,7 @@ impl EnemyState {
 
         if self.filter.filter_state.is_open {
             let modal = opaque(
-                container(self.filter.view().map(Message::Filter))
+                container(self.filter.view(&self.img015_sheets, &self.custom_assets).map(Message::Filter))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .center_x(Length::Fill)

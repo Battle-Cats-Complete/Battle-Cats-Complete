@@ -1,0 +1,199 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use iced::widget::image::Handle;
+use iced::widget::{column, container, image as iced_image, row, scrollable, text, tooltip};
+use iced::{font, Alignment, Border, Color, Element, Length, Theme};
+use nyanko::chapter::stage::{AbilityType, CannonType, CertificationPreset, EvolutionForm, TreasureType};
+
+use core::modules::cat::waiter::unitexplanation;
+use core::modules::stage::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
+use core::modules::stage::paths;
+
+use super::icons;
+
+const ICON_SIZE: f32 = 128.0 * 0.45;
+const ICON_SPACING: f32 = 8.0;
+const SCROLL_AREA_HEIGHT: f32 = 90.0;
+
+fn bold_text<'a>(content: impl ToString) -> iced::widget::Text<'a> {
+    text(content.to_string()).font(font::Font {
+        weight: font::Weight::Bold,
+        ..Default::default()
+    })
+}
+
+#[derive(Default)]
+pub struct State {
+    icon_cache: RefCell<HashMap<String, Handle>>,
+}
+
+impl State {
+    fn icon(&self, path: &std::path::Path) -> Option<Handle> {
+        let key = path.to_string_lossy().to_string();
+        if let Some(cached) = self.icon_cache.borrow().get(&key) {
+            return Some(cached.clone());
+        }
+
+        let (handle, _, _) = icons::load_cropped(path)?;
+        self.icon_cache.borrow_mut().insert(key, handle.clone());
+        Some(handle)
+    }
+
+    pub fn view<'a, 'b>(&'a self, resolved_lineup: &'b ResolvedFixedLineup, preset: &'a CertificationPreset, langs: &'a [String]) -> Element<'a, super::Message> {
+        let mut top_row = row![].spacing(ICON_SPACING);
+        for slot in resolved_lineup.slots.iter().take(5) {
+            top_row = top_row.push(self.slot_view(slot, preset, langs));
+        }
+
+        let mut bottom_row = row![].spacing(ICON_SPACING);
+        for slot in resolved_lineup.slots.iter().skip(5).take(5) {
+            bottom_row = bottom_row.push(self.slot_view(slot, preset, langs));
+        }
+
+        let slots_col = column![top_row, bottom_row].spacing(ICON_SPACING);
+
+        let upgrades_panel = container(
+            scrollable(upgrades_section(preset))
+                .height(Length::Fixed(SCROLL_AREA_HEIGHT))
+        )
+            .padding(4)
+            .style(|_theme: &Theme| container::Style {
+                border: Border { color: Color::from_rgb8(80, 80, 80), width: 2.0, radius: 4.0.into() },
+                ..Default::default()
+            });
+
+        let body = row![slots_col, container(upgrades_panel).padding([0, 24])].align_y(Alignment::Start);
+
+        column![bold_text("Fixed Lineup").size(18), iced::widget::rule::horizontal(1), body]
+            .spacing(6)
+            .into()
+    }
+
+    fn slot_view<'a>(&'a self, slot: &ResolvedSlot, preset: &'a CertificationPreset, langs: &'a [String]) -> Element<'a, super::Message> {
+        let Some(image_path) = &slot.image_path else {
+            return empty_slot();
+        };
+
+        let Some(handle) = self.icon(image_path) else {
+            return empty_slot();
+        };
+
+        let image_el = iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
+
+        let (Some(unit_id), Some(unit_level)) = (slot.unit_id, slot.level) else {
+            return image_el.into();
+        };
+
+        let padded_id = format!("{:03}", unit_id);
+        let cat_folder = paths::cat_folder(unit_id);
+        let explanation = unitexplanation(unit_id, &cat_folder, langs);
+
+        let form_index = preset.characters.get(&unit_id).map_or(0, |chara| match chara.evolution_form {
+            EvolutionForm::Normal => 0,
+            EvolutionForm::Evolved => 1,
+            EvolutionForm::True => 2,
+            EvolutionForm::Ultra => 3,
+            _ => 0,
+        });
+
+        let mut display_name = format!("Unit {}", padded_id);
+        if let Some(Some(name)) = explanation.names.get(form_index).or_else(|| explanation.names.first()) {
+            display_name = name.clone();
+        }
+
+        let plus_level = slot.plus_level.unwrap_or(0);
+        let plus_string = if plus_level > 0 { format!("+{}", plus_level) } else { String::new() };
+
+        let tooltip_content = column![
+            row![text("[Name] ").size(12), text(display_name)].align_y(Alignment::Center),
+            row![text("[ID] ").size(12), text(padded_id)].align_y(Alignment::Center),
+            row![text("[Level] ").size(12), text(format!("{}{}", unit_level, plus_string))].align_y(Alignment::Center),
+        ].spacing(2);
+
+        tooltip(
+            image_el,
+            container(tooltip_content).padding(6).style(container::bordered_box),
+            tooltip::Position::Top,
+        ).into()
+    }
+}
+
+fn empty_slot<'a>() -> Element<'a, super::Message> {
+    container(iced::widget::space())
+        .width(Length::Fixed(ICON_SIZE))
+        .height(Length::Fixed(ICON_SIZE))
+        .style(|_theme: &Theme| container::Style {
+            background: Some(Color::from_rgb8(64, 64, 64).into()),
+            border: Border::default().rounded(4.0),
+            ..Default::default()
+        })
+        .into()
+}
+
+fn upgrades_section<'a>(preset: &'a CertificationPreset) -> Element<'a, super::Message> {
+    let cannon_name = match preset.slot_cannon_type {
+        CannonType::Basic => "Basic",
+        CannonType::SlowBeam => "Slow Beam",
+        CannonType::IronWall => "Iron Wall",
+        CannonType::Thunderbolt => "Thunderbolt",
+        CannonType::Waterblast => "Waterblast",
+        CannonType::HolyBlast => "HolyBlast",
+        CannonType::Breakerblast => "Breakerblast",
+        CannonType::Curseblast => "Curseblast",
+        CannonType::Unknown(_) => "Unknown",
+    };
+    let cannon_level = preset.cannon_levels.get(&preset.slot_cannon_type).copied().unwrap_or(0);
+
+    let cannon_grid = column![
+        row![bold_text("Cannon").width(Length::Fixed(140.0)), bold_text("Level")].spacing(24),
+        row![text(cannon_name).width(Length::Fixed(140.0)), text(cannon_level.to_string())].spacing(24),
+    ].spacing(4);
+
+    const ABILITIES: [(AbilityType, &str); 10] = [
+        (AbilityType::CatCannonAttack, "Cat Cannon Attack"),
+        (AbilityType::CatCannonRange, "Cat Cannon Range"),
+        (AbilityType::CatCannonCharge, "Cat Cannon Charge"),
+        (AbilityType::WorkerCatRate, "Worker Cat Efficiency"),
+        (AbilityType::WorkerCatWallet, "Worker Cat Wallet"),
+        (AbilityType::BaseDefense, "Cat Base Health"),
+        (AbilityType::Research, "Research"),
+        (AbilityType::BountyUp, "Accounting"),
+        (AbilityType::Study, "Study"),
+        (AbilityType::CatEnergy, "Cat Energy"),
+    ];
+
+    let mut abilities_grid = column![row![bold_text("Upgrade").width(Length::Fixed(160.0)), bold_text("Level")].spacing(24)].spacing(4);
+    for (ability_type, name) in ABILITIES {
+        let level_string = preset.abilities.get(&ability_type).map_or("0".to_string(), |ability| {
+            if ability.plus_level > 0 { format!("{} +{}", ability.level, ability.plus_level) } else { ability.level.to_string() }
+        });
+        abilities_grid = abilities_grid.push(row![text(name).width(Length::Fixed(160.0)), text(level_string)].spacing(24));
+    }
+
+    const TREASURES: [(TreasureType, &str); 9] = [
+        (TreasureType::EoC1, "EoC Ch. 1"),
+        (TreasureType::EoC2, "EoC Ch. 2"),
+        (TreasureType::EoC3, "EoC Ch. 3"),
+        (TreasureType::ItF1, "ItF Ch. 1"),
+        (TreasureType::ItF2, "ItF Ch. 2"),
+        (TreasureType::ItF3, "ItF Ch. 3"),
+        (TreasureType::CotC1, "CotC Ch. 1"),
+        (TreasureType::CotC2, "CotC Ch. 2"),
+        (TreasureType::CotC3, "CotC Ch. 3"),
+    ];
+
+    let mut treasures_grid = column![row![bold_text("Chapter").width(Length::Fixed(110.0)), bold_text("Grades")].spacing(24)].spacing(4);
+    for (treasure_type, name) in TREASURES {
+        let grades_string = preset.treasures.get(&treasure_type).map_or("0/0/0".to_string(), |treasure| {
+            format!("{}/{}/{}", treasure.superior_count, treasure.normal_count, treasure.inferior_count)
+        });
+        treasures_grid = treasures_grid.push(row![text(name).width(Length::Fixed(110.0)), text(grades_string)].spacing(24));
+    }
+
+    column![
+        cannon_grid,
+        iced::widget::space().height(Length::Fixed(12.0)),
+        row![abilities_grid, treasures_grid].spacing(24),
+    ].into()
+}

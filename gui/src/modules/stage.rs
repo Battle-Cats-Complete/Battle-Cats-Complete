@@ -1,35 +1,28 @@
+mod battleground;
 mod category;
+mod crowns;
+mod filter;
+mod fixedlineup;
+mod icons;
+mod info;
 mod list;
+mod materials;
+mod treasure;
 
 use iced::alignment;
-use iced::widget::{button, column, container, row, scrollable, space, stack, text, text_input};
-use iced::{font, Alignment, Element, Length, Subscription, Task, Theme};
-use nyanko::chapter::stage::{BossType, EnemyAmount};
+use iced::widget::{button, column, container, row, scrollable, space, stack, text};
+use iced::{Element, Length, Subscription, Task, Theme};
 use tracing::{debug, warn};
 
-use core::modules::stage::filter::StageFilterState;
-use core::modules::stage::{Stage, StageDataState};
+use core::common::context::GlobalContext;
 use core::modules::settings::Settings;
-
-fn bold_text<'a>(content: impl ToString) -> iced::widget::Text<'a> {
-    text(content.to_string()).font(font::Font {
-        weight: font::Weight::Bold,
-        ..Default::default()
-    })
-}
+use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Tick,
     ToggleSidebar,
-    ClearFilter,
     SelectCrown(u8),
-    FilterCategoryChanged(String),
-    FilterMapChanged(String),
-    FilterStageChanged(String),
-    FilterContinuesToggled(Option<bool>),
-    FilterBossGuardToggled(Option<bool>),
-    FilterCpuToggled(Option<bool>),
     List(list::Message),
 }
 
@@ -38,6 +31,11 @@ pub struct State {
     pub is_sidebar_open: bool,
     pub selected_crown: u8,
     list: list::State,
+    info: info::State,
+    materials: materials::State,
+    treasure: treasure::State,
+    fixedlineup: fixedlineup::State,
+    battleground: battleground::State,
 }
 
 impl Default for State {
@@ -47,6 +45,11 @@ impl Default for State {
             is_sidebar_open: true,
             selected_crown: 0,
             list: list::State::default(),
+            info: info::State::default(),
+            materials: materials::State::default(),
+            treasure: treasure::State::default(),
+            fixedlineup: fixedlineup::State::default(),
+            battleground: battleground::State::default(),
         }
     }
 }
@@ -67,14 +70,7 @@ impl State {
                 }
             }
             Message::ToggleSidebar => self.is_sidebar_open = !self.is_sidebar_open,
-            Message::ClearFilter => self.list.filter_state = StageFilterState::default(),
             Message::SelectCrown(crown) => self.selected_crown = crown,
-            Message::FilterCategoryChanged(val) => self.list.filter_state.category_name = val,
-            Message::FilterMapChanged(val) => self.list.filter_state.map_name = val,
-            Message::FilterStageChanged(val) => self.list.filter_state.stage_name = val,
-            Message::FilterContinuesToggled(val) => self.list.filter_state.continues = val,
-            Message::FilterBossGuardToggled(val) => self.list.filter_state.boss_guard = val,
-            Message::FilterCpuToggled(val) => self.list.filter_state.use_super_cpu = val,
             Message::List(msg) => self.list.update(msg, &mut self.data),
         }
 
@@ -82,12 +78,18 @@ impl State {
         Task::none()
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
-        let base = self.view_main_panel();
+    pub fn view<'a>(&'a self, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+        let base = self.view_main_panel(global_ctx);
         let sidebar_overlay = self.view_sidebar_overlay();
 
-        if self.list.filter_state.is_open {
-            stack![base, sidebar_overlay, self.view_filter_modal()]
+        if self.list.filter.filter_state.is_open {
+            let filter_modal = container(self.list.filter.view().map(|msg| Message::List(list::Message::Filter(msg))))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill);
+
+            stack![base, sidebar_overlay, filter_modal]
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into()
@@ -132,7 +134,7 @@ impl State {
             .into()
     }
 
-    fn view_main_panel(&self) -> Element<'_, Message> {
+    fn view_main_panel<'a>(&'a self, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let Some(stage_id) = &self.data.selected_stage else {
             return container(text("Select a stage to view details"))
                 .width(Length::Fill)
@@ -147,162 +149,41 @@ impl State {
             return space().into();
         };
 
-        let mut content = column![]
-            .spacing(20)
-            .padding(40)
-            .push(self.view_stage_header(stage))
-            .push(self.view_crowns(stage));
+        let map_key = GlobalMapId { category: stage.category.clone(), map: stage.map_id };
+        let Some(map) = self.data.registry.maps.get(&map_key) else {
+            warn!("Failed to locate parent map for stage view");
+            return space().into();
+        };
 
-        content = content.push(self.view_battleground(stage));
+        let langs = &self.data.active_language_priority;
+
+        let mut content = column![].spacing(20).padding(40);
+
+        content = content.push(self.info.view(stage, map, langs, &self.data.lock_skip_registry, &self.data.scat_cpu_setting, self.selected_crown));
+
+        if materials::has_drops(stage, map) {
+            content = content.push(
+                row![
+                    self.materials.view(stage, map, self.selected_crown, &self.data.item_buy_registry, &self.data.item_name_registry, langs),
+                    space().width(Length::Fixed(15.0)),
+                    self.treasure.view(stage, &self.data.item_buy_registry, &self.data.item_name_registry, &self.data.drop_chara_registry, &self.data.unit_buy_registry, langs),
+                ]
+                    .align_y(iced::Alignment::Start)
+            );
+        } else {
+            content = content.push(self.treasure.view(stage, &self.data.item_buy_registry, &self.data.item_name_registry, &self.data.drop_chara_registry, &self.data.unit_buy_registry, langs));
+        }
+
+        if let Some(preset) = stage.fixed_lineups.get(&self.selected_crown) {
+            let resolved = core_fixedlineup::resolve_lineup(preset, langs);
+            content = content.push(self.fixedlineup.view(&resolved, preset, langs));
+        }
+
+        content = content.push(self.battleground.view(stage, map, self.selected_crown, &self.data.enemy_registry, &self.data.enemy_name_registry, global_ctx));
 
         scrollable(content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .into()
-    }
-
-    fn view_stage_header(&self, stage: &Stage) -> Element<'_, Message> {
-        column![
-            bold_text(&stage.name).size(32),
-            text(format!("Base HP: {}", stage.base_hp)),
-            text(format!("Energy: {}", stage.energy)),
-            text(format!("XP: {}", stage.xp)),
-        ]
-            .spacing(8)
-            .into()
-    }
-
-    fn view_crowns(&self, stage: &Stage) -> Element<'_, Message> {
-        if stage.max_crowns <= 1 {
-            return space().into();
-        }
-
-        let mut row_btns = row![].spacing(5);
-        for c in 0..stage.max_crowns {
-            let label = format!("{}♔", c + 1);
-            let is_selected = self.selected_crown == c;
-
-            let btn = button(bold_text(label))
-                .on_press(Message::SelectCrown(c));
-
-            let styled_btn = if is_selected {
-                btn.style(|theme: &Theme, _status| button::Style {
-                    background: Some(theme.palette().primary.into()),
-                    text_color: theme.palette().text,
-                    ..Default::default()
-                })
-            } else {
-                btn.style(|theme: &Theme, _status| button::Style {
-                    background: Some(theme.palette().background.into()),
-                    text_color: theme.palette().text,
-                    ..Default::default()
-                })
-            };
-
-            row_btns = row_btns.push(styled_btn);
-        }
-
-        row_btns.into()
-    }
-
-    fn view_battleground(&self, stage: &Stage) -> Element<'_, Message> {
-        if stage.enemies.is_empty() {
-            return text("No enemies defined for this stage.").into();
-        }
-
-        let mut grid = column![
-            row![
-                bold_text("Enemy").width(100),
-                bold_text("Count").width(50),
-                bold_text("Mag %").width(80),
-                bold_text("Base %").width(60),
-                bold_text("Spawn").width(60),
-                bold_text("Boss").width(60),
-            ].spacing(15)
-        ].spacing(4);
-
-        for (idx, spawn) in stage.enemies.iter().enumerate() {
-            let enemy_name = format!("{:03}-E", spawn.enemy_id);
-            let amount = match spawn.amount {
-                EnemyAmount::Infinite => "∞".to_string(),
-                EnemyAmount::Limit(l) => l.to_string(),
-            };
-            let boss = match spawn.boss_type {
-                BossType::None => "-",
-                BossType::Boss => "Yes",
-                BossType::ScreenShake => "Shake",
-                BossType::Unknown(_) => "Unknown",
-            };
-
-            let row_element = row![
-                text(enemy_name).width(100),
-                text(amount).width(50),
-                text(format!("{}%", spawn.magnification)).width(80),
-                text(format!("{}%", spawn.base_hp_perc)).width(60),
-                text(format!("{}f", spawn.start_frame)).width(60),
-                text(boss).width(60),
-            ].spacing(15);
-
-            let mut wrapped_row = container(row_element).padding(4);
-            if idx % 2 == 0 {
-                wrapped_row = wrapped_row.style(|_theme: &Theme| container::Style {
-                    background: Some(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.05).into()),
-                    ..Default::default()
-                });
-            }
-
-            grid = grid.push(wrapped_row);
-        }
-
-        column![
-            bold_text("Battleground").size(24),
-            grid
-        ]
-            .spacing(10)
-            .into()
-    }
-
-    fn view_filter_modal(&self) -> Element<'_, Message> {
-        let content = column![
-            bold_text("Advanced Stage Filter").size(24),
-            row![
-                text("Category:").width(80),
-                text_input("Any", &self.list.filter_state.category_name)
-                    .on_input(Message::FilterCategoryChanged)
-            ].align_y(Alignment::Center),
-            row![
-                text("Map:").width(80),
-                text_input("Any", &self.list.filter_state.map_name)
-                    .on_input(Message::FilterMapChanged)
-            ].align_y(Alignment::Center),
-            row![
-                text("Stage:").width(80),
-                text_input("Any", &self.list.filter_state.stage_name)
-                    .on_input(Message::FilterStageChanged)
-            ].align_y(Alignment::Center),
-
-            button("Clear Filters")
-                .on_press(Message::ClearFilter)
-                .style(|theme: &Theme, _status| button::Style {
-                    background: Some(theme.palette().danger.into()),
-                    text_color: theme.palette().text,
-                    ..Default::default()
-                }),
-            button("Close")
-                .on_press(Message::List(list::Message::ToggleFilter))
-        ]
-            .spacing(15)
-            .padding(20);
-
-        container(scrollable(content))
-            .width(400)
-            .height(500)
-            .style(|theme: &Theme| container::Style {
-                background: Some(theme.palette().background.into()),
-                ..Default::default()
-            })
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
             .into()
     }
 }

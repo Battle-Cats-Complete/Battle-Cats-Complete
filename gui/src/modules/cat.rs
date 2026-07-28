@@ -279,7 +279,7 @@ impl State {
             .height(Length::Fill);
 
         if self.filter.filter_state.is_open {
-            let filter_modal = self.filter.view().map(Message::Filter);
+            let filter_modal = self.filter.view(&self.img015_sheets, &self.custom_assets).map(Message::Filter);
             stack![
                 base_layout,
                 container(filter_modal)

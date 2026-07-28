@@ -307,7 +307,7 @@ impl BattleCatsApp {
             Page::Home => self.home_state.view().map(Message::Home),
             Page::Cats => self.cat_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Cat),
             Page::Enemies => self.enemy_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Enemy),
-            Page::Stages => self.stage_state.view().map(Message::Stage),
+            Page::Stages => self.stage_state.view(GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Data => self.data_state.view(&self.settings).map(Message::Data),
             Page::Animation => self.animation_state.view().map(Message::Animation),
