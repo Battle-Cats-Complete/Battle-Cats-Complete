@@ -2,6 +2,8 @@ mod canvas;
 mod controls;
 mod data;
 mod export;
+mod offscreen;
+mod overlay;
 mod pipeline;
 
 use iced::widget::{container, stack, text};
@@ -17,6 +19,7 @@ pub struct State {
     canvas: canvas::State,
     controls: controls::State,
     export: export::State,
+    overlay: overlay::State,
 }
 
 #[derive(Debug, Clone)]
@@ -24,6 +27,7 @@ pub enum Message {
     Canvas(canvas::Message),
     Controls(controls::Message),
     Export(export::Message),
+    Overlay(overlay::Message),
 }
 
 impl State {
@@ -52,8 +56,22 @@ impl State {
                 self.controls.update(msg, &mut self.canvas, &mut self.data);
                 Task::none()
             }
+            Message::Export(export::Message::SetCamera) => {
+                self.export.is_open = false;
+                self.overlay.selecting = true;
+                Task::none()
+            }
             Message::Export(msg) => {
-                self.export.update(msg);
+                self.export.update(msg, &self.data, settings);
+                Task::none()
+            }
+            Message::Overlay(msg) => {
+                match msg {
+                    overlay::Message::Selected(region) => self.export.set_region(region),
+                    overlay::Message::Cancelled => {}
+                }
+                self.overlay.selecting = false;
+                self.export.is_open = true;
                 Task::none()
             }
         }
@@ -71,6 +89,8 @@ impl State {
 
         let viewport = self.canvas.view(&self.data).map(Message::Canvas);
 
+        let selection_overlay = self.overlay.view(&self.canvas, self.export.camera_region()).map(Message::Overlay);
+
         let controls_overlay = container(self.controls.view(&self.canvas, &self.data).map(Message::Controls))
             .width(Length::Fill)
             .align_x(iced::alignment::Horizontal::Left)
@@ -78,6 +98,7 @@ impl State {
 
         let mut layers = stack![
             viewport,
+            selection_overlay,
             container(controls_overlay)
                 .width(Length::Fill)
                 .height(Length::Fill)
