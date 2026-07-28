@@ -34,13 +34,13 @@ impl State {
     pub fn update(&mut self, message: Message, size: Size) -> bool {
         match message {
             Message::HeaderPressed => self.drag = Drag::Pressed,
-            Message::Dragged(cursor, layer) => match self.drag {
+            Message::Dragged(cursor, window) => match self.drag {
                 Drag::Idle => {}
                 Drag::Pressed => self.drag = Drag::Moving { last: cursor },
                 Drag::Moving { last } => {
-                    let current = self.resolved_position(size, layer);
+                    let current = self.resolved_position(size, window);
                     let next = Point::new(current.x + cursor.x - last.x, current.y + cursor.y - last.y);
-                    self.position = Some(clamp(next, size, layer));
+                    self.position = Some(clamp(next, size, window));
                     self.drag = Drag::Moving { last: cursor };
                 }
             },
@@ -58,11 +58,13 @@ impl State {
         &'a self,
         title: &'a str,
         size: Size,
+        window: Size,
         to_message: fn(Message) -> M,
         content: impl Fn() -> Element<'a, M> + 'a,
     ) -> Element<'a, M> {
         responsive(move |layer| {
-            let position = self.resolved_position(size, layer);
+            let bounds = if window.width < 1.0 || window.height < 1.0 { layer } else { window };
+            let position = self.resolved_position(size, bounds);
 
             let close_button = button(text("✕").size(14))
                 .style(button::text)
@@ -103,7 +105,7 @@ impl State {
                     base,
                     mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
                         .interaction(Interaction::Grabbing)
-                        .on_move(move |cursor| to_message(Message::Dragged(cursor, layer)))
+                        .on_move(move |cursor| to_message(Message::Dragged(cursor, bounds)))
                         .on_release(to_message(Message::Released))
                         .on_exit(to_message(Message::Released)),
                 ]
@@ -113,13 +115,13 @@ impl State {
         .into()
     }
 
-    fn resolved_position(&self, size: Size, layer: Size) -> Point {
+    fn resolved_position(&self, size: Size, window: Size) -> Point {
         let centered = Point::new(
-            ((layer.width - size.width) / 2.0).max(0.0),
-            ((layer.height - size.height) / 2.0).max(0.0),
+            ((window.width - size.width) / 2.0).max(0.0),
+            ((window.height - size.height) / 2.0).max(0.0),
         );
 
-        clamp(self.position.unwrap_or(centered), size, layer)
+        clamp(self.position.unwrap_or(centered), size, window)
     }
 }
 
@@ -243,10 +245,10 @@ impl<'a, M> Widget<M, Theme, iced::Renderer> for Anchored<'a, M> {
     }
 }
 
-fn clamp(position: Point, size: Size, layer: Size) -> Point {
+fn clamp(position: Point, size: Size, window: Size) -> Point {
     Point::new(
-        position.x.clamp(0.0, (layer.width - size.width).max(0.0)),
-        position.y.clamp(0.0, (layer.height - HEADER_HEIGHT).max(0.0)),
+        position.x.clamp(0.0, (window.width - size.width).max(0.0)),
+        position.y.clamp(0.0, (window.height - HEADER_HEIGHT).max(0.0)),
     )
 }
 
@@ -290,32 +292,44 @@ mod tests {
     #[test]
     fn header_corners_stay_within_window() {
         let size = Size::new(320.0, 500.0);
-        let layer = Size::new(800.0, 600.0);
+        let window = Size::new(800.0, 600.0);
 
-        let clamped = clamp(Point::new(900.0, 700.0), size, layer);
+        let clamped = clamp(Point::new(900.0, 700.0), size, window);
         assert_eq!(clamped, Point::new(480.0, 600.0 - HEADER_HEIGHT));
 
-        let clamped = clamp(Point::new(-50.0, -20.0), size, layer);
+        let clamped = clamp(Point::new(-50.0, -20.0), size, window);
         assert_eq!(clamped, Point::ORIGIN);
     }
 
     #[test]
     fn body_may_overhang_the_bottom_edge() {
         let size = Size::new(320.0, 500.0);
-        let layer = Size::new(800.0, 600.0);
+        let window = Size::new(800.0, 600.0);
 
-        let fully_inside_max_y = layer.height - size.height;
-        let clamped = clamp(Point::new(0.0, 550.0), size, layer);
+        let fully_inside_max_y = window.height - size.height;
+        let clamped = clamp(Point::new(0.0, 550.0), size, window);
         assert!(clamped.y > fully_inside_max_y);
         assert_eq!(clamped.y, 550.0);
     }
 
     #[test]
+    fn popup_reaches_the_true_window_origin() {
+        let size = Size::new(320.0, 500.0);
+        let window = Size::new(800.0, 600.0);
+
+        let clamped = clamp(Point::new(-500.0, -500.0), size, window);
+        assert_eq!(clamped, Point::ORIGIN);
+
+        let clamped = clamp(Point::new(10.0, 5.0), size, window);
+        assert_eq!(clamped, Point::new(10.0, 5.0));
+    }
+
+    #[test]
     fn window_smaller_than_popup_pins_to_origin() {
         let size = Size::new(320.0, 500.0);
-        let layer = Size::new(300.0, 20.0);
+        let window = Size::new(300.0, 20.0);
 
-        let clamped = clamp(Point::new(100.0, 100.0), size, layer);
+        let clamped = clamp(Point::new(100.0, 100.0), size, window);
         assert_eq!(clamped, Point::ORIGIN);
     }
 }

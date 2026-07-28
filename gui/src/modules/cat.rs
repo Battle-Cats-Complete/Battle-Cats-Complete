@@ -11,7 +11,7 @@ use iced::widget::{
     button, column, container, row, scrollable,
     stack, text, text_input, Space,
 };
-use iced::{Element, Length, Subscription, Task};
+use iced::{Element, Length, Size, Subscription, Task};
 use nyanko::cat::unit::Battle;
 use tracing::info;
 
@@ -166,6 +166,10 @@ impl State {
                 crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
                 crate::common::img022::ensure_loaded(&mut self.img022_sheets, settings);
 
+                if self.selected_tab != DetailTab::Animation {
+                    self.animation.export_tick();
+                }
+
                 self.list
                     .update(list::Message::Tick, &self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality)
                     .map(Message::List)
@@ -295,12 +299,16 @@ impl State {
         self.animation.expanded_view().map(|view| view.map(Message::Animation))
     }
 
-    pub fn export_popup_view(&self) -> Option<Element<'_, Message>> {
-        if self.selected_tab != DetailTab::Animation {
-            return None;
-        }
+    pub fn export_popup_open(&self) -> bool {
+        self.animation.export_popup_open()
+    }
 
-        self.animation.export_popup_view().map(|view| view.map(Message::Animation))
+    pub fn export_popup_visible(&self) -> bool {
+        self.selected_tab == DetailTab::Animation
+    }
+
+    pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.animation.export_popup_view(window).map(|view| view.map(Message::Animation))
     }
 
     pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {

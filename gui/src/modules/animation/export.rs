@@ -414,8 +414,8 @@ impl State {
         }
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
-        self.popup.view("Export Animation", POPUP_SIZE, Message::Popup, move || self.content_view())
+    pub fn view(&self, window: Size) -> Element<'_, Message> {
+        self.popup.view("Export Animation", POPUP_SIZE, window, Message::Popup, move || self.content_view())
     }
 
     fn content_view(&self) -> Element<'_, Message> {

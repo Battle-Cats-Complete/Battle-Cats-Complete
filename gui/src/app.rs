@@ -3,7 +3,7 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use iced::alignment;
 use iced::widget::{button, column, container, progress_bar, row, scrollable, stack, text};
-use iced::{Color, Element, Length, Subscription, Task, Theme};
+use iced::{window, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
 use self_update::update::Release;
@@ -79,11 +79,17 @@ pub enum UpdaterAction {
     RestartApp,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActivePopup {
+    CatExport,
+}
+
 #[derive(Clone, Debug)]
 pub enum Message {
     Tick,
     Navigate(Page),
     ToggleSidebar,
+    WindowResized(Size),
     UpdaterAction(UpdaterAction),
     Home(home::Message),
     Cat(cat::Message),
@@ -101,6 +107,10 @@ pub struct BattleCatsApp {
     pub current_page: Page,
     #[serde(skip)]
     pub sidebar_open: bool,
+    #[serde(skip)]
+    pub window_size: Size,
+    #[serde(skip)]
+    pub active_popups: Vec<ActivePopup>,
 
     #[serde(skip)]
     pub home_state: home::State,
@@ -145,6 +155,8 @@ impl Default for BattleCatsApp {
         Self {
             current_page: Page::Home,
             sidebar_open: true,
+            window_size: Size::new(800.0, 600.0),
+            active_popups: Vec::new(),
             home_state: home::State::default(),
             cat_state: cat::State::default(),
             enemy_state: enemy::EnemyState::default(),
@@ -177,6 +189,7 @@ impl BattleCatsApp {
 
     pub fn subscription(&self) -> Subscription<Message> {
         Subscription::batch(vec![
+            window::resize_events().map(|(_, size)| Message::WindowResized(size)),
             iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::Tick),
             self.home_state.subscription().map(Message::Home),
             self.cat_state.subscription().map(Message::Cat),
@@ -190,6 +203,10 @@ impl BattleCatsApp {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::WindowResized(size) => {
+                self.window_size = size;
+                Task::none()
+            }
             Message::Tick => {
                 self.check_auto_save();
 
@@ -285,7 +302,11 @@ impl BattleCatsApp {
                     _ => self.home_state.update(msg).map(Message::Home),
                 }
             }
-            Message::Cat(msg) => self.cat_state.update(msg, &mut self.settings).map(Message::Cat),
+            Message::Cat(msg) => {
+                let task = self.cat_state.update(msg, &mut self.settings).map(Message::Cat);
+                self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open());
+                task
+            }
             Message::Enemy(msg) => self.enemy_state.update(msg, &self.settings).map(Message::Enemy),
             Message::Stage(msg) => self.stage_state.update(msg, &self.settings).map(Message::Stage),
             Message::Mod(msg) => self.mods_state.update(msg, &self.settings).map(Message::Mod),
@@ -311,16 +332,28 @@ impl BattleCatsApp {
 
         let sidebar_overlay = self.view_sidebar_overlay();
 
-        let mut layers = stack![content_container, sidebar_overlay];
+        let expanded = if matches!(self.current_page, Page::Cats) {
+            self.cat_state.expanded_animation_view()
+        } else {
+            None
+        };
 
-        if matches!(self.current_page, Page::Cats)
-            && let Some(expanded) = self.cat_state.expanded_animation_view() {
-            layers = layers.push(expanded.map(Message::Cat));
+        let mut layers = stack![content_container];
+
+        if expanded.is_none() {
+            for popup in self.build_popups() {
+                layers = layers.push(popup);
+            }
         }
 
-        if matches!(self.current_page, Page::Cats)
-            && let Some(popup) = self.cat_state.export_popup_view() {
-            layers = layers.push(popup.map(Message::Cat));
+        layers = layers.push(sidebar_overlay);
+
+        if let Some(expanded) = expanded {
+            layers = layers.push(expanded.map(Message::Cat));
+
+            for popup in self.build_popups() {
+                layers = layers.push(popup);
+            }
         }
 
         if let Some(modal) = self.build_modal() {
@@ -328,6 +361,31 @@ impl BattleCatsApp {
         }
 
         layers.into()
+    }
+
+    fn sync_popup(&mut self, popup: ActivePopup, open: bool) {
+        if open {
+            if !self.active_popups.contains(&popup) {
+                self.active_popups.push(popup);
+            }
+        } else {
+            self.active_popups.retain(|active| *active != popup);
+        }
+    }
+
+    fn build_popups(&self) -> Vec<Element<'_, Message>> {
+        self.active_popups
+            .iter()
+            .filter_map(|popup| match popup {
+                ActivePopup::CatExport => {
+                    if !matches!(self.current_page, Page::Cats) || !self.cat_state.export_popup_visible() {
+                        return None;
+                    }
+
+                    self.cat_state.export_popup_view(self.window_size).map(|view| view.map(Message::Cat))
+                }
+            })
+            .collect()
     }
 
     fn view_sidebar_overlay(&self) -> Element<'_, Message> {

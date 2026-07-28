@@ -7,7 +7,7 @@ mod overlay;
 mod pipeline;
 
 use iced::widget::{button, column, container, stack, text};
-use iced::{Alignment, Element, Length, Task, Theme};
+use iced::{Alignment, Element, Length, Size, Task, Theme};
 
 use core::modules::cat::scanner::CatEntry;
 use core::modules::settings::Settings;
@@ -40,6 +40,10 @@ impl State {
     pub fn tick(&mut self) {
         self.canvas.update(canvas::Message::Tick, &self.data);
         self.controls.tick(&mut self.canvas, &self.data);
+        self.export.tick();
+    }
+
+    pub fn export_tick(&mut self) {
         self.export.tick();
     }
 
@@ -111,9 +115,13 @@ impl State {
         self.viewer_view()
     }
 
-    pub fn export_popup_view(&self) -> Option<Element<'_, Message>> {
+    pub fn export_popup_open(&self) -> bool {
+        self.export.is_open
+    }
+
+    pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
         (self.export.is_open && self.data.held_unit.is_some())
-            .then(|| self.export.view().map(Message::Export))
+            .then(|| self.export.view(window).map(Message::Export))
     }
 
     pub fn expanded_view(&self) -> Option<Element<'_, Message>> {
