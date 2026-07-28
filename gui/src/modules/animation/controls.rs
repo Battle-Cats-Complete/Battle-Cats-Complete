@@ -52,7 +52,15 @@ pub enum Message {
 }
 
 fn loop_max(data: &data::State) -> Option<f32> {
-    data.current_anim.as_ref().map(|anim| anim.max_frame.max(0) as f32)
+    data.loop_bound().map(|v| v.max(0) as f32)
+}
+
+fn display_max(data: &data::State) -> String {
+    match data.loop_bound() {
+        Some(value) if value > 999_999 => "???".to_string(),
+        Some(value) => value.to_string(),
+        None => "???".to_string(),
+    }
 }
 
 impl State {
@@ -177,7 +185,7 @@ impl State {
         let frame_status = row![
             text(format!("{:.0}", canvas.current_frame)),
             text("/"),
-            text(loop_max(data).map(|v| format!("{:.0}", v)).unwrap_or_else(|| "???".to_string())),
+            text(display_max(data)),
         ].spacing(4);
 
         let speed_row = row![

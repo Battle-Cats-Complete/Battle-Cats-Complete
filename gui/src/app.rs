@@ -311,13 +311,15 @@ impl BattleCatsApp {
                 }
             }
             Message::Cat(msg) => {
-                let task = self.cat_state.update(msg, &mut self.settings).map(Message::Cat);
+                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
+                let task = self.cat_state.update(msg, &mut self.settings, global_ctx).map(Message::Cat);
                 self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open());
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
                 task
             }
             Message::Enemy(msg) => {
-                let task = self.enemy_state.update(msg, &self.settings).map(Message::Enemy);
+                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
+                let task = self.enemy_state.update(msg, &self.settings, global_ctx).map(Message::Enemy);
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
                 task
             }

@@ -203,6 +203,10 @@ impl State {
         self.conjure_overrides.get(&cat_id).copied().unwrap_or(settings.cat_data.expand_spirit_details)
     }
 
+    pub(crate) fn is_conjure_expanded(&self, cat_id: u32, settings: &Settings) -> bool {
+        self.conjure_expanded(cat_id, settings)
+    }
+
     fn conjure_details(
         &self,
         spirit: SpiritContext,

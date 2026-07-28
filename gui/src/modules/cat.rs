@@ -1,19 +1,21 @@
 mod abilities;
 mod filter;
 mod list;
+mod statblock;
 mod talents;
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
     button, column, container, row, scrollable,
     text, text_input, Space,
 };
-use iced::{Element, Length, Size, Subscription, Task};
+use iced::{Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::cat::unit::Battle;
-use tracing::info;
+use tracing::{error, info};
 
 use core::common::context::GlobalContext;
 use core::modules::cat::game::registry::{format_cat_stat, get_cat_stat};
@@ -28,6 +30,10 @@ use crate::common::stat_grid;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 use crate::modules::animation;
+use crate::modules::statblock::button_feedback;
+
+use super::statblock::builder;
+use statblock::build_cat_statblock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
@@ -100,6 +106,11 @@ pub struct State {
     img022_sheets: Vec<SpriteSheet>,
     custom_assets: CustomAssets,
 
+    statblock_pending: Option<ExportAction>,
+    statblock_job: Option<mpsc::Receiver<(ExportAction, Result<(), String>)>>,
+    statblock_copy_feedback: Option<(bool, Instant)>,
+    statblock_save_feedback: Option<(bool, Instant)>,
+
     list: list::State,
     filter: filter::State,
     abilities: abilities::State,
@@ -124,6 +135,11 @@ impl Default for State {
             img022_sheets: Vec::new(),
             custom_assets: CustomAssets::new(),
 
+            statblock_pending: None,
+            statblock_job: None,
+            statblock_copy_feedback: None,
+            statblock_save_feedback: None,
+
             list: list::State::default(),
             filter: filter::State::default(),
             abilities: abilities::State::default(),
@@ -144,15 +160,15 @@ impl State {
         Subscription::batch(subscriptions)
     }
 
-    pub fn update(&mut self, message: Message, settings: &mut Settings) -> Task<Message> {
-        let task = self.update_inner(message, settings);
+    pub fn update(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
+        let task = self.update_inner(message, settings, global_ctx);
 
         self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
 
         task
     }
 
-    fn update_inner(&mut self, message: Message, settings: &mut Settings) -> Task<Message> {
+    fn update_inner(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
             Message::Tick => {
                 if !self.data.initialized {
@@ -168,6 +184,17 @@ impl State {
 
                 if self.selected_tab != DetailTab::Animation {
                     self.animation.export_tick();
+                }
+
+                let received = self.statblock_job.as_ref().and_then(|rx| rx.try_recv().ok());
+                if let Some((action, result)) = received {
+                    self.statblock_pending = None;
+                    self.statblock_job = None;
+                    let success = result.is_ok();
+                    match action {
+                        ExportAction::Copy => self.statblock_copy_feedback = Some((success, Instant::now())),
+                        ExportAction::Save => self.statblock_save_feedback = Some((success, Instant::now())),
+                    }
                 }
 
                 self.list
@@ -243,15 +270,12 @@ impl State {
                 Task::none()
             }
             Message::ExportStatblock(action) => {
-                match action {
-                    ExportAction::Copy => info!("ExportAction: Copying to clipboard"),
-                    ExportAction::Save => info!("ExportAction: Saving to disk"),
-                }
+                self.start_statblock_export(action, settings, global_ctx);
                 Task::none()
             }
             Message::List(msg) => {
                 if let list::Message::SelectCat(id) = msg {
-                    return self.update(Message::SelectCat(id), settings);
+                    return self.update(Message::SelectCat(id), settings, global_ctx);
                 }
 
                 self.list
@@ -269,7 +293,7 @@ impl State {
             Message::Talents(msg) => {
                 match msg {
                     talents::Message::LevelChanged(index, level) => {
-                        return self.update(Message::ChangeTalentLevel(index, level), settings);
+                        return self.update(Message::ChangeTalentLevel(index, level), settings, global_ctx);
                     }
                     talents::Message::LevelInputChanged(index, input) => {
                         let max_level = self.selected_cat
@@ -293,6 +317,65 @@ impl State {
             }
             Message::Animation(msg) => self.animation.update(msg, settings).map(Message::Animation),
         }
+    }
+
+    fn start_statblock_export(&mut self, action: ExportAction, settings: &Settings, global_ctx: GlobalContext<'_>) {
+        if self.statblock_pending.is_some() {
+            return;
+        }
+
+        let Some(selected_id) = self.selected_cat else { return; };
+        let Some(cat) = self.data.cats.iter().find(|c| c.id == selected_id) else { return; };
+
+        let dynamic_stats = unitid(cat.id as i32, &settings.general.language_priority);
+        let Some(base_stats) = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form)) else { return; };
+
+        let form_allows_talents = self.selected_form >= 2;
+        let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
+        let talent_levels = if form_allows_talents { Some(&self.talent_levels) } else { None };
+        let final_stats = get_final_stats(base_stats, cat.curve.as_ref(), self.current_level, talent_data, talent_levels);
+
+        let cat_ctx = CatRenderContext {
+            global: global_ctx,
+            base_stats,
+            final_stats: &final_stats,
+            current_level: self.current_level,
+            level_curve: cat.curve.as_ref(),
+            talent_data,
+            talent_levels,
+            is_conjure_unit: false,
+        };
+
+        let is_conjure_expanded = self.abilities.is_conjure_expanded(cat.id, settings);
+        let data = build_cat_statblock(&cat_ctx, cat, self.selected_form, self.level_input.clone(), is_conjure_expanded, settings);
+
+        let is_cat = data.is_cat;
+        let id_str = data.id_str.clone();
+        let top_value = data.top_value.clone();
+
+        let mut cuts_map = HashMap::new();
+        for sheet in self.img015_sheets.iter().rev() {
+            cuts_map.extend(sheet.core.cuts_map.clone());
+        }
+        let priority = settings.general.language_priority.clone();
+
+        let (tx, rx) = mpsc::channel();
+        self.statblock_job = Some(rx);
+        self.statblock_pending = Some(action);
+
+        std::thread::spawn(move || {
+            let result = builder::build_statblock_image(&priority, data, cuts_map)
+                .and_then(|image| match action {
+                    ExportAction::Copy => builder::copy_to_clipboard(&image),
+                    ExportAction::Save => builder::save_to_disk(&image, is_cat, &id_str, &top_value).map(|_| ()),
+                });
+
+            if let Err(err) = &result {
+                error!("Cat statblock export failed: {err}");
+            }
+
+            let _ = tx.send((action, result));
+        });
     }
 
     pub fn expanded_animation_view(&self) -> Option<Element<'_, Message>> {
@@ -415,10 +498,33 @@ impl State {
             }
         }
 
-        let copy_btn = button("Copy Image")
-            .on_press(Message::ExportStatblock(ExportAction::Copy));
-        let save_btn = button("Export Image")
-            .on_press(Message::ExportStatblock(ExportAction::Save));
+        let (copy_label, copy_color) = button_feedback(
+            self.statblock_pending == Some(ExportAction::Copy),
+            self.statblock_copy_feedback,
+            "Copy Image", "Copying...", "Copied!", "Failed!",
+        );
+        let copy_btn = button(text(copy_label).size(12))
+            .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportStatblock(ExportAction::Copy)))
+            .style(move |_theme: &Theme, _status| button::Style {
+                background: Some(Background::Color(copy_color)),
+                text_color: Color::WHITE,
+                border: Border::default().rounded(4.0),
+                ..Default::default()
+            });
+
+        let (save_label, save_color) = button_feedback(
+            self.statblock_pending == Some(ExportAction::Save),
+            self.statblock_save_feedback,
+            "Export Image", "Exporting...", "Exported!", "Failed!",
+        );
+        let save_btn = button(text(save_label).size(12))
+            .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportStatblock(ExportAction::Save)))
+            .style(move |_theme: &Theme, _status| button::Style {
+                background: Some(Background::Color(save_color)),
+                text_color: Color::WHITE,
+                border: Border::default().rounded(4.0),
+                ..Default::default()
+            });
 
         let mut tab_row = row![].spacing(8);
         let tabs = [

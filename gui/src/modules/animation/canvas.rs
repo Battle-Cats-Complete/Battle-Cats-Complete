@@ -62,12 +62,11 @@ impl State {
                     self.current_frame += FRAME_ADVANCE_PER_TICK * self.playback_speed;
 
                     let range_start = self.loop_start.unwrap_or(0.0);
-                    let range_end = self.loop_end.or_else(|| data.current_anim.as_ref().map(|anim| anim.max_frame.max(0) as f32));
+                    let range_end = self.loop_end.or_else(|| data.loop_bound().map(|v| v.max(0) as f32));
 
-                    match range_end {
-                        Some(end) if self.current_frame > end => self.current_frame = range_start,
-                        None if self.current_frame > 0.0 && data.current_anim.is_none() => self.current_frame = 0.0,
-                        _ => {}
+                    if let Some(end) = range_end
+                        && self.current_frame > end {
+                        self.current_frame = range_start;
                     }
                 }
             }

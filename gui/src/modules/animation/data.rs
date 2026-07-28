@@ -56,6 +56,19 @@ impl State {
         self.primary_assets.is_some()
     }
 
+    pub fn loop_bound(&self) -> Option<i32> {
+        match &self.current_anim {
+            None => Some(0),
+            Some(anim) => {
+                if self.loaded_anim_index <= IDX_IDLE {
+                    anim.calculate_true_loop()
+                } else {
+                    Some(anim.max_frame)
+                }
+            }
+        }
+    }
+
     pub fn loaded_id(&self) -> &str {
         &self.loaded_id
     }

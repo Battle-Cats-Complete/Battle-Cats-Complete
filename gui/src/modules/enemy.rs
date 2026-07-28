@@ -1,17 +1,19 @@
 mod abilities;
 mod filter;
 mod list;
+mod statblock;
 
+use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use iced::widget::{
     button, column, container, row, scrollable, text, text_input, Space,
 };
-use iced::{Alignment, Element, Length, Size, Subscription, Task, Theme};
+use iced::{Alignment, Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::enemy::unit::Battle;
 use nyanko::graphics::rig::Unit;
-use tracing::info;
+use tracing::{error, info};
 
 use core::common::context::GlobalContext;
 use core::modules::enemy::game::registry::{format_enemy_stat, get_enemy_stat, Magnification};
@@ -23,8 +25,12 @@ use core::modules::settings::Settings;
 use crate::common::stat_grid;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
+use crate::modules::statblock::button_feedback;
 
-#[derive(Debug, Clone)]
+use super::statblock::builder;
+use statblock::build_enemy_statblock;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportAction {
     Copy,
     Save,
@@ -80,6 +86,11 @@ pub struct EnemyState {
     pub custom_assets: CustomAssets,
     pub rig: Option<Arc<Unit>>,
 
+    statblock_pending: Option<ExportAction>,
+    statblock_job: Option<mpsc::Receiver<(ExportAction, Result<(), String>)>>,
+    statblock_copy_feedback: Option<(bool, Instant)>,
+    statblock_save_feedback: Option<(bool, Instant)>,
+
     filter: filter::State,
     list: list::State,
     abilities: abilities::State,
@@ -97,6 +108,11 @@ impl Default for EnemyState {
             custom_assets: CustomAssets::new(),
             rig: None,
 
+            statblock_pending: None,
+            statblock_job: None,
+            statblock_copy_feedback: None,
+            statblock_save_feedback: None,
+
             filter: filter::State::default(),
             list: list::State::default(),
             abilities: abilities::State::default(),
@@ -109,15 +125,15 @@ impl EnemyState {
         iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
     }
 
-    pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
-        let task = self.update_inner(message, settings);
+    pub fn update(&mut self, message: Message, settings: &Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
+        let task = self.update_inner(message, settings, global_ctx);
 
         self.list.refresh(&self.data.enemies, &self.search_query, &self.filter.filter_state);
 
         task
     }
 
-    fn update_inner(&mut self, message: Message, settings: &Settings) -> Task<Message> {
+    fn update_inner(&mut self, message: Message, settings: &Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
             Message::Tick => {
                 if !self.data.initialized {
@@ -129,6 +145,17 @@ impl EnemyState {
                 }
 
                 crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
+
+                let received = self.statblock_job.as_ref().and_then(|rx| rx.try_recv().ok());
+                if let Some((action, result)) = received {
+                    self.statblock_pending = None;
+                    self.statblock_job = None;
+                    let success = result.is_ok();
+                    match action {
+                        ExportAction::Copy => self.statblock_copy_feedback = Some((success, Instant::now())),
+                        ExportAction::Save => self.statblock_save_feedback = Some((success, Instant::now())),
+                    }
+                }
 
                 self.list
                     .update(list::Message::Tick, &self.data.enemies, &self.search_query, &self.filter.filter_state)
@@ -167,10 +194,7 @@ impl EnemyState {
                 Task::none()
             }
             Message::ExportClicked(action) => {
-                match action {
-                    ExportAction::Copy => info!("Export requested: Copy (Statblock WIP)"),
-                    ExportAction::Save => info!("Export requested: Save (Statblock WIP)"),
-                }
+                self.start_statblock_export(action, settings, global_ctx);
                 Task::none()
             }
             Message::NavigateAppearances(id) => {
@@ -183,7 +207,7 @@ impl EnemyState {
             }
             Message::List(msg) => {
                 if let list::Message::SelectEnemy(id) = msg {
-                    return self.update(Message::EnemySelected(id), settings);
+                    return self.update(Message::EnemySelected(id), settings, global_ctx);
                 }
 
                 self.list
@@ -191,6 +215,53 @@ impl EnemyState {
                     .map(Message::List)
             }
         }
+    }
+
+    fn start_statblock_export(&mut self, action: ExportAction, settings: &Settings, global_ctx: GlobalContext<'_>) {
+        if self.statblock_pending.is_some() {
+            return;
+        }
+
+        let Some(selected_id) = self.data.selected_enemy else { return; };
+        let Some(enemy_entry) = self.data.enemies.iter().find(|e| e.id == selected_id) else { return; };
+
+        let dynamic_entry = scanner::scan_single(enemy_entry.id, &settings.scanner_config());
+        let stats = dynamic_entry.as_ref().map(|e| &e.stats).unwrap_or(&enemy_entry.stats);
+
+        let ctx = EnemyRenderContext {
+            global: global_ctx,
+            stats,
+            magnification: self.magnification,
+        };
+
+        let data = build_enemy_statblock(&ctx, enemy_entry);
+        let is_cat = data.is_cat;
+        let id_str = data.id_str.clone();
+        let top_value = data.top_value.clone();
+
+        let mut cuts_map = std::collections::HashMap::new();
+        for sheet in self.img015_sheets.iter().rev() {
+            cuts_map.extend(sheet.core.cuts_map.clone());
+        }
+        let priority = settings.general.language_priority.clone();
+
+        let (tx, rx) = mpsc::channel();
+        self.statblock_job = Some(rx);
+        self.statblock_pending = Some(action);
+
+        std::thread::spawn(move || {
+            let result = builder::build_statblock_image(&priority, data, cuts_map)
+                .and_then(|image| match action {
+                    ExportAction::Copy => builder::copy_to_clipboard(&image),
+                    ExportAction::Save => builder::save_to_disk(&image, is_cat, &id_str, &top_value).map(|_| ()),
+                });
+
+            if let Err(err) = &result {
+                error!("Enemy statblock export failed: {err}");
+            }
+
+            let _ = tx.send((action, result));
+        });
     }
 
     pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
@@ -319,8 +390,36 @@ impl EnemyState {
 
         let mut actions = row![].spacing(10);
         if self.selected_tab == EnemyDetailTab::Abilities {
-            actions = actions.push(button("Copy Image").on_press(Message::ExportClicked(ExportAction::Copy)));
-            actions = actions.push(button("Export Image").on_press(Message::ExportClicked(ExportAction::Save)));
+            let (copy_label, copy_color) = button_feedback(
+                self.statblock_pending == Some(ExportAction::Copy),
+                self.statblock_copy_feedback,
+                "Copy Image", "Copying...", "Copied!", "Failed!",
+            );
+            let copy_btn = button(text(copy_label).size(12))
+                .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportClicked(ExportAction::Copy)))
+                .style(move |_theme: &Theme, _status| button::Style {
+                    background: Some(Background::Color(copy_color)),
+                    text_color: Color::WHITE,
+                    border: Border::default().rounded(4.0),
+                    ..Default::default()
+                });
+
+            let (save_label, save_color) = button_feedback(
+                self.statblock_pending == Some(ExportAction::Save),
+                self.statblock_save_feedback,
+                "Export Image", "Exporting...", "Exported!", "Failed!",
+            );
+            let save_btn = button(text(save_label).size(12))
+                .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportClicked(ExportAction::Save)))
+                .style(move |_theme: &Theme, _status| button::Style {
+                    background: Some(Background::Color(save_color)),
+                    text_color: Color::WHITE,
+                    border: Border::default().rounded(4.0),
+                    ..Default::default()
+                });
+
+            actions = actions.push(copy_btn);
+            actions = actions.push(save_btn);
         }
         actions = actions.push(button("Appearances").on_press(Message::NavigateAppearances(enemy.id)));
 
