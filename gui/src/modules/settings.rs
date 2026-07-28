@@ -1,5 +1,12 @@
-use std::path::PathBuf;
+mod addons;
+mod disk;
+mod exceptions;
+mod keys;
+mod pem;
+
 use std::time::Duration;
+#[cfg(target_os = "linux")]
+use std::time::Instant;
 
 use iced::widget::{
     button, column, container, opaque, pick_list, row, scrollable, stack, text, text_input, toggler,
@@ -7,6 +14,7 @@ use iced::widget::{
 use iced::{Alignment, Element, Length, Subscription, Task, Theme};
 use tracing::info;
 
+use core::modules::settings::lang;
 use core::modules::settings::{
     ExportBehavior, Settings as CoreSettings, SidebarBehavior, UpdateMode,
 };
@@ -24,23 +32,18 @@ pub enum Tab {
     About,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Modal {
-    DeleteGameFolder,
-    DeleteRawFolder,
-    DeleteCache,
-    DeleteAddon(String),
-    ResetExceptions,
-    ConfirmPemGenerate,
-    ConfirmPemDelete,
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DesktopFeedback {
+    Created,
+    Deleted,
+    Failed,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Tick,
     TabSelected(Tab),
-    CloseModal,
-    OpenModal(Modal),
 
     // General Tab
     ToggleLogging(bool),
@@ -49,8 +52,8 @@ pub enum Message {
     LanguageMoveUp(usize),
     LanguageMoveDown(usize),
     RestoreDefaultLanguages,
-    CreateDesktopData,
-    DeleteDesktopData,
+    #[cfg(target_os = "linux")]
+    ToggleDesktopData,
     ManualUpdateCheck,
 
     // Cats Tab
@@ -72,18 +75,20 @@ pub enum Message {
     ExportBehaviorSelected(ExportBehavior),
 
     // Data Tab
-    ExecuteFolderDeletion(Modal),
     ToggleKeyValidation(bool),
     ToggleUltraCompression(bool),
     ManualIpChanged(String),
     ToggleAppPersistence(bool),
     RevealIpField(bool),
+    Keys(keys::Message),
+    Exceptions(exceptions::Message),
+    Disk(disk::Message),
+
+    // Mods Tab (PEM)
+    Pem(pem::Message),
 
     // Addons Tab
-    ExecuteAddonDeletion(String),
-    InstallAddon(String),
-    OemDriverSelected(u8),
-    DownloadOemDriver,
+    Addons(addons::Message),
 
     // Animation Tab
     CenteringBehaviorSelected(usize),
@@ -93,19 +98,10 @@ pub enum Message {
     ShowcaseWalkChanged(String),
     ShowcaseIdleChanged(String),
     ShowcaseKbChanged(String),
-
-    // PEM Modals
-    PemImportRequested,
-    PemExportRequested,
-    PemGenerated,
-    ExecutePemGenerate,
-    ExecutePemDelete,
-    FilePicked(Option<PathBuf>),
 }
 
 pub struct State {
     pub active_tab: Tab,
-    pub active_modal: Option<Modal>,
     pub ip_field_revealed: bool,
     pub manual_ip_buffer: String,
 
@@ -113,19 +109,34 @@ pub struct State {
     pub showcase_walk_buffer: String,
     pub showcase_idle_buffer: String,
     pub showcase_kb_buffer: String,
+
+    keys: keys::State,
+    exceptions: exceptions::State,
+    pem: pem::State,
+    addons: addons::State,
+    disk: disk::State,
+
+    #[cfg(target_os = "linux")]
+    desktop_feedback: Option<(DesktopFeedback, Instant)>,
 }
 
 impl Default for State {
     fn default() -> Self {
         Self {
             active_tab: Tab::General,
-            active_modal: None,
             ip_field_revealed: false,
             manual_ip_buffer: String::new(),
             default_cat_level_buffer: "1".to_string(),
             showcase_walk_buffer: "0".to_string(),
             showcase_idle_buffer: "0".to_string(),
             showcase_kb_buffer: "0".to_string(),
+            keys: keys::State::default(),
+            exceptions: exceptions::State::default(),
+            pem: pem::State::default(),
+            addons: addons::State::default(),
+            disk: disk::State::default(),
+            #[cfg(target_os = "linux")]
+            desktop_feedback: None,
         }
     }
 }
@@ -139,19 +150,31 @@ impl State {
     pub fn update(&mut self, message: Message, core_settings: &mut CoreSettings) -> Task<Message> {
         match message {
             Message::Tick => {
-                // Background polling placeholder for Addons/Deleters
-                Task::none()
+                self.keys.update(keys::Message::Tick);
+                self.exceptions.update(exceptions::Message::Tick);
+                self.addons.update(addons::Message::Tick);
+                self.disk.update(disk::Message::Tick);
+
+                #[cfg(target_os = "linux")]
+                if self.desktop_feedback.is_some_and(|(_, at)| at.elapsed() > Duration::from_secs(2)) {
+                    self.desktop_feedback = None;
+                }
+
+                self.pem.update(pem::Message::Tick).map(Message::Pem)
             }
             Message::TabSelected(tab) => {
                 self.active_tab = tab;
-                Task::none()
-            }
-            Message::CloseModal => {
-                self.active_modal = None;
-                Task::none()
-            }
-            Message::OpenModal(modal) => {
-                self.active_modal = Some(modal);
+                match tab {
+                    Tab::General => lang::ensure_complete_list(&mut core_settings.general.language_priority),
+                    Tab::Cats => self.default_cat_level_buffer = core_settings.cat_data.default_level.to_string(),
+                    Tab::Data => self.manual_ip_buffer = core_settings.game_data.manual_ip.clone(),
+                    Tab::Animation => {
+                        self.showcase_walk_buffer = core_settings.animation.default_showcase_walk.to_string();
+                        self.showcase_idle_buffer = core_settings.animation.default_showcase_idle.to_string();
+                        self.showcase_kb_buffer = core_settings.animation.default_showcase_kb.to_string();
+                    }
+                    _ => {}
+                }
                 Task::none()
             }
 
@@ -181,20 +204,22 @@ impl State {
                 Task::none()
             }
             Message::RestoreDefaultLanguages => {
-                core_settings.general.language_priority = vec![
-                    "en".to_string(), "ja".to_string(), "tw".to_string(), "ko".to_string()
-                ];
+                core_settings.general.language_priority = lang::default_priority();
                 Task::none()
             }
-            Message::CreateDesktopData => {
-                info!("Creating desktop data integration");
-                Task::none()
-            }
-            Message::DeleteDesktopData => {
-                info!("Deleting desktop data integration");
+            #[cfg(target_os = "linux")]
+            Message::ToggleDesktopData => {
+                let is_installed = core::modules::settings::desktop::is_desktop_data_present();
+                let (feedback, success) = if is_installed {
+                    (DesktopFeedback::Deleted, core::modules::settings::desktop::delete_desktop_data().is_ok())
+                } else {
+                    (DesktopFeedback::Created, core::modules::settings::desktop::create_desktop_data().is_ok())
+                };
+                self.desktop_feedback = Some((if success { feedback } else { DesktopFeedback::Failed }, Instant::now()));
                 Task::none()
             }
             Message::ManualUpdateCheck => {
+                info!("Manual update check requested from Settings");
                 core_settings.runtime.manual_check_requested = true;
                 Task::none()
             }
@@ -249,24 +274,18 @@ impl State {
                 core_settings.mods.export_behavior = val;
                 Task::none()
             }
+            Message::Pem(msg) => self.pem.update(msg).map(Message::Pem),
 
             // Data Tab
-            Message::ExecuteFolderDeletion(target_modal) => {
-                match target_modal {
-                    Modal::DeleteGameFolder => info!("Deleting game folder"),
-                    Modal::DeleteRawFolder => info!("Deleting raw folder"),
-                    Modal::DeleteCache => info!("Clearing cache"),
-                    _ => {}
-                }
-                self.active_modal = None;
-                Task::none()
-            }
             Message::ToggleKeyValidation(val) => {
                 core_settings.game_data.enforce_key_validation = val;
                 Task::none()
             }
             Message::ToggleUltraCompression(val) => {
                 core_settings.game_data.enable_ultra_compression = val;
+                if !val && core_settings.game_data.last_compression_level > 15 {
+                    core_settings.game_data.last_compression_level = 15;
+                }
                 Task::none()
             }
             Message::ManualIpChanged(val) => {
@@ -282,22 +301,22 @@ impl State {
                 self.ip_field_revealed = val;
                 Task::none()
             }
+            Message::Keys(msg) => {
+                self.keys.update(msg);
+                Task::none()
+            }
+            Message::Exceptions(msg) => {
+                self.exceptions.update(msg);
+                Task::none()
+            }
+            Message::Disk(msg) => {
+                self.disk.update(msg);
+                Task::none()
+            }
 
             // Addons Tab
-            Message::InstallAddon(name) => {
-                info!("Triggering addon installation: {}", name);
-                Task::none()
-            }
-            Message::ExecuteAddonDeletion(name) => {
-                info!("Executing deletion of addon: {}", name);
-                self.active_modal = None;
-                Task::none()
-            }
-            Message::OemDriverSelected(_idx) => {
-                Task::none()
-            }
-            Message::DownloadOemDriver => {
-                info!("Downloading OEM Driver");
+            Message::Addons(msg) => {
+                self.addons.update(msg);
                 Task::none()
             }
 
@@ -339,43 +358,6 @@ impl State {
                 }
                 Task::none()
             }
-
-            // PEM
-            Message::PemImportRequested => {
-                Task::perform(
-                    async {
-                        let path_handle = rfd::AsyncFileDialog::new()
-                            .add_filter("PEM", &["pem", "txt"])
-                            .pick_file()
-                            .await;
-                        path_handle.map(|h| h.path().to_path_buf())
-                    },
-                    Message::FilePicked,
-                )
-            }
-            Message::FilePicked(path_opt) => {
-                if let Some(path) = path_opt {
-                    info!("File picked: {:?}", path);
-                }
-                Task::none()
-            }
-            Message::PemExportRequested => {
-                info!("Exporting PEM");
-                Task::none()
-            }
-            Message::ExecutePemGenerate => {
-                info!("Generating new PEM");
-                self.active_modal = None;
-                Task::none()
-            }
-            Message::ExecutePemDelete => {
-                info!("Deleting custom PEM");
-                self.active_modal = None;
-                Task::none()
-            }
-            Message::PemGenerated => {
-                Task::none()
-            }
         }
     }
 
@@ -387,8 +369,21 @@ impl State {
                 .height(Length::Fill),
         ];
 
-        if let Some(modal) = &self.active_modal {
-            let modal_content = self.view_modal(modal);
+        let modal: Option<Element<'a, Message>> = if self.keys.is_open {
+            Some(self.keys.view().map(Message::Keys))
+        } else if self.exceptions.is_open {
+            Some(self.exceptions.view().map(Message::Exceptions))
+        } else if self.pem.is_open {
+            Some(self.pem.view().map(Message::Pem))
+        } else if self.addons.is_modal_open() {
+            Some(self.addons.view_modal().map(Message::Addons))
+        } else if self.disk.is_modal_open() {
+            Some(self.disk.view_modal().map(Message::Disk))
+        } else {
+            None
+        };
+
+        if let Some(modal_content) = modal {
             let overlay = opaque(
                 container(modal_content)
                     .width(Length::Fill)
@@ -451,7 +446,7 @@ impl State {
             Tab::Mods => self.view_mods(core_settings),
             Tab::Data => self.view_data(core_settings),
             Tab::Animation => self.view_animation(core_settings),
-            Tab::AddOns => self.view_addons(),
+            Tab::AddOns => self.addons.view().map(Message::Addons),
             Tab::About => self.view_about(),
         }
     }
@@ -467,22 +462,43 @@ impl State {
 
         let mut lang_col = column![].spacing(2);
         let langs_len = core_settings.general.language_priority.len();
-        for (i, lang) in core_settings.general.language_priority.iter().enumerate() {
+        for (i, lang_code) in core_settings.general.language_priority.iter().enumerate() {
             let row_lang = row![
-                text(lang).width(Length::Fixed(80.0)),
+                text(lang::get_label_for_code(lang_code)).width(Length::Fixed(100.0)),
                 button("↑").on_press_maybe(if i > 0 { Some(Message::LanguageMoveUp(i)) } else { None }),
                 button("↓").on_press_maybe(if i < langs_len.saturating_sub(1) { Some(Message::LanguageMoveDown(i)) } else { None }),
             ].spacing(5).align_y(Alignment::Center);
             lang_col = lang_col.push(row_lang);
         }
 
+        let mut system_col = column![text("System").size(24)].spacing(10);
+
+        #[cfg(target_os = "linux")]
+        {
+            let is_installed = core::modules::settings::desktop::is_desktop_data_present();
+            let (label, color) = match &self.desktop_feedback {
+                Some((DesktopFeedback::Created, _)) => ("Desktop Data Created!", [40, 160, 40]),
+                Some((DesktopFeedback::Deleted, _)) => ("Desktop Data Deleted!", [40, 160, 40]),
+                Some((DesktopFeedback::Failed, _)) => ("Failed!", [180, 50, 50]),
+                None if is_installed => ("Delete Desktop Data", [180, 50, 50]),
+                None => ("Create Desktop Data", [40, 90, 160]),
+            };
+            system_col = system_col.push(
+                button(text(label))
+                    .padding([8, 16])
+                    .style(move |_theme: &Theme, _status| button::Style {
+                        background: Some(iced::Color::from_rgb8(color[0], color[1], color[2]).into()),
+                        text_color: iced::Color::WHITE,
+                        ..Default::default()
+                    })
+                    .on_press(Message::ToggleDesktopData)
+            );
+        }
+
+        system_col = system_col.push(button("Check for Update Now").on_press(Message::ManualUpdateCheck));
+
         column![
-            text("System").size(24),
-            row![
-                button("Create Desktop Data").on_press(Message::CreateDesktopData),
-                button("Delete Desktop Data").on_press(Message::DeleteDesktopData).style(button::danger),
-            ].spacing(10),
-            button("Check for Update Now").on_press(Message::ManualUpdateCheck),
+            system_col,
 
             text("Behavior").size(24),
             row![
@@ -612,7 +628,7 @@ impl State {
 
         column![
             text("Export").size(24),
-            button("Manage PEM").on_press(Message::OpenModal(Modal::ConfirmPemGenerate)), // Shortcut for now
+            button("Manage PEM").on_press(Message::Pem(pem::Message::Open)),
             row![
                 text("Export Behavior:"),
                 pick_list(
@@ -634,16 +650,12 @@ impl State {
     fn view_data<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
         column![
             text("Disk").size(24),
-            row![
-                button("Delete \"game\" Folder").style(button::danger).on_press(Message::OpenModal(Modal::DeleteGameFolder)),
-                button("Delete \"raw\" Folder").style(button::danger).on_press(Message::OpenModal(Modal::DeleteRawFolder)),
-                button("Clear Cache").style(button::danger).on_press(Message::OpenModal(Modal::DeleteCache)),
-            ].spacing(10),
+            self.disk.view().map(Message::Disk),
 
             text("Management").size(24),
             row![
-                button("Manage Keys").on_press(Message::OpenModal(Modal::ResetExceptions)), // Mocking modal for now
-                button("Manage Exceptions").on_press(Message::OpenModal(Modal::ResetExceptions)),
+                button("Manage Keys").on_press(Message::Keys(keys::Message::Open)),
+                button("Manage Exceptions").on_press(Message::Exceptions(exceptions::Message::Open)),
             ].spacing(10),
 
             row![
@@ -658,7 +670,12 @@ impl State {
             text("Android").size(24),
             row![
                 text("Fallback IP Address:"),
-                text_input("192.168.X.X", &self.manual_ip_buffer).on_input(Message::ManualIpChanged).width(Length::Fixed(120.0)),
+                if self.ip_field_revealed {
+                    Element::from(text_input("192.168.X.X", &self.manual_ip_buffer).on_input(Message::ManualIpChanged).width(Length::Fixed(120.0)))
+                } else {
+                    Element::from(button("Click to Reveal").on_press(Message::RevealIpField(true)))
+                },
+                button("👁").on_press(Message::RevealIpField(!self.ip_field_revealed)),
             ].spacing(10).align_y(Alignment::Center),
             row![
                 toggler(core_settings.game_data.app_folder_persistence).on_toggle(Message::ToggleAppPersistence),
@@ -702,35 +719,6 @@ impl State {
         ].spacing(20).into()
     }
 
-    fn view_addons<'a>(&'a self) -> Element<'a, Message> {
-        column![
-            text("Android Bridge").size(24),
-            text("Enables Android device & emulator imports."),
-            row![
-                button("Download ADB").on_press(Message::InstallAddon("adb".to_string())).style(button::success),
-                button("Delete ADB").on_press(Message::OpenModal(Modal::DeleteAddon("adb".to_string()))).style(button::danger),
-            ].spacing(10),
-
-            text("APKEditor").size(24),
-            row![
-                button("Download APKEditor").on_press(Message::InstallAddon("apkeditor".to_string())).style(button::success),
-                button("Delete APKEditor").on_press(Message::OpenModal(Modal::DeleteAddon("apkeditor".to_string()))).style(button::danger),
-            ].spacing(10),
-
-            text("FFMPEG").size(24),
-            row![
-                button("Download FFMPEG").on_press(Message::InstallAddon("ffmpeg".to_string())).style(button::success),
-                button("Delete FFMPEG").on_press(Message::OpenModal(Modal::DeleteAddon("ffmpeg".to_string()))).style(button::danger),
-            ].spacing(10),
-
-            text("AVIFENC").size(24),
-            row![
-                button("Download AVIFENC").on_press(Message::InstallAddon("avifenc".to_string())).style(button::success),
-                button("Delete AVIFENC").on_press(Message::OpenModal(Modal::DeleteAddon("avifenc".to_string()))).style(button::danger),
-            ].spacing(10),
-        ].spacing(20).into()
-    }
-
     fn view_about<'a>(&'a self) -> Element<'a, Message> {
         let license_text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../core/assets/licenses.txt"));
 
@@ -742,65 +730,5 @@ impl State {
                 .width(Length::Fill)
                 .height(Length::Fill)
         ].spacing(15).into()
-    }
-
-    fn view_modal<'a>(&'a self, modal: &'a Modal) -> Element<'a, Message> {
-        let (title, content, confirm_msg) = match modal {
-            Modal::DeleteGameFolder => (
-                "Confirm Deletion",
-                "Are you sure you want to delete the \"game\" folder?\nMost app function will be lost.",
-                Message::ExecuteFolderDeletion(Modal::DeleteGameFolder)
-            ),
-            Modal::DeleteRawFolder => (
-                "Confirm Deletion",
-                "Are you sure you want to delete the \"raw\" folder?\nYou may need to import again.",
-                Message::ExecuteFolderDeletion(Modal::DeleteRawFolder)
-            ),
-            Modal::DeleteCache => (
-                "Confirm Deletion",
-                "Are you sure you want to clear the Cache?",
-                Message::ExecuteFolderDeletion(Modal::DeleteCache)
-            ),
-            Modal::DeleteAddon(name) => (
-                "Confirm Deletion",
-                "Are you sure you want to delete this addon?",
-                Message::ExecuteAddonDeletion(name.clone())
-            ),
-            Modal::ResetExceptions => (
-                "Confirm Reset",
-                "Are you sure you want to reset to default exception rules?",
-                Message::CloseModal
-            ),
-            Modal::ConfirmPemGenerate => (
-                "Confirm Generate",
-                "Are you sure you want to overwrite your current PEM?",
-                Message::ExecutePemGenerate
-            ),
-            Modal::ConfirmPemDelete => (
-                "Confirm Delete",
-                "Are you sure you want to delete your custom PEM?",
-                Message::ExecutePemDelete
-            ),
-        };
-
-        container(
-            column![
-                text(title).size(24),
-                text(content),
-                row![
-                    button("Yes").on_press(confirm_msg).style(button::danger),
-                    button("No").on_press(Message::CloseModal),
-                ].spacing(10).align_y(Alignment::Center)
-            ].spacing(20).padding(25).align_x(Alignment::Center)
-        )
-            .style(|theme: &Theme| {
-                container::background(theme.palette().background)
-                    .border(iced::Border {
-                        color: theme.palette().text,
-                        width: 1.0,
-                        radius: 8.0.into(),
-                    })
-            })
-            .into()
     }
 }
