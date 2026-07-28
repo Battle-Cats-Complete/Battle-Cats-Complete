@@ -3,11 +3,14 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use iced::widget::{button, column, container, row, scrollable, text, text_input};
-use iced::{Alignment, Border, Element, Length, Theme};
+use iced::{Alignment, Border, Element, Length, Size, Theme};
 
 use core::modules::settings::UserKeys;
 
+use crate::common::popup;
+
 const FEEDBACK_DURATION: Duration = Duration::from_secs(2);
+const POPUP_SIZE: Size = Size::new(650.0, 400.0);
 const COLUMN_INPUT_WIDTH: f32 = 220.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,8 +36,8 @@ impl RegionSlot {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Popup(popup::Message),
     Open,
-    Close,
     Tick,
     KeyChanged(RegionSlot, String),
     IvChanged(RegionSlot, String),
@@ -46,6 +49,7 @@ pub enum Message {
 
 pub struct State {
     pub is_open: bool,
+    popup: popup::State,
     keys: UserKeys,
     validation_status: Option<[(bool, bool); 4]>,
     import_feedback: Option<(bool, Instant)>,
@@ -57,6 +61,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             is_open: false,
+            popup: popup::State::default(),
             keys: UserKeys::load(),
             validation_status: None,
             import_feedback: None,
@@ -92,9 +97,11 @@ impl State {
                 self.validation_status = None;
                 self.is_open = true;
             }
-            Message::Close => {
-                self.is_open = false;
-                self.validation_status = None;
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    self.is_open = false;
+                    self.validation_status = None;
+                }
             }
             Message::Tick => {
                 let expired = |feedback: &Option<(bool, Instant)>| {
@@ -152,7 +159,11 @@ impl State {
         }
     }
 
-    pub fn view<'a>(&'a self) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, window: Size) -> Element<'a, Message> {
+        self.popup.view("Manage Decryption Keys", POPUP_SIZE, window, Message::Popup, move || self.content_view())
+    }
+
+    fn content_view<'a>(&'a self) -> Element<'a, Message> {
         let action_button = |label: &'a str, msg: Message, color: [u8; 3]| {
             button(text(label).size(12))
                 .padding([6, 14])
@@ -251,20 +262,13 @@ impl State {
         }
 
         let content = column![
-            text("Manage Decryption Keys").size(22),
             actions,
             scrollable(grid).height(Length::Shrink),
-            row![
-                button("Close").on_press(Message::Close),
-            ]
         ].spacing(15).padding(20).align_x(Alignment::Center);
 
-        container(content)
-            .style(|theme: &Theme| {
-                container::background(theme.palette().background)
-                    .border(Border { color: theme.palette().text, width: 1.0, radius: 8.0.into() })
-            })
-            .max_width(650.0)
+        container(scrollable(content))
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
     }
 }

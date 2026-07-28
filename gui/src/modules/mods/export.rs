@@ -1,18 +1,21 @@
-use iced::widget::{button, column, pick_list, row, scrollable, slider, space, text, text_input};
-use iced::{Alignment, Background, Border, Color, Element, Length, Task, Theme};
+use iced::widget::{button, column, container, pick_list, row, scrollable, slider, space, text, text_input};
+use iced::{Alignment, Background, Border, Color, Element, Length, Size, Task, Theme};
 
 use core::common::region::Region;
 use core::modules::mods::export::{apk, bcm, pack, ExportType};
 use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
+use crate::common::popup;
+
 const SPINNER_FRAMES: [&str; 4] = ["-", "\\", "|", "/"];
 const REGIONS: [Region; 4] = [Region::En, Region::Ja, Region::Ko, Region::Tw];
+const POPUP_SIZE: Size = Size::new(400.0, 328.0);
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Popup(popup::Message),
     Open,
-    Close,
     Tick,
     TabSelected(ExportType),
     TitleChanged(String),
@@ -26,25 +29,33 @@ pub enum Message {
 
 pub struct State {
     pub is_open: bool,
+    popup: popup::State,
     compression: f32,
     busy_frame: usize,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { is_open: false, compression: bcm::BCM_COMPRESSION_DEFAULT as f32, busy_frame: 0 }
+        Self {
+            is_open: false,
+            popup: popup::State::default(),
+            compression: bcm::BCM_COMPRESSION_DEFAULT as f32,
+            busy_frame: 0,
+        }
     }
 }
 
 impl State {
     pub fn update(&mut self, message: Message, data: &mut ModDataState, settings: &Settings) -> Task<Message> {
         match message {
-            Message::Open => {
-                self.is_open = true;
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    self.is_open = false;
+                }
                 Task::none()
             }
-            Message::Close => {
-                self.is_open = false;
+            Message::Open => {
+                self.is_open = true;
                 Task::none()
             }
             Message::Tick => {
@@ -103,7 +114,17 @@ impl State {
         }
     }
 
-    pub fn view<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, data: &'a ModDataState, window: Size) -> Element<'a, Message> {
+        self.popup.view("Export Mod", POPUP_SIZE, window, Message::Popup, move || {
+            container(scrollable(self.content_view(data)))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .padding(20)
+                .into()
+        })
+    }
+
+    fn content_view<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
         let is_busy = data.export.is_busy;
         let is_ready = data.selected_mod.is_some();
 

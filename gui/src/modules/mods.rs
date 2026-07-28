@@ -8,7 +8,7 @@ use std::time::Duration;
 use iced::widget::{
     button, column, container, row, scrollable, space, stack, text, text_input,
 };
-use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, Task, Theme};
+use iced::{Alignment, Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use tracing::warn;
 
 use core::modules::mods::{self, ModDataState};
@@ -248,11 +248,7 @@ impl State {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        let modal: Option<Element<'_, Message>> = if self.import.is_open {
-            Some(self.modal_container("Import Mod", Message::Import(import::Message::Close), self.import.view(&self.data).map(Message::Import)))
-        } else if self.export.is_open {
-            Some(self.modal_container("Export Mod", Message::Export(export::Message::Close), self.export.view(&self.data).map(Message::Export)))
-        } else if self.delete_confirm_open {
+        let modal: Option<Element<'_, Message>> = if self.delete_confirm_open {
             Some(self.view_delete_modal())
         } else {
             None
@@ -276,6 +272,26 @@ impl State {
             ].into(),
             None => content.into(),
         }
+    }
+
+    pub fn import_popup_open(&self) -> bool {
+        self.import.is_open
+    }
+
+    pub fn export_popup_open(&self) -> bool {
+        self.export.is_open
+    }
+
+    pub fn import_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.import
+            .is_open
+            .then(|| self.import.view(&self.data, window).map(Message::Import))
+    }
+
+    pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.export
+            .is_open
+            .then(|| self.export.view(&self.data, window).map(Message::Export))
     }
 
     fn view_sidebar(&self) -> Element<'_, Message> {

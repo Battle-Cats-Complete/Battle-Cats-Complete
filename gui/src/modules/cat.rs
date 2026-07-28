@@ -9,7 +9,7 @@ use std::time::Duration;
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
     button, column, container, row, scrollable,
-    stack, text, text_input, Space,
+    text, text_input, Space,
 };
 use iced::{Element, Length, Size, Subscription, Task};
 use nyanko::cat::unit::Battle;
@@ -307,6 +307,17 @@ impl State {
         self.selected_tab == DetailTab::Animation
     }
 
+    pub fn filter_popup_open(&self) -> bool {
+        self.filter.filter_state.is_open
+    }
+
+    pub fn filter_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.filter
+            .filter_state
+            .is_open
+            .then(|| self.filter.view(&self.img015_sheets, &self.custom_assets, window).map(Message::Filter))
+    }
+
     pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
         self.animation.export_popup_view(window).map(|view| view.map(Message::Animation))
     }
@@ -319,20 +330,7 @@ impl State {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        if self.filter.filter_state.is_open {
-            let filter_modal = self.filter.view(&self.img015_sheets, &self.custom_assets).map(Message::Filter);
-            stack![
-                base_layout,
-                container(filter_modal)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-                    .style(container::transparent)
-            ].into()
-        } else {
-            base_layout.into()
-        }
+        base_layout.into()
     }
 
     fn view_sidebar(&self) -> Element<'_, Message> {

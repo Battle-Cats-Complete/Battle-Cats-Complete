@@ -1,6 +1,6 @@
 use iced::alignment::Vertical;
 use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, Space};
-use iced::{Border, Color, Element, Length, Theme};
+use iced::{Border, Color, Element, Length, Size, Theme};
 
 use core::modules::stage::filter::enemy::EnemyFilter;
 use core::modules::stage::filter::lineup::LineupFilter;
@@ -8,6 +8,10 @@ use core::modules::stage::filter::material::MaterialFilter;
 use core::modules::stage::filter::range::StatRange;
 use core::modules::stage::filter::treasure::TreasureFilter;
 use core::modules::stage::filter::StageFilterState;
+
+use crate::common::popup;
+
+const POPUP_SIZE: Size = Size::new(400.0, 528.0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flag {
@@ -259,6 +263,7 @@ fn cycle_tristate(value: Option<bool>) -> Option<bool> {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Popup(popup::Message),
     Toggle,
     Clear,
 
@@ -303,14 +308,10 @@ pub enum Message {
     MaterialAmountMaxChanged(usize, String),
 }
 
+#[derive(Default)]
 pub struct State {
     pub filter_state: StageFilterState,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self { filter_state: StageFilterState::default() }
-    }
+    popup: popup::State,
 }
 
 impl State {
@@ -318,6 +319,11 @@ impl State {
         let state = &mut self.filter_state;
 
         match message {
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    state.is_open = false;
+                }
+            }
             Message::Toggle => state.is_open = !state.is_open,
             Message::Clear => *state = StageFilterState { is_open: state.is_open, ..Default::default() },
 
@@ -406,7 +412,11 @@ impl State {
         }
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self, window: Size) -> Element<'_, Message> {
+        self.popup.view("Advanced Stage Filter", POPUP_SIZE, window, Message::Popup, move || self.content_view())
+    }
+
+    fn content_view(&self) -> Element<'_, Message> {
         let name_grid = column![
             name_field("Category:", &self.filter_state.category_name, Message::CategoryChanged),
             name_field("Map:", &self.filter_state.map_name, Message::MapChanged),
@@ -464,7 +474,6 @@ impl State {
         material_col = material_col.push(button("+ Add New Material").on_press(Message::AddMaterial));
 
         let content = column![
-            text("Advanced Stage Filter").size(24),
             section("Name", name_grid.into()),
             section("General Rules", general_rules),
             section("Special Map Rules", special_rules),
@@ -477,16 +486,12 @@ impl State {
             section("Treasures", treasure_col.into()),
             section("Materials", material_col.into()),
             Space::new().height(Length::Fixed(20.0)),
-            row![
-                button(text("Clear Filter").style(text::danger)).on_press(Message::Clear).padding([8, 16]),
-                button("Close").on_press(Message::Toggle).padding([8, 16]),
-            ].spacing(16),
+            button(text("Clear Filter").style(text::danger)).on_press(Message::Clear).padding([8, 16]),
         ].spacing(10).padding(20);
 
         container(scrollable(content))
-            .width(Length::Fixed(400.0))
-            .height(Length::Fixed(500.0))
-            .style(container::bordered_box)
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
     }
 }

@@ -1,20 +1,23 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use iced::widget::{button, column, pick_list, row, scrollable, space, text, text_input};
-use iced::{Alignment, Background, Border, Color, Element, Length, Task, Theme};
+use iced::widget::{button, column, container, pick_list, row, scrollable, space, text, text_input};
+use iced::{Alignment, Background, Border, Color, Element, Length, Size, Task, Theme};
 
 use core::modules::addons::paths::{self, Presence};
 use core::modules::mods::import::{self, ModImportTab, ModPackType};
 use core::modules::mods::ModDataState;
 
+use crate::common::popup;
+
 const FEEDBACK_DURATION: Duration = Duration::from_secs(2);
 const SPINNER_FRAMES: [&str; 4] = ["-", "\\", "|", "/"];
+const POPUP_SIZE: Size = Size::new(500.0, 428.0);
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Popup(popup::Message),
     Open,
-    Close,
     Tick,
     TabSelected(ModImportTab),
     PackageSuffixChanged(String),
@@ -27,6 +30,7 @@ pub enum Message {
 #[derive(Default)]
 pub struct State {
     pub is_open: bool,
+    popup: popup::State,
     selected_path: Option<PathBuf>,
     pack_error: Option<(String, Instant)>,
     busy_frame: usize,
@@ -35,12 +39,14 @@ pub struct State {
 impl State {
     pub fn update(&mut self, message: Message, data: &mut ModDataState) -> Task<Message> {
         match message {
-            Message::Open => {
-                self.is_open = true;
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    self.is_open = false;
+                }
                 Task::none()
             }
-            Message::Close => {
-                self.is_open = false;
+            Message::Open => {
+                self.is_open = true;
                 Task::none()
             }
             Message::Tick => {
@@ -129,7 +135,17 @@ impl State {
         }
     }
 
-    pub fn view<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, data: &'a ModDataState, window: Size) -> Element<'a, Message> {
+        self.popup.view("Import Mod", POPUP_SIZE, window, Message::Popup, move || {
+            container(scrollable(self.content_view(data)))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .padding(20)
+                .into()
+        })
+    }
+
+    fn content_view<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
         let is_busy = data.import.is_busy;
 
         let tabs_row = row![

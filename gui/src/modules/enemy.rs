@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use iced::widget::{
-    button, column, container, opaque, row, scrollable, stack, text, text_input, Space,
+    button, column, container, row, scrollable, text, text_input, Space,
 };
-use iced::{Alignment, Element, Length, Subscription, Task, Theme};
+use iced::{Alignment, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::enemy::unit::Battle;
 use nyanko::graphics::rig::Unit;
 use tracing::info;
@@ -194,33 +194,24 @@ impl EnemyState {
     }
 
     pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
-        let content = row![
+        row![
             self.view_sidebar(),
             self.view_main_panel(settings, global_ctx),
         ]
             .width(Length::Fill)
-            .height(Length::Fill);
+            .height(Length::Fill)
+            .into()
+    }
 
-        if self.filter.filter_state.is_open {
-            let modal = opaque(
-                container(self.filter.view(&self.img015_sheets, &self.custom_assets).map(Message::Filter))
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-                    .style(|theme: &Theme| {
-                        let palette = theme.palette();
-                        container::Style {
-                            background: Some(iced::Color { a: 0.8, ..palette.background }.into()),
-                            ..Default::default()
-                        }
-                    })
-            );
+    pub fn filter_popup_open(&self) -> bool {
+        self.filter.filter_state.is_open
+    }
 
-            stack![content, modal].into()
-        } else {
-            content.into()
-        }
+    pub fn filter_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.filter
+            .filter_state
+            .is_open
+            .then(|| self.filter.view(&self.img015_sheets, &self.custom_assets, window).map(Message::Filter))
     }
 
     fn view_sidebar(&self) -> Element<'_, Message> {

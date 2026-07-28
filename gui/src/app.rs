@@ -82,6 +82,14 @@ pub enum UpdaterAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActivePopup {
     CatExport,
+    CatFilter,
+    EnemyFilter,
+    StageFilter,
+    ModsImport,
+    ModsExport,
+    SettingsKeys,
+    SettingsExceptions,
+    SettingsPem,
 }
 
 #[derive(Clone, Debug)]
@@ -305,13 +313,33 @@ impl BattleCatsApp {
             Message::Cat(msg) => {
                 let task = self.cat_state.update(msg, &mut self.settings).map(Message::Cat);
                 self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open());
+                self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
                 task
             }
-            Message::Enemy(msg) => self.enemy_state.update(msg, &self.settings).map(Message::Enemy),
-            Message::Stage(msg) => self.stage_state.update(msg, &self.settings).map(Message::Stage),
-            Message::Mod(msg) => self.mods_state.update(msg, &self.settings).map(Message::Mod),
+            Message::Enemy(msg) => {
+                let task = self.enemy_state.update(msg, &self.settings).map(Message::Enemy);
+                self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
+                task
+            }
+            Message::Stage(msg) => {
+                let task = self.stage_state.update(msg, &self.settings).map(Message::Stage);
+                self.sync_popup(ActivePopup::StageFilter, self.stage_state.filter_popup_open());
+                task
+            }
+            Message::Mod(msg) => {
+                let task = self.mods_state.update(msg, &self.settings).map(Message::Mod);
+                self.sync_popup(ActivePopup::ModsImport, self.mods_state.import_popup_open());
+                self.sync_popup(ActivePopup::ModsExport, self.mods_state.export_popup_open());
+                task
+            }
             Message::Data(msg) => self.data_state.update(msg, &mut self.settings).map(Message::Data),
-            Message::Settings(msg) => self.settings_state.update(msg, &mut self.settings).map(Message::Settings),
+            Message::Settings(msg) => {
+                let task = self.settings_state.update(msg, &mut self.settings).map(Message::Settings);
+                self.sync_popup(ActivePopup::SettingsKeys, self.settings_state.keys_popup_open());
+                self.sync_popup(ActivePopup::SettingsExceptions, self.settings_state.exceptions_popup_open());
+                self.sync_popup(ActivePopup::SettingsPem, self.settings_state.pem_popup_open());
+                task
+            }
         }
     }
 
@@ -383,6 +411,62 @@ impl BattleCatsApp {
                     }
 
                     self.cat_state.export_popup_view(self.window_size).map(|view| view.map(Message::Cat))
+                }
+                ActivePopup::CatFilter => {
+                    if !matches!(self.current_page, Page::Cats) {
+                        return None;
+                    }
+
+                    self.cat_state.filter_popup_view(self.window_size).map(|view| view.map(Message::Cat))
+                }
+                ActivePopup::EnemyFilter => {
+                    if !matches!(self.current_page, Page::Enemies) {
+                        return None;
+                    }
+
+                    self.enemy_state.filter_popup_view(self.window_size).map(|view| view.map(Message::Enemy))
+                }
+                ActivePopup::StageFilter => {
+                    if !matches!(self.current_page, Page::Stages) {
+                        return None;
+                    }
+
+                    self.stage_state.filter_popup_view(self.window_size).map(|view| view.map(Message::Stage))
+                }
+                ActivePopup::ModsImport => {
+                    if !matches!(self.current_page, Page::Mods) {
+                        return None;
+                    }
+
+                    self.mods_state.import_popup_view(self.window_size).map(|view| view.map(Message::Mod))
+                }
+                ActivePopup::ModsExport => {
+                    if !matches!(self.current_page, Page::Mods) {
+                        return None;
+                    }
+
+                    self.mods_state.export_popup_view(self.window_size).map(|view| view.map(Message::Mod))
+                }
+                ActivePopup::SettingsKeys => {
+                    if !matches!(self.current_page, Page::Settings) {
+                        return None;
+                    }
+
+                    self.settings_state.keys_popup_view(self.window_size).map(|view| view.map(Message::Settings))
+                }
+                ActivePopup::SettingsExceptions => {
+                    if !matches!(self.current_page, Page::Settings) {
+                        return None;
+                    }
+
+                    self.settings_state.exceptions_popup_view(self.window_size).map(|view| view.map(Message::Settings))
+                }
+                ActivePopup::SettingsPem => {
+                    if !matches!(self.current_page, Page::Settings) {
+                        return None;
+                    }
+
+                    self.settings_state.pem_popup_view(self.window_size).map(|view| view.map(Message::Settings))
                 }
             })
             .collect()

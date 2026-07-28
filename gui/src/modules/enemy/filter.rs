@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use iced::alignment::Vertical;
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, text, text_input, tooltip, Space};
-use iced::{Element, Length};
+use iced::{Element, Length, Size};
 use image::imageops;
 use nyanko::enemy::abilities::{AttrUnit, Identity, REGISTRY};
 
@@ -12,6 +12,7 @@ use core::modules::enemy::filter::evaluation::get_identity_name;
 use core::modules::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
 use core::modules::enemy::game::registry::{get_display_def, AbilityIcon, DisplayGroup};
 
+use crate::common::popup;
 use crate::common::shared::{fallback_icon, ICON_SIZE};
 use crate::common::{CustomAssets, SpriteSheet};
 
@@ -20,9 +21,11 @@ const STAT_KEYS: [&str; 8] = [
 ];
 
 const ICONS_PER_ROW: usize = 11;
+const POPUP_SIZE: Size = Size::new(600.0, 528.0);
 
 #[derive(Clone)]
 pub enum Message {
+    Popup(popup::Message),
     Toggle,
     Clear,
     MatchModeChanged(MatchMode),
@@ -37,6 +40,7 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Popup(msg) => write!(f, "Popup({:?})", msg),
             Self::Toggle => write!(f, "Toggle"),
             Self::Clear => write!(f, "Clear"),
             Self::MatchModeChanged(_) => write!(f, "MatchModeChanged"),
@@ -52,6 +56,7 @@ impl std::fmt::Debug for Message {
 
 pub struct State {
     pub filter_state: EnemyFilterState,
+    popup: popup::State,
     icon_cache: RefCell<HashMap<usize, Handle>>,
 }
 
@@ -59,6 +64,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             filter_state: EnemyFilterState::default(),
+            popup: popup::State::default(),
             icon_cache: RefCell::new(HashMap::new()),
         }
     }
@@ -67,6 +73,11 @@ impl Default for State {
 impl State {
     pub fn update(&mut self, message: Message) {
         match message {
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    self.filter_state.is_open = false;
+                }
+            }
             Message::Toggle => self.filter_state.is_open = !self.filter_state.is_open,
             Message::Clear => {
                 self.filter_state = EnemyFilterState { is_open: self.filter_state.is_open, ..Default::default() };
@@ -95,8 +106,13 @@ impl State {
         }
     }
 
-    pub fn view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
-        let title = text("Advanced Enemy Filter").size(24);
+    pub fn view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, window: Size) -> Element<'a, Message> {
+        self.popup.view("Advanced Enemy Filter", POPUP_SIZE, window, Message::Popup, move || {
+            self.content_view(sheets, assets)
+        })
+    }
+
+    fn content_view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
 
         let match_mode_label = if self.filter_state.match_mode == MatchMode::And { "And" } else { "Or" };
 
@@ -162,13 +178,7 @@ impl State {
             .on_press(Message::Clear)
             .padding([8, 16]);
 
-        let close_btn = button("Close")
-            .on_press(Message::Toggle)
-            .padding([8, 16]);
-
         let content = column![
-            title,
-            Space::new().height(Length::Fixed(12.0)),
             text("Attributes").size(18),
             mode_row,
             Space::new().height(Length::Fixed(16.0)),
@@ -185,13 +195,12 @@ impl State {
             text("Abilities").size(18),
             abilities_col,
             Space::new().height(Length::Fixed(24.0)),
-            row![clear_btn, close_btn].spacing(16),
+            clear_btn,
         ].spacing(8).padding(24);
 
         container(scrollable(content))
-            .width(Length::Fixed(600.0))
-            .height(Length::Fixed(500.0))
-            .style(container::bordered_box)
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
     }
 

@@ -14,7 +14,7 @@ use core::modules::animation::export::{EncoderStatus, ExportFormat, ExportMode, 
 use core::modules::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
 use core::modules::settings::Settings;
 
-use crate::common::draggable_popup;
+use crate::common::popup;
 
 use super::data;
 use super::offscreen::{self, Camera, ShowcaseLengths};
@@ -27,7 +27,7 @@ const FORMAT_OPTIONS: [&str; 8] = ["GIF", "WebP", "AVIF", "PNG", "MP4", "MKV", "
 #[derive(Default)]
 pub struct State {
     pub is_open: bool,
-    popup: draggable_popup::State,
+    popup: popup::State,
     exporter: ExporterState,
     render_progress: Arc<AtomicI32>,
     done_at: Option<Instant>,
@@ -36,7 +36,7 @@ pub struct State {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Popup(draggable_popup::Message),
+    Popup(popup::Message),
     SetMode(ExportMode),
     SetFormat(ExportFormat),
     SetFileName(String),

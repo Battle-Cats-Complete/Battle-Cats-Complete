@@ -1,7 +1,7 @@
-pub mod draggable_popup;
 pub mod img015;
 pub mod img022;
 pub mod name_box;
+pub mod popup;
 pub mod shared;
 pub mod stat_grid;
 pub mod text;

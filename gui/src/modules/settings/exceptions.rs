@@ -3,17 +3,21 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, toggler};
-use iced::{Alignment, Border, Element, Length, Theme};
+use iced::{Alignment, Border, Element, Length, Size, Theme};
 
 use core::common::io::APP_LANGUAGES;
 use core::modules::settings::{ExceptionList, ExceptionRule, RuleHandling};
+
+use crate::common::popup;
+
+const POPUP_SIZE: Size = Size::new(750.0, 520.0);
 
 const FEEDBACK_DURATION: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Popup(popup::Message),
     Open,
-    Close,
     Tick,
     AddRule,
     DeleteRule(usize),
@@ -30,6 +34,7 @@ pub enum Message {
 
 pub struct State {
     pub is_open: bool,
+    popup: popup::State,
     rules: Vec<ExceptionRule>,
     import_feedback: Option<(bool, Instant)>,
     export_feedback: Option<(bool, Instant)>,
@@ -40,6 +45,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             is_open: false,
+            popup: popup::State::default(),
             rules: ExceptionList::load_or_default().rules,
             import_feedback: None,
             export_feedback: None,
@@ -60,9 +66,11 @@ impl State {
                 self.rules = ExceptionList::load_or_default().rules;
                 self.is_open = true;
             }
-            Message::Close => {
-                self.is_open = false;
-                self.confirm_reset = false;
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    self.is_open = false;
+                    self.confirm_reset = false;
+                }
             }
             Message::Tick => {
                 let expired = |feedback: &Option<(bool, Instant)>| {
@@ -133,7 +141,11 @@ impl State {
         }
     }
 
-    pub fn view<'a>(&'a self) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, window: Size) -> Element<'a, Message> {
+        self.popup.view("Manage Exceptions", POPUP_SIZE, window, Message::Popup, move || self.content_view())
+    }
+
+    fn content_view<'a>(&'a self) -> Element<'a, Message> {
         let action_button = |label: &'a str, msg: Message, color: [u8; 3]| {
             button(text(label).size(12))
                 .padding([6, 14])
@@ -245,19 +257,14 @@ impl State {
         };
 
         let content = column![
-            text("Manage Exceptions").size(22),
             actions,
             reset_confirm,
             scrollable(rows).height(Length::Fixed(360.0)),
-            row![button("Close").on_press(Message::Close)]
         ].spacing(15).padding(20).align_x(Alignment::Center);
 
-        container(content)
-            .style(|theme: &Theme| {
-                container::background(theme.palette().background)
-                    .border(Border { color: theme.palette().text, width: 1.0, radius: 8.0.into() })
-            })
-            .max_width(750.0)
+        container(scrollable(content))
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
     }
 }

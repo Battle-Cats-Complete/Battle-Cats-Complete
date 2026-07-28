@@ -5,11 +5,10 @@ use iced::widget::{button, column, container, row, rule, scrollable, space, text
 use iced::{Element, Length, Theme};
 use nyanko::chapter::Category;
 
-use core::modules::stage::filter::CompiledStageFilter;
+use core::modules::stage::filter::{CompiledStageFilter, StageFilterState};
 use core::modules::stage::{navigate, GlobalMapId, GlobalStageId, Map, StageDataState};
 
 use super::category::CategoryExt;
-use super::filter;
 
 const BTN_SPACING_Y: f32 = 6.0;
 const CATEGORY_COLUMN_WIDTH: f32 = 180.0;
@@ -18,33 +17,20 @@ const COLUMN_WIDTH: f32 = 200.0;
 #[derive(Debug, Clone)]
 pub enum Message {
     ToggleFilter,
-    Filter(filter::Message),
     SelectCategory(Category),
     SelectMap(GlobalMapId),
     SelectStage(GlobalStageId),
 }
 
+#[derive(Default)]
 pub struct State {
-    pub filter: filter::State,
     compiled_filter: Option<CompiledStageFilter>,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        let mut state = Self {
-            filter: filter::State::default(),
-            compiled_filter: None,
-        };
-        state.refresh();
-        state
-    }
 }
 
 impl State {
     pub fn update(&mut self, message: Message, data: &mut StageDataState) {
         match message {
-            Message::ToggleFilter => self.filter.update(filter::Message::Toggle),
-            Message::Filter(msg) => self.filter.update(msg),
+            Message::ToggleFilter => {}
             Message::SelectCategory(category) => {
                 data.selected_category = Some(category);
                 data.selected_map = None;
@@ -60,19 +46,19 @@ impl State {
         }
     }
 
-    pub fn refresh(&mut self) {
+    pub fn refresh(&mut self, filter_state: &StageFilterState) {
         let mut hasher = DefaultHasher::new();
-        self.filter.filter_state.hash(&mut hasher);
+        filter_state.hash(&mut hasher);
         let current_hash = hasher.finish();
 
         if self.compiled_filter.as_ref().is_none_or(|cf| cf.source_hash != current_hash) {
-            let mut compiled = self.filter.filter_state.compile();
+            let mut compiled = filter_state.compile();
             compiled.source_hash = current_hash;
             self.compiled_filter = Some(compiled);
         }
     }
 
-    pub fn view<'a>(&'a self, data: &'a StageDataState) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, data: &'a StageDataState, filter_state: &StageFilterState) -> Element<'a, Message> {
         let categories = navigate::get_categories(&data.registry);
 
         if categories.is_empty() {
@@ -90,7 +76,7 @@ impl State {
             return space().into();
         };
 
-        let filter_btn_active = self.filter.filter_state.is_active();
+        let filter_btn_active = filter_state.is_active();
         let filter_btn = button(text("Filter Stages").size(13))
             .width(Length::Fill)
             .height(28)

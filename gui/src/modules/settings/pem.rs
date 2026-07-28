@@ -3,16 +3,19 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use iced::widget::{button, column, container, row, scrollable, text};
-use iced::{Alignment, Border, Element, Length, Task, Theme};
+use iced::{Alignment, Border, Element, Length, Size, Task, Theme};
 
 use core::modules::settings::pem;
 
+use crate::common::popup;
+
 const CONFIRM_WINDOW: Duration = Duration::from_secs(2);
+const POPUP_SIZE: Size = Size::new(650.0, 480.0);
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Popup(popup::Message),
     Open,
-    Close,
     Tick,
     Import,
     Export,
@@ -23,6 +26,7 @@ pub enum Message {
 
 pub struct State {
     pub is_open: bool,
+    popup: popup::State,
     active_pem: String,
     is_custom: bool,
     is_generating: bool,
@@ -36,6 +40,7 @@ impl Default for State {
         let (active_pem, is_custom) = pem::get_active_pem();
         Self {
             is_open: false,
+            popup: popup::State::default(),
             active_pem,
             is_custom,
             is_generating: false,
@@ -56,10 +61,12 @@ impl State {
                 self.is_open = true;
                 Task::none()
             }
-            Message::Close => {
-                self.is_open = false;
-                self.confirm_generate = None;
-                self.confirm_delete = None;
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    self.is_open = false;
+                    self.confirm_generate = None;
+                    self.confirm_delete = None;
+                }
                 Task::none()
             }
             Message::Tick => {
@@ -131,7 +138,11 @@ impl State {
         }
     }
 
-    pub fn view<'a>(&'a self) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, window: Size) -> Element<'a, Message> {
+        self.popup.view("Manage PEM", POPUP_SIZE, window, Message::Popup, move || self.content_view())
+    }
+
+    fn content_view<'a>(&'a self) -> Element<'a, Message> {
         let action_button = |label: &'a str, msg: Option<Message>, color: [u8; 3]| {
             let mut b = button(text(label).size(12))
                 .padding([6, 14])
@@ -179,22 +190,17 @@ impl State {
         ].spacing(10);
 
         let content = column![
-            text("Manage PEM").size(22),
             actions,
             scrollable(
                 container(text(self.active_pem.clone()).size(12).font(iced::Font::MONOSPACE))
                     .padding(10)
                     .width(Length::Fill)
             ).height(Length::Fixed(320.0)),
-            row![button("Close").on_press(Message::Close)]
         ].spacing(15).padding(20).align_x(Alignment::Center);
 
-        container(content)
-            .style(|theme: &Theme| {
-                container::background(theme.palette().background)
-                    .border(Border { color: theme.palette().text, width: 1.0, radius: 8.0.into() })
-            })
-            .max_width(650.0)
+        container(scrollable(content))
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
     }
 }

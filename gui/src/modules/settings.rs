@@ -11,7 +11,7 @@ use std::time::Instant;
 use iced::widget::{
     button, column, container, opaque, pick_list, row, scrollable, stack, text, text_input, toggler,
 };
-use iced::{Alignment, Element, Length, Subscription, Task, Theme};
+use iced::{Alignment, Element, Length, Size, Subscription, Task, Theme};
 use tracing::info;
 
 use core::modules::settings::lang;
@@ -361,6 +361,30 @@ impl State {
         }
     }
 
+    pub fn keys_popup_open(&self) -> bool {
+        self.keys.is_open
+    }
+
+    pub fn exceptions_popup_open(&self) -> bool {
+        self.exceptions.is_open
+    }
+
+    pub fn pem_popup_open(&self) -> bool {
+        self.pem.is_open
+    }
+
+    pub fn keys_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.keys.is_open.then(|| self.keys.view(window).map(Message::Keys))
+    }
+
+    pub fn exceptions_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.exceptions.is_open.then(|| self.exceptions.view(window).map(Message::Exceptions))
+    }
+
+    pub fn pem_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.pem.is_open.then(|| self.pem.view(window).map(Message::Pem))
+    }
+
     pub fn view<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
         let main_content = column![
             self.view_tabs(),
@@ -369,13 +393,7 @@ impl State {
                 .height(Length::Fill),
         ];
 
-        let modal: Option<Element<'a, Message>> = if self.keys.is_open {
-            Some(self.keys.view().map(Message::Keys))
-        } else if self.exceptions.is_open {
-            Some(self.exceptions.view().map(Message::Exceptions))
-        } else if self.pem.is_open {
-            Some(self.pem.view().map(Message::Pem))
-        } else if self.addons.is_modal_open() {
+        let modal: Option<Element<'a, Message>> = if self.addons.is_modal_open() {
             Some(self.addons.view_modal().map(Message::Addons))
         } else if self.disk.is_modal_open() {
             Some(self.disk.view_modal().map(Message::Disk))

@@ -11,7 +11,7 @@ mod treasure;
 
 use iced::alignment;
 use iced::widget::{button, column, container, row, scrollable, space, stack, text};
-use iced::{Element, Length, Subscription, Task, Theme};
+use iced::{Element, Length, Size, Subscription, Task, Theme};
 use tracing::{debug, warn};
 
 use core::common::context::GlobalContext;
@@ -24,12 +24,14 @@ pub enum Message {
     ToggleSidebar,
     SelectCrown(u8),
     List(list::Message),
+    Filter(filter::Message),
 }
 
 pub struct State {
     pub data: StageDataState,
     pub is_sidebar_open: bool,
     pub selected_crown: u8,
+    filter: filter::State,
     list: list::State,
     info: info::State,
     materials: materials::State,
@@ -44,6 +46,7 @@ impl Default for State {
             data: StageDataState::default(),
             is_sidebar_open: true,
             selected_crown: 0,
+            filter: filter::State::default(),
             list: list::State::default(),
             info: info::State::default(),
             materials: materials::State::default(),
@@ -71,10 +74,12 @@ impl State {
             }
             Message::ToggleSidebar => self.is_sidebar_open = !self.is_sidebar_open,
             Message::SelectCrown(crown) => self.selected_crown = crown,
+            Message::List(list::Message::ToggleFilter) => self.filter.update(filter::Message::Toggle),
             Message::List(msg) => self.list.update(msg, &mut self.data),
+            Message::Filter(msg) => self.filter.update(msg),
         }
 
-        self.list.refresh();
+        self.list.refresh(&self.filter.filter_state);
         Task::none()
     }
 
@@ -82,23 +87,21 @@ impl State {
         let base = self.view_main_panel(global_ctx);
         let sidebar_overlay = self.view_sidebar_overlay();
 
-        if self.list.filter.filter_state.is_open {
-            let filter_modal = container(self.list.filter.view().map(|msg| Message::List(list::Message::Filter(msg))))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill);
+        stack![base, sidebar_overlay]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
 
-            stack![base, sidebar_overlay, filter_modal]
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into()
-        } else {
-            stack![base, sidebar_overlay]
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into()
-        }
+    pub fn filter_popup_open(&self) -> bool {
+        self.filter.filter_state.is_open
+    }
+
+    pub fn filter_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.filter
+            .filter_state
+            .is_open
+            .then(|| self.filter.view(window).map(Message::Filter))
     }
 
     fn view_sidebar_overlay(&self) -> Element<'_, Message> {
@@ -115,7 +118,7 @@ impl State {
         let mut layer = row![].height(Length::Fill);
 
         if self.is_sidebar_open {
-            let sidebar_panel = container(self.list.view(&self.data).map(Message::List))
+            let sidebar_panel = container(self.list.view(&self.data, &self.filter.filter_state).map(Message::List))
                 .style(|theme: &Theme| container::Style {
                     background: Some(theme.palette().background.into()),
                     ..Default::default()
