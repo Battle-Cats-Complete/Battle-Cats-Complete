@@ -56,6 +56,14 @@ impl State {
         self.primary_assets.is_some()
     }
 
+    pub fn loaded_id(&self) -> &str {
+        &self.loaded_id
+    }
+
+    pub fn primary_id(&self) -> &str {
+        &self.primary_id
+    }
+
     pub fn select(&mut self, index: usize) {
         self.loaded_anim_index = index;
     }

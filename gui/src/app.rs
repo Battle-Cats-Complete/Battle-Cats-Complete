@@ -285,7 +285,7 @@ impl BattleCatsApp {
                     _ => self.home_state.update(msg).map(Message::Home),
                 }
             }
-            Message::Cat(msg) => self.cat_state.update(msg, &self.settings).map(Message::Cat),
+            Message::Cat(msg) => self.cat_state.update(msg, &mut self.settings).map(Message::Cat),
             Message::Enemy(msg) => self.enemy_state.update(msg, &self.settings).map(Message::Enemy),
             Message::Stage(msg) => self.stage_state.update(msg, &self.settings).map(Message::Stage),
             Message::Mod(msg) => self.mods_state.update(msg, &self.settings).map(Message::Mod),
@@ -311,11 +311,18 @@ impl BattleCatsApp {
 
         let sidebar_overlay = self.view_sidebar_overlay();
 
-        if let Some(modal) = self.build_modal() {
-            stack![content_container, sidebar_overlay, modal].into()
-        } else {
-            stack![content_container, sidebar_overlay].into()
+        let mut layers = stack![content_container, sidebar_overlay];
+
+        if matches!(self.current_page, Page::Cats)
+            && let Some(expanded) = self.cat_state.expanded_animation_view() {
+            layers = layers.push(expanded.map(Message::Cat));
         }
+
+        if let Some(modal) = self.build_modal() {
+            layers = layers.push(modal);
+        }
+
+        layers.into()
     }
 
     fn view_sidebar_overlay(&self) -> Element<'_, Message> {

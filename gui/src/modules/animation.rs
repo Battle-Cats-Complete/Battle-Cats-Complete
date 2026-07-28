@@ -6,10 +6,9 @@ mod offscreen;
 mod overlay;
 mod pipeline;
 
-use iced::widget::{container, stack, text};
-use iced::{Element, Length, Task};
+use iced::widget::{button, column, container, stack, text};
+use iced::{Alignment, Element, Length, Task, Theme};
 
-use core::modules::animation::{IDX_IDLE, IDX_WALK};
 use core::modules::cat::scanner::CatEntry;
 use core::modules::settings::Settings;
 
@@ -20,6 +19,7 @@ pub struct State {
     controls: controls::State,
     export: export::State,
     overlay: overlay::State,
+    is_expanded: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -28,11 +28,13 @@ pub enum Message {
     Controls(controls::Message),
     Export(export::Message),
     Overlay(overlay::Message),
+    ToggleExpanded,
 }
 
 impl State {
     pub fn sync(&mut self, cat: &CatEntry, form: usize, settings: &Settings) {
         self.data.sync(cat, form, settings);
+        self.export.sync(&self.data, settings);
     }
 
     pub fn tick(&mut self) {
@@ -41,15 +43,14 @@ impl State {
         self.export.tick();
     }
 
-    pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
+    pub fn update(&mut self, message: Message, settings: &mut Settings) -> Task<Message> {
         match message {
             Message::Canvas(msg) => {
                 self.canvas.update(msg, &self.data);
                 Task::none()
             }
             Message::Controls(controls::Message::OpenExport) => {
-                let loop_supported = self.data.loaded_anim_index == IDX_WALK || self.data.loaded_anim_index == IDX_IDLE;
-                self.export.open(settings, loop_supported);
+                self.export.open();
                 Task::none()
             }
             Message::Controls(msg) => {
@@ -74,6 +75,10 @@ impl State {
                 self.export.is_open = true;
                 Task::none()
             }
+            Message::ToggleExpanded => {
+                self.is_expanded = !self.is_expanded;
+                Task::none()
+            }
         }
     }
 
@@ -87,6 +92,43 @@ impl State {
                 .into();
         }
 
+        if self.is_expanded {
+            return container(
+                column![
+                    text("Animation Expanded").size(16),
+                    button(text("Restore View")).on_press(Message::ToggleExpanded),
+                ]
+                .spacing(10)
+                .align_x(Alignment::Center),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .into();
+        }
+
+        self.viewer_view()
+    }
+
+    pub fn expanded_view(&self) -> Option<Element<'_, Message>> {
+        if !self.is_expanded || self.data.held_unit.is_none() {
+            return None;
+        }
+
+        Some(
+            container(self.viewer_view())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|theme: &Theme| container::Style {
+                    background: Some(theme.palette().background.into()),
+                    ..container::Style::default()
+                })
+                .into(),
+        )
+    }
+
+    fn viewer_view(&self) -> Element<'_, Message> {
         let viewport = self.canvas.view(&self.data).map(Message::Canvas);
 
         let selection_overlay = self.overlay.view(&self.canvas, self.export.camera_region()).map(Message::Overlay);
@@ -96,6 +138,14 @@ impl State {
             .align_x(iced::alignment::Horizontal::Left)
             .padding(10);
 
+        let expand_style = if self.is_expanded { button::primary } else { button::secondary };
+        let expand_button = container(
+            button(text("⛶").size(20))
+                .style(expand_style)
+                .on_press(Message::ToggleExpanded),
+        )
+        .padding(8);
+
         let mut layers = stack![
             viewport,
             selection_overlay,
@@ -103,6 +153,7 @@ impl State {
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .align_y(iced::alignment::Vertical::Bottom),
+            expand_button,
         ];
 
         if self.export.is_open {

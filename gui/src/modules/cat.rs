@@ -144,7 +144,7 @@ impl State {
         Subscription::batch(subscriptions)
     }
 
-    pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
+    pub fn update(&mut self, message: Message, settings: &mut Settings) -> Task<Message> {
         let task = self.update_inner(message, settings);
 
         self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
@@ -152,7 +152,7 @@ impl State {
         task
     }
 
-    fn update_inner(&mut self, message: Message, settings: &Settings) -> Task<Message> {
+    fn update_inner(&mut self, message: Message, settings: &mut Settings) -> Task<Message> {
         match message {
             Message::Tick => {
                 if !self.data.initialized {
@@ -289,6 +289,10 @@ impl State {
             }
             Message::Animation(msg) => self.animation.update(msg, settings).map(Message::Animation),
         }
+    }
+
+    pub fn expanded_animation_view(&self) -> Option<Element<'_, Message>> {
+        self.animation.expanded_view().map(|view| view.map(Message::Animation))
     }
 
     pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {

@@ -11,7 +11,7 @@ use nyanko::graphics::rig::Animation;
 use core::modules::addons::paths::{self, Presence};
 use core::modules::animation::export::process::{start_export, STATUS_RX};
 use core::modules::animation::export::{EncoderStatus, ExportFormat, ExportMode, ExporterState};
-use core::modules::animation::{IDX_ATTACK, IDX_IDLE, IDX_KB, IDX_WALK};
+use core::modules::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
 use core::modules::settings::Settings;
 
 use super::data;
@@ -27,6 +27,7 @@ pub struct State {
     exporter: ExporterState,
     render_progress: Arc<AtomicI32>,
     done_at: Option<Instant>,
+    synced_key: Option<(String, usize)>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,17 +59,73 @@ pub enum Message {
 }
 
 impl State {
-    pub fn open(&mut self, settings: &Settings, loop_supported: bool) {
+    pub fn open(&mut self) {
+        self.is_open = true;
+    }
+
+    pub fn sync(&mut self, data: &data::State, settings: &Settings) {
+        let key = (data.loaded_id().to_string(), data.loaded_anim_index);
+
+        if self.synced_key.as_ref() == Some(&key) {
+            return;
+        }
+
+        let unit_changed = self.synced_key.as_ref().is_none_or(|(id, _)| *id != key.0);
+        self.synced_key = Some(key);
+
+        if unit_changed {
+            self.reset(settings);
+        }
+
+        self.exporter.loop_supported = matches!(data.loaded_anim_index, IDX_WALK | IDX_IDLE);
+
+        if self.exporter.export_mode == ExportMode::Loop && !self.exporter.loop_supported {
+            self.exporter.export_mode = ExportMode::Manual;
+            self.exporter.frame_start = 0;
+            self.exporter.frame_end = 0;
+            self.exporter.frame_start_str.clear();
+            self.exporter.frame_end_str.clear();
+        }
+
+        if self.exporter.export_mode != ExportMode::Showcase {
+            match &data.current_anim {
+                Some(anim) => {
+                    let true_end = anim.calculate_true_loop().unwrap_or(anim.max_frame);
+                    self.exporter.max_frame = true_end;
+                    self.exporter.frame_start = 0;
+                    self.exporter.frame_end = true_end;
+                }
+                None => {
+                    self.exporter.max_frame = 0;
+                    self.exporter.frame_start = 0;
+                    self.exporter.frame_end = 0;
+                }
+            }
+            self.exporter.frame_start_str.clear();
+            self.exporter.frame_end_str.clear();
+        }
+
+        self.exporter.name_prefix = derive_name_prefix(data.primary_id(), data.loaded_anim_index);
+    }
+
+    fn reset(&mut self, settings: &Settings) {
+        let mut terminated: Option<String> = None;
+
+        if self.exporter.is_processing {
+            if let Some(abort) = &self.exporter.abort {
+                abort.store(true, Ordering::Relaxed);
+            }
+            terminated = Some("Export Terminated!".to_string());
+        }
+
         let previous_mode = self.exporter.export_mode.clone();
         self.exporter = ExporterState::with_settings(settings);
         self.exporter.export_mode = previous_mode;
-        self.exporter.loop_supported = loop_supported;
 
-        if self.exporter.export_mode == ExportMode::Loop && !loop_supported {
-            self.exporter.export_mode = ExportMode::Manual;
+        if let Some(message) = terminated {
+            self.exporter.export_result_msg = Some(message);
+            self.done_at = Some(Instant::now());
         }
-
-        self.is_open = true;
     }
 
     pub fn set_region(&mut self, region: Region) {
@@ -121,7 +178,7 @@ impl State {
         }
     }
 
-    pub fn update(&mut self, message: Message, data: &data::State, settings: &Settings) {
+    pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings) {
         match message {
             Message::Toggle => self.is_open = !self.is_open,
             Message::SetMode(mode) => {
@@ -133,7 +190,19 @@ impl State {
                 }
                 self.exporter.export_mode = mode;
             }
-            Message::SetFormat(format) => self.exporter.format = format,
+            Message::SetFormat(format) => {
+                self.exporter.format = format.clone();
+                settings.animation.last_export_format = match format {
+                    ExportFormat::Gif => 0,
+                    ExportFormat::WebP => 1,
+                    ExportFormat::Avif => 2,
+                    ExportFormat::Png => 3,
+                    ExportFormat::Mp4 => 4,
+                    ExportFormat::Mkv => 5,
+                    ExportFormat::Webm => 6,
+                    ExportFormat::Zip => 7,
+                };
+            }
             Message::SetFileName(name) => self.exporter.file_name = name,
             Message::SetStartFrame(value) => {
                 self.exporter.frame_start_str = value.clone();
@@ -209,14 +278,22 @@ impl State {
             }
             Message::SetQuality(value) => {
                 self.exporter.quality_percent_str = value.clone();
-                if let Ok(parsed) = value.parse::<i32>() {
-                    self.exporter.quality_percent = parsed;
+                if value.trim().is_empty() {
+                    self.exporter.quality_percent = 100;
+                    settings.animation.last_export_quality = None;
+                } else if let Ok(parsed) = value.parse::<i32>() {
+                    self.exporter.quality_percent = parsed.clamp(0, 100);
+                    settings.animation.last_export_quality = Some(self.exporter.quality_percent);
                 }
             }
             Message::SetCompression(value) => {
                 self.exporter.compression_percent_str = value.clone();
-                if let Ok(parsed) = value.parse::<i32>() {
-                    self.exporter.compression_percent = parsed;
+                if value.trim().is_empty() {
+                    self.exporter.compression_percent = 0;
+                    settings.animation.last_export_compression = None;
+                } else if let Ok(parsed) = value.parse::<i32>() {
+                    self.exporter.compression_percent = parsed.clamp(0, 100);
+                    settings.animation.last_export_compression = Some(self.exporter.compression_percent);
                 }
             }
             Message::ToggleBackground(enabled) => self.exporter.background = enabled,
@@ -386,12 +463,14 @@ impl State {
             })
         ].spacing(10).align_y(Alignment::Center);
 
+        let end_hint = self.exporter.max_frame.to_string();
+
         let input_section: Element<'_, Message> = match self.exporter.export_mode {
             ExportMode::Manual => column![
                 row![
-                    text_input("Start", &self.exporter.frame_start_str).on_input(Message::SetStartFrame).width(Length::Fixed(60.0)),
+                    text_input("0", &self.exporter.frame_start_str).on_input(Message::SetStartFrame).width(Length::Fixed(60.0)),
                     text("~"),
-                    text_input("End", &self.exporter.frame_end_str).on_input(Message::SetEndFrame).width(Length::Fixed(60.0)),
+                    text_input(&end_hint, &self.exporter.frame_end_str).on_input(Message::SetEndFrame).width(Length::Fixed(60.0)),
                 ].spacing(5).align_y(Alignment::Center)
             ].into(),
             ExportMode::Loop => column![
@@ -423,11 +502,46 @@ impl State {
             ].spacing(10)
         ].spacing(10);
 
+        let (display_start, display_end) = if self.exporter.export_mode == ExportMode::Showcase {
+            let total = self.exporter.showcase_walk_len
+                + self.exporter.showcase_idle_len
+                + self.exporter.showcase_attack_len
+                + self.exporter.showcase_kb_len;
+            (0, if total > 0 { total - 1 } else { 0 })
+        } else {
+            (self.exporter.frame_start, self.exporter.frame_end)
+        };
+
+        let range_part = if display_start == display_end {
+            format!("{}f", display_start)
+        } else {
+            format!("{}f~{}f", display_start, display_end)
+        };
+
+        let clean_prefix = self.exporter.name_prefix
+            .replace("_0", "")
+            .replace("_f", "-1")
+            .replace("_c", "-2")
+            .replace("_s", "-3");
+
+        let prefix_display = if self.exporter.export_mode == ExportMode::Showcase {
+            clean_prefix.split('.').next()
+                .map_or_else(|| "unit.showcase".to_string(), |first| format!("{}.showcase", first))
+        } else {
+            clean_prefix
+        };
+
+        let name_hint = if prefix_display.is_empty() {
+            "animation".to_string()
+        } else {
+            format!("{}.{}", prefix_display, range_part)
+        };
+
         let output_section = column![
             text("Output").size(18),
             row![
                 text("Name"),
-                text_input("animation", &self.exporter.file_name).on_input(Message::SetFileName).width(Length::Fixed(150.0)),
+                text_input(&name_hint, &self.exporter.file_name).on_input(Message::SetFileName).width(Length::Fixed(150.0)),
             ].spacing(10).align_y(Alignment::Center),
             format_picker,
             row![
@@ -527,5 +641,57 @@ impl State {
             .padding(25)
             .style(container::rounded_box)
             .into()
+    }
+}
+
+fn derive_name_prefix(raw_id: &str, anim_index: usize) -> String {
+    let type_string = match anim_index {
+        IDX_WALK => "walk",
+        IDX_IDLE => "idle",
+        IDX_ATTACK => "attack",
+        IDX_KB => "kb",
+        IDX_BURROW => "burrow",
+        IDX_SURFACE => "surface",
+        IDX_SPIRIT => "spirit",
+        IDX_MODEL => "model",
+        _ => "anim",
+    };
+
+    let id_parts: Vec<&str> = raw_id.split('_').collect();
+    let mut clean_id = id_parts.first().copied().unwrap_or("").to_string();
+
+    if id_parts.len() >= 2 && !clean_id.is_empty() && clean_id.chars().all(char::is_numeric) {
+        let form_number = match id_parts[1].chars().next() {
+            Some('f') => 1,
+            Some('c') => 2,
+            Some('s') => 3,
+            Some('u') => 4,
+            _ => 0,
+        };
+        if form_number > 0 {
+            clean_id = format!("{}-{}", clean_id, form_number);
+        }
+    }
+
+    format!("{}.{}", clean_id, type_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_prefix_encodes_id_form_and_anim_type() {
+        assert_eq!(derive_name_prefix("033_f", IDX_WALK), "033-1.walk");
+        assert_eq!(derive_name_prefix("033_c", IDX_ATTACK), "033-2.attack");
+        assert_eq!(derive_name_prefix("033_s", IDX_KB), "033-3.kb");
+        assert_eq!(derive_name_prefix("033_u", IDX_SPIRIT), "033-4.spirit");
+    }
+
+    #[test]
+    fn name_prefix_falls_back_for_non_numeric_or_unknown_input() {
+        assert_eq!(derive_name_prefix("boss_x", IDX_IDLE), "boss.idle");
+        assert_eq!(derive_name_prefix("custom", IDX_MODEL), "custom.model");
+        assert_eq!(derive_name_prefix("", 12345), ".anim");
     }
 }
