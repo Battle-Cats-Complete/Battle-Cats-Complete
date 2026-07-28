@@ -5,6 +5,8 @@ use iced::widget::{button, column, container, mouse_area, opaque, responsive, ro
 use iced::{Alignment, Border, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
 
 const HEADER_HEIGHT: f32 = 28.0;
+const HEADER_MARGIN_X: f32 = 50.0;
+const HEADER_MARGIN_Y: f32 = 30.0;
 
 #[derive(Default)]
 pub struct State {
@@ -246,10 +248,11 @@ impl<'a, M> Widget<M, Theme, iced::Renderer> for Anchored<'a, M> {
 }
 
 fn clamp(position: Point, size: Size, window: Size) -> Point {
-    Point::new(
-        position.x.clamp(0.0, (window.width - size.width).max(0.0)),
-        position.y.clamp(0.0, (window.height - HEADER_HEIGHT).max(0.0)),
-    )
+    let min_x = HEADER_MARGIN_X - size.width;
+    let max_x = (window.width - HEADER_MARGIN_X).max(min_x);
+    let max_y = (window.height - HEADER_MARGIN_Y).max(0.0);
+
+    Point::new(position.x.clamp(min_x, max_x), position.y.clamp(0.0, max_y))
 }
 
 fn header_style(theme: &Theme) -> container::Style {
@@ -286,19 +289,19 @@ fn window_style(theme: &Theme) -> container::Style {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp, HEADER_HEIGHT};
+    use super::{clamp, HEADER_MARGIN_X, HEADER_MARGIN_Y};
     use iced::{Point, Size};
 
     #[test]
-    fn header_corners_stay_within_window() {
+    fn drag_far_past_edges_leaves_only_a_corner_margin_visible() {
         let size = Size::new(320.0, 500.0);
         let window = Size::new(800.0, 600.0);
 
         let clamped = clamp(Point::new(900.0, 700.0), size, window);
-        assert_eq!(clamped, Point::new(480.0, 600.0 - HEADER_HEIGHT));
+        assert_eq!(clamped, Point::new(window.width - HEADER_MARGIN_X, window.height - HEADER_MARGIN_Y));
 
-        let clamped = clamp(Point::new(-50.0, -20.0), size, window);
-        assert_eq!(clamped, Point::ORIGIN);
+        let clamped = clamp(Point::new(-900.0, -900.0), size, window);
+        assert_eq!(clamped, Point::new(HEADER_MARGIN_X - size.width, 0.0));
     }
 
     #[test]
@@ -317,7 +320,7 @@ mod tests {
         let size = Size::new(320.0, 500.0);
         let window = Size::new(800.0, 600.0);
 
-        let clamped = clamp(Point::new(-500.0, -500.0), size, window);
+        let clamped = clamp(Point::ORIGIN, size, window);
         assert_eq!(clamped, Point::ORIGIN);
 
         let clamped = clamp(Point::new(10.0, 5.0), size, window);
@@ -325,11 +328,41 @@ mod tests {
     }
 
     #[test]
-    fn window_smaller_than_popup_pins_to_origin() {
+    fn window_smaller_than_popup_still_produces_a_valid_range() {
         let size = Size::new(320.0, 500.0);
         let window = Size::new(300.0, 20.0);
 
         let clamped = clamp(Point::new(100.0, 100.0), size, window);
-        assert_eq!(clamped, Point::ORIGIN);
+        assert_eq!(clamped, Point::new(100.0, 0.0));
+
+        let clamped = clamp(Point::new(-900.0, -900.0), size, window);
+        assert_eq!(clamped, Point::new(HEADER_MARGIN_X - size.width, 0.0));
+    }
+
+    #[test]
+    fn top_left_corner_may_go_offscreen_while_top_right_stays_reachable() {
+        let size = Size::new(320.0, 500.0);
+        let window = Size::new(800.0, 600.0);
+
+        let clamped = clamp(Point::new(-1000.0, 0.0), size, window);
+
+        assert!(clamped.x < 0.0, "top-left corner should be off-screen");
+        let top_right_x = clamped.x + size.width;
+        assert!((0.0..=window.width).contains(&top_right_x), "top-right corner should stay reachable");
+        assert_eq!(top_right_x, HEADER_MARGIN_X);
+    }
+
+    #[test]
+    fn top_right_corner_may_go_offscreen_while_top_left_stays_reachable() {
+        let size = Size::new(320.0, 500.0);
+        let window = Size::new(800.0, 600.0);
+
+        let clamped = clamp(Point::new(1000.0, 0.0), size, window);
+
+        let top_left_x = clamped.x;
+        assert!((0.0..=window.width).contains(&top_left_x), "top-left corner should stay reachable");
+        let top_right_x = clamped.x + size.width;
+        assert!(top_right_x > window.width, "top-right corner should be off-screen");
+        assert_eq!(top_left_x, window.width - HEADER_MARGIN_X);
     }
 }
