@@ -1,4 +1,3 @@
-use std::ops::Range;
 use std::sync::Arc;
 
 use iced::mouse;
@@ -12,45 +11,11 @@ use nyanko::graphics::engine::{resolve_frame, FrameData};
 use core::modules::animation::multiply_mat3;
 
 use super::data;
+use super::pipeline::{build_vertices, Pipeline};
 
 const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 10.0;
 const FRAME_ADVANCE_PER_TICK: f32 = 0.5;
-
-const VERTEX_STRIDE: u64 = 20;
-const VERTS_PER_PART: u32 = 6;
-const FLOATS_PER_PART: usize = 30;
-
-const SHADER_SOURCE: &str = r#"
-struct VertexInput {
-    @location(0) position: vec2<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(2) opacity: f32,
-}
-
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-    @location(1) opacity: f32,
-}
-
-@vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
-    var out: VertexOutput;
-    out.position = vec4<f32>(input.position, 0.0, 1.0);
-    out.uv = input.uv;
-    out.opacity = input.opacity;
-    return out;
-}
-
-@group(0) @binding(0) var atlas: texture_2d<f32>;
-@group(0) @binding(1) var atlas_sampler: sampler;
-
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(atlas, atlas_sampler, input.uv) * input.opacity;
-}
-"#;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -274,47 +239,9 @@ impl shader::Primitive for Scene {
 
         let view_proj = multiply_mat3(&projection, &camera);
 
-        let mut vertex_data = Vec::with_capacity(self.parts.len() * FLOATS_PER_PART);
-
-        for (part_index, part) in self.parts.iter().enumerate() {
-            let mvp = multiply_mat3(&view_proj, &part.final_matrix);
-
-            for i in 0..VERTS_PER_PART as usize {
-                let x = part.vertices[2 * i];
-                let y = part.vertices[2 * i + 1];
-
-                vertex_data.push(mvp[0] * x + mvp[3] * y + mvp[6]);
-                vertex_data.push(mvp[1] * x + mvp[4] * y + mvp[7]);
-                vertex_data.push(part.uvs[2 * i]);
-                vertex_data.push(part.uvs[2 * i + 1]);
-                vertex_data.push(part.opacity);
-            }
-
-            let variant = blend_variant(part.glow);
-            let start = part_index as u32 * VERTS_PER_PART;
-
-            match pipeline.batches.last_mut() {
-                Some(batch) if batch.variant == variant => batch.range.end = start + VERTS_PER_PART,
-                _ => pipeline.batches.push(Batch { variant, range: start..start + VERTS_PER_PART }),
-            }
-        }
-
-        let bytes: &[u8] = bytemuck::cast_slice(&vertex_data);
-        let needed = bytes.len() as u64;
-
-        if pipeline.vertices.is_none() || pipeline.vertex_capacity < needed {
-            pipeline.vertices = Some(device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("animation_viewer_vertices"),
-                size: needed,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }));
-            pipeline.vertex_capacity = needed;
-        }
-
-        if let Some(buffer) = &pipeline.vertices {
-            queue.write_buffer(buffer, 0, bytes);
-        }
+        let (vertex_data, batches) = build_vertices(&self.parts, &view_proj);
+        pipeline.batches = batches;
+        pipeline.upload_vertices(device, queue, &vertex_data);
     }
 
     fn render(
@@ -363,230 +290,48 @@ impl shader::Primitive for Scene {
     }
 }
 
-struct Batch {
-    variant: usize,
-    range: Range<u32>,
-}
+#[cfg(test)]
+mod tests {
+    use iced::widget::shader::Program;
 
-struct AtlasBinding {
-    bind_group: wgpu::BindGroup,
-    image_id: usize,
-}
+    use super::*;
 
-pub struct Pipeline {
-    pipelines: [wgpu::RenderPipeline; 4],
-    sampler: wgpu::Sampler,
-    bind_group_layout: wgpu::BindGroupLayout,
-    atlas: Option<AtlasBinding>,
-    vertices: Option<wgpu::Buffer>,
-    vertex_capacity: u64,
-    batches: Vec<Batch>,
-}
-
-impl shader::Pipeline for Pipeline {
-    fn new(device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("animation_viewer"),
-            source: wgpu::ShaderSource::Wgsl(SHADER_SOURCE.into()),
-        });
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("animation_viewer_atlas"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("animation_viewer"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let pipelines = blend_modes().map(|blend| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("animation_viewer"),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some("vs_main"),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: VERTEX_STRIDE,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32],
-                    }],
-                },
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..wgpu::PrimitiveState::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some("fs_main"),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend: Some(blend),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview: None,
-                cache: None,
-            })
-        });
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("animation_viewer_atlas"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..wgpu::SamplerDescriptor::default()
-        });
-
-        Self {
-            pipelines,
-            sampler,
-            bind_group_layout,
-            atlas: None,
-            vertices: None,
-            vertex_capacity: 0,
-            batches: Vec::new(),
-        }
+    fn offset_bounds() -> Rectangle {
+        Rectangle { x: 400.0, y: 100.0, width: 800.0, height: 600.0 }
     }
-}
 
-impl Pipeline {
-    fn upload_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, image: &Arc<RgbaImage>) {
-        let image_id = Arc::as_ptr(image) as usize;
+    #[test]
+    fn first_drag_delta_matches_actual_cursor_movement() {
+        let canvas_state = State::default();
+        let data_state = data::State::default();
+        let program = Viewport { state: &canvas_state, data: &data_state };
+        let mut interaction = Interaction::default();
+        let bounds = offset_bounds();
 
-        if self.atlas.as_ref().is_some_and(|atlas| atlas.image_id == image_id) {
-            return;
-        }
+        let press_point = Point::new(450.0, 150.0);
+        let press_action = program.update(
+            &mut interaction,
+            &Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            bounds,
+            mouse::Cursor::Available(press_point),
+        );
+        assert!(press_action.is_some(), "button press should be captured");
+        assert_eq!(interaction.drag_origin, Some(Point::new(50.0, 50.0)));
 
-        let size = wgpu::Extent3d {
-            width: image.width(),
-            height: image.height(),
-            depth_or_array_layers: 1,
+        let move_point = Point::new(455.0, 155.0);
+        let move_action = program.update(
+            &mut interaction,
+            &Event::Mouse(mouse::Event::CursorMoved { position: move_point }),
+            bounds,
+            mouse::Cursor::Available(move_point),
+        ).expect("cursor move while dragging should publish a pan message");
+
+        let (message, _, _) = move_action.into_inner();
+        let Some(Message::Panned(delta)) = message else {
+            panic!("expected a Message::Panned action");
         };
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("animation_viewer_atlas"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            image.as_raw(),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * image.width()),
-                rows_per_image: Some(image.height()),
-            },
-            size,
-        );
-
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("animation_viewer_atlas"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
-
-        self.atlas = Some(AtlasBinding { bind_group, image_id });
+        assert!((delta.x - 5.0).abs() < 0.001, "expected a 5px x delta, got {}", delta.x);
+        assert!((delta.y - 5.0).abs() < 0.001, "expected a 5px y delta, got {}", delta.y);
     }
-}
-
-fn blend_variant(glow: u8) -> usize {
-    match glow {
-        1 => 1,
-        2 => 2,
-        3 => 3,
-        _ => 0,
-    }
-}
-
-fn blend_modes() -> [wgpu::BlendState; 4] {
-    let keep_dst_alpha = wgpu::BlendComponent {
-        src_factor: wgpu::BlendFactor::Zero,
-        dst_factor: wgpu::BlendFactor::One,
-        operation: wgpu::BlendOperation::Add,
-    };
-
-    let premultiplied = wgpu::BlendComponent {
-        src_factor: wgpu::BlendFactor::One,
-        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-        operation: wgpu::BlendOperation::Add,
-    };
-
-    [
-        wgpu::BlendState {
-            color: premultiplied,
-            alpha: premultiplied,
-        },
-        wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: keep_dst_alpha,
-        },
-        wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Dst,
-                dst_factor: wgpu::BlendFactor::Zero,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: keep_dst_alpha,
-        },
-        wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::OneMinusSrc,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: keep_dst_alpha,
-        },
-    ]
 }

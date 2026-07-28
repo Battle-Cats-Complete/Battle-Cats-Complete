@@ -2,6 +2,7 @@ mod canvas;
 mod controls;
 mod data;
 mod export;
+mod pipeline;
 
 use iced::widget::{container, stack, text};
 use iced::{Element, Length, Task};
