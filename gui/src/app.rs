@@ -13,7 +13,7 @@ use core::common::context::GlobalContext;
 use core::modules::settings::{Settings, UpdateMode};
 
 use crate::common::watcher::GuiWatcher;
-use crate::modules::{animation, cat, data, enemy, home, mods, settings as gui_settings, stage};
+use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
 
 #[derive(PartialEq, Clone, Copy, serde::Deserialize, serde::Serialize, Debug)]
 pub enum Page {
@@ -23,7 +23,6 @@ pub enum Page {
     Stages,
     Mods,
     Data,
-    Animation,
     Settings,
 }
 
@@ -36,7 +35,6 @@ impl Page {
             Self::Stages => "Stages",
             Self::Mods => "Mods",
             Self::Data => "Data",
-            Self::Animation => "Animation",
             Self::Settings => "Settings",
         }
     }
@@ -49,7 +47,6 @@ pub const ALL_PAGES: &[Page] = &[
     Page::Stages,
     Page::Mods,
     Page::Data,
-    Page::Animation,
     Page::Settings,
 ];
 
@@ -94,7 +91,6 @@ pub enum Message {
     Stage(stage::Message),
     Mod(mods::Message),
     Data(data::Message),
-    Animation(animation::Message),
     Settings(gui_settings::Message),
 }
 
@@ -118,8 +114,6 @@ pub struct BattleCatsApp {
     pub mods_state: mods::State,
     #[serde(skip)]
     pub data_state: data::State,
-    #[serde(skip)]
-    pub animation_state: animation::State,
     #[serde(skip)]
     pub settings_state: gui_settings::State,
 
@@ -157,7 +151,6 @@ impl Default for BattleCatsApp {
             stage_state: stage::State::default(),
             mods_state: mods::State::new(core::modules::mods::ModDataState::default()),
             data_state: data::State::default(),
-            animation_state: animation::State::default(),
             settings_state: gui_settings::State::default(),
             settings: Settings::default(),
             param: Param::default(),
@@ -297,7 +290,6 @@ impl BattleCatsApp {
             Message::Stage(msg) => self.stage_state.update(msg, &self.settings).map(Message::Stage),
             Message::Mod(msg) => self.mods_state.update(msg, &self.settings).map(Message::Mod),
             Message::Data(msg) => self.data_state.update(msg, &mut self.settings).map(Message::Data),
-            Message::Animation(msg) => self.animation_state.update(msg).map(Message::Animation),
             Message::Settings(msg) => self.settings_state.update(msg, &mut self.settings).map(Message::Settings),
         }
     }
@@ -310,7 +302,6 @@ impl BattleCatsApp {
             Page::Stages => self.stage_state.view(GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Data => self.data_state.view(&self.settings).map(Message::Data),
-            Page::Animation => self.animation_state.view().map(Message::Animation),
             Page::Settings => self.settings_state.view(&self.settings).map(Message::Settings),
         };
 

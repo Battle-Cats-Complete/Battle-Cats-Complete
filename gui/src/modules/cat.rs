@@ -27,6 +27,7 @@ use core::modules::settings::Settings;
 use crate::common::stat_grid;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
+use crate::modules::animation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
@@ -45,6 +46,7 @@ pub enum ExportAction {
 #[derive(Clone)]
 pub enum Message {
     Tick,
+    AnimationTick,
     SearchChanged(String),
     SelectCat(u32),
     SelectForm(usize),
@@ -57,12 +59,14 @@ pub enum Message {
     Filter(filter::Message),
     Abilities(abilities::Message),
     Talents(talents::Message),
+    Animation(animation::Message),
 }
 
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Tick => write!(f, "Tick"),
+            Self::AnimationTick => write!(f, "AnimationTick"),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
             Self::SelectCat(id) => write!(f, "SelectCat({})", id),
             Self::SelectForm(i) => write!(f, "SelectForm({})", i),
@@ -75,6 +79,7 @@ impl std::fmt::Debug for Message {
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
             Self::Abilities(msg) => write!(f, "Abilities({:?})", msg),
             Self::Talents(msg) => write!(f, "Talents({:?})", msg),
+            Self::Animation(msg) => write!(f, "Animation({:?})", msg),
         }
     }
 }
@@ -99,6 +104,7 @@ pub struct State {
     filter: filter::State,
     abilities: abilities::State,
     talents: talents::State,
+    animation: animation::State,
 }
 
 impl Default for State {
@@ -122,13 +128,20 @@ impl Default for State {
             filter: filter::State::default(),
             abilities: abilities::State::default(),
             talents: talents::State::default(),
+            animation: animation::State::default(),
         }
     }
 }
 
 impl State {
     pub fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
+        let mut subscriptions = vec![iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)];
+
+        if self.selected_tab == DetailTab::Animation {
+            subscriptions.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::AnimationTick));
+        }
+
+        Subscription::batch(subscriptions)
     }
 
     pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
@@ -156,6 +169,13 @@ impl State {
                 self.list
                     .update(list::Message::Tick, &self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality)
                     .map(Message::List)
+            }
+            Message::AnimationTick => {
+                if let Some(cat) = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
+                    self.animation.sync(cat, self.selected_form, settings);
+                }
+                self.animation.tick();
+                Task::none()
             }
             Message::SearchChanged(query) => {
                 self.search_query = query;
@@ -267,6 +287,7 @@ impl State {
                 }
                 Task::none()
             }
+            Message::Animation(msg) => self.animation.update(msg, settings).map(Message::Animation),
         }
     }
 
@@ -347,7 +368,7 @@ impl State {
             DetailTab::Abilities => self.view_abilities(cat, settings, global_ctx),
             DetailTab::Talents => self.view_talents(cat, settings),
             DetailTab::Details => self.view_details(cat),
-            DetailTab::Animation => container(text("Animation Viewer Placeholder")).center_x(Length::Fill).center_y(Length::Fill).into(),
+            DetailTab::Animation => self.animation.view().map(Message::Animation),
         };
 
         column![
