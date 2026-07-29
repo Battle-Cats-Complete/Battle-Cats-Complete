@@ -13,7 +13,6 @@ use crate::common::io::cache;
 use crate::common::resolver;
 use crate::modules::enemy::paths;
 use crate::modules::enemy::waiter::{enemyname, enemypicturebook, t_unit};
-use crate::modules::enemy::EnemyDataState;
 use crate::modules::settings::ScannerConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -43,7 +42,7 @@ fn is_placeholder_png(path: &Path) -> bool {
     buffer[24] < 4
 }
 
-pub struct EnemyCache;
+struct EnemyCache;
 
 impl cache::CacheSpec for EnemyCache {
     type Data = Vec<EnemyEntry>;
@@ -158,23 +157,4 @@ fn process_enemy_entry(id: u32, stats: Battle, name: String, description: Vec<St
     }
 
     Some(EnemyEntry { id, name, description, stats, icon_path: resolved_icon, atk_anim_frames })
-}
-
-pub fn refresh_enemy(state: &mut EnemyDataState, id: u32, config: &ScannerConfig) {
-    match scan_single(id, config) {
-        Some(new_enemy) => {
-            match state.enemies.binary_search_by_key(&new_enemy.id, |e| e.id) {
-                Ok(pos) => state.enemies[pos] = new_enemy,
-                Err(pos) => state.enemies.insert(pos, new_enemy),
-            }
-        }
-        None => {
-            if let Ok(pos) = state.enemies.binary_search_by_key(&id, |e| e.id) {
-                state.enemies.remove(pos);
-                if state.selected_enemy == Some(id) {
-                    state.selected_enemy = None;
-                }
-            }
-        }
-    }
 }

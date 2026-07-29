@@ -6,13 +6,13 @@ use crate::modules::settings::RuleHandling;
 
 use super::rules;
 
-pub struct SortedRawFile {
+pub(crate) struct SortedRawFile {
     pub original_path: PathBuf,
     pub resolved_name: String,
     pub region_code: String,
 }
 
-pub fn process_raw_files(
+pub(crate) fn process_raw_files(
     files: Vec<PathBuf>,
     source_directory: &str,
     language_priority: &[String],

@@ -10,7 +10,6 @@ use std::time::Duration;
 use crate::modules::addons::DownloadConfig;
 use crate::modules::addons::paths::{get_tools_dir, AddonStatus, ADB_BIN};
 
-pub use bridge::execute_pull;
 
 pub struct AdbManager {
     pub status: AddonStatus,
@@ -54,11 +53,11 @@ impl AdbManager {
     }
 }
 
-pub fn get_adb_dir() -> PathBuf {
+fn get_adb_dir() -> PathBuf {
     get_tools_dir().join("adb")
 }
 
-pub fn get_adb_path() -> Option<PathBuf> {
+pub(crate) fn get_adb_path() -> Option<PathBuf> {
     let bin = get_adb_dir().join(ADB_BIN);
     if bin.exists() { Some(bin) } else { None }
 }

@@ -23,7 +23,7 @@ pub fn battleground(dir_path: &Path, filename: &str, priority: &[String]) -> Opt
     Battleground::parse(&bytes).ok()
 }
 
-pub fn certification_preset(dir: &Path, filename: &str, priority: &[String]) -> Option<CertificationPreset> {
+pub(crate) fn certification_preset(dir: &Path, filename: &str, priority: &[String]) -> Option<CertificationPreset> {
     let resolved_path = resolver::get(dir, [filename], priority).into_iter().next()?;
 
     let bytes = fs::read(&resolved_path).ok()?;
@@ -31,7 +31,7 @@ pub fn certification_preset(dir: &Path, filename: &str, priority: &[String]) -> 
     CertificationPreset::parse(&bytes).ok()
 }
 
-pub fn charagroup(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, CharaGroupEntry> {
+pub(crate) fn charagroup(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, CharaGroupEntry> {
     let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -55,7 +55,7 @@ pub fn difficulty_level(dir_path: &Path, filename: &str, priority: &[String]) ->
     DifficultyLevel::parse(&bytes).map(|parsed| parsed.map_difficulties).unwrap_or_default()
 }
 
-pub fn drop_chara(dir_path: &Path, filename: &str, priority: &[String]) -> HashMap<u32, u32> {
+pub(crate) fn drop_chara(dir_path: &Path, filename: &str, priority: &[String]) -> HashMap<u32, u32> {
     let Some(resolved_path) = resolver::get(dir_path, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -67,7 +67,7 @@ pub fn drop_chara(dir_path: &Path, filename: &str, priority: &[String]) -> HashM
     DropChara::parse(&bytes).map(|parsed| parsed.character_drops).unwrap_or_default()
 }
 
-pub fn dropitem(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, DropItemEntry> {
+pub(crate) fn dropitem(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, DropItemEntry> {
     let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -79,7 +79,7 @@ pub fn dropitem(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32,
     DropItem::parse(&bytes).map(|parsed| parsed.map_drops).unwrap_or_default()
 }
 
-pub fn ex_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, u32> {
+pub(crate) fn ex_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, u32> {
     let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -91,7 +91,7 @@ pub fn ex_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32
     ExOption::parse(&bytes).map(|parsed| parsed.map_to_ex_map).unwrap_or_default()
 }
 
-pub fn fixed_formation(dir: &Path, filename: &str, priority: &[String]) -> HashMap<(u32, u8, u32), FixedFormationEntry> {
+pub(crate) fn fixed_formation(dir: &Path, filename: &str, priority: &[String]) -> HashMap<(u32, u8, u32), FixedFormationEntry> {
     let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -103,7 +103,7 @@ pub fn fixed_formation(dir: &Path, filename: &str, priority: &[String]) -> HashM
     FixedFormation::parse(&bytes).map(|parsed| parsed.formations).unwrap_or_default()
 }
 
-pub fn lockskipdata(dir_path: &Path, filename: &str, priority: &[String]) -> HashMap<u32, LockSkipDataEntry> {
+pub(crate) fn lockskipdata(dir_path: &Path, filename: &str, priority: &[String]) -> HashMap<u32, LockSkipDataEntry> {
     let Some(resolved_path) = resolver::get(dir_path, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -129,7 +129,7 @@ pub fn map_name(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32,
     final_map
 }
 
-pub fn map_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, MapOptionEntry> {
+pub(crate) fn map_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, MapOptionEntry> {
     let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -141,7 +141,7 @@ pub fn map_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u3
     MapOption::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
 }
 
-pub fn mapstagedata(dir: &Path, filename: &str, priority: &[String]) -> Vec<MapStageDataEntry> {
+pub(crate) fn mapstagedata(dir: &Path, filename: &str, priority: &[String]) -> Vec<MapStageDataEntry> {
     let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
         return Vec::new();
     };
@@ -153,7 +153,7 @@ pub fn mapstagedata(dir: &Path, filename: &str, priority: &[String]) -> Vec<MapS
     MapStageData::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
 }
 
-pub fn scatcpusetting(dir_path: &Path, filename: &str, priority: &[String]) -> ScatCpuSetting {
+pub(crate) fn scatcpusetting(dir_path: &Path, filename: &str, priority: &[String]) -> ScatCpuSetting {
     let Some(resolved_path) = resolver::get(dir_path, [filename], priority).into_iter().next() else {
         return ScatCpuSetting::default();
     };
@@ -165,7 +165,7 @@ pub fn scatcpusetting(dir_path: &Path, filename: &str, priority: &[String]) -> S
     ScatCpuSetting::parse(&bytes).unwrap_or_default()
 }
 
-pub fn scorebonusmap(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, ScoreBonusMapEntry> {
+pub(crate) fn scorebonusmap(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, ScoreBonusMapEntry> {
     let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -177,7 +177,7 @@ pub fn scorebonusmap(dir: &Path, filename: &str, priority: &[String]) -> HashMap
     ScoreBonusMap::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
 }
 
-pub fn specialrulesmap(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, SpecialRulesMapEntry> {
+pub(crate) fn specialrulesmap(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, SpecialRulesMapEntry> {
     let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -189,7 +189,7 @@ pub fn specialrulesmap(dir: &Path, filename: &str, priority: &[String]) -> HashM
     SpecialRulesMap::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
 }
 
-pub fn specialrulesmapoption(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u8, SpecialRulesMapOptionEntry> {
+pub(crate) fn specialrulesmapoption(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u8, SpecialRulesMapOptionEntry> {
     let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -201,7 +201,7 @@ pub fn specialrulesmapoption(dir: &Path, filename: &str, priority: &[String]) ->
     SpecialRulesMapOption::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
 }
 
-pub fn stage_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, Vec<StageOptionEntry>> {
+pub(crate) fn stage_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, Vec<StageOptionEntry>> {
     let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
         return HashMap::new();
     };
@@ -213,7 +213,7 @@ pub fn stage_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<
     StageOption::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
 }
 
-pub fn stagename(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, StageNameEntry> {
+pub(crate) fn stagename(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, StageNameEntry> {
     let mut final_map: HashMap<u32, StageNameEntry> = HashMap::new();
     let paths = resolver::get(dir, [filename], priority);
 

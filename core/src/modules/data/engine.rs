@@ -1,9 +1,9 @@
 pub mod apk;
-pub mod audit;
-pub mod hardcoded;
+pub(crate) mod audit;
+pub(crate) mod hardcoded;
 pub mod keys;
-pub mod manifest;
-pub mod router;
+pub(crate) mod manifest;
+pub(crate) mod router;
 pub mod rules;
 pub mod sort;
 
@@ -24,7 +24,7 @@ use crate::modules::settings::RuleHandling;
 use crate::modules::settings::UserKeys;
 
 #[derive(Clone)]
-pub struct UniversalTask {
+struct UniversalTask {
     pub pack_path: PathBuf,
     pub original_name: String,
     pub final_name: String,
@@ -35,7 +35,7 @@ pub struct UniversalTask {
     pub is_loose: bool,
 }
 
-pub struct DecryptedCandidate {
+struct DecryptedCandidate {
     pub task: UniversalTask,
     pub clean_data: Vec<u8>,
     pub true_weight: usize,
@@ -74,7 +74,7 @@ fn cleanup_temporary_directories(directories: &[PathBuf]) {
     }
 }
 
-pub fn run_universal_import(
+pub(crate) fn run_universal_import(
     source_directories: &[PathBuf],
     emit: &(dyn Fn(JobEvent) + Sync),
     abort_flag: &AtomicBool,

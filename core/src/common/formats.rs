@@ -1,7 +1,7 @@
-pub mod gatyaitembuy;
-pub mod gatyaitemname;
+pub(crate) mod gatyaitembuy;
+pub(crate) mod gatyaitemname;
 pub mod imgcut;
-pub mod mamodel;
+pub(crate) mod mamodel;
 
 use std::collections::HashMap;
 use std::path::Path;

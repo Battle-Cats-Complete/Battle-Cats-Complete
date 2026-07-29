@@ -250,6 +250,9 @@ impl BattleCatsApp {
             }
             Message::Navigate(page) => {
                 self.current_page = page;
+                if page == Page::Home {
+                    return self.home_state.update(home::Message::CheckInit).map(Message::Home);
+                }
                 Task::none()
             }
             Message::ToggleSidebar => {
@@ -337,7 +340,7 @@ impl BattleCatsApp {
             Page::Home => self.home_state.view().map(Message::Home),
             Page::Cats => self.cat_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Cat),
             Page::Enemies => self.enemy_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Enemy),
-            Page::Stages => self.stage_state.view(GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Stage),
+            Page::Stages => self.stage_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Data => self.data_state.view(&self.settings).map(Message::Data),
             Page::Settings => self.settings_state.view(&self.settings).map(Message::Settings),

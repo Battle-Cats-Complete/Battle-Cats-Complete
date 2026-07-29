@@ -6,7 +6,7 @@ use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
 use crate::modules::cat::game::registry::{get_display_def, CAT_STATS_REGISTRY};
 use crate::modules::cat::game::stats;
 
-pub fn calculate_talent_value(minimum: u16, maximum: u16, level: u8, max_level: u8) -> i32 {
+pub(crate) fn calculate_talent_value(minimum: u16, maximum: u16, level: u8, max_level: u8) -> i32 {
     if level == 0 { return 0; }
     if max_level <= 1 { return minimum as i32; }
     if level == 1 { return minimum as i32; }
@@ -286,7 +286,7 @@ fn apply_target_traits(battle_stats: &mut Battle, target_name_id: i16, bitmask_t
     }
 }
 
-pub fn apply_talent_stats(base_stats: &Battle, talent_data: &Talent, talent_levels: &HashMap<u8, u8>) -> Battle {
+pub(crate) fn apply_talent_stats(base_stats: &Battle, talent_data: &Talent, talent_levels: &HashMap<u8, u8>) -> Battle {
     let mut mutated_stats = base_stats.clone();
 
     for (talent_index, talent_group) in talent_data.groups.iter().enumerate() {
@@ -324,19 +324,4 @@ pub fn get_talent_np_cost(cost_id: u8, current_level: u8, costs_map: &HashMap<u8
     }
 
     total_cost
-}
-
-pub fn get_total_np_cost(
-    talent_data: &Talent,
-    talent_levels: &HashMap<u8, u8>,
-    costs_map: &HashMap<u8, TalentCost>
-) -> i32 {
-    let mut total_accumulated_cost = 0;
-
-    for (talent_index, talent_group) in talent_data.groups.iter().enumerate() {
-        let current_level = *talent_levels.get(&(talent_index as u8)).unwrap_or(&0);
-        total_accumulated_cost += get_talent_np_cost(talent_group.cost_id, current_level, costs_map);
-    }
-
-    total_accumulated_cost
 }

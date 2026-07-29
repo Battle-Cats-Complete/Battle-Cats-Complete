@@ -1,5 +1,5 @@
-use iced::widget::{button, column, container, row, text, text_input};
-use iced::{Element, Length, Vector};
+use iced::widget::{button, column, container, mouse_area, row, text, text_input};
+use iced::{alignment, border, Element, Length, Theme, Vector};
 
 use core::modules::animation::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT, IDX_SURFACE,
@@ -37,10 +37,9 @@ pub struct State {
 pub enum Message {
     TogglePlay,
     ToggleExpanded,
-    StepPrev,
-    StepNext,
     HoldStart(i8),
     HoldEnd,
+    HoldCancel,
     FrameInputChanged(String),
     FrameInputSubmitted,
     SpeedInputChanged(String),
@@ -63,18 +62,39 @@ fn display_max(data: &data::State) -> String {
     }
 }
 
+fn step_control(label: &'static str) -> iced::widget::Container<'static, Message> {
+    container(text(label))
+        .width(Length::Fixed(30.0))
+        .padding(5)
+        .align_x(alignment::Horizontal::Center)
+        .style(|theme: &Theme| {
+            let pair = theme.extended_palette().primary.base;
+            container::Style {
+                background: Some(pair.color.into()),
+                text_color: Some(pair.text),
+                border: border::rounded(2),
+                ..Default::default()
+            }
+        })
+}
+
 impl State {
     pub fn update(&mut self, message: Message, canvas: &mut canvas::State, data: &mut data::State) {
         match message {
             Message::TogglePlay => canvas.is_playing = !canvas.is_playing,
             Message::ToggleExpanded => self.controls_expanded = !self.controls_expanded,
-            Message::StepPrev => self.step(canvas, data, -1.0),
-            Message::StepNext => self.step(canvas, data, 1.0),
             Message::HoldStart(dir) => {
                 self.hold_dir = dir;
                 self.hold_timer = 0.0;
             }
             Message::HoldEnd => {
+                if self.hold_dir != 0 && self.hold_timer <= HOLD_DELAY_SECS {
+                    self.step(canvas, data, self.hold_dir as f32);
+                }
+                self.hold_dir = 0;
+                self.hold_timer = 0.0;
+            }
+            Message::HoldCancel => {
                 self.hold_dir = 0;
                 self.hold_timer = 0.0;
             }
@@ -169,16 +189,18 @@ impl State {
             ].spacing(4)
         } else {
             row![
-                button(text("◀"))
-                    .on_press(Message::StepPrev)
-                    .width(Length::Fixed(30.0)),
+                mouse_area(step_control("◀"))
+                    .on_press(Message::HoldStart(-1))
+                    .on_release(Message::HoldEnd)
+                    .on_exit(Message::HoldCancel),
                 text_input("0", &self.frame_input)
                     .on_input(Message::FrameInputChanged)
                     .on_submit(Message::FrameInputSubmitted)
                     .width(Length::Fixed(80.0)),
-                button(text("▶"))
-                    .on_press(Message::StepNext)
-                    .width(Length::Fixed(30.0)),
+                mouse_area(step_control("▶"))
+                    .on_press(Message::HoldStart(1))
+                    .on_release(Message::HoldEnd)
+                    .on_exit(Message::HoldCancel),
             ].spacing(4)
         };
 

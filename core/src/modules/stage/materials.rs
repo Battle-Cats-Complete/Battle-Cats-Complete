@@ -7,7 +7,7 @@ use crate::common::formats::GatyaItemName;
 use super::paths;
 use super::treasure::ResolvedDrop;
 
-pub const MAT_IDS: [u32; 16] = [
+pub(crate) const MAT_IDS: [u32; 16] = [
     85, 86, 87, 88, 89, 90, 91, 140,
     187, 188, 189, 190, 191, 192, 193, 194,
 ];

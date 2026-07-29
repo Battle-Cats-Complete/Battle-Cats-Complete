@@ -28,7 +28,6 @@ pub fn run(
         &app_repository,
         import_mode,
         target_region,
-        &emulator_config,
         &emit_log,
         abort_flag,
     )

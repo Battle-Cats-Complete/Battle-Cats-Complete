@@ -5,7 +5,7 @@ use crate::modules::cat::filter::CatFilterState;
 use crate::modules::cat::game::registry::CAT_STATS_REGISTRY;
 use crate::modules::cat::scanner::CatEntry;
 
-pub fn get_stat_value(battle_stats: &Battle, stat_name: &str, animation_frames: i32, unitbuy: Option<&UnitBuy>) -> i32 {
+pub(crate) fn get_stat_value(battle_stats: &Battle, stat_name: &str, animation_frames: i32, unitbuy: Option<&UnitBuy>) -> i32 {
     let registry_name = match stat_name {
         "Cooldown (f)" => "Cooldown",
         "Atk Cycle (f)" => "Atk Cycle",
@@ -21,7 +21,7 @@ pub fn get_stat_value(battle_stats: &Battle, stat_name: &str, animation_frames: 
     0
 }
 
-pub fn evaluate_stat_ranges(
+pub(crate) fn evaluate_stat_ranges(
     cat: &CatEntry,
     form_index: usize,
     filter: &CatFilterState,

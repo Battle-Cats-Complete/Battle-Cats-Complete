@@ -523,7 +523,7 @@ impl StagePatternsSet {
     }
 }
 
-pub struct AssetRouter {
+pub(crate) struct AssetRouter {
     cat_matcher: CatPatternsSet,
     enemy_matcher: EnemyPatternsSet,
     global_matcher: GlobalPatternsSet,
@@ -540,7 +540,7 @@ pub struct AssetRouter {
 }
 
 impl AssetRouter {
-    pub fn new(game_root: &Path) -> Result<Self, regex::Error> {
+    pub(crate) fn new(game_root: &Path) -> Result<Self, regex::Error> {
         Ok(Self {
             cat_matcher: CatPatternsSet::new()?,
             enemy_matcher: EnemyPatternsSet::new()?,
@@ -594,7 +594,7 @@ impl AssetRouter {
         name != clean_name
     }
 
-    pub fn resolve_destination(&self, original_name: &str, final_name: &str) -> PathBuf {
+    pub(crate) fn resolve_destination(&self, original_name: &str, final_name: &str) -> PathBuf {
         let path = Path::new(original_name);
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
         let ext = path.extension().unwrap_or_default().to_string_lossy();

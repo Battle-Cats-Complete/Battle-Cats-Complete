@@ -5,7 +5,7 @@ use crate::modules::enemy::filter::{EnemyFilterState, MatchMode};
 use crate::modules::enemy::game::registry::{get_display_def, Magnification, ENEMY_STATS_REGISTRY};
 use crate::modules::enemy::scanner::EnemyEntry;
 
-pub fn get_stat_value(s: &Battle, stat: &str, anim_frames: i32, mag: i32) -> i32 {
+pub(crate) fn get_stat_value(s: &Battle, stat: &str, anim_frames: i32, mag: i32) -> i32 {
     let reg_name = match stat {
         "Atk Cycle (f)" => "Atk Cycle",
         _ => stat,
@@ -22,7 +22,7 @@ pub fn get_identity_name(identity: Identity) -> String {
     get_display_def(identity).name.to_string()
 }
 
-pub fn has_trait_or_ability(s: &Battle, identity: Identity) -> bool {
+pub(crate) fn has_trait_or_ability(s: &Battle, identity: Identity) -> bool {
     REGISTRY.iter().find(|d| d.identity == identity).is_some_and(|def| {
         !(def.attributes)(s).is_empty()
     })

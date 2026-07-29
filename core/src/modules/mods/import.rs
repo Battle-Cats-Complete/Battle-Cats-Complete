@@ -1,5 +1,5 @@
 pub mod decrypt;
-pub mod extract;
+pub(crate) mod extract;
 
 use std::fs;
 use std::path::{Path, PathBuf};

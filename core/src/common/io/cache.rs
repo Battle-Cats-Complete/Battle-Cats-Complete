@@ -74,7 +74,7 @@ fn hash_directory_parallel(directory_path: &Path) -> u64 {
 }
 
 #[tracing::instrument(level = "debug", skip(active_mod))]
-pub fn get_game_hash(active_mod: Option<&str>) -> u64 {
+pub(crate) fn get_game_hash(active_mod: Option<&str>) -> u64 {
     tracing::trace!("Calculating global game hash across assets and tables...");
     let mut final_game_hasher = FxHasher::default();
 
@@ -103,17 +103,17 @@ struct CachePayload<T> {
     data: T,
 }
 
-pub trait CacheSpec {
+pub(crate) trait CacheSpec {
     type Data: Serialize + DeserializeOwned;
     const FILE: &'static str;
     const VERSION: u32;
 }
 
-pub fn read<C: CacheSpec>() -> Option<(u64, C::Data)> {
+pub(crate) fn read<C: CacheSpec>() -> Option<(u64, C::Data)> {
     load_payload(C::FILE, C::VERSION)
 }
 
-pub fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
+pub(crate) fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
     save_payload(C::FILE, C::VERSION, hash, data);
 }
 

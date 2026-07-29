@@ -17,7 +17,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use core::common::assets::{
     BOSS_WAVE, BURROW, DEATH_TIMER, DOJO, GOD, KAMIKAZE, MULTIHIT, REVIVE, STARRED_ALIEN, STOP,
-    UDI_F, UNKNOWN,
+    UNKNOWN,
 };
 use core::common::formats::{imgcut, SpriteSheet as CoreSpriteSheet};
 use core::common::game::CustomIcon;
@@ -35,8 +35,6 @@ pub struct CustomAssets {
     pub death_timer: Handle,
     pub god: Handle,
     pub unknown: Handle,
-    #[allow(dead_code)]
-    pub udi_f: Handle,
 }
 
 impl CustomAssets {
@@ -69,7 +67,6 @@ impl CustomAssets {
             death_timer: load("death_timer", DEATH_TIMER),
             god: load("god", GOD),
             unknown: load("unknown", UNKNOWN),
-            udi_f: load("udi_f", UDI_F),
         }
     }
 

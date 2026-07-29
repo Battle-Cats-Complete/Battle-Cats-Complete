@@ -6,12 +6,11 @@ use crate::common::job::JobEvent;
 
 use super::engine;
 use super::engine::keys;
-use super::{AdbTarget, ImportMode};
+use super::ImportMode;
 
 pub fn run(
     source_path_string: &str,
     import_mode: ImportMode,
-    _target_region: AdbTarget,
     enforce_validation: bool,
     emit: impl Fn(JobEvent) + Sync,
     abort_flag: &AtomicBool,
@@ -28,7 +27,6 @@ pub fn run(
             emit(JobEvent::Log("Extracting archive to temporary workspace...".to_string()));
             PathBuf::from("temp_workspace")
         }
-        _ => return Err("Invalid Import Mode selected.".to_string()),
     };
 
     let directories_to_process = vec![source_directory.clone()];

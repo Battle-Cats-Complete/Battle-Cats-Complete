@@ -18,7 +18,7 @@ pub fn get_icon_name(icon: &AbilityIcon) -> String {
     "Unknown".to_string()
 }
 
-pub fn has_trait_or_ability(battle_stats: &Battle, icon: &AbilityIcon) -> bool {
+pub(crate) fn has_trait_or_ability(battle_stats: &Battle, icon: &AbilityIcon) -> bool {
     for pure_definition in REGISTRY {
         let display_definition = get_display_def(pure_definition.identity);
         if &display_definition.icon == icon {
@@ -28,7 +28,7 @@ pub fn has_trait_or_ability(battle_stats: &Battle, icon: &AbilityIcon) -> bool {
     false
 }
 
-pub fn evaluate_icon_requirements(
+pub(crate) fn evaluate_icon_requirements(
     cat: &CatEntry,
     form_index: usize,
     filter: &CatFilterState,

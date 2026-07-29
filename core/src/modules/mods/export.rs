@@ -1,8 +1,8 @@
 pub mod apk;
 pub mod bcm;
-pub mod modify;
+pub(crate) mod modify;
 pub mod pack;
-pub mod sign;
+pub(crate) mod sign;
 
 use std::path::PathBuf;
 
@@ -18,17 +18,9 @@ pub enum ExportType {
     Pack,
 }
 
-#[derive(Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
-pub enum PatchMode {
-    #[default]
-    Update,
-    Create,
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ExportState {
     pub tab: ExportType,
-    pub patch_mode: PatchMode,
     pub target_region: Region,
     pub app_title: String,
     pub package_suffix: String,
@@ -40,7 +32,6 @@ impl Default for ExportState {
     fn default() -> Self {
         Self {
             tab: ExportType::Apk,
-            patch_mode: PatchMode::Update,
             target_region: Region::En,
             app_title: String::new(),
             package_suffix: String::new(),

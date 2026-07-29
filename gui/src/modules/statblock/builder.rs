@@ -101,13 +101,13 @@ pub(crate) fn build_statblock_image(
     let max_cols = data.headers_1.len().max(data.headers_2.len()) as f32;
     let base_grid_width: f32 = (8.0 * 2.0) + (66.0 * max_cols) + (4.0 * (max_cols - 1.0).max(0.0));
 
-    let jp_font = FontRef::try_from_slice(include_bytes!("../../../../core/assets/NotoSansJP-Regular.ttf"))
+    let jp_font = FontRef::try_from_slice(assets::FONT_JP)
         .map_err(|err| format!("Failed to load JP font: {err}"))?;
-    let kr_font = FontRef::try_from_slice(include_bytes!("../../../../core/assets/NotoSansKR-Regular.ttf"))
+    let kr_font = FontRef::try_from_slice(assets::FONT_KR)
         .map_err(|err| format!("Failed to load KR font: {err}"))?;
-    let tc_font = FontRef::try_from_slice(include_bytes!("../../../../core/assets/NotoSansTC-Regular.ttf"))
+    let tc_font = FontRef::try_from_slice(assets::FONT_TC)
         .map_err(|err| format!("Failed to load TC font: {err}"))?;
-    let th_font = FontRef::try_from_slice(include_bytes!("../../../../core/assets/NotoSansThai-Regular.ttf"))
+    let th_font = FontRef::try_from_slice(assets::FONT_TH)
         .map_err(|err| format!("Failed to load TH font: {err}"))?;
 
     let get_font = |lang: &str| -> &FontRef {

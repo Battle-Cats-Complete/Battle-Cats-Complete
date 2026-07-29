@@ -3,7 +3,6 @@ mod filter;
 mod list;
 mod statblock;
 
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -14,7 +13,6 @@ use iced::widget::{
 };
 use iced::{task, Alignment, Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::enemy::unit::Battle;
-use nyanko::graphics::rig::Unit;
 use tracing::{error, info};
 
 use core::common::context::GlobalContext;
@@ -97,7 +95,6 @@ pub struct EnemyState {
     pub selected_tab: EnemyDetailTab,
     pub img015_sheets: Vec<SpriteSheet>,
     pub custom_assets: CustomAssets,
-    pub rig: Option<Arc<Unit>>,
 
     load_handle: Option<task::Handle>,
     scan_progress: Option<(usize, usize)>,
@@ -123,7 +120,6 @@ impl Default for EnemyState {
             selected_tab: EnemyDetailTab::Abilities,
             img015_sheets: Vec::new(),
             custom_assets: CustomAssets::new(),
-            rig: None,
 
             load_handle: None,
             scan_progress: None,
@@ -221,7 +217,6 @@ impl EnemyState {
             Message::EnemySelected(id) => {
                 if self.data.selected_enemy != Some(id) {
                     self.data.selected_enemy = Some(id);
-                    self.rig = None;
                     self.mag_input = "100".to_string();
                     self.magnification = Magnification { hitpoints: 100, attack: 100 };
                 }

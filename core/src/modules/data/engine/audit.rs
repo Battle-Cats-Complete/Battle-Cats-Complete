@@ -1,4 +1,4 @@
-pub fn is_auditable_text(filename: &str) -> bool {
+fn is_auditable_text(filename: &str) -> bool {
     let lower = filename.to_lowercase();
     lower.ends_with(".csv")
         || lower.ends_with(".tsv")
@@ -9,7 +9,7 @@ pub fn is_auditable_text(filename: &str) -> bool {
         || lower.ends_with(".list")
 }
 
-pub fn calculate_true_weight(data: &[u8], filename: &str) -> usize {
+pub(crate) fn calculate_true_weight(data: &[u8], filename: &str) -> usize {
     if !is_auditable_text(filename) {
         return data.len();
     }
@@ -20,7 +20,7 @@ pub fn calculate_true_weight(data: &[u8], filename: &str) -> usize {
     data.len() - carriage_return_count
 }
 
-pub fn strip_carriage_returns(data: &[u8], filename: &str) -> Vec<u8> {
+pub(crate) fn strip_carriage_returns(data: &[u8], filename: &str) -> Vec<u8> {
     if !is_auditable_text(filename) {
         return data.to_vec();
     }

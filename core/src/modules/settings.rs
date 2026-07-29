@@ -14,7 +14,7 @@ use tracing::{info, warn};
 
 use crate::common::io::json;
 
-pub const EXPECTED_HASHES: [(&str, &str); 4] = [
+const EXPECTED_HASHES: [(&str, &str); 4] = [
     ("bac299d3cf278544782427ff7c71ef58", "6910fae125547fd957a505c67e1c72bd"),
     ("b9e48b02312e5b3dd60194a03157d70c", "45cad482726268e341f5759230ce8cff"),
     ("264a0ffd5f69d257284b93ae881ce2b6", "213cecb58af008964303ecb2cf0f5373"),
@@ -72,9 +72,6 @@ pub struct Settings {
     pub animation: AnimSettings,
     pub mods: ModsSettings,
     pub stages: StageDataSettings,
-
-    #[serde(skip)]
-    pub runtime: RuntimeState,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -139,7 +136,6 @@ pub struct EnemyDataSettings {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct GameDataSettings {
-    pub manual_ip: String,
     pub app_folder_persistence: bool,
     pub enable_ultra_compression: bool,
     pub last_compression_level: i32,
@@ -151,7 +147,6 @@ pub struct GameDataSettings {
 impl Default for GameDataSettings {
     fn default() -> Self {
         Self {
-            manual_ip: String::new(),
             app_folder_persistence: false,
             enable_ultra_compression: false,
             last_compression_level: 9,
@@ -166,8 +161,6 @@ impl Default for GameDataSettings {
 #[serde(default)]
 pub struct AnimSettings {
     pub centering_behavior: usize,
-    pub interpolation: bool,
-    pub native_fps: f32,
     pub debug_view: bool,
     pub use_tight_bounds: bool,
     pub auto_set_camera_region: bool,
@@ -185,8 +178,6 @@ impl Default for AnimSettings {
     fn default() -> Self {
         Self {
             centering_behavior: 2,
-            interpolation: false,
-            native_fps: 30.0,
             debug_view: false,
             use_tight_bounds: true,
             auto_set_camera_region: false,
@@ -202,20 +193,6 @@ impl Default for AnimSettings {
     }
 }
 
-pub struct RuntimeState {
-    pub active_tab: String,
-    pub show_ip_field: bool,
-}
-
-impl Default for RuntimeState {
-    fn default() -> Self {
-        Self {
-            active_tab: "General".to_string(),
-            show_ip_field: false,
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct ScannerConfig {
     pub language_priority: Vec<String>,
@@ -227,7 +204,6 @@ pub struct ScannerConfig {
 #[derive(Clone, Debug)]
 pub struct EmulatorConfig {
     pub keep_app_folder: bool,
-    pub manual_ip: String,
 }
 
 impl Settings {
@@ -243,7 +219,6 @@ impl Settings {
     pub fn emulator_config(&self) -> EmulatorConfig {
         EmulatorConfig {
             keep_app_folder: self.game_data.app_folder_persistence,
-            manual_ip: self.game_data.manual_ip.clone(),
         }
     }
 }
@@ -391,7 +366,7 @@ impl UserKeys {
             .any(|&region| self.has_key_for(region))
     }
 
-    pub fn has_key_for(&self, region: Region) -> bool {
+    fn has_key_for(&self, region: Region) -> bool {
         match region {
             Region::Ja => !self.ja.key.is_empty() && !self.ja.iv.is_empty(),
             Region::En => !self.en.key.is_empty() && !self.en.iv.is_empty(),
@@ -400,7 +375,7 @@ impl UserKeys {
         }
     }
 
-    pub fn as_tuples(&self) -> Vec<(String, String, Region)> {
+    pub(crate) fn as_tuples(&self) -> Vec<(String, String, Region)> {
         let mut key_tuples = Vec::new();
         if self.has_key_for(Region::Ja) { key_tuples.push((self.ja.key.clone(), self.ja.iv.clone(), Region::Ja)); }
         if self.has_key_for(Region::En) { key_tuples.push((self.en.key.clone(), self.en.iv.clone(), Region::En)); }

@@ -11,7 +11,7 @@ use tracing::{debug, error, info};
 
 use crate::common::io::json;
 
-pub const DEFAULT_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
+const DEFAULT_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCmBNx3G6wn5h63
 9cvUxyul2ik3/a4uBBfmGAccldsdawLzg4X7y4nYvBjNo1KWWnKekIWnDHxULtH3
 zwEwRAZPFmNPwKvJ3pwYlUE/RvunAVM3PuLGnAFSmDghE3Sylc02HitS0qrWuW/Z

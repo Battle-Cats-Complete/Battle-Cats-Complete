@@ -7,9 +7,9 @@ use std::path::PathBuf;
 
 use crate::modules::settings::Settings;
 
-pub const DEFAULT_WALK_LEN: i32 = 90;
-pub const DEFAULT_IDLE_LEN: i32 = 90;
-pub const DEFAULT_KB_LEN: i32 = 60;
+const DEFAULT_WALK_LEN: i32 = 90;
+const DEFAULT_IDLE_LEN: i32 = 90;
+const DEFAULT_KB_LEN: i32 = 60;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum ExportMode {
@@ -19,11 +19,9 @@ pub enum ExportMode {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub enum LoopStatus {
     Searching(usize),
     Found(i32, i32),
-    NotFound,
     Error(String),
 }
 
@@ -31,16 +29,12 @@ pub enum LoopStatus {
 pub struct ExportConfig {
     pub width: u32,
     pub height: u32,
-    pub camera_x: f32,
-    pub camera_y: f32,
-    pub camera_zoom: f32,
     pub format: ExportFormat,
     pub quality_percent: u32,
     pub compression_percent: u32,
     pub fps: u32,
     pub start_frame: i32,
     pub end_frame: i32,
-    pub interpolation: bool,
     pub output_path: PathBuf,
     pub base_name: String,
     pub background: bool,
@@ -112,12 +106,6 @@ pub struct ExporterState {
     pub compression_percent_str: String,
     pub background: bool,
     pub user_bg_preference: bool,
-    pub interpolation: bool,
-    pub is_loop_searching: bool,
-    pub loop_frames_searched: usize,
-    pub loop_search_start_time: Option<f64>,
-    pub loop_result_msg: Option<String>,
-    pub anim_name: String,
 }
 
 impl Default for ExporterState {
@@ -165,12 +153,6 @@ impl Default for ExporterState {
             compression_percent_str: String::new(),
             background: false,
             user_bg_preference: false,
-            interpolation: false,
-            is_loop_searching: false,
-            loop_frames_searched: 0,
-            loop_search_start_time: None,
-            loop_result_msg: None,
-            anim_name: String::new(),
         }
     }
 }

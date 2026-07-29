@@ -848,7 +848,7 @@ pub struct CatStatsDef {
     pub talent_modifier_fmt: Option<fn(i32, i32) -> String>,
 }
 
-pub const CAT_STATS_REGISTRY: &[CatStatsDef] = &[
+pub(crate) const CAT_STATS_REGISTRY: &[CatStatsDef] = &[
     CatStatsDef {
         name: "Hitpoints",
         display_name: "Hitpoints",

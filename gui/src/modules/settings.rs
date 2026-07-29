@@ -77,9 +77,7 @@ pub enum Message {
     // Data Tab
     ToggleKeyValidation(bool),
     ToggleUltraCompression(bool),
-    ManualIpChanged(String),
     ToggleAppPersistence(bool),
-    RevealIpField(bool),
     Keys(keys::Message),
     Exceptions(exceptions::Message),
     Disk(disk::Message),
@@ -102,8 +100,6 @@ pub enum Message {
 
 pub struct State {
     pub active_tab: Tab,
-    pub ip_field_revealed: bool,
-    pub manual_ip_buffer: String,
 
     pub default_cat_level_buffer: String,
     pub showcase_walk_buffer: String,
@@ -124,8 +120,6 @@ impl Default for State {
     fn default() -> Self {
         Self {
             active_tab: Tab::General,
-            ip_field_revealed: false,
-            manual_ip_buffer: String::new(),
             default_cat_level_buffer: "1".to_string(),
             showcase_walk_buffer: "0".to_string(),
             showcase_idle_buffer: "0".to_string(),
@@ -165,7 +159,6 @@ impl State {
                 match tab {
                     Tab::General => lang::ensure_complete_list(&mut core_settings.general.language_priority),
                     Tab::Cats => self.default_cat_level_buffer = core_settings.cat_data.default_level.to_string(),
-                    Tab::Data => self.manual_ip_buffer = core_settings.game_data.manual_ip.clone(),
                     Tab::Animation => {
                         self.showcase_walk_buffer = core_settings.animation.default_showcase_walk.to_string();
                         self.showcase_idle_buffer = core_settings.animation.default_showcase_idle.to_string();
@@ -285,17 +278,8 @@ impl State {
                 }
                 Task::none()
             }
-            Message::ManualIpChanged(val) => {
-                self.manual_ip_buffer = val.clone();
-                core_settings.game_data.manual_ip = val;
-                Task::none()
-            }
             Message::ToggleAppPersistence(val) => {
                 core_settings.game_data.app_folder_persistence = val;
-                Task::none()
-            }
-            Message::RevealIpField(val) => {
-                self.ip_field_revealed = val;
                 Task::none()
             }
             Message::Keys(msg) => {
@@ -677,15 +661,6 @@ impl State {
             ].spacing(10),
 
             text("Android").size(24),
-            row![
-                text("Fallback IP Address:"),
-                if self.ip_field_revealed {
-                    Element::from(text_input("192.168.X.X", &self.manual_ip_buffer).on_input(Message::ManualIpChanged).width(Length::Fixed(120.0)))
-                } else {
-                    Element::from(button("Click to Reveal").on_press(Message::RevealIpField(true)))
-                },
-                button("👁").on_press(Message::RevealIpField(!self.ip_field_revealed)),
-            ].spacing(10).align_y(Alignment::Center),
             row![
                 toggler(core_settings.game_data.app_folder_persistence).on_toggle(Message::ToggleAppPersistence),
                 text("App Folder Persistence"),

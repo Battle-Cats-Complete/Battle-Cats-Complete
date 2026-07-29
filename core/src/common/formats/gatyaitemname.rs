@@ -7,7 +7,7 @@ use nyanko::common::tools::file;
 use super::super::resolver;
 use super::GatyaItemName;
 
-pub fn load(dir_path: &Path, filename: &str, lang_priority: &[String]) -> HashMap<usize, GatyaItemName> {
+pub(crate) fn load(dir_path: &Path, filename: &str, lang_priority: &[String]) -> HashMap<usize, GatyaItemName> {
     let mut item_name_map = HashMap::new();
     let file_paths = resolver::get(dir_path, [filename], lang_priority);
 

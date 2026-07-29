@@ -13,7 +13,7 @@ use tracing::{debug, trace, warn};
 
 use crate::common::io::cache;
 use crate::common::resolver;
-use crate::modules::cat::{paths, CatDataState};
+use crate::modules::cat::paths;
 use crate::modules::settings::ScannerConfig;
 
 use crate::modules::cat::waiter::{
@@ -62,7 +62,7 @@ fn is_valid_png(path: &Path) -> bool {
     buffer[24] >= 8
 }
 
-pub struct CatCache;
+struct CatCache;
 
 impl cache::CacheSpec for CatCache {
     type Data = Vec<CatEntry>;
@@ -149,31 +149,7 @@ fn scan(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<Ca
 
     parsed_cats
 }
-
-pub fn scan_single(id: u32, config: &ScannerConfig) -> Option<CatEntry> {
-    trace!(cat_id = id, "scanning single cat");
-    let cats_directory = Path::new(paths::DIR_CATS);
-    let priority = &config.language_priority;
-
-    let unitbuy_resolved = resolver::get(cats_directory, [paths::UNIT_BUY], priority).into_iter().next();
-    let unitlevel_resolved = resolver::get(cats_directory, [paths::UNIT_LEVEL], priority).into_iter().next();
-    if unitbuy_resolved.is_none() || unitlevel_resolved.is_none() { return None; }
-
-    let curves = unitlevel(cats_directory, priority);
-    let buys = unitbuy(cats_directory, priority);
-    let talents = skillacquisition(cats_directory, priority);
-    let evolve = unitevolve(cats_directory, priority);
-    let costs = Arc::new(skilllevel(cats_directory, priority));
-    let descs = Arc::new(skilldescriptions(cats_directory, priority));
-
-    let folder_path = cats_directory.join(format!("{:03}", id));
-
-    if !folder_path.exists() { return None; }
-
-    process_cat_entry(&folder_path, &curves, &buys, &talents, &evolve, &costs, &descs, config)
-}
-
-pub fn process_cat_entry(
+fn process_cat_entry(
     original_folder_path: &Path,
     level_curves: &[LevelCurve],
     unit_buys: &HashMap<u32, UnitBuy>,
@@ -329,24 +305,4 @@ pub fn process_cat_entry(
         talent_costs: Arc::clone(talent_costs),
         skill_descriptions: Arc::clone(skill_descriptions),
     })
-}
-
-pub fn refresh_cat(state: &mut CatDataState, id: u32, config: ScannerConfig) {
-    debug!(cat_id = id, "refreshing single cat cache");
-    match scan_single(id, &config) {
-        Some(entry) => {
-            match state.cats.binary_search_by_key(&id, |c| c.id) {
-                Ok(pos) => state.cats[pos] = entry,
-                Err(pos) => state.cats.insert(pos, entry),
-            }
-        },
-        None => {
-            if let Ok(pos) = state.cats.binary_search_by_key(&id, |c| c.id) {
-                state.cats.remove(pos);
-                if state.selected_cat == Some(id) {
-                    state.selected_cat = None;
-                }
-            }
-        }
-    }
 }

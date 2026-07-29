@@ -54,11 +54,11 @@ impl FfmpegManager {
     }
 }
 
-pub fn get_ffmpeg_dir() -> PathBuf {
+fn get_ffmpeg_dir() -> PathBuf {
     get_tools_dir().join("ffmpeg")
 }
 
-pub fn get_ffmpeg_path() -> Option<PathBuf> {
+pub(crate) fn get_ffmpeg_path() -> Option<PathBuf> {
     let bin = get_ffmpeg_dir().join(FFMPEG_BIN);
     if bin.exists() { Some(bin) } else { None }
 }

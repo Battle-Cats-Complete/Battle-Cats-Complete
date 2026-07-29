@@ -161,14 +161,6 @@ impl State {
             }
         }
 
-        let mut sidebar_width = CATEGORY_COLUMN_WIDTH;
-        if data.selected_category.is_some() {
-            sidebar_width += COLUMN_WIDTH;
-        }
-        if data.selected_map.is_some() {
-            sidebar_width += COLUMN_WIDTH;
-        }
-
         column![
             container(filter_btn).padding(5),
             rule::horizontal(1),
@@ -176,10 +168,21 @@ impl State {
                 .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default()))
                 .height(Length::Fill),
         ]
-            .width(Length::Fixed(sidebar_width))
+            .width(Length::Fixed(sidebar_width(data)))
             .height(Length::Fill)
             .into()
     }
+}
+
+pub fn sidebar_width(data: &StageDataState) -> f32 {
+    let mut width = CATEGORY_COLUMN_WIDTH;
+    if data.selected_category.is_some() {
+        width += COLUMN_WIDTH;
+    }
+    if data.selected_map.is_some() {
+        width += COLUMN_WIDTH;
+    }
+    width
 }
 
 fn sidebar_button(label: String, is_selected: bool, msg: Message) -> Element<'static, Message> {

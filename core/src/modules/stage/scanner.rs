@@ -28,7 +28,7 @@ use super::waiter::{
 };
 use super::{GlobalMapId, GlobalStageId, Map, Stage, StageRegistry};
 
-pub struct ScanContext<'a> {
+struct ScanContext<'a> {
     pub lang_priority: &'a [String],
     pub map_names: HashMap<u32, String>,
     pub map_options: HashMap<u32, MapOptionEntry>,
@@ -43,7 +43,7 @@ pub struct ScanContext<'a> {
     pub fixed_formations: HashMap<(u32, u8, u32), FixedFormationEntry>,
 }
 
-pub struct StageCache;
+struct StageCache;
 
 impl cache::CacheSpec for StageCache {
     type Data = StageRegistry;
@@ -95,7 +95,7 @@ pub fn load(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> St
 }
 
 #[instrument(level = "debug", skip(config))]
-pub fn build_dictionaries(config: &ScannerConfig) -> StageDictionaries {
+fn build_dictionaries(config: &ScannerConfig) -> StageDictionaries {
     trace!("Loading auxiliary stage dictionaries");
     let langs = &config.language_priority;
 

@@ -1,6 +1,6 @@
 use crate::modules::settings::UserKeys;
 
-pub fn verify(enforce_validation: bool, emit_log: &(dyn Fn(String) + Sync)) -> Result<UserKeys, String> {
+pub(crate) fn verify(enforce_validation: bool, emit_log: &(dyn Fn(String) + Sync)) -> Result<UserKeys, String> {
     emit_log("Validating keys...".to_string());
 
     let user_keys = UserKeys::load();

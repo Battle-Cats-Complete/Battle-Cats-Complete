@@ -11,7 +11,7 @@ use tracing::trace;
 use crate::common::resolver;
 use crate::modules::cat::paths;
 
-pub fn skillacquisition(cats_directory: &Path, priority: &[String]) -> HashMap<u16, Talent> {
+pub(crate) fn skillacquisition(cats_directory: &Path, priority: &[String]) -> HashMap<u16, Talent> {
     trace!("loading skill acquisition data");
     let mut map = HashMap::new();
 
@@ -27,7 +27,7 @@ pub fn skillacquisition(cats_directory: &Path, priority: &[String]) -> HashMap<u
     map
 }
 
-pub fn skilldescriptions(cats_directory: &Path, priority: &[String]) -> Vec<String> {
+pub(crate) fn skilldescriptions(cats_directory: &Path, priority: &[String]) -> Vec<String> {
     trace!("loading skill descriptions");
     let base_dir = cats_directory.join(paths::DIR_SKILL_DESCRIPTIONS);
 
@@ -46,7 +46,7 @@ pub fn skilldescriptions(cats_directory: &Path, priority: &[String]) -> Vec<Stri
     parsed_data.texts
 }
 
-pub fn skilllevel(cats_directory: &Path, priority: &[String]) -> HashMap<u8, TalentCost> {
+pub(crate) fn skilllevel(cats_directory: &Path, priority: &[String]) -> HashMap<u8, TalentCost> {
     trace!("loading skill levels map");
     let Some(file_path) = resolver::get(cats_directory, [paths::SKILL_LEVEL], priority).into_iter().next() else {
         return HashMap::new();
@@ -80,7 +80,7 @@ pub fn unitbuy(cats_directory: &Path, priority: &[String]) -> HashMap<u32, UnitB
     parsed_data
 }
 
-pub fn unitevolve(cats_directory: &Path, priority: &[String]) -> HashMap<u32, UnitEvolve> {
+pub(crate) fn unitevolve(cats_directory: &Path, priority: &[String]) -> HashMap<u32, UnitEvolve> {
     trace!("loading unit evolution mappings");
     let mut final_map: HashMap<u32, UnitEvolve> = HashMap::new();
     let base_directory = cats_directory.join(paths::DIR_UNIT_EVOLVE);
@@ -149,7 +149,7 @@ pub fn unitexplanation(cat_id: u32, original_folder_path: &Path, priority: &[Str
     final_explanation
 }
 
-pub fn unitlevel(cats_directory: &Path, priority: &[String]) -> Vec<LevelCurve> {
+pub(crate) fn unitlevel(cats_directory: &Path, priority: &[String]) -> Vec<LevelCurve> {
     trace!("loading global unit level curves");
     let Some(file_path) = resolver::get(cats_directory, [paths::UNIT_LEVEL], priority).into_iter().next() else {
         return Vec::new();

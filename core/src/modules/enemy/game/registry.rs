@@ -707,7 +707,7 @@ pub struct EnemyStatsDef {
     pub formatter: fn(i32) -> String,
 }
 
-pub const ENEMY_STATS_REGISTRY: &[EnemyStatsDef] = &[
+pub(crate) const ENEMY_STATS_REGISTRY: &[EnemyStatsDef] = &[
     EnemyStatsDef {
         name: "Hitpoints",
         display_name: "Hitpoints",

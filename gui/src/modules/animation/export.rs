@@ -6,7 +6,7 @@ use std::thread;
 use std::time::Instant;
 
 use iced::futures::channel::mpsc::unbounded;
-use iced::widget::{button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text, text_input, Space};
+use iced::widget::{button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text, text_input, tooltip, Space};
 use iced::{task, Alignment, Element, Length, Size, Task};
 use tracing::trace;
 
@@ -292,6 +292,11 @@ impl State {
                     ExportFormat::Webm => 6,
                     ExportFormat::Zip => 7,
                 };
+                if is_forced_opaque(&self.exporter.format) {
+                    self.exporter.background = true;
+                } else {
+                    self.exporter.background = self.exporter.user_bg_preference;
+                }
             }
             Message::SetFileName(name) => self.exporter.file_name = name,
             Message::SetStartFrame(value) => {
@@ -394,7 +399,10 @@ impl State {
                     settings.animation.last_export_compression = Some(self.exporter.compression_percent);
                 }
             }
-            Message::ToggleBackground(enabled) => self.exporter.background = enabled,
+            Message::ToggleBackground(enabled) => {
+                self.exporter.background = enabled;
+                self.exporter.user_bg_preference = enabled;
+            }
             Message::BeginExport => {
                 let Some(key) = self.synced_key.clone() else {
                     return Task::none();
@@ -565,7 +573,7 @@ impl State {
             current_job.map(|job| &job.phase),
             Some(JobPhase::Running | JobPhase::Aborting)
         );
-        let is_locked = job_active || self.exporter.is_loop_searching;
+        let is_locked = job_active;
 
         let selected_mode = match self.exporter.export_mode {
             ExportMode::Manual => "Manual",
@@ -716,7 +724,7 @@ impl State {
                 text_input("0", &self.exporter.compression_percent_str).on_input(Message::SetCompression).width(Length::Fixed(50.0)),
             ].spacing(10).align_y(Alignment::Center),
             row![
-                checkbox(self.exporter.background).on_toggle(Message::ToggleBackground),
+                background_checkbox(&self.exporter),
                 text("Background")
             ].spacing(8).align_y(Alignment::Center),
         ].spacing(10);
@@ -796,6 +804,23 @@ impl State {
             .height(Length::Fill)
             .padding(25)
             .into()
+    }
+}
+
+fn is_forced_opaque(format: &ExportFormat) -> bool {
+    matches!(format, ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm)
+}
+
+fn background_checkbox(exporter: &ExporterState) -> Element<'_, Message> {
+    if is_forced_opaque(&exporter.format) {
+        tooltip(
+            checkbox(true),
+            container(text("This video format requires a background")).padding(6).style(container::bordered_box),
+            tooltip::Position::Top,
+        )
+        .into()
+    } else {
+        checkbox(exporter.background).on_toggle(Message::ToggleBackground).into()
     }
 }
 

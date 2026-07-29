@@ -5,7 +5,7 @@ use nyanko::enemy::unit::{EnemyName, EnemyPictureBook, Battle};
 
 use crate::common::resolver;
 
-pub fn enemyname(lang_dir: &Path, priority: &[String]) -> Vec<String> {
+pub(crate) fn enemyname(lang_dir: &Path, priority: &[String]) -> Vec<String> {
     let mut final_names: Vec<String> = Vec::new();
     let base_dir = lang_dir.join("Enemyname");
 
@@ -37,7 +37,7 @@ pub fn enemyname(lang_dir: &Path, priority: &[String]) -> Vec<String> {
     final_names
 }
 
-pub fn enemypicturebook(lang_dir: &Path, priority: &[String]) -> Vec<Vec<String>> {
+pub(crate) fn enemypicturebook(lang_dir: &Path, priority: &[String]) -> Vec<Vec<String>> {
     let mut final_descriptions: Vec<Vec<String>> = Vec::new();
     let base_dir = lang_dir.join("EnemyPictureBook");
 
@@ -69,7 +69,7 @@ pub fn enemypicturebook(lang_dir: &Path, priority: &[String]) -> Vec<Vec<String>
     final_descriptions
 }
 
-pub fn t_unit(dir: &Path, filename: &str, priority: &[String]) -> Option<Vec<Battle>> {
+pub(crate) fn t_unit(dir: &Path, filename: &str, priority: &[String]) -> Option<Vec<Battle>> {
     let path = resolver::get(dir, [filename], priority).into_iter().next()?;
     let bytes = fs::read(path).ok()?;
 

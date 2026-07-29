@@ -17,7 +17,7 @@ impl LineupFilter {
         true
     }
 
-    pub fn compile(&self) -> CompiledLineupFilter {
+    pub(crate) fn compile(&self) -> CompiledLineupFilter {
         let name_or_id = self.name_or_id.trim().to_lowercase();
         let parsed_id = name_or_id.parse::<u32>().ok();
 
@@ -30,7 +30,7 @@ impl LineupFilter {
     }
 }
 
-pub struct CompiledLineupFilter {
+pub(crate) struct CompiledLineupFilter {
     pub is_exclude: bool,
     pub name_or_id: String,
     pub parsed_id: Option<u32>,
@@ -38,7 +38,7 @@ pub struct CompiledLineupFilter {
 }
 
 impl CompiledLineupFilter {
-    pub fn matches_lineup(
+    pub(crate) fn matches_lineup(
         &self,
         stage: &Stage,
         cat_name_reg: &HashMap<u32, Vec<String>>

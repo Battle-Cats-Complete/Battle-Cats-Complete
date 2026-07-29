@@ -12,7 +12,7 @@ impl StatRange {
         !self.min.trim().is_empty() || !self.max.trim().is_empty()
     }
 
-    pub fn compile(&self, offset: i64) -> CompiledStatRange {
+    pub(crate) fn compile(&self, offset: i64) -> CompiledStatRange {
         let min_val = if self.min.trim().is_empty() {
             i64::MIN
         } else {
@@ -39,14 +39,14 @@ impl StatRange {
     }
 }
 
-pub struct CompiledStatRange {
+pub(crate) struct CompiledStatRange {
     pub min: i64,
     pub max: i64,
     pub active: bool,
 }
 
 impl CompiledStatRange {
-    pub fn matches(&self, target_val: i64) -> bool {
+    pub(crate) fn matches(&self, target_val: i64) -> bool {
         if !self.active { return true; }
         target_val >= self.min && target_val <= self.max
     }

@@ -24,7 +24,7 @@ fn format_log_name(name: &str, path: &Path) -> String {
     }
 }
 
-pub fn run_archive(archive_path: &Path, workspace_dir: &Path, emit_log: &(dyn Fn(String) + Sync), user_keys: &UserKeys) -> Result<(), String> {
+pub(crate) fn run_archive(archive_path: &Path, workspace_dir: &Path, emit_log: &(dyn Fn(String) + Sync), user_keys: &UserKeys) -> Result<(), String> {
     emit_log("Opening archive...".to_string());
     info!("Opening archive for extraction: {:?}", archive_path);
 

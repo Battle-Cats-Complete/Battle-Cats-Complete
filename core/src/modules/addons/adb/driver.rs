@@ -4,14 +4,14 @@ use std::time::Duration;
 
 use super::get_adb_path;
 
-pub fn get_adb_command() -> Result<std::path::PathBuf, String> {
+fn get_adb_command() -> Result<std::path::PathBuf, String> {
     let Some(adb_path) = get_adb_path() else {
         return Err("ADB not found. Please download it in Settings > Add-Ons.".to_string());
     };
     Ok(adb_path)
 }
 
-pub fn run_command(arguments: &[&str]) -> Result<String, String> {
+pub(crate) fn run_command(arguments: &[&str]) -> Result<String, String> {
     let adb_path = get_adb_command()?;
     let mut command_process = Command::new(adb_path);
     command_process.args(arguments);
@@ -31,7 +31,7 @@ pub fn run_command(arguments: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&command_output.stdout).trim().to_string())
 }
 
-pub fn find_usb_device() -> Option<String> {
+pub(crate) fn find_usb_device() -> Option<String> {
     let devices_output = run_command(&["devices"]).ok()?;
 
     for line in devices_output.lines().skip(1) {
@@ -48,7 +48,7 @@ pub fn find_usb_device() -> Option<String> {
     None
 }
 
-pub fn find_mdns_device() -> Option<String> {
+pub(crate) fn find_mdns_device() -> Option<String> {
     let _ = run_command(&["mdns", "check"]);
 
     for _ in 0..6 {
@@ -67,7 +67,7 @@ pub fn find_mdns_device() -> Option<String> {
     None
 }
 
-pub fn connect_manual_ip(ip_address: &str) -> Result<String, String> {
+pub(crate) fn connect_to_address(ip_address: &str) -> Result<String, String> {
     let target_address = if ip_address.contains(':') {
         ip_address.to_string()
     } else {
@@ -83,7 +83,7 @@ pub fn connect_manual_ip(ip_address: &str) -> Result<String, String> {
     Ok(target_address)
 }
 
-pub fn find_emulator() -> Option<String> {
+pub(crate) fn find_emulator() -> Option<String> {
     let default_ports = [7555, 5555, 62001, 21503, 16384];
 
     if let Ok(devices_output) = run_command(&["devices"]) {
@@ -114,7 +114,7 @@ pub fn find_emulator() -> Option<String> {
     None
 }
 
-pub fn get_wlan_ip(serial_number: &str) -> Option<String> {
+fn get_wlan_ip(serial_number: &str) -> Option<String> {
     let route_output = run_command(&["-s", serial_number, "shell", "ip", "route"]).ok()?;
 
     for line in route_output.lines() {
@@ -130,7 +130,7 @@ pub fn get_wlan_ip(serial_number: &str) -> Option<String> {
     None
 }
 
-pub fn enable_wireless_fallback(serial_number: &str) -> Option<String> {
+pub(crate) fn enable_wireless_fallback(serial_number: &str) -> Option<String> {
     if serial_number.contains(':') || serial_number.starts_with("emulator") { return None; }
 
     let ip_address = get_wlan_ip(serial_number)?;
@@ -140,7 +140,7 @@ pub fn enable_wireless_fallback(serial_number: &str) -> Option<String> {
     Some(format!("{}:5555", ip_address))
 }
 
-pub fn connect_wireless(ip_address: &str) -> Result<(), String> {
+pub(crate) fn connect_wireless(ip_address: &str) -> Result<(), String> {
     let connection_output = run_command(&["connect", ip_address])?;
 
     if !connection_output.contains("connected") {
@@ -150,7 +150,7 @@ pub fn connect_wireless(ip_address: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn bootstrap_tcpip(serial_number: &str) -> Option<String> {
+pub(crate) fn bootstrap_tcpip(serial_number: &str) -> Option<String> {
     let ip_address = serial_number.split(':').next()?;
     let _ = run_command(&["-s", serial_number, "tcpip", "5555"]);
     thread::sleep(Duration::from_secs(2));
@@ -158,7 +158,7 @@ pub fn bootstrap_tcpip(serial_number: &str) -> Option<String> {
     Some(format!("{}:5555", ip_address))
 }
 
-pub fn verify_connection(serial_number: &str) -> Result<(), String> {
+pub(crate) fn verify_connection(serial_number: &str) -> Result<(), String> {
     let device_state = run_command(&["-s", serial_number, "get-state"])
         .map_err(|_| "Device is not responding. (Is Wireless Debugging ON?)".to_string())?;
 

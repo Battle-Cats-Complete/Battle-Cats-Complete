@@ -58,7 +58,7 @@ pub fn run(mod_folder: String, pack_name: String, target_region: Region, enforce
     Ok(())
 }
 
-pub fn stream_pack_and_list(
+pub(crate) fn stream_pack_and_list(
     source_dir: &Path,
     dest_dir: &Path,
     pack_name: &str,

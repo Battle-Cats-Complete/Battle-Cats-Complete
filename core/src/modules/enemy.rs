@@ -1,7 +1,7 @@
 pub mod filter;
 pub mod game;
 pub mod paths;
-pub mod patterns;
+pub(crate) mod patterns;
 pub mod scanner;
 pub mod waiter;
 

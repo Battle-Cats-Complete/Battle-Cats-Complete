@@ -1,6 +1,6 @@
 use tracing::debug;
 
-pub const LANGUAGE_LIST: &[(&str, &str)] = &[
+const LANGUAGE_LIST: &[(&str, &str)] = &[
     ("", "Base"),
     ("en", "English"),
     ("ja", "Japanese"),

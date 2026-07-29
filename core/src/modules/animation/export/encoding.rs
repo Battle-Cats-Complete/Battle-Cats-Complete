@@ -8,18 +8,13 @@ use gif::{
     DisposalMethod, Encoder as GifEncoder,
     Frame as GifFrame, Repeat as GifRepeat,
 };
-use glow::HasContext;
 use image::RgbaImage;
-use nyanko::graphics::engine::resolve_frame;
-use nyanko::graphics::rig::{Animation, Unit};
 use tracing::{error, info, warn};
 use webp_animation::Encoder as WebpEncoder;
 
-use crate::modules::animation::GlowRenderer;
-
 use super::{EncoderMessage, EncoderStatus, ExportConfig, ExportFormat};
 
-pub fn encode_native(
+pub(crate) fn encode_native(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
     emit: &(dyn Fn(EncoderStatus) + Sync),
@@ -207,88 +202,7 @@ pub fn encode_native(
     is_success
 }
 
-pub fn render_frame(
-    renderer: &mut GlowRenderer,
-    gl_context: &glow::Context,
-    width: u32,
-    height: u32,
-    unit: &Unit,
-    animation: Option<&Animation>,
-    frame_time: f32,
-    pan_x: f32,
-    pan_y: f32,
-    zoom: f32,
-    background_color: [u8; 4],
-) -> Result<Vec<u8>, String> {
-    unsafe {
-        gl_context.disable(glow::SCISSOR_TEST);
-
-        let framebuffer = gl_context.create_framebuffer()
-            .map_err(|error| format!("Failed to create OpenGL framebuffer: {}", error))?;
-
-        gl_context.bind_framebuffer(glow::FRAMEBUFFER, Some(framebuffer));
-
-        let texture = gl_context.create_texture()
-            .map_err(|error| format!("Failed to create OpenGL texture: {}", error))?;
-
-        gl_context.bind_texture(glow::TEXTURE_2D, Some(texture));
-        gl_context.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA as i32, width as i32, height as i32, 0, glow::RGBA, glow::UNSIGNED_BYTE, None);
-        gl_context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
-        gl_context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-        gl_context.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(texture), 0);
-        gl_context.bind_texture(glow::TEXTURE_2D, None);
-
-        gl_context.viewport(0, 0, width as i32, height as i32);
-
-        let (red, green, blue, alpha) = (
-            background_color[0] as f32 / 255.0,
-            background_color[1] as f32 / 255.0,
-            background_color[2] as f32 / 255.0,
-            background_color[3] as f32 / 255.0
-        );
-
-        gl_context.clear_color(red, green, blue, alpha);
-        gl_context.clear(glow::COLOR_BUFFER_BIT);
-
-        let mut geometry = resolve_frame(unit, animation, frame_time);
-        for part in &mut geometry {
-            if part.glow == 1 || part.glow == 3 {
-                part.glow = 1;
-            } else if part.glow == 2 {
-                part.glow = 0;
-            }
-        }
-
-        if let Err(e) = renderer.draw_frame(
-            gl_context,
-            &geometry,
-            &unit.sheet,
-            width as f32,
-            height as f32,
-            pan_x,
-            pan_y,
-            zoom
-        ) {
-            error!("Renderer failed to draw frame internally: {}", e);
-        }
-
-        gl_context.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
-
-        let mut pixel_buffer = vec![0u8; (width * height * 4) as usize];
-        gl_context.read_pixels(0, 0, width as i32, height as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(&mut pixel_buffer));
-
-        gl_context.bind_framebuffer(glow::FRAMEBUFFER, None);
-        gl_context.delete_framebuffer(framebuffer);
-        gl_context.delete_texture(texture);
-
-        gl_context.enable(glow::SCISSOR_TEST);
-        gl_context.pixel_store_i32(glow::PACK_ALIGNMENT, 4);
-
-        Ok(pixel_buffer)
-    }
-}
-
-pub fn prepare_image(mut pixel_buffer: Vec<u8>, width: u32, height: u32, is_opaque_background: bool) -> RgbaImage {
+pub(crate) fn prepare_image(mut pixel_buffer: Vec<u8>, width: u32, height: u32, is_opaque_background: bool) -> RgbaImage {
     for chunk in pixel_buffer.chunks_exact_mut(4) {
         if is_opaque_background {
             chunk[3] = 255;

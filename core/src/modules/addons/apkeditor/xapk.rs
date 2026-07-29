@@ -78,7 +78,7 @@ fn run_java_with_fallback(arguments: &[String], log_callback: &impl Fn(String)) 
     Ok(())
 }
 
-pub fn merge_xapk(input_xapk: &Path, output_apk: &Path, log_callback: &impl Fn(String)) -> Result<(), String> {
+pub(crate) fn merge_xapk(input_xapk: &Path, output_apk: &Path, log_callback: &impl Fn(String)) -> Result<(), String> {
     info!("Merging XAPK: {:?} -> {:?}", input_xapk, output_apk);
 
     let editor_jar = get_apkeditor_path().ok_or("APKEditor.jar is not installed.")?;

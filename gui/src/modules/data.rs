@@ -195,7 +195,6 @@ impl State {
                         .add_filter("Archive", &["zst", "tar", "zip"])
                         .pick_file(),
                     ImportMode::Folder => rfd::FileDialog::new().pick_folder(),
-                    _ => None,
                 };
 
                 if let Some(file_path) = dialog_result {
@@ -716,7 +715,6 @@ impl State {
             }
             ImportSubTab::Decrypt => {
                 let folder_path = self.config.decrypt_path.clone();
-                let region = self.config.adb_target;
 
                 thread::spawn(move || {
                     let emit = |event: JobEvent| {
@@ -725,7 +723,6 @@ impl State {
                     let result = pack::run(
                         &folder_path,
                         ImportMode::Folder,
-                        region,
                         enforce_val,
                         &emit,
                         &abort,

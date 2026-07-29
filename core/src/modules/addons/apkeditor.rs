@@ -57,16 +57,16 @@ impl ApkeditorManager {
     }
 }
 
-pub fn get_apkeditor_dir() -> PathBuf {
+fn get_apkeditor_dir() -> PathBuf {
     get_tools_dir().join("apkeditor")
 }
 
-pub fn get_java_path() -> Option<PathBuf> {
+pub(crate) fn get_java_path() -> Option<PathBuf> {
     let bin = get_apkeditor_dir().join(JAVA_BIN);
     if bin.exists() { Some(bin) } else { None }
 }
 
-pub fn get_apkeditor_path() -> Option<PathBuf> {
+pub(crate) fn get_apkeditor_path() -> Option<PathBuf> {
     let jar = get_apkeditor_dir().join(APKEDITOR_JAR);
     if jar.exists() { Some(jar) } else { None }
 }

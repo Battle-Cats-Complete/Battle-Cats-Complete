@@ -17,7 +17,7 @@ use crate::modules::animation::export::encoding::prepare_image;
 
 use super::get_avif_path;
 
-pub fn encode(
+pub(crate) fn encode(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
     emit: &(dyn Fn(EncoderStatus) + Sync),

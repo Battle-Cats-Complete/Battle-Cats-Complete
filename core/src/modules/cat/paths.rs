@@ -1,28 +1,25 @@
 use std::path::{Path, PathBuf};
 
-pub const UNIT_BUY: &str = "unitbuy.csv";
-pub const UNIT_LEVEL: &str = "unitlevel.csv";
-pub const SKILL_ACQUISITION: &str = "SkillAcquisition.csv";
-pub const SKILL_LEVEL: &str = "SkillLevel.csv";
+pub(crate) const UNIT_BUY: &str = "unitbuy.csv";
+pub(crate) const UNIT_LEVEL: &str = "unitlevel.csv";
+pub(crate) const SKILL_ACQUISITION: &str = "SkillAcquisition.csv";
+pub(crate) const SKILL_LEVEL: &str = "SkillLevel.csv";
 
 pub const DIR_CATS: &str = "game/cats";
-pub const DIR_ANIM: &str = "anim";
-pub const DIR_LANG: &str = "lang";
-pub const DIR_UNIT_EVOLVE: &str = "unitevolve";
-pub const DIR_SKILL_DESCRIPTIONS: &str = "SkillDescriptions";
+const DIR_ANIM: &str = "anim";
+const DIR_LANG: &str = "lang";
+pub(crate) const DIR_UNIT_EVOLVE: &str = "unitevolve";
 pub const DIR_SKILL_NAME: &str = "game/cats/Skill_name";
-
-pub const FALLBACK_ICON: &str = "game/cats/uni.png";
+pub(crate) const DIR_SKILL_DESCRIPTIONS: &str = "SkillDescriptions";
 
 #[derive(Copy, Clone, PartialEq)]
-pub enum AssetType {
+pub(crate) enum AssetType {
     Icon,
     Banner,
 }
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum AnimType {
-    Maanim,
     Mamodel,
     Imgcut,
     Png,
@@ -31,7 +28,6 @@ pub enum AnimType {
 impl AnimType {
     pub fn ext(&self) -> &str {
         match self {
-            AnimType::Maanim => "maanim",
             AnimType::Mamodel => "mamodel",
             AnimType::Imgcut => "imgcut",
             AnimType::Png => "png",
@@ -39,7 +35,7 @@ impl AnimType {
     }
 }
 
-pub fn anim_folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf {
+pub(crate) fn anim_folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf {
     let (egg_norm, egg_evol) = egg_ids;
     let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
 
@@ -52,7 +48,7 @@ pub fn anim_folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> Pa
     }
 }
 
-pub fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
+pub(crate) fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     let (egg_norm, egg_evol) = egg_ids;
     let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
 
@@ -78,7 +74,7 @@ pub fn folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf
     root.join(format!("{:03}", id)).join(form_char)
 }
 
-pub fn image_stem(asset_type: AssetType, id: u32, form: usize, egg_ids: (i32, i32)) -> String {
+pub(crate) fn image_stem(asset_type: AssetType, id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     let (egg_norm, egg_evol) = egg_ids;
     let prefix = match asset_type { AssetType::Icon => "uni", AssetType::Banner => "udi" };
     let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
@@ -94,23 +90,6 @@ pub fn image_stem(asset_type: AssetType, id: u32, form: usize, egg_ids: (i32, i3
         AssetType::Banner => format!("{}{:03}_{}", prefix, id, form_char),
     }
 }
-
-pub fn image(root: &Path, asset_type: AssetType, id: u32, form: usize, egg_ids: (i32, i32)) -> Option<PathBuf> {
-    let folder_path = folder(root, id, form, egg_ids);
-    let stem = image_stem(asset_type, id, form, egg_ids);
-
-    let png = folder_path.join(format!("{}.png", stem));
-    if png.exists() { return Some(png); }
-
-    if form == 1 && egg_ids.1 != -1 {
-        let prefix = match asset_type { AssetType::Icon => "uni", AssetType::Banner => "udi" };
-        let fallback_stem = format!("{}{:03}_m00", prefix, egg_ids.1);
-        let fallback_png = folder_path.join(format!("{}.png", fallback_stem));
-        if fallback_png.exists() { return Some(fallback_png); }
-    }
-    None
-}
-
 pub fn anim(root: &Path, id: u32, form: usize, egg_ids: (i32, i32), file_type: AnimType) -> PathBuf {
     let folder = anim_folder(root, id, form, egg_ids);
     let filename = anim_base_filename(id, form, egg_ids);
@@ -137,13 +116,4 @@ pub fn lang(root: &Path, id: u32) -> PathBuf {
 pub fn explanation(root: &Path, id: u32) -> PathBuf {
     let file_id = id + 1;
     lang(root, id).join(format!("Unit_Explanation{}.csv", file_id))
-}
-
-pub fn skill_icon(root: &Path, id: i16, lang: &str) -> PathBuf {
-    let filename = if lang.is_empty() {
-        format!("Skill_name_{:03}.png", id)
-    } else {
-        format!("Skill_name_{:03}_{}.png", id, lang)
-    };
-    root.join(DIR_SKILL_NAME).join(filename)
 }

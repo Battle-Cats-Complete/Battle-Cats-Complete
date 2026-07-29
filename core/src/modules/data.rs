@@ -28,12 +28,6 @@ impl AdbTarget {
         }
     }
 
-    pub fn as_name(&self) -> &'static str {
-        match self {
-            AdbTarget::Specific(region) => region.metadata().display_name,
-            AdbTarget::All => "All Regions",
-        }
-    }
 }
 
 #[derive(PartialEq, Clone, Copy, Debug, Deserialize, Serialize)]
@@ -51,7 +45,6 @@ pub enum ImportSubTab {
 
 #[derive(PartialEq, Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum ImportMode {
-    None,
     Folder,
     Zip,
 }
@@ -65,7 +58,6 @@ pub struct DataConfigState {
     pub selected_job: Option<ImportSubTab>,
     pub import_path: String,
     pub import_mode: ImportMode,
-    pub adb_import_type: AdbImportType,
     pub adb_target: AdbTarget,
     pub decrypt_path: String,
 
@@ -81,7 +73,6 @@ impl Default for DataConfigState {
             selected_job: None,
             import_path: String::new(),
             import_mode: ImportMode::Folder,
-            adb_import_type: AdbImportType::All,
             adb_target: AdbTarget::Specific(Region::En),
             decrypt_path: String::new(),
             export_filename: String::new(),

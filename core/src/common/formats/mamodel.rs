@@ -6,7 +6,7 @@ use nyanko::common::tools::file;
 use super::Model;
 use super::ModelPart;
 
-pub fn parse(path: &Path) -> Option<Model> {
+pub(crate) fn parse(path: &Path) -> Option<Model> {
     let content = fs::read_to_string(path).ok()?;
     let delimiter = file::detect_separator(&content);
     let lines: Vec<&str> = content.lines().filter(|line_ref| !line_ref.trim().is_empty()).collect();

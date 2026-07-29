@@ -6,7 +6,7 @@ use crate::modules::cat::game::talents;
 
 pub use crate::modules::cat::waiter::unitid;
 
-pub fn apply_level(base_stats: &Battle, curve: Option<&LevelCurve>, level: i32) -> Battle {
+pub(crate) fn apply_level(base_stats: &Battle, curve: Option<&LevelCurve>, level: i32) -> Battle {
     let mut s = base_stats.clone();
     if let Some(c) = curve {
         s.hitpoints = c.calculate_stat(s.hitpoints, level);

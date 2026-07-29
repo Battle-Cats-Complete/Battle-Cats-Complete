@@ -20,7 +20,7 @@ impl MaterialFilter {
         !self.name_or_id.trim().is_empty() || self.amount.is_active()
     }
 
-    pub fn compile(&self) -> CompiledMaterialFilter {
+    pub(crate) fn compile(&self) -> CompiledMaterialFilter {
         let name_or_id = self.name_or_id.trim().to_lowercase();
         let parsed_id = name_or_id.parse::<u32>().ok();
 
@@ -33,7 +33,7 @@ impl MaterialFilter {
     }
 }
 
-pub struct CompiledMaterialFilter {
+pub(crate) struct CompiledMaterialFilter {
     pub is_exclude: bool,
     pub name_or_id: String,
     pub parsed_id: Option<u32>,
@@ -41,7 +41,7 @@ pub struct CompiledMaterialFilter {
 }
 
 impl CompiledMaterialFilter {
-    pub fn matches_material(
+    pub(crate) fn matches_material(
         &self,
         index: usize,
         drop_amount: u32,

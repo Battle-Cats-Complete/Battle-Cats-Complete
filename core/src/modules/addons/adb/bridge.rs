@@ -5,15 +5,13 @@ use std::time::Duration;
 
 use crate::common::region::Region;
 use crate::modules::data::{AdbImportType, AdbTarget};
-use crate::modules::settings::EmulatorConfig;
 
 use super::driver;
 
-pub fn execute_pull(
+pub(crate) fn execute_pull(
     base_output_directory: &PathBuf,
     import_mode: AdbImportType,
     target_region: AdbTarget,
-    emulator_config: &EmulatorConfig,
     emit_log: &(dyn Fn(String) + Sync),
     abort_flag: &AtomicBool
 ) -> Result<Vec<PathBuf>, String> {
@@ -25,7 +23,7 @@ pub fn execute_pull(
 
     if abort_flag.load(Ordering::Relaxed) { return Err("Aborted".into()); }
 
-    let (mut current_serial, fallback_ip_address) = establish_connection(emulator_config, emit_log)?;
+    let (mut current_serial, fallback_ip_address) = establish_connection(emit_log)?;
 
     emit_log("Device Verified.".to_string());
     if abort_flag.load(Ordering::Relaxed) { return Err("Aborted".into()); }
@@ -63,7 +61,7 @@ pub fn execute_pull(
     Ok(successful_pulls)
 }
 
-fn establish_connection(emulator_config: &EmulatorConfig, emit_log: &(dyn Fn(String) + Sync)) -> Result<(String, Option<String>), String> {
+fn establish_connection(emit_log: &(dyn Fn(String) + Sync)) -> Result<(String, Option<String>), String> {
     emit_log("Detecting device...".to_string());
 
     if let Some((serial, fallback)) = try_usb_connection(emit_log) {
@@ -71,11 +69,6 @@ fn establish_connection(emulator_config: &EmulatorConfig, emit_log: &(dyn Fn(Str
     }
 
     if let Some(serial) = try_mdns_connection(emit_log) {
-        return Ok((serial, None));
-    }
-
-    if !emulator_config.manual_ip.is_empty()
-        && let Some(serial) = try_manual_ip_connection(&emulator_config.manual_ip, emit_log) {
         return Ok((serial, None));
     }
 
@@ -104,37 +97,16 @@ fn try_mdns_connection(emit_log: &(dyn Fn(String) + Sync)) -> Option<String> {
     let mdns_target = driver::find_mdns_device()?;
 
     emit_log(format!("Found via mDNS: {}", mdns_target));
-    driver::connect_manual_ip(&mdns_target).ok()?;
+    driver::connect_to_address(&mdns_target).ok()?;
 
     let stable_ip = driver::bootstrap_tcpip(&mdns_target)?;
     let _ = driver::run_command(&["disconnect", &mdns_target]);
 
-    let stable_serial = driver::connect_manual_ip(&stable_ip).ok()?;
+    let stable_serial = driver::connect_to_address(&stable_ip).ok()?;
     driver::verify_connection(&stable_serial).ok()?;
 
     emit_log("Auto-Connection Successful!".to_string());
     Some(stable_serial)
-}
-
-fn try_manual_ip_connection(manual_ip: &str, emit_log: &(dyn Fn(String) + Sync)) -> Option<String> {
-    emit_log(format!("Trying Manual IP: {}", manual_ip));
-    let initial_ip = driver::connect_manual_ip(manual_ip).ok()?;
-
-    let test_serial = resolve_tcpip_target(&initial_ip).unwrap_or(initial_ip);
-
-    if driver::verify_connection(&test_serial).is_ok() {
-        return Some(test_serial);
-    }
-
-    emit_log("Manual IP failed verification. Scanning for Emulators...".to_string());
-    None
-}
-
-fn resolve_tcpip_target(initial_ip: &str) -> Option<String> {
-    if !initial_ip.contains(':') || initial_ip.ends_with(":5555") { return None; }
-    let new_target = driver::bootstrap_tcpip(initial_ip)?;
-    let _ = driver::run_command(&["disconnect", initial_ip]);
-    driver::connect_manual_ip(&new_target).ok()
 }
 
 fn try_emulator_connection(emit_log: &(dyn Fn(String) + Sync)) -> Option<String> {
@@ -146,7 +118,7 @@ fn try_emulator_connection(emit_log: &(dyn Fn(String) + Sync)) -> Option<String>
 
 fn try_waydroid_connection(_emit_log: &(dyn Fn(String) + Sync)) -> Option<String> {
     let waydroid_ip = "192.168.240.112:5555";
-    driver::connect_manual_ip(waydroid_ip).ok()?;
+    driver::connect_to_address(waydroid_ip).ok()?;
     driver::verify_connection(waydroid_ip).ok()?;
     Some(waydroid_ip.to_string())
 }

@@ -4,7 +4,6 @@ pub const DIR_ENEMIES: &str = "game/enemies";
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum AnimType {
-    Maanim,
     Mamodel,
     Imgcut,
     Png,
@@ -13,7 +12,6 @@ pub enum AnimType {
 impl AnimType {
     pub fn ext(&self) -> &str {
         match self {
-            AnimType::Maanim => "maanim",
             AnimType::Mamodel => "mamodel",
             AnimType::Imgcut => "imgcut",
             AnimType::Png => "png",
@@ -30,11 +28,11 @@ pub fn icon(root: &Path, id: u32) -> PathBuf {
         .join(format!("enemy_icon_{:03}.png", id))
 }
 
-pub fn anim_folder(root: &Path, id: u32) -> PathBuf {
+pub(crate) fn anim_folder(root: &Path, id: u32) -> PathBuf {
     root.join(format!("{:03}", id)).join("anim")
 }
 
-pub fn anim_base_filename(id: u32) -> String {
+pub(crate) fn anim_base_filename(id: u32) -> String {
     format!("{:03}_e", id)
 }
 
@@ -55,20 +53,4 @@ pub fn zombie_maanim(root: &Path, id: u32, index: usize) -> PathBuf {
     let folder = anim_folder(root, id);
     let filename = anim_base_filename(id);
     folder.join(format!("{}_zombie{:02}.maanim", filename, index))
-}
-
-pub fn enemy_name(root: &Path, lang: &str) -> PathBuf {
-    if lang.is_empty() || lang == "--" { 
-        root.join("Enemyname.tsv") 
-    } else { 
-        root.join(format!("Enemyname_{}.tsv", lang)) 
-    }
-}
-
-pub fn enemy_picture_book(root: &Path, lang: &str) -> PathBuf {
-    if lang.is_empty() || lang == "--" { 
-        root.join("EnemyPictureBook.csv") 
-    } else { 
-        root.join(format!("EnemyPictureBook_{}.csv", lang)) 
-    }
 }

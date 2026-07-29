@@ -19,13 +19,13 @@ pub fn set_active_mod(mod_name: Option<String>) {
     }
 }
 
-pub fn clear_override_cache() {
+fn clear_override_cache() {
     if let Ok(mut cache) = OVERRIDE_CACHE.write() {
         *cache = Some(HashMap::new());
     }
 }
 
-pub fn get_active_mod() -> Option<String> {
+fn get_active_mod() -> Option<String> {
     if let Ok(active) = ACTIVE_MOD.read() {
         active.clone()
     } else {
@@ -33,7 +33,7 @@ pub fn get_active_mod() -> Option<String> {
     }
 }
 
-pub fn is_mod_active() -> bool {
+pub(crate) fn is_mod_active() -> bool {
     get_active_mod().is_some()
 }
 

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-pub fn get_app_data_dir() -> PathBuf {
+pub(crate) fn get_app_data_dir() -> PathBuf {
     let mut path = if cfg!(target_os = "windows") {
         PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string()))
     } else {

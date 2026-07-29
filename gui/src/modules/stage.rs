@@ -18,7 +18,9 @@ use iced::{task, Element, Length, Size, Subscription, Task, Theme};
 use tracing::{info, warn};
 
 use core::common::context::GlobalContext;
-use core::modules::settings::Settings;
+use core::modules::settings::{Settings, SidebarBehavior};
+const SIDEBAR_PUSH_GAP: f32 = 10.0;
+
 use core::modules::stage::scanner::{self, StageBundle};
 use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
 
@@ -157,8 +159,18 @@ impl State {
         task
     }
 
-    pub fn view<'a>(&'a self, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
-        let base = self.view_main_panel(global_ctx);
+    pub fn view<'a>(&'a self, settings: &Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+        let mut base = self.view_main_panel(global_ctx);
+
+        if settings.stages.sidebar_behavior == SidebarBehavior::Push && self.is_sidebar_open {
+            let push_offset = list::sidebar_width(&self.data) + SIDEBAR_PUSH_GAP;
+            base = container(base)
+                .padding(iced::Padding { top: 0.0, right: 0.0, bottom: 0.0, left: push_offset })
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
+        }
+
         let sidebar_overlay = self.view_sidebar_overlay();
 
         stack![base, sidebar_overlay]

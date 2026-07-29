@@ -11,7 +11,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use zip::{ZipArchive, ZipWriter};
 
 #[derive(Debug, thiserror::Error)]
-pub enum ResError {
+pub(crate) enum ResError {
     #[error("File operation failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("Manifest parse error: {0}")]
@@ -20,14 +20,14 @@ pub enum ResError {
     MissingElement(&'static str),
 }
 
-pub struct ApkEditor {
+pub(crate) struct ApkEditor {
     pub manifest: XMLTree,
     pub res_table: Option<ResTable>,
 }
 
 impl ApkEditor {
     #[instrument(skip_all, fields(manifest = %manifest_path.display()))]
-    pub fn from_paths(manifest_path: &Path, table_path: Option<&Path>) -> Result<Self, ResError> {
+    pub(crate) fn from_paths(manifest_path: &Path, table_path: Option<&Path>) -> Result<Self, ResError> {
         debug!("Parsing Manifest from paths");
 
         let mut manifest_file = fs::File::open(manifest_path)?;
@@ -56,7 +56,7 @@ impl ApkEditor {
     }
 
     #[instrument(skip_all)]
-    pub fn get_version_info(&self) -> Option<(u32, String)> {
+    pub(crate) fn get_version_info(&self) -> Option<(u32, String)> {
         trace!("Extracting version information from XML tree");
         let root_element = self.manifest.root.get_element(&["manifest"], &self.manifest.string_pool)?;
 
@@ -86,7 +86,7 @@ impl ApkEditor {
     }
 
     #[instrument(skip_all)]
-    pub fn save_to_paths(self, manifest_path: &Path, table_path: Option<&Path>) -> Result<(), ResError> {
+    pub(crate) fn save_to_paths(self, manifest_path: &Path, table_path: Option<&Path>) -> Result<(), ResError> {
         debug!("Saving patched Manifest to {:?}", manifest_path);
         let mut manifest_out = fs::File::create(manifest_path)?;
 
@@ -109,7 +109,7 @@ impl ApkEditor {
     }
 
     #[instrument(skip_all, fields(suffix = %suffix, title = %app_title))]
-    pub fn apply_patches(&mut self, suffix: &str, app_title: &str) -> Result<String, ResError> {
+    pub(crate) fn apply_patches(&mut self, suffix: &str, app_title: &str) -> Result<String, ResError> {
         info!("Applying Manifest patches");
 
         let root = self.manifest.root.get_element_mut(&["manifest"], &self.manifest.string_pool)
@@ -339,7 +339,7 @@ fn collect_directory_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 #[instrument(skip_all)]
-pub fn inject_and_build_apk(
+pub(crate) fn inject_and_build_apk(
     source_apk: &Path,
     output_apk: &Path,
     assets_dir: &Path,
@@ -566,7 +566,7 @@ fn inject_scaled_icons<W: Write + std::io::Seek>(
 }
 
 #[instrument(skip_all)]
-pub fn normalize_apk(input_apk: &Path, output_apk: &Path, original_apk: &Path) -> Result<(), String> {
+pub(crate) fn normalize_apk(input_apk: &Path, output_apk: &Path, original_apk: &Path) -> Result<(), String> {
     info!("Normalizing APK binaries for signature verification...");
     let mut stored_files_map = HashSet::new();
 

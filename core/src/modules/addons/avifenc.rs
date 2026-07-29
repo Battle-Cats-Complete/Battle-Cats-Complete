@@ -52,11 +52,11 @@ impl AvifManager {
     }
 }
 
-pub fn get_avif_dir() -> PathBuf {
+fn get_avif_dir() -> PathBuf {
     get_tools_dir().join("avifenc")
 }
 
-pub fn get_avif_path() -> Option<PathBuf> {
+pub(crate) fn get_avif_path() -> Option<PathBuf> {
     let bin = get_avif_dir().join(AVIF_BIN);
     if bin.exists() { Some(bin) } else { None }
 }
