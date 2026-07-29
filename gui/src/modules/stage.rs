@@ -22,6 +22,8 @@ use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::{Settings, SidebarBehavior};
 const SIDEBAR_PUSH_GAP: f32 = 10.0;
 
+use core::modules::stage::filter::enemy::EnemyFilter;
+use core::modules::stage::filter::StageFilterState;
 use core::modules::stage::scanner::{self, StageBundle};
 use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
 
@@ -31,6 +33,7 @@ pub enum Message {
     Loaded(Box<StageBundle>),
     ToggleSidebar,
     SelectCrown(u8),
+    ShowEnemyAppearances(u32),
     List(list::Message),
     Filter(filter::Message),
 }
@@ -42,6 +45,7 @@ impl std::fmt::Debug for Message {
             Self::Loaded(bundle) => write!(f, "Loaded({} maps, {} stages)", bundle.registry.maps.len(), bundle.registry.stages.len()),
             Self::ToggleSidebar => write!(f, "ToggleSidebar"),
             Self::SelectCrown(crown) => write!(f, "SelectCrown({})", crown),
+            Self::ShowEnemyAppearances(id) => write!(f, "ShowEnemyAppearances({})", id),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
         }
@@ -141,6 +145,12 @@ impl State {
             }
             Message::SelectCrown(crown) => {
                 self.selected_crown = crown;
+                Task::none()
+            }
+            Message::ShowEnemyAppearances(id) => {
+                self.is_sidebar_open = true;
+                let filter = EnemyFilter { name_or_id: id.to_string(), ..Default::default() };
+                self.filter.filter_state = StageFilterState { enemies: vec![filter], ..Default::default() };
                 Task::none()
             }
             Message::List(list::Message::ToggleFilter) => {

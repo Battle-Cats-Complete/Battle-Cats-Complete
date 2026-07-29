@@ -11,7 +11,7 @@ use crate::common::formats::Model;
 use crate::modules::enemy::game::registry::Magnification;
 use crate::modules::enemy::scanner::EnemyEntry;
 
-#[derive(Deserialize, Serialize, PartialEq, Clone, Copy, Default)]
+#[derive(Deserialize, Serialize, PartialEq, Clone, Copy, Default, Debug)]
 pub enum EnemyDetailTab {
     #[default]
     Abilities,

@@ -17,7 +17,7 @@ use tracing::{error, info};
 
 use core::common::context::GlobalContext;
 use core::common::formats::SpriteSheet as CoreSpriteSheet;
-use core::modules::enemy::game::registry::{format_enemy_stat, get_enemy_stat, Magnification};
+use core::modules::enemy::game::registry::{format_enemy_stat, Magnification, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
 use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::{EnemyDataState, EnemyDetailTab};
@@ -73,18 +73,7 @@ impl std::fmt::Debug for Message {
             Self::SaveFeedbackExpired => write!(f, "SaveFeedbackExpired"),
             Self::SearchQueryChanged(s) => write!(f, "SearchQueryChanged({})", s),
             Self::EnemySelected(id) => write!(f, "EnemySelected({})", id),
-            Self::TabSelected(tab) => {
-                let tab_name = if *tab == EnemyDetailTab::Abilities {
-                    "Abilities"
-                } else if *tab == EnemyDetailTab::Details {
-                    "Details"
-                } else if *tab == EnemyDetailTab::Animation {
-                    "Animation"
-                } else {
-                    "Unknown"
-                };
-                write!(f, "TabSelected({})", tab_name)
-            }
+            Self::TabSelected(tab) => write!(f, "TabSelected({:?})", tab),
             Self::MagnificationChanged(s) => write!(f, "MagnificationChanged({})", s),
             Self::ExportClicked(_) => write!(f, "ExportClicked"),
             Self::NavigateAppearances(id) => write!(f, "NavigateAppearances({})", id),
@@ -270,10 +259,7 @@ impl EnemyState {
                 Task::none()
             }
             Message::ExportClicked(action) => self.start_statblock_export(action, settings, global_ctx),
-            Message::NavigateAppearances(id) => {
-                info!("Navigating to stage appearances for enemy {}", id);
-                Task::none()
-            }
+            Message::NavigateAppearances(_) => Task::none(),
             Message::Filter(msg) => {
                 self.filter.update(msg);
                 Task::none()
@@ -585,22 +571,22 @@ impl EnemyState {
         let frames = enemy.atk_anim_frames;
         let mag = self.magnification;
 
-        let atk_str = format_enemy_stat("Attack", stats, frames, mag);
-        let dps_str = format_enemy_stat("Dps", stats, frames, mag);
-        let range_str = format_enemy_stat("Range", stats, frames, mag);
-        let cash_str = format_enemy_stat("Cash Drop", stats, frames, mag);
+        let atk_str = format_enemy_stat(&STAT_ATTACK, stats, frames, mag);
+        let dps_str = format_enemy_stat(&STAT_DPS, stats, frames, mag);
+        let range_str = format_enemy_stat(&STAT_RANGE, stats, frames, mag);
+        let cash_str = format_enemy_stat(&STAT_CASH_DROP, stats, frames, mag);
 
-        let hp_str = format_enemy_stat("Hitpoints", stats, frames, mag);
-        let kb_str = format_enemy_stat("Knockbacks", stats, frames, mag);
-        let speed_str = format_enemy_stat("Speed", stats, frames, mag);
+        let hp_str = format_enemy_stat(&STAT_HITPOINTS, stats, frames, mag);
+        let kb_str = format_enemy_stat(&STAT_KNOCKBACKS, stats, frames, mag);
+        let speed_str = format_enemy_stat(&STAT_SPEED, stats, frames, mag);
 
-        let cycle = (get_enemy_stat("Atk Cycle").get_value)(stats, frames, mag);
+        let cycle = (STAT_ATK_CYCLE.get_value)(stats, frames, mag);
 
         let header_row = row![
-            stat_grid::grid_cell(get_enemy_stat("Attack").display_name, true),
-            stat_grid::grid_cell(get_enemy_stat("Dps").display_name, true),
-            stat_grid::grid_cell(get_enemy_stat("Range").display_name, true),
-            stat_grid::grid_cell(get_enemy_stat("Atk Cycle").display_name, true),
+            stat_grid::grid_cell(STAT_ATTACK.display_name, true),
+            stat_grid::grid_cell(STAT_DPS.display_name, true),
+            stat_grid::grid_cell(STAT_RANGE.display_name, true),
+            stat_grid::grid_cell(STAT_ATK_CYCLE.display_name, true),
         ].spacing(4);
 
         let value_row = row![
@@ -611,10 +597,10 @@ impl EnemyState {
         ].spacing(4);
 
         let header_row2 = row![
-            stat_grid::grid_cell(get_enemy_stat("Hitpoints").display_name, true),
-            stat_grid::grid_cell(get_enemy_stat("Knockbacks").display_name, true),
-            stat_grid::grid_cell(get_enemy_stat("Speed").display_name, true),
-            stat_grid::grid_cell(get_enemy_stat("Cash Drop").display_name, true),
+            stat_grid::grid_cell(STAT_HITPOINTS.display_name, true),
+            stat_grid::grid_cell(STAT_KNOCKBACKS.display_name, true),
+            stat_grid::grid_cell(STAT_SPEED.display_name, true),
+            stat_grid::grid_cell(STAT_CASH_DROP.display_name, true),
         ].spacing(4);
 
         let value_row2 = row![

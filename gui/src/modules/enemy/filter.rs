@@ -23,7 +23,7 @@ const STAT_KEYS: [&str; 8] = [
 const ICONS_PER_ROW: usize = 11;
 const POPUP_SIZE: Size = Size::new(600.0, 528.0);
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Message {
     Popup(popup::Message),
     Toggle,
@@ -35,23 +35,6 @@ pub enum Message {
     IdentityToggled(Identity),
     AdvMinChanged(Identity, &'static str, String),
     AdvMaxChanged(Identity, &'static str, String),
-}
-
-impl std::fmt::Debug for Message {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Popup(msg) => write!(f, "Popup({:?})", msg),
-            Self::Toggle => write!(f, "Toggle"),
-            Self::Clear => write!(f, "Clear"),
-            Self::MatchModeChanged(_) => write!(f, "MatchModeChanged"),
-            Self::MagChanged(s) => write!(f, "MagChanged({})", s),
-            Self::StatMinChanged(stat, v) => write!(f, "StatMinChanged({}, {})", stat, v),
-            Self::StatMaxChanged(stat, v) => write!(f, "StatMaxChanged({}, {})", stat, v),
-            Self::IdentityToggled(_) => write!(f, "IdentityToggled"),
-            Self::AdvMinChanged(_, attr, s) => write!(f, "AdvMinChanged({}, {})", attr, s),
-            Self::AdvMaxChanged(_, attr, s) => write!(f, "AdvMaxChanged({}, {})", attr, s),
-        }
-    }
 }
 
 pub struct State {

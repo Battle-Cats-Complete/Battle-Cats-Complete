@@ -1,5 +1,5 @@
 use core::modules::cat::game::abilities::collect_ability_data;
-use core::modules::cat::game::registry::{format_cat_stat, get_cat_stat};
+use core::modules::cat::game::registry::{format_cat_stat, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
 use core::modules::cat::game::stats::get_final_stats;
 use core::modules::cat::game::CatRenderContext;
 use core::modules::cat::scanner::CatEntry;
@@ -26,40 +26,40 @@ pub(crate) fn build_cat_statblock(
 
     let anim_frames = cat_entry.atk_anim_frames[current_form];
     let unitbuy_opt = Some(&cat_entry.unitbuy);
-    let cycle = (get_cat_stat("Atk Cycle").get_value)(ctx.final_stats, anim_frames, unitbuy_opt);
+    let cycle = (STAT_ATK_CYCLE.get_value)(ctx.final_stats, anim_frames, unitbuy_opt);
 
     let headers_1 = vec![
-        get_cat_stat("Attack").display_name.to_string(),
-        get_cat_stat("Dps").display_name.to_string(),
-        get_cat_stat("Range").display_name.to_string(),
-        get_cat_stat("Atk Cycle").display_name.to_string(),
-        get_cat_stat("Rarity").display_name.to_string(),
+        STAT_ATTACK.display_name.to_string(),
+        STAT_DPS.display_name.to_string(),
+        STAT_RANGE.display_name.to_string(),
+        STAT_ATK_CYCLE.display_name.to_string(),
+        STAT_RARITY.display_name.to_string(),
     ];
 
     let data_1 = vec![
-        StatCell::Text(format_cat_stat("Attack", ctx.final_stats, anim_frames, unitbuy_opt)),
-        StatCell::Text(format_cat_stat("Dps", ctx.final_stats, anim_frames, unitbuy_opt)),
+        StatCell::Text(format_cat_stat(&STAT_ATTACK, ctx.final_stats, anim_frames, unitbuy_opt)),
+        StatCell::Text(format_cat_stat(&STAT_DPS, ctx.final_stats, anim_frames, unitbuy_opt)),
         StatCell::Text(ctx.final_stats.standing_range.to_string()),
         StatCell::Frames(cycle),
-        StatCell::Text(format_cat_stat("Rarity", ctx.final_stats, anim_frames, unitbuy_opt)),
+        StatCell::Text(format_cat_stat(&STAT_RARITY, ctx.final_stats, anim_frames, unitbuy_opt)),
     ];
 
     let headers_2 = vec![
-        get_cat_stat("Hitpoints").display_name.to_string(),
-        get_cat_stat("Knockbacks").display_name.to_string(),
-        get_cat_stat("Speed").display_name.to_string(),
-        get_cat_stat("Cooldown").display_name.to_string(),
-        get_cat_stat("Cost").display_name.to_string(),
+        STAT_HITPOINTS.display_name.to_string(),
+        STAT_KNOCKBACKS.display_name.to_string(),
+        STAT_SPEED.display_name.to_string(),
+        STAT_COOLDOWN.display_name.to_string(),
+        STAT_COST.display_name.to_string(),
     ];
 
-    let cd_frames = (get_cat_stat("Cooldown").get_value)(ctx.final_stats, anim_frames, unitbuy_opt);
+    let cd_frames = (STAT_COOLDOWN.get_value)(ctx.final_stats, anim_frames, unitbuy_opt);
 
     let data_2 = vec![
         StatCell::Text(ctx.final_stats.hitpoints.to_string()),
         StatCell::Text(ctx.final_stats.knockbacks.to_string()),
         StatCell::Text(ctx.final_stats.speed.to_string()),
         StatCell::Frames(cd_frames),
-        StatCell::Text(format_cat_stat("Cost", ctx.final_stats, anim_frames, unitbuy_opt)),
+        StatCell::Text(format_cat_stat(&STAT_COST, ctx.final_stats, anim_frames, unitbuy_opt)),
     ];
 
     StatblockData {

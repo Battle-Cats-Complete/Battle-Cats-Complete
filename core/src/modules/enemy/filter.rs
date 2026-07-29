@@ -12,7 +12,7 @@ pub const ATTACK_TYPE_IDENTITIES: &[Identity] = &[
     Identity::MultiHit,
 ];
 
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum MatchMode {
     #[default]
     And,

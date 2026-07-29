@@ -308,6 +308,10 @@ impl BattleCatsApp {
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
                 task
             }
+            Message::Enemy(enemy::Message::NavigateAppearances(id)) => Task::batch([
+                self.navigate(Page::Stages),
+                self.update(Message::Stage(stage::Message::ShowEnemyAppearances(id))),
+            ]),
             Message::Enemy(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
                 let enemies_loaded = matches!(msg, enemy::Message::Loaded(_));

@@ -17,7 +17,7 @@ pub const ATTACK_TYPE_ICONS: &[AbilityIcon] = &[
     AbilityIcon::Custom(CustomIcon::Multihit),
 ];
 
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum TalentFilterMode {
     #[default]
     Ignore,
@@ -35,7 +35,7 @@ impl TalentFilterMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum MatchMode {
     #[default]
     And,

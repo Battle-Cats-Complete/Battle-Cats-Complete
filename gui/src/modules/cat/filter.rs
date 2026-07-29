@@ -23,7 +23,7 @@ const STAT_KEYS: [&str; 9] = [
 const ICONS_PER_ROW: usize = 11;
 const POPUP_SIZE: Size = Size::new(600.0, 528.0);
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Message {
     Popup(popup::Message),
     Toggle,
@@ -39,27 +39,6 @@ pub enum Message {
     LevelInputChanged(String),
     StatMinChanged(&'static str, String),
     StatMaxChanged(&'static str, String),
-}
-
-impl std::fmt::Debug for Message {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Popup(msg) => write!(f, "Popup({:?})", msg),
-            Self::Toggle => write!(f, "Toggle"),
-            Self::Clear => write!(f, "Clear"),
-            Self::MatchModeChanged(_) => write!(f, "MatchModeChanged"),
-            Self::TalentModeChanged(_) => write!(f, "TalentModeChanged"),
-            Self::UltraTalentModeChanged(_) => write!(f, "UltraTalentModeChanged"),
-            Self::RarityToggled(i) => write!(f, "RarityToggled({})", i),
-            Self::FormToggled(i) => write!(f, "FormToggled({})", i),
-            Self::IconToggled(_) => write!(f, "IconToggled"),
-            Self::AdvMinChanged(_, attr, v) => write!(f, "AdvMinChanged({}, {})", attr, v),
-            Self::AdvMaxChanged(_, attr, v) => write!(f, "AdvMaxChanged({}, {})", attr, v),
-            Self::LevelInputChanged(s) => write!(f, "LevelInputChanged({})", s),
-            Self::StatMinChanged(stat, v) => write!(f, "StatMinChanged({}, {})", stat, v),
-            Self::StatMaxChanged(stat, v) => write!(f, "StatMaxChanged({}, {})", stat, v),
-        }
-    }
 }
 
 pub struct State {

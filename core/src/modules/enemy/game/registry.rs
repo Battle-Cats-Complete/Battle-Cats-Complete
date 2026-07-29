@@ -708,95 +708,106 @@ pub struct EnemyStatsDef {
     pub formatter: fn(i32) -> String,
 }
 
+pub const STAT_HITPOINTS: EnemyStatsDef = EnemyStatsDef {
+    name: "Hitpoints",
+    display_name: "Hitpoints",
+    get_value: |stats, _, magnification| (stats.hitpoints as f32 * (magnification.hitpoints as f32 / 100.0)).round() as i32,
+    formatter: |hp| format!("{}", hp),
+};
+
+pub const STAT_KNOCKBACKS: EnemyStatsDef = EnemyStatsDef {
+    name: "Knockbacks",
+    display_name: "Knockback",
+    get_value: |stats, _, _| stats.knockbacks,
+    formatter: |kbs| format!("{}", kbs),
+};
+
+pub const STAT_SPEED: EnemyStatsDef = EnemyStatsDef {
+    name: "Speed",
+    display_name: "Speed",
+    get_value: |stats, _, _| stats.speed,
+    formatter: |speed| format!("{}", speed),
+};
+
+pub const STAT_RANGE: EnemyStatsDef = EnemyStatsDef {
+    name: "Range",
+    display_name: "Range",
+    get_value: |stats, _, _| stats.standing_range,
+    formatter: |range| format!("{}", range),
+};
+
+pub const STAT_ATTACK: EnemyStatsDef = EnemyStatsDef {
+    name: "Attack",
+    display_name: "Attack",
+    get_value: |stats, _, magnification| {
+        let magnification_factor = magnification.attack as f32 / 100.0;
+        let damage_hit_1 = (stats.attack_1 as f32 * magnification_factor).round() as i32;
+        let damage_hit_2 = (stats.attack_2 as f32 * magnification_factor).round() as i32;
+        let damage_hit_3 = (stats.attack_3 as f32 * magnification_factor).round() as i32;
+        damage_hit_1 + damage_hit_2 + damage_hit_3
+    },
+    formatter: |attack| format!("{}", attack),
+};
+
+pub const STAT_DPS: EnemyStatsDef = EnemyStatsDef {
+    name: "Dps",
+    display_name: "DPS",
+    get_value: |stats, animation_frames, magnification| {
+        let magnification_factor = magnification.attack as f32 / 100.0;
+        let damage_hit_1 = (stats.attack_1 as f32 * magnification_factor).round() as i32;
+        let damage_hit_2 = (stats.attack_2 as f32 * magnification_factor).round() as i32;
+        let damage_hit_3 = (stats.attack_3 as f32 * magnification_factor).round() as i32;
+        let total_attack_damage = damage_hit_1 + damage_hit_2 + damage_hit_3;
+
+        let mut effective_foreswing = stats.time_until_attack_1;
+        if stats.attack_3 > 0 && stats.time_until_attack_3 > 0 {
+            effective_foreswing = stats.time_until_attack_3;
+        } else if stats.attack_2 > 0 && stats.time_until_attack_2 > 0 {
+            effective_foreswing = stats.time_until_attack_2;
+        }
+        let cooldown_frames = stats.attack_cooldown.saturating_sub(1);
+        let attack_cycle = (effective_foreswing + cooldown_frames).max(animation_frames);
+
+        if attack_cycle > 0 { ((total_attack_damage as f32 * 30.0) / attack_cycle as f32).round() as i32 } else { 0 }
+    },
+    formatter: |dps| format!("{}", dps),
+};
+
+pub const STAT_ATK_CYCLE: EnemyStatsDef = EnemyStatsDef {
+    name: "Atk Cycle",
+    display_name: "Atk Cycle",
+    get_value: |stats, animation_frames, _| {
+        let mut effective_foreswing = stats.time_until_attack_1;
+        if stats.attack_3 > 0 && stats.time_until_attack_3 > 0 {
+            effective_foreswing = stats.time_until_attack_3;
+        } else if stats.attack_2 > 0 && stats.time_until_attack_2 > 0 {
+            effective_foreswing = stats.time_until_attack_2;
+        }
+        let cooldown_frames = stats.attack_cooldown.saturating_sub(1);
+        (effective_foreswing + cooldown_frames).max(animation_frames)
+    },
+    formatter: |cycle| format!("{}f", cycle),
+};
+
+pub const STAT_CASH_DROP: EnemyStatsDef = EnemyStatsDef {
+    name: "Cash Drop",
+    display_name: "Cash Drop",
+    get_value: |stats, _, _| (stats.cash_drop as f32 * 3.95).floor() as i32,
+    formatter: |cash| format!("{}¢", cash),
+};
+
 pub(crate) const ENEMY_STATS_REGISTRY: &[EnemyStatsDef] = &[
-    EnemyStatsDef {
-        name: "Hitpoints",
-        display_name: "Hitpoints",
-        get_value: |stats, _, magnification| (stats.hitpoints as f32 * (magnification.hitpoints as f32 / 100.0)).round() as i32,
-        formatter: |hp| format!("{}", hp),
-    },
-    EnemyStatsDef {
-        name: "Knockbacks",
-        display_name: "Knockback",
-        get_value: |stats, _, _| stats.knockbacks,
-        formatter: |kbs| format!("{}", kbs),
-    },
-    EnemyStatsDef {
-        name: "Speed",
-        display_name: "Speed",
-        get_value: |stats, _, _| stats.speed,
-        formatter: |speed| format!("{}", speed),
-    },
-    EnemyStatsDef {
-        name: "Range",
-        display_name: "Range",
-        get_value: |stats, _, _| stats.standing_range,
-        formatter: |range| format!("{}", range),
-    },
-    EnemyStatsDef {
-        name: "Attack",
-        display_name: "Attack",
-        get_value: |stats, _, magnification| {
-            let magnification_factor = magnification.attack as f32 / 100.0;
-            let damage_hit_1 = (stats.attack_1 as f32 * magnification_factor).round() as i32;
-            let damage_hit_2 = (stats.attack_2 as f32 * magnification_factor).round() as i32;
-            let damage_hit_3 = (stats.attack_3 as f32 * magnification_factor).round() as i32;
-            damage_hit_1 + damage_hit_2 + damage_hit_3
-        },
-        formatter: |attack| format!("{}", attack),
-    },
-    EnemyStatsDef {
-        name: "Dps",
-        display_name: "DPS",
-        get_value: |stats, animation_frames, magnification| {
-            let magnification_factor = magnification.attack as f32 / 100.0;
-            let damage_hit_1 = (stats.attack_1 as f32 * magnification_factor).round() as i32;
-            let damage_hit_2 = (stats.attack_2 as f32 * magnification_factor).round() as i32;
-            let damage_hit_3 = (stats.attack_3 as f32 * magnification_factor).round() as i32;
-            let total_attack_damage = damage_hit_1 + damage_hit_2 + damage_hit_3;
-
-            let mut effective_foreswing = stats.time_until_attack_1;
-            if stats.attack_3 > 0 && stats.time_until_attack_3 > 0 {
-                effective_foreswing = stats.time_until_attack_3;
-            } else if stats.attack_2 > 0 && stats.time_until_attack_2 > 0 {
-                effective_foreswing = stats.time_until_attack_2;
-            }
-            let cooldown_frames = stats.attack_cooldown.saturating_sub(1);
-            let attack_cycle = (effective_foreswing + cooldown_frames).max(animation_frames);
-
-            if attack_cycle > 0 { ((total_attack_damage as f32 * 30.0) / attack_cycle as f32).round() as i32 } else { 0 }
-        },
-        formatter: |dps| format!("{}", dps),
-    },
-    EnemyStatsDef {
-        name: "Atk Cycle",
-        display_name: "Atk Cycle",
-        get_value: |stats, animation_frames, _| {
-            let mut effective_foreswing = stats.time_until_attack_1;
-            if stats.attack_3 > 0 && stats.time_until_attack_3 > 0 {
-                effective_foreswing = stats.time_until_attack_3;
-            } else if stats.attack_2 > 0 && stats.time_until_attack_2 > 0 {
-                effective_foreswing = stats.time_until_attack_2;
-            }
-            let cooldown_frames = stats.attack_cooldown.saturating_sub(1);
-            (effective_foreswing + cooldown_frames).max(animation_frames)
-        },
-        formatter: |cycle| format!("{}f", cycle),
-    },
-    EnemyStatsDef {
-        name: "Cash Drop",
-        display_name: "Cash Drop",
-        get_value: |stats, _, _| (stats.cash_drop as f32 * 3.95).floor() as i32,
-        formatter: |cash| format!("{}¢", cash),
-    },
+    STAT_HITPOINTS,
+    STAT_KNOCKBACKS,
+    STAT_SPEED,
+    STAT_RANGE,
+    STAT_ATTACK,
+    STAT_DPS,
+    STAT_ATK_CYCLE,
+    STAT_CASH_DROP,
 ];
 
-pub fn get_enemy_stat(name: &str) -> &'static EnemyStatsDef {
-    ENEMY_STATS_REGISTRY.iter().find(|s| s.name == name).expect("Stat not found in registry")
-}
-
-pub fn format_enemy_stat(name: &str, stats: &Battle, animation_frames: i32, magnification: Magnification) -> String {
-    let def = get_enemy_stat(name);
+pub fn format_enemy_stat(def: &EnemyStatsDef, stats: &Battle, animation_frames: i32, magnification: Magnification) -> String {
     (def.formatter)((def.get_value)(stats, animation_frames, magnification))
 }
 

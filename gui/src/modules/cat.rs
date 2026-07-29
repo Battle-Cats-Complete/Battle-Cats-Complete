@@ -21,7 +21,7 @@ use tracing::{error, info};
 
 use core::common::context::GlobalContext;
 use core::common::formats::SpriteSheet as CoreSpriteSheet;
-use core::modules::cat::game::registry::{format_cat_stat, get_cat_stat};
+use core::modules::cat::game::registry::{format_cat_stat, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
 use core::modules::cat::game::stats::get_final_stats;
 use core::modules::cat::game::CatRenderContext;
 use core::modules::cat::scanner::{self, CatEntry};
@@ -756,24 +756,24 @@ impl State {
         let anim_frames = cat.atk_anim_frames[form];
         let unitbuy_opt = Some(&cat.unitbuy);
 
-        let atk_str = format_cat_stat("Attack", final_stats, anim_frames, unitbuy_opt);
-        let dps_str = format_cat_stat("Dps", final_stats, anim_frames, unitbuy_opt);
-        let range_str = format_cat_stat("Range", final_stats, anim_frames, unitbuy_opt);
-        let rarity_str = format_cat_stat("Rarity", final_stats, anim_frames, unitbuy_opt);
-        let hp_str = format_cat_stat("Hitpoints", final_stats, anim_frames, unitbuy_opt);
-        let kb_str = format_cat_stat("Knockbacks", final_stats, anim_frames, unitbuy_opt);
-        let speed_str = format_cat_stat("Speed", final_stats, anim_frames, unitbuy_opt);
-        let cost_str = format_cat_stat("Cost", final_stats, anim_frames, unitbuy_opt);
+        let atk_str = format_cat_stat(&STAT_ATTACK, final_stats, anim_frames, unitbuy_opt);
+        let dps_str = format_cat_stat(&STAT_DPS, final_stats, anim_frames, unitbuy_opt);
+        let range_str = format_cat_stat(&STAT_RANGE, final_stats, anim_frames, unitbuy_opt);
+        let rarity_str = format_cat_stat(&STAT_RARITY, final_stats, anim_frames, unitbuy_opt);
+        let hp_str = format_cat_stat(&STAT_HITPOINTS, final_stats, anim_frames, unitbuy_opt);
+        let kb_str = format_cat_stat(&STAT_KNOCKBACKS, final_stats, anim_frames, unitbuy_opt);
+        let speed_str = format_cat_stat(&STAT_SPEED, final_stats, anim_frames, unitbuy_opt);
+        let cost_str = format_cat_stat(&STAT_COST, final_stats, anim_frames, unitbuy_opt);
 
-        let cycle = (get_cat_stat("Atk Cycle").get_value)(final_stats, anim_frames, unitbuy_opt);
-        let cd_val = (get_cat_stat("Cooldown").get_value)(final_stats, anim_frames, unitbuy_opt);
+        let cycle = (STAT_ATK_CYCLE.get_value)(final_stats, anim_frames, unitbuy_opt);
+        let cd_val = (STAT_COOLDOWN.get_value)(final_stats, anim_frames, unitbuy_opt);
 
         let header_row = row![
-            stat_grid::grid_cell(get_cat_stat("Attack").display_name, true),
-            stat_grid::grid_cell(get_cat_stat("Dps").display_name, true),
-            stat_grid::grid_cell(get_cat_stat("Range").display_name, true),
-            stat_grid::grid_cell(get_cat_stat("Atk Cycle").display_name, true),
-            stat_grid::grid_cell(get_cat_stat("Rarity").display_name, true),
+            stat_grid::grid_cell(STAT_ATTACK.display_name, true),
+            stat_grid::grid_cell(STAT_DPS.display_name, true),
+            stat_grid::grid_cell(STAT_RANGE.display_name, true),
+            stat_grid::grid_cell(STAT_ATK_CYCLE.display_name, true),
+            stat_grid::grid_cell(STAT_RARITY.display_name, true),
         ].spacing(4);
 
         let value_row = row![
@@ -785,11 +785,11 @@ impl State {
         ].spacing(4);
 
         let header_row2 = row![
-            stat_grid::grid_cell(get_cat_stat("Hitpoints").display_name, true),
-            stat_grid::grid_cell(get_cat_stat("Knockbacks").display_name, true),
-            stat_grid::grid_cell(get_cat_stat("Speed").display_name, true),
-            stat_grid::grid_cell(get_cat_stat("Cooldown").display_name, true),
-            stat_grid::grid_cell(get_cat_stat("Cost").display_name, true),
+            stat_grid::grid_cell(STAT_HITPOINTS.display_name, true),
+            stat_grid::grid_cell(STAT_KNOCKBACKS.display_name, true),
+            stat_grid::grid_cell(STAT_SPEED.display_name, true),
+            stat_grid::grid_cell(STAT_COOLDOWN.display_name, true),
+            stat_grid::grid_cell(STAT_COST.display_name, true),
         ].spacing(4);
 
         let value_row2 = row![
