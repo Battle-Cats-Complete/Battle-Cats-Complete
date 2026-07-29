@@ -7,7 +7,6 @@ pub mod waiter;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::formats::Model;
 use crate::modules::enemy::game::registry::Magnification;
 use crate::modules::enemy::scanner::EnemyEntry;
 
@@ -28,8 +27,6 @@ pub struct EnemyDataState {
     pub selected_tab: EnemyDetailTab,
     pub mag_input: String,
     pub magnification: Magnification,
-    #[serde(skip)] pub detail_key: String,
-    #[serde(skip)] pub model_data: Option<Model>,
 }
 
 impl Default for EnemyDataState {
@@ -41,8 +38,6 @@ impl Default for EnemyDataState {
             selected_tab: EnemyDetailTab::default(),
             mag_input: "100".to_string(),
             magnification: Magnification::default(),
-            detail_key: String::new(),
-            model_data: None,
         }
     }
 }
