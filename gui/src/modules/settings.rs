@@ -5,7 +5,7 @@ mod keys;
 mod pem;
 
 use iced::widget::{
-    button, column, container, opaque, pick_list, row, scrollable, stack, text, text_input, toggler,
+    button, column, container, opaque, pick_list, row, scrollable, stack, text, text_input, toggler, tooltip,
 };
 use iced::{Alignment, Element, Length, Size, Task, Theme};
 use tracing::debug;
@@ -76,7 +76,6 @@ pub enum Message {
 
     // Data Tab
     ToggleKeyValidation(bool),
-    ToggleUltraCompression(bool),
     ToggleAppPersistence(bool),
     Keys(keys::Message),
     Exceptions(exceptions::Message),
@@ -89,7 +88,6 @@ pub enum Message {
     Addons(addons::Message),
 
     // Animation Tab
-    CenteringBehaviorSelected(usize),
     ToggleDebugView(bool),
     ToggleTightBounds(bool),
     ToggleAutoCamera(bool),
@@ -260,13 +258,6 @@ impl State {
                 core_settings.game_data.enforce_key_validation = val;
                 Task::none()
             }
-            Message::ToggleUltraCompression(val) => {
-                core_settings.game_data.enable_ultra_compression = val;
-                if !val && core_settings.game_data.last_compression_level > 15 {
-                    core_settings.game_data.last_compression_level = 15;
-                }
-                Task::none()
-            }
             Message::ToggleAppPersistence(val) => {
                 core_settings.game_data.app_folder_persistence = val;
                 Task::none()
@@ -279,10 +270,6 @@ impl State {
             Message::Addons(msg) => self.addons.update(msg).map(Message::Addons),
 
             // Animation Tab
-            Message::CenteringBehaviorSelected(val) => {
-                core_settings.animation.centering_behavior = val;
-                Task::none()
-            }
             Message::ToggleDebugView(val) => {
                 core_settings.animation.debug_view = val;
                 Task::none()
@@ -428,10 +415,8 @@ impl State {
     }
 
     fn view_general<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
-        let update_modes = vec!["Auto-Reset", "Auto-Load", "Prompt", "Ignore"];
+        let update_modes = vec!["Prompt", "Ignore"];
         let current_update_mode = match core_settings.general.update_mode {
-            UpdateMode::AutoReset => "Auto-Reset",
-            UpdateMode::AutoLoad => "Auto-Load",
             UpdateMode::Prompt => "Prompt",
             UpdateMode::Ignore => "Ignore",
         };
@@ -477,10 +462,13 @@ impl State {
             system_col,
 
             text("Behavior").size(24),
-            row![
-                toggler(core_settings.general.enable_logging).on_toggle(Message::ToggleLogging),
-                text("Enable Logging"),
-            ].spacing(10),
+            hover_hint(
+                row![
+                    toggler(core_settings.general.enable_logging).on_toggle(Message::ToggleLogging),
+                    text("Enable Logging"),
+                ].spacing(10),
+                "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs",
+            ),
             row![
                 toggler(core_settings.general.enable_nightly).on_toggle(Message::ToggleNightly),
                 text("Enable Nightly Features 🌙"),
@@ -492,8 +480,6 @@ impl State {
                     Some(current_update_mode),
                     |val| {
                         let mode = match val {
-                            "Auto-Reset" => UpdateMode::AutoReset,
-                            "Auto-Load" => UpdateMode::AutoLoad,
                             "Prompt" => UpdateMode::Prompt,
                             _ => UpdateMode::Ignore,
                         };
@@ -546,15 +532,21 @@ impl State {
                     .width(Length::Fixed(60.0)),
             ].spacing(10).align_y(Alignment::Center),
 
-            row![
-                toggler(core_settings.cat_data.auto_level_calculations).on_toggle(Message::ToggleAutoLevel),
-                text("Auto Level Calculations"),
-            ].spacing(10),
+            hover_hint(
+                row![
+                    toggler(core_settings.cat_data.auto_level_calculations).on_toggle(Message::ToggleAutoLevel),
+                    text("Auto Level Calculations"),
+                ].spacing(10),
+                "Automatically calculates the max reasonable level for a unit based on their level caps",
+            ),
 
-            row![
-                toggler(core_settings.cat_data.bump_ultra_60).on_toggle(Message::ToggleBumpUltra),
-                text("Lv60 For Ultra"),
-            ].spacing(10),
+            hover_hint(
+                row![
+                    toggler(core_settings.cat_data.bump_ultra_60).on_toggle(Message::ToggleBumpUltra),
+                    text("Lv60 For Ultra"),
+                ].spacing(10),
+                "Automatically bumps the level to 60 (if not higher already) when an Ultra Form or Ultra Talent is selected",
+            ),
         ].spacing(20).into()
     }
 
@@ -606,7 +598,10 @@ impl State {
             text("Export").size(24),
             button("Manage PEM").on_press(Message::Pem(pem::Message::Open)),
             row![
-                text("Export Behavior:"),
+                hover_hint(
+                    text("Export Behavior:"),
+                    "Determines whether to scan and automatically choose, always create a new APK, or always overwrite the input APK.",
+                ),
                 pick_list(
                     export_options,
                     Some(current_export),
@@ -634,50 +629,47 @@ impl State {
                 button("Manage Exceptions").on_press(Message::Exceptions(exceptions::Message::Open)),
             ].spacing(10),
 
-            row![
-                toggler(core_settings.game_data.enforce_key_validation).on_toggle(Message::ToggleKeyValidation),
-                text("Enforce Key Validation"),
-            ].spacing(10),
-            row![
-                toggler(core_settings.game_data.enable_ultra_compression).on_toggle(Message::ToggleUltraCompression),
-                text("Enable Ultra Compression"),
-            ].spacing(10),
-
+            hover_hint(
+                row![
+                    toggler(core_settings.game_data.enforce_key_validation).on_toggle(Message::ToggleKeyValidation),
+                    text("Enforce Key Validation"),
+                ].spacing(10),
+                "Prevents decryption/encryption if the cryptographic keys don't match the known official file hashes\nTurn this off only if the game keys have changed and you haven't updated BCC yet",
+            ),
             text("Android").size(24),
-            row![
-                toggler(core_settings.game_data.app_folder_persistence).on_toggle(Message::ToggleAppPersistence),
-                text("App Folder Persistence"),
-            ].spacing(10),
+            hover_hint(
+                row![
+                    toggler(core_settings.game_data.app_folder_persistence).on_toggle(Message::ToggleAppPersistence),
+                    text("App Folder Persistence"),
+                ].spacing(10),
+                "Skip the deletion of the \"game/app\" directory after android import",
+            ),
         ].spacing(20).into()
     }
 
     fn view_animation<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
-        let centering_options: Vec<usize> = vec![0, 1, 2];
-
         column![
             text("Viewer").size(24),
-            row![
-                text("Centering Behavior:"),
-                pick_list(
-                    centering_options,
-                    Some(core_settings.animation.centering_behavior),
-                    Message::CenteringBehaviorSelected,
-                ),
-            ].spacing(10).align_y(Alignment::Center),
             row![
                 toggler(core_settings.animation.debug_view).on_toggle(Message::ToggleDebugView),
                 text("Enable Debug View"),
             ].spacing(10),
 
             text("Exporter").size(24),
-            row![
-                toggler(core_settings.animation.use_tight_bounds).on_toggle(Message::ToggleTightBounds),
-                text("Use Tight Bounds"),
-            ].spacing(10),
-            row![
-                toggler(core_settings.animation.auto_set_camera_region).on_toggle(Message::ToggleAutoCamera),
-                text("Auto-Set Camera Region"),
-            ].spacing(10),
+            hover_hint(
+                row![
+                    toggler(core_settings.animation.use_tight_bounds).on_toggle(Message::ToggleTightBounds),
+                    text("Use Tight Bounds"),
+                ].spacing(10),
+                "Automatically crops out minor vfx and glow when calculating camera bounds",
+            ),
+            hover_hint(
+                row![
+                    toggler(core_settings.animation.auto_set_camera_region).on_toggle(Message::ToggleAutoCamera),
+                    text("Auto-Set Camera Region"),
+                ].spacing(10),
+                "Automatically calculates a Units tight bounding box when exporting\nThis setting may cause lag spikes on some devices",
+            ),
 
             text("Showcase").size(18),
             row![text("Walk Frames:"), text_input("0", &self.showcase_walk_buffer).on_input(Message::ShowcaseWalkChanged).width(Length::Fixed(60.0))].spacing(10),
@@ -698,4 +690,13 @@ impl State {
                 .height(Length::Fill)
         ].spacing(15).into()
     }
+}
+
+fn hover_hint<'a, M: 'a>(content: impl Into<Element<'a, M>>, hint: &'a str) -> Element<'a, M> {
+    tooltip(
+        content,
+        container(text(hint)).padding(6).style(container::bordered_box),
+        tooltip::Position::Top,
+    )
+    .into()
 }

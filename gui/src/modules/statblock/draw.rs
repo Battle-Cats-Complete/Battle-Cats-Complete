@@ -8,9 +8,9 @@ use nyanko::graphics::rig::SpriteCut;
 
 use core::common::game::{AbilityItem, CustomIcon};
 
-pub(crate) const SUPERSCRIPT_SCALE: f32 = 0.75;
-pub(crate) const SUPERSCRIPT_OFFSET_Y: f32 = 0.0;
-pub(crate) const SUPERSCRIPT_MARGIN_X: i32 = 2;
+const SUPERSCRIPT_SCALE: f32 = 0.75;
+const SUPERSCRIPT_OFFSET_Y: f32 = 0.0;
+const SUPERSCRIPT_MARGIN_X: i32 = 2;
 
 pub(crate) fn draw_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgba<u8>) {
     if r <= 0 { draw_filled_rect_mut(img, rect, color); return; }

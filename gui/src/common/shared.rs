@@ -4,7 +4,7 @@ use iced::widget::{column, container, row, text};
 
 pub const ICON_SIZE: f32 = 40.0;
 
-pub const ABILITY_TEXT_SIZE: f32 = 13.0;
+const ABILITY_TEXT_SIZE: f32 = 13.0;
 const ABILITY_SUPERSCRIPT_SIZE: f32 = ABILITY_TEXT_SIZE - 3.0;
 
 pub fn fallback_icon<'a, Message: 'a>(icon_text: &str) -> Element<'a, Message> {

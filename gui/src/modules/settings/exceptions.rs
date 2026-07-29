@@ -9,6 +9,8 @@ use core::modules::settings::{ExceptionList, ExceptionRule, RuleHandling};
 
 use crate::common::{feedback::Slot, popup};
 
+use super::hover_hint;
+
 const POPUP_SIZE: Size = Size::new(750.0, 520.0);
 
 #[derive(Debug, Clone)]
@@ -244,9 +246,12 @@ impl State {
                 }
             }
 
-            let delete_btn = button(text("🗑").size(14))
-                .on_press(Message::DeleteRule(index))
-                .style(button::danger);
+            let delete_btn = hover_hint(
+                button(text("🗑").size(14))
+                    .on_press(Message::DeleteRule(index))
+                    .style(button::danger),
+                "Delete Rule",
+            );
 
             rows = rows.push(
                 row![

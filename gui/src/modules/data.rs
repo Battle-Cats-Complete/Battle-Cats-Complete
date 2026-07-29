@@ -226,7 +226,6 @@ impl State {
             }
             Message::CompressionLevelChanged(level) => {
                 self.config.compression_level = level;
-                settings.game_data.last_compression_level = level;
             }
             Message::TriggerExportJob => {
                 info!("Starting export job.");
@@ -266,7 +265,7 @@ impl State {
         let content = if is_import {
             self.view_import(settings)
         } else {
-            self.view_export(settings)
+            self.view_export()
         };
 
         let progress_section = self.view_progress_and_console();
@@ -528,7 +527,7 @@ impl State {
         column![sections_row, Space::new().height(20), action_row].into()
     }
 
-    fn view_export(&self, settings: &Settings) -> Element<'_, Message> {
+    fn view_export(&self) -> Element<'_, Message> {
         let is_running = self.export.running;
 
         let title = text("Package database into a ZST archive").size(16);
@@ -551,18 +550,9 @@ impl State {
             .align_y(Alignment::Center)
             .spacing(10);
 
-        let max_compression = if settings.game_data.enable_ultra_compression { 21 } else { 15 };
-        let current_compression = if self.config.compression_level == 0 {
-            settings.game_data.last_compression_level
-        } else if self.config.compression_level > max_compression {
-            max_compression
-        } else {
-            self.config.compression_level
-        };
-
         let comp_slider = slider(
-            1..=max_compression,
-            current_compression,
+            1..=15,
+            self.config.compression_level,
             Message::CompressionLevelChanged,
         )
             .width(Length::Fixed(200.0));
@@ -571,10 +561,9 @@ impl State {
             .align_y(Alignment::Center)
             .spacing(10);
 
-        let (desc_text, is_success) = match current_compression {
+        let (desc_text, is_success) = match self.config.compression_level {
             1..=9 => ("Best compression balance", true),
-            10..=15 => ("Slow compression for low archive size", false),
-            _ => ("Ultra compression granting minimal returns", false),
+            _ => ("Slow compression for low archive size", false),
         };
 
         let desc_label = text(desc_text)
@@ -783,7 +772,7 @@ impl State {
     }
 }
 
-pub fn censor_path(path_string: &str) -> String {
+fn censor_path(path_string: &str) -> String {
     if path_string.is_empty() || path_string == "No source selected" {
         return String::new();
     }

@@ -5,7 +5,6 @@ pub mod name_box;
 pub mod popup;
 pub mod shared;
 pub mod stat_grid;
-pub mod text;
 pub mod watcher;
 
 use std::path::Path;

@@ -23,22 +23,10 @@ const EXPECTED_HASHES: [(&str, &str); 4] = [
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum UpdateMode {
-    AutoReset,
-    AutoLoad,
     #[default]
+    #[serde(alias = "AutoReset", alias = "AutoLoad")]
     Prompt,
     Ignore,
-}
-
-impl UpdateMode {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::AutoReset => "Auto-Reset",
-            Self::AutoLoad => "Auto-Load",
-            Self::Prompt => "Prompt",
-            Self::Ignore => "Ignore",
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default, Debug)]
@@ -137,8 +125,6 @@ pub struct EnemyDataSettings {
 #[serde(default)]
 pub struct GameDataSettings {
     pub app_folder_persistence: bool,
-    pub enable_ultra_compression: bool,
-    pub last_compression_level: i32,
     pub adb_import_type_idx: usize,
     pub adb_region_idx: usize,
     pub enforce_key_validation: bool,
@@ -148,8 +134,6 @@ impl Default for GameDataSettings {
     fn default() -> Self {
         Self {
             app_folder_persistence: false,
-            enable_ultra_compression: false,
-            last_compression_level: 9,
             adb_import_type_idx: 0,
             adb_region_idx: 4,
             enforce_key_validation: true,
@@ -160,7 +144,6 @@ impl Default for GameDataSettings {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct AnimSettings {
-    pub centering_behavior: usize,
     pub debug_view: bool,
     pub use_tight_bounds: bool,
     pub auto_set_camera_region: bool,
@@ -177,7 +160,6 @@ pub struct AnimSettings {
 impl Default for AnimSettings {
     fn default() -> Self {
         Self {
-            centering_behavior: 2,
             debug_view: false,
             use_tight_bounds: true,
             auto_set_camera_region: false,

@@ -94,7 +94,7 @@ impl Renderer {
         self.height
     }
 
-    pub fn render_frame(
+    fn render_frame(
         &mut self,
         unit: &Unit,
         animation: Option<&Animation>,

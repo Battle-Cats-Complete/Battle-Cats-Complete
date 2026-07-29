@@ -44,7 +44,7 @@ impl Page {
     }
 }
 
-pub const ALL_PAGES: &[Page] = &[
+const ALL_PAGES: &[Page] = &[
     Page::Home,
     Page::Cats,
     Page::Enemies,
@@ -84,7 +84,7 @@ pub enum UpdaterAction {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ActivePopup {
+enum ActivePopup {
     CatExport,
     CatFilter,
     EnemyExport,
@@ -125,7 +125,7 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     pub window_size: Size,
     #[serde(skip)]
-    pub active_popups: Vec<ActivePopup>,
+    active_popups: Vec<ActivePopup>,
 
     #[serde(skip)]
     pub home_state: home::State,
@@ -371,8 +371,8 @@ impl BattleCatsApp {
         let sidebar_overlay = self.view_sidebar_overlay();
 
         let expanded: Option<Element<'_, Message>> = match self.current_page {
-            Page::Cats => self.cat_state.expanded_animation_view().map(|view| view.map(Message::Cat)),
-            Page::Enemies => self.enemy_state.expanded_animation_view().map(|view| view.map(Message::Enemy)),
+            Page::Cats => self.cat_state.expanded_animation_view(&self.settings).map(|view| view.map(Message::Cat)),
+            Page::Enemies => self.enemy_state.expanded_animation_view(&self.settings).map(|view| view.map(Message::Enemy)),
             _ => None,
         };
 

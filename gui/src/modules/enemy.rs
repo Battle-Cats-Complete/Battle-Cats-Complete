@@ -375,8 +375,8 @@ impl EnemyState {
             .then(|| self.filter.view(&self.img015_sheets, &self.custom_assets, window).map(Message::Filter))
     }
 
-    pub fn expanded_animation_view(&self) -> Option<Element<'_, Message>> {
-        self.animation.expanded_view().map(|view| view.map(Message::Animation))
+    pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings) -> Option<Element<'a, Message>> {
+        self.animation.expanded_view(settings).map(|view| view.map(Message::Animation))
     }
 
     pub fn export_popup_open(&self) -> bool {
@@ -460,7 +460,7 @@ impl EnemyState {
                 self.view_details(enemy_entry)
             }
             EnemyDetailTab::Animation => {
-                self.animation.view().map(Message::Animation)
+                self.animation.view(settings).map(Message::Animation)
             }
         };
 

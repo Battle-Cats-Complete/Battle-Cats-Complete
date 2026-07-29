@@ -9,11 +9,11 @@ use nyanko::graphics::engine::FrameData;
 
 use core::modules::animation::multiply_mat3;
 
-pub const VERTEX_STRIDE: u64 = 20;
-pub const VERTS_PER_PART: u32 = 6;
-pub const FLOATS_PER_PART: usize = 30;
+const VERTEX_STRIDE: u64 = 20;
+const VERTS_PER_PART: u32 = 6;
+const FLOATS_PER_PART: usize = 30;
 
-pub const SHADER_SOURCE: &str = r#"
+const SHADER_SOURCE: &str = r#"
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) uv: vec2<f32>,
@@ -44,12 +44,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 "#;
 
-pub struct Batch {
+pub(super) struct Batch {
     pub variant: usize,
     pub range: Range<u32>,
 }
 
-pub struct AtlasBinding {
+pub(super) struct AtlasBinding {
     pub bind_group: wgpu::BindGroup,
     pub image_id: usize,
 }
@@ -275,7 +275,7 @@ pub fn build_vertices(parts: &[FrameData], view_proj: &[f32; 9]) -> (Vec<f32>, V
     (vertex_data, batches)
 }
 
-pub fn blend_variant(glow: u8) -> usize {
+fn blend_variant(glow: u8) -> usize {
     match glow {
         1 => 1,
         2 => 2,

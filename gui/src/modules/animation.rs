@@ -76,7 +76,11 @@ impl State {
                 Task::none()
             }
             Message::Controls(controls::Message::OpenExport) => {
+                let was_open = self.export.is_open;
                 self.export.open();
+                if settings.animation.auto_set_camera_region && !was_open && !self.overlay.selecting {
+                    return self.export.update(export::Message::UseBounds, &self.data, settings).map(Message::Export);
+                }
                 Task::none()
             }
             Message::Controls(msg) => {
@@ -109,7 +113,7 @@ impl State {
         }
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self, settings: &Settings) -> Element<'_, Message> {
         if self.data.held_unit.is_none() {
             return container(text("No unit loaded for this form"))
                 .width(Length::Fill)
@@ -135,7 +139,7 @@ impl State {
             .into();
         }
 
-        self.viewer_view()
+        self.viewer_view(settings)
     }
 
     pub fn export_popup_open(&self) -> bool {
@@ -147,13 +151,13 @@ impl State {
             .then(|| self.export.view(window).map(Message::Export))
     }
 
-    pub fn expanded_view(&self) -> Option<Element<'_, Message>> {
+    pub fn expanded_view(&self, settings: &Settings) -> Option<Element<'_, Message>> {
         if !self.is_expanded || self.data.held_unit.is_none() {
             return None;
         }
 
         Some(
-            container(self.viewer_view())
+            container(self.viewer_view(settings))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .style(|theme: &Theme| container::Style {
@@ -164,10 +168,12 @@ impl State {
         )
     }
 
-    fn viewer_view(&self) -> Element<'_, Message> {
+    fn viewer_view(&self, settings: &Settings) -> Element<'_, Message> {
         let viewport = self.canvas.view(&self.data).map(Message::Canvas);
 
-        let selection_overlay = self.overlay.view(&self.canvas, self.export.camera_region()).map(Message::Overlay);
+        let selection_overlay = self.overlay
+            .view(&self.canvas, self.export.camera_region(), settings.animation.debug_view)
+            .map(Message::Overlay);
 
         let controls_overlay = container(self.controls.view(&self.canvas, &self.data).map(Message::Controls))
             .width(Length::Fill)

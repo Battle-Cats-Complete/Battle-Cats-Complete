@@ -119,6 +119,8 @@ pub struct State {
     pub level_input: String,
     pub talent_levels: HashMap<u8, u8>,
     pub talent_level_inputs: HashMap<u8, String>,
+    is_in_ultra_state: bool,
+    saved_pre_ultra_level: Option<(i32, String)>,
 
     img015_sheets: Vec<SpriteSheet>,
     img022_sheets: Vec<SpriteSheet>,
@@ -150,6 +152,8 @@ impl Default for State {
             level_input: String::from("1"),
             talent_levels: HashMap::new(),
             talent_level_inputs: HashMap::new(),
+            is_in_ultra_state: false,
+            saved_pre_ultra_level: None,
 
             img015_sheets: Vec::new(),
             img022_sheets: Vec::new(),
@@ -250,6 +254,52 @@ impl State {
         (form, tab)
     }
 
+    fn current_ultra_state(&self) -> Option<bool> {
+        let cat = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id))?;
+
+        let mut ultra = self.selected_form == 3;
+        if self.selected_form >= 2 && !ultra {
+            if let Some(talent_data) = &cat.talent_data {
+                ultra = talent_data.groups.iter().enumerate().any(|(idx, group)| {
+                    group.limit == 1
+                        && self.talent_levels.get(&(idx as u8)).is_some_and(|&lvl| lvl > 0)
+                });
+            } else {
+                ultra = self.talent_levels.iter().any(|(&idx, &lvl)| idx >= 5 && lvl > 0);
+            }
+        }
+
+        Some(ultra)
+    }
+
+    fn sync_ultra_bump(&mut self, settings: &Settings) {
+        let Some(current_ultra) = self.current_ultra_state() else {
+            return;
+        };
+
+        if !settings.cat_data.bump_ultra_60 {
+            self.is_in_ultra_state = current_ultra;
+            self.saved_pre_ultra_level = None;
+            return;
+        }
+
+        if !self.is_in_ultra_state && current_ultra {
+            self.saved_pre_ultra_level = Some((self.current_level, self.level_input.clone()));
+            if self.current_level < 60 {
+                self.current_level = 60;
+                self.level_input = "60".to_string();
+            }
+        } else if self.is_in_ultra_state && !current_ultra
+            && let Some((saved_level, saved_input)) = self.saved_pre_ultra_level.take() {
+            let expected_level = if saved_level < 60 { 60 } else { saved_level };
+            if self.current_level == expected_level {
+                self.current_level = saved_level;
+                self.level_input = saved_input;
+            }
+        }
+        self.is_in_ultra_state = current_ultra;
+    }
+
     fn check_sheets(&mut self, settings: &Settings) -> Task<Message> {
         let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings)
             .map(|(index, sheet)| Message::Img015Loaded(index, sheet));
@@ -262,6 +312,7 @@ impl State {
     pub fn update(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         let task = self.update_inner(message, settings, global_ctx);
 
+        self.sync_ultra_bump(settings);
         self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality);
 
         task
@@ -523,8 +574,8 @@ impl State {
         self.statblock_clipboard.as_mut()
     }
 
-    pub fn expanded_animation_view(&self) -> Option<Element<'_, Message>> {
-        self.animation.expanded_view().map(|view| view.map(Message::Animation))
+    pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings) -> Option<Element<'a, Message>> {
+        self.animation.expanded_view(settings).map(|view| view.map(Message::Animation))
     }
 
     pub fn export_popup_open(&self) -> bool {
@@ -621,7 +672,7 @@ impl State {
             DetailTab::Abilities => self.view_abilities(cat, settings, global_ctx),
             DetailTab::Talents => self.view_talents(cat, settings),
             DetailTab::Details => self.view_details(cat),
-            DetailTab::Animation => self.animation.view().map(Message::Animation),
+            DetailTab::Animation => self.animation.view(settings).map(Message::Animation),
         };
 
         column![

@@ -171,7 +171,7 @@ impl<'a> shader::Program<Message> for Viewport<'a> {
     }
 }
 
-pub struct Scene {
+struct Scene {
     image: Option<Arc<RgbaImage>>,
     parts: Vec<FrameData>,
     pan: Vector,
