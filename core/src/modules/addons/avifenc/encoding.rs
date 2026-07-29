@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 use std::thread;
 
 use tracing::{debug, error, info, warn};
@@ -20,25 +20,25 @@ use super::get_avif_path;
 pub fn encode(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
-    status_sender: mpsc::Sender<EncoderStatus>,
+    emit: &(dyn Fn(EncoderStatus) + Sync),
     temp_path: &PathBuf,
-    abort_signal: Arc<AtomicBool>
+    abort_signal: &AtomicBool
 ) -> bool {
     if paths::ffmpeg_status() == Presence::Installed {
         info!("FFmpeg detected. Starting AVIF encoding via pipe stream.");
-        encode_via_pipe(config, receiver, status_sender, temp_path, abort_signal)
+        encode_via_pipe(config, receiver, emit, temp_path, abort_signal)
     } else {
         info!("FFmpeg missing. Falling back to AVIF encoding via folder/temp files.");
-        encode_via_folder(config, receiver, status_sender, temp_path, abort_signal)
+        encode_via_folder(config, receiver, emit, temp_path, abort_signal)
     }
 }
 
 fn encode_via_pipe(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
-    status_sender: mpsc::Sender<EncoderStatus>,
+    emit: &(dyn Fn(EncoderStatus) + Sync),
     temp_path: &PathBuf,
-    abort_signal: Arc<AtomicBool>
+    abort_signal: &AtomicBool
 ) -> bool {
     let Some(avif_path) = get_avif_path() else {
         error!("AVIF binary not found.");
@@ -126,51 +126,57 @@ fn encode_via_pipe(
         return false;
     };
 
-    debug!("Pipes connected. Spawning IO bridge thread...");
-    let bridge_handle = thread::spawn(move || {
-        let _ = std::io::copy(&mut ffmpeg_stdout, &mut avif_stdin);
-    });
+    debug!("Pipes connected. Starting scoped IO bridge...");
+    let outcome = thread::scope(|scope| {
+        scope.spawn(move || {
+            let _ = std::io::copy(&mut ffmpeg_stdout, &mut avif_stdin);
+        });
 
-    let mut frames_processed = 0;
-    let mut is_success = false;
+        let mut frames_processed = 0;
+        let mut is_success = false;
 
-    while let Ok(message) = receiver.recv() {
-        if abort_signal.load(Ordering::Relaxed) {
-            warn!("Abort signal received. Halting pipe encoder.");
-            break;
-        }
-
-        match message {
-            EncoderMessage::Frame(raw_pixels, w, h, _) => {
-                if status_sender.send(EncoderStatus::Progress(frames_processed)).is_err() { break; }
-                let image_data = prepare_image(raw_pixels, w, h, config.background);
-                if ffmpeg_stdin.write_all(&image_data.into_vec()).is_err() {
-                    error!("Failed to write frame {} into ffmpeg stdin.", frames_processed);
-                    break;
-                }
-                frames_processed += 1;
-            },
-            EncoderMessage::Finish => {
-                debug!("Received Finish signal. All {} frames processed.", frames_processed);
-                is_success = true;
+        while let Ok(message) = receiver.recv() {
+            if abort_signal.load(Ordering::Relaxed) {
+                warn!("Abort signal received. Halting pipe encoder.");
                 break;
             }
+
+            match message {
+                EncoderMessage::Frame(raw_pixels, w, h, _) => {
+                    emit(EncoderStatus::Progress(frames_processed));
+                    let image_data = prepare_image(raw_pixels, w, h, config.background);
+                    if ffmpeg_stdin.write_all(&image_data.into_vec()).is_err() {
+                        error!("Failed to write frame {} into ffmpeg stdin.", frames_processed);
+                        break;
+                    }
+                    frames_processed += 1;
+                },
+                EncoderMessage::Finish => {
+                    debug!("Received Finish signal. All {} frames processed.", frames_processed);
+                    is_success = true;
+                    break;
+                }
+            }
         }
-    }
 
-    drop(ffmpeg_stdin);
+        drop(ffmpeg_stdin);
 
-    if !is_success || abort_signal.load(Ordering::Relaxed) {
-        let _ = ffmpeg_command.kill();
-        let _ = avif_command.kill();
+        if !is_success || abort_signal.load(Ordering::Relaxed) {
+            let _ = ffmpeg_command.kill();
+            let _ = avif_command.kill();
+            return None;
+        }
+
+        let _ = ffmpeg_command.wait();
+        let avif_status = avif_command.wait();
+
+        Some(avif_status.map(|status| status.success()).unwrap_or(false))
+    });
+
+    let Some(final_success) = outcome else {
         return false;
-    }
+    };
 
-    let _ = bridge_handle.join();
-    let _ = ffmpeg_command.wait();
-    let avif_status = avif_command.wait();
-
-    let final_success = is_success && avif_status.map(|status| status.success()).unwrap_or(false);
     if final_success {
         info!("Pipe encoding completed successfully.");
     } else {
@@ -183,9 +189,9 @@ fn encode_via_pipe(
 fn encode_via_folder(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
-    status_sender: mpsc::Sender<EncoderStatus>,
+    emit: &(dyn Fn(EncoderStatus) + Sync),
     temp_path: &PathBuf,
-    abort_signal: Arc<AtomicBool>
+    abort_signal: &AtomicBool
 ) -> bool {
     let Some(avifenc_path) = get_avif_path() else {
         error!("AVIF binary not found.");
@@ -222,7 +228,7 @@ fn encode_via_folder(
                 if image_data.save(&current_frame_path).is_ok() {
                     frame_paths.push(current_frame_path);
                     frames_processed += 1;
-                    let _ = status_sender.send(EncoderStatus::Progress(frames_processed));
+                    emit(EncoderStatus::Progress(frames_processed));
                 } else {
                     error!("Failed to save frame_{:05}.png to disk.", frames_processed);
                 }

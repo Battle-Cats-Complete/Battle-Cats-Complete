@@ -49,10 +49,6 @@ impl State {
         self.export.tick();
     }
 
-    pub fn export_tick(&mut self) {
-        self.export.tick();
-    }
-
     pub fn update(&mut self, message: Message, settings: &mut Settings) -> Task<Message> {
         match message {
             Message::Canvas(msg) => {
@@ -72,10 +68,7 @@ impl State {
                 self.overlay.selecting = true;
                 Task::none()
             }
-            Message::Export(msg) => {
-                self.export.update(msg, &self.data, settings);
-                Task::none()
-            }
+            Message::Export(msg) => self.export.update(msg, &self.data, settings).map(Message::Export),
             Message::Overlay(msg) => {
                 match msg {
                     overlay::Message::Selected(region) => self.export.set_region(region),

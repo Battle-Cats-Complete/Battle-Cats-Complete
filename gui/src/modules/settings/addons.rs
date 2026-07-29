@@ -1,5 +1,9 @@
+use std::thread;
+
+use iced::futures::channel::mpsc;
 use iced::widget::{button, column, container, row, text};
-use iced::{Alignment, Border, Element, Theme};
+use iced::{Alignment, Border, Element, Task, Theme};
+use tracing::error;
 
 use core::modules::addons::adb::AdbManager;
 use core::modules::addons::apkeditor::ApkeditorManager;
@@ -7,7 +11,7 @@ use core::modules::addons::avifenc::AvifManager;
 use core::modules::addons::ffmpeg::FfmpegManager;
 #[cfg(target_os = "windows")]
 use core::modules::addons::oem::{OemDriver, OemManager};
-use core::modules::addons::AddonStatus;
+use core::modules::addons::{manager, AddonStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Addon {
@@ -30,8 +34,8 @@ impl Addon {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Tick,
     Install(Addon),
+    Download(Addon, AddonStatus),
     RequestDelete(Addon),
     ConfirmDelete,
     CancelDelete,
@@ -70,22 +74,53 @@ impl State {
         self.pending_delete.is_some()
     }
 
-    pub fn update(&mut self, message: Message) {
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Tick => {
-                self.adb.update();
-                self.apkeditor.poll();
-                self.avif.update();
-                self.ffmpeg.update();
+            Message::Install(addon) => {
+                let config = match addon {
+                    Addon::Adb => self.adb.install(),
+                    Addon::Apkeditor => self.apkeditor.install(),
+                    Addon::Ffmpeg => self.ffmpeg.install(),
+                    Addon::Avif => self.avif.install(),
+                };
+
+                let (tx, rx) = mpsc::unbounded();
+
+                thread::spawn(move || {
+                    let result = manager::download(config, |status| {
+                        let _ = tx.unbounded_send(status);
+                    });
+
+                    let terminal = match result {
+                        Ok(()) => AddonStatus::Installed,
+                        Err(err) => {
+                            error!("Addon download failed: {}", err);
+                            AddonStatus::Error(err)
+                        }
+                    };
+                    let _ = tx.unbounded_send(terminal);
+                });
+
+                Task::stream(rx).map(move |status| Message::Download(addon, status))
             }
-            Message::Install(addon) => match addon {
-                Addon::Adb => self.adb.install(),
-                Addon::Apkeditor => self.apkeditor.install(),
-                Addon::Ffmpeg => self.ffmpeg.install(),
-                Addon::Avif => self.avif.install(),
-            },
-            Message::RequestDelete(addon) => self.pending_delete = Some(addon),
-            Message::CancelDelete => self.pending_delete = None,
+            Message::Download(addon, status) => {
+                let slot = match addon {
+                    Addon::Adb => &mut self.adb.status,
+                    Addon::Apkeditor => &mut self.apkeditor.status,
+                    Addon::Ffmpeg => &mut self.ffmpeg.status,
+                    Addon::Avif => &mut self.avif.status,
+                };
+                *slot = status;
+                Task::none()
+            }
+            Message::RequestDelete(addon) => {
+                self.pending_delete = Some(addon);
+                Task::none()
+            }
+            Message::CancelDelete => {
+                self.pending_delete = None;
+                Task::none()
+            }
             Message::ConfirmDelete => {
                 if let Some(addon) = self.pending_delete.take() {
                     match addon {
@@ -95,11 +130,18 @@ impl State {
                         Addon::Avif => self.avif.uninstall(),
                     }
                 }
+                Task::none()
             }
             #[cfg(target_os = "windows")]
-            Message::OemDriverSelected(driver) => self.oem.selected = driver,
+            Message::OemDriverSelected(driver) => {
+                self.oem.selected = driver;
+                Task::none()
+            }
             #[cfg(target_os = "windows")]
-            Message::OemAction => self.oem.execute_action(),
+            Message::OemAction => {
+                self.oem.execute_action();
+                Task::none()
+            }
         }
     }
 

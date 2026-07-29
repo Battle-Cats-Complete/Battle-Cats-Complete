@@ -2,8 +2,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
-use std::thread;
+use std::sync::mpsc;
 
 use tracing::{debug, error, info, warn};
 
@@ -18,9 +17,9 @@ use super::get_ffmpeg_path;
 pub fn encode(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
-    status_sender: mpsc::Sender<EncoderStatus>,
+    emit: &(dyn Fn(EncoderStatus) + Sync),
     temp_path: &PathBuf,
-    abort_signal: Arc<AtomicBool>
+    abort_signal: &AtomicBool
 ) -> bool {
     let Some(ffmpeg_path) = get_ffmpeg_path() else {
         error!("FFmpeg binary not found. Aborting encode.");
@@ -166,47 +165,38 @@ pub fn encode(
         return false;
     };
 
-    let progress_sender = status_sender.clone();
-    let abort_signal_clone = abort_signal.clone();
+    debug!("Starting FFmpeg pixel stream...");
+    let mut frames_processed = 0;
+    let mut finished_cleanly = false;
 
-    debug!("Starting FFmpeg pixel stream thread...");
-    let input_handle = thread::spawn(move || {
-        let mut frames_processed = 0;
-        let mut finished_cleanly = false;
+    while let Ok(message) = receiver.recv() {
+        if abort_signal.load(Ordering::Relaxed) {
+            warn!("Abort signal received. Halting pixel stream.");
+            break;
+        }
 
-        while let Ok(message) = receiver.recv() {
-            if abort_signal_clone.load(Ordering::Relaxed) {
-                warn!("Abort signal received. Halting pixel stream.");
-                break;
-            }
+        match message {
+            EncoderMessage::Frame(raw_pixels, w, h, _) => {
+                emit(EncoderStatus::Progress(frames_processed));
 
-            match message {
-                EncoderMessage::Frame(raw_pixels, w, h, _) => {
-                    if progress_sender.send(EncoderStatus::Progress(frames_processed)).is_err() {
-                        error!("Failed to send progress update for frame {}. Stopping stream.", frames_processed);
-                        break;
-                    }
+                let image_data = prepare_image(raw_pixels, w, h, config.background);
 
-                    let image_data = prepare_image(raw_pixels, w, h, config.background);
-
-                    if ffmpeg_stdin.write_all(&image_data.into_vec()).is_err() {
-                        error!("Failed to write frame {} to FFmpeg stdin.", frames_processed);
-                        break;
-                    }
-                    frames_processed += 1;
-                },
-                EncoderMessage::Finish => {
-                    debug!("Received Finish signal. Total frames passed to FFmpeg: {}", frames_processed);
-                    finished_cleanly = true;
+                if ffmpeg_stdin.write_all(&image_data.into_vec()).is_err() {
+                    error!("Failed to write frame {} to FFmpeg stdin.", frames_processed);
                     break;
                 }
+                frames_processed += 1;
+            },
+            EncoderMessage::Finish => {
+                debug!("Received Finish signal. Total frames passed to FFmpeg: {}", frames_processed);
+                finished_cleanly = true;
+                break;
             }
         }
-        drop(ffmpeg_stdin);
-        finished_cleanly
-    });
+    }
+    drop(ffmpeg_stdin);
 
-    let did_input_succeed = input_handle.join().unwrap_or(false);
+    let did_input_succeed = finished_cleanly;
 
     if abort_signal.load(Ordering::Relaxed) || !did_input_succeed {
         error!("FFmpeg encoding aborted or stream failed.");

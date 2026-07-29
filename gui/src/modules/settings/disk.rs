@@ -1,10 +1,10 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use iced::widget::{button, column, container, row, text};
-use iced::{Alignment, Border, Element, Length, Theme};
-
-use core::modules::settings::delete::FolderDeleter;
+use iced::{task, Alignment, Border, Element, Length, Task, Theme};
+use tracing::{debug, error};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
@@ -15,28 +15,46 @@ pub enum Target {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Tick,
     RequestDelete(Target),
     ConfirmDelete,
     CancelDelete,
+    DeleteFinished(Target),
+    DoneExpired(Target),
 }
 
-pub struct State {
-    game: FolderDeleter,
-    raw: FolderDeleter,
-    cache: FolderDeleter,
-    pending: Option<Target>,
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    #[default]
+    Idle,
+    Deleting,
+    Done,
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            game: FolderDeleter::default(),
-            raw: FolderDeleter::default(),
-            cache: FolderDeleter::default(),
-            pending: None,
+#[derive(Default)]
+struct Slot {
+    phase: Phase,
+    delete_handle: Option<task::Handle>,
+    banner_handle: Option<task::Handle>,
+}
+
+impl Slot {
+    fn reset(&mut self) {
+        if let Some(handle) = self.delete_handle.take() {
+            handle.abort();
         }
+        if let Some(handle) = self.banner_handle.take() {
+            handle.abort();
+        }
+        self.phase = Phase::Idle;
     }
+}
+
+#[derive(Default)]
+pub struct State {
+    game: Slot,
+    raw: Slot,
+    cache: Slot,
+    pending: Option<Target>,
 }
 
 fn folder_size(path: &Path) -> u64 {
@@ -77,62 +95,111 @@ impl State {
         self.pending.is_some()
     }
 
-    pub fn update(&mut self, message: Message) {
+    fn slot_mut(&mut self, target: Target) -> &mut Slot {
+        match target {
+            Target::Game => &mut self.game,
+            Target::Raw => &mut self.raw,
+            Target::Cache => &mut self.cache,
+        }
+    }
+
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Tick => {
-                self.game.update();
-                self.raw.update();
-                self.cache.update();
+            Message::RequestDelete(target) => {
+                self.pending = Some(target);
+                Task::none()
             }
-            Message::RequestDelete(target) => self.pending = Some(target),
-            Message::CancelDelete => self.pending = None,
+            Message::CancelDelete => {
+                self.pending = None;
+                Task::none()
+            }
             Message::ConfirmDelete => {
-                if let Some(target) = self.pending.take() {
-                    match target {
-                        Target::Game => {
-                            if self.raw.is_active() {
-                                self.raw = FolderDeleter::default();
-                            }
-                            self.game.start("game");
-                        }
-                        Target::Raw => self.raw.start("game/raw"),
-                        Target::Cache => {
-                            if let Some(cache_dir) = core::common::io::cache::get_cache_dir() {
-                                self.cache.start(cache_dir);
-                            }
-                        }
+                let Some(target) = self.pending.take() else {
+                    return Task::none();
+                };
+
+                let path = match target {
+                    Target::Game => {
+                        self.raw.reset();
+                        PathBuf::from("game")
                     }
-                }
+                    Target::Raw => PathBuf::from("game/raw"),
+                    Target::Cache => {
+                        let Some(cache_dir) = core::common::io::cache::get_cache_dir() else {
+                            return Task::none();
+                        };
+                        cache_dir
+                    }
+                };
+
+                self.start_delete(target, path)
+            }
+            Message::DeleteFinished(target) => {
+                let slot = self.slot_mut(target);
+                slot.phase = Phase::Done;
+                slot.delete_handle = None;
+
+                let (banner_task, handle) = Task::perform(
+                    async { smol::Timer::after(Duration::from_secs(2)).await },
+                    move |_| Message::DoneExpired(target),
+                )
+                .abortable();
+                slot.banner_handle = Some(handle);
+                banner_task
+            }
+            Message::DoneExpired(target) => {
+                let slot = self.slot_mut(target);
+                slot.phase = Phase::Idle;
+                slot.banner_handle = None;
+                Task::none()
             }
         }
     }
 
-    fn disk_button<'a>(&'a self, label_idle: String, deleter: &FolderDeleter, target: Target, can_delete: bool) -> Element<'a, Message> {
-        if deleter.is_deleting() {
-            button(text(format!("Deleting \"{}\"...", label_idle)).size(14))
+    fn start_delete(&mut self, target: Target, path: PathBuf) -> Task<Message> {
+        debug!("Initializing folder deletion for path: {:?}", path);
+
+        let (delete_task, handle) = Task::perform(
+            smol::unblock(move || {
+                if let Err(delete_error) = fs::remove_dir_all(&path) {
+                    error!("Failed to delete folder {:?}: {}", path, delete_error);
+                } else {
+                    debug!("Folder deletion completed successfully.");
+                }
+            }),
+            move |_| Message::DeleteFinished(target),
+        )
+        .abortable();
+
+        let slot = self.slot_mut(target);
+        slot.phase = Phase::Deleting;
+        slot.delete_handle = Some(handle);
+        delete_task
+    }
+
+    fn disk_button<'a>(&'a self, label_idle: String, phase: Phase, target: Target, can_delete: bool) -> Element<'a, Message> {
+        match phase {
+            Phase::Deleting => button(text(format!("Deleting \"{}\"...", label_idle)).size(14))
                 .padding([8, 16])
                 .style(|_theme: &Theme, _status| button::Style {
                     background: Some(iced::Color::from_rgb8(200, 180, 50).into()),
                     text_color: iced::Color::WHITE,
                     ..Default::default()
                 })
-                .into()
-        } else if deleter.is_done() {
-            button(text(format!("Deleted \"{}\"!", label_idle)).size(14))
+                .into(),
+            Phase::Done => button(text(format!("Deleted \"{}\"!", label_idle)).size(14))
                 .padding([8, 16])
                 .style(button::success)
-                .into()
-        } else if can_delete {
-            button(text(format!("Delete \"{}\"", label_idle)).size(14))
+                .into(),
+            Phase::Idle if can_delete => button(text(format!("Delete \"{}\"", label_idle)).size(14))
                 .padding([8, 16])
                 .style(button::danger)
                 .on_press(Message::RequestDelete(target))
-                .into()
-        } else {
-            button(text(format!("No \"{}\"", label_idle)).size(14))
+                .into(),
+            Phase::Idle => button(text(format!("No \"{}\"", label_idle)).size(14))
                 .padding([8, 16])
                 .style(button::secondary)
-                .into()
+                .into(),
         }
     }
 
@@ -143,14 +210,14 @@ impl State {
             .map(|dir| folder_size(&dir))
             .unwrap_or(0);
 
-        let raw_can_delete = raw_exists && !self.game.is_deleting();
+        let raw_can_delete = raw_exists && self.game.phase != Phase::Deleting;
 
         column![
-            self.disk_button("game".to_string(), &self.game, Target::Game, game_exists),
-            self.disk_button("raw".to_string(), &self.raw, Target::Raw, raw_can_delete),
+            self.disk_button("game".to_string(), self.game.phase, Target::Game, game_exists),
+            self.disk_button("raw".to_string(), self.raw.phase, Target::Raw, raw_can_delete),
             self.disk_button(
                 if cache_size > 0 { "Clear Cache".to_string() } else { "Cache Empty".to_string() },
-                &self.cache, Target::Cache, cache_size > 0
+                self.cache.phase, Target::Cache, cache_size > 0
             ),
         ].spacing(8).into()
     }

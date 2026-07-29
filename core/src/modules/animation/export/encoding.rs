@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{BufWriter, Cursor, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 
 use gif::{
     DisposalMethod, Encoder as GifEncoder,
@@ -22,9 +22,9 @@ use super::{EncoderMessage, EncoderStatus, ExportConfig, ExportFormat};
 pub fn encode_native(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
-    status_sender: mpsc::Sender<EncoderStatus>,
+    emit: &(dyn Fn(EncoderStatus) + Sync),
     temp_path: &PathBuf,
-    abort_signal: Arc<AtomicBool>
+    abort_signal: &AtomicBool
 ) -> bool {
     let mut frames_processed = 0;
     let mut is_success = false;
@@ -79,9 +79,7 @@ pub fn encode_native(
                         }
 
                         frames_processed += 1;
-                        if let Err(e) = status_sender.send(EncoderStatus::Progress(frames_processed)) {
-                            warn!("Failed to dispatch EncoderStatus::Progress message: {}", e);
-                        }
+                        emit(EncoderStatus::Progress(frames_processed));
                     },
                     EncoderMessage::Finish => {
                         is_success = true;
@@ -115,9 +113,7 @@ pub fn encode_native(
                         timestamp_milliseconds += delay_milliseconds as i32;
                         frames_processed += 1;
 
-                        if let Err(e) = status_sender.send(EncoderStatus::Progress(frames_processed)) {
-                            warn!("Failed to dispatch EncoderStatus::Progress message: {}", e);
-                        }
+                        emit(EncoderStatus::Progress(frames_processed));
                     },
                     EncoderMessage::Finish => {
                         is_success = true;
@@ -191,9 +187,7 @@ pub fn encode_native(
                         frame_index += 1;
                         frames_processed += 1;
 
-                        if let Err(e) = status_sender.send(EncoderStatus::Progress(frames_processed)) {
-                            warn!("Failed to dispatch EncoderStatus::Progress message: {}", e);
-                        }
+                        emit(EncoderStatus::Progress(frames_processed));
                     },
                     EncoderMessage::Finish => {
                         is_success = true;

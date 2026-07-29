@@ -22,7 +22,7 @@ pub fn ensure_loaded(sheets: &mut Vec<SpriteSheet>, settings: &Settings) {
     for (i, (png_path, imgcut_path)) in png_paths.into_iter().zip(cut_paths).enumerate() {
         sheets[i].update();
 
-        if sheets[i].texture_handle.is_none() && !sheets[i].core.is_loading_active {
+        if sheets[i].texture_handle.is_none() && !sheets[i].is_loading() {
             let key = png_path
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())

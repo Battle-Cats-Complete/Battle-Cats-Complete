@@ -184,10 +184,6 @@ impl EnemyState {
 
                 crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
 
-                if self.selected_tab != EnemyDetailTab::Animation {
-                    self.animation.export_tick();
-                }
-
                 let list_task = self.list
                     .update(list::Message::Tick, &self.data.enemies, &self.search_query, &self.filter.filter_state)
                     .map(Message::List);

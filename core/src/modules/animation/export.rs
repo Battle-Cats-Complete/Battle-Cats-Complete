@@ -4,9 +4,6 @@ pub mod leader;
 pub mod process;
 
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::Arc;
 
 use crate::modules::settings::Settings;
 
@@ -68,8 +65,6 @@ pub enum EncoderMessage {
 
 #[derive(Debug, Clone)]
 pub enum EncoderStatus {
-    #[allow(dead_code)]
-    Encoding,
     Progress(u32),
     Finished,
 }
@@ -118,20 +113,11 @@ pub struct ExporterState {
     pub background: bool,
     pub user_bg_preference: bool,
     pub interpolation: bool,
-    pub is_processing: bool,
-    pub current_progress: i32,
-    pub encoded_frames: i32,
-    pub tx: Option<Sender<EncoderMessage>>,
-    pub abort: Option<Arc<AtomicBool>>,
-    pub export_result_msg: Option<String>,
     pub is_loop_searching: bool,
     pub loop_frames_searched: usize,
-    pub loop_rx: Option<Receiver<LoopStatus>>,
-    pub loop_abort: Option<Arc<AtomicBool>>,
     pub loop_search_start_time: Option<f64>,
     pub loop_result_msg: Option<String>,
     pub anim_name: String,
-    pub completion_time: Option<f64>,
 }
 
 impl Default for ExporterState {
@@ -180,20 +166,11 @@ impl Default for ExporterState {
             background: false,
             user_bg_preference: false,
             interpolation: false,
-            is_processing: false,
-            current_progress: 0,
-            encoded_frames: 0,
-            tx: None,
-            abort: None,
-            export_result_msg: None,
             is_loop_searching: false,
             loop_frames_searched: 0,
-            loop_rx: None,
-            loop_abort: None,
             loop_search_start_time: None,
             loop_result_msg: None,
             anim_name: String::new(),
-            completion_time: None,
         }
     }
 }
@@ -218,6 +195,13 @@ impl ExporterState {
 
         state.compression_percent = settings.animation.last_export_compression.unwrap_or(0);
         state.compression_percent_str = settings.animation.last_export_compression.map_or_else(String::new, |v| v.to_string());
+
+        state.showcase_walk_len = settings.animation.default_showcase_walk;
+        state.showcase_idle_len = settings.animation.default_showcase_idle;
+        state.showcase_kb_len = settings.animation.default_showcase_kb;
+        state.last_known_walk_default = settings.animation.default_showcase_walk;
+        state.last_known_idle_default = settings.animation.default_showcase_idle;
+        state.last_known_kb_default = settings.animation.default_showcase_kb;
 
         state
     }

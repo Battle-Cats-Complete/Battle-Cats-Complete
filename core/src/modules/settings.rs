@@ -1,4 +1,3 @@
-pub mod delete;
 pub mod desktop;
 pub mod lang;
 pub mod nightly;

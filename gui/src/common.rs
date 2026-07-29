@@ -7,14 +7,19 @@ pub mod stat_grid;
 pub mod text;
 pub mod watcher;
 
+use std::path::Path;
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
+
 use iced::widget::image::Handle;
-use tracing::{error, info, trace};
+use nyanko::graphics::rig::SpriteSheet as NyankoSpriteSheet;
+use tracing::{debug, error, info, trace, warn};
 
 use core::common::assets::{
     BOSS_WAVE, BURROW, DEATH_TIMER, DOJO, GOD, KAMIKAZE, MULTIHIT, REVIVE, STARRED_ALIEN, STOP,
     UDI_F, UNKNOWN,
 };
-use core::common::formats::SpriteSheet as CoreSpriteSheet;
+use core::common::formats::{imgcut, SpriteSheet as CoreSpriteSheet};
 use core::common::game::CustomIcon;
 
 #[derive(Clone)]
@@ -86,30 +91,52 @@ impl CustomAssets {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub struct SpriteSheet {
     pub core: CoreSpriteSheet,
     pub texture_handle: Option<Handle>,
+    pending: Option<Receiver<(String, NyankoSpriteSheet)>>,
 }
 
 impl SpriteSheet {
-    pub fn load(&mut self, png_path: &std::path::Path, imgcut_path: &std::path::Path, id_str: String) {
-        tracing::debug!("Loading SpriteSheet identifier: {}", id_str);
-        self.core.load(png_path, imgcut_path, id_str);
+    pub fn is_loading(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    pub fn load(&mut self, png_path: &Path, imgcut_path: &Path, id_str: String) {
+        debug!("Loading SpriteSheet identifier: {}", id_str);
+        let (tx, rx) = mpsc::channel();
+        self.pending = Some(rx);
+
+        let png_path = png_path.to_path_buf();
+        let imgcut_path = imgcut_path.to_path_buf();
+
+        thread::spawn(move || {
+            match imgcut::parse(&png_path, &imgcut_path) {
+                Some(parsed_sheet) => {
+                    let _ = tx.send((id_str, parsed_sheet));
+                }
+                None => warn!("Failed to parse sprite sheet '{}' from {:?}", id_str, png_path),
+            }
+        });
     }
 
     pub fn update(&mut self) {
-        self.core.update();
+        let Some(rx) = &self.pending else { return };
+        let Ok((name, parsed_sheet)) = rx.try_recv() else { return };
 
-        if self.texture_handle.is_none() && !self.core.is_loading_active {
-            if let Some(image_data) = &self.core.image_data {
-                tracing::debug!("Generating texture handle for sheet: {}", self.core.sheet_name);
-                self.texture_handle = Some(Handle::from_rgba(
-                    image_data.width(),
-                    image_data.height(),
-                    image_data.as_raw().clone(),
-                ));
-            }
+        self.core.sheet_name = name;
+        self.core.image_data = parsed_sheet.image_data;
+        self.core.cuts_map = parsed_sheet.cuts_map;
+        self.pending = None;
+
+        if let Some(image_data) = &self.core.image_data {
+            debug!("Generating texture handle for sheet: {}", self.core.sheet_name);
+            self.texture_handle = Some(Handle::from_rgba(
+                image_data.width(),
+                image_data.height(),
+                image_data.as_raw().clone(),
+            ));
         }
     }
 }

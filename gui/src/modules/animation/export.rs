@@ -1,16 +1,19 @@
+use std::collections::HashMap;
 use std::fs;
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::{mpsc, Arc};
+use std::thread;
 use std::time::Instant;
 
+use iced::futures::channel::mpsc::unbounded;
 use iced::widget::{button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text, text_input, Space};
-use iced::{Alignment, Element, Length, Size};
+use iced::{task, Alignment, Element, Length, Size, Task};
+use tracing::trace;
 
 use nyanko::graphics::rig::Animation;
 
 use core::modules::addons::paths::{self, Presence};
-use core::modules::animation::export::process::{start_export, STATUS_RX};
-use core::modules::animation::export::{EncoderStatus, ExportFormat, ExportMode, ExporterState};
+use core::modules::animation::export::{leader, process, EncoderStatus, ExportFormat, ExportMode, ExporterState};
 use core::modules::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
 use core::modules::settings::Settings;
 
@@ -24,14 +27,37 @@ const POPUP_SIZE: Size = Size::new(320.0, 500.0);
 const MODE_OPTIONS: [&str; 3] = ["Manual", "Loop", "Showcase"];
 const FORMAT_OPTIONS: [&str; 8] = ["GIF", "WebP", "AVIF", "PNG", "MP4", "MKV", "WebM", "ZIP"];
 
+type JobKey = (String, usize);
+
+enum JobResult {
+    Completed,
+    Terminated,
+}
+
+enum JobPhase {
+    Running,
+    Aborting,
+    Done { result: JobResult, shown_at: Option<Instant> },
+}
+
+struct JobState {
+    phase: JobPhase,
+    abort: Arc<AtomicBool>,
+    render_progress: Arc<AtomicI32>,
+    rendered_frames: i32,
+    encoded_frames: i32,
+    total_frames: i32,
+    encoder_handle: task::Handle,
+}
+
 #[derive(Default)]
 pub struct State {
     pub is_open: bool,
     popup: popup::State,
     exporter: ExporterState,
-    render_progress: Arc<AtomicI32>,
-    done_at: Option<Instant>,
-    synced_key: Option<(String, usize)>,
+    jobs: HashMap<JobKey, JobState>,
+    synced_key: Option<JobKey>,
+    scanned_showcase: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +84,7 @@ pub enum Message {
     ToggleBackground(bool),
     BeginExport,
     AbortExport,
+    Encoder(JobKey, EncoderStatus),
     SetCamera,
     UseBounds,
 }
@@ -68,68 +95,130 @@ impl State {
     }
 
     pub fn sync(&mut self, data: &data::State, settings: &Settings) {
+        self.check_settings_defaults(settings);
+
         let key = (data.loaded_id().to_string(), data.loaded_anim_index);
 
-        if self.synced_key.as_ref() == Some(&key) {
+        if self.synced_key.as_ref() != Some(&key) {
+            let unit_changed = self.synced_key.as_ref().is_none_or(|(id, _)| *id != key.0);
+            self.synced_key = Some(key);
+
+            if unit_changed {
+                self.reset(settings);
+            }
+
+            self.exporter.loop_supported = matches!(data.loaded_anim_index, IDX_WALK | IDX_IDLE);
+
+            if self.exporter.export_mode == ExportMode::Loop && !self.exporter.loop_supported {
+                self.exporter.export_mode = ExportMode::Manual;
+                self.exporter.frame_start = 0;
+                self.exporter.frame_end = 0;
+                self.exporter.frame_start_str.clear();
+                self.exporter.frame_end_str.clear();
+            }
+
+            if self.exporter.export_mode != ExportMode::Showcase {
+                match &data.current_anim {
+                    Some(anim) => {
+                        let true_end = anim.calculate_true_loop().unwrap_or(anim.max_frame);
+                        self.exporter.max_frame = true_end;
+                        self.exporter.frame_start = 0;
+                        self.exporter.frame_end = true_end;
+                    }
+                    None => {
+                        self.exporter.max_frame = 0;
+                        self.exporter.frame_start = 0;
+                        self.exporter.frame_end = 0;
+                    }
+                }
+                self.exporter.frame_start_str.clear();
+                self.exporter.frame_end_str.clear();
+            }
+
+            self.exporter.name_prefix = derive_name_prefix(data.primary_id(), data.loaded_anim_index);
+        }
+
+        self.maybe_scan_showcase(data, settings);
+    }
+
+    fn check_settings_defaults(&mut self, settings: &Settings) {
+        let walk_mismatch = self.exporter.last_known_walk_default != settings.animation.default_showcase_walk;
+        let idle_mismatch = self.exporter.last_known_idle_default != settings.animation.default_showcase_idle;
+        let kb_mismatch = self.exporter.last_known_kb_default != settings.animation.default_showcase_kb;
+
+        if !walk_mismatch && !idle_mismatch && !kb_mismatch {
             return;
         }
 
-        let unit_changed = self.synced_key.as_ref().is_none_or(|(id, _)| *id != key.0);
-        self.synced_key = Some(key);
+        self.exporter.last_known_walk_default = settings.animation.default_showcase_walk;
+        self.exporter.last_known_idle_default = settings.animation.default_showcase_idle;
+        self.exporter.last_known_kb_default = settings.animation.default_showcase_kb;
 
-        if unit_changed {
-            self.reset(settings);
+        if self.exporter.showcase_walk_str.is_empty() {
+            self.exporter.showcase_walk_len = settings.animation.default_showcase_walk;
+        }
+        if self.exporter.showcase_idle_str.is_empty() {
+            self.exporter.showcase_idle_len = settings.animation.default_showcase_idle;
+        }
+        if self.exporter.showcase_kb_str.is_empty() {
+            self.exporter.showcase_kb_len = settings.animation.default_showcase_kb;
         }
 
-        self.exporter.loop_supported = matches!(data.loaded_anim_index, IDX_WALK | IDX_IDLE);
+        self.scanned_showcase = None;
+    }
 
-        if self.exporter.export_mode == ExportMode::Loop && !self.exporter.loop_supported {
-            self.exporter.export_mode = ExportMode::Manual;
-            self.exporter.frame_start = 0;
-            self.exporter.frame_end = 0;
-            self.exporter.frame_start_str.clear();
-            self.exporter.frame_end_str.clear();
-        }
-
+    fn maybe_scan_showcase(&mut self, data: &data::State, settings: &Settings) {
         if self.exporter.export_mode != ExportMode::Showcase {
-            match &data.current_anim {
-                Some(anim) => {
-                    let true_end = anim.calculate_true_loop().unwrap_or(anim.max_frame);
-                    self.exporter.max_frame = true_end;
-                    self.exporter.frame_start = 0;
-                    self.exporter.frame_end = true_end;
-                }
-                None => {
-                    self.exporter.max_frame = 0;
-                    self.exporter.frame_start = 0;
-                    self.exporter.frame_end = 0;
-                }
-            }
-            self.exporter.frame_start_str.clear();
-            self.exporter.frame_end_str.clear();
+            return;
         }
 
-        self.exporter.name_prefix = derive_name_prefix(data.primary_id(), data.loaded_anim_index);
+        let loaded_id = data.loaded_id();
+        if self.scanned_showcase.as_deref() == Some(loaded_id) {
+            return;
+        }
+        self.scanned_showcase = Some(loaded_id.to_string());
+
+        let parse_anim = |target_idx: usize| -> Option<Animation> {
+            let (_, path) = data.available_anims.iter().find(|(idx, _)| *idx == target_idx)?;
+            let bytes = fs::read(path).ok()?;
+            Animation::parse(&bytes)
+        };
+
+        if let Some(attack) = parse_anim(IDX_ATTACK) {
+            let total_attack_frames = attack.max_frame + 1;
+            self.exporter.detected_attack_len = total_attack_frames;
+            if self.exporter.showcase_attack_str.is_empty() {
+                self.exporter.showcase_attack_len = total_attack_frames;
+            }
+        }
+
+        if let Some(walk) = parse_anim(IDX_WALK) {
+            let walk_loop = walk.calculate_true_loop().unwrap_or(walk.max_frame);
+            let new_walk_length = if walk_loop <= 1 { 0 } else { settings.animation.default_showcase_walk };
+            self.exporter.detected_walk_len = new_walk_length;
+
+            if self.exporter.showcase_walk_str.is_empty()
+                || self.exporter.showcase_walk_len == settings.animation.default_showcase_walk {
+                self.exporter.showcase_walk_len = new_walk_length;
+            }
+        }
+
+        if let Some(idle) = parse_anim(IDX_IDLE) {
+            let idle_loop = idle.calculate_true_loop().unwrap_or(idle.max_frame);
+            let new_idle_length = if idle_loop <= 1 { 0 } else { settings.animation.default_showcase_idle };
+            self.exporter.detected_idle_len = new_idle_length;
+
+            if self.exporter.showcase_idle_str.is_empty()
+                || self.exporter.showcase_idle_len == settings.animation.default_showcase_idle {
+                self.exporter.showcase_idle_len = new_idle_length;
+            }
+        }
     }
 
     fn reset(&mut self, settings: &Settings) {
-        let mut terminated: Option<String> = None;
-
-        if self.exporter.is_processing {
-            if let Some(abort) = &self.exporter.abort {
-                abort.store(true, Ordering::Relaxed);
-            }
-            terminated = Some("Export Terminated!".to_string());
-        }
-
         let previous_mode = self.exporter.export_mode.clone();
         self.exporter = ExporterState::with_settings(settings);
         self.exporter.export_mode = previous_mode;
-
-        if let Some(message) = terminated {
-            self.exporter.export_result_msg = Some(message);
-            self.done_at = Some(Instant::now());
-        }
     }
 
     pub fn set_region(&mut self, region: Region) {
@@ -154,35 +243,27 @@ impl State {
     }
 
     pub fn tick(&mut self) {
-        if let Some(done) = self.done_at
-            && done.elapsed().as_secs_f32() > 3.0 {
-            self.done_at = None;
-            self.exporter.export_result_msg = None;
-        }
+        if let Some(key) = &self.synced_key
+            && let Some(job) = self.jobs.get_mut(key) {
+            job.rendered_frames = job.render_progress.load(Ordering::Relaxed);
 
-        if !self.exporter.is_processing {
-            return;
-        }
-
-        self.exporter.current_progress = self.render_progress.load(Ordering::Relaxed);
-
-        if let Ok(receiver_lock) = STATUS_RX.lock()
-            && let Some(receiver) = receiver_lock.as_ref() {
-            while let Ok(status) = receiver.try_recv() {
-                match status {
-                    EncoderStatus::Encoding => {}
-                    EncoderStatus::Progress(progress) => self.exporter.encoded_frames = progress as i32,
-                    EncoderStatus::Finished => {
-                        self.exporter.is_processing = false;
-                        self.exporter.tx = None;
-                        self.done_at = Some(Instant::now());
-                    }
-                }
+            if let JobPhase::Done { shown_at, .. } = &mut job.phase
+                && shown_at.is_none() {
+                *shown_at = Some(Instant::now());
             }
         }
+
+        self.jobs.retain(|_, job| {
+            if let JobPhase::Done { shown_at: Some(at), .. } = &job.phase
+                && at.elapsed().as_secs_f32() > 3.0 {
+                job.encoder_handle.abort();
+                return false;
+            }
+            true
+        });
     }
 
-    pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings) {
+    pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
                 if self.popup.update(msg, POPUP_SIZE) {
@@ -197,6 +278,7 @@ impl State {
                     self.exporter.showcase_kb_str.clear();
                 }
                 self.exporter.export_mode = mode;
+                self.maybe_scan_showcase(data, settings);
             }
             Message::SetFormat(format) => {
                 self.exporter.format = format.clone();
@@ -242,25 +324,33 @@ impl State {
             }
             Message::SetShowcaseWalk(value) => {
                 self.exporter.showcase_walk_str = value.clone();
-                if let Ok(parsed) = value.parse::<i32>() {
+                if value.trim().is_empty() {
+                    self.exporter.showcase_walk_len = self.exporter.detected_walk_len;
+                } else if let Ok(parsed) = value.parse::<i32>() {
                     self.exporter.showcase_walk_len = parsed;
                 }
             }
             Message::SetShowcaseIdle(value) => {
                 self.exporter.showcase_idle_str = value.clone();
-                if let Ok(parsed) = value.parse::<i32>() {
+                if value.trim().is_empty() {
+                    self.exporter.showcase_idle_len = self.exporter.detected_idle_len;
+                } else if let Ok(parsed) = value.parse::<i32>() {
                     self.exporter.showcase_idle_len = parsed;
                 }
             }
             Message::SetShowcaseAttack(value) => {
                 self.exporter.showcase_attack_str = value.clone();
-                if let Ok(parsed) = value.parse::<i32>() {
+                if value.trim().is_empty() {
+                    self.exporter.showcase_attack_len = self.exporter.detected_attack_len;
+                } else if let Ok(parsed) = value.parse::<i32>() {
                     self.exporter.showcase_attack_len = parsed;
                 }
             }
             Message::SetShowcaseKb(value) => {
                 self.exporter.showcase_kb_str = value.clone();
-                if let Ok(parsed) = value.parse::<i32>() {
+                if value.trim().is_empty() {
+                    self.exporter.showcase_kb_len = settings.animation.default_showcase_kb;
+                } else if let Ok(parsed) = value.parse::<i32>() {
                     self.exporter.showcase_kb_len = parsed;
                 }
             }
@@ -306,30 +396,43 @@ impl State {
             }
             Message::ToggleBackground(enabled) => self.exporter.background = enabled,
             Message::BeginExport => {
-                if self.exporter.is_processing {
-                    return;
+                let Some(key) = self.synced_key.clone() else {
+                    return Task::none();
+                };
+
+                if matches!(
+                    self.jobs.get(&key).map(|job| &job.phase),
+                    Some(JobPhase::Running | JobPhase::Aborting)
+                ) {
+                    return Task::none();
                 }
 
                 let Some(unit) = data.held_unit.clone() else {
-                    return;
+                    return Task::none();
                 };
 
                 if self.exporter.region_w <= 0.1 || self.exporter.region_h <= 0.1 {
-                    return;
+                    return Task::none();
                 }
 
                 self.exporter.region_w = self.exporter.region_w.round();
                 self.exporter.region_h = self.exporter.region_h.round();
-                self.exporter.export_result_msg = None;
-                self.done_at = None;
 
-                start_export(&mut self.exporter);
+                let config = process::build_config(&mut self.exporter);
+                let total_frames = (config.end_frame - config.start_frame).abs() + 1;
 
-                let (Some(tx), Some(abort)) = (self.exporter.tx.clone(), self.exporter.abort.clone()) else {
-                    return;
-                };
+                let abort = Arc::new(AtomicBool::new(false));
+                let render_progress = Arc::new(AtomicI32::new(0));
 
-                self.render_progress = Arc::new(AtomicI32::new(0));
+                let (frame_tx, frame_rx) = mpsc::channel();
+                let (tx, rx) = unbounded();
+
+                let worker_abort = abort.clone();
+                thread::spawn(move || {
+                    leader::run(config, frame_rx, |status| {
+                        let _ = tx.unbounded_send(status);
+                    }, &worker_abort);
+                });
 
                 offscreen::spawn(offscreen::Job {
                     unit,
@@ -354,21 +457,55 @@ impl State {
                     region_h: self.exporter.region_h,
                     fps: self.exporter.fps,
                     background: self.exporter.background,
-                    tx,
-                    abort,
-                    progress: self.render_progress.clone(),
+                    tx: frame_tx,
+                    abort: abort.clone(),
+                    progress: render_progress.clone(),
                 });
-            }
-            Message::AbortExport => {
-                if let Some(abort) = &self.exporter.abort {
-                    abort.store(true, Ordering::Relaxed);
+
+                let map_key = key.clone();
+                let (encoder_task, handle) = Task::stream(rx)
+                    .map(move |status| Message::Encoder(map_key.clone(), status))
+                    .abortable();
+
+                if let Some(previous) = self.jobs.insert(key, JobState {
+                    phase: JobPhase::Running,
+                    abort,
+                    render_progress,
+                    rendered_frames: 0,
+                    encoded_frames: 0,
+                    total_frames,
+                    encoder_handle: handle,
+                }) {
+                    previous.encoder_handle.abort();
                 }
 
-                self.exporter.export_result_msg = Some("Export Terminated!".to_string());
-                self.done_at = Some(Instant::now());
-                self.exporter.is_processing = false;
-                self.exporter.current_progress = 0;
-                self.exporter.encoded_frames = 0;
+                return encoder_task;
+            }
+            Message::AbortExport => {
+                if let Some(key) = &self.synced_key
+                    && let Some(job) = self.jobs.get_mut(key)
+                    && matches!(job.phase, JobPhase::Running) {
+                    job.abort.store(true, Ordering::Relaxed);
+                    job.phase = JobPhase::Aborting;
+                }
+            }
+            Message::Encoder(key, status) => {
+                let Some(job) = self.jobs.get_mut(&key) else {
+                    trace!("Dropping encoder event for pruned export job {:?}", key);
+                    return Task::none();
+                };
+
+                match status {
+                    EncoderStatus::Progress(progress) => job.encoded_frames = progress as i32,
+                    EncoderStatus::Finished => {
+                        let result = if matches!(job.phase, JobPhase::Aborting) {
+                            JobResult::Terminated
+                        } else {
+                            JobResult::Completed
+                        };
+                        job.phase = JobPhase::Done { result, shown_at: None };
+                    }
+                }
             }
             Message::SetCamera => {}
             Message::UseBounds => {
@@ -412,6 +549,8 @@ impl State {
                 }
             }
         }
+
+        Task::none()
     }
 
     pub fn view(&self, window: Size) -> Element<'_, Message> {
@@ -421,7 +560,12 @@ impl State {
     fn content_view(&self) -> Element<'_, Message> {
         let is_avif_missing = paths::avifenc_status() != Presence::Installed;
         let is_ffmpeg_missing = paths::ffmpeg_status() != Presence::Installed;
-        let is_locked = self.exporter.is_processing || self.exporter.is_loop_searching;
+        let current_job = self.synced_key.as_ref().and_then(|key| self.jobs.get(key));
+        let job_active = matches!(
+            current_job.map(|job| &job.phase),
+            Some(JobPhase::Running | JobPhase::Aborting)
+        );
+        let is_locked = job_active || self.exporter.is_loop_searching;
 
         let selected_mode = match self.exporter.export_mode {
             ExportMode::Manual => "Manual",
@@ -490,12 +634,19 @@ impl State {
                 row![text("Min Frames"), text_input("15", &self.exporter.loop_min_str).on_input(Message::SetLoopMin).width(Length::Fixed(50.0))].spacing(5),
                 row![text("Max Frames"), text_input("None", &self.exporter.loop_max_str).on_input(Message::SetLoopMax).width(Length::Fixed(50.0))].spacing(5),
             ].spacing(5).into(),
-            ExportMode::Showcase => column![
-                row![text("Walk"), text_input("90", &self.exporter.showcase_walk_str).on_input(Message::SetShowcaseWalk).width(Length::Fixed(50.0))].spacing(5),
-                row![text("Idle"), text_input("90", &self.exporter.showcase_idle_str).on_input(Message::SetShowcaseIdle).width(Length::Fixed(50.0))].spacing(5),
-                row![text("Attack"), text_input("0", &self.exporter.showcase_attack_str).on_input(Message::SetShowcaseAttack).width(Length::Fixed(50.0))].spacing(5),
-                row![text("Knockback"), text_input("60", &self.exporter.showcase_kb_str).on_input(Message::SetShowcaseKb).width(Length::Fixed(50.0))].spacing(5),
-            ].spacing(5).into(),
+            ExportMode::Showcase => {
+                let walk_hint = self.exporter.detected_walk_len.to_string();
+                let idle_hint = self.exporter.detected_idle_len.to_string();
+                let attack_hint = self.exporter.detected_attack_len.to_string();
+                let kb_hint = self.exporter.last_known_kb_default.to_string();
+
+                column![
+                    row![text("Walk"), text_input(&walk_hint, &self.exporter.showcase_walk_str).on_input(Message::SetShowcaseWalk).width(Length::Fixed(50.0))].spacing(5),
+                    row![text("Idle"), text_input(&idle_hint, &self.exporter.showcase_idle_str).on_input(Message::SetShowcaseIdle).width(Length::Fixed(50.0))].spacing(5),
+                    row![text("Attack"), text_input(&attack_hint, &self.exporter.showcase_attack_str).on_input(Message::SetShowcaseAttack).width(Length::Fixed(50.0))].spacing(5),
+                    row![text("Knockback"), text_input(&kb_hint, &self.exporter.showcase_kb_str).on_input(Message::SetShowcaseKb).width(Length::Fixed(50.0))].spacing(5),
+                ].spacing(5).into()
+            }
         };
 
         let camera_buttons = row![
@@ -570,28 +721,26 @@ impl State {
             ].spacing(8).align_y(Alignment::Center),
         ].spacing(10);
 
-        let frame_count = (self.exporter.frame_end - self.exporter.frame_start).abs() + 1;
-        let rendered = self.exporter.current_progress;
-        let encoded = self.exporter.encoded_frames;
-        let progress_ratio = |value: i32| (value as f32 / frame_count.max(1) as f32).min(1.0);
+        let (ratio, status_label) = match current_job {
+            Some(job) => {
+                let progress_ratio = |value: i32| (value as f32 / job.total_frames.max(1) as f32).min(1.0);
 
-        let (ratio, status_label) = if self.exporter.is_processing {
-            if rendered < frame_count {
-                let ratio = progress_ratio(rendered);
-                (ratio, format!("Rendering | {}f/{}f ({}%)", rendered, frame_count, (ratio * 100.0) as i32))
-            } else {
-                let ratio = progress_ratio(encoded);
-                (ratio, format!("Encoding | {}f/{}f ({}%)", encoded, frame_count, (ratio * 100.0) as i32))
+                match &job.phase {
+                    JobPhase::Running => {
+                        if job.rendered_frames < job.total_frames {
+                            let ratio = progress_ratio(job.rendered_frames);
+                            (ratio, format!("Rendering | {}f/{}f ({}%)", job.rendered_frames, job.total_frames, (ratio * 100.0) as i32))
+                        } else {
+                            let ratio = progress_ratio(job.encoded_frames);
+                            (ratio, format!("Encoding | {}f/{}f ({}%)", job.encoded_frames, job.total_frames, (ratio * 100.0) as i32))
+                        }
+                    }
+                    JobPhase::Aborting => (1.0, "Aborting...".to_string()),
+                    JobPhase::Done { result: JobResult::Completed, .. } => (1.0, "Done".to_string()),
+                    JobPhase::Done { result: JobResult::Terminated, .. } => (1.0, "Export Terminated!".to_string()),
+                }
             }
-        } else if self.done_at.is_some() {
-            (1.0, self.exporter.export_result_msg.clone().unwrap_or_else(|| "Done".to_string()))
-        } else {
-            let ratio = progress_ratio(rendered);
-            if ratio > 0.0 && ratio < 1.0 {
-                (ratio, format!("Paused | {}f/{}f ({}%)", rendered, frame_count, (ratio * 100.0) as i32))
-            } else {
-                (1.0, "Ready".to_string())
-            }
+            None => (1.0, "Ready".to_string()),
         };
 
         let progress_section = column![
@@ -599,31 +748,32 @@ impl State {
             text(status_label).size(13),
         ].spacing(5);
 
-        let action_button: Element<'_, Message> = if self.exporter.is_processing {
-            button(text("Abort Export"))
+        let action_button: Element<'_, Message> = match current_job.map(|job| &job.phase) {
+            Some(JobPhase::Running) => button(text("Abort Export"))
                 .style(button::danger)
                 .on_press(Message::AbortExport)
-                .into()
-        } else {
-            let is_valid = self.exporter.region_w > 0.1 && self.exporter.region_h > 0.1;
-            let is_terminated = self.done_at.is_some()
-                && self.exporter.export_result_msg.as_ref().is_some_and(|message| message.contains("Terminated"));
+                .into(),
+            Some(JobPhase::Aborting) => button(text("Aborting...")).style(button::danger).into(),
+            phase => {
+                let is_valid = self.exporter.region_w > 0.1 && self.exporter.region_h > 0.1;
+                let is_terminated = matches!(phase, Some(JobPhase::Done { result: JobResult::Terminated, .. }));
 
-            let label = if is_terminated {
-                "Export Terminated!"
-            } else if is_valid {
-                "Begin Export"
-            } else {
-                "No Camera Set"
-            };
+                let label = if is_terminated {
+                    "Export Terminated!"
+                } else if is_valid {
+                    "Begin Export"
+                } else {
+                    "No Camera Set"
+                };
 
-            let style = if is_terminated { button::danger } else { button::primary };
+                let style = if is_terminated { button::danger } else { button::primary };
 
-            let mut begin = button(text(label)).style(style);
-            if is_valid && !is_locked {
-                begin = begin.on_press(Message::BeginExport);
+                let mut begin = button(text(label)).style(style);
+                if is_valid && !is_locked {
+                    begin = begin.on_press(Message::BeginExport);
+                }
+                begin.into()
             }
-            begin.into()
         };
 
         let popup_content = column![

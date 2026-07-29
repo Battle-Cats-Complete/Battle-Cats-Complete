@@ -207,10 +207,6 @@ impl State {
                 crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
                 crate::common::img022::ensure_loaded(&mut self.img022_sheets, settings);
 
-                if self.selected_tab != DetailTab::Animation {
-                    self.animation.export_tick();
-                }
-
                 let list_task = self.list
                     .update(list::Message::Tick, &self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality)
                     .map(Message::List);

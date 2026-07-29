@@ -276,7 +276,7 @@ fn run(job: Job) {
         None
     };
 
-    let mut calc = ExporterState {
+    let calc = ExporterState {
         export_mode: job.mode.clone(),
         frame_start: job.frame_start,
         frame_end: job.frame_end,
@@ -294,8 +294,6 @@ fn run(job: Job) {
             return;
         }
 
-        calc.current_progress = progress;
-
         let (animation, local_time) = match &clips {
             Some(clips) => {
                 let (slot, time) = showcase_segment(job.lengths, progress);
@@ -309,7 +307,7 @@ fn run(job: Job) {
             None => (job.animation.as_deref(), 0.0),
         };
 
-        let frame_time = calculate_export_time(&calc, animation, local_time);
+        let frame_time = calculate_export_time(&calc, animation, local_time, progress);
 
         match renderer.render_frame(&job.unit, animation, frame_time, job.camera, background) {
             Ok(pixels) => {

@@ -1,30 +1,12 @@
 use std::env;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
-use std::sync::{mpsc, Arc, Mutex};
 
 use nyanko::graphics::rig::Animation;
-use tracing::{error, info, warn};
+use tracing::info;
 
-use super::leader;
-use super::{EncoderStatus, ExportConfig, ExportFormat, ExportMode, ExporterState};
+use super::{ExportConfig, ExportFormat, ExportMode, ExporterState};
 
-pub static STATUS_RX: Mutex<Option<mpsc::Receiver<EncoderStatus>>> = Mutex::new(None);
-
-pub fn start_export(state: &mut ExporterState) {
-    if state.is_processing {
-        warn!("Export already in progress; ignoring start request.");
-        return;
-    }
-
-    state.is_processing = true;
-    state.current_progress = 0;
-    state.encoded_frames = 0;
-    state.completion_time = None;
-
-    let abort_signal = Arc::new(AtomicBool::new(false));
-    state.abort = Some(abort_signal.clone());
-
+pub fn build_config(state: &mut ExporterState) -> ExportConfig {
     if state.export_mode == ExportMode::Showcase {
         state.frame_start = 0;
         let total_frames = state.showcase_walk_len + state.showcase_idle_len + state.showcase_attack_len + state.showcase_kb_len;
@@ -94,7 +76,7 @@ pub fn start_export(state: &mut ExporterState) {
     output_path.push(&final_file_name);
     info!("Starting export process targeted to: {:?}", output_path);
 
-    let config = ExportConfig {
+    ExportConfig {
         width: state.region_w as u32,
         height: state.region_h as u32,
         camera_x: state.region_x,
@@ -110,25 +92,14 @@ pub fn start_export(state: &mut ExporterState) {
         output_path,
         base_name,
         background: state.background,
-    };
-
-    let (sender, receiver) = mpsc::channel();
-    let (status_sender, status_receiver) = mpsc::channel();
-
-    if let Ok(mut lock) = STATUS_RX.lock() {
-        *lock = Some(status_receiver);
-    } else {
-        error!("Failed to acquire mutex for STATUS_RX");
     }
-
-    state.tx = Some(sender);
-    leader::start_encoding_thread(config, receiver, status_sender, abort_signal);
 }
 
 pub fn calculate_export_time(
     state: &ExporterState,
     animation_option: Option<&Animation>,
     current_time: f32,
+    current_progress: i32,
 ) -> f32 {
     let Some(animation) = animation_option else {
         return 0.0;
@@ -139,33 +110,25 @@ pub fn calculate_export_time(
     } else {
         let start = state.frame_start;
         let step = if state.frame_start < state.frame_end { 1 } else { -1 };
-        (start + (state.current_progress * step)) as f32
+        (start + (current_progress * step)) as f32
     };
 
-    let loop_boundary = animation.calculate_true_loop();
+    let loop_boundary = animation.calculate_true_loop().unwrap_or(animation.max_frame);
 
     if state.export_mode == ExportMode::Showcase {
         let natively_loops = animation.curves.iter().any(|c| c.loop_count != 1);
 
         if natively_loops {
             raw_frame
-        } else if let Some(boundary) = loop_boundary {
-            if boundary > 0 {
-                raw_frame.rem_euclid(boundary as f32 + 1.0)
-            } else {
-                raw_frame
-            }
+        } else if loop_boundary > 0 {
+            raw_frame.rem_euclid(loop_boundary as f32 + 1.0)
         } else {
             raw_frame
         }
     } else if state.loop_supported {
         raw_frame
-    } else if let Some(boundary) = loop_boundary {
-        if boundary > 0 {
-            raw_frame.rem_euclid(boundary as f32 + 1.0)
-        } else {
-            raw_frame
-        }
+    } else if loop_boundary > 0 {
+        raw_frame.rem_euclid(loop_boundary as f32 + 1.0)
     } else {
         raw_frame
     }

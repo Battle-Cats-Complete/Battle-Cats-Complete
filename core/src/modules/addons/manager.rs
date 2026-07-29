@@ -1,10 +1,8 @@
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::thread;
 
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 use zip::ZipArchive;
 
 use super::paths::get_tools_dir;
@@ -16,28 +14,14 @@ const RELEASE_TAG: &str = "tools";
 const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "battle-cats-complete";
 
-pub fn start_download(config: DownloadConfig) -> Receiver<AddonStatus> {
-    let (tx, rx) = mpsc::channel();
-
-    thread::spawn(move || {
-        info!("Spawning download thread for {}", config.asset_name);
-        if let Err(err) = download_thread(tx.clone(), config) {
-            error!("Download failed: {}", err);
-            let _ = tx.send(AddonStatus::Error(err));
-        }
-    });
-
-    rx
-}
-
-fn download_thread(tx: Sender<AddonStatus>, config: DownloadConfig) -> Result<(), String> {
+pub fn download(config: DownloadConfig, emit: impl Fn(AddonStatus)) -> Result<(), String> {
     let url = format!(
         "https://github.com/{}/{}/releases/download/{}/{}",
         REPO_OWNER, REPO_NAME, RELEASE_TAG, config.asset_name
     );
 
     debug!("Target URL: {}", url);
-    let _ = tx.send(AddonStatus::Downloading(0.1, "Connecting...".to_string()));
+    emit(AddonStatus::Downloading(0.1, "Connecting...".to_string()));
 
     let client = reqwest::blocking::Client::builder()
         .user_agent("BattleCatsComplete/0.8.0")
@@ -52,10 +36,10 @@ fn download_thread(tx: Sender<AddonStatus>, config: DownloadConfig) -> Result<()
         return Err(format!("Download failed: Status {}", response.status()));
     }
 
-    let _ = tx.send(AddonStatus::Downloading(0.3, "Downloading...".to_string()));
+    emit(AddonStatus::Downloading(0.3, "Downloading...".to_string()));
     let bytes = response.bytes().map_err(|e| format!("Read error: {}", e))?;
 
-    let _ = tx.send(AddonStatus::Downloading(0.7, "Extracting...".to_string()));
+    emit(AddonStatus::Downloading(0.7, "Extracting...".to_string()));
     let reader = Cursor::new(bytes);
     let mut archive = ZipArchive::new(reader).map_err(|e| format!("Zip error: {}", e))?;
 
@@ -88,7 +72,6 @@ fn download_thread(tx: Sender<AddonStatus>, config: DownloadConfig) -> Result<()
     }
 
     info!("Successfully installed addon: {}", config.folder_name);
-    let _ = tx.send(AddonStatus::Installed);
     Ok(())
 }
 

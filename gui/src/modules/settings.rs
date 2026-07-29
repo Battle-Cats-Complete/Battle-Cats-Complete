@@ -152,8 +152,6 @@ impl State {
             Message::Tick => {
                 self.keys.update(keys::Message::Tick);
                 self.exceptions.update(exceptions::Message::Tick);
-                self.addons.update(addons::Message::Tick);
-                self.disk.update(disk::Message::Tick);
 
                 #[cfg(target_os = "linux")]
                 if self.desktop_feedback.is_some_and(|(_, at)| at.elapsed() > Duration::from_secs(2)) {
@@ -308,16 +306,10 @@ impl State {
                 self.exceptions.update(msg);
                 Task::none()
             }
-            Message::Disk(msg) => {
-                self.disk.update(msg);
-                Task::none()
-            }
+            Message::Disk(msg) => self.disk.update(msg).map(Message::Disk),
 
             // Addons Tab
-            Message::Addons(msg) => {
-                self.addons.update(msg);
-                Task::none()
-            }
+            Message::Addons(msg) => self.addons.update(msg).map(Message::Addons),
 
             // Animation Tab
             Message::CenteringBehaviorSelected(val) => {
