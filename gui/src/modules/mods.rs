@@ -65,24 +65,36 @@ impl State {
         }
     }
 
+    pub fn icon_stream(&mut self) -> Task<Message> {
+        self.list.result_stream().map(Message::List)
+    }
+
     pub fn subscription(&self) -> Subscription<Message> {
         iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
     }
 
     pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
+        let task = self.update_inner(message, settings);
+
+        self.list.refresh(&self.data.loaded_mods, &self.data.search_query);
+
+        task
+    }
+
+    fn update_inner(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         match message {
             Message::Tick => {
-                let list_task = self.list.update(list::Message::Tick, &self.data.loaded_mods, &self.data.search_query).map(Message::List);
                 let import_task = self.import.update(import::Message::Tick, &mut self.data, settings).map(Message::Import);
                 let export_task = self.export.update(export::Message::Tick, &mut self.data, settings).map(Message::Export);
 
-                Task::batch([list_task, import_task, export_task])
+                Task::batch([import_task, export_task])
             }
             Message::List(msg) => {
                 if let list::Message::SelectMod(folder) = &msg {
                     self.select_mod(folder.clone());
                 }
-                self.list.update(msg, &self.data.loaded_mods, &self.data.search_query).map(Message::List)
+                self.list.update(msg);
+                Task::none()
             }
             Message::Import(msg) => self.import.update(msg, &mut self.data, settings).map(Message::Import),
             Message::Export(msg) => self.export.update(msg, &mut self.data, settings).map(Message::Export),

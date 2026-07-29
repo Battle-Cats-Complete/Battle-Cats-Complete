@@ -49,8 +49,14 @@ impl BattleCatsApp {
         let (home_state, home_task) = home::State::new();
         app.home_state = home_state;
 
+        let icon_streams = Task::batch([
+            app.cat_state.icon_stream().map(Message::Cat),
+            app.enemy_state.icon_stream().map(Message::Enemy),
+            app.mods_state.icon_stream().map(Message::Mod),
+        ]);
+
         info!("Initialization sequence complete");
 
-        (app, Task::batch([home_task.map(Message::Home), updater_task]))
+        (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams]))
     }
 }

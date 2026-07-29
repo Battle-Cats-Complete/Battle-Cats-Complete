@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
 use std::thread;
 
+use iced::futures::channel::mpsc::{unbounded, UnboundedReceiver};
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, row, scrollable, text, tooltip};
 use iced::{Border, Color, Element, Length, Task, Theme};
@@ -16,15 +17,23 @@ use core::modules::enemy::filter::EnemyFilterState;
 use core::modules::enemy::scanner::EnemyEntry;
 
 const ROW_HEIGHT: f32 = 50.0;
-const MAX_REQUESTS_PER_TICK: usize = 16;
 const ENEMY_ICON_SCALE_FACTOR: f32 = 2.6;
 const ENEMY_ICON_OFFSET_X: i64 = 8;
 const ENEMY_SHADOW_MARGIN: u32 = 8;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Message {
-    Tick,
+    IconLoaded(LoadResult),
     SelectEnemy(u32),
+}
+
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IconLoaded(result) => write!(f, "IconLoaded({})", result.id),
+            Self::SelectEnemy(id) => write!(f, "SelectEnemy({})", id),
+        }
+    }
 }
 
 struct LoadRequest {
@@ -33,7 +42,8 @@ struct LoadRequest {
     background: Arc<RgbaImage>,
 }
 
-struct LoadResult {
+#[derive(Clone)]
+pub struct LoadResult {
     id: u32,
     payload: Option<(u32, u32, Vec<u8>)>,
 }
@@ -49,7 +59,7 @@ pub struct State {
     last_filter_state: EnemyFilterState,
     cached_indices: Vec<usize>,
     tx_request: Sender<LoadRequest>,
-    rx_result: Receiver<LoadResult>,
+    rx_result: Option<UnboundedReceiver<LoadResult>>,
 }
 
 impl Default for State {
@@ -65,14 +75,14 @@ impl Default for State {
         };
 
         let (tx_request, rx_request) = mpsc::channel::<LoadRequest>();
-        let (tx_result, rx_result) = mpsc::channel::<LoadResult>();
+        let (tx_result, rx_result) = unbounded::<LoadResult>();
 
         thread::spawn(move || {
             while let Ok(request) = rx_request.recv() {
                 let tx = tx_result.clone();
                 rayon::spawn(move || {
                     let payload = composite_icon(&request.path, &request.background);
-                    let _ = tx.send(LoadResult { id: request.id, payload });
+                    let _ = tx.unbounded_send(LoadResult { id: request.id, payload });
                 });
             }
         });
@@ -88,27 +98,31 @@ impl Default for State {
             last_filter_state: EnemyFilterState::default(),
             cached_indices: Vec::new(),
             tx_request,
-            rx_result,
+            rx_result: Some(rx_result),
         }
     }
 }
 
 impl State {
-    pub fn update(
-        &mut self,
-        message: Message,
-        entries: &[EnemyEntry],
-        search_query: &str,
-        filter_state: &EnemyFilterState,
-    ) -> Task<Message> {
-        self.refresh(entries, search_query, filter_state);
-
-        if let Message::Tick = message {
-            self.drain_results();
-            self.dispatch_pending_requests(entries);
+    pub fn result_stream(&mut self) -> Task<Message> {
+        match self.rx_result.take() {
+            Some(rx) => Task::stream(rx).map(Message::IconLoaded),
+            None => Task::none(),
         }
+    }
 
-        Task::none()
+    pub fn update(&mut self, message: Message) {
+        let Message::IconLoaded(result) = message else { return };
+
+        self.pending_requests.remove(&result.id);
+        match result.payload {
+            Some((width, height, pixels)) => {
+                self.texture_cache.insert(result.id, Handle::from_rgba(width, height, pixels));
+            }
+            None => {
+                self.missing_ids.insert(result.id);
+            }
+        }
     }
 
     pub fn refresh(&mut self, entries: &[EnemyEntry], query: &str, filter_state: &EnemyFilterState) {
@@ -140,32 +154,14 @@ impl State {
                 self.cached_indices.push(index);
             }
         }
+
+        self.dispatch_requests(entries);
     }
 
-    fn drain_results(&mut self) {
-        while let Ok(result) = self.rx_result.try_recv() {
-            self.pending_requests.remove(&result.id);
-            match result.payload {
-                Some((width, height, pixels)) => {
-                    self.texture_cache.insert(result.id, Handle::from_rgba(width, height, pixels));
-                }
-                None => {
-                    self.missing_ids.insert(result.id);
-                }
-            }
-        }
-    }
-
-    fn dispatch_pending_requests(&mut self, entries: &[EnemyEntry]) {
+    fn dispatch_requests(&mut self, entries: &[EnemyEntry]) {
         let Some(background) = self.background.clone() else { return; };
 
-        let mut issued = 0;
-
         for &index in &self.cached_indices {
-            if issued >= MAX_REQUESTS_PER_TICK {
-                break;
-            }
-
             let Some(entry) = entries.get(index) else { continue; };
             let id = entry.id;
 
@@ -179,7 +175,6 @@ impl State {
             };
 
             self.pending_requests.insert(id);
-            issued += 1;
 
             let _ = self.tx_request.send(LoadRequest { id, path, background: background.clone() });
         }

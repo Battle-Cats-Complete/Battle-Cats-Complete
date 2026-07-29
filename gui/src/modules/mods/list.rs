@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Sender};
 use std::thread;
 
+use iced::futures::channel::mpsc::{unbounded, UnboundedReceiver};
 use iced::widget::image::Handle;
 use iced::widget::{button, column, image as iced_image, row, scrollable, text};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task, Theme};
@@ -12,12 +13,20 @@ use core::modules::mods::ModData;
 
 const ICON_UI_HEIGHT: f32 = 46.0;
 const ICON_RENDER_SIZE: u32 = 92;
-const MAX_REQUESTS_PER_TICK: usize = 16;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Message {
-    Tick,
+    IconLoaded(LoadResult),
     SelectMod(String),
+}
+
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IconLoaded(result) => write!(f, "IconLoaded({})", result.folder_name),
+            Self::SelectMod(folder) => write!(f, "SelectMod({})", folder),
+        }
+    }
 }
 
 struct LoadRequest {
@@ -25,7 +34,8 @@ struct LoadRequest {
     path: PathBuf,
 }
 
-struct LoadResult {
+#[derive(Clone)]
+pub struct LoadResult {
     folder_name: String,
     payload: Option<(u32, u32, Vec<u8>)>,
 }
@@ -38,13 +48,13 @@ pub struct State {
     last_mod_count: usize,
     cached_indices: Vec<usize>,
     tx_request: Sender<LoadRequest>,
-    rx_result: Receiver<LoadResult>,
+    rx_result: Option<UnboundedReceiver<LoadResult>>,
 }
 
 impl Default for State {
     fn default() -> Self {
         let (tx_request, rx_request) = mpsc::channel::<LoadRequest>();
-        let (tx_result, rx_result) = mpsc::channel::<LoadResult>();
+        let (tx_result, rx_result) = unbounded::<LoadResult>();
 
         // Dedicated dispatcher thread hands each request off to rayon's pool, mirroring
         // cat/list.rs and enemy/list.rs so icon decoding never blocks the render loop.
@@ -53,7 +63,7 @@ impl Default for State {
                 let tx = tx_result.clone();
                 rayon::spawn(move || {
                     let payload = process_icon(&request.path);
-                    let _ = tx.send(LoadResult { folder_name: request.folder_name, payload });
+                    let _ = tx.unbounded_send(LoadResult { folder_name: request.folder_name, payload });
                 });
             }
         });
@@ -66,21 +76,33 @@ impl Default for State {
             last_mod_count: usize::MAX,
             cached_indices: Vec::new(),
             tx_request,
-            rx_result,
+            rx_result: Some(rx_result),
         }
     }
 }
 
 impl State {
-    pub fn update(&mut self, message: Message, mods: &[ModData], search_query: &str) -> Task<Message> {
-        self.refresh(mods, search_query);
-
-        if let Message::Tick = message {
-            self.drain_results();
-            self.dispatch_pending_requests(mods);
+    pub fn result_stream(&mut self) -> Task<Message> {
+        match self.rx_result.take() {
+            Some(rx) => Task::stream(rx).map(Message::IconLoaded),
+            None => Task::none(),
         }
+    }
 
-        Task::none()
+    pub fn update(&mut self, message: Message) {
+        let Message::IconLoaded(result) = message else { return };
+
+        self.pending_requests.remove(&result.folder_name);
+        match result.payload {
+            Some((width, height, pixels)) => {
+                self.texture_cache.insert(result.folder_name.clone(), Handle::from_rgba(width, height, pixels));
+                self.missing_ids.remove(&result.folder_name);
+            }
+            None => {
+                self.texture_cache.remove(&result.folder_name);
+                self.missing_ids.insert(result.folder_name);
+            }
+        }
     }
 
     pub fn refresh(&mut self, mods: &[ModData], query: &str) {
@@ -98,32 +120,12 @@ impl State {
                 self.cached_indices.push(index);
             }
         }
+
+        self.dispatch_requests(mods);
     }
 
-    fn drain_results(&mut self) {
-        while let Ok(result) = self.rx_result.try_recv() {
-            self.pending_requests.remove(&result.folder_name);
-            match result.payload {
-                Some((width, height, pixels)) => {
-                    self.texture_cache.insert(result.folder_name.clone(), Handle::from_rgba(width, height, pixels));
-                    self.missing_ids.remove(&result.folder_name);
-                }
-                None => {
-                    self.texture_cache.remove(&result.folder_name);
-                    self.missing_ids.insert(result.folder_name);
-                }
-            }
-        }
-    }
-
-    fn dispatch_pending_requests(&mut self, mods: &[ModData]) {
-        let mut issued = 0;
-
+    fn dispatch_requests(&mut self, mods: &[ModData]) {
         for &index in &self.cached_indices {
-            if issued >= MAX_REQUESTS_PER_TICK {
-                break;
-            }
-
             let Some(mod_data) = mods.get(index) else { continue; };
             let name = &mod_data.folder_name;
 
@@ -133,7 +135,6 @@ impl State {
 
             let path = Path::new("mods").join(name);
             self.pending_requests.insert(name.clone());
-            issued += 1;
 
             let _ = self.tx_request.send(LoadRequest { folder_name: name.clone(), path });
         }

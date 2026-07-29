@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use iced::futures::channel::mpsc::{unbounded, UnboundedReceiver};
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, row, scrollable, text, tooltip};
 use iced::{Border, Color, Element, Length, Task, Theme};
@@ -16,12 +17,20 @@ use core::modules::cat::filter::{evaluation, CatFilterState};
 use core::modules::cat::scanner::CatEntry;
 
 const ROW_HEIGHT: f32 = 50.0;
-const MAX_REQUESTS_PER_TICK: usize = 16;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Message {
-    Tick,
+    IconLoaded(LoadResult),
     SelectCat(u32),
+}
+
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IconLoaded(result) => write!(f, "IconLoaded({})", result.id),
+            Self::SelectCat(id) => write!(f, "SelectCat({})", id),
+        }
+    }
 }
 
 struct LoadRequest {
@@ -31,7 +40,8 @@ struct LoadRequest {
     high_quality: bool,
 }
 
-struct LoadResult {
+#[derive(Clone)]
+pub struct LoadResult {
     id: u32,
     payload: Option<(u32, u32, Vec<u8>)>,
 }
@@ -47,7 +57,7 @@ pub struct State {
     last_filter_state: CatFilterState,
     cached_indices: Vec<usize>,
     tx_request: Sender<LoadRequest>,
-    rx_result: Receiver<LoadResult>,
+    rx_result: Option<UnboundedReceiver<LoadResult>>,
 }
 
 impl Default for State {
@@ -63,7 +73,7 @@ impl Default for State {
         };
 
         let (tx_request, rx_request) = mpsc::channel::<LoadRequest>();
-        let (tx_result, rx_result) = mpsc::channel::<LoadResult>();
+        let (tx_result, rx_result) = unbounded::<LoadResult>();
 
         // Dedicated dispatcher thread hands each request off to rayon's pool for the
         // actual decode/composite work. Plain std::thread + mpsc: no async runtime
@@ -73,7 +83,7 @@ impl Default for State {
                 let tx = tx_result.clone();
                 rayon::spawn(move || {
                     let payload = composite_banner(&request.path, &request.background, request.high_quality);
-                    let _ = tx.send(LoadResult { id: request.id, payload });
+                    let _ = tx.unbounded_send(LoadResult { id: request.id, payload });
                 });
             }
         });
@@ -89,32 +99,35 @@ impl Default for State {
             last_filter_state: CatFilterState::default(),
             cached_indices: Vec::new(),
             tx_request,
-            rx_result,
+            rx_result: Some(rx_result),
         }
     }
 }
 
 impl State {
-    pub fn update(
-        &mut self,
-        message: Message,
-        cats: &[CatEntry],
-        search_query: &str,
-        filter_state: &CatFilterState,
-        high_banner_quality: bool,
-    ) -> Task<Message> {
-        self.refresh(cats, search_query, filter_state);
-
-        if let Message::Tick = message {
-            self.drain_results();
-            self.dispatch_pending_requests(cats, high_banner_quality);
+    pub fn result_stream(&mut self) -> Task<Message> {
+        match self.rx_result.take() {
+            Some(rx) => Task::stream(rx).map(Message::IconLoaded),
+            None => Task::none(),
         }
-
-        Task::none()
     }
 
-    // Called from every `update`, not just `Tick`, so the list reflects new data/search/filter state immediately.
-    pub fn refresh(&mut self, cats: &[CatEntry], query: &str, filter_state: &CatFilterState) {
+    pub fn update(&mut self, message: Message) {
+        let Message::IconLoaded(result) = message else { return };
+
+        self.pending_requests.remove(&result.id);
+        match result.payload {
+            Some((width, height, pixels)) => {
+                self.texture_cache.insert(result.id, Handle::from_rgba(width, height, pixels));
+            }
+            None => {
+                self.missing_ids.insert(result.id);
+            }
+        }
+    }
+
+    // Called from every parent `update`, so the list reflects new data/search/filter state immediately.
+    pub fn refresh(&mut self, cats: &[CatEntry], query: &str, filter_state: &CatFilterState, high_banner_quality: bool) {
         if query == self.last_search_query && cats.len() == self.last_unit_count && filter_state == &self.last_filter_state {
             return;
         }
@@ -142,32 +155,14 @@ impl State {
         }
 
         info!("Visible cats: {} (of {} total)", self.cached_indices.len(), cats.len());
+
+        self.dispatch_requests(cats, high_banner_quality);
     }
 
-    fn drain_results(&mut self) {
-        while let Ok(result) = self.rx_result.try_recv() {
-            self.pending_requests.remove(&result.id);
-            match result.payload {
-                Some((width, height, pixels)) => {
-                    self.texture_cache.insert(result.id, Handle::from_rgba(width, height, pixels));
-                }
-                None => {
-                    self.missing_ids.insert(result.id);
-                }
-            }
-        }
-    }
-
-    fn dispatch_pending_requests(&mut self, cats: &[CatEntry], high_banner_quality: bool) {
+    fn dispatch_requests(&mut self, cats: &[CatEntry], high_banner_quality: bool) {
         let Some(background) = self.background.clone() else { return; };
 
-        let mut issued = 0;
-
         for &index in &self.cached_indices {
-            if issued >= MAX_REQUESTS_PER_TICK {
-                break;
-            }
-
             let Some(cat) = cats.get(index) else { continue; };
             let id = cat.id;
 
@@ -181,7 +176,6 @@ impl State {
             };
 
             self.pending_requests.insert(id);
-            issued += 1;
 
             let _ = self.tx_request.send(LoadRequest { id, path, background: background.clone(), high_quality: high_banner_quality });
         }

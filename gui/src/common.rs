@@ -8,11 +8,11 @@ pub mod text;
 pub mod watcher;
 
 use std::path::Path;
-use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
+use iced::futures::channel::mpsc::unbounded;
 use iced::widget::image::Handle;
-use nyanko::graphics::rig::SpriteSheet as NyankoSpriteSheet;
+use iced::Task;
 use tracing::{debug, error, info, trace, warn};
 
 use core::common::assets::{
@@ -92,48 +92,64 @@ impl CustomAssets {
 pub struct SpriteSheet {
     pub core: CoreSpriteSheet,
     pub texture_handle: Option<Handle>,
-    pending: Option<Receiver<(String, NyankoSpriteSheet)>>,
+    loading: bool,
+    failed: bool,
 }
 
 impl SpriteSheet {
     pub fn is_loading(&self) -> bool {
-        self.pending.is_some()
+        self.loading
     }
 
-    pub fn load(&mut self, png_path: &Path, imgcut_path: &Path, id_str: String) {
+    pub fn has_failed(&self) -> bool {
+        self.failed
+    }
+
+    pub fn load(&mut self, png_path: &Path, imgcut_path: &Path, id_str: String) -> Task<Option<CoreSpriteSheet>> {
         debug!("Loading SpriteSheet identifier: {}", id_str);
-        let (tx, rx) = mpsc::channel();
-        self.pending = Some(rx);
+        self.loading = true;
 
         let png_path = png_path.to_path_buf();
         let imgcut_path = imgcut_path.to_path_buf();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
-            match imgcut::parse(&png_path, &imgcut_path) {
-                Some(parsed_sheet) => {
-                    let _ = tx.send((id_str, parsed_sheet));
-                }
-                None => warn!("Failed to parse sprite sheet '{}' from {:?}", id_str, png_path),
+            let parsed = imgcut::parse(&png_path, &imgcut_path);
+            if parsed.is_none() {
+                warn!("Failed to parse sprite sheet '{}' from {:?}", id_str, png_path);
             }
+
+            let result = parsed.map(|sheet| CoreSpriteSheet {
+                image_data: sheet.image_data,
+                cuts_map: sheet.cuts_map,
+                sheet_name: id_str,
+            });
+            let _ = tx.unbounded_send(result);
         });
+
+        Task::stream(rx)
     }
 
-    pub fn update(&mut self) {
-        let Some(rx) = &self.pending else { return };
-        let Ok((name, parsed_sheet)) = rx.try_recv() else { return };
+    pub fn apply(&mut self, result: Option<CoreSpriteSheet>) {
+        self.loading = false;
 
-        self.core.sheet_name = name;
-        self.core.image_data = parsed_sheet.image_data;
-        self.core.cuts_map = parsed_sheet.cuts_map;
-        self.pending = None;
+        let Some(core) = result else {
+            self.failed = true;
+            return;
+        };
 
-        if let Some(image_data) = &self.core.image_data {
-            debug!("Generating texture handle for sheet: {}", self.core.sheet_name);
-            self.texture_handle = Some(Handle::from_rgba(
-                image_data.width(),
-                image_data.height(),
-                image_data.as_raw().clone(),
-            ));
-        }
+        self.core = core;
+
+        let Some(image_data) = &self.core.image_data else {
+            self.failed = true;
+            return;
+        };
+
+        debug!("Generating texture handle for sheet: {}", self.core.sheet_name);
+        self.texture_handle = Some(Handle::from_rgba(
+            image_data.width(),
+            image_data.height(),
+            image_data.as_raw().clone(),
+        ));
     }
 }

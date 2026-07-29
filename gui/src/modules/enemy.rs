@@ -16,6 +16,7 @@ use nyanko::enemy::unit::Battle;
 use tracing::{error, info};
 
 use core::common::context::GlobalContext;
+use core::common::formats::SpriteSheet as CoreSpriteSheet;
 use core::modules::enemy::game::registry::{format_enemy_stat, get_enemy_stat, Magnification};
 use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::scanner::{self, EnemyEntry};
@@ -43,6 +44,7 @@ pub enum Message {
     AnimationTick,
     ScanProgress(usize, usize),
     Loaded(Vec<EnemyEntry>),
+    Img015Loaded(usize, Option<CoreSpriteSheet>),
     StatblockFinished(JobResult),
     SearchQueryChanged(String),
     EnemySelected(u32),
@@ -62,6 +64,7 @@ impl std::fmt::Debug for Message {
             Self::AnimationTick => write!(f, "AnimationTick"),
             Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
             Self::Loaded(enemies) => write!(f, "Loaded({})", enemies.len()),
+            Self::Img015Loaded(i, _) => write!(f, "Img015Loaded({})", i),
             Self::StatblockFinished(_) => write!(f, "StatblockFinished"),
             Self::SearchQueryChanged(s) => write!(f, "SearchQueryChanged({})", s),
             Self::EnemySelected(id) => write!(f, "EnemySelected({})", id),
@@ -138,6 +141,10 @@ impl Default for EnemyState {
 }
 
 impl EnemyState {
+    pub fn icon_stream(&mut self) -> Task<Message> {
+        self.list.result_stream().map(Message::List)
+    }
+
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = vec![iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)];
 
@@ -178,13 +185,16 @@ impl EnemyState {
                     Task::none()
                 };
 
-                crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
+                let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings)
+                    .map(|(index, sheet)| Message::Img015Loaded(index, sheet));
 
-                let list_task = self.list
-                    .update(list::Message::Tick, &self.data.enemies, &self.search_query, &self.filter.filter_state)
-                    .map(Message::List);
-
-                Task::batch([load_task, list_task])
+                Task::batch([load_task, img015_task])
+            }
+            Message::Img015Loaded(index, sheet) => {
+                if let Some(slot) = self.img015_sheets.get_mut(index) {
+                    slot.apply(sheet);
+                }
+                Task::none()
             }
             Message::ScanProgress(done, total) => {
                 if self.scan_progress.is_none_or(|(prev, _)| done > prev) {
@@ -255,9 +265,8 @@ impl EnemyState {
                     return self.update(Message::EnemySelected(id), settings, global_ctx);
                 }
 
-                self.list
-                    .update(msg, &self.data.enemies, &self.search_query, &self.filter.filter_state)
-                    .map(Message::List)
+                self.list.update(msg);
+                Task::none()
             }
             Message::Animation(msg) => self.animation.update(msg, settings).map(Message::Animation),
         }

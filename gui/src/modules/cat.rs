@@ -20,6 +20,7 @@ use nyanko::cat::unit::Battle;
 use tracing::{error, info};
 
 use core::common::context::GlobalContext;
+use core::common::formats::SpriteSheet as CoreSpriteSheet;
 use core::modules::cat::game::registry::{format_cat_stat, get_cat_stat};
 use core::modules::cat::game::stats::get_final_stats;
 use core::modules::cat::game::CatRenderContext;
@@ -57,6 +58,8 @@ pub enum Message {
     AnimationTick,
     ScanProgress(usize, usize),
     Loaded(Vec<CatEntry>),
+    Img015Loaded(usize, Option<CoreSpriteSheet>),
+    Img022Loaded(usize, Option<CoreSpriteSheet>),
     StatblockFinished(JobResult),
     SearchChanged(String),
     SelectCat(u32),
@@ -80,6 +83,8 @@ impl std::fmt::Debug for Message {
             Self::AnimationTick => write!(f, "AnimationTick"),
             Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
             Self::Loaded(cats) => write!(f, "Loaded({})", cats.len()),
+            Self::Img015Loaded(i, _) => write!(f, "Img015Loaded({})", i),
+            Self::Img022Loaded(i, _) => write!(f, "Img022Loaded({})", i),
             Self::StatblockFinished(_) => write!(f, "StatblockFinished"),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
             Self::SelectCat(id) => write!(f, "SelectCat({})", id),
@@ -164,6 +169,10 @@ impl Default for State {
 }
 
 impl State {
+    pub fn icon_stream(&mut self) -> Task<Message> {
+        self.list.result_stream().map(Message::List)
+    }
+
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = vec![iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)];
 
@@ -177,7 +186,7 @@ impl State {
     pub fn update(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         let task = self.update_inner(message, settings, global_ctx);
 
-        self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
+        self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality);
 
         task
     }
@@ -204,14 +213,24 @@ impl State {
                     Task::none()
                 };
 
-                crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
-                crate::common::img022::ensure_loaded(&mut self.img022_sheets, settings);
+                let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings)
+                    .map(|(index, sheet)| Message::Img015Loaded(index, sheet));
+                let img022_task = crate::common::img022::ensure_loaded(&mut self.img022_sheets, settings)
+                    .map(|(index, sheet)| Message::Img022Loaded(index, sheet));
 
-                let list_task = self.list
-                    .update(list::Message::Tick, &self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality)
-                    .map(Message::List);
-
-                Task::batch([load_task, list_task])
+                Task::batch([load_task, img015_task, img022_task])
+            }
+            Message::Img015Loaded(index, sheet) => {
+                if let Some(slot) = self.img015_sheets.get_mut(index) {
+                    slot.apply(sheet);
+                }
+                Task::none()
+            }
+            Message::Img022Loaded(index, sheet) => {
+                if let Some(slot) = self.img022_sheets.get_mut(index) {
+                    slot.apply(sheet);
+                }
+                Task::none()
             }
             Message::ScanProgress(done, total) => {
                 if self.scan_progress.is_none_or(|(prev, _)| done > prev) {
@@ -304,9 +323,8 @@ impl State {
                     return self.update(Message::SelectCat(id), settings, global_ctx);
                 }
 
-                self.list
-                    .update(msg, &self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality)
-                    .map(Message::List)
+                self.list.update(msg);
+                Task::none()
             }
             Message::Filter(msg) => {
                 self.filter.update(msg);
