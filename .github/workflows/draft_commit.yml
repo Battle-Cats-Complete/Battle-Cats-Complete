@@ -25,10 +25,10 @@ jobs:
 
           if [ "$COMMIT_COUNT" -eq 1 ]; then
             MSG=$(echo "$COMMITS_JSON" | jq -r '.[0].message | split("\n")[0]')
-            SUMMARY_BODY="**${BRANCH}::**${MSG}"
+            SUMMARY_BODY="**${BRANCH} ::**${MSG}"
           else
             FIRST_LINES=$(echo "$COMMITS_JSON" | jq -r '.[] | (.message | split("\n")[0])' | sed 's/^/- /')
-            SUMMARY_BODY="**${BRANCH}::**${COMMIT_COUNT} commits"$'\n\n'"${FIRST_LINES}"
+            SUMMARY_BODY="**${BRANCH} ::**${COMMIT_COUNT} commits"$'\n\n'"${FIRST_LINES}"
           fi
 
           PAYLOAD=$(jq -n \
