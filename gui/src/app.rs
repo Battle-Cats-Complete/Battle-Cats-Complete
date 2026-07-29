@@ -192,12 +192,9 @@ impl BattleCatsApp {
         let mut subs = vec![
             window::resize_events().map(|(_, size)| Message::WindowResized(size)),
             iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::AutoSave),
-            self.home_state.subscription().map(Message::Home),
             self.cat_state.subscription().map(Message::Cat),
             self.enemy_state.subscription().map(Message::Enemy),
-            self.stage_state.subscription().map(Message::Stage),
             self.mods_state.subscription().map(Message::Mod),
-            self.settings_state.subscription().map(Message::Settings),
         ];
 
         if let UpdateStatus::Downloading(_) = self.updater_status {
@@ -205,6 +202,23 @@ impl BattleCatsApp {
         }
 
         Subscription::batch(subs)
+    }
+
+    fn navigate(&mut self, page: Page) -> Task<Message> {
+        self.current_page = page;
+
+        match page {
+            Page::Home => self.home_state.update(home::Message::CheckInit).map(Message::Home),
+            Page::Cats => {
+                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
+                self.cat_state.update(cat::Message::SheetsCheck, &mut self.settings, global_ctx).map(Message::Cat)
+            }
+            Page::Enemies => {
+                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
+                self.enemy_state.update(enemy::Message::SheetsCheck, &mut self.settings, global_ctx).map(Message::Enemy)
+            }
+            _ => Task::none(),
+        }
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -248,13 +262,7 @@ impl BattleCatsApp {
                 }
                 Task::none()
             }
-            Message::Navigate(page) => {
-                self.current_page = page;
-                if page == Page::Home {
-                    return self.home_state.update(home::Message::CheckInit).map(Message::Home);
-                }
-                Task::none()
-            }
+            Message::Navigate(page) => self.navigate(page),
             Message::ToggleSidebar => {
                 self.sidebar_open = !self.sidebar_open;
                 Task::none()
@@ -280,14 +288,8 @@ impl BattleCatsApp {
             }
             Message::Home(msg) => {
                 match msg {
-                    home::Message::Navigate(page) => {
-                        self.current_page = page;
-                        Task::none()
-                    }
-                    home::Message::NavigateSettings(_tab_str) => {
-                        self.current_page = Page::Settings;
-                        Task::none()
-                    }
+                    home::Message::Navigate(page) => self.navigate(page),
+                    home::Message::NavigateSettings(_tab_str) => self.navigate(Page::Settings),
                     _ => self.home_state.update(msg).map(Message::Home),
                 }
             }
@@ -310,7 +312,7 @@ impl BattleCatsApp {
                 task
             }
             Message::Stage(msg) => {
-                let task = self.stage_state.update(msg, &self.settings).map(Message::Stage);
+                let task = self.stage_state.update(msg).map(Message::Stage);
                 self.sync_popup(ActivePopup::StageFilter, self.stage_state.filter_popup_open());
                 task
             }

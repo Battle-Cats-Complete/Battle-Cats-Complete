@@ -1,27 +1,27 @@
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Alignment, Border, Element, Length, Size, Task, Theme};
 
 use core::modules::settings::pem;
 
-use crate::common::popup;
+use crate::common::{feedback::Slot, popup};
 
-const CONFIRM_WINDOW: Duration = Duration::from_secs(2);
 const POPUP_SIZE: Size = Size::new(650.0, 480.0);
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Popup(popup::Message),
     Open,
-    Tick,
     Import,
     Export,
+    ExportExpired,
     GenerateRequested,
+    GenerateExpired,
     Generated(Option<String>),
     DeleteRequested,
+    DeleteExpired,
 }
 
 pub struct State {
@@ -30,9 +30,9 @@ pub struct State {
     active_pem: String,
     is_custom: bool,
     is_generating: bool,
-    confirm_generate: Option<Instant>,
-    confirm_delete: Option<Instant>,
-    export_feedback: Option<(bool, Instant)>,
+    confirm_generate: Slot<()>,
+    confirm_delete: Slot<()>,
+    export_feedback: Slot<bool>,
 }
 
 impl Default for State {
@@ -44,9 +44,9 @@ impl Default for State {
             active_pem,
             is_custom,
             is_generating: false,
-            confirm_generate: None,
-            confirm_delete: None,
-            export_feedback: None,
+            confirm_generate: Slot::default(),
+            confirm_delete: Slot::default(),
+            export_feedback: Slot::default(),
         }
     }
 }
@@ -64,20 +64,8 @@ impl State {
             Message::Popup(msg) => {
                 if self.popup.update(msg, POPUP_SIZE) {
                     self.is_open = false;
-                    self.confirm_generate = None;
-                    self.confirm_delete = None;
-                }
-                Task::none()
-            }
-            Message::Tick => {
-                if self.confirm_generate.is_some_and(|at| at.elapsed() > CONFIRM_WINDOW) {
-                    self.confirm_generate = None;
-                }
-                if self.confirm_delete.is_some_and(|at| at.elapsed() > CONFIRM_WINDOW) {
-                    self.confirm_delete = None;
-                }
-                if self.export_feedback.is_some_and(|(_, at)| at.elapsed() > CONFIRM_WINDOW) {
-                    self.export_feedback = None;
+                    self.confirm_generate.clear();
+                    self.confirm_delete.clear();
                 }
                 Task::none()
             }
@@ -89,8 +77,8 @@ impl State {
                     let _ = pem::save_pem(&content);
                     self.active_pem = content;
                     self.is_custom = true;
-                    self.confirm_generate = None;
-                    self.confirm_delete = None;
+                    self.confirm_generate.clear();
+                    self.confirm_delete.clear();
                 }
                 Task::none()
             }
@@ -99,19 +87,25 @@ impl State {
                 let _ = fs::create_dir_all(export_dir);
                 let filename = if self.is_custom { "identity.pem" } else { "bcc.pem" };
                 let success = fs::write(export_dir.join(filename), &self.active_pem).is_ok();
-                self.export_feedback = Some((success, Instant::now()));
+                self.export_feedback.set(success, Message::ExportExpired)
+            }
+            Message::ExportExpired => {
+                self.export_feedback.expire();
                 Task::none()
             }
             Message::GenerateRequested => {
-                if self.is_custom && self.confirm_generate.is_none() {
-                    self.confirm_generate = Some(Instant::now());
-                    self.confirm_delete = None;
-                    Task::none()
+                if self.is_custom && !self.confirm_generate.is_set() {
+                    self.confirm_delete.clear();
+                    self.confirm_generate.set((), Message::GenerateExpired)
                 } else {
-                    self.confirm_generate = None;
+                    self.confirm_generate.clear();
                     self.is_generating = true;
                     Task::perform(async { pem::generate_pem().ok() }, Message::Generated)
                 }
+            }
+            Message::GenerateExpired => {
+                self.confirm_generate.expire();
+                Task::none()
             }
             Message::Generated(result) => {
                 if let Some(new_pem) = result {
@@ -123,16 +117,20 @@ impl State {
                 Task::none()
             }
             Message::DeleteRequested => {
-                if self.confirm_delete.is_none() {
-                    self.confirm_delete = Some(Instant::now());
-                    self.confirm_generate = None;
+                if !self.confirm_delete.is_set() {
+                    self.confirm_generate.clear();
+                    self.confirm_delete.set((), Message::DeleteExpired)
                 } else {
                     pem::delete_pem();
                     let (default_pem, _) = pem::get_active_pem();
                     self.active_pem = default_pem;
                     self.is_custom = false;
-                    self.confirm_delete = None;
+                    self.confirm_delete.clear();
+                    Task::none()
                 }
+            }
+            Message::DeleteExpired => {
+                self.confirm_delete.expire();
                 Task::none()
             }
         }
@@ -156,26 +154,26 @@ impl State {
             b
         };
 
-        let export_label = match self.export_feedback {
-            Some((true, _)) => "Exported!",
-            Some((false, _)) => "Failed!",
+        let export_label = match self.export_feedback.get().copied() {
+            Some(true) => "Exported!",
+            Some(false) => "Failed!",
             None => "Export PEM",
         };
-        let export_color = match self.export_feedback {
-            Some((true, _)) => [40, 160, 60],
-            Some((false, _)) => [200, 40, 40],
+        let export_color = match self.export_feedback.get().copied() {
+            Some(true) => [40, 160, 60],
+            Some(false) => [200, 40, 40],
             None => [31, 106, 165],
         };
 
         let generate_label = if self.is_generating {
             "Generating..."
-        } else if self.confirm_generate.is_some() {
+        } else if self.confirm_generate.is_set() {
             "Are You Sure?"
         } else {
             "Generate PEM"
         };
 
-        let delete_label = if self.confirm_delete.is_some() { "Are You Sure?" } else { "Delete PEM" };
+        let delete_label = if self.confirm_delete.is_set() { "Are You Sure?" } else { "Delete PEM" };
 
         let import_msg = if self.is_generating { None } else { Some(Message::Import) };
         let export_msg = if self.is_generating { None } else { Some(Message::Export) };

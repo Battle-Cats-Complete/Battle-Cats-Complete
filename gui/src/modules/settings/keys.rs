@@ -1,15 +1,13 @@
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use iced::widget::{button, column, container, row, scrollable, text, text_input};
-use iced::{Alignment, Border, Element, Length, Size, Theme};
+use iced::{Alignment, Border, Element, Length, Size, Task, Theme};
 
 use core::modules::settings::UserKeys;
 
-use crate::common::popup;
+use crate::common::{feedback::Slot, popup};
 
-const FEEDBACK_DURATION: Duration = Duration::from_secs(2);
 const POPUP_SIZE: Size = Size::new(650.0, 400.0);
 const COLUMN_INPUT_WIDTH: f32 = 220.0;
 
@@ -38,13 +36,15 @@ impl RegionSlot {
 pub enum Message {
     Popup(popup::Message),
     Open,
-    Tick,
     KeyChanged(RegionSlot, String),
     IvChanged(RegionSlot, String),
     Import,
+    ImportExpired,
     Export,
+    ExportExpired,
     Validate,
     DeleteRequested,
+    ConfirmExpired,
 }
 
 pub struct State {
@@ -52,9 +52,9 @@ pub struct State {
     popup: popup::State,
     keys: UserKeys,
     validation_status: Option<[(bool, bool); 4]>,
-    import_feedback: Option<(bool, Instant)>,
-    export_feedback: Option<(bool, Instant)>,
-    confirm_delete: Option<Instant>,
+    import_feedback: Slot<bool>,
+    export_feedback: Slot<bool>,
+    confirm_delete: Slot<()>,
 }
 
 impl Default for State {
@@ -64,9 +64,9 @@ impl Default for State {
             popup: popup::State::default(),
             keys: UserKeys::load(),
             validation_status: None,
-            import_feedback: None,
-            export_feedback: None,
-            confirm_delete: None,
+            import_feedback: Slot::default(),
+            export_feedback: Slot::default(),
+            confirm_delete: Slot::default(),
         }
     }
 }
@@ -90,38 +90,32 @@ impl State {
         }
     }
 
-    pub fn update(&mut self, message: Message) {
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Open => {
                 self.keys = UserKeys::load();
                 self.validation_status = None;
                 self.is_open = true;
+                Task::none()
             }
             Message::Popup(msg) => {
                 if self.popup.update(msg, POPUP_SIZE) {
                     self.is_open = false;
                     self.validation_status = None;
                 }
-            }
-            Message::Tick => {
-                let expired = |feedback: &Option<(bool, Instant)>| {
-                    feedback.is_some_and(|(_, at)| at.elapsed() > FEEDBACK_DURATION)
-                };
-                if expired(&self.import_feedback) { self.import_feedback = None; }
-                if expired(&self.export_feedback) { self.export_feedback = None; }
-                if self.confirm_delete.is_some_and(|at| at.elapsed() > FEEDBACK_DURATION) {
-                    self.confirm_delete = None;
-                }
+                Task::none()
             }
             Message::KeyChanged(slot, value) => {
                 self.region_mut(slot).key = value;
                 self.validation_status = None;
                 self.keys.save();
+                Task::none()
             }
             Message::IvChanged(slot, value) => {
                 self.region_mut(slot).iv = value;
                 self.validation_status = None;
                 self.keys.save();
+                Task::none()
             }
             Message::Import => {
                 if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
@@ -133,28 +127,43 @@ impl State {
                             self.keys.save();
                         })
                         .is_some();
-                    self.import_feedback = Some((success, Instant::now()));
+                    return self.import_feedback.set(success, Message::ImportExpired);
                 }
+                Task::none()
+            }
+            Message::ImportExpired => {
+                self.import_feedback.expire();
+                Task::none()
             }
             Message::Export => {
                 let export_dir = Path::new("exports");
                 let _ = fs::create_dir_all(export_dir);
                 let success = serde_json::to_string_pretty(&self.keys).ok()
                     .is_some_and(|json| fs::write(export_dir.join("keys.json"), json).is_ok());
-                self.export_feedback = Some((success, Instant::now()));
+                self.export_feedback.set(success, Message::ExportExpired)
+            }
+            Message::ExportExpired => {
+                self.export_feedback.expire();
+                Task::none()
             }
             Message::Validate => {
                 self.validation_status = Some(self.keys.validate());
+                Task::none()
             }
             Message::DeleteRequested => {
-                if self.confirm_delete.is_some() {
+                if self.confirm_delete.is_set() {
                     self.keys = UserKeys::default();
                     self.validation_status = None;
                     self.keys.save();
-                    self.confirm_delete = None;
+                    self.confirm_delete.clear();
+                    Task::none()
                 } else {
-                    self.confirm_delete = Some(Instant::now());
+                    self.confirm_delete.set((), Message::ConfirmExpired)
                 }
+            }
+            Message::ConfirmExpired => {
+                self.confirm_delete.expire();
+                Task::none()
             }
         }
     }
@@ -176,29 +185,29 @@ impl State {
                 .on_press(msg)
         };
 
-        let import_label = match self.import_feedback {
-            Some((true, _)) => "Loaded!",
-            Some((false, _)) => "Failed!",
+        let import_label = match self.import_feedback.get().copied() {
+            Some(true) => "Loaded!",
+            Some(false) => "Failed!",
             None => "Load Keys",
         };
-        let import_color = match self.import_feedback {
-            Some((true, _)) => [40, 160, 60],
-            Some((false, _)) => [200, 40, 40],
+        let import_color = match self.import_feedback.get().copied() {
+            Some(true) => [40, 160, 60],
+            Some(false) => [200, 40, 40],
             None => [31, 106, 165],
         };
 
-        let export_label = match self.export_feedback {
-            Some((true, _)) => "Exported!",
-            Some((false, _)) => "Failed!",
+        let export_label = match self.export_feedback.get().copied() {
+            Some(true) => "Exported!",
+            Some(false) => "Failed!",
             None => "Export Keys",
         };
-        let export_color = match self.export_feedback {
-            Some((true, _)) => [40, 160, 60],
-            Some((false, _)) => [200, 40, 40],
+        let export_color = match self.export_feedback.get().copied() {
+            Some(true) => [40, 160, 60],
+            Some(false) => [200, 40, 40],
             None => [31, 106, 165],
         };
 
-        let delete_label = if self.confirm_delete.is_some() { "Are You Sure?" } else { "Delete Keys" };
+        let delete_label = if self.confirm_delete.is_set() { "Are You Sure?" } else { "Delete Keys" };
 
         let actions = row![
             action_button(import_label, Message::Import, import_color),

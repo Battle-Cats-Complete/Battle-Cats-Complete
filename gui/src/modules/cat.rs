@@ -6,7 +6,7 @@ mod talents;
 
 use std::collections::HashMap;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use arboard::Clipboard;
 use iced::alignment::{Horizontal, Vertical};
@@ -15,7 +15,7 @@ use iced::widget::{
     button, column, container, row, scrollable,
     text, text_input, Space,
 };
-use iced::{task, Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
+use iced::{Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::cat::unit::Battle;
 use tracing::{error, info};
 
@@ -29,6 +29,7 @@ use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
 
+use crate::common::feedback::Slot;
 use crate::common::stat_grid;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
@@ -54,13 +55,15 @@ pub enum ExportAction {
 
 #[derive(Clone)]
 pub enum Message {
-    Tick,
     AnimationTick,
+    SheetsCheck,
     ScanProgress(usize, usize),
     Loaded(Vec<CatEntry>),
     Img015Loaded(usize, Option<CoreSpriteSheet>),
     Img022Loaded(usize, Option<CoreSpriteSheet>),
     StatblockFinished(JobResult),
+    CopyFeedbackExpired,
+    SaveFeedbackExpired,
     SearchChanged(String),
     SelectCat(u32),
     SelectForm(usize),
@@ -79,13 +82,15 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Tick => write!(f, "Tick"),
             Self::AnimationTick => write!(f, "AnimationTick"),
+            Self::SheetsCheck => write!(f, "SheetsCheck"),
             Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
             Self::Loaded(cats) => write!(f, "Loaded({})", cats.len()),
             Self::Img015Loaded(i, _) => write!(f, "Img015Loaded({})", i),
             Self::Img022Loaded(i, _) => write!(f, "Img022Loaded({})", i),
             Self::StatblockFinished(_) => write!(f, "StatblockFinished"),
+            Self::CopyFeedbackExpired => write!(f, "CopyFeedbackExpired"),
+            Self::SaveFeedbackExpired => write!(f, "SaveFeedbackExpired"),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
             Self::SelectCat(id) => write!(f, "SelectCat({})", id),
             Self::SelectForm(i) => write!(f, "SelectForm({})", i),
@@ -119,13 +124,12 @@ pub struct State {
     img022_sheets: Vec<SpriteSheet>,
     custom_assets: CustomAssets,
 
-    load_handle: Option<task::Handle>,
     scan_progress: Option<(usize, usize)>,
 
     statblock_pending: Option<ExportAction>,
     statblock_clipboard: Option<Clipboard>,
-    statblock_copy_feedback: Option<(bool, Instant)>,
-    statblock_save_feedback: Option<(bool, Instant)>,
+    statblock_copy_feedback: Slot<bool>,
+    statblock_save_feedback: Slot<bool>,
 
     list: list::State,
     filter: filter::State,
@@ -151,13 +155,12 @@ impl Default for State {
             img022_sheets: Vec::new(),
             custom_assets: CustomAssets::new(),
 
-            load_handle: None,
             scan_progress: None,
 
             statblock_pending: None,
             statblock_clipboard: None,
-            statblock_copy_feedback: None,
-            statblock_save_feedback: None,
+            statblock_copy_feedback: Slot::default(),
+            statblock_save_feedback: Slot::default(),
 
             list: list::State::default(),
             filter: filter::State::default(),
@@ -174,13 +177,35 @@ impl State {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = vec![iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)];
-
         if self.selected_tab == DetailTab::Animation {
-            subscriptions.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::AnimationTick));
+            iced::time::every(Duration::from_millis(16)).map(|_| Message::AnimationTick)
+        } else {
+            Subscription::none()
         }
+    }
 
-        Subscription::batch(subscriptions)
+    pub fn start_load(&mut self, settings: &Settings) -> Task<Message> {
+        info!("Triggering initial cat load");
+        let config = settings.scanner_config();
+        let (tx, rx) = mpsc::unbounded();
+
+        thread::spawn(move || {
+            let cats = scanner::load(config, |done, total| {
+                let _ = tx.unbounded_send(Message::ScanProgress(done, total));
+            });
+            let _ = tx.unbounded_send(Message::Loaded(cats));
+        });
+
+        Task::batch([Task::stream(rx), self.check_sheets(settings)])
+    }
+
+    fn check_sheets(&mut self, settings: &Settings) -> Task<Message> {
+        let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings)
+            .map(|(index, sheet)| Message::Img015Loaded(index, sheet));
+        let img022_task = crate::common::img022::ensure_loaded(&mut self.img022_sheets, settings)
+            .map(|(index, sheet)| Message::Img022Loaded(index, sheet));
+
+        Task::batch([img015_task, img022_task])
     }
 
     pub fn update(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
@@ -193,33 +218,7 @@ impl State {
 
     fn update_inner(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
-            Message::Tick => {
-                let load_task = if self.load_handle.is_none() {
-                    info!("Triggering initial cat load");
-                    let config = settings.scanner_config();
-                    let (tx, rx) = mpsc::unbounded();
-
-                    thread::spawn(move || {
-                        let cats = scanner::load(config, |done, total| {
-                            let _ = tx.unbounded_send(Message::ScanProgress(done, total));
-                        });
-                        let _ = tx.unbounded_send(Message::Loaded(cats));
-                    });
-
-                    let (load_task, handle) = Task::stream(rx).abortable();
-                    self.load_handle = Some(handle);
-                    load_task
-                } else {
-                    Task::none()
-                };
-
-                let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings)
-                    .map(|(index, sheet)| Message::Img015Loaded(index, sheet));
-                let img022_task = crate::common::img022::ensure_loaded(&mut self.img022_sheets, settings)
-                    .map(|(index, sheet)| Message::Img022Loaded(index, sheet));
-
-                Task::batch([load_task, img015_task, img022_task])
-            }
+            Message::SheetsCheck => self.check_sheets(settings),
             Message::Img015Loaded(index, sheet) => {
                 if let Some(slot) = self.img015_sheets.get_mut(index) {
                     slot.apply(sheet);
@@ -246,7 +245,14 @@ impl State {
             }
             Message::StatblockFinished(job) => {
                 self.statblock_pending = None;
-                self.finish_statblock_job(job);
+                self.finish_statblock_job(job)
+            }
+            Message::CopyFeedbackExpired => {
+                self.statblock_copy_feedback.expire();
+                Task::none()
+            }
+            Message::SaveFeedbackExpired => {
+                self.statblock_save_feedback.expire();
                 Task::none()
             }
             Message::AnimationTick => {
@@ -421,7 +427,7 @@ impl State {
         }, Message::StatblockFinished)
     }
 
-    fn finish_statblock_job(&mut self, job: JobResult) {
+    fn finish_statblock_job(&mut self, job: JobResult) -> Task<Message> {
         match job {
             JobResult::Copy(Ok(image)) => {
                 let result = match self.ensure_clipboard() {
@@ -431,14 +437,14 @@ impl State {
                 if let Err(err) = &result {
                     error!("Cat statblock copy failed: {err}");
                 }
-                self.statblock_copy_feedback = Some((result.is_ok(), Instant::now()));
+                self.statblock_copy_feedback.set(result.is_ok(), Message::CopyFeedbackExpired)
             }
             JobResult::Copy(Err(err)) => {
                 error!("Cat statblock export failed: {err}");
-                self.statblock_copy_feedback = Some((false, Instant::now()));
+                self.statblock_copy_feedback.set(false, Message::CopyFeedbackExpired)
             }
             JobResult::Save(result) => {
-                self.statblock_save_feedback = Some((result.is_ok(), Instant::now()));
+                self.statblock_save_feedback.set(result.is_ok(), Message::SaveFeedbackExpired)
             }
         }
     }
@@ -581,7 +587,7 @@ impl State {
         }
 
         let copy_busy = self.statblock_pending == Some(ExportAction::Copy);
-        let copy_feedback = self.statblock_copy_feedback;
+        let copy_feedback = self.statblock_copy_feedback.get().copied();
         let copy_label = feedback_label(copy_busy, copy_feedback, "Copy Image", "Copying...", "Copied!", "Failed!");
         let copy_btn = button(text(copy_label).size(12))
             .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportStatblock(ExportAction::Copy)))
@@ -593,7 +599,7 @@ impl State {
             });
 
         let save_busy = self.statblock_pending == Some(ExportAction::Save);
-        let save_feedback = self.statblock_save_feedback;
+        let save_feedback = self.statblock_save_feedback.get().copied();
         let save_label = feedback_label(save_busy, save_feedback, "Export Image", "Exporting...", "Exported!", "Failed!");
         let save_btn = button(text(save_label).size(12))
             .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportStatblock(ExportAction::Save)))

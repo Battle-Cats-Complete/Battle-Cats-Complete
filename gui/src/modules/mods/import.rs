@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, Instant};
 
 use iced::futures::channel::mpsc;
 use iced::task;
@@ -15,11 +14,10 @@ use core::modules::mods::import::{self, ModImportTab, ModPackType};
 use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
-use crate::common::popup;
+use crate::common::{feedback::Slot, popup};
 
 use super::job_finished;
 
-const FEEDBACK_DURATION: Duration = Duration::from_secs(2);
 const SPINNER_FRAMES: [&str; 4] = ["-", "\\", "|", "/"];
 const POPUP_SIZE: Size = Size::new(500.0, 428.0);
 
@@ -27,12 +25,12 @@ const POPUP_SIZE: Size = Size::new(500.0, 428.0);
 pub enum Message {
     Popup(popup::Message),
     Open,
-    Tick,
     TabSelected(ModImportTab),
     PackageSuffixChanged(String),
     SelectArchive,
     FormatSelected(ModPackType),
     SelectSource,
+    PackErrorExpired,
     StartImport,
     Job(JobEvent),
 }
@@ -42,7 +40,7 @@ pub struct State {
     pub is_open: bool,
     popup: popup::State,
     selected_path: Option<PathBuf>,
-    pack_error: Option<(String, Instant)>,
+    pack_error: Slot<String>,
     busy_frame: usize,
     running: bool,
     status_message: String,
@@ -63,13 +61,8 @@ impl State {
                 self.is_open = true;
                 Task::none()
             }
-            Message::Tick => {
-                if self.running {
-                    self.busy_frame = (self.busy_frame + 1) % SPINNER_FRAMES.len();
-                }
-                if self.pack_error.as_ref().is_some_and(|(_, at)| at.elapsed() > FEEDBACK_DURATION) {
-                    self.pack_error = None;
-                }
+            Message::PackErrorExpired => {
+                self.pack_error.expire();
                 Task::none()
             }
             Message::TabSelected(tab) => {
@@ -89,13 +82,10 @@ impl State {
             Message::FormatSelected(format) => {
                 data.import.pack_type = format;
                 self.selected_path = None;
-                self.pack_error = None;
+                self.pack_error.clear();
                 Task::none()
             }
-            Message::SelectSource => {
-                self.handle_select_source(data);
-                Task::none()
-            }
+            Message::SelectSource => self.handle_select_source(data),
             Message::StartImport => self.start_import(data, settings),
             Message::Job(event) => {
                 match event {
@@ -125,6 +115,16 @@ impl State {
                 Task::none()
             }
         }
+    }
+
+    pub(super) fn advance_spinner(&mut self) {
+        if self.running {
+            self.busy_frame = (self.busy_frame + 1) % SPINNER_FRAMES.len();
+        }
+    }
+
+    pub(super) fn is_running(&self) -> bool {
+        self.running
     }
 
     fn begin(&mut self, status: String) {
@@ -190,7 +190,7 @@ impl State {
         stream_task.map(Message::Job)
     }
 
-    fn handle_select_source(&mut self, data: &ModDataState) {
+    fn handle_select_source(&mut self, data: &ModDataState) -> Task<Message> {
         match data.import.pack_type {
             ModPackType::Apk => {
                 if let Some(path) = rfd::FileDialog::new().add_filter("APK", &["apk", "xapk", "apkm"]).pick_file() {
@@ -198,8 +198,8 @@ impl State {
                 }
             }
             ModPackType::Pack => {
-                let Some(files) = rfd::FileDialog::new().add_filter("Pack/List", &["pack", "list"]).pick_files() else { return; };
-                let Some(first) = files.first() else { return; };
+                let Some(files) = rfd::FileDialog::new().add_filter("Pack/List", &["pack", "list"]).pick_files() else { return Task::none(); };
+                let Some(first) = files.first() else { return Task::none(); };
 
                 let parent = first.parent().unwrap_or(Path::new(""));
                 let stem = first.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
@@ -208,16 +208,18 @@ impl State {
 
                 if !pack_file.exists() {
                     self.selected_path = None;
-                    self.pack_error = Some(("Missing .pack!".to_string(), Instant::now()));
+                    return self.pack_error.set("Missing .pack!".to_string(), Message::PackErrorExpired);
                 } else if !list_file.exists() {
                     self.selected_path = None;
-                    self.pack_error = Some(("Missing .list!".to_string(), Instant::now()));
+                    return self.pack_error.set("Missing .list!".to_string(), Message::PackErrorExpired);
                 } else {
                     self.selected_path = Some(pack_file);
-                    self.pack_error = None;
+                    self.pack_error.clear();
                 }
             }
         }
+
+        Task::none()
     }
 
     pub fn view<'a>(&'a self, data: &'a ModDataState, window: Size) -> Element<'a, Message> {
@@ -333,12 +335,8 @@ impl State {
 
         let select_label = if data.import.pack_type == ModPackType::Pack { "Select Pack/List" } else { "Select Source" };
 
-        let selection_label: Element<'a, Message> = if let Some((message, at)) = &self.pack_error {
-            if at.elapsed() <= FEEDBACK_DURATION {
-                text(message.clone()).color(Color::from_rgb(1.0, 0.3, 0.3)).into()
-            } else {
-                self.view_pack_selection_label(data)
-            }
+        let selection_label: Element<'a, Message> = if let Some(message) = self.pack_error.get() {
+            text(message.clone()).color(Color::from_rgb(1.0, 0.3, 0.3)).into()
         } else {
             self.view_pack_selection_label(data)
         };

@@ -1,24 +1,20 @@
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, toggler};
-use iced::{Alignment, Border, Element, Length, Size, Theme};
+use iced::{Alignment, Border, Element, Length, Size, Task, Theme};
 
 use core::common::io::APP_LANGUAGES;
 use core::modules::settings::{ExceptionList, ExceptionRule, RuleHandling};
 
-use crate::common::popup;
+use crate::common::{feedback::Slot, popup};
 
 const POPUP_SIZE: Size = Size::new(750.0, 520.0);
-
-const FEEDBACK_DURATION: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Popup(popup::Message),
     Open,
-    Tick,
     AddRule,
     DeleteRule(usize),
     PatternChanged(usize, String),
@@ -26,7 +22,9 @@ pub enum Message {
     HandlingSelected(usize, RuleHandling),
     LanguageToggled(usize, String, bool),
     Import,
+    ImportExpired,
     Export,
+    ExportExpired,
     RequestReset,
     ConfirmReset,
     CancelReset,
@@ -36,8 +34,8 @@ pub struct State {
     pub is_open: bool,
     popup: popup::State,
     rules: Vec<ExceptionRule>,
-    import_feedback: Option<(bool, Instant)>,
-    export_feedback: Option<(bool, Instant)>,
+    import_feedback: Slot<bool>,
+    export_feedback: Slot<bool>,
     confirm_reset: bool,
 }
 
@@ -47,8 +45,8 @@ impl Default for State {
             is_open: false,
             popup: popup::State::default(),
             rules: ExceptionList::load_or_default().rules,
-            import_feedback: None,
-            export_feedback: None,
+            import_feedback: Slot::default(),
+            export_feedback: Slot::default(),
             confirm_reset: false,
         }
     }
@@ -60,58 +58,59 @@ impl State {
         list.save();
     }
 
-    pub fn update(&mut self, message: Message) {
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Open => {
                 self.rules = ExceptionList::load_or_default().rules;
                 self.is_open = true;
+                Task::none()
             }
             Message::Popup(msg) => {
                 if self.popup.update(msg, POPUP_SIZE) {
                     self.is_open = false;
                     self.confirm_reset = false;
                 }
-            }
-            Message::Tick => {
-                let expired = |feedback: &Option<(bool, Instant)>| {
-                    feedback.is_some_and(|(_, at)| at.elapsed() > FEEDBACK_DURATION)
-                };
-                if expired(&self.import_feedback) { self.import_feedback = None; }
-                if expired(&self.export_feedback) { self.export_feedback = None; }
+                Task::none()
             }
             Message::AddRule => {
                 self.rules.push(ExceptionRule::default());
                 self.save();
+                Task::none()
             }
             Message::DeleteRule(index) => {
                 if index < self.rules.len() {
                     self.rules.remove(index);
                     self.save();
                 }
+                Task::none()
             }
             Message::PatternChanged(index, value) => {
                 if let Some(rule) = self.rules.get_mut(index) {
                     rule.pattern = value;
                 }
                 self.save();
+                Task::none()
             }
             Message::ExtensionChanged(index, value) => {
                 if let Some(rule) = self.rules.get_mut(index) {
                     rule.extension = value;
                 }
                 self.save();
+                Task::none()
             }
             Message::HandlingSelected(index, handling) => {
                 if let Some(rule) = self.rules.get_mut(index) {
                     rule.handling = handling;
                 }
                 self.save();
+                Task::none()
             }
             Message::LanguageToggled(index, lang_code, enabled) => {
                 if let Some(rule) = self.rules.get_mut(index) {
                     rule.languages.insert(lang_code, enabled);
                 }
                 self.save();
+                Task::none()
             }
             Message::Import => {
                 if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
@@ -121,22 +120,38 @@ impl State {
                             self.save();
                         })
                         .is_ok();
-                    self.import_feedback = Some((success, Instant::now()));
+                    return self.import_feedback.set(success, Message::ImportExpired);
                 }
+                Task::none()
+            }
+            Message::ImportExpired => {
+                self.import_feedback.expire();
+                Task::none()
             }
             Message::Export => {
                 let export_dir = Path::new("exports");
                 let _ = fs::create_dir_all(export_dir);
                 let mut export_list = ExceptionList { rules: self.rules.clone(), ..Default::default() };
                 let success = export_list.save_to_file(&export_dir.join("exceptions.json")).is_ok();
-                self.export_feedback = Some((success, Instant::now()));
+                self.export_feedback.set(success, Message::ExportExpired)
             }
-            Message::RequestReset => self.confirm_reset = true,
-            Message::CancelReset => self.confirm_reset = false,
+            Message::ExportExpired => {
+                self.export_feedback.expire();
+                Task::none()
+            }
+            Message::RequestReset => {
+                self.confirm_reset = true;
+                Task::none()
+            }
+            Message::CancelReset => {
+                self.confirm_reset = false;
+                Task::none()
+            }
             Message::ConfirmReset => {
                 self.rules = ExceptionList::default().rules;
                 self.save();
                 self.confirm_reset = false;
+                Task::none()
             }
         }
     }
@@ -158,24 +173,24 @@ impl State {
                 .on_press(msg)
         };
 
-        let import_label = match self.import_feedback {
-            Some((true, _)) => "Imported!",
-            Some((false, _)) => "Failed!",
+        let import_label = match self.import_feedback.get().copied() {
+            Some(true) => "Imported!",
+            Some(false) => "Failed!",
             None => "Load List",
         };
-        let import_color = match self.import_feedback {
-            Some((true, _)) => [40, 160, 60],
-            Some((false, _)) => [200, 40, 40],
+        let import_color = match self.import_feedback.get().copied() {
+            Some(true) => [40, 160, 60],
+            Some(false) => [200, 40, 40],
             None => [31, 106, 165],
         };
-        let export_label = match self.export_feedback {
-            Some((true, _)) => "Exported!",
-            Some((false, _)) => "Failed!",
+        let export_label = match self.export_feedback.get().copied() {
+            Some(true) => "Exported!",
+            Some(false) => "Failed!",
             None => "Export List",
         };
-        let export_color = match self.export_feedback {
-            Some((true, _)) => [40, 160, 60],
-            Some((false, _)) => [200, 40, 40],
+        let export_color = match self.export_feedback.get().copied() {
+            Some(true) => [40, 160, 60],
+            Some(false) => [200, 40, 40],
             None => [31, 106, 165],
         };
 

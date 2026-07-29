@@ -1,12 +1,8 @@
 pub(crate) mod builder;
 mod draw;
 
-use std::time::{Duration, Instant};
-
 use iced::{Color, Theme};
 use image::RgbaImage;
-
-pub(crate) const FEEDBACK_COOLDOWN: Duration = Duration::from_secs(2);
 
 /// Result of a background statblock export job.
 ///
@@ -22,7 +18,7 @@ pub enum JobResult {
 
 pub(crate) fn feedback_label(
     busy: bool,
-    feedback: Option<(bool, Instant)>,
+    feedback: Option<bool>,
     idle_label: &str,
     busy_label: &str,
     success_label: &str,
@@ -32,23 +28,21 @@ pub(crate) fn feedback_label(
         return busy_label.to_string();
     }
 
-    if let Some((success, at)) = feedback
-        && at.elapsed() < FEEDBACK_COOLDOWN {
+    if let Some(success) = feedback {
         return if success { success_label.to_string() } else { fail_label.to_string() };
     }
 
     idle_label.to_string()
 }
 
-pub(crate) fn feedback_color(theme: &Theme, busy: bool, feedback: Option<(bool, Instant)>) -> Color {
+pub(crate) fn feedback_color(theme: &Theme, busy: bool, feedback: Option<bool>) -> Color {
     let palette = theme.palette();
 
     if busy {
         return palette.warning;
     }
 
-    if let Some((success, at)) = feedback
-        && at.elapsed() < FEEDBACK_COOLDOWN {
+    if let Some(success) = feedback {
         return if success { palette.success } else { palette.danger };
     }
 

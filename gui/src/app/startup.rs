@@ -55,8 +55,14 @@ impl BattleCatsApp {
             app.mods_state.icon_stream().map(Message::Mod),
         ]);
 
+        let boot_loads = Task::batch([
+            app.cat_state.start_load(&app.settings).map(Message::Cat),
+            app.enemy_state.start_load(&app.settings).map(Message::Enemy),
+            app.stage_state.start_load(&app.settings).map(Message::Stage),
+        ]);
+
         info!("Initialization sequence complete");
 
-        (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams]))
+        (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams, boot_loads]))
     }
 }

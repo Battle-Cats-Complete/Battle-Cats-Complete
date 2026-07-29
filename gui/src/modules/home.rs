@@ -1,13 +1,9 @@
 use std::env;
 use std::fs;
 use std::path::Path;
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
 
-use iced::time;
 use iced::widget::{button, column, container, pick_list, row, scrollable, stack, text, Space};
-use iced::{Alignment, Background, Color, Element, Length, Subscription, Task, Theme};
+use iced::{Alignment, Background, Color, Element, Length, Task, Theme};
 use self_update::backends::github::ReleaseList;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
@@ -47,7 +43,6 @@ pub struct State {
     releases: Vec<(String, String)>,
     selected_version: Option<String>,
     notice_open: bool,
-    changelog_rx: Option<mpsc::Receiver<Result<Vec<(String, String)>, String>>>,
 }
 
 impl Default for State {
@@ -60,14 +55,12 @@ impl Default for State {
             releases: Vec::new(),
             selected_version: None,
             notice_open: false,
-            changelog_rx: None,
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Tick,
     CheckInit,
     InitChecked { is_empty: bool, needs_notice: bool },
     AcknowledgeNotice,
@@ -89,22 +82,8 @@ impl State {
         )
     }
 
-    pub fn subscription(&self) -> Subscription<Message> {
-        // TODO: Rewrite core to handle iced without ticking
-        time::every(Duration::from_millis(16)).map(|_| Message::Tick)
-    }
-
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Tick => {
-                if let Some(rx) = &self.changelog_rx
-                    && let Ok(result) = rx.try_recv() {
-                    self.changelog_rx = None;
-                    return self.update(Message::ChangelogsFetched(result));
-                }
-                Task::none()
-            }
-
             Message::CheckInit => {
                 Task::perform(check_initialization(), |(is_empty, needs_notice)| {
                     Message::InitChecked { is_empty, needs_notice }
@@ -122,14 +101,12 @@ impl State {
                 let current_version = env!("CARGO_PKG_VERSION").to_string();
                 let new_meta = AppMeta { app_version: current_version };
 
-                Task::perform(
-                    async move {
-                        if let Err(err) = json::save("meta.json", &new_meta) {
-                            warn!("Failed to save meta.json: {}", err);
-                        }
-                    },
-                    |_| Message::Tick,
-                )
+                Task::future(async move {
+                    if let Err(err) = json::save("meta.json", &new_meta) {
+                        warn!("Failed to save meta.json: {}", err);
+                    }
+                })
+                .discard()
             }
 
             Message::OpenChangelog => {
@@ -137,12 +114,7 @@ impl State {
                 if self.releases.is_empty() && !self.changelog_loading {
                     self.changelog_loading = true;
                     self.changelog_error = false;
-
-                    let (tx, rx) = mpsc::channel();
-                    self.changelog_rx = Some(rx);
-                    thread::spawn(move || {
-                        let _ = tx.send(fetch_changelogs());
-                    });
+                    return Task::perform(smol::unblock(fetch_changelogs), Message::ChangelogsFetched);
                 }
                 Task::none()
             }

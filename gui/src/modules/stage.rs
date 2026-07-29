@@ -14,7 +14,7 @@ use std::thread;
 use iced::alignment;
 use iced::futures::channel::mpsc;
 use iced::widget::{button, column, container, row, scrollable, space, stack, text};
-use iced::{task, Element, Length, Size, Subscription, Task, Theme};
+use iced::{Element, Length, Size, Task, Theme};
 use tracing::{info, warn};
 
 use core::common::context::GlobalContext;
@@ -26,7 +26,6 @@ use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDa
 
 #[derive(Clone)]
 pub enum Message {
-    Tick,
     ScanProgress(usize, usize),
     Loaded(StageBundle),
     ToggleSidebar,
@@ -38,7 +37,6 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Tick => write!(f, "Tick"),
             Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
             Self::Loaded(bundle) => write!(f, "Loaded({} maps, {} stages)", bundle.registry.maps.len(), bundle.registry.stages.len()),
             Self::ToggleSidebar => write!(f, "ToggleSidebar"),
@@ -53,7 +51,6 @@ pub struct State {
     pub data: StageDataState,
     pub is_sidebar_open: bool,
     pub selected_crown: u8,
-    load_handle: Option<task::Handle>,
     scan_progress: Option<(usize, usize)>,
     filter: filter::State,
     list: list::State,
@@ -70,7 +67,6 @@ impl Default for State {
             data: StageDataState::default(),
             is_sidebar_open: true,
             selected_crown: 0,
-            load_handle: None,
             scan_progress: None,
             filter: filter::State::default(),
             list: list::State::default(),
@@ -84,32 +80,23 @@ impl Default for State {
 }
 
 impl State {
-    pub fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::Tick)
+    pub fn start_load(&mut self, settings: &Settings) -> Task<Message> {
+        info!("Triggering initial stage load");
+        let config = settings.scanner_config();
+        let (tx, rx) = mpsc::unbounded();
+
+        thread::spawn(move || {
+            let bundle = scanner::load(config, |done, total| {
+                let _ = tx.unbounded_send(Message::ScanProgress(done, total));
+            });
+            let _ = tx.unbounded_send(Message::Loaded(bundle));
+        });
+
+        Task::stream(rx)
     }
 
-    pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         let task = match message {
-            Message::Tick => {
-                if self.load_handle.is_none() {
-                    info!("Triggering initial stage load");
-                    let config = settings.scanner_config();
-                    let (tx, rx) = mpsc::unbounded();
-
-                    thread::spawn(move || {
-                        let bundle = scanner::load(config, |done, total| {
-                            let _ = tx.unbounded_send(Message::ScanProgress(done, total));
-                        });
-                        let _ = tx.unbounded_send(Message::Loaded(bundle));
-                    });
-
-                    let (load_task, handle) = Task::stream(rx).abortable();
-                    self.load_handle = Some(handle);
-                    load_task
-                } else {
-                    Task::none()
-                }
-            }
             Message::ScanProgress(done, total) => {
                 if self.scan_progress.is_none_or(|(prev, _)| done > prev) {
                     self.scan_progress = Some((done, total));

@@ -4,20 +4,19 @@ mod exceptions;
 mod keys;
 mod pem;
 
-use std::time::Duration;
-#[cfg(target_os = "linux")]
-use std::time::Instant;
-
 use iced::widget::{
     button, column, container, opaque, pick_list, row, scrollable, stack, text, text_input, toggler,
 };
-use iced::{Alignment, Element, Length, Size, Subscription, Task, Theme};
+use iced::{Alignment, Element, Length, Size, Task, Theme};
 use tracing::debug;
 
 use core::modules::settings::lang;
 use core::modules::settings::{
     ExportBehavior, Settings as CoreSettings, SidebarBehavior, UpdateMode,
 };
+
+#[cfg(target_os = "linux")]
+use crate::common::feedback::Slot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -42,7 +41,6 @@ enum DesktopFeedback {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Tick,
     TabSelected(Tab),
 
     // General Tab
@@ -54,6 +52,8 @@ pub enum Message {
     RestoreDefaultLanguages,
     #[cfg(target_os = "linux")]
     ToggleDesktopData,
+    #[cfg(target_os = "linux")]
+    DesktopFeedbackExpired,
     ManualUpdateCheck,
 
     // Cats Tab
@@ -113,7 +113,7 @@ pub struct State {
     disk: disk::State,
 
     #[cfg(target_os = "linux")]
-    desktop_feedback: Option<(DesktopFeedback, Instant)>,
+    desktop_feedback: Slot<DesktopFeedback>,
 }
 
 impl Default for State {
@@ -130,30 +130,14 @@ impl Default for State {
             addons: addons::State::default(),
             disk: disk::State::default(),
             #[cfg(target_os = "linux")]
-            desktop_feedback: None,
+            desktop_feedback: Slot::default(),
         }
     }
 }
 
 impl State {
-    pub fn subscription(&self) -> Subscription<Message> {
-        // TODO: Rewrite `core` to handle `iced` without ticking
-        iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
-    }
-
     pub fn update(&mut self, message: Message, core_settings: &mut CoreSettings) -> Task<Message> {
         match message {
-            Message::Tick => {
-                self.keys.update(keys::Message::Tick);
-                self.exceptions.update(exceptions::Message::Tick);
-
-                #[cfg(target_os = "linux")]
-                if self.desktop_feedback.is_some_and(|(_, at)| at.elapsed() > Duration::from_secs(2)) {
-                    self.desktop_feedback = None;
-                }
-
-                self.pem.update(pem::Message::Tick).map(Message::Pem)
-            }
             Message::TabSelected(tab) => {
                 self.active_tab = tab;
                 match tab {
@@ -206,7 +190,12 @@ impl State {
                 } else {
                     (DesktopFeedback::Created, core::modules::settings::desktop::create_desktop_data().is_ok())
                 };
-                self.desktop_feedback = Some((if success { feedback } else { DesktopFeedback::Failed }, Instant::now()));
+                let kind = if success { feedback } else { DesktopFeedback::Failed };
+                self.desktop_feedback.set(kind, Message::DesktopFeedbackExpired)
+            }
+            #[cfg(target_os = "linux")]
+            Message::DesktopFeedbackExpired => {
+                self.desktop_feedback.expire();
                 Task::none()
             }
             Message::ManualUpdateCheck => {
@@ -282,14 +271,8 @@ impl State {
                 core_settings.game_data.app_folder_persistence = val;
                 Task::none()
             }
-            Message::Keys(msg) => {
-                self.keys.update(msg);
-                Task::none()
-            }
-            Message::Exceptions(msg) => {
-                self.exceptions.update(msg);
-                Task::none()
-            }
+            Message::Keys(msg) => self.keys.update(msg).map(Message::Keys),
+            Message::Exceptions(msg) => self.exceptions.update(msg).map(Message::Exceptions),
             Message::Disk(msg) => self.disk.update(msg).map(Message::Disk),
 
             // Addons Tab
@@ -469,10 +452,10 @@ impl State {
         #[cfg(target_os = "linux")]
         {
             let is_installed = core::modules::settings::desktop::is_desktop_data_present();
-            let (label, color) = match &self.desktop_feedback {
-                Some((DesktopFeedback::Created, _)) => ("Desktop Data Created!", [40, 160, 40]),
-                Some((DesktopFeedback::Deleted, _)) => ("Desktop Data Deleted!", [40, 160, 40]),
-                Some((DesktopFeedback::Failed, _)) => ("Failed!", [180, 50, 50]),
+            let (label, color) = match self.desktop_feedback.get() {
+                Some(DesktopFeedback::Created) => ("Desktop Data Created!", [40, 160, 40]),
+                Some(DesktopFeedback::Deleted) => ("Desktop Data Deleted!", [40, 160, 40]),
+                Some(DesktopFeedback::Failed) => ("Failed!", [180, 50, 50]),
                 None if is_installed => ("Delete Desktop Data", [180, 50, 50]),
                 None => ("Create Desktop Data", [40, 90, 160]),
             };

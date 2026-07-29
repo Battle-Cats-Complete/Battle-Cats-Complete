@@ -24,7 +24,6 @@ const POPUP_SIZE: Size = Size::new(400.0, 328.0);
 pub enum Message {
     Popup(popup::Message),
     Open,
-    Tick,
     TabSelected(ExportType),
     TitleChanged(String),
     PackageChanged(String),
@@ -61,6 +60,16 @@ impl Default for State {
 }
 
 impl State {
+    pub(super) fn advance_spinner(&mut self) {
+        if self.running {
+            self.busy_frame = (self.busy_frame + 1) % SPINNER_FRAMES.len();
+        }
+    }
+
+    pub(super) fn is_running(&self) -> bool {
+        self.running
+    }
+
     pub fn update(&mut self, message: Message, data: &mut ModDataState, settings: &Settings) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
@@ -71,12 +80,6 @@ impl State {
             }
             Message::Open => {
                 self.is_open = true;
-                Task::none()
-            }
-            Message::Tick => {
-                if self.running {
-                    self.busy_frame = (self.busy_frame + 1) % SPINNER_FRAMES.len();
-                }
                 Task::none()
             }
             Message::TabSelected(tab) => {

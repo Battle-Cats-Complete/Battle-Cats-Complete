@@ -26,7 +26,7 @@ pub enum MetadataField {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Tick,
+    SpinnerTick,
     List(list::Message),
     Import(import::Message),
     Export(export::Message),
@@ -70,7 +70,11 @@ impl State {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
+        if self.import.is_running() || self.export.is_running() {
+            iced::time::every(Duration::from_millis(16)).map(|_| Message::SpinnerTick)
+        } else {
+            Subscription::none()
+        }
     }
 
     pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
@@ -83,11 +87,10 @@ impl State {
 
     fn update_inner(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         match message {
-            Message::Tick => {
-                let import_task = self.import.update(import::Message::Tick, &mut self.data, settings).map(Message::Import);
-                let export_task = self.export.update(export::Message::Tick, &mut self.data, settings).map(Message::Export);
-
-                Task::batch([import_task, export_task])
+            Message::SpinnerTick => {
+                self.import.advance_spinner();
+                self.export.advance_spinner();
+                Task::none()
             }
             Message::List(msg) => {
                 if let list::Message::SelectMod(folder) = &msg {
