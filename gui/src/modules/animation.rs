@@ -29,6 +29,7 @@ pub enum Message {
     Controls(controls::Message),
     Export(export::Message),
     Overlay(overlay::Message),
+    Preloaded(data::PreloadResult),
     ToggleExpanded,
 }
 
@@ -41,6 +42,25 @@ impl State {
     pub fn sync_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) {
         self.data.sync_enemy(enemy, settings);
         self.export.sync(&self.data, settings);
+    }
+
+    pub fn preload(&mut self, cat: &CatEntry, form: usize, settings: &Settings) -> Task<Message> {
+        Self::preload_task(self.data.preload_request(cat, form, settings))
+    }
+
+    pub fn preload_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) -> Task<Message> {
+        Self::preload_task(self.data.preload_enemy_request(enemy, settings))
+    }
+
+    fn preload_task(request: Option<data::PreloadRequest>) -> Task<Message> {
+        match request {
+            Some(request) => Task::perform(smol::unblock(move || request.run()), Message::Preloaded),
+            None => Task::none(),
+        }
+    }
+
+    pub fn invalidate_paths(&mut self) {
+        self.data.invalidate_paths();
     }
 
     pub fn tick(&mut self) {
@@ -76,6 +96,10 @@ impl State {
                 }
                 self.overlay.selecting = false;
                 self.export.is_open = true;
+                Task::none()
+            }
+            Message::Preloaded(result) => {
+                self.data.apply_preload(result);
                 Task::none()
             }
             Message::ToggleExpanded => {

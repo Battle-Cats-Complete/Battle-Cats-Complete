@@ -191,6 +191,10 @@ pub struct State {
 }
 
 impl State {
+    pub fn clear_icons(&self) {
+        self.icon_cache.borrow_mut().clear();
+    }
+
     fn icon(&self, id: u32, path: &std::path::Path) -> Option<Handle> {
         if let Some(cached) = self.icon_cache.borrow().get(&id) {
             return Some(cached.clone());

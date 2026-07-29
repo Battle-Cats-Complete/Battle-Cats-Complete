@@ -199,6 +199,57 @@ impl State {
         Task::batch([Task::stream(rx), self.check_sheets(settings)])
     }
 
+    pub fn rescan(&mut self, settings: &Settings) -> Task<Message> {
+        info!("Rescanning cats for active-mod change");
+        self.animation.invalidate_paths();
+        self.start_load(settings)
+    }
+
+    fn seeded_level(cat: &CatEntry, settings: &Settings) -> (i32, String) {
+        if !settings.cat_data.auto_level_calculations {
+            let default_level = settings.cat_data.default_level.max(1);
+            return (default_level, default_level.to_string());
+        }
+
+        let base_max = cat.unitbuy.level_cap_catseye;
+        let plus_max = cat.unitbuy.level_cap_plus;
+        let is_legend_rare = cat.unitbuy.rarity == 5;
+        let is_normal_rare = cat.unitbuy.rarity == 0;
+
+        if is_legend_rare {
+            (50, "50".to_string())
+        } else if base_max == 1 || (5..=65).contains(&plus_max) || is_normal_rare {
+            let input = if plus_max > 0 {
+                format!("{}+{}", base_max, plus_max)
+            } else {
+                base_max.to_string()
+            };
+            (base_max + plus_max, input)
+        } else if base_max > 50 {
+            (50, "50".to_string())
+        } else {
+            (base_max, base_max.to_string())
+        }
+    }
+
+    fn clamped_selection(&self, cat: &CatEntry) -> (usize, DetailTab) {
+        let max_form = cat.forms.iter().rposition(|&exists| exists).unwrap_or(0);
+        let current_exists = cat.forms.get(self.selected_form).copied().unwrap_or(false);
+        let form = if self.selected_form > max_form || !current_exists {
+            max_form
+        } else {
+            self.selected_form
+        };
+
+        let tab = if self.selected_tab == DetailTab::Talents && (form < 2 || cat.talent_data.is_none()) {
+            DetailTab::Abilities
+        } else {
+            self.selected_tab
+        };
+
+        (form, tab)
+    }
+
     fn check_sheets(&mut self, settings: &Settings) -> Task<Message> {
         let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings)
             .map(|(index, sheet)| Message::Img015Loaded(index, sheet));
@@ -240,8 +291,17 @@ impl State {
             Message::Loaded(cats) => {
                 info!("Cat load finished with {} entries", cats.len());
                 self.scan_progress = None;
+                self.list.invalidate();
                 self.data.cats = cats;
-                Task::none()
+                match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
+                    Some(cat) => {
+                        let (form, tab) = self.clamped_selection(cat);
+                        self.selected_form = form;
+                        self.selected_tab = tab;
+                        self.animation.preload(cat, form, settings).map(Message::Animation)
+                    }
+                    None => Task::none(),
+                }
             }
             Message::StatblockFinished(job) => {
                 self.statblock_pending = None;
@@ -268,19 +328,22 @@ impl State {
             }
             Message::SelectCat(id) => {
                 self.selected_cat = Some(id);
-                self.selected_form = 0;
-                self.selected_tab = DetailTab::Abilities;
                 self.talent_levels.clear();
                 self.talent_level_inputs.clear();
 
-                if let Some(_cat) = self.data.cats.iter().find(|c| c.id == id) {
-                    let default_level = settings.cat_data.default_level.max(1);
-                    self.current_level = default_level;
-                    self.level_input = default_level.to_string();
-                }
-
                 info!("Selected cat ID: {}", id);
-                Task::none()
+                match self.data.cats.iter().find(|c| c.id == id) {
+                    Some(cat) => {
+                        let (level, input) = Self::seeded_level(cat, settings);
+                        self.current_level = level;
+                        self.level_input = input;
+                        let (form, tab) = self.clamped_selection(cat);
+                        self.selected_form = form;
+                        self.selected_tab = tab;
+                        self.animation.preload(cat, form, settings).map(Message::Animation)
+                    }
+                    None => Task::none(),
+                }
             }
             Message::SelectForm(form_idx) => {
                 self.selected_form = form_idx;
@@ -288,7 +351,10 @@ impl State {
                 if self.selected_tab == DetailTab::Talents && form_idx < 2 {
                     self.selected_tab = DetailTab::Abilities;
                 }
-                Task::none()
+                match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
+                    Some(cat) => self.animation.preload(cat, form_idx, settings).map(Message::Animation),
+                    None => Task::none(),
+                }
             }
             Message::SelectTab(tab) => {
                 self.selected_tab = tab;

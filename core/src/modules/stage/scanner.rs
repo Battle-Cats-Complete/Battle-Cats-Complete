@@ -86,7 +86,8 @@ struct MapJob {
 pub fn load(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
     let dictionaries = build_dictionaries(&config);
 
-    if let Some((hash, registry)) = cache::read::<StageCache>() {
+    if !resolver::is_mod_active()
+        && let Some((hash, registry)) = cache::read::<StageCache>() {
         debug!(hash, maps = registry.maps.len(), stages = registry.stages.len(), "loaded stages from cache fast-path");
         return StageBundle { registry, dictionaries };
     }

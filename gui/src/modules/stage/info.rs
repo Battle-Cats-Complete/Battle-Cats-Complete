@@ -157,6 +157,10 @@ pub struct State {
 }
 
 impl State {
+    pub fn clear_icons(&self) {
+        self.icon_cache.borrow_mut().clear();
+    }
+
     fn texture(&self, key: &str, path: &Path) -> Option<(Handle, u32, u32)> {
         if let Some(cached) = self.icon_cache.borrow().get(key) {
             return Some(cached.clone());

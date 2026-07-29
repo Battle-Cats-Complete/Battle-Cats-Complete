@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use tracing::warn;
+
 use nyanko::graphics::rig::{Animation, Unit};
 
 use core::modules::animation::{
@@ -36,6 +38,7 @@ pub struct State {
     loaded_id: String,
     failed_load_id: String,
     current_anim_index: usize,
+    cache: RigCache,
 }
 
 impl Default for State {
@@ -52,6 +55,7 @@ impl Default for State {
             loaded_id: String::new(),
             failed_load_id: String::new(),
             current_anim_index: IDX_NONE,
+            cache: RigCache::default(),
         }
     }
 }
@@ -86,11 +90,67 @@ impl State {
         self.loaded_anim_index = index;
     }
 
+    pub fn invalidate_paths(&mut self) {
+        self.primary_id.clear();
+        self.secondary_id.clear();
+        self.loaded_id.clear();
+        self.failed_load_id.clear();
+        self.cache.clear();
+    }
+
     pub fn secondary_available(&self) -> bool {
         self.secondary_assets.is_some()
     }
 
     pub fn sync(&mut self, cat: &CatEntry, form: usize, settings: &Settings) {
+        self.prepare(cat, form, settings);
+        self.load_active(settings);
+    }
+
+    pub fn preload_request(&mut self, cat: &CatEntry, form: usize, settings: &Settings) -> Option<PreloadRequest> {
+        self.prepare(cat, form, settings);
+        self.build_request()
+    }
+
+    pub fn preload_enemy_request(&mut self, enemy: &EnemyEntry, settings: &Settings) -> Option<PreloadRequest> {
+        self.prepare_enemy(enemy, settings);
+        self.build_request()
+    }
+
+    pub fn apply_preload(&mut self, result: PreloadResult) {
+        let index = self.loaded_anim_index;
+        let desired_id = if index == IDX_SPIRIT { &self.secondary_id } else { &self.primary_id };
+        let wanted = index != IDX_NONE
+            && !desired_id.is_empty()
+            && *desired_id == result.target_id
+            && self.loaded_id != result.target_id;
+
+        let Some(unit) = result.unit else {
+            if wanted {
+                self.loaded_id = result.target_id.clone();
+                self.failed_load_id = result.target_id;
+                self.held_unit = None;
+                self.current_anim = None;
+                self.current_anim_index = IDX_NONE;
+            }
+            return;
+        };
+
+        self.cache.insert(&result.target_id, unit.clone());
+        if let Some(anim) = &result.anim {
+            self.cache.store_anim(&result.target_id, result.anim_index, anim.clone());
+        }
+
+        if wanted {
+            self.held_unit = Some(unit);
+            self.loaded_id = result.target_id;
+            self.failed_load_id.clear();
+            self.current_anim = result.anim;
+            self.current_anim_index = result.anim_index;
+        }
+    }
+
+    fn prepare(&mut self, cat: &CatEntry, form: usize, settings: &Settings) {
         let form_char = match form {
             0 => 'f',
             1 => 'c',
@@ -104,7 +164,46 @@ impl State {
         }
 
         self.select_valid_index();
-        self.load_active(settings);
+    }
+
+    fn build_request(&mut self) -> Option<PreloadRequest> {
+        let index = self.loaded_anim_index;
+        if index == IDX_NONE {
+            return None;
+        }
+
+        let target_id = if index == IDX_SPIRIT { self.secondary_id.clone() } else { self.primary_id.clone() };
+        if target_id.is_empty() || self.loaded_id == target_id {
+            return None;
+        }
+
+        if self.apply_cached(&target_id, index) {
+            return None;
+        }
+
+        let (png, cut, model, anim) = self.resolve_paths(index);
+        Some(PreloadRequest {
+            target_id,
+            anim_index: index,
+            png: png?,
+            cut: cut?,
+            model: model?,
+            anim,
+        })
+    }
+
+    fn apply_cached(&mut self, target_id: &str, index: usize) -> bool {
+        let Some(unit) = self.cache.lookup(target_id) else {
+            return false;
+        };
+
+        self.held_unit = Some(unit);
+        self.loaded_id = target_id.to_string();
+        self.failed_load_id.clear();
+        let (_, _, _, anim_path) = self.resolve_paths(index);
+        self.load_anim(index, anim_path);
+        self.current_anim_index = index;
+        true
     }
 
     fn rescan_paths(&mut self, cat: &CatEntry, form: usize, primary_id: &str, settings: &Settings) {
@@ -164,6 +263,11 @@ impl State {
     }
 
     pub fn sync_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) {
+        self.prepare_enemy(enemy, settings);
+        self.load_active(settings);
+    }
+
+    fn prepare_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) {
         let primary_id = enemy.id_str();
 
         if self.primary_id != primary_id {
@@ -171,7 +275,6 @@ impl State {
         }
 
         self.select_valid_index();
-        self.load_active(settings);
     }
 
     fn rescan_enemy_paths(&mut self, enemy: &EnemyEntry, primary_id: &str, settings: &Settings) {
@@ -284,6 +387,10 @@ impl State {
             return;
         }
 
+        if self.apply_cached(&target_id, valid_index) {
+            return;
+        }
+
         let (png, cut, model, anim_path) = self.resolve_paths(valid_index);
 
         let loaded_unit = match (png, cut, model) {
@@ -298,10 +405,12 @@ impl State {
 
         match loaded_unit {
             Some(unit) => {
-                self.held_unit = Some(Arc::new(unit));
+                let unit = Arc::new(unit);
+                self.cache.insert(&target_id, unit.clone());
+                self.held_unit = Some(unit);
                 self.loaded_id = target_id;
                 self.failed_load_id.clear();
-                self.load_anim(anim_path);
+                self.load_anim(valid_index, anim_path);
                 self.current_anim_index = valid_index;
             }
             None => {
@@ -324,16 +433,26 @@ impl State {
         }
 
         let (_, _, _, anim_path) = self.resolve_paths(valid_index);
-        self.load_anim(anim_path);
+        self.load_anim(valid_index, anim_path);
         self.current_anim_index = valid_index;
     }
 
-    fn load_anim(&mut self, anim_path: Option<PathBuf>) {
+    fn load_anim(&mut self, index: usize, anim_path: Option<PathBuf>) {
+        if let Some(anim) = self.cache.anim(&self.loaded_id, index) {
+            self.current_anim = Some(anim);
+            return;
+        }
+
         let parsed = anim_path
             .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| Animation::parse(&bytes));
+            .and_then(|bytes| Animation::parse(&bytes))
+            .map(Arc::new);
 
-        self.current_anim = parsed.map(Arc::new);
+        if let Some(anim) = &parsed {
+            self.cache.store_anim(&self.loaded_id, index, anim.clone());
+        }
+
+        self.current_anim = parsed;
     }
 
     fn resolve_paths(&self, target_index: usize) -> (Option<PathBuf>, Option<PathBuf>, Option<PathBuf>, Option<PathBuf>) {
@@ -350,5 +469,113 @@ impl State {
         }
 
         (None, None, None, None)
+    }
+}
+
+pub struct PreloadRequest {
+    target_id: String,
+    anim_index: usize,
+    png: PathBuf,
+    cut: PathBuf,
+    model: PathBuf,
+    anim: Option<PathBuf>,
+}
+
+impl PreloadRequest {
+    pub fn run(self) -> PreloadResult {
+        let unit = match (std::fs::read(&self.png), std::fs::read(&self.cut), std::fs::read(&self.model)) {
+            (Ok(png_bytes), Ok(cut_bytes), Ok(model_bytes)) => Unit::parse(&png_bytes, &cut_bytes, &model_bytes),
+            _ => None,
+        };
+
+        if unit.is_none() {
+            warn!("Animation preload failed for {}", self.target_id);
+        }
+
+        let anim = self.anim
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| Animation::parse(&bytes));
+
+        PreloadResult {
+            target_id: self.target_id,
+            anim_index: self.anim_index,
+            unit: unit.map(Arc::new),
+            anim: anim.map(Arc::new),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PreloadResult {
+    target_id: String,
+    anim_index: usize,
+    unit: Option<Arc<Unit>>,
+    anim: Option<Arc<Animation>>,
+}
+
+impl std::fmt::Debug for PreloadResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreloadResult")
+            .field("target_id", &self.target_id)
+            .field("anim_index", &self.anim_index)
+            .field("loaded", &self.unit.is_some())
+            .finish()
+    }
+}
+
+const CACHE_CAP: usize = 12;
+
+#[derive(Default)]
+struct RigCache {
+    slots: Vec<CacheSlot>,
+}
+
+struct CacheSlot {
+    id: String,
+    unit: Arc<Unit>,
+    anims: Vec<(usize, Arc<Animation>)>,
+}
+
+impl RigCache {
+    fn lookup(&mut self, id: &str) -> Option<Arc<Unit>> {
+        let pos = self.slots.iter().position(|slot| slot.id == id)?;
+        let slot = self.slots.remove(pos);
+        let unit = slot.unit.clone();
+        self.slots.push(slot);
+        Some(unit)
+    }
+
+    fn anim(&self, id: &str, index: usize) -> Option<Arc<Animation>> {
+        let slot = self.slots.iter().find(|slot| slot.id == id)?;
+        slot.anims.iter().find(|(i, _)| *i == index).map(|(_, anim)| anim.clone())
+    }
+
+    fn insert(&mut self, id: &str, unit: Arc<Unit>) {
+        if let Some(pos) = self.slots.iter().position(|slot| slot.id == id) {
+            let mut slot = self.slots.remove(pos);
+            slot.unit = unit;
+            self.slots.push(slot);
+            return;
+        }
+
+        if self.slots.len() >= CACHE_CAP {
+            self.slots.remove(0);
+        }
+
+        self.slots.push(CacheSlot { id: id.to_string(), unit, anims: Vec::new() });
+    }
+
+    fn store_anim(&mut self, id: &str, index: usize, anim: Arc<Animation>) {
+        let Some(slot) = self.slots.iter_mut().find(|slot| slot.id == id) else {
+            return;
+        };
+
+        if !slot.anims.iter().any(|(i, _)| *i == index) {
+            slot.anims.push((index, anim));
+        }
+    }
+
+    fn clear(&mut self) {
+        self.slots.clear();
     }
 }

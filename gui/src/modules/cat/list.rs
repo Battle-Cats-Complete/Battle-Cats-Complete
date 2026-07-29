@@ -38,12 +38,14 @@ struct LoadRequest {
     path: PathBuf,
     background: Arc<RgbaImage>,
     high_quality: bool,
+    generation: u64,
 }
 
 #[derive(Clone)]
 pub struct LoadResult {
     id: u32,
     payload: Option<(u32, u32, Vec<u8>)>,
+    generation: u64,
 }
 
 pub struct State {
@@ -56,6 +58,7 @@ pub struct State {
     last_unit_count: usize,
     last_filter_state: CatFilterState,
     cached_indices: Vec<usize>,
+    generation: u64,
     tx_request: Sender<LoadRequest>,
     rx_result: Option<UnboundedReceiver<LoadResult>>,
 }
@@ -83,7 +86,7 @@ impl Default for State {
                 let tx = tx_result.clone();
                 rayon::spawn(move || {
                     let payload = composite_banner(&request.path, &request.background, request.high_quality);
-                    let _ = tx.unbounded_send(LoadResult { id: request.id, payload });
+                    let _ = tx.unbounded_send(LoadResult { id: request.id, payload, generation: request.generation });
                 });
             }
         });
@@ -98,6 +101,7 @@ impl Default for State {
             last_unit_count: usize::MAX,
             last_filter_state: CatFilterState::default(),
             cached_indices: Vec::new(),
+            generation: 0,
             tx_request,
             rx_result: Some(rx_result),
         }
@@ -115,6 +119,10 @@ impl State {
     pub fn update(&mut self, message: Message) {
         let Message::IconLoaded(result) = message else { return };
 
+        if result.generation != self.generation {
+            return;
+        }
+
         self.pending_requests.remove(&result.id);
         match result.payload {
             Some((width, height, pixels)) => {
@@ -124,6 +132,14 @@ impl State {
                 self.missing_ids.insert(result.id);
             }
         }
+    }
+
+    pub fn invalidate(&mut self) {
+        self.generation += 1;
+        self.texture_cache.clear();
+        self.missing_ids.clear();
+        self.pending_requests.clear();
+        self.last_unit_count = usize::MAX;
     }
 
     // Called from every parent `update`, so the list reflects new data/search/filter state immediately.
@@ -177,7 +193,7 @@ impl State {
 
             self.pending_requests.insert(id);
 
-            let _ = self.tx_request.send(LoadRequest { id, path, background: background.clone(), high_quality: high_banner_quality });
+            let _ = self.tx_request.send(LoadRequest { id, path, background: background.clone(), high_quality: high_banner_quality, generation: self.generation });
         }
     }
 

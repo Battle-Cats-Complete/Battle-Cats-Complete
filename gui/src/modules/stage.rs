@@ -18,6 +18,7 @@ use iced::{Element, Length, Size, Task, Theme};
 use tracing::{info, warn};
 
 use core::common::context::GlobalContext;
+use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::{Settings, SidebarBehavior};
 const SIDEBAR_PUSH_GAP: f32 = 10.0;
 
@@ -95,6 +96,16 @@ impl State {
         Task::stream(rx)
     }
 
+    pub fn rescan(&mut self, settings: &Settings) -> Task<Message> {
+        info!("Rescanning stages for active-mod change");
+        self.start_load(settings)
+    }
+
+    pub fn sync_enemies(&mut self, enemies: &[EnemyEntry]) {
+        self.data.sync_enemies(enemies);
+        self.battleground.clear_icons();
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         let task = match message {
             Message::ScanProgress(done, total) => {
@@ -106,6 +117,10 @@ impl State {
             Message::Loaded(bundle) => {
                 info!("Stage load finished with {} maps and {} stages", bundle.registry.maps.len(), bundle.registry.stages.len());
                 self.scan_progress = None;
+                self.info.clear_icons();
+                self.treasure.clear_icons();
+                self.materials.clear_icons();
+                self.fixedlineup.clear_icons();
                 self.data.registry = bundle.registry;
 
                 let dictionaries = bundle.dictionaries;

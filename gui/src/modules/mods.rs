@@ -56,9 +56,12 @@ impl State {
     pub fn new(mut data: ModDataState) -> Self {
         data.refresh_mods();
 
+        let mut list = list::State::default();
+        list.refresh(&data.loaded_mods, &data.search_query);
+
         Self {
             data,
-            list: list::State::default(),
+            list,
             import: import::State::default(),
             export: export::State::default(),
             delete_confirm_open: false,
@@ -67,6 +70,10 @@ impl State {
 
     pub fn icon_stream(&mut self) -> Task<Message> {
         self.list.result_stream().map(Message::List)
+    }
+
+    pub fn active_mod(&self) -> Option<String> {
+        self.data.loaded_mods.iter().find(|m| m.enabled).map(|m| m.folder_name.clone())
     }
 
     pub fn subscription(&self) -> Subscription<Message> {

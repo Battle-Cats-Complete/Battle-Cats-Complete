@@ -29,6 +29,10 @@ pub struct State {
 }
 
 impl State {
+    pub fn clear_icons(&self) {
+        self.icon_cache.borrow_mut().clear();
+    }
+
     fn icon(&self, path: &std::path::Path) -> Option<Handle> {
         let key = path.to_string_lossy().to_string();
         if let Some(cached) = self.icon_cache.borrow().get(&key) {

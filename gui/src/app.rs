@@ -221,6 +221,14 @@ impl BattleCatsApp {
         }
     }
 
+    fn rescan_units(&mut self) -> Task<Message> {
+        Task::batch([
+            self.cat_state.rescan(&self.settings).map(Message::Cat),
+            self.enemy_state.rescan(&self.settings).map(Message::Enemy),
+            self.stage_state.rescan(&self.settings).map(Message::Stage),
+        ])
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::WindowResized(size) => {
@@ -305,7 +313,7 @@ impl BattleCatsApp {
                 let enemies_loaded = matches!(msg, enemy::Message::Loaded(_));
                 let task = self.enemy_state.update(msg, &mut self.settings, global_ctx).map(Message::Enemy);
                 if enemies_loaded {
-                    self.stage_state.data.sync_enemies(&self.enemy_state.data.enemies);
+                    self.stage_state.sync_enemies(&self.enemy_state.data.enemies);
                 }
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
                 self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open());
@@ -317,9 +325,13 @@ impl BattleCatsApp {
                 task
             }
             Message::Mod(msg) => {
+                let active_before = self.mods_state.active_mod();
                 let task = self.mods_state.update(msg, &self.settings).map(Message::Mod);
                 self.sync_popup(ActivePopup::ModsImport, self.mods_state.import_popup_open());
                 self.sync_popup(ActivePopup::ModsExport, self.mods_state.export_popup_open());
+                if self.mods_state.active_mod() != active_before {
+                    return Task::batch([task, self.rescan_units()]);
+                }
                 task
             }
             Message::Data(msg) => self.data_state.update(msg, &mut self.settings).map(Message::Data),

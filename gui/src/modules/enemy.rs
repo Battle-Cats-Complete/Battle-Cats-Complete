@@ -171,6 +171,12 @@ impl EnemyState {
         Task::batch([Task::stream(rx), self.check_sheets(settings)])
     }
 
+    pub fn rescan(&mut self, settings: &Settings) -> Task<Message> {
+        info!("Rescanning enemies for active-mod change");
+        self.animation.invalidate_paths();
+        self.start_load(settings)
+    }
+
     fn check_sheets(&mut self, settings: &Settings) -> Task<Message> {
         crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings)
             .map(|(index, sheet)| Message::Img015Loaded(index, sheet))
@@ -202,8 +208,12 @@ impl EnemyState {
             Message::Loaded(enemies) => {
                 info!("Enemy load finished with {} entries", enemies.len());
                 self.scan_progress = None;
+                self.list.invalidate();
                 self.data.enemies = enemies;
-                Task::none()
+                match self.data.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
+                    Some(enemy) => self.animation.preload_enemy(enemy, settings).map(Message::Animation),
+                    None => Task::none(),
+                }
             }
             Message::StatblockFinished(job) => {
                 self.statblock_pending = None;
@@ -233,6 +243,10 @@ impl EnemyState {
                     self.data.selected_enemy = Some(id);
                     self.mag_input = "100".to_string();
                     self.magnification = Magnification { hitpoints: 100, attack: 100 };
+                    return match self.data.enemies.iter().find(|e| e.id == id) {
+                        Some(enemy) => self.animation.preload_enemy(enemy, settings).map(Message::Animation),
+                        None => Task::none(),
+                    };
                 }
                 Task::none()
             }
