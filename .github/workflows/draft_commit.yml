@@ -1,0 +1,51 @@
+name: Draft Commit Notification
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  notify-discord:
+    name: Notify Discord
+    runs-on: ubuntu-latest
+    if: github.event.commits != null && github.event.commits[0] != null
+    steps:
+      - name: Send commit summary to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_COMMITS_WEBHOOK }}
+          COMMITS_JSON: ${{ toJSON(github.event.commits) }}
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          BRANCH="${{ github.ref_name }}"
+          USERNAME="${{ github.actor }}"
+          AVATAR_URL="https://github.com/${{ github.actor }}.png"
+
+          COMMIT_COUNT=$(echo "$COMMITS_JSON" | jq 'length')
+
+          if [ "$COMMIT_COUNT" -eq 1 ]; then
+            MSG=$(echo "$COMMITS_JSON" | jq -r '.[0].message | split("\n")[0]')
+            SUMMARY_BODY="**${BRANCH}** - ${MSG}"
+          else
+            FIRST_LINES=$(echo "$COMMITS_JSON" | jq -r '.[] | (.message | split("\n")[0])' | sed 's/^/- /')
+            SUMMARY_BODY="**${BRANCH}** - ${COMMIT_COUNT} commits"$'\n\n'"${FIRST_LINES}"
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg username "$USERNAME" \
+            --arg avatar_url "$AVATAR_URL" \
+            --arg repo "$REPO_NAME" \
+            --arg body "$SUMMARY_BODY" \
+            '{
+              embeds: [{
+                author: { name: $username, icon_url: $avatar_url },
+                title: $repo,
+                description: $body,
+                color: 3066993
+              }]
+            }')
+
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "$PAYLOAD" \
+            "$DISCORD_WEBHOOK_URL"
