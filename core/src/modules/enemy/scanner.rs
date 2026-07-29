@@ -116,8 +116,8 @@ pub fn scan_single(id: u32, config: &ScannerConfig) -> Option<EnemyEntry> {
 
     let t_unit_p = paths::stats(root);
 
-    let Some(t_unit_parent) = t_unit_p.parent() else { return None; };
-    let Some(t_unit_name) = t_unit_p.file_name().and_then(|n| n.to_str()) else { return None; };
+    let t_unit_parent = t_unit_p.parent()?;
+    let t_unit_name = t_unit_p.file_name().and_then(|n| n.to_str())?;
 
     let raw_enemies = t_unit(t_unit_parent, t_unit_name, priority)?;
     let stats = raw_enemies.get(id as usize)?.clone();

@@ -150,7 +150,7 @@ impl State {
                     let emit = |event: JobEvent| {
                         let _ = tx.unbounded_send(event);
                     };
-                    let result = adb_mods::run(suffix, enforce_validation, &emit);
+                    let result = adb_mods::run(suffix, enforce_validation, emit);
                     emit(job_finished(result));
                 });
             }
@@ -164,7 +164,7 @@ impl State {
                     let emit = |event: JobEvent| {
                         let _ = tx.unbounded_send(event);
                     };
-                    let result = import::run_bcm(path, enforce_validation, &emit);
+                    let result = import::run_bcm(path, enforce_validation, emit);
                     emit(job_finished(result));
                 });
             }
@@ -179,7 +179,7 @@ impl State {
                     let emit = |event: JobEvent| {
                         let _ = tx.unbounded_send(event);
                     };
-                    let result = import::run_pack(path, pack_type, enforce_validation, &emit);
+                    let result = import::run_pack(path, pack_type, enforce_validation, emit);
                     emit(job_finished(result));
                 });
             }

@@ -30,6 +30,7 @@ pub enum Message {
 
 #[derive(Clone, Copy)]
 struct SpiritContext<'a> {
+    cat_id: u32,
     global: GlobalContext<'a>,
     level_curve: Option<&'a LevelCurve>,
     current_level: i32,
@@ -70,8 +71,8 @@ impl State {
         settings: &'a Settings,
     ) -> Element<'a, Message> {
         let (grp_trait, grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = collect_ability_data(ctx);
-        let cat_id = cat.id;
         let spirit = SpiritContext {
+            cat_id: cat.id,
             global: global_ctx,
             level_curve: cat.curve.as_ref(),
             current_level: ctx.current_level,
@@ -116,13 +117,13 @@ impl State {
                     last_was_trait = false;
                 }
 
-                col = col.push(self.ability_list(&grp_b1, cat_id, spirit, sheets, assets, settings, per_row));
+                col = col.push(self.ability_list(&grp_b1, spirit, sheets, assets, settings, per_row));
 
                 if !grp_b1.is_empty() && !grp_b2.is_empty() {
                     col = col.push(spacer(ABILITY_Y));
                 }
 
-                col = col.push(self.ability_list(&grp_b2, cat_id, spirit, sheets, assets, settings, per_row));
+                col = col.push(self.ability_list(&grp_b2, spirit, sheets, assets, settings, per_row));
                 previous_content = true;
             }
 
@@ -158,7 +159,6 @@ impl State {
     fn ability_list(
         &self,
         items: &[AbilityItem],
-        cat_id: u32,
         spirit: SpiritContext,
         sheets: &[SpriteSheet],
         assets: &CustomAssets,
@@ -176,17 +176,17 @@ impl State {
             let item_row: Element<Message> = if !is_conjure {
                 row![icon, description].spacing(8).align_y(Alignment::Center).width(Length::Fill).into()
             } else {
-                let expanded = self.conjure_expanded(cat_id, settings);
+                let expanded = self.conjure_expanded(spirit.cat_id, settings);
                 let details_btn = button(text("Details").size(11))
                     .style(if expanded { button::primary } else { button::secondary })
-                    .on_press(Message::ToggleConjureExpand(cat_id));
+                    .on_press(Message::ToggleConjureExpand(spirit.cat_id));
 
                 row![icon, description, details_btn].spacing(8).align_y(Alignment::Center).width(Length::Fill).into()
             };
 
             col = col.push(item_row);
 
-            if is_conjure && self.conjure_expanded(cat_id, settings) {
+            if is_conjure && self.conjure_expanded(spirit.cat_id, settings) {
                 col = col.push(spacer(ABILITY_Y));
                 col = col.push(self.conjure_details(spirit, sheets, assets, settings, per_row));
             }
@@ -215,6 +215,7 @@ impl State {
         settings: &Settings,
         per_row: usize,
     ) -> Element<'_, Message> {
+        let spirit = SpiritContext { cat_id: 0, ..spirit };
         let Some(conjure_stats_vec) = unitid(spirit.conjure_unit_id, &settings.general.language_priority) else {
             return container(text("Spirit data not found")).padding(8).into();
         };
@@ -271,11 +272,11 @@ impl State {
         let has_body = !s_b1.is_empty() || !s_b2.is_empty();
         if has_body {
             col = col.push(spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
-            col = col.push(self.ability_list(&s_b1, 0, spirit, sheets, assets, settings, per_row));
+            col = col.push(self.ability_list(&s_b1, spirit, sheets, assets, settings, per_row));
             if !s_b1.is_empty() && !s_b2.is_empty() {
                 col = col.push(spacer(ABILITY_Y));
             }
-            col = col.push(self.ability_list(&s_b2, 0, spirit, sheets, assets, settings, per_row));
+            col = col.push(self.ability_list(&s_b2, spirit, sheets, assets, settings, per_row));
             prev = true;
         }
 
@@ -301,25 +302,22 @@ impl State {
     }
 
     fn icon_element(&self, item: &AbilityItem, sheets: &[SpriteSheet], assets: &CustomAssets) -> Element<'_, Message> {
-        if item.custom_icon != CustomIcon::None {
-            if let Some(handle) = assets.get_icon_texture(item.custom_icon) {
-                return iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
-            }
+        if item.custom_icon != CustomIcon::None
+            && let Some(handle) = assets.get_icon_texture(item.custom_icon) {
+            return iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
         }
 
-        if let Some(icon_id) = item.icon_id {
-            if let Some(handle) = self.icon_handle(icon_id, sheets) {
-                let icon_widget = iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
+        if let Some(icon_id) = item.icon_id
+            && let Some(handle) = self.icon_handle(icon_id, sheets) {
+            let icon_widget = iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
 
-                if let Some(border_id) = item.border_id {
-                    if let Some(border_handle) = self.icon_handle(border_id, sheets) {
-                        let border_widget = iced_image(border_handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
-                        return stack![icon_widget, border_widget].width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
-                    }
+            if let Some(border_id) = item.border_id
+                && let Some(border_handle) = self.icon_handle(border_id, sheets) {
+                    let border_widget = iced_image(border_handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
+                    return stack![icon_widget, border_widget].width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
                 }
 
-                return icon_widget.into();
-            }
+            return icon_widget.into();
         }
 
         let icon_enum = if item.custom_icon != CustomIcon::None {

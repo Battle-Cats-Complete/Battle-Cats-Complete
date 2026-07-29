@@ -38,12 +38,10 @@ impl GuiWatcher {
                                 .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
                                 .collect();
 
-                            if let Some(mods_idx) = components.iter().position(|c| c == "mods") {
-                                if let Some(sub_folder) = components.get(mods_idx + 2) {
-                                    if sub_folder != "patch" && sub_folder != "icons" && sub_folder != "loose" {
-                                        continue;
-                                    }
-                                }
+                            if let Some(mods_idx) = components.iter().position(|c| c == "mods")
+                                && let Some(sub_folder) = components.get(mods_idx + 2)
+                                && sub_folder != "patch" && sub_folder != "icons" && sub_folder != "loose" {
+                                continue;
                             }
 
                             trace!("GuiWatcher detected file change: {:?}", path);
@@ -61,17 +59,15 @@ impl GuiWatcher {
         }
 
         let game_path = std::path::Path::new("game");
-        if game_path.exists() {
-            if let Err(e) = watcher.watch(game_path, RecursiveMode::Recursive) {
-                warn!("Failed to watch game directory: {e}");
-            }
+        if game_path.exists()
+            && let Err(e) = watcher.watch(game_path, RecursiveMode::Recursive) {
+            warn!("Failed to watch game directory: {e}");
         }
 
         let mods_path = std::path::Path::new("mods");
-        if mods_path.exists() {
-            if let Err(e) = watcher.watch(mods_path, RecursiveMode::Recursive) {
-                warn!("Failed to watch mods directory: {e}");
-            }
+        if mods_path.exists()
+            && let Err(e) = watcher.watch(mods_path, RecursiveMode::Recursive) {
+            warn!("Failed to watch mods directory: {e}");
         }
 
         Some(Self {

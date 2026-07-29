@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use nyanko::cat::abilities::{Identity, REGISTRY};
@@ -155,7 +156,7 @@ fn fmt_sage(param: &Param) -> String {
 
     let mut formatted_resistance_lines = Vec::new();
     let mut sorted_resistance_groups: Vec<_> = resistance_groups_by_percentage.into_iter().collect();
-    sorted_resistance_groups.sort_by(|group_a, group_b| group_b.0.cmp(&group_a.0));
+    sorted_resistance_groups.sort_by_key(|group| Reverse(group.0));
 
     for (percentage, effect_names) in sorted_resistance_groups {
         let formatted_effect_list = match effect_names.len() {

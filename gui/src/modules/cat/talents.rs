@@ -36,6 +36,22 @@ pub enum Message {
     LevelInputChanged(u8, String),
 }
 
+pub struct ViewCtx<'a, 'b> {
+    pub cat_id: u32,
+    pub talent_data: &'a Talent,
+    pub talent_levels: &'a HashMap<u8, u8>,
+    pub level_inputs: &'a HashMap<u8, String>,
+    pub talent_costs: &'a HashMap<u8, TalentCost>,
+    pub descriptions: &'a [String],
+    pub current_stats: Option<&'b Battle>,
+    pub curve: Option<&'a LevelCurve>,
+    pub unit_level: i32,
+    pub sheets: &'a [SpriteSheet],
+    pub img022_sheets: &'a [SpriteSheet],
+    pub assets: &'a CustomAssets,
+    pub settings: &'a Settings,
+}
+
 pub struct State {
     icon_cache: RefCell<HashMap<usize, Handle>>,
     skill_name_cache: RefCell<HashMap<String, Handle>>,
@@ -61,81 +77,24 @@ impl State {
         }
     }
 
-    pub fn view<'a, 'b>(
-        &'a self,
-        cat_id: u32,
-        talent_data: &'a Talent,
-        talent_levels: &'a HashMap<u8, u8>,
-        level_inputs: &'a HashMap<u8, String>,
-        talent_costs: &'a HashMap<u8, TalentCost>,
-        descriptions: &'a [String],
-        current_stats: Option<&'b Battle>,
-        curve: Option<&'a LevelCurve>,
-        unit_level: i32,
-        sheets: &'a [SpriteSheet],
-        img022_sheets: &'a [SpriteSheet],
-        assets: &'a CustomAssets,
-        settings: &'a Settings,
-    ) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, ctx: ViewCtx<'a, '_>) -> Element<'a, Message> {
         let mut col = column![].spacing(8).width(Length::Fill);
 
-        for (index, group) in talent_data.groups.iter().enumerate() {
-            col = col.push(self.group_view(
-                cat_id,
-                index as u8,
-                group,
-                talent_levels,
-                level_inputs,
-                talent_costs,
-                descriptions,
-                current_stats,
-                curve,
-                unit_level,
-                sheets,
-                img022_sheets,
-                assets,
-                settings,
-            ));
+        for (index, group) in ctx.talent_data.groups.iter().enumerate() {
+            col = col.push(self.group_view(&ctx, index as u8, group));
         }
 
         scrollable(col).height(Length::Fill).width(Length::Fill).into()
     }
 
-    fn group_view<'a, 'b>(
-        &'a self,
-        cat_id: u32,
-        index: u8,
-        group: &'a TalentGroup,
-        talent_levels: &'a HashMap<u8, u8>,
-        level_inputs: &'a HashMap<u8, String>,
-        talent_costs: &'a HashMap<u8, TalentCost>,
-        descriptions: &'a [String],
-        current_stats: Option<&'b Battle>,
-        curve: Option<&'a LevelCurve>,
-        unit_level: i32,
-        sheets: &'a [SpriteSheet],
-        img022_sheets: &'a [SpriteSheet],
-        assets: &'a CustomAssets,
-        settings: &'a Settings,
-    ) -> Element<'a, Message> {
-        let expanded = self.expanded.get(&(cat_id, index)).copied().unwrap_or(false);
+    fn group_view<'a>(&'a self, ctx: &ViewCtx<'a, '_>, index: u8, group: &'a TalentGroup) -> Element<'a, Message> {
+        let expanded = self.expanded.get(&(ctx.cat_id, index)).copied().unwrap_or(false);
         let bg_color = if group.limit == 1 { Color::from_rgb8(120, 20, 20) } else { Color::from_rgb8(180, 140, 20) };
 
-        let mut inner = column![self.group_header(cat_id, index, group, expanded, sheets, assets, settings)].spacing(0);
+        let mut inner = column![self.group_header(ctx, index, group, expanded)].spacing(0);
 
         if expanded {
-            inner = inner.push(self.group_body(
-                index,
-                group,
-                talent_levels,
-                level_inputs,
-                talent_costs,
-                descriptions,
-                current_stats,
-                curve,
-                unit_level,
-                img022_sheets,
-            ));
+            inner = inner.push(self.group_body(ctx, index, group));
         }
 
         container(inner)
@@ -149,19 +108,10 @@ impl State {
             .into()
     }
 
-    fn group_header<'a>(
-        &'a self,
-        cat_id: u32,
-        index: u8,
-        group: &'a TalentGroup,
-        expanded: bool,
-        sheets: &'a [SpriteSheet],
-        assets: &'a CustomAssets,
-        settings: &'a Settings,
-    ) -> Element<'a, Message> {
-        let icon = self.talent_icon(group, sheets, assets);
+    fn group_header<'a>(&'a self, ctx: &ViewCtx<'a, '_>, index: u8, group: &'a TalentGroup, expanded: bool) -> Element<'a, Message> {
+        let icon = self.talent_icon(group, ctx.sheets, ctx.assets);
 
-        let name_el: Element<Message> = match self.skill_name_handle(group, settings) {
+        let name_el: Element<Message> = match self.skill_name_handle(group, ctx.settings) {
             Some(handle) => iced_image(handle).into(),
             None => {
                 let fallback_text = match get_talent(group.ability_id) {
@@ -183,42 +133,30 @@ impl State {
             .width(Length::Fill);
 
         button(content)
-            .on_press(Message::ToggleGroup(cat_id, index))
+            .on_press(Message::ToggleGroup(ctx.cat_id, index))
             .style(button::text)
             .width(Length::Fill)
             .into()
     }
 
-    fn group_body<'a, 'b>(
-        &'a self,
-        index: u8,
-        group: &'a TalentGroup,
-        talent_levels: &'a HashMap<u8, u8>,
-        level_inputs: &'a HashMap<u8, String>,
-        talent_costs: &'a HashMap<u8, TalentCost>,
-        descriptions: &'a [String],
-        current_stats: Option<&'b Battle>,
-        curve: Option<&'a LevelCurve>,
-        unit_level: i32,
-        img022_sheets: &'a [SpriteSheet],
-    ) -> Element<'a, Message> {
-        let description_text = descriptions
+    fn group_body<'a>(&'a self, ctx: &ViewCtx<'a, '_>, index: u8, group: &'a TalentGroup) -> Element<'a, Message> {
+        let description_text = ctx.descriptions
             .get(group.text_id as usize)
             .cloned()
             .unwrap_or_else(|| "No skill description found".to_string());
 
         let description_box = dark_box(text(description_text).size(13).color(Color::WHITE).width(Length::Fill));
 
-        let current_level = *talent_levels.get(&index).unwrap_or(&0);
-        let np_cost = talent_logic::get_talent_np_cost(group.cost_id, current_level, talent_costs);
+        let current_level = *ctx.talent_levels.get(&index).unwrap_or(&0);
+        let np_cost = talent_logic::get_talent_np_cost(group.cost_id, current_level, ctx.talent_costs);
 
-        let np_row = row![self.np_icon(img022_sheets), bold_text(np_cost, 18.0)]
+        let np_row = row![self.np_icon(ctx.img022_sheets), bold_text(np_cost, 18.0)]
             .spacing(4)
             .align_y(Alignment::Center);
         let np_box = dark_box(np_row);
 
         let max_level = group.max_level.max(1);
-        let input_text = level_inputs.get(&index).cloned().unwrap_or_else(|| current_level.to_string());
+        let input_text = ctx.level_inputs.get(&index).cloned().unwrap_or_else(|| current_level.to_string());
 
         let level_row = row![
             bold_text("Level:", 14.0),
@@ -232,10 +170,9 @@ impl State {
 
         let mut level_col = column![level_row].spacing(4);
 
-        if let Some(stats) = current_stats {
-            if let Some(display_text) = talent_logic::calculate_talent_display(group, stats, current_level, curve, unit_level) {
-                level_col = level_col.push(text(display_text).size(15).color(Color::WHITE).font(font::Font { weight: font::Weight::Bold, ..Default::default() }));
-            }
+        if let Some(stats) = ctx.current_stats
+            && let Some(display_text) = talent_logic::calculate_talent_display(group, stats, current_level, ctx.curve, ctx.unit_level) {
+            level_col = level_col.push(text(display_text).size(15).color(Color::WHITE).font(font::Font { weight: font::Weight::Bold, ..Default::default() }));
         }
 
         let level_box = dark_box(level_col);

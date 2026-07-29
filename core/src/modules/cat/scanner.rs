@@ -104,12 +104,14 @@ fn scan(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<Ca
         return Vec::new();
     }
 
-    let level_curves_arc = Arc::new(unitlevel(cats_directory, priority));
-    let unit_buy_map_arc = Arc::new(unitbuy(cats_directory, priority));
-    let talent_map_arc = Arc::new(skillacquisition(cats_directory, priority));
-    let evolve_text_map_arc = Arc::new(unitevolve(cats_directory, priority));
-    let talent_costs_arc = Arc::new(skilllevel(cats_directory, priority));
-    let skill_descriptions_arc = Arc::new(skilldescriptions(cats_directory, priority));
+    let tables = ScanTables {
+        level_curves: Arc::new(unitlevel(cats_directory, priority)),
+        unit_buys: Arc::new(unitbuy(cats_directory, priority)),
+        talents: Arc::new(skillacquisition(cats_directory, priority)),
+        evolve_texts: Arc::new(unitevolve(cats_directory, priority)),
+        talent_costs: Arc::new(skilllevel(cats_directory, priority)),
+        skill_descriptions: Arc::new(skilldescriptions(cats_directory, priority)),
+    };
 
     let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
         Ok(read_dir_iter) => read_dir_iter
@@ -124,16 +126,7 @@ fn scan(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<Ca
     let processed_count = AtomicUsize::new(0);
 
     let mut parsed_cats: Vec<CatEntry> = folder_entries.par_iter().filter_map(|folder_path| {
-        let cat = process_cat_entry(
-            folder_path,
-            &level_curves_arc,
-            &unit_buy_map_arc,
-            &talent_map_arc,
-            &evolve_text_map_arc,
-            &talent_costs_arc,
-            &skill_descriptions_arc,
-            &config
-        );
+        let cat = process_cat_entry(folder_path, &tables, &config);
 
         let done = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
         progress(done, total_folders);
@@ -150,14 +143,18 @@ fn scan(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<Ca
 
     parsed_cats
 }
+struct ScanTables {
+    level_curves: Arc<Vec<LevelCurve>>,
+    unit_buys: Arc<HashMap<u32, UnitBuy>>,
+    talents: Arc<HashMap<u16, Talent>>,
+    evolve_texts: Arc<HashMap<u32, UnitEvolve>>,
+    talent_costs: Arc<HashMap<u8, TalentCost>>,
+    skill_descriptions: Arc<Vec<String>>,
+}
+
 fn process_cat_entry(
     original_folder_path: &Path,
-    level_curves: &[LevelCurve],
-    unit_buys: &HashMap<u32, UnitBuy>,
-    talents_map: &HashMap<u16, Talent>,
-    evolve_text_map: &HashMap<u32, UnitEvolve>,
-    talent_costs: &Arc<HashMap<u8, TalentCost>>,
-    skill_descriptions: &Arc<Vec<String>>,
+    tables: &ScanTables,
     config: &ScannerConfig
 ) -> Option<CatEntry> {
     let folder_stem = original_folder_path.file_name()?.to_str()?;
@@ -169,8 +166,8 @@ fn process_cat_entry(
 
     let stats_path = paths::stats(cats_root_dir, cat_id);
 
-    let Some(stats_parent) = stats_path.parent() else { return None; };
-    let Some(stats_file_name) = stats_path.file_name().and_then(|name_str| name_str.to_str()) else { return None; };
+    let stats_parent = stats_path.parent()?;
+    let stats_file_name = stats_path.file_name().and_then(|name_str| name_str.to_str())?;
 
     let resolved_stats = resolver::get(stats_parent, [stats_file_name], priority).into_iter().next();
 
@@ -178,7 +175,7 @@ fn process_cat_entry(
         return None;
     }
 
-    let ub_row = unit_buys.get(&cat_id)?;
+    let ub_row = tables.unit_buys.get(&cat_id)?;
     let egg_ids = (ub_row.egg_id_normal, ub_row.egg_id_evolved);
 
     let mut forms_existence = [false; 4];
@@ -297,13 +294,13 @@ fn process_cat_entry(
         description: explanation.descriptions,
         forms: forms_existence,
         stats: cat_stats,
-        curve: level_curves.get(cat_id as usize).cloned(),
+        curve: tables.level_curves.get(cat_id as usize).cloned(),
         atk_anim_frames: attack_anim_frames,
         egg_ids: egg_ids_opt,
-        talent_data: talents_map.get(&(cat_id as u16)).cloned(),
+        talent_data: tables.talents.get(&(cat_id as u16)).cloned(),
         unitbuy: ub_row.clone(),
-        evolve_text: evolve_text_map.get(&{ cat_id }).cloned().unwrap_or_default(),
-        talent_costs: Arc::clone(talent_costs),
-        skill_descriptions: Arc::clone(skill_descriptions),
+        evolve_text: tables.evolve_texts.get(&{ cat_id }).cloned().unwrap_or_default(),
+        talent_costs: Arc::clone(&tables.talent_costs),
+        skill_descriptions: Arc::clone(&tables.skill_descriptions),
     })
 }

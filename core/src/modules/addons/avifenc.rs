@@ -43,10 +43,9 @@ impl AvifManager {
     pub fn uninstall(&mut self) {
         info!("Uninstalling avifenc...");
         let dir = get_avif_dir();
-        if dir.exists() {
-            if let Err(err) = fs::remove_dir_all(dir) {
-                error!("Failed to remove avifenc directory: {}", err);
-            }
+        if dir.exists()
+            && let Err(err) = fs::remove_dir_all(dir) {
+            error!("Failed to remove avifenc directory: {}", err);
         }
         self.status = AddonStatus::NotInstalled;
     }

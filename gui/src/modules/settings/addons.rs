@@ -45,6 +45,7 @@ pub enum Message {
     OemAction,
 }
 
+#[derive(Default)]
 pub struct State {
     adb: AdbManager,
     apkeditor: ApkeditorManager,
@@ -53,20 +54,6 @@ pub struct State {
     #[cfg(target_os = "windows")]
     oem: OemManager,
     pending_delete: Option<Addon>,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            adb: AdbManager::default(),
-            apkeditor: ApkeditorManager::default(),
-            avif: AvifManager::default(),
-            ffmpeg: FfmpegManager::default(),
-            #[cfg(target_os = "windows")]
-            oem: OemManager::default(),
-            pending_delete: None,
-        }
-    }
 }
 
 impl State {

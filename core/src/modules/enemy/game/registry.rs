@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use nyanko::common::data::{img015, Param};
@@ -164,22 +165,22 @@ fn fmt_sage(param: &Param) -> String {
 
     let base_description = "Crowd Control effects inflicted upon Sage Enemies are reduced by";
 
-    if resistance_groups_by_percentage.len() == 1 {
-        let (percentage, _) = resistance_groups_by_percentage.into_iter().next().unwrap();
+    if resistance_groups_by_percentage.len() == 1
+        && let Some((&percentage, _)) = resistance_groups_by_percentage.iter().next() {
         format!("{} {}%", base_description, percentage)
     } else {
         let mut formatted_resistance_lines = Vec::new();
         let mut sorted_resistance_groups: Vec<_> = resistance_groups_by_percentage.into_iter().collect();
 
-        sorted_resistance_groups.sort_by(|group_a, group_b| group_b.0.cmp(&group_a.0));
+        sorted_resistance_groups.sort_by_key(|group| Reverse(group.0));
 
         for (percentage, effect_names) in sorted_resistance_groups {
             let formatted_effect_list = match effect_names.len() {
                 1 => effect_names[0].to_string(),
                 2 => format!("{} and {}", effect_names[0], effect_names[1]),
-                _ => {
-                    let all_effects_except_last = effect_names[..effect_names.len() - 1].join(", ");
-                    format!("{}, and {}", all_effects_except_last, effect_names.last().unwrap())
+                _ => match effect_names.split_last() {
+                    Some((last_effect, leading_effects)) => format!("{}, and {}", leading_effects.join(", "), last_effect),
+                    None => String::new(),
                 }
             };
             formatted_resistance_lines.push(format!("{}% for {}", percentage, formatted_effect_list));

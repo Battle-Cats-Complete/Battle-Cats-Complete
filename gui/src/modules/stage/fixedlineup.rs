@@ -44,7 +44,7 @@ impl State {
         Some(handle)
     }
 
-    pub fn view<'a, 'b>(&'a self, resolved_lineup: &'b ResolvedFixedLineup, preset: &'a CertificationPreset, langs: &'a [String]) -> Element<'a, super::Message> {
+    pub fn view<'a>(&'a self, resolved_lineup: &ResolvedFixedLineup, preset: &'a CertificationPreset, langs: &'a [String]) -> Element<'a, super::Message> {
         let mut top_row = row![].spacing(ICON_SPACING);
         for slot in resolved_lineup.slots.iter().take(5) {
             top_row = top_row.push(self.slot_view(slot, preset, langs));

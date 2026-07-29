@@ -9,7 +9,7 @@ use crate::modules::data::{AdbImportType, AdbTarget};
 use super::driver;
 
 pub(crate) fn execute_pull(
-    base_output_directory: &PathBuf,
+    base_output_directory: &Path,
     import_mode: AdbImportType,
     target_region: AdbTarget,
     emit_log: &(dyn Fn(String) + Sync),
@@ -155,7 +155,7 @@ fn pull_region_data(
     current_region: &AdbTarget,
     current_serial: &mut String,
     fallback_ip_address: &Option<String>,
-    base_output_directory: &PathBuf,
+    base_output_directory: &Path,
     import_mode: &AdbImportType,
     emit_log: &(dyn Fn(String) + Sync),
     successful_pulls: &mut Vec<PathBuf>

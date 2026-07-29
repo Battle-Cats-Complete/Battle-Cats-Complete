@@ -69,11 +69,10 @@ fn get_pem_path() -> PathBuf {
 pub fn get_active_pem() -> (String, bool) {
     let certificate_path = get_pem_path();
 
-    if let Ok(pem_content) = fs::read_to_string(&certificate_path) {
-        if pem_content.contains("-----BEGIN PRIVATE KEY-----") && pem_content.contains("-----BEGIN CERTIFICATE-----") {
-            debug!("Successfully loaded active PEM certificate from disk.");
-            return (pem_content, true);
-        }
+    if let Ok(pem_content) = fs::read_to_string(&certificate_path)
+        && pem_content.contains("-----BEGIN PRIVATE KEY-----") && pem_content.contains("-----BEGIN CERTIFICATE-----") {
+        debug!("Successfully loaded active PEM certificate from disk.");
+        return (pem_content, true);
     }
 
     (DEFAULT_PEM.to_string(), false)

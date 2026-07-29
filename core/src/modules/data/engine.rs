@@ -118,10 +118,9 @@ pub(crate) fn run_universal_import(
         }
 
         let mut folder_region_name = source_directory.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-        if folder_region_name == "files" {
-            if let Some(parent_directory) = source_directory.parent() {
-                folder_region_name = parent_directory.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-            }
+        if folder_region_name == "files"
+            && let Some(parent_directory) = source_directory.parent() {
+            folder_region_name = parent_directory.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
         }
 
         let current_region_code = match folder_region_name.as_str() {
@@ -165,53 +164,51 @@ pub(crate) fn run_universal_import(
                 .next()
                 .map(|index| &compiled_exception_rules[index]);
 
-            if let Some(rule) = matched_user_rule {
-                if rule.handling == RuleHandling::Ignore {
-                    continue;
-                }
+            if let Some(rule) = matched_user_rule
+                && rule.handling == RuleHandling::Ignore {
+                continue;
             }
 
             let mut final_resolved_filename = filename.clone();
 
-            if let Some(rule) = matched_user_rule {
-                if rule.languages.values().any(|&is_active| is_active) {
-                    let asset_path_object = Path::new(&filename);
+            if let Some(rule) = matched_user_rule
+                && rule.languages.values().any(|&is_active| is_active) {
+                let asset_path_object = Path::new(&filename);
 
-                    if let Some(asset_stem) = asset_path_object.file_stem() {
-                        let asset_stem_string = asset_stem.to_string_lossy();
-                        let asset_extension_string = asset_path_object.extension().unwrap_or_default().to_string_lossy();
+                if let Some(asset_stem) = asset_path_object.file_stem() {
+                    let asset_stem_string = asset_stem.to_string_lossy();
+                    let asset_extension_string = asset_path_object.extension().unwrap_or_default().to_string_lossy();
 
-                        let mut cleaned_stem = asset_stem_string.to_string();
-                        for &(code, _) in io::APP_LANGUAGES {
-                            let suffix = format!("_{}", code);
-                            if cleaned_stem.ends_with(&suffix) {
-                                cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string();
-                                break;
-                            }
+                    let mut cleaned_stem = asset_stem_string.to_string();
+                    for &(code, _) in io::APP_LANGUAGES {
+                        let suffix = format!("_{}", code);
+                        if cleaned_stem.ends_with(&suffix) {
+                            cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string();
+                            break;
                         }
+                    }
 
-                        let is_region_enabled = rule.languages.get(current_region_code).copied().unwrap_or(false);
-                        if rule.handling == RuleHandling::Only && !is_region_enabled {
-                            continue;
-                        }
+                    let is_region_enabled = rule.languages.get(current_region_code).copied().unwrap_or(false);
+                    if rule.handling == RuleHandling::Only && !is_region_enabled {
+                        continue;
+                    }
 
-                        let is_single = rule.handling == RuleHandling::Only
-                            && rule.languages.values().filter(|&&is_active| is_active).count() == 1;
+                    let is_single = rule.handling == RuleHandling::Only
+                        && rule.languages.values().filter(|&&is_active| is_active).count() == 1;
 
-                        if is_region_enabled {
-                            if is_single {
-                                final_resolved_filename = if asset_extension_string.is_empty() {
-                                    cleaned_stem
-                                } else {
-                                    format!("{}.{}", cleaned_stem, asset_extension_string)
-                                };
-                            } else if !current_region_code.is_empty() {
-                                final_resolved_filename = if asset_extension_string.is_empty() {
-                                    format!("{}_{}", cleaned_stem, current_region_code)
-                                } else {
-                                    format!("{}_{}.{}", cleaned_stem, current_region_code, asset_extension_string)
-                                };
-                            }
+                    if is_region_enabled {
+                        if is_single {
+                            final_resolved_filename = if asset_extension_string.is_empty() {
+                                cleaned_stem
+                            } else {
+                                format!("{}.{}", cleaned_stem, asset_extension_string)
+                            };
+                        } else if !current_region_code.is_empty() {
+                            final_resolved_filename = if asset_extension_string.is_empty() {
+                                format!("{}_{}", cleaned_stem, current_region_code)
+                            } else {
+                                format!("{}_{}.{}", cleaned_stem, current_region_code, asset_extension_string)
+                            };
                         }
                     }
                 }
@@ -242,10 +239,9 @@ pub(crate) fn run_universal_import(
             let file_chrono_score = chronology::calculate_weight(&corresponding_pack_path, &global_temporary_directories);
             let region_pack_map = current_pack_hashes.entry(final_region_code.clone()).or_default();
 
-            if !region_pack_map.contains_key(&pack_filename) {
-                if let Ok(pack_hash_value) = manifest::hash_file(&corresponding_pack_path) {
-                    region_pack_map.insert(pack_filename.clone(), manifest::PackRecord { checksum: pack_hash_value });
-                }
+            if !region_pack_map.contains_key(&pack_filename)
+                && let Ok(pack_hash_value) = manifest::hash_file(&corresponding_pack_path) {
+                region_pack_map.insert(pack_filename.clone(), manifest::PackRecord { checksum: pack_hash_value });
             }
 
             let Ok(list_file_data) = fs::read(&item_path) else {
@@ -272,53 +268,51 @@ pub(crate) fn run_universal_import(
                     .next()
                     .map(|index| &compiled_exception_rules[index]);
 
-                if let Some(rule) = matched_user_rule {
-                    if rule.handling == RuleHandling::Ignore {
-                        continue;
-                    }
+                if let Some(rule) = matched_user_rule
+                    && rule.handling == RuleHandling::Ignore {
+                    continue;
                 }
 
                 let mut final_resolved_filename = raw_asset_name.to_string();
 
-                if let Some(rule) = matched_user_rule {
-                    if rule.languages.values().any(|&is_active| is_active) {
-                        let asset_path_object = Path::new(raw_asset_name);
+                if let Some(rule) = matched_user_rule
+                    && rule.languages.values().any(|&is_active| is_active) {
+                    let asset_path_object = Path::new(raw_asset_name);
 
-                        if let Some(asset_stem) = asset_path_object.file_stem() {
-                            let asset_stem_string = asset_stem.to_string_lossy();
-                            let asset_extension_string = asset_path_object.extension().unwrap_or_default().to_string_lossy();
+                    if let Some(asset_stem) = asset_path_object.file_stem() {
+                        let asset_stem_string = asset_stem.to_string_lossy();
+                        let asset_extension_string = asset_path_object.extension().unwrap_or_default().to_string_lossy();
 
-                            let mut cleaned_stem = asset_stem_string.to_string();
-                            for &(code, _) in io::APP_LANGUAGES {
-                                let suffix = format!("_{}", code);
-                                if cleaned_stem.ends_with(&suffix) {
-                                    cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string();
-                                    break;
-                                }
+                        let mut cleaned_stem = asset_stem_string.to_string();
+                        for &(code, _) in io::APP_LANGUAGES {
+                            let suffix = format!("_{}", code);
+                            if cleaned_stem.ends_with(&suffix) {
+                                cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string();
+                                break;
                             }
+                        }
 
-                            let is_region_enabled = rule.languages.get(final_region_code.as_str()).copied().unwrap_or(false);
-                            if rule.handling == RuleHandling::Only && !is_region_enabled {
-                                continue;
-                            }
+                        let is_region_enabled = rule.languages.get(final_region_code.as_str()).copied().unwrap_or(false);
+                        if rule.handling == RuleHandling::Only && !is_region_enabled {
+                            continue;
+                        }
 
-                            let is_single = rule.handling == RuleHandling::Only
-                                && rule.languages.values().filter(|&&is_active| is_active).count() == 1;
+                        let is_single = rule.handling == RuleHandling::Only
+                            && rule.languages.values().filter(|&&is_active| is_active).count() == 1;
 
-                            if is_region_enabled {
-                                if is_single {
-                                    final_resolved_filename = if asset_extension_string.is_empty() {
-                                        cleaned_stem
-                                    } else {
-                                        format!("{}.{}", cleaned_stem, asset_extension_string)
-                                    };
-                                } else if !final_region_code.is_empty() {
-                                    final_resolved_filename = if asset_extension_string.is_empty() {
-                                        format!("{}_{}", cleaned_stem, final_region_code)
-                                    } else {
-                                        format!("{}_{}.{}", cleaned_stem, final_region_code, asset_extension_string)
-                                    };
-                                }
+                        if is_region_enabled {
+                            if is_single {
+                                final_resolved_filename = if asset_extension_string.is_empty() {
+                                    cleaned_stem
+                                } else {
+                                    format!("{}.{}", cleaned_stem, asset_extension_string)
+                                };
+                            } else if !final_region_code.is_empty() {
+                                final_resolved_filename = if asset_extension_string.is_empty() {
+                                    format!("{}_{}", cleaned_stem, final_region_code)
+                                } else {
+                                    format!("{}_{}.{}", cleaned_stem, final_region_code, asset_extension_string)
+                                };
                             }
                         }
                     }

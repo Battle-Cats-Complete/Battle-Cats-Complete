@@ -38,6 +38,12 @@ pub struct CustomAssets {
     pub unknown: Handle,
 }
 
+impl Default for CustomAssets {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CustomAssets {
     pub fn new() -> Self {
         info!("Initializing CustomAssets module");

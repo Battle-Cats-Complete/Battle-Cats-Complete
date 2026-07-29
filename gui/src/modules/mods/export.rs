@@ -172,7 +172,7 @@ impl State {
                     let emit = |event: JobEvent| {
                         let _ = tx.unbounded_send(event);
                     };
-                    let result = apk::run(mod_folder, input_apk, app_title, suffix, region, behavior, enforce, &emit);
+                    let result = apk::run(mod_folder, input_apk, app_title, suffix, region, behavior, enforce, emit);
                     emit(job_finished(result));
                 });
             }
@@ -184,7 +184,7 @@ impl State {
                     let emit = |event: JobEvent| {
                         let _ = tx.unbounded_send(event);
                     };
-                    let result = bcm::run(mod_folder, app_title, compression, &emit);
+                    let result = bcm::run(mod_folder, app_title, compression, emit);
                     emit(job_finished(result));
                 });
             }
@@ -197,7 +197,7 @@ impl State {
                     let emit = |event: JobEvent| {
                         let _ = tx.unbounded_send(event);
                     };
-                    let result = pack::run(mod_folder, pack_name, region, enforce, &emit);
+                    let result = pack::run(mod_folder, pack_name, region, enforce, emit);
                     emit(job_finished(result));
                 });
             }

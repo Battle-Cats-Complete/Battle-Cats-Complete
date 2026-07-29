@@ -159,9 +159,7 @@ impl Default for ExporterState {
 
 impl ExporterState {
     pub fn with_settings(settings: &Settings) -> Self {
-        let mut state = Self::default();
-
-        state.format = match settings.animation.last_export_format {
+        let format = match settings.animation.last_export_format {
             1 => ExportFormat::WebP,
             2 => ExportFormat::Avif,
             3 => ExportFormat::Png,
@@ -172,19 +170,19 @@ impl ExporterState {
             _ => ExportFormat::Gif,
         };
 
-        state.quality_percent = settings.animation.last_export_quality.unwrap_or(100);
-        state.quality_percent_str = settings.animation.last_export_quality.map_or_else(String::new, |v| v.to_string());
-
-        state.compression_percent = settings.animation.last_export_compression.unwrap_or(0);
-        state.compression_percent_str = settings.animation.last_export_compression.map_or_else(String::new, |v| v.to_string());
-
-        state.showcase_walk_len = settings.animation.default_showcase_walk;
-        state.showcase_idle_len = settings.animation.default_showcase_idle;
-        state.showcase_kb_len = settings.animation.default_showcase_kb;
-        state.last_known_walk_default = settings.animation.default_showcase_walk;
-        state.last_known_idle_default = settings.animation.default_showcase_idle;
-        state.last_known_kb_default = settings.animation.default_showcase_kb;
-
-        state
+        Self {
+            format,
+            quality_percent: settings.animation.last_export_quality.unwrap_or(100),
+            quality_percent_str: settings.animation.last_export_quality.map_or_else(String::new, |v| v.to_string()),
+            compression_percent: settings.animation.last_export_compression.unwrap_or(0),
+            compression_percent_str: settings.animation.last_export_compression.map_or_else(String::new, |v| v.to_string()),
+            showcase_walk_len: settings.animation.default_showcase_walk,
+            showcase_idle_len: settings.animation.default_showcase_idle,
+            showcase_kb_len: settings.animation.default_showcase_kb,
+            last_known_walk_default: settings.animation.default_showcase_walk,
+            last_known_idle_default: settings.animation.default_showcase_idle,
+            last_known_kb_default: settings.animation.default_showcase_kb,
+            ..Self::default()
+        }
     }
 }

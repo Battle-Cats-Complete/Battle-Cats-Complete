@@ -28,7 +28,7 @@ use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDa
 #[derive(Clone)]
 pub enum Message {
     ScanProgress(usize, usize),
-    Loaded(StageBundle),
+    Loaded(Box<StageBundle>),
     ToggleSidebar,
     SelectCrown(u8),
     List(list::Message),
@@ -90,7 +90,7 @@ impl State {
             let bundle = scanner::load(config, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
-            let _ = tx.unbounded_send(Message::Loaded(bundle));
+            let _ = tx.unbounded_send(Message::Loaded(Box::new(bundle)));
         });
 
         Task::stream(rx)

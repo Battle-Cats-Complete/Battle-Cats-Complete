@@ -235,12 +235,16 @@ impl RuleHandling {
         [Self::Include, Self::Only, Self::Ignore]
     }
 
-    pub fn to_string(&self) -> String {
-        match self {
-            Self::Include => "Include".to_string(),
-            Self::Only => "Only".to_string(),
-            Self::Ignore => "Ignore".to_string(),
-        }
+}
+
+impl std::fmt::Display for RuleHandling {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::Include => "Include",
+            Self::Only => "Only",
+            Self::Ignore => "Ignore",
+        };
+        write!(f, "{}", label)
     }
 }
 

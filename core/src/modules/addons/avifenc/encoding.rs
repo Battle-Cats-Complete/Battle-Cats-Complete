@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -21,7 +21,7 @@ pub(crate) fn encode(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
     emit: &(dyn Fn(EncoderStatus) + Sync),
-    temp_path: &PathBuf,
+    temp_path: &Path,
     abort_signal: &AtomicBool
 ) -> bool {
     if paths::ffmpeg_status() == Presence::Installed {
@@ -37,7 +37,7 @@ fn encode_via_pipe(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
     emit: &(dyn Fn(EncoderStatus) + Sync),
-    temp_path: &PathBuf,
+    temp_path: &Path,
     abort_signal: &AtomicBool
 ) -> bool {
     let Some(avif_path) = get_avif_path() else {
@@ -190,7 +190,7 @@ fn encode_via_folder(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
     emit: &(dyn Fn(EncoderStatus) + Sync),
-    temp_path: &PathBuf,
+    temp_path: &Path,
     abort_signal: &AtomicBool
 ) -> bool {
     let Some(avifenc_path) = get_avif_path() else {

@@ -133,25 +133,22 @@ impl State {
     }
 
     fn icon_element(&self, item: &AbilityItem, sheets: &[SpriteSheet], assets: &CustomAssets) -> Element<'_, Message> {
-        if item.custom_icon != CustomIcon::None {
-            if let Some(handle) = assets.get_icon_texture(item.custom_icon) {
-                return iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
-            }
+        if item.custom_icon != CustomIcon::None
+            && let Some(handle) = assets.get_icon_texture(item.custom_icon) {
+            return iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
         }
 
-        if let Some(icon_id) = item.icon_id {
-            if let Some(handle) = self.icon_handle(icon_id, sheets) {
-                let icon_widget = iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
+        if let Some(icon_id) = item.icon_id
+            && let Some(handle) = self.icon_handle(icon_id, sheets) {
+            let icon_widget = iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
 
-                if let Some(border_id) = item.border_id {
-                    if let Some(border_handle) = self.icon_handle(border_id, sheets) {
-                        let border_widget = iced_image(border_handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
-                        return stack![icon_widget, border_widget].width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
-                    }
+            if let Some(border_id) = item.border_id
+                && let Some(border_handle) = self.icon_handle(border_id, sheets) {
+                    let border_widget = iced_image(border_handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
+                    return stack![icon_widget, border_widget].width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
                 }
 
-                return icon_widget.into();
-            }
+            return icon_widget.into();
         }
 
         let icon_enum = if item.custom_icon != core::common::game::CustomIcon::None {

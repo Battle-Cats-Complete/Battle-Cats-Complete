@@ -738,8 +738,7 @@ fn build_base_stage(
         .cloned()
         .unwrap_or_default();
 
-    let mut final_opt = StageOptionEntry::default();
-    final_opt.target_crowns = -1;
+    let mut final_opt = StageOptionEntry { target_crowns: -1, ..Default::default() };
 
     let valid_options = stage_opts.iter().filter(|o|
         (o.target_stage == -1 || o.target_stage == stage_id as i32) &&

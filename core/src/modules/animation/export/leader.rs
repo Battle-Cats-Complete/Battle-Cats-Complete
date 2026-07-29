@@ -21,10 +21,9 @@ pub fn run(
 ) {
     info!("Encoding worker initialized for format: {:?}", config.format);
 
-    if let Some(parent_directory) = config.output_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent_directory) {
-            error!("Failed to create output directory: {}", e);
-        }
+    if let Some(parent_directory) = config.output_path.parent()
+        && let Err(e) = fs::create_dir_all(parent_directory) {
+        error!("Failed to create output directory: {}", e);
     }
 
     let file_extension = match config.format {
@@ -72,10 +71,9 @@ pub fn run(
 
     if !should_save_file {
         warn!("Encoding aborted or failed. Cleaning up temporary files.");
-        if temporary_path.exists() {
-            if let Err(e) = fs::remove_file(&temporary_path) {
-                error!("Failed to remove temporary file: {}", e);
-            }
+        if temporary_path.exists()
+            && let Err(e) = fs::remove_file(&temporary_path) {
+            error!("Failed to remove temporary file: {}", e);
         }
         emit(EncoderStatus::Finished);
         return;

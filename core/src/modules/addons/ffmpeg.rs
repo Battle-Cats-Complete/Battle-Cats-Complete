@@ -44,10 +44,9 @@ impl FfmpegManager {
         info!("Uninstalling FFmpeg...");
         let dir = get_ffmpeg_dir();
 
-        if dir.exists() {
-            if let Err(err) = fs::remove_dir_all(&dir) {
-                error!("Failed to remove FFmpeg directory: {}", err);
-            }
+        if dir.exists()
+            && let Err(err) = fs::remove_dir_all(&dir) {
+            error!("Failed to remove FFmpeg directory: {}", err);
         }
 
         self.status = AddonStatus::NotInstalled;

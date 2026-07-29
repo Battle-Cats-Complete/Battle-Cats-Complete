@@ -41,10 +41,9 @@ fn superscript_line<'a, Message: 'a>(line: &str) -> Element<'a, Message> {
     let mut result_row = row![].align_y(Vertical::Bottom);
     let mut parts = line.split('^');
 
-    if let Some(first) = parts.next() {
-        if !first.is_empty() {
-            result_row = result_row.push(text(first.to_string()).size(ABILITY_TEXT_SIZE));
-        }
+    if let Some(first) = parts.next()
+        && !first.is_empty() {
+        result_row = result_row.push(text(first.to_string()).size(ABILITY_TEXT_SIZE));
     }
 
     for part in parts {

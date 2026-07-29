@@ -1,7 +1,7 @@
 use nyanko::cat::unit::{Battle, UnitBuy};
 use tracing::trace;
 
-use crate::modules::cat::filter::CatFilterState;
+use crate::modules::cat::filter::{CatFilterState, FilterCounts};
 use crate::modules::cat::game::registry::CAT_STATS_REGISTRY;
 use crate::modules::cat::scanner::CatEntry;
 
@@ -27,9 +27,7 @@ pub(crate) fn evaluate_stat_ranges(
     filter: &CatFilterState,
     stats_min: &Battle,
     stats_max: &Battle,
-    active_conditions: &mut i32,
-    passed_conditions: &mut i32,
-    failed_conditions: &mut i32
+    counts: &mut FilterCounts
 ) {
     let animation_frames = cat.atk_anim_frames[form_index];
     let unitbuy_ref = Some(&cat.unitbuy);
@@ -38,7 +36,7 @@ pub(crate) fn evaluate_stat_ranges(
     for (stat_name, target_range) in &filter.stat_ranges {
         if target_range.min.is_empty() && target_range.max.is_empty() { continue; }
 
-        *active_conditions += 1;
+        counts.active += 1;
 
         let value_a = get_stat_value(stats_min, stat_name, animation_frames, unitbuy_ref);
         let value_b = get_stat_value(stats_max, stat_name, animation_frames, unitbuy_ref);
@@ -50,9 +48,9 @@ pub(crate) fn evaluate_stat_ranges(
         let required_max = target_range.max.parse::<i32>().unwrap_or(i32::MAX);
 
         if actual_min <= required_max && actual_max >= required_min {
-            *passed_conditions += 1;
+            counts.passed += 1;
         } else {
-            *failed_conditions += 1;
+            counts.failed += 1;
         }
     }
 }

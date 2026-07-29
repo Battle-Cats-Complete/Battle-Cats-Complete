@@ -48,6 +48,13 @@ pub struct RangeInput {
     pub max: String,
 }
 
+#[derive(Default)]
+pub(crate) struct FilterCounts {
+    pub(crate) active: i32,
+    pub(crate) passed: i32,
+    pub(crate) failed: i32,
+}
+
 #[derive(Clone, PartialEq)]
 pub struct CatFilterState {
     pub is_open: bool,

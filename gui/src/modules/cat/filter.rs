@@ -154,11 +154,11 @@ impl State {
             }),
             text("Talents:").align_y(Vertical::Center),
             pick_list(vec!["Ignore", "Consider", "Only"], Some(self.filter_state.talent_mode.label()), |s| {
-                Message::TalentModeChanged(talent_mode_from_label(&s))
+                Message::TalentModeChanged(talent_mode_from_label(s))
             }),
             text("Ultra Talents:").align_y(Vertical::Center),
             pick_list(vec!["Ignore", "Consider", "Only"], Some(self.filter_state.ultra_talent_mode.label()), |s| {
-                Message::UltraTalentModeChanged(talent_mode_from_label(&s))
+                Message::UltraTalentModeChanged(talent_mode_from_label(s))
             }),
         ].spacing(8).align_y(Vertical::Center);
 

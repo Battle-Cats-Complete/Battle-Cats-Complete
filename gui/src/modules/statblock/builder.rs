@@ -319,7 +319,7 @@ pub(crate) fn build_statblock_image(
             let d_rect = Rect::at(current_x, d_y).of_size(col_w as u32, row_height as u32);
             match &row_data[col] {
                 StatCell::Frames(frames) => {
-                    draw_time_cell(ui_img, data_bg, d_rect, *frames, font, scale_f, scale, cell_radius, STAT_GRID_TEXT_SCALE);
+                    draw_time_cell(ui_img, data_bg, d_rect, *frames, font, &TimeCellStyle { scale_f, scale_i: scale, radius: cell_radius, text_scale: STAT_GRID_TEXT_SCALE });
                 },
                 StatCell::Text(text) => {
                     draw_rounded_rect_mut(ui_img, d_rect, cell_radius, data_bg);

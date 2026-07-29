@@ -702,7 +702,7 @@ impl State {
                             let _ = thread_tx.unbounded_send(event);
                         };
                         let result =
-                            android::run(mode, region, emulator_config, enforce_val, &emit, &abort);
+                            android::run(mode, region, emulator_config, enforce_val, emit, &abort);
                         emit(JobEvent::Finished(job_outcome(result, &abort)));
                     });
 
@@ -724,7 +724,7 @@ impl State {
                         &folder_path,
                         ImportMode::Folder,
                         enforce_val,
-                        &emit,
+                        emit,
                         &abort,
                     );
                     emit(JobEvent::Finished(job_outcome(result, &abort)));
@@ -738,7 +738,7 @@ impl State {
                     let emit = |event: JobEvent| {
                         let _ = tx.unbounded_send(event);
                     };
-                    let result = raw::run(&data_path, &emit, &abort, &lang_priority);
+                    let result = raw::run(&data_path, emit, &abort, &lang_priority);
                     emit(JobEvent::Finished(job_outcome(result, &abort)));
                 });
             }
@@ -773,7 +773,7 @@ impl State {
                 let _ = tx.unbounded_send(event);
             };
             let result =
-                export::create_game_archive(&emit, &abort, compression_level, full_filename, include_raw);
+                export::create_game_archive(emit, &abort, compression_level, full_filename, include_raw);
             emit(JobEvent::Finished(job_outcome(result, &abort)));
         });
 
@@ -789,10 +789,9 @@ pub fn censor_path(path_string: &str) -> String {
     }
 
     let mut clean_string = path_string.to_string();
-    if let Ok(username) = env::var("USERNAME").or_else(|_| env::var("USER")) {
-        if !username.is_empty() {
-            clean_string = clean_string.replace(&username, "***");
-        }
+    if let Ok(username) = env::var("USERNAME").or_else(|_| env::var("USER"))
+        && !username.is_empty() {
+        clean_string = clean_string.replace(&username, "***");
     }
 
     let path_object = Path::new(&clean_string);

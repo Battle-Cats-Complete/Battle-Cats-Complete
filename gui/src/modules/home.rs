@@ -35,6 +35,7 @@ struct AppMeta {
     app_version: String,
 }
 
+#[derive(Default)]
 pub struct State {
     is_game_empty: Option<bool>,
     changelog_open: bool,
@@ -43,20 +44,6 @@ pub struct State {
     releases: Vec<(String, String)>,
     selected_version: Option<String>,
     notice_open: bool,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            is_game_empty: None,
-            changelog_open: false,
-            changelog_loading: false,
-            changelog_error: false,
-            releases: Vec::new(),
-            selected_version: None,
-            notice_open: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

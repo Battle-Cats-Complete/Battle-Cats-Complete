@@ -213,20 +213,27 @@ pub(crate) fn draw_centered_text(img: &mut RgbaImage, color: Rgba<u8>, rect: Rec
     draw_text_mut(img, color, tx.max(rect.left()), ty.max(rect.top()), scale, font, text);
 }
 
+pub(crate) struct TimeCellStyle {
+    pub(crate) scale_f: f32,
+    pub(crate) scale_i: i32,
+    pub(crate) radius: i32,
+    pub(crate) text_scale: f32,
+}
+
 pub(crate) fn draw_time_cell(
     img: &mut RgbaImage, bg: Rgba<u8>, rect: Rect, frames: i32, font: &impl ab_glyph::Font,
-    scale_f: f32, scale_i: i32, radius: i32, text_scale: f32
+    style: &TimeCellStyle
 ) {
-    draw_rounded_rect_mut(img, rect, radius, bg);
+    draw_rounded_rect_mut(img, rect, style.radius, bg);
 
     let sec_str = format!("{:.2}s", frames as f32 / 30.0);
     let f_str = format!(" {}f", frames);
 
-    let scale_sec = PxScale::from(15.0 * text_scale * scale_f);
-    let scale_f_text = PxScale::from(15.0 * 0.65 * text_scale * scale_f);
+    let scale_sec = PxScale::from(15.0 * style.text_scale * style.scale_f);
+    let scale_f_text = PxScale::from(15.0 * 0.65 * style.text_scale * style.scale_f);
 
     let sec_w = text_size(scale_sec, font, &sec_str).0;
-    let gap = scale_i as u32;
+    let gap = style.scale_i as u32;
     let total_w = sec_w + text_size(scale_f_text, font, &f_str).0 + gap;
 
     let start_x = rect.left() + (rect.width() as i32 - total_w as i32) / 2;

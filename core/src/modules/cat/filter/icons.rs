@@ -4,7 +4,7 @@ use nyanko::cat::abilities::{Ability, REGISTRY};
 use nyanko::cat::unit::Battle;
 use tracing::trace;
 
-use crate::modules::cat::filter::{CatFilterState, RangeInput, TalentFilterMode};
+use crate::modules::cat::filter::{CatFilterState, FilterCounts, RangeInput, TalentFilterMode};
 use crate::modules::cat::game::registry::{get_display_def, AbilityIcon};
 use crate::modules::cat::scanner::CatEntry;
 
@@ -28,22 +28,24 @@ pub(crate) fn has_trait_or_ability(battle_stats: &Battle, icon: &AbilityIcon) ->
     false
 }
 
+pub(crate) struct TalentBuilds<'a> {
+    pub(crate) base: &'a Battle,
+    pub(crate) normal: &'a Battle,
+    pub(crate) ultra: &'a Battle,
+}
+
 pub(crate) fn evaluate_icon_requirements(
     cat: &CatEntry,
     form_index: usize,
     filter: &CatFilterState,
-    base_leveled: &Battle,
-    state_normal: &Battle,
-    state_ultra: &Battle,
-    active_conditions: &mut i32,
-    passed_conditions: &mut i32,
-    failed_conditions: &mut i32
+    builds: &TalentBuilds<'_>,
+    counts: &mut FilterCounts
 ) {
     trace!("evaluating icon filters");
     for target_icon in &filter.active_icons {
-        *active_conditions += 1;
+        counts.active += 1;
 
-        let has_inherent_ability = has_trait_or_ability(base_leveled, target_icon);
+        let has_inherent_ability = has_trait_or_ability(builds.base, target_icon);
         let pure_ability_definition = REGISTRY.iter().find(|pure_def| &get_display_def(pure_def.identity).icon == target_icon);
 
         let mut has_normal_talent = false;
@@ -73,13 +75,13 @@ pub(crate) fn evaluate_icon_requirements(
         let mut icon_condition_passed = false;
 
         if is_inherent_valid || is_normal_valid || is_ultra_valid {
-            icon_condition_passed = check_advanced_ranges(target_icon, filter, base_leveled, state_normal, state_ultra, pure_ability_definition, is_inherent_valid, is_normal_valid, is_ultra_valid);
+            icon_condition_passed = check_advanced_ranges(target_icon, filter, builds, pure_ability_definition, is_inherent_valid, is_normal_valid, is_ultra_valid);
         }
 
         if icon_condition_passed {
-            *passed_conditions += 1;
+            counts.passed += 1;
         } else {
-            *failed_conditions += 1;
+            counts.failed += 1;
         }
     }
 }
@@ -87,9 +89,7 @@ pub(crate) fn evaluate_icon_requirements(
 fn check_advanced_ranges(
     target_icon: &AbilityIcon,
     filter: &CatFilterState,
-    base_leveled: &Battle,
-    state_normal: &Battle,
-    state_ultra: &Battle,
+    builds: &TalentBuilds<'_>,
     pure_ability_definition: Option<&Ability>,
     is_inherent_valid: bool,
     is_normal_valid: bool,
@@ -100,9 +100,9 @@ fn check_advanced_ranges(
     };
 
     let mut test_build_states = Vec::new();
-    if is_inherent_valid { test_build_states.push(base_leveled); }
-    if is_normal_valid { test_build_states.push(state_normal); }
-    if is_ultra_valid { test_build_states.push(state_ultra); }
+    if is_inherent_valid { test_build_states.push(builds.base); }
+    if is_normal_valid { test_build_states.push(builds.normal); }
+    if is_ultra_valid { test_build_states.push(builds.ultra); }
 
     for build_stats in test_build_states {
         if test_single_build_ranges(build_stats, pure_ability_definition, advanced_ranges_map) {

@@ -668,7 +668,7 @@ fn enemy_card<'a>(idx: usize, enemy: &'a EnemyFilter) -> Element<'a, Message> {
             current = row![].spacing(16);
         }
     }
-    if ENEMY_RANGES.len() % 2 != 0 {
+    if !ENEMY_RANGES.len().is_multiple_of(2) {
         ranges_col = ranges_col.push(current);
     }
 

@@ -119,9 +119,7 @@ pub(crate) fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
 
 #[tracing::instrument(level = "debug", skip_all, fields(file = %filename))]
 fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> Option<(u64, T)> {
-    let Some(cache_directory) = get_cache_dir() else {
-        return None;
-    };
+    let cache_directory = get_cache_dir()?;
 
     let cache_path = cache_directory.join(filename);
 

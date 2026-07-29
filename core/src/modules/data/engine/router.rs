@@ -66,12 +66,10 @@ impl CatPatternsSet {
             return Some(cats_dir.join("unitevolve"));
         }
 
-        if let Some(caps) = self.stats.captures(name) {
-            if let Ok(id) = caps[1].parse::<u32>() {
-                if id > 0 {
-                    return Some(cats_dir.join(format!("{:03}", id - 1)));
-                }
-            }
+        if let Some(caps) = self.stats.captures(name)
+            && let Ok(id) = caps[1].parse::<u32>()
+            && id > 0 {
+            return Some(cats_dir.join(format!("{:03}", id - 1)));
         }
         if let Some(caps) = self.icon.captures(name) {
             return Some(cats_dir.join(&caps[1]).join(&caps[2]));
@@ -88,12 +86,10 @@ impl CatPatternsSet {
         if let Some(caps) = self.maanim.captures(name) {
             return Some(cats_dir.join(&caps[1]).join(&caps[2]).join("anim"));
         }
-        if let Some(caps) = self.explain.captures(name) {
-            if let Ok(id) = caps[1].parse::<u32>() {
-                if id > 0 {
-                    return Some(cats_dir.join(format!("{:03}", id - 1)).join("lang"));
-                }
-            }
+        if let Some(caps) = self.explain.captures(name)
+            && let Ok(id) = caps[1].parse::<u32>()
+            && id > 0 {
+            return Some(cats_dir.join(format!("{:03}", id - 1)).join("lang"));
         }
 
         if let Some(caps) = self.egg_icon.captures(name) {
@@ -452,10 +448,9 @@ impl StagePatternsSet {
 
                 if is_invasion {
                     path = path.join("Invasion");
-                } else if let Some(stage_cap) = caps.get(3) {
-                    if let Ok(parsed_stage) = stage_cap.as_str().parse::<u32>() {
-                        path = path.join(format!("{:02}", parsed_stage));
-                    }
+                } else if let Some(stage_cap) = caps.get(3)
+                    && let Ok(parsed_stage) = stage_cap.as_str().parse::<u32>() {
+                    path = path.join(format!("{:02}", parsed_stage));
                 }
 
                 return Some(path);
@@ -470,24 +465,20 @@ impl StagePatternsSet {
             }
         }
 
-        if let Some(caps) = self.map_data.captures(target_file) {
-            if let Ok(parsed_map) = caps[2].parse::<u32>() {
-                return Some(cat_dir.join(Self::format_prefix(&caps[1])).join(format!("{:03}", parsed_map)));
-            }
+        if let Some(caps) = self.map_data.captures(target_file)
+            && let Ok(parsed_map) = caps[2].parse::<u32>() {
+            return Some(cat_dir.join(Self::format_prefix(&caps[1])).join(format!("{:03}", parsed_map)));
         }
 
-        if let Some(caps) = self.map_name.captures(target_file) {
-            if let Ok(parsed_map) = caps[1].parse::<u32>() {
-                return Some(cat_dir.join(Self::format_prefix(&caps[2])).join(format!("{:03}", parsed_map)));
-            }
+        if let Some(caps) = self.map_name.captures(target_file)
+            && let Ok(parsed_map) = caps[1].parse::<u32>() {
+            return Some(cat_dir.join(Self::format_prefix(&caps[2])).join(format!("{:03}", parsed_map)));
         }
 
-        if let Some(caps) = self.map_sn.captures(target_file) {
-            if let Ok(parsed_map) = caps[1].parse::<u32>() {
-                if let Ok(parsed_stage) = caps[2].parse::<u32>() {
-                    return Some(cat_dir.join(Self::format_prefix(&caps[3])).join(format!("{:03}", parsed_map)).join(format!("{:02}", parsed_stage)));
-                }
-            }
+        if let Some(caps) = self.map_sn.captures(target_file)
+            && let Ok(parsed_map) = caps[1].parse::<u32>()
+            && let Ok(parsed_stage) = caps[2].parse::<u32>() {
+            return Some(cat_dir.join(Self::format_prefix(&caps[3])).join(format!("{:03}", parsed_map)).join(format!("{:02}", parsed_stage)));
         }
 
         if let Some(caps) = self.castle.captures(target_file) {
@@ -497,22 +488,19 @@ impl StagePatternsSet {
             return Some(base_dir.join("castles").join(&caps[1]));
         }
 
-        if let Some(caps) = self.bg_map.captures(target_file) {
-            if let Ok(parsed_id) = caps[1].parse::<u32>() {
-                return Some(base_dir.join("backgrounds").join("maps").join(format!("{:03}", parsed_id)));
-            }
+        if let Some(caps) = self.bg_map.captures(target_file)
+            && let Ok(parsed_id) = caps[1].parse::<u32>() {
+            return Some(base_dir.join("backgrounds").join("maps").join(format!("{:03}", parsed_id)));
         }
 
-        if let Some(caps) = self.bg_battle.captures(target_file) {
-            if let Ok(parsed_id) = caps[1].parse::<u32>() {
-                return Some(base_dir.join("backgrounds").join("battle").join(format!("{:03}", parsed_id)));
-            }
+        if let Some(caps) = self.bg_battle.captures(target_file)
+            && let Ok(parsed_id) = caps[1].parse::<u32>() {
+            return Some(base_dir.join("backgrounds").join("battle").join(format!("{:03}", parsed_id)));
         }
 
-        if let Some(caps) = self.bg_effect.captures(target_file) {
-            if let Ok(parsed_id) = caps[1].parse::<u32>() {
-                return Some(base_dir.join("backgrounds").join("effects").join(format!("{:03}", parsed_id)));
-            }
+        if let Some(caps) = self.bg_effect.captures(target_file)
+            && let Ok(parsed_id) = caps[1].parse::<u32>() {
+            return Some(base_dir.join("backgrounds").join("effects").join(format!("{:03}", parsed_id)));
         }
 
         if self.bg_data.is_match(target_file) {

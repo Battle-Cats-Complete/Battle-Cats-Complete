@@ -47,10 +47,9 @@ impl ApkeditorManager {
         info!("Uninstalling APKEditor JRE...");
         let dir = get_apkeditor_dir();
 
-        if dir.exists() {
-            if let Err(err) = fs::remove_dir_all(&dir) {
-                error!("Failed to remove APKEditor directory: {}", err);
-            }
+        if dir.exists()
+            && let Err(err) = fs::remove_dir_all(&dir) {
+            error!("Failed to remove APKEditor directory: {}", err);
         }
 
         self.status = AddonStatus::NotInstalled;

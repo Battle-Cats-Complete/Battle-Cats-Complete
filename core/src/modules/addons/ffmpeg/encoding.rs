@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -18,7 +18,7 @@ pub(crate) fn encode(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
     emit: &(dyn Fn(EncoderStatus) + Sync),
-    temp_path: &PathBuf,
+    temp_path: &Path,
     abort_signal: &AtomicBool
 ) -> bool {
     let Some(ffmpeg_path) = get_ffmpeg_path() else {

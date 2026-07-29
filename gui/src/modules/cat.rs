@@ -374,16 +374,14 @@ impl State {
                 Task::none()
             }
             Message::MaximizeTalents(is_ultra) => {
-                if let Some(cat_id) = self.selected_cat {
-                    if let Some(cat) = self.data.cats.iter().find(|c| c.id == cat_id) {
-                        if let Some(talent_data) = &cat.talent_data {
-                            for (index, group) in talent_data.groups.iter().enumerate() {
-                                let target_group = if is_ultra { group.limit == 1 } else { group.limit != 1 };
-                                if target_group {
-                                    self.talent_levels.insert(index as u8, group.max_level.max(1));
-                                    self.talent_level_inputs.remove(&(index as u8));
-                                }
-                            }
+                if let Some(cat_id) = self.selected_cat
+                    && let Some(cat) = self.data.cats.iter().find(|c| c.id == cat_id)
+                    && let Some(talent_data) = &cat.talent_data {
+                    for (index, group) in talent_data.groups.iter().enumerate() {
+                        let target_group = if is_ultra { group.limit == 1 } else { group.limit != 1 };
+                        if target_group {
+                            self.talent_levels.insert(index as u8, group.max_level.max(1));
+                            self.talent_level_inputs.remove(&(index as u8));
                         }
                     }
                 }
@@ -818,21 +816,21 @@ impl State {
         let ultra_talents_btn = button("Max Ultra Talents")
             .on_press(Message::MaximizeTalents(true));
 
-        let talents_view = self.talents.view(
-            cat.id,
+        let talents_view = self.talents.view(talents::ViewCtx {
+            cat_id: cat.id,
             talent_data,
-            &self.talent_levels,
-            &self.talent_level_inputs,
-            &cat.talent_costs,
-            &cat.skill_descriptions,
-            base_stats,
-            cat.curve.as_ref(),
-            self.current_level,
-            &self.img015_sheets,
-            &self.img022_sheets,
-            &self.custom_assets,
+            talent_levels: &self.talent_levels,
+            level_inputs: &self.talent_level_inputs,
+            talent_costs: &cat.talent_costs,
+            descriptions: &cat.skill_descriptions,
+            current_stats: base_stats,
+            curve: cat.curve.as_ref(),
+            unit_level: self.current_level,
+            sheets: &self.img015_sheets,
+            img022_sheets: &self.img022_sheets,
+            assets: &self.custom_assets,
             settings,
-        ).map(Message::Talents);
+        }).map(Message::Talents);
 
         column![
             row![normal_talents_btn, ultra_talents_btn].spacing(8),

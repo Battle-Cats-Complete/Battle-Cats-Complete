@@ -35,8 +35,8 @@ pub(crate) fn parse(path: &Path) -> Option<Model> {
     let mut alpha_unit = 1000.0;
     let mut metadata_start_index = usize::MAX;
 
-    for index in unit_line_index..lines.len() {
-        let columns: Vec<&str> = lines[index].split(delimiter).collect();
+    for (index, line) in lines.iter().enumerate().skip(unit_line_index) {
+        let columns: Vec<&str> = line.split(delimiter).collect();
         if columns.len() < 3 { continue; }
 
         let Ok(scale_val) = columns[0].trim().parse::<f32>() else { continue; };

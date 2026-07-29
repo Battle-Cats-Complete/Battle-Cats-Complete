@@ -24,19 +24,19 @@ pub fn run(
     }
 
     if let Ok(source_canonical) = source_path.canonicalize() {
-        if let Ok(raw_canonical) = raw_directory_path.canonicalize() {
-            if source_canonical == raw_canonical {
-                emit(JobEvent::Log("Organizing recognized raw data.".to_string()));
-                return sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag);
-            }
+        if let Ok(raw_canonical) = raw_directory_path.canonicalize()
+            && source_canonical == raw_canonical
+        {
+            emit(JobEvent::Log("Organizing recognized raw data.".to_string()));
+            return sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag);
         }
 
-        if let Ok(game_canonical) = game_root_path.canonicalize() {
-            if source_canonical == game_canonical {
-                emit(JobEvent::Log("Beginning database restructure...".to_string()));
-                flatten_to_raw(game_root_path, &raw_directory_path, &emit, abort_flag)?;
-                return sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag);
-            }
+        if let Ok(game_canonical) = game_root_path.canonicalize()
+            && source_canonical == game_canonical
+        {
+            emit(JobEvent::Log("Beginning database restructure...".to_string()));
+            flatten_to_raw(game_root_path, &raw_directory_path, &emit, abort_flag)?;
+            return sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag);
         }
     }
 
@@ -113,9 +113,7 @@ fn sort_raw_folder(
                 return None;
             }
 
-            let Some(filename_os) = file_path.file_name() else {
-                return None;
-            };
+            let filename_os = file_path.file_name()?;
             let filename_string = filename_os.to_string_lossy().to_string();
 
             let target_destination_path = asset_router.resolve_destination(&filename_string, &filename_string);

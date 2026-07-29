@@ -127,38 +127,37 @@ impl State {
             sidebar_row = sidebar_row.push(scrollable(map_col).height(Length::Fill));
         }
 
-        if let Some(map_id) = &data.selected_map {
-            if let Some(map) = data.registry.maps.get(map_id) {
-                let category_display_name = map_id.category.display_name();
-                let mut stage_col = column![].spacing(BTN_SPACING_Y).width(COLUMN_WIDTH);
+        if let Some(map_id) = &data.selected_map
+            && let Some(map) = data.registry.maps.get(map_id) {
+            let category_display_name = map_id.category.display_name();
+            let mut stage_col = column![].spacing(BTN_SPACING_Y).width(COLUMN_WIDTH);
 
-                for stage in navigate::get_stages(&data.registry, map_id) {
-                    if !compiled_filter.matches(
-                        category_display_name,
-                        map,
-                        &stage,
-                        &data.enemy_name_registry,
-                        &data.lock_skip_registry,
-                        &data.scat_cpu_setting,
-                        &data.item_buy_registry,
-                        &data.item_name_registry,
-                        &data.drop_chara_registry,
-                        &data.unit_buy_registry,
-                        &data.cat_name_registry,
-                    ) {
-                        continue;
-                    }
-
-                    let stage_key = GlobalStageId {
-                        category: map_id.category.clone(),
-                        map: map_id.map,
-                        stage: stage.stage_id,
-                    };
-                    let is_selected = data.selected_stage.as_ref() == Some(&stage_key);
-                    stage_col = stage_col.push(sidebar_button(stage.name.clone(), is_selected, Message::SelectStage(stage_key)));
+            for stage in navigate::get_stages(&data.registry, map_id) {
+                if !compiled_filter.matches(
+                    category_display_name,
+                    map,
+                    &stage,
+                    &data.enemy_name_registry,
+                    &data.lock_skip_registry,
+                    &data.scat_cpu_setting,
+                    &data.item_buy_registry,
+                    &data.item_name_registry,
+                    &data.drop_chara_registry,
+                    &data.unit_buy_registry,
+                    &data.cat_name_registry,
+                ) {
+                    continue;
                 }
-                sidebar_row = sidebar_row.push(scrollable(stage_col).height(Length::Fill));
+
+                let stage_key = GlobalStageId {
+                    category: map_id.category.clone(),
+                    map: map_id.map,
+                    stage: stage.stage_id,
+                };
+                let is_selected = data.selected_stage.as_ref() == Some(&stage_key);
+                stage_col = stage_col.push(sidebar_button(stage.name.clone(), is_selected, Message::SelectStage(stage_key)));
             }
+            sidebar_row = sidebar_row.push(scrollable(stage_col).height(Length::Fill));
         }
 
         column![
