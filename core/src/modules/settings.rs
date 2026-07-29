@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use md5;
 use nyanko::common::tools::variant::Region;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::common::io::json;
 
@@ -204,7 +204,6 @@ impl Default for AnimSettings {
 }
 
 pub struct RuntimeState {
-    pub manual_check_requested: bool,
     pub active_tab: String,
     pub show_ip_field: bool,
 }
@@ -212,7 +211,6 @@ pub struct RuntimeState {
 impl Default for RuntimeState {
     fn default() -> Self {
         Self {
-            manual_check_requested: false,
             active_tab: "General".to_string(),
             show_ip_field: false,
         }
@@ -323,7 +321,9 @@ impl Default for ExceptionList {
 impl ExceptionList {
     pub fn save(&mut self) {
         self.source = RuleSource::Custom;
-        json::save("exceptions.json", self);
+        if let Err(err) = json::save("exceptions.json", self) {
+            warn!("Failed to save exceptions.json: {}", err);
+        }
     }
 
     pub fn load_or_default() -> Self {
@@ -352,7 +352,9 @@ impl ExceptionList {
         if needs_overwrite {
             info!("Syncing default exceptions.json to disk...");
             let default_list = Self::default();
-            json::save("exceptions.json", &default_list);
+            if let Err(err) = json::save("exceptions.json", &default_list) {
+                warn!("Failed to save exceptions.json: {}", err);
+            }
         }
     }
 }
@@ -379,7 +381,9 @@ impl UserKeys {
     }
 
     pub fn save(&self) {
-        json::save("keys.json", self);
+        if let Err(err) = json::save("keys.json", self) {
+            warn!("Failed to save keys.json: {}", err);
+        }
     }
 
     pub fn is_empty(&self) -> bool {

@@ -3,17 +3,13 @@ pub mod extract;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver};
-use std::thread;
 
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, trace};
 
-use crate::modules::addons::adb::{spawn_mod_import, ModAdbEvent};
+use crate::common::job::JobEvent;
 use crate::modules::data::engine::keys;
-use crate::modules::settings::Settings;
 
-use super::ModDataState;
 use super::ModMetadata;
 
 #[derive(Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
@@ -24,292 +20,60 @@ pub enum ModImportTab {
     Pack,
 }
 
-#[derive(PartialEq, Clone, Copy, Serialize, Deserialize, Debug)]
+#[derive(PartialEq, Clone, Copy, Default, Serialize, Deserialize, Debug)]
 pub enum ModPackType {
+    #[default]
     Apk,
     Pack,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModImportState {
-    pub is_open: bool,
     pub tab: ModImportTab,
     pub package_suffix: String,
     pub pack_type: ModPackType,
-    #[serde(skip)] pub is_busy: bool,
-    #[serde(skip)] pub status_message: String,
-    #[serde(skip)] pub log_content: String,
-    #[serde(skip)] pub adb_rx: Option<Receiver<ModAdbEvent>>,
-    #[serde(skip)] pub pack_rx: Option<Receiver<String>>,
 }
 
-impl Default for ModImportState {
-    fn default() -> Self {
-        Self {
-            is_open: false,
-            tab: ModImportTab::Adb,
-            package_suffix: String::new(),
-            pack_type: ModPackType::Apk,
-            is_busy: false,
-            status_message: String::new(),
-            log_content: String::new(),
-            adb_rx: None,
-            pack_rx: None,
-        }
+pub fn run_bcm(path: PathBuf, enforce_validation: bool, emit: impl Fn(JobEvent) + Sync) -> Result<(), String> {
+    let log = |line: String| emit(JobEvent::Log(line));
+
+    log("Creating workspace...".to_string());
+
+    let (workspace_dir, _name) = create_workspace(None)
+        .map_err(|e| format!("Failed to construct workspace: {}", e))?;
+
+    let user_keys = keys::verify(enforce_validation, &log)?;
+
+    extract::run_archive(&path, &workspace_dir, &log, &user_keys)?;
+
+    let final_name = apply_metadata_rename(Path::new("mods"), &workspace_dir);
+    info!("BCM import finished completely. Saved as {}", final_name);
+    log(format!("\nImport Complete! Saved as '{}'", final_name));
+    Ok(())
+}
+
+pub fn run_pack(path: PathBuf, pack_type: ModPackType, enforce_validation: bool, emit: impl Fn(JobEvent) + Sync) -> Result<(), String> {
+    let log = |line: String| emit(JobEvent::Log(line));
+
+    let user_keys = keys::verify(enforce_validation, &log)?;
+
+    let (workspace_dir, _name) = create_workspace(None)
+        .map_err(|e| format!("Failed to construct workspace: {}", e))?;
+
+    let res = match pack_type {
+        ModPackType::Apk => extract::run_archive(&path, &workspace_dir, &log, &user_keys),
+        ModPackType::Pack => decrypt::run(&path, &workspace_dir, &log, &user_keys),
+    };
+
+    if let Err(e) = res {
+        error!("Pack import failed: {}", e);
+        return Err(e);
     }
-}
 
-pub fn process_events(state: &mut ModDataState) -> bool {
-    process_adb_events(state);
-    process_pack_events(state);
-    state.import.is_busy
-}
-
-fn process_adb_events(state: &mut ModDataState) {
-    let Some(rx) = &state.import.adb_rx else { return; };
-
-    while let Ok(event) = rx.try_recv() {
-        match event {
-            ModAdbEvent::Status(msg) => {
-                state.import.status_message = msg.clone();
-                state.import.log_content.push_str(&format!("{}\n", msg));
-            }
-            ModAdbEvent::Success(msg) => {
-                state.import.status_message = msg.clone();
-                state.import.log_content.push_str(&format!("SUCCESS: {}\n", msg));
-                state.import.is_busy = false;
-            }
-            ModAdbEvent::Error(msg) => {
-                state.import.status_message = format!("Error: {}", msg);
-                state.import.log_content.push_str(&format!("ERROR: {}\n", msg));
-                state.import.is_busy = false;
-            }
-        }
-    }
-}
-
-fn process_pack_events(state: &mut ModDataState) {
-    let Some(rx) = &state.import.pack_rx else { return; };
-
-    while let Ok(msg) = rx.try_recv() {
-        state.import.status_message = msg.clone();
-        state.import.log_content.push_str(&format!("{}\n", msg));
-
-        let lower_msg = msg.to_lowercase();
-        if lower_msg.contains("complete!") || lower_msg.contains("error") || lower_msg.contains("failed") {
-            state.import.is_busy = false;
-        }
-    }
-}
-
-pub fn start_adb_import(state: &mut ModDataState) {
-    state.import.log_content.clear();
-    state.import.status_message = "Initializing Mod ADB Pull...".to_string();
-    state.import.is_busy = true;
-
-    let (tx, rx) = mpsc::channel();
-    state.import.adb_rx = Some(rx);
-    spawn_mod_import(tx, state.import.package_suffix.clone());
-}
-
-pub fn start_bcm_import(state: &mut ModDataState, path: PathBuf) {
-    state.import.log_content.clear();
-    state.import.status_message = format!("Extracting {:?}...", path.file_name().unwrap_or_default());
-    state.import.is_busy = true;
-
-    let (tx, rx) = mpsc::channel();
-    state.import.pack_rx = Some(rx);
-
-    thread::spawn(move || {
-        let _ = tx.send("Creating workspace...".to_string());
-
-        let (workspace_dir, _name) = match create_workspace(None) {
-            Ok(res) => res,
-            Err(e) => {
-                let _ = tx.send(format!("Error: Failed to construct workspace: {}", e));
-                return;
-            }
-        };
-
-        let settings: Settings = crate::common::io::json::load("settings.json").unwrap_or_default();
-        let user_keys = match keys::verify(settings.game_data.enforce_key_validation, &tx) {
-            Ok(keys) => keys,
-            Err(_) => return,
-        };
-
-        if let Err(e) = extract::run_archive(&path, &workspace_dir, tx.clone(), &user_keys) {
-            let _ = tx.send(format!("Error: {}", e));
-            return;
-        }
-
-        let final_name = apply_metadata_rename(Path::new("mods"), &workspace_dir);
-        info!("BCM import finished completely. Saved as {}", final_name);
-        let _ = tx.send(format!("\nImport Complete! Saved as '{}'", final_name));
-    });
-}
-
-pub fn start_pack_import(state: &mut ModDataState, path: PathBuf) {
-    let pack_type = state.import.pack_type;
-
-    state.import.log_content.clear();
-    state.import.status_message = format!("Processing {:?}...", path.file_name().unwrap_or_default());
-    state.import.is_busy = true;
-
-    let (tx, rx) = mpsc::channel();
-    state.import.pack_rx = Some(rx);
-
-    thread::spawn(move || {
-        let settings: Settings = crate::common::io::json::load("settings.json").unwrap_or_default();
-
-        let user_keys = match keys::verify(settings.game_data.enforce_key_validation, &tx) {
-            Ok(keys) => keys,
-            Err(_) => return,
-        };
-
-        let (workspace_dir, _name) = match create_workspace(None) {
-            Ok(res) => res,
-            Err(e) => {
-                let _ = tx.send(format!("Error: Failed to construct workspace: {}", e));
-                return;
-            }
-        };
-
-        let res = match pack_type {
-            ModPackType::Apk => extract::run_archive(&path, &workspace_dir, tx.clone(), &user_keys),
-            ModPackType::Pack => decrypt::run(&path, &workspace_dir, tx.clone(), &user_keys),
-        };
-
-        match res {
-            Ok(_) => {
-                let final_name = apply_metadata_rename(Path::new("mods"), &workspace_dir);
-                info!("Pack import finished completely. Saved as {}", final_name);
-                let _ = tx.send(format!("\nImport Complete! Saved as '{}'", final_name));
-            }
-            Err(e) => {
-                error!("Pack import failed: {}", e);
-                let _ = tx.send(format!("Error: {}", e));
-            }
-        }
-    });
-}
-
-pub fn start_raw_import(state: &mut ModDataState, is_folder: bool, path_opt: Option<PathBuf>, files: Vec<PathBuf>) {
-    state.import.log_content.clear();
-    state.import.is_busy = true;
-    state.import.status_message = "Copying raw files...".to_string();
-
-    let (tx, rx) = mpsc::channel();
-    state.import.pack_rx = Some(rx);
-
-    thread::spawn(move || {
-        let _ = tx.send("Creating workspace...".to_string());
-
-        let (workspace_dir, _name) = match create_workspace(None) {
-            Ok(res) => res,
-            Err(e) => {
-                let _ = tx.send(format!("Error: Failed to construct workspace: {}", e));
-                return;
-            }
-        };
-
-        if is_folder {
-            let Some(p) = path_opt else { return; };
-            let total_files = count_files_recursive(&p);
-            let log_interval = (total_files / 10).max(1);
-            let mut processed = 0;
-
-            if let Err(e) = copy_dir_all_with_log(&p, &workspace_dir, &tx, total_files, log_interval, &mut processed) {
-                let _ = tx.send(format!("Error copying folder: {}", e));
-            } else {
-                let final_name = apply_metadata_rename(Path::new("mods"), &workspace_dir);
-                info!("Raw folder import finished. Saved as {}", final_name);
-                let _ = tx.send(format!("\nImport Complete! Saved as '{}'", final_name));
-            }
-            return;
-        }
-
-        let total_files = files.len();
-        let log_interval = (total_files / 10).max(1);
-        let mut processed = 0;
-
-        for file in files {
-            let Some(name) = file.file_name() else { continue; };
-            if let Err(e) = fs::copy(&file, workspace_dir.join("loose").join(name)) {
-                warn!("Error copying individual file {:?}: {}", name, e);
-                let _ = tx.send(format!("Error copying file {:?}: {}", name, e));
-            } else {
-                processed += 1;
-                if processed % log_interval == 0 || processed == total_files {
-                    let display_name = format_log_name(&name.to_string_lossy(), &file);
-                    trace!("Copied raw file: {}", display_name);
-                    let _ = tx.send(format!("Extracted {} Files | Streaming: {}", processed, display_name));
-                }
-            }
-        }
-
-        let final_name = apply_metadata_rename(Path::new("mods"), &workspace_dir);
-        info!("Raw file import finished. Saved as {}", final_name);
-        let _ = tx.send(format!("\nImport Complete! Saved as '{}'", final_name));
-    });
-}
-
-fn format_log_name(name: &str, path: &Path) -> String {
-    let cleaned = name.trim_start_matches("...\\").trim_start_matches(".../");
-    if cleaned.len() > 35 {
-        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-        let ext = path.extension().unwrap_or_default().to_string_lossy();
-        let trunc_stem: String = stem.chars().take(20).collect();
-        if !ext.is_empty() && ext.len() <= 5 {
-            format!("{}....{}", trunc_stem, ext)
-        } else {
-            format!("{}...", trunc_stem)
-        }
-    } else {
-        cleaned.to_string()
-    }
-}
-
-fn count_files_recursive(dir: &Path) -> usize {
-    let mut count = 0;
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            if entry.path().is_dir() {
-                count += count_files_recursive(&entry.path());
-            } else {
-                count += 1;
-            }
-        }
-    }
-    count
-}
-
-fn copy_dir_all_with_log(
-    src: &Path,
-    dst: &Path,
-    tx: &mpsc::Sender<String>,
-    total: usize,
-    interval: usize,
-    processed: &mut usize
-) -> std::io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        if ty.is_dir() {
-            copy_dir_all_with_log(&entry.path(), &dst.join(entry.file_name()), tx, total, interval, processed)?;
-        } else {
-            fs::copy(entry.path(), dst.join(entry.file_name()))?;
-            *processed += 1;
-
-            if (*processed).is_multiple_of(interval) || *processed == total {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                let display_name = format_log_name(&name, &entry.path());
-                trace!("Copied folder content: {}", display_name);
-                let _ = tx.send(format!("Extracted {} Files | Streaming: {}", *processed, display_name));
-            }
-        }
-    }
+    let final_name = apply_metadata_rename(Path::new("mods"), &workspace_dir);
+    info!("Pack import finished completely. Saved as {}", final_name);
+    log(format!("\nImport Complete! Saved as '{}'", final_name));
     Ok(())
 }
 
@@ -371,11 +135,4 @@ pub fn apply_metadata_rename(mods_root: &Path, target_dir: &Path) -> String {
         }
     }
     final_name
-}
-
-pub fn delete_mod_folder(path: PathBuf) {
-    thread::spawn(move || {
-        trace!("Deleting mod folder: {:?}", path);
-        let _ = fs::remove_dir_all(path);
-    });
 }

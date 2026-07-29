@@ -1,9 +1,8 @@
+use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::sync::mpsc::Sender;
-use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::common::job::JobEvent;
 use crate::modules::addons::adb::bridge;
 use crate::modules::settings::EmulatorConfig;
 
@@ -12,74 +11,45 @@ use super::engine::keys;
 use super::{AdbImportType, AdbTarget};
 
 pub fn run(
-    status_sender: Sender<String>,
     import_mode: AdbImportType,
     target_region: AdbTarget,
     emulator_config: EmulatorConfig,
     enforce_validation: bool,
-    abort_flag: Arc<AtomicBool>,
-    job_status: Arc<AtomicU8>,
-    progress_current: Arc<AtomicUsize>,
-    progress_maximum: Arc<AtomicUsize>,
-) {
-    let _ = thread::Builder::new()
-        .name("android_import_worker".to_string())
-        .stack_size(8 * 1024 * 1024)
-        .spawn(move || {
-            let terminate = |status: Arc<AtomicU8>, is_err: bool| {
-                status.store(if is_err { 3 } else { 2 }, Ordering::Relaxed);
-            };
+    emit: impl Fn(JobEvent) + Sync,
+    abort_flag: &AtomicBool,
+) -> Result<(), String> {
+    let emit_log = |line: String| emit(JobEvent::Log(line));
 
-            if keys::verify(enforce_validation, &status_sender).is_err() {
-                return terminate(job_status, true);
-            }
+    keys::verify(enforce_validation, &emit_log)?;
 
-            let app_repository = PathBuf::from("game/app");
+    let app_repository = PathBuf::from("game/app");
 
-            let pull_result = bridge::execute_pull(
-                &app_repository,
-                import_mode,
-                target_region,
-                &emulator_config,
-                &status_sender,
-                &abort_flag,
-            );
+    let pulled_directories = bridge::execute_pull(
+        &app_repository,
+        import_mode,
+        target_region,
+        &emulator_config,
+        &emit_log,
+        abort_flag,
+    )
+    .map_err(|bridge_error| format!("ADB Pull Failed: {}", bridge_error))?;
 
-            if abort_flag.load(Ordering::Relaxed) {
-                return terminate(job_status, true);
-            }
+    if abort_flag.load(Ordering::Relaxed) {
+        return Err("Job Aborted".to_string());
+    }
 
-            let pulled_directories = match pull_result {
-                Ok(dirs) => dirs,
-                Err(bridge_error) => {
-                    let _ = status_sender.send(format!("ADB Pull Failed: {}", bridge_error));
-                    return terminate(job_status, true);
-                }
-            };
+    emit(JobEvent::Log("Starting Processing Phase...".to_string()));
 
-            let _ = status_sender.send("Starting Processing Phase...".to_string());
+    engine::run_universal_import(&pulled_directories, &emit, abort_flag)
+        .map_err(|engine_error| format!("Universal Import Failed: {}", engine_error))?;
 
-            let engine_result = engine::run_universal_import(
-                &pulled_directories,
-                &status_sender,
-                &abort_flag,
-                &progress_current,
-                &progress_maximum,
-            );
+    if !emulator_config.keep_app_folder {
+        emit(JobEvent::Log("Cleaning up app package files...".to_string()));
+        for directory in pulled_directories {
+            let _ = fs::remove_dir_all(directory);
+        }
+    }
 
-            if let Err(engine_error) = engine_result {
-                let _ = status_sender.send(format!("Universal Import Failed: {}", engine_error));
-                return terminate(job_status, true);
-            }
-
-            if !emulator_config.keep_app_folder {
-                let _ = status_sender.send("Cleaning up app package files...".to_string());
-                for directory in pulled_directories {
-                    let _ = std::fs::remove_dir_all(directory);
-                }
-            }
-
-            let _ = status_sender.send("All Operations Complete!".to_string());
-            terminate(job_status, false);
-        });
+    emit(JobEvent::Log("All Operations Complete!".to_string()));
+    Ok(())
 }

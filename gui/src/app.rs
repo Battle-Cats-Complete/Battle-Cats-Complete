@@ -1,15 +1,15 @@
 use std::hash::{Hash, Hasher};
-use std::sync::mpsc::{Receiver, Sender};
 
 use iced::alignment;
 use iced::widget::{button, column, container, progress_bar, row, scrollable, stack, text};
-use iced::{window, Color, Element, Length, Size, Subscription, Task, Theme};
+use iced::{task, window, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
 use self_update::update::Release;
 use tracing::{info, trace, warn};
 
 use core::common::context::GlobalContext;
+use core::common::io::json;
 use core::modules::settings::{Settings, UpdateMode};
 
 use crate::common::watcher::GuiWatcher;
@@ -99,10 +99,12 @@ pub enum ActivePopup {
 
 #[derive(Clone, Debug)]
 pub enum Message {
-    Tick,
+    AutoSave,
+    DownloadTick,
     Navigate(Page),
     ToggleSidebar,
     WindowResized(Size),
+    Updater(UpdaterMsg),
     UpdaterAction(UpdaterAction),
     Home(home::Message),
     Cat(cat::Message),
@@ -152,11 +154,7 @@ pub struct BattleCatsApp {
     pub last_saved_hash: u64,
 
     #[serde(skip)]
-    pub hash_rx: Option<Receiver<bool>>,
-    #[serde(skip)]
-    pub updater_rx: Option<Receiver<UpdaterMsg>>,
-    #[serde(skip)]
-    pub updater_tx: Option<Sender<UpdaterMsg>>,
+    pub updater_handle: Option<task::Handle>,
     #[serde(skip)]
     pub updater_status: UpdateStatus,
     #[serde(skip)]
@@ -182,9 +180,7 @@ impl Default for BattleCatsApp {
             localizable: Localizable::default(),
             global_watcher: None,
             last_saved_hash: 0,
-            hash_rx: None,
-            updater_rx: None,
-            updater_tx: None,
+            updater_handle: None,
             updater_status: UpdateStatus::Idle,
             download_progress: 0.0,
         }
@@ -193,17 +189,22 @@ impl Default for BattleCatsApp {
 
 impl BattleCatsApp {
     pub fn subscription(&self) -> Subscription<Message> {
-        Subscription::batch(vec![
+        let mut subs = vec![
             window::resize_events().map(|(_, size)| Message::WindowResized(size)),
-            iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::Tick),
+            iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::AutoSave),
             self.home_state.subscription().map(Message::Home),
             self.cat_state.subscription().map(Message::Cat),
             self.enemy_state.subscription().map(Message::Enemy),
             self.stage_state.subscription().map(Message::Stage),
             self.mods_state.subscription().map(Message::Mod),
-            self.data_state.subscription().map(Message::Data),
             self.settings_state.subscription().map(Message::Settings),
-        ])
+        ];
+
+        if let UpdateStatus::Downloading(_) = self.updater_status {
+            subs.push(iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::DownloadTick));
+        }
+
+        Subscription::batch(subs)
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -212,58 +213,39 @@ impl BattleCatsApp {
                 self.window_size = size;
                 Task::none()
             }
-            Message::Tick => {
+            Message::AutoSave => {
                 self.check_auto_save();
-
-                if self.settings.runtime.manual_check_requested {
-                    info!("Manual update check requested by user");
-                    self.settings.runtime.manual_check_requested = false;
+                Task::none()
+            }
+            Message::DownloadTick => {
+                self.download_progress += 0.01;
+                if self.download_progress > 1.0 {
+                    self.download_progress = 0.0;
                 }
-
-                if let Some(rx) = &self.hash_rx {
-                    if let Ok(is_valid) = rx.try_recv() {
-                        self.hash_rx = None;
-                        if !is_valid {
-                            warn!("Cache hash validation failed! Performing full data reload.");
-                        } else {
-                            info!("Cache hash validation passed.");
-                        }
+                Task::none()
+            }
+            Message::Updater(msg) => {
+                match msg {
+                    UpdaterMsg::UpdateFound(release) => {
+                        self.updater_status = UpdateStatus::UpdateFound(release.version.clone(), release);
                     }
-                }
-
-                if let Some(rx) = &self.updater_rx {
-                    while let Ok(msg) = rx.try_recv() {
-                        match msg {
-                            UpdaterMsg::UpdateFound(release) => {
-                                self.updater_status = UpdateStatus::UpdateFound(release.version.clone(), release);
-                            }
-                            UpdaterMsg::UpToDate => {
-                                self.updater_status = UpdateStatus::UpToDate;
-                            }
-                            UpdaterMsg::CheckFailed => {
-                                self.updater_status = UpdateStatus::CheckFailed;
-                            }
-                            UpdaterMsg::DownloadStarted(version) => {
-                                self.updater_status = UpdateStatus::Downloading(version);
-                                self.download_progress = 0.0;
-                            }
-                            UpdaterMsg::DownloadFinished(version) => {
-                                self.updater_status = UpdateStatus::RestartPending(version);
-                            }
-                            UpdaterMsg::SilentFail => {
-                                self.updater_status = UpdateStatus::Idle;
-                            }
-                        }
+                    UpdaterMsg::UpToDate => {
+                        self.updater_status = UpdateStatus::UpToDate;
                     }
-                }
-
-                if let UpdateStatus::Downloading(_) = self.updater_status {
-                    self.download_progress += 0.01;
-                    if self.download_progress > 1.0 {
+                    UpdaterMsg::CheckFailed => {
+                        self.updater_status = UpdateStatus::CheckFailed;
+                    }
+                    UpdaterMsg::DownloadStarted(version) => {
+                        self.updater_status = UpdateStatus::Downloading(version);
                         self.download_progress = 0.0;
                     }
+                    UpdaterMsg::DownloadFinished(version) => {
+                        self.updater_status = UpdateStatus::RestartPending(version);
+                    }
+                    UpdaterMsg::SilentFail => {
+                        self.updater_status = UpdateStatus::Idle;
+                    }
                 }
-
                 Task::none()
             }
             Message::Navigate(page) => {
@@ -276,22 +258,22 @@ impl BattleCatsApp {
             }
             Message::UpdaterAction(action) => {
                 match action {
-                    UpdaterAction::StartDownload(release) => {
-                        self.download_and_install(release);
-                    }
+                    UpdaterAction::StartDownload(release) => self.download_and_install(release),
                     UpdaterAction::DismissUpdate => {
                         self.updater_status = UpdateStatus::Idle;
+                        Task::none()
                     }
                     UpdaterAction::NeverUpdate => {
                         info!("User selected Never update, changing mode to Ignore");
                         self.settings.general.update_mode = UpdateMode::Ignore;
                         self.updater_status = UpdateStatus::Idle;
+                        Task::none()
                     }
                     UpdaterAction::RestartApp => {
                         updater::restart_app();
+                        Task::none()
                     }
                 }
-                Task::none()
             }
             Message::Home(msg) => {
                 match msg {
@@ -315,7 +297,11 @@ impl BattleCatsApp {
             }
             Message::Enemy(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
+                let enemies_loaded = matches!(msg, enemy::Message::Loaded(_));
                 let task = self.enemy_state.update(msg, &mut self.settings, global_ctx).map(Message::Enemy);
+                if enemies_loaded {
+                    self.stage_state.data.sync_enemies(&self.enemy_state.data.enemies);
+                }
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
                 self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open());
                 task
@@ -333,6 +319,10 @@ impl BattleCatsApp {
             }
             Message::Data(msg) => self.data_state.update(msg, &mut self.settings).map(Message::Data),
             Message::Settings(msg) => {
+                if matches!(msg, gui_settings::Message::ManualUpdateCheck) {
+                    info!("Manual update check requested from Settings");
+                    return self.check_for_updates(true);
+                }
                 let task = self.settings_state.update(msg, &mut self.settings).map(Message::Settings);
                 self.sync_popup(ActivePopup::SettingsKeys, self.settings_state.keys_popup_open());
                 self.sync_popup(ActivePopup::SettingsExceptions, self.settings_state.exceptions_popup_open());
@@ -628,6 +618,10 @@ impl BattleCatsApp {
 
         if self.last_saved_hash != current_hash {
             trace!("Settings changed. Saving to settings.json");
+            if let Err(err) = json::save("settings.json", self) {
+                warn!("Failed to save settings.json: {}", err);
+                return;
+            }
             self.last_saved_hash = current_hash;
         }
     }

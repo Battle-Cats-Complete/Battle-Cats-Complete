@@ -1,12 +1,20 @@
+use std::thread;
+
+use iced::futures::channel::mpsc;
+use iced::task;
 use iced::widget::{button, column, container, pick_list, row, scrollable, slider, space, text, text_input};
 use iced::{Alignment, Background, Border, Color, Element, Length, Size, Task, Theme};
+use tracing::{error, info};
 
+use core::common::job::{JobEvent, JobOutcome};
 use core::common::region::Region;
 use core::modules::mods::export::{apk, bcm, pack, ExportType};
 use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
 use crate::common::popup;
+
+use super::job_finished;
 
 const SPINNER_FRAMES: [&str; 4] = ["-", "\\", "|", "/"];
 const REGIONS: [Region; 4] = [Region::En, Region::Ja, Region::Ko, Region::Tw];
@@ -25,6 +33,7 @@ pub enum Message {
     CompressionChanged(f32),
     PackNameChanged(String),
     StartExport,
+    Job(JobEvent),
 }
 
 pub struct State {
@@ -32,6 +41,9 @@ pub struct State {
     popup: popup::State,
     compression: f32,
     busy_frame: usize,
+    running: bool,
+    log: String,
+    job_handle: Option<task::Handle>,
 }
 
 impl Default for State {
@@ -41,6 +53,9 @@ impl Default for State {
             popup: popup::State::default(),
             compression: bcm::BCM_COMPRESSION_DEFAULT as f32,
             busy_frame: 0,
+            running: false,
+            log: String::new(),
+            job_handle: None,
         }
     }
 }
@@ -59,7 +74,7 @@ impl State {
                 Task::none()
             }
             Message::Tick => {
-                if data.export.is_busy {
+                if self.running {
                     self.busy_frame = (self.busy_frame + 1) % SPINNER_FRAMES.len();
                 }
                 Task::none()
@@ -94,24 +109,100 @@ impl State {
                 data.export.pack_name = value;
                 Task::none()
             }
-            Message::StartExport => {
-                if data.export.is_busy || data.selected_mod.is_none() {
-                    return Task::none();
-                }
+            Message::StartExport => self.start_export(data, settings),
+            Message::Job(event) => {
+                match event {
+                    JobEvent::Log(line) => {
+                        self.log.push_str(&format!("{}\n", line));
+                    }
+                    JobEvent::Progress { .. } => {}
+                    JobEvent::Finished(outcome) => {
+                        self.running = false;
+                        self.job_handle = None;
 
-                match data.export.tab {
-                    ExportType::Apk => apk::start_export(data, settings),
-                    ExportType::Bcm => bcm::start_bcm_export(data, self.compression as i64),
-                    ExportType::Pack => {
-                        if data.export.pack_name.is_empty() {
-                            data.export.pack_name = "DownloadLocal".to_string();
+                        match outcome {
+                            JobOutcome::Completed => info!("Export job completed."),
+                            JobOutcome::Aborted => info!("Export job aborted."),
+                            JobOutcome::Failed(message) => {
+                                error!("Export Error: {}", message);
+                                self.log.push_str(&format!("!! ERROR: {}\n", message));
+                            }
                         }
-                        pack::start_pack_export(data);
                     }
                 }
                 Task::none()
             }
         }
+    }
+
+    fn start_export(&mut self, data: &mut ModDataState, settings: &Settings) -> Task<Message> {
+        if self.running {
+            return Task::none();
+        }
+
+        let Some(mod_folder) = data.selected_mod.clone() else {
+            return Task::none();
+        };
+
+        if data.export.tab == ExportType::Pack && data.export.pack_name.is_empty() {
+            data.export.pack_name = "DownloadLocal".to_string();
+        }
+
+        self.running = true;
+        self.log.clear();
+
+        let (tx, rx) = mpsc::unbounded();
+
+        match data.export.tab {
+            ExportType::Apk => {
+                let Some(input_apk) = data.export.selected_apk.clone() else {
+                    self.running = false;
+                    return Task::none();
+                };
+                let app_title = data.export.app_title.clone();
+                let suffix = data.export.package_suffix.clone();
+                let region = data.export.target_region;
+                let behavior = settings.mods.export_behavior.clone();
+                let enforce = settings.game_data.enforce_key_validation;
+
+                thread::spawn(move || {
+                    let emit = |event: JobEvent| {
+                        let _ = tx.unbounded_send(event);
+                    };
+                    let result = apk::run(mod_folder, input_apk, app_title, suffix, region, behavior, enforce, &emit);
+                    emit(job_finished(result));
+                });
+            }
+            ExportType::Bcm => {
+                let app_title = data.export.app_title.clone();
+                let compression = self.compression as i64;
+
+                thread::spawn(move || {
+                    let emit = |event: JobEvent| {
+                        let _ = tx.unbounded_send(event);
+                    };
+                    let result = bcm::run(mod_folder, app_title, compression, &emit);
+                    emit(job_finished(result));
+                });
+            }
+            ExportType::Pack => {
+                let pack_name = data.export.pack_name.clone();
+                let region = data.export.target_region;
+                let enforce = settings.game_data.enforce_key_validation;
+
+                thread::spawn(move || {
+                    let emit = |event: JobEvent| {
+                        let _ = tx.unbounded_send(event);
+                    };
+                    let result = pack::run(mod_folder, pack_name, region, enforce, &emit);
+                    emit(job_finished(result));
+                });
+            }
+        }
+
+        let (stream_task, handle) = Task::stream(rx).abortable();
+        self.job_handle = Some(handle);
+        stream_task.map(Message::Job)
     }
 
     pub fn view<'a>(&'a self, data: &'a ModDataState, window: Size) -> Element<'a, Message> {
@@ -125,7 +216,7 @@ impl State {
     }
 
     fn content_view<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
-        let is_busy = data.export.is_busy;
+        let is_busy = self.running;
         let is_ready = data.selected_mod.is_some();
 
         let tabs_row = row![
@@ -140,7 +231,7 @@ impl State {
             ExportType::Pack => self.view_pack(data, is_busy, is_ready),
         };
 
-        let raw_log = data.export.log_content.trim_end();
+        let raw_log = self.log.trim_end();
         let display_status = raw_log.lines().last().unwrap_or("Ready").replace('\n', ", ");
 
         let is_error = display_status.contains("ERROR") || display_status.contains("Error") || display_status.contains("Failed");
@@ -159,7 +250,7 @@ impl State {
             text(display_status).color(color).into()
         };
 
-        let log_display = scrollable(text(data.export.log_content.clone()).size(12)).height(Length::Fixed(150.0));
+        let log_display = scrollable(text(self.log.clone()).size(12)).height(Length::Fixed(150.0));
 
         column![tabs_row, space().height(10), content, space().height(10), status_row, log_display].spacing(8).into()
     }

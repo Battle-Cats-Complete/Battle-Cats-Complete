@@ -10,7 +10,7 @@ use iced::widget::{button, column, container, pick_list, row, scrollable, stack,
 use iced::{Alignment, Background, Color, Element, Length, Subscription, Task, Theme};
 use self_update::backends::github::ReleaseList;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use core::common::io::json;
 
@@ -124,7 +124,9 @@ impl State {
 
                 Task::perform(
                     async move {
-                        let _ = json::save("meta.json", &new_meta);
+                        if let Err(err) = json::save("meta.json", &new_meta) {
+                            warn!("Failed to save meta.json: {}", err);
+                        }
                     },
                     |_| Message::Tick,
                 )

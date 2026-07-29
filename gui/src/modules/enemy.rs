@@ -3,15 +3,16 @@ mod filter;
 mod list;
 mod statblock;
 
-use std::sync::mpsc;
 use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
+use iced::futures::channel::mpsc;
 use iced::widget::{
     button, column, container, row, scrollable, text, text_input, Space,
 };
-use iced::{Alignment, Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
+use iced::{task, Alignment, Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::enemy::unit::Battle;
 use nyanko::graphics::rig::Unit;
 use tracing::{error, info};
@@ -42,6 +43,9 @@ pub enum ExportAction {
 pub enum Message {
     Tick,
     AnimationTick,
+    ScanProgress(usize, usize),
+    Loaded(Vec<EnemyEntry>),
+    StatblockFinished(JobResult),
     SearchQueryChanged(String),
     EnemySelected(u32),
     TabSelected(EnemyDetailTab),
@@ -58,6 +62,9 @@ impl std::fmt::Debug for Message {
         match self {
             Self::Tick => write!(f, "Tick"),
             Self::AnimationTick => write!(f, "AnimationTick"),
+            Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
+            Self::Loaded(enemies) => write!(f, "Loaded({})", enemies.len()),
+            Self::StatblockFinished(_) => write!(f, "StatblockFinished"),
             Self::SearchQueryChanged(s) => write!(f, "SearchQueryChanged({})", s),
             Self::EnemySelected(id) => write!(f, "EnemySelected({})", id),
             Self::TabSelected(tab) => {
@@ -92,8 +99,10 @@ pub struct EnemyState {
     pub custom_assets: CustomAssets,
     pub rig: Option<Arc<Unit>>,
 
+    load_handle: Option<task::Handle>,
+    scan_progress: Option<(usize, usize)>,
+
     statblock_pending: Option<ExportAction>,
-    statblock_job: Option<mpsc::Receiver<JobResult>>,
     statblock_clipboard: Option<Clipboard>,
     statblock_copy_feedback: Option<(bool, Instant)>,
     statblock_save_feedback: Option<(bool, Instant)>,
@@ -116,8 +125,10 @@ impl Default for EnemyState {
             custom_assets: CustomAssets::new(),
             rig: None,
 
+            load_handle: None,
+            scan_progress: None,
+
             statblock_pending: None,
-            statblock_job: None,
             statblock_clipboard: None,
             statblock_copy_feedback: None,
             statblock_save_feedback: None,
@@ -152,13 +163,24 @@ impl EnemyState {
     fn update_inner(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
             Message::Tick => {
-                if !self.data.initialized {
-                    self.data.initialized = true;
-                    info!("Triggering initial enemy scan");
-                    self.data.restart_scan(settings.scanner_config());
-                } else if self.data.scan_receiver.is_some() {
-                    self.data.update_data();
-                }
+                let load_task = if self.load_handle.is_none() {
+                    info!("Triggering initial enemy load");
+                    let config = settings.scanner_config();
+                    let (tx, rx) = mpsc::unbounded();
+
+                    thread::spawn(move || {
+                        let enemies = scanner::load(config, |done, total| {
+                            let _ = tx.unbounded_send(Message::ScanProgress(done, total));
+                        });
+                        let _ = tx.unbounded_send(Message::Loaded(enemies));
+                    });
+
+                    let (load_task, handle) = Task::stream(rx).abortable();
+                    self.load_handle = Some(handle);
+                    load_task
+                } else {
+                    Task::none()
+                };
 
                 crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
 
@@ -166,16 +188,28 @@ impl EnemyState {
                     self.animation.export_tick();
                 }
 
-                let received = self.statblock_job.as_ref().and_then(|rx| rx.try_recv().ok());
-                if let Some(job) = received {
-                    self.statblock_pending = None;
-                    self.statblock_job = None;
-                    self.finish_statblock_job(job);
-                }
-
-                self.list
+                let list_task = self.list
                     .update(list::Message::Tick, &self.data.enemies, &self.search_query, &self.filter.filter_state)
-                    .map(Message::List)
+                    .map(Message::List);
+
+                Task::batch([load_task, list_task])
+            }
+            Message::ScanProgress(done, total) => {
+                if self.scan_progress.is_none_or(|(prev, _)| done > prev) {
+                    self.scan_progress = Some((done, total));
+                }
+                Task::none()
+            }
+            Message::Loaded(enemies) => {
+                info!("Enemy load finished with {} entries", enemies.len());
+                self.scan_progress = None;
+                self.data.enemies = enemies;
+                Task::none()
+            }
+            Message::StatblockFinished(job) => {
+                self.statblock_pending = None;
+                self.finish_statblock_job(job);
+                Task::none()
             }
             Message::AnimationTick => {
                 if let Some(enemy) = self.data.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
@@ -216,10 +250,7 @@ impl EnemyState {
                 }
                 Task::none()
             }
-            Message::ExportClicked(action) => {
-                self.start_statblock_export(action, settings, global_ctx);
-                Task::none()
-            }
+            Message::ExportClicked(action) => self.start_statblock_export(action, settings, global_ctx),
             Message::NavigateAppearances(id) => {
                 info!("Navigating to stage appearances for enemy {}", id);
                 Task::none()
@@ -241,13 +272,13 @@ impl EnemyState {
         }
     }
 
-    fn start_statblock_export(&mut self, action: ExportAction, settings: &Settings, global_ctx: GlobalContext<'_>) {
+    fn start_statblock_export(&mut self, action: ExportAction, settings: &Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         if self.statblock_pending.is_some() {
-            return;
+            return Task::none();
         }
 
-        let Some(selected_id) = self.data.selected_enemy else { return; };
-        let Some(enemy_entry) = self.data.enemies.iter().find(|e| e.id == selected_id) else { return; };
+        let Some(selected_id) = self.data.selected_enemy else { return Task::none(); };
+        let Some(enemy_entry) = self.data.enemies.iter().find(|e| e.id == selected_id) else { return Task::none(); };
 
         let dynamic_entry = scanner::scan_single(enemy_entry.id, &settings.scanner_config());
         let stats = dynamic_entry.as_ref().map(|e| &e.stats).unwrap_or(&enemy_entry.stats);
@@ -269,14 +300,12 @@ impl EnemyState {
         }
         let priority = settings.general.language_priority.clone();
 
-        let (tx, rx) = mpsc::channel();
-        self.statblock_job = Some(rx);
         self.statblock_pending = Some(action);
 
-        std::thread::spawn(move || {
+        Task::perform(async move {
             let build_result = builder::build_statblock_image(&priority, data, cuts_map);
 
-            let job = match action {
+            match action {
                 ExportAction::Copy => JobResult::Copy(build_result),
                 ExportAction::Save => {
                     let result = build_result.and_then(|image| builder::save_to_disk(&image, is_cat, &id_str, &top_value).map(|_| ()));
@@ -285,10 +314,8 @@ impl EnemyState {
                     }
                     JobResult::Save(result)
                 }
-            };
-
-            let _ = tx.send(job);
-        });
+            }
+        }, Message::StatblockFinished)
     }
 
     fn finish_statblock_job(&mut self, job: JobResult) {
@@ -374,11 +401,16 @@ impl EnemyState {
 
         let enemy_list = self.list.view(&self.data.enemies, self.data.selected_enemy).map(Message::List);
 
+        let mut sidebar = column![search_bar];
+
+        if let Some((done, total)) = self.scan_progress {
+            sidebar = sidebar.push(text(format!("Scanning enemies... {}/{}", done, total)).size(12));
+        }
+
+        sidebar = sidebar.push(enemy_list);
+
         container(
-            column![
-                search_bar,
-                enemy_list
-            ]
+            sidebar
                 .height(Length::Fill)
         )
             .width(Length::Fixed(200.0))

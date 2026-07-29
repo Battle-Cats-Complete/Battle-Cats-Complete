@@ -14,7 +14,8 @@ pub(crate) const FEEDBACK_COOLDOWN: Duration = Duration::from_secs(2);
 /// the caller's persistent, main-thread `arboard::Clipboard` (see `builder::copy_to_clipboard`),
 /// since dropping a short-lived `Clipboard` hands the X11/Wayland selection ownership back and
 /// the copied content becomes unreadable by other applications.
-pub(crate) enum JobResult {
+#[derive(Clone)]
+pub enum JobResult {
     Copy(Result<RgbaImage, String>),
     Save(Result<(), String>),
 }

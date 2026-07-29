@@ -2,16 +2,14 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Instant;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, UnitBuy, UnitEvolve};
 use nyanko::graphics::rig::Animation;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::common::io::cache;
 use crate::common::resolver;
@@ -64,68 +62,92 @@ fn is_valid_png(path: &Path) -> bool {
     buffer[24] >= 8
 }
 
-pub fn start_scan(config: ScannerConfig) -> Receiver<CatEntry> {
-    trace!("starting cat repository scan");
-    let (cat_sender, cat_receiver) = mpsc::channel();
+pub struct CatCache;
 
-    thread::spawn(move || {
-        let cats_directory = Path::new(paths::DIR_CATS);
-        let priority = &config.language_priority;
+impl cache::CacheSpec for CatCache {
+    type Data = Vec<CatEntry>;
+    const FILE: &'static str = "cats_cache.bin";
+    const VERSION: u32 = 1;
+}
 
-        let unitbuy_resolved = resolver::get(cats_directory, [paths::UNIT_BUY], priority).into_iter().next();
-        let unitlevel_resolved = resolver::get(cats_directory, [paths::UNIT_LEVEL], priority).into_iter().next();
+pub fn load(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<CatEntry> {
+    let cats_directory = Path::new(paths::DIR_CATS);
+    let priority = &config.language_priority;
 
-        if unitbuy_resolved.is_none() || unitlevel_resolved.is_none() {
-            return;
-        }
+    if let Some((hash, cached_cats)) = cache::read::<CatCache>() {
+        debug!(hash, count = cached_cats.len(), "loaded cats from cache fast-path");
 
-        let level_curves_arc = Arc::new(unitlevel(cats_directory, priority));
-        let unit_buy_map_arc = Arc::new(unitbuy(cats_directory, priority));
-        let talent_map_arc = Arc::new(skillacquisition(cats_directory, priority));
-        let evolve_text_map_arc = Arc::new(unitevolve(cats_directory, priority));
         let talent_costs_arc = Arc::new(skilllevel(cats_directory, priority));
         let skill_descriptions_arc = Arc::new(skilldescriptions(cats_directory, priority));
 
-        let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
-            Ok(read_dir_iter) => read_dir_iter
-                .filter_map(|entry_result| entry_result.ok())
-                .map(|entry| entry.path())
-                .filter(|path| path.is_dir())
-                .collect(),
-            Err(_) => Vec::new(),
-        };
-
-        let stream_sender = Arc::new(Mutex::new(cat_sender));
-
-        let mut parsed_cats: Vec<CatEntry> = folder_entries.par_iter().filter_map(|folder_path| {
-            let cat = process_cat_entry(
-                folder_path,
-                &level_curves_arc,
-                &unit_buy_map_arc,
-                &talent_map_arc,
-                &evolve_text_map_arc,
-                &talent_costs_arc,
-                &skill_descriptions_arc,
-                &config
-            );
-
-            if let Some(cat_item) = &cat
-                && let Ok(sender) = stream_sender.lock() {
-                let _ = sender.send(cat_item.clone());
-            }
-
+        return cached_cats.into_iter().map(|mut cat| {
+            cat.talent_costs = Arc::clone(&talent_costs_arc);
+            cat.skill_descriptions = Arc::clone(&skill_descriptions_arc);
             cat
         }).collect();
+    }
 
-        parsed_cats.sort_by_key(|cat| cat.id);
+    scan(config, progress)
+}
 
-        if !resolver::is_mod_active() {
-            let current_hash = cache::get_game_hash(None);
-            cache::save("cats_cache.bin", current_hash, &parsed_cats);
-        }
-    });
+fn scan(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<CatEntry> {
+    trace!("starting cat repository scan");
+    let cats_directory = Path::new(paths::DIR_CATS);
+    let priority = &config.language_priority;
 
-    cat_receiver
+    let unitbuy_resolved = resolver::get(cats_directory, [paths::UNIT_BUY], priority).into_iter().next();
+    let unitlevel_resolved = resolver::get(cats_directory, [paths::UNIT_LEVEL], priority).into_iter().next();
+
+    if unitbuy_resolved.is_none() || unitlevel_resolved.is_none() {
+        warn!("cat scan aborted: unitbuy/unitlevel tables unavailable");
+        return Vec::new();
+    }
+
+    let level_curves_arc = Arc::new(unitlevel(cats_directory, priority));
+    let unit_buy_map_arc = Arc::new(unitbuy(cats_directory, priority));
+    let talent_map_arc = Arc::new(skillacquisition(cats_directory, priority));
+    let evolve_text_map_arc = Arc::new(unitevolve(cats_directory, priority));
+    let talent_costs_arc = Arc::new(skilllevel(cats_directory, priority));
+    let skill_descriptions_arc = Arc::new(skilldescriptions(cats_directory, priority));
+
+    let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
+        Ok(read_dir_iter) => read_dir_iter
+            .filter_map(|entry_result| entry_result.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+
+    let total_folders = folder_entries.len();
+    let processed_count = AtomicUsize::new(0);
+
+    let mut parsed_cats: Vec<CatEntry> = folder_entries.par_iter().filter_map(|folder_path| {
+        let cat = process_cat_entry(
+            folder_path,
+            &level_curves_arc,
+            &unit_buy_map_arc,
+            &talent_map_arc,
+            &evolve_text_map_arc,
+            &talent_costs_arc,
+            &skill_descriptions_arc,
+            &config
+        );
+
+        let done = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
+        progress(done, total_folders);
+
+        cat
+    }).collect();
+
+    parsed_cats.sort_by_key(|cat| cat.id);
+
+    if !resolver::is_mod_active() {
+        let current_hash = cache::get_game_hash(None);
+        cache::write::<CatCache>(current_hash, &parsed_cats);
+    }
+
+    parsed_cats
 }
 
 pub fn scan_single(id: u32, config: &ScannerConfig) -> Option<CatEntry> {
@@ -327,77 +349,4 @@ pub fn refresh_cat(state: &mut CatDataState, id: u32, config: ScannerConfig) {
             }
         }
     }
-}
-
-pub fn update_data(state: &mut CatDataState) {
-    let Some(rx) = &state.scan_receiver else { return };
-
-    let mut received_any = false;
-    let mut is_done = false;
-
-    loop {
-        match rx.try_recv() {
-            Ok(cat_entry) => {
-                let id = cat_entry.id;
-
-                state.active_scan_ids.insert(id);
-
-                match state.cats.binary_search_by_key(&id, |c| c.id) {
-                    Ok(pos) => state.cats[pos] = cat_entry,
-                    Err(pos) => state.cats.insert(pos, cat_entry),
-                }
-
-                received_any = true;
-            },
-            Err(TryRecvError::Empty) => break,
-            Err(TryRecvError::Disconnected) => {
-                is_done = true;
-                break;
-            }
-        }
-    }
-
-    if received_any {
-        let now = Instant::now();
-        state.last_update_time = Some(now);
-
-        if state.selected_cat.is_none() && !state.cats.is_empty() {
-            state.selected_cat = Some(state.cats[0].id);
-        }
-    }
-
-    if is_done {
-        state.cats.retain(|c| state.active_scan_ids.contains(&c.id));
-
-        if let Some(sel) = state.selected_cat
-            && !state.active_scan_ids.contains(&sel) {
-            state.selected_cat = None;
-        }
-
-        state.scan_receiver = None;
-    }
-}
-
-pub fn resync_scan(state: &mut CatDataState, config: ScannerConfig) {
-    state.active_scan_ids.clear();
-    state.scan_receiver = Some(start_scan(config));
-}
-
-pub fn restart_scan(state: &mut CatDataState, config: ScannerConfig) {
-    let current_selection_id = state.selected_cat;
-    let current_form = state.selected_form;
-    let current_tab = state.selected_detail_tab;
-
-    state.is_cold_scan = true;
-    state.last_update_time = None;
-    state.incoming_cats.clear();
-    state.active_scan_ids.clear();
-
-    state.cats.clear();
-
-    state.selected_cat = current_selection_id;
-    state.selected_form = current_form;
-    state.selected_detail_tab = current_tab;
-
-    state.scan_receiver = Some(start_scan(config));
 }

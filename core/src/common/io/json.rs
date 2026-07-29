@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{self, Error};
 use std::path::PathBuf;
 
 use serde::de::DeserializeOwned;
@@ -16,16 +17,14 @@ pub fn get_app_data_dir() -> PathBuf {
     path
 }
 
-pub fn save<T: Serialize>(filename: &str, data: &T) {
+pub fn save<T: Serialize>(filename: &str, data: &T) -> io::Result<()> {
     let mut path = get_app_data_dir();
     path.push(filename);
 
-    if let Ok(json) = serde_json::to_string_pretty(data) {
-        let tmp_path = path.with_extension("tmp");
-        if fs::write(&tmp_path, json).is_ok() {
-            let _ = fs::rename(&tmp_path, &path);
-        }
-    }
+    let json = serde_json::to_string_pretty(data).map_err(Error::other)?;
+    let tmp_path = path.with_extension("tmp");
+    fs::write(&tmp_path, json)?;
+    fs::rename(&tmp_path, &path)
 }
 
 pub fn load<T: DeserializeOwned>(filename: &str) -> Option<T> {

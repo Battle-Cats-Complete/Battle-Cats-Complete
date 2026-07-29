@@ -4,6 +4,7 @@ pub mod formats;
 pub mod game;
 pub mod gfx;
 pub mod io;
+pub mod job;
 pub mod region;
 pub mod resolver;
 pub mod text;

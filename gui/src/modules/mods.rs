@@ -2,6 +2,7 @@ mod export;
 mod import;
 mod list;
 
+use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
@@ -11,7 +12,8 @@ use iced::widget::{
 use iced::{Alignment, Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use tracing::warn;
 
-use core::modules::mods::{self, ModDataState};
+use core::common::job::{JobEvent, JobOutcome};
+use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -39,6 +41,7 @@ pub enum Message {
     ShowDeleteConfirm,
     HideDeleteConfirm,
     ConfirmDelete,
+    DeleteFinished(Result<(), String>),
 }
 
 pub struct State {
@@ -63,23 +66,14 @@ impl State {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        // TODO: Rewrite `core` to handle `iced` without ticking
         iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
     }
 
     pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         match message {
             Message::Tick => {
-                if self.data.needs_rescan {
-                    self.data.needs_rescan = false;
-                    self.data.refresh_mods();
-                }
-
-                mods::import::process_events(&mut self.data);
-                mods::export::process_events(&mut self.data);
-
                 let list_task = self.list.update(list::Message::Tick, &self.data.loaded_mods, &self.data.search_query).map(Message::List);
-                let import_task = self.import.update(import::Message::Tick, &mut self.data).map(Message::Import);
+                let import_task = self.import.update(import::Message::Tick, &mut self.data, settings).map(Message::Import);
                 let export_task = self.export.update(export::Message::Tick, &mut self.data, settings).map(Message::Export);
 
                 Task::batch([list_task, import_task, export_task])
@@ -90,7 +84,7 @@ impl State {
                 }
                 self.list.update(msg, &self.data.loaded_mods, &self.data.search_query).map(Message::List)
             }
-            Message::Import(msg) => self.import.update(msg, &mut self.data).map(Message::Import),
+            Message::Import(msg) => self.import.update(msg, &mut self.data, settings).map(Message::Import),
             Message::Export(msg) => self.export.update(msg, &mut self.data, settings).map(Message::Export),
 
             Message::SearchChanged(query) => {
@@ -130,8 +124,12 @@ impl State {
                 self.delete_confirm_open = false;
                 Task::none()
             }
-            Message::ConfirmDelete => {
-                self.confirm_delete();
+            Message::ConfirmDelete => self.confirm_delete(),
+            Message::DeleteFinished(result) => {
+                if let Err(e) = result {
+                    warn!("Failed to delete mod folder: {}", e);
+                }
+                self.data.refresh_mods();
                 Task::none()
             }
         }
@@ -158,7 +156,7 @@ impl State {
             core::common::resolver::set_active_mod(None);
         }
 
-        self.data.needs_rescan = true;
+        self.data.refresh_mods();
     }
 
     fn commit_rename(&mut self) {
@@ -213,14 +211,17 @@ impl State {
         }
     }
 
-    fn confirm_delete(&mut self) {
-        let Some(mod_folder) = self.data.selected_mod.clone() else { return; };
+    fn confirm_delete(&mut self) -> Task<Message> {
+        let Some(mod_folder) = self.data.selected_mod.clone() else { return Task::none(); };
         let path = Path::new("mods").join(&mod_folder);
 
-        mods::import::delete_mod_folder(path);
         self.data.selected_mod = None;
-        self.data.needs_rescan = true;
         self.delete_confirm_open = false;
+
+        Task::perform(
+            async move { fs::remove_dir_all(&path).map_err(|e| e.to_string()) },
+            Message::DeleteFinished,
+        )
     }
 
     fn get_selected_mod_idx(&self) -> Option<usize> {
@@ -471,6 +472,13 @@ impl State {
             })
             .into()
     }
+}
+
+fn job_finished(result: Result<(), String>) -> JobEvent {
+    JobEvent::Finished(match result {
+        Ok(()) => JobOutcome::Completed,
+        Err(message) => JobOutcome::Failed(message),
+    })
 }
 
 // Styling closures for buttons

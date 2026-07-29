@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
@@ -15,24 +14,24 @@ pub fn execute_pull(
     import_mode: AdbImportType,
     target_region: AdbTarget,
     emulator_config: &EmulatorConfig,
-    status_sender: &Sender<String>,
+    emit_log: &(dyn Fn(String) + Sync),
     abort_flag: &AtomicBool
 ) -> Result<Vec<PathBuf>, String> {
 
-    let _ = status_sender.send("Starting ADB Server...".to_string());
+    emit_log("Starting ADB Server...".to_string());
     let _ = driver::run_command(&["kill-server"]);
     thread::sleep(Duration::from_millis(500));
     let _ = driver::run_command(&["start-server"]);
 
     if abort_flag.load(Ordering::Relaxed) { return Err("Aborted".into()); }
 
-    let (mut current_serial, fallback_ip_address) = establish_connection(emulator_config, status_sender)?;
+    let (mut current_serial, fallback_ip_address) = establish_connection(emulator_config, emit_log)?;
 
-    let _ = status_sender.send("Device Verified.".to_string());
+    emit_log("Device Verified.".to_string());
     if abort_flag.load(Ordering::Relaxed) { return Err("Aborted".into()); }
 
     if import_mode == AdbImportType::All {
-        ensure_root_access(&mut current_serial, status_sender, abort_flag)?;
+        ensure_root_access(&mut current_serial, emit_log, abort_flag)?;
     }
 
     let regions_to_process = match target_region {
@@ -51,7 +50,7 @@ pub fn execute_pull(
         if abort_flag.load(Ordering::Relaxed) { return Err("Aborted".into()); }
         pull_region_data(
             current_region, &mut current_serial, &fallback_ip_address,
-            base_output_directory, &import_mode, status_sender, &mut successful_pulls
+            base_output_directory, &import_mode, emit_log, &mut successful_pulls
         );
     }
 
@@ -64,47 +63,47 @@ pub fn execute_pull(
     Ok(successful_pulls)
 }
 
-fn establish_connection(emulator_config: &EmulatorConfig, status_sender: &Sender<String>) -> Result<(String, Option<String>), String> {
-    let _ = status_sender.send("Detecting device...".to_string());
+fn establish_connection(emulator_config: &EmulatorConfig, emit_log: &(dyn Fn(String) + Sync)) -> Result<(String, Option<String>), String> {
+    emit_log("Detecting device...".to_string());
 
-    if let Some((serial, fallback)) = try_usb_connection(status_sender) {
+    if let Some((serial, fallback)) = try_usb_connection(emit_log) {
         return Ok((serial, fallback));
     }
 
-    if let Some(serial) = try_mdns_connection(status_sender) {
+    if let Some(serial) = try_mdns_connection(emit_log) {
         return Ok((serial, None));
     }
 
     if !emulator_config.manual_ip.is_empty()
-        && let Some(serial) = try_manual_ip_connection(&emulator_config.manual_ip, status_sender) {
+        && let Some(serial) = try_manual_ip_connection(&emulator_config.manual_ip, emit_log) {
         return Ok((serial, None));
     }
 
-    if let Some(serial) = try_emulator_connection(status_sender) {
+    if let Some(serial) = try_emulator_connection(emit_log) {
         return Ok((serial, None));
     }
 
-    if let Some(serial) = try_waydroid_connection(status_sender) {
+    if let Some(serial) = try_waydroid_connection(emit_log) {
         return Ok((serial, None));
     }
 
     Err("No device found. Ensure Wireless Debugging is ON or Emulator is running.".to_string())
 }
 
-fn try_usb_connection(status_sender: &Sender<String>) -> Option<(String, Option<String>)> {
+fn try_usb_connection(emit_log: &(dyn Fn(String) + Sync)) -> Option<(String, Option<String>)> {
     let usb_serial = driver::find_usb_device()?;
     driver::verify_connection(&usb_serial).ok()?;
 
-    let _ = status_sender.send(format!("USB Device Found: {}", usb_serial));
+    emit_log(format!("USB Device Found: {}", usb_serial));
     let fallback = driver::enable_wireless_fallback(&usb_serial);
     Some((usb_serial, fallback))
 }
 
-fn try_mdns_connection(status_sender: &Sender<String>) -> Option<String> {
-    let _ = status_sender.send("Scanning network for Wireless Debugging...".to_string());
+fn try_mdns_connection(emit_log: &(dyn Fn(String) + Sync)) -> Option<String> {
+    emit_log("Scanning network for Wireless Debugging...".to_string());
     let mdns_target = driver::find_mdns_device()?;
 
-    let _ = status_sender.send(format!("Found via mDNS: {}", mdns_target));
+    emit_log(format!("Found via mDNS: {}", mdns_target));
     driver::connect_manual_ip(&mdns_target).ok()?;
 
     let stable_ip = driver::bootstrap_tcpip(&mdns_target)?;
@@ -113,12 +112,12 @@ fn try_mdns_connection(status_sender: &Sender<String>) -> Option<String> {
     let stable_serial = driver::connect_manual_ip(&stable_ip).ok()?;
     driver::verify_connection(&stable_serial).ok()?;
 
-    let _ = status_sender.send("Auto-Connection Successful!".to_string());
+    emit_log("Auto-Connection Successful!".to_string());
     Some(stable_serial)
 }
 
-fn try_manual_ip_connection(manual_ip: &str, status_sender: &Sender<String>) -> Option<String> {
-    let _ = status_sender.send(format!("Trying Manual IP: {}", manual_ip));
+fn try_manual_ip_connection(manual_ip: &str, emit_log: &(dyn Fn(String) + Sync)) -> Option<String> {
+    emit_log(format!("Trying Manual IP: {}", manual_ip));
     let initial_ip = driver::connect_manual_ip(manual_ip).ok()?;
 
     let test_serial = resolve_tcpip_target(&initial_ip).unwrap_or(initial_ip);
@@ -127,7 +126,7 @@ fn try_manual_ip_connection(manual_ip: &str, status_sender: &Sender<String>) -> 
         return Some(test_serial);
     }
 
-    let _ = status_sender.send("Manual IP failed verification. Scanning for Emulators...".to_string());
+    emit_log("Manual IP failed verification. Scanning for Emulators...".to_string());
     None
 }
 
@@ -138,31 +137,31 @@ fn resolve_tcpip_target(initial_ip: &str) -> Option<String> {
     driver::connect_manual_ip(&new_target).ok()
 }
 
-fn try_emulator_connection(status_sender: &Sender<String>) -> Option<String> {
-    let _ = status_sender.send("Scanning for Emulators...".to_string());
+fn try_emulator_connection(emit_log: &(dyn Fn(String) + Sync)) -> Option<String> {
+    emit_log("Scanning for Emulators...".to_string());
     let emulator_serial = driver::find_emulator()?;
     driver::verify_connection(&emulator_serial).ok()?;
     Some(emulator_serial)
 }
 
-fn try_waydroid_connection(_status_sender: &Sender<String>) -> Option<String> {
+fn try_waydroid_connection(_emit_log: &(dyn Fn(String) + Sync)) -> Option<String> {
     let waydroid_ip = "192.168.240.112:5555";
     driver::connect_manual_ip(waydroid_ip).ok()?;
     driver::verify_connection(waydroid_ip).ok()?;
     Some(waydroid_ip.to_string())
 }
 
-fn ensure_root_access(current_serial: &mut String, status_sender: &Sender<String>, abort_flag: &AtomicBool) -> Result<(), String> {
-    let _ = status_sender.send("Checking Root Permissions...".to_string());
+fn ensure_root_access(current_serial: &mut String, emit_log: &(dyn Fn(String) + Sync), abort_flag: &AtomicBool) -> Result<(), String> {
+    emit_log("Checking Root Permissions...".to_string());
     let root_check_cmd = "su -c 'echo root_test'";
     let root_test_output = driver::run_command(&["-s", current_serial, "shell", root_check_cmd]).unwrap_or_default();
 
     if root_test_output.contains("root_test") {
-        let _ = status_sender.send("Root access confirmed via su.".to_string());
+        emit_log("Root access confirmed via su.".to_string());
         return Ok(());
     }
 
-    let _ = status_sender.send("Requesting Root Access...".to_string());
+    emit_log("Requesting Root Access...".to_string());
     let _ = driver::run_command(&["-s", current_serial, "root"]);
     thread::sleep(Duration::from_secs(3));
 
@@ -175,7 +174,7 @@ fn ensure_root_access(current_serial: &mut String, status_sender: &Sender<String
         *current_serial = new_serial;
     }
 
-    let _ = status_sender.send("Waiting for device to reconnect...".to_string());
+    emit_log("Waiting for device to reconnect...".to_string());
     let _ = driver::run_command(&["-s", current_serial, "wait-for-device"]);
     Ok(())
 }
@@ -186,7 +185,7 @@ fn pull_region_data(
     fallback_ip_address: &Option<String>,
     base_output_directory: &PathBuf,
     import_mode: &AdbImportType,
-    status_sender: &Sender<String>,
+    emit_log: &(dyn Fn(String) + Sync),
     successful_pulls: &mut Vec<PathBuf>
 ) {
     let region_suffix = current_region.suffix();
@@ -194,14 +193,14 @@ fn pull_region_data(
     let check_installed_output = driver::run_command(&["-s", current_serial, "shell", "pm", "path", &package_name]).unwrap_or_default();
 
     if check_installed_output.trim().is_empty() || check_installed_output.contains("Error") {
-        let _ = status_sender.send(format!("Skipping {}: Not installed.", package_name));
+        emit_log(format!("Skipping {}: Not installed.", package_name));
         return;
     }
 
-    let _ = status_sender.send(format!("Pulling {}...", package_name));
+    emit_log(format!("Pulling {}...", package_name));
     let target_directory = base_output_directory.join(&package_name);
 
-    let Err(process_error) = process_single_region_adb(status_sender, current_serial, &package_name, &target_directory, *import_mode) else {
+    let Err(process_error) = process_single_region_adb(emit_log, current_serial, &package_name, &target_directory, *import_mode) else {
         successful_pulls.push(target_directory);
         return;
     };
@@ -209,28 +208,28 @@ fn pull_region_data(
     let is_app_warning = process_error.contains("Root Copy Failed") || process_error.contains("APK Path not found") || process_error.contains("Warning:");
 
     if is_app_warning {
-        let _ = status_sender.send(format!("Skipping {}: {}", package_name, process_error));
+        emit_log(format!("Skipping {}: {}", package_name, process_error));
         return;
     }
 
     let Some(rescue_ip_address) = fallback_ip_address else {
-        let _ = status_sender.send(format!("Skipping {} due to error: {}", package_name, process_error));
+        emit_log(format!("Skipping {} due to error: {}", package_name, process_error));
         return;
     };
 
-    let _ = status_sender.send(format!("Error: {}. Engaging Wireless Rescue...", process_error));
+    emit_log(format!("Error: {}. Engaging Wireless Rescue...", process_error));
     if driver::connect_wireless(rescue_ip_address).is_err() {
         return;
     }
 
     *current_serial = rescue_ip_address.clone();
-    if process_single_region_adb(status_sender, current_serial, &package_name, &target_directory, *import_mode).is_ok() {
-        let _ = status_sender.send("Rescue Successful!".to_string());
+    if process_single_region_adb(emit_log, current_serial, &package_name, &target_directory, *import_mode).is_ok() {
+        emit_log("Rescue Successful!".to_string());
         successful_pulls.push(target_directory);
     }
 }
 
-fn process_single_region_adb(status_sender: &Sender<String>, serial_number: &str, package_name: &str, output_directory: &Path, import_mode: AdbImportType) -> Result<(), String> {
+fn process_single_region_adb(emit_log: &(dyn Fn(String) + Sync), serial_number: &str, package_name: &str, output_directory: &Path, import_mode: AdbImportType) -> Result<(), String> {
     if import_mode == AdbImportType::All {
         pull_game_data_files(serial_number, package_name, output_directory)?;
     }
@@ -242,7 +241,7 @@ fn process_single_region_adb(status_sender: &Sender<String>, serial_number: &str
         if has_base_apk {
             return Err("Warning: File modification suspected, do a clean install on device.".to_string());
         }
-        let _ = status_sender.send("Warning: Update APK missing.".to_string());
+        emit_log("Warning: Update APK missing.".to_string());
     }
 
     Ok(())

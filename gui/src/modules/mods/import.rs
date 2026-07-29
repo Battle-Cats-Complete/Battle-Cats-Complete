@@ -1,14 +1,23 @@
 use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::{Duration, Instant};
 
+use iced::futures::channel::mpsc;
+use iced::task;
 use iced::widget::{button, column, container, pick_list, row, scrollable, space, text, text_input};
 use iced::{Alignment, Background, Border, Color, Element, Length, Size, Task, Theme};
+use tracing::{info, warn};
 
+use core::common::job::{JobEvent, JobOutcome};
+use core::modules::addons::adb::mods as adb_mods;
 use core::modules::addons::paths::{self, Presence};
 use core::modules::mods::import::{self, ModImportTab, ModPackType};
 use core::modules::mods::ModDataState;
+use core::modules::settings::Settings;
 
 use crate::common::popup;
+
+use super::job_finished;
 
 const FEEDBACK_DURATION: Duration = Duration::from_secs(2);
 const SPINNER_FRAMES: [&str; 4] = ["-", "\\", "|", "/"];
@@ -25,6 +34,7 @@ pub enum Message {
     FormatSelected(ModPackType),
     SelectSource,
     StartImport,
+    Job(JobEvent),
 }
 
 #[derive(Default)]
@@ -34,10 +44,14 @@ pub struct State {
     selected_path: Option<PathBuf>,
     pack_error: Option<(String, Instant)>,
     busy_frame: usize,
+    running: bool,
+    status_message: String,
+    log: String,
+    job_handle: Option<task::Handle>,
 }
 
 impl State {
-    pub fn update(&mut self, message: Message, data: &mut ModDataState) -> Task<Message> {
+    pub fn update(&mut self, message: Message, data: &mut ModDataState, settings: &Settings) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
                 if self.popup.update(msg, POPUP_SIZE) {
@@ -50,7 +64,7 @@ impl State {
                 Task::none()
             }
             Message::Tick => {
-                if data.import.is_busy {
+                if self.running {
                     self.busy_frame = (self.busy_frame + 1) % SPINNER_FRAMES.len();
                 }
                 if self.pack_error.as_ref().is_some_and(|(_, at)| at.elapsed() > FEEDBACK_DURATION) {
@@ -82,27 +96,98 @@ impl State {
                 self.handle_select_source(data);
                 Task::none()
             }
-            Message::StartImport => {
-                if data.import.is_busy {
-                    return Task::none();
-                }
-
-                match data.import.tab {
-                    ModImportTab::Adb => import::start_adb_import(data),
-                    ModImportTab::Bcm => {
-                        if let Some(path) = self.selected_path.clone() {
-                            import::start_bcm_import(data, path);
-                        }
+            Message::StartImport => self.start_import(data, settings),
+            Message::Job(event) => {
+                match event {
+                    JobEvent::Log(line) => {
+                        self.status_message = line.clone();
+                        self.log.push_str(&format!("{}\n", line));
                     }
-                    ModImportTab::Pack => {
-                        if let Some(path) = self.selected_path.clone() {
-                            import::start_pack_import(data, path);
+                    JobEvent::Progress { .. } => {}
+                    JobEvent::Finished(outcome) => {
+                        self.running = false;
+                        self.job_handle = None;
+
+                        match outcome {
+                            JobOutcome::Completed => {
+                                info!("Import job completed.");
+                                data.refresh_mods();
+                            }
+                            JobOutcome::Aborted => info!("Import job aborted."),
+                            JobOutcome::Failed(message) => {
+                                warn!("Import failed: {}", message);
+                                self.status_message = format!("Error: {}", message);
+                                self.log.push_str(&format!("ERROR: {}\n", message));
+                            }
                         }
                     }
                 }
                 Task::none()
             }
         }
+    }
+
+    fn begin(&mut self, status: String) {
+        self.running = true;
+        self.log.clear();
+        self.status_message = status;
+    }
+
+    fn start_import(&mut self, data: &mut ModDataState, settings: &Settings) -> Task<Message> {
+        if self.running {
+            return Task::none();
+        }
+
+        let enforce_validation = settings.game_data.enforce_key_validation;
+        let (tx, rx) = mpsc::unbounded();
+
+        match data.import.tab {
+            ModImportTab::Adb => {
+                let suffix = data.import.package_suffix.clone();
+                self.begin("Initializing Mod ADB Pull...".to_string());
+
+                thread::spawn(move || {
+                    let emit = |event: JobEvent| {
+                        let _ = tx.unbounded_send(event);
+                    };
+                    let result = adb_mods::run(suffix, enforce_validation, &emit);
+                    emit(job_finished(result));
+                });
+            }
+            ModImportTab::Bcm => {
+                let Some(path) = self.selected_path.clone() else {
+                    return Task::none();
+                };
+                self.begin(format!("Extracting {:?}...", path.file_name().unwrap_or_default()));
+
+                thread::spawn(move || {
+                    let emit = |event: JobEvent| {
+                        let _ = tx.unbounded_send(event);
+                    };
+                    let result = import::run_bcm(path, enforce_validation, &emit);
+                    emit(job_finished(result));
+                });
+            }
+            ModImportTab::Pack => {
+                let Some(path) = self.selected_path.clone() else {
+                    return Task::none();
+                };
+                let pack_type = data.import.pack_type;
+                self.begin(format!("Processing {:?}...", path.file_name().unwrap_or_default()));
+
+                thread::spawn(move || {
+                    let emit = |event: JobEvent| {
+                        let _ = tx.unbounded_send(event);
+                    };
+                    let result = import::run_pack(path, pack_type, enforce_validation, &emit);
+                    emit(job_finished(result));
+                });
+            }
+        }
+
+        let (stream_task, handle) = Task::stream(rx).abortable();
+        self.job_handle = Some(handle);
+        stream_task.map(Message::Job)
     }
 
     fn handle_select_source(&mut self, data: &ModDataState) {
@@ -146,7 +231,7 @@ impl State {
     }
 
     fn content_view<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
-        let is_busy = data.import.is_busy;
+        let is_busy = self.running;
 
         let tabs_row = row![
             tab_button("Android", data.import.tab == ModImportTab::Adb, Message::TabSelected(ModImportTab::Adb)),
@@ -160,7 +245,7 @@ impl State {
             ModImportTab::Pack => self.view_pack(data),
         };
 
-        let status = &data.import.status_message;
+        let status = &self.status_message;
         let is_error = status.contains("Error") || status.contains("Failed");
         let is_success = status.contains("Success") || status.contains("Complete");
 
@@ -177,14 +262,14 @@ impl State {
             text(status.clone()).color(color).into()
         };
 
-        let log_display = scrollable(text(data.import.log_content.clone()).size(12)).height(Length::Fixed(150.0));
+        let log_display = scrollable(text(self.log.clone()).size(12)).height(Length::Fixed(150.0));
 
         column![tabs_row, space().height(10), content, space().height(10), status_row, log_display].spacing(8).into()
     }
 
     fn view_adb<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
         let has_adb = paths::adb_status() == Presence::Installed;
-        let is_busy = data.import.is_busy;
+        let is_busy = self.running;
 
         let info: Element<'a, Message> = if has_adb {
             text("Import mod package using Android/Emulator").into()
@@ -209,8 +294,8 @@ impl State {
         column![info, package_row, start_btn].spacing(12).into()
     }
 
-    fn view_bcm<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
-        let is_busy = data.import.is_busy;
+    fn view_bcm<'a>(&'a self, _data: &'a ModDataState) -> Element<'a, Message> {
+        let is_busy = self.running;
 
         let label = self.selected_path.as_ref()
             .map(|p| p.to_string_lossy().to_string())
@@ -229,7 +314,7 @@ impl State {
     }
 
     fn view_pack<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
-        let is_busy = data.import.is_busy;
+        let is_busy = self.running;
 
         let pack_types = vec!["APK".to_string(), "Pack".to_string()];
         let selected_pack_type = match data.import.pack_type {

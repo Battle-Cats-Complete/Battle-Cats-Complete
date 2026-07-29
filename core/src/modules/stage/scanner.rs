@@ -1,27 +1,32 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
-use std::path::Path;
-use std::sync::mpsc::{self, Receiver};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::thread;
 
+use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::Category;
-use nyanko::chapter::map::{DropItemEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
-use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
+use nyanko::chapter::map::{DropItemEntry, LockSkipDataEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
+use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, ScatCpuSetting, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
 use nyanko::common::tools::file;
 use rayon::prelude::*;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
+use crate::common::formats::{gatyaitembuy, gatyaitemname, GatyaItemBuy, GatyaItemName};
+use crate::common::io::cache;
+use crate::common::resolver;
+use crate::modules::cat::waiter::{unitbuy, unitexplanation};
+use crate::modules::enemy::waiter::enemyname;
 use crate::modules::settings::ScannerConfig;
 
 use super::paths;
 use super::waiter::{
-    battleground, certification_preset, charagroup, difficulty_level, dropitem,
-    ex_option, fixed_formation, map_name, map_option, mapstagedata, scorebonusmap,
-    specialrulesmap, specialrulesmapoption, stage_option, stagename
+    battleground, certification_preset, charagroup, difficulty_level, drop_chara, dropitem,
+    ex_option, fixed_formation, lockskipdata, map_name, map_option, mapstagedata,
+    scatcpusetting, scorebonusmap, specialrulesmap, specialrulesmapoption, stage_option, stagename
 };
-use super::{GlobalMapId, GlobalStageId, Map, Stage, StageDataState, StageRegistry};
+use super::{GlobalMapId, GlobalStageId, Map, Stage, StageRegistry};
 
 pub struct ScanContext<'a> {
     pub lang_priority: &'a [String],
@@ -38,72 +43,124 @@ pub struct ScanContext<'a> {
     pub fixed_formations: HashMap<(u32, u8, u32), FixedFormationEntry>,
 }
 
-#[tracing::instrument(level = "debug", skip(state, config))]
-pub fn restart_scan(state: &mut StageDataState, config: ScannerConfig) {
-    info!("Initializing stage data scan sequence");
+pub struct StageCache;
 
-    state.initialized = false;
-    state.load_dictionaries(&config);
-
-    debug!("Clearing stage cache and starting background scan");
-    state.registry.clear_cache();
-    state.scan_receiver = Some(start_scan(&config));
+impl cache::CacheSpec for StageCache {
+    type Data = StageRegistry;
+    const FILE: &'static str = "stages_cache.bin";
+    const VERSION: u32 = 1;
 }
 
-pub fn update_data(state: &mut StageDataState) {
-    let Some(rx) = &state.scan_receiver else { return; };
-
-    let Ok(new_reg) = rx.try_recv() else { return; };
-
-    info!("Stage scan complete. Updating memory registry.");
-    state.registry = new_reg;
-    state.scan_receiver = None;
-    state.initialized = true;
+#[derive(Clone, Debug)]
+pub struct StageDictionaries {
+    pub enemy_name_registry: Vec<String>,
+    pub item_buy_registry: HashMap<u32, GatyaItemBuy>,
+    pub item_name_registry: HashMap<usize, GatyaItemName>,
+    pub drop_chara_registry: HashMap<u32, u32>,
+    pub unit_buy_registry: HashMap<u32, UnitBuy>,
+    pub cat_name_registry: HashMap<u32, Vec<String>>,
+    pub lock_skip_registry: HashMap<u32, LockSkipDataEntry>,
+    pub scat_cpu_setting: ScatCpuSetting,
+    pub active_language_priority: Vec<String>,
 }
 
-#[instrument(skip(config))]
-pub fn start_scan(config: &ScannerConfig) -> Receiver<StageRegistry> {
-    let (tx_channel, rx_channel) = mpsc::channel();
-    let langs = config.language_priority.clone();
+#[derive(Clone, Debug)]
+pub struct StageBundle {
+    pub registry: StageRegistry,
+    pub dictionaries: StageDictionaries,
+}
 
-    thread::spawn(move || {
-        info!("--- STAGE SCANNER INITIATED ---");
-        let registry = scan_all(&langs);
+struct CategoryInfo {
+    prefix: String,
+    category: Category,
+    cat_path: PathBuf,
+    stage_names: HashMap<u32, StageNameEntry>,
+}
 
-        let map_count = registry.maps.len();
-        let stage_count = registry.stages.len();
-        info!("--- STAGE SCANNER COMPLETE: Found {} maps and {} stages ---", map_count, stage_count);
+struct MapJob {
+    category_index: usize,
+    map_id: u32,
+    map_path: PathBuf,
+}
 
-        if !crate::common::resolver::is_mod_active() {
-            if map_count == 0 {
-                warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
-                let _ = tx_channel.send(registry);
-                return;
-            }
+pub fn load(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
+    let dictionaries = build_dictionaries(&config);
 
-            let mut is_different = true;
-            if let Some((_, cached_registry)) = crate::common::io::cache::load_with_hash::<StageRegistry>("stages_cache.bin")
-                && let (Ok(new_bytes), Ok(old_bytes)) = (serde_json::to_vec(&registry), serde_json::to_vec(&cached_registry))
-                && !new_bytes.is_empty() && new_bytes == old_bytes {
-                is_different = false;
-                info!("Scanned stages perfectly match existing cache. Discarding scan and doing nothing.");
-            }
+    if let Some((hash, registry)) = cache::read::<StageCache>() {
+        debug!(hash, maps = registry.maps.len(), stages = registry.stages.len(), "loaded stages from cache fast-path");
+        return StageBundle { registry, dictionaries };
+    }
 
-            if is_different {
-                debug!("Scanned stages differ from cache (or cache is stale/missing). Overwriting stages_cache.bin");
-                let hash = crate::common::io::cache::get_game_hash(None);
-                crate::common::io::cache::save("stages_cache.bin", hash, &registry);
-            }
+    StageBundle { registry: scan(&config, progress), dictionaries }
+}
+
+#[instrument(level = "debug", skip(config))]
+pub fn build_dictionaries(config: &ScannerConfig) -> StageDictionaries {
+    trace!("Loading auxiliary stage dictionaries");
+    let langs = &config.language_priority;
+
+    let enemy_dir = Path::new(paths::DIR_ENEMIES);
+    let enemy_name_registry = enemyname(enemy_dir, langs);
+
+    let tables_dir = Path::new(paths::DIR_TABLES);
+    let item_buy_registry = gatyaitembuy::load(tables_dir, "Gatyaitembuy.csv", langs);
+
+    let names_dir = paths::gatya_name_dir();
+    let item_name_registry = gatyaitemname::load(&names_dir, "GatyaitemName.csv", langs);
+
+    let stages_dir = Path::new(paths::DIR_STAGES);
+    let drop_chara_registry = drop_chara(stages_dir, "drop_chara.csv", langs);
+    let lock_skip_registry = lockskipdata(stages_dir, "LockSkipData.csv", langs);
+    let scat_cpu_setting = scatcpusetting(stages_dir, "ScatCPUsetting.csv", langs);
+
+    let cats_dir = Path::new(paths::DIR_CATS);
+    let unit_buy_registry = unitbuy(cats_dir, langs);
+
+    let mut cat_name_registry = HashMap::new();
+    for &unit_id in unit_buy_registry.keys() {
+        let cat_folder = paths::cat_folder(unit_id);
+        let expl = unitexplanation(unit_id, &cat_folder, langs);
+        let names: Vec<String> = expl.names
+            .into_iter()
+            .flatten()
+            .map(|n| n.to_lowercase())
+            .collect();
+        cat_name_registry.insert(unit_id, names);
+    }
+
+    StageDictionaries {
+        enemy_name_registry,
+        item_buy_registry,
+        item_name_registry,
+        drop_chara_registry,
+        unit_buy_registry,
+        cat_name_registry,
+        lock_skip_registry,
+        scat_cpu_setting,
+        active_language_priority: config.language_priority.clone(),
+    }
+}
+
+fn scan(config: &ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> StageRegistry {
+    info!("--- STAGE SCANNER INITIATED ---");
+    let registry = scan_all(&config.language_priority, progress);
+    info!("--- STAGE SCANNER COMPLETE: Found {} maps and {} stages ---", registry.maps.len(), registry.stages.len());
+
+    if !resolver::is_mod_active() {
+        if registry.maps.is_empty() {
+            warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
+            return registry;
         }
 
-        let _ = tx_channel.send(registry);
-    });
+        let hash = cache::get_game_hash(None);
+        cache::write::<StageCache>(hash, &registry);
+    }
 
-    rx_channel
+    registry
 }
 
-#[instrument(skip(langs))]
-fn scan_all(langs: &[String]) -> StageRegistry {
+#[instrument(skip_all)]
+fn scan_all(langs: &[String], progress: impl Fn(usize, usize) + Sync) -> StageRegistry {
     let reg_mtx = Mutex::new(StageRegistry::default());
     let root = Path::new(paths::DIR_STAGES);
 
@@ -123,135 +180,161 @@ fn scan_all(langs: &[String]) -> StageRegistry {
         fixed_formations: fixed_formation(&paths::stage_sub("fixedlineup"), "fixed_formation.csv", langs),
     };
 
-    let cat_dir = Path::new(paths::DIR_CATEGORIES);
-    info!("Targeting base categories directory: {}", cat_dir.display());
+    let (categories, jobs) = enumerate_maps(langs);
 
-    let Ok(categories_dir) = fs::read_dir(cat_dir) else {
-        warn!("Failed to read categories directory! Make sure it exists.");
-        return reg_mtx.into_inner().unwrap_or_default();
-    };
+    let total = jobs.len();
+    let done = AtomicUsize::new(0);
 
-    let cat_entries: Vec<_> = categories_dir.flatten().collect();
-    info!("Found {} items in categories directory to evaluate", cat_entries.len());
+    jobs.par_iter().for_each(|job| {
+        if let Some(info) = categories.get(job.category_index) {
+            process_map(&reg_mtx, info, job.map_id, &job.map_path, &ctx);
+        }
 
-    cat_entries.par_iter().for_each(|cat_entry| {
-        let cat_path = cat_entry.path();
-        if !cat_path.is_dir() { return; }
-
-        scan_category(&reg_mtx, &cat_path, &ctx);
+        let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
+        progress(finished, total);
     });
 
     reg_mtx.into_inner().unwrap_or_default()
 }
 
-#[instrument(skip(reg_mtx, ctx))]
-fn scan_category(reg_mtx: &Mutex<StageRegistry>, cat_path: &Path, ctx: &ScanContext) {
-    let Some(os_name) = cat_path.file_name() else { return; };
-    let cat_prefix = os_name.to_string_lossy().to_string();
-    let category = Category::from_prefix(&cat_prefix);
+fn enumerate_maps(lang_priority: &[String]) -> (Vec<CategoryInfo>, Vec<MapJob>) {
+    let cat_dir = Path::new(paths::DIR_CATEGORIES);
+    info!("Targeting base categories directory: {}", cat_dir.display());
 
-    debug!("Scanning category folder: {}", cat_prefix);
-
-    let mut stage_names = HashMap::new();
-
-    for (dir, file) in paths::stage_name_targets(cat_path, &cat_prefix) {
-        stage_names = stagename(&dir, &file, ctx.lang_priority);
-        if !stage_names.is_empty() {
-            break;
-        }
-    }
-
-    let mut map_entries = Vec::new();
-    let Ok(maps_dir) = fs::read_dir(cat_path) else {
-        warn!("Failed to read contents of category directory: {}", cat_path.display());
-        return;
+    let Ok(categories_dir) = fs::read_dir(cat_dir) else {
+        warn!("Failed to read categories directory! Make sure it exists.");
+        return (Vec::new(), Vec::new());
     };
 
-    for map_entry in maps_dir.flatten() {
-        let map_path = map_entry.path();
-        if !map_path.is_dir() { continue; }
+    let cat_entries: Vec<_> = categories_dir.flatten().collect();
+    info!("Found {} items in categories directory to evaluate", cat_entries.len());
 
-        let Some(os_folder) = map_path.file_name() else { continue; };
-        let Ok(map_id) = os_folder.to_string_lossy().parse::<u32>() else { continue; };
-        map_entries.push((map_id, map_path));
-    }
+    let mut categories = Vec::new();
+    let mut jobs = Vec::new();
 
-    if cat_prefix == "EC" {
-        let base_path = cat_path.join("000");
-        if base_path.exists() {
-            if !map_entries.iter().any(|(id, _)| *id == 1) {
-                map_entries.push((1, base_path.clone()));
-            }
-            if !map_entries.iter().any(|(id, _)| *id == 2) {
-                map_entries.push((2, base_path.clone()));
-            }
-        }
-    }
+    for cat_entry in cat_entries {
+        let cat_path = cat_entry.path();
+        if !cat_path.is_dir() { continue; }
 
-    map_entries.into_par_iter().for_each(|(map_id, map_path)| {
-        let mut global_map_id = category.global_map_id(map_id);
+        let Some(os_name) = cat_path.file_name() else { continue; };
+        let cat_prefix = os_name.to_string_lossy().to_string();
+        let category = Category::from_prefix(&cat_prefix);
 
-        if global_map_id.is_none() || global_map_id == Some(map_id) {
-            let routed_id = match (cat_prefix.as_str(), map_id) {
-                ("EC", 0) | ("Z", 0) => Some(3000),
-                ("EC", 1) | ("Z", 1) => Some(3001),
-                ("EC", 2) | ("Z", 2) => Some(3002),
-                ("W", 4)  | ("Z", 4) => Some(3003),
-                ("W", 5)  | ("Z", 5) => Some(3004),
-                ("W", 6)  | ("Z", 6) => Some(3005),
-                ("Space", 7) | ("Z", 7) => Some(3006),
-                ("Space", 8) | ("Z", 8) => Some(3007),
-                ("Space", 9) | ("Z", 9) => Some(3008),
-                _ => global_map_id,
-            };
-            if routed_id.is_some() && routed_id != global_map_id {
-                global_map_id = routed_id;
+        debug!("Scanning category folder: {}", cat_prefix);
+
+        let mut stage_names = HashMap::new();
+
+        for (dir, file) in paths::stage_name_targets(&cat_path, &cat_prefix) {
+            stage_names = stagename(&dir, &file, lang_priority);
+            if !stage_names.is_empty() {
+                break;
             }
         }
 
-        let mut active_stage_names = stage_names.clone();
+        let Ok(maps_dir) = fs::read_dir(&cat_path) else {
+            warn!("Failed to read contents of category directory: {}", cat_path.display());
+            continue;
+        };
 
-        if cat_prefix == "Z" {
-            let proxy_prefix = match map_id {
-                0..=2 => "EC",
-                4..=6 => "W",
-                7..=9 => "Space",
-                _ => "",
-            };
+        let mut map_entries = Vec::new();
 
-            if !proxy_prefix.is_empty() {
-                let parent_dir = cat_path.parent().unwrap_or(cat_path);
-                let proxy_path = parent_dir.join(proxy_prefix);
+        for map_entry in maps_dir.flatten() {
+            let map_path = map_entry.path();
+            if !map_path.is_dir() { continue; }
 
-                debug!("Fetching proxy names from {} for Z map {}", proxy_prefix, map_id);
+            let Some(os_folder) = map_path.file_name() else { continue; };
+            let Ok(map_id) = os_folder.to_string_lossy().parse::<u32>() else { continue; };
+            map_entries.push((map_id, map_path));
+        }
 
-                for (dir, file) in paths::stage_name_targets(&proxy_path, proxy_prefix) {
-                    let names = stagename(&dir, &file, ctx.lang_priority);
-                    if names.is_empty() { continue; }
-
-                    active_stage_names = names;
-                    break;
+        if cat_prefix == "EC" {
+            let base_path = cat_path.join("000");
+            if base_path.exists() {
+                if !map_entries.iter().any(|(id, _)| *id == 1) {
+                    map_entries.push((1, base_path.clone()));
+                }
+                if !map_entries.iter().any(|(id, _)| *id == 2) {
+                    map_entries.push((2, base_path.clone()));
                 }
             }
         }
 
-        let map_display_name = global_map_id
-            .and_then(|id| ctx.map_names.get(&id))
-            .filter(|name| !name.is_empty())
-            .cloned()
-            .unwrap_or_else(|| format!("{:03}", map_id));
+        let category_index = categories.len();
+        categories.push(CategoryInfo { prefix: cat_prefix, category, cat_path, stage_names });
 
-        load_map(
-            reg_mtx,
-            &category,
-            map_id,
-            &map_path,
-            &map_display_name,
-            &active_stage_names,
-            ctx,
-            global_map_id
-        );
-    });
+        for (map_id, map_path) in map_entries {
+            jobs.push(MapJob { category_index, map_id, map_path });
+        }
+    }
+
+    (categories, jobs)
+}
+
+fn process_map(reg_mtx: &Mutex<StageRegistry>, info: &CategoryInfo, map_id: u32, map_path: &Path, ctx: &ScanContext) {
+    let category = &info.category;
+    let cat_prefix = info.prefix.as_str();
+    let mut global_map_id = category.global_map_id(map_id);
+
+    if global_map_id.is_none() || global_map_id == Some(map_id) {
+        let routed_id = match (cat_prefix, map_id) {
+            ("EC", 0) | ("Z", 0) => Some(3000),
+            ("EC", 1) | ("Z", 1) => Some(3001),
+            ("EC", 2) | ("Z", 2) => Some(3002),
+            ("W", 4)  | ("Z", 4) => Some(3003),
+            ("W", 5)  | ("Z", 5) => Some(3004),
+            ("W", 6)  | ("Z", 6) => Some(3005),
+            ("Space", 7) | ("Z", 7) => Some(3006),
+            ("Space", 8) | ("Z", 8) => Some(3007),
+            ("Space", 9) | ("Z", 9) => Some(3008),
+            _ => global_map_id,
+        };
+        if routed_id.is_some() && routed_id != global_map_id {
+            global_map_id = routed_id;
+        }
+    }
+
+    let mut active_stage_names = info.stage_names.clone();
+
+    if cat_prefix == "Z" {
+        let proxy_prefix = match map_id {
+            0..=2 => "EC",
+            4..=6 => "W",
+            7..=9 => "Space",
+            _ => "",
+        };
+
+        if !proxy_prefix.is_empty() {
+            let parent_dir = info.cat_path.parent().unwrap_or(&info.cat_path);
+            let proxy_path = parent_dir.join(proxy_prefix);
+
+            debug!("Fetching proxy names from {} for Z map {}", proxy_prefix, map_id);
+
+            for (dir, file) in paths::stage_name_targets(&proxy_path, proxy_prefix) {
+                let names = stagename(&dir, &file, ctx.lang_priority);
+                if names.is_empty() { continue; }
+
+                active_stage_names = names;
+                break;
+            }
+        }
+    }
+
+    let map_display_name = global_map_id
+        .and_then(|id| ctx.map_names.get(&id))
+        .filter(|name| !name.is_empty())
+        .cloned()
+        .unwrap_or_else(|| format!("{:03}", map_id));
+
+    load_map(
+        reg_mtx,
+        category,
+        map_id,
+        map_path,
+        &map_display_name,
+        &active_stage_names,
+        ctx,
+        global_map_id
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -405,7 +488,7 @@ fn load_story_stages(
     };
 
     if !story_file.is_empty() {
-        let resolved_paths = crate::common::resolver::get(map_path, [story_file], ctx.lang_priority);
+        let resolved_paths = resolver::get(map_path, [story_file], ctx.lang_priority);
         if let Some(story_path) = resolved_paths.first() {
             if let Ok(content) = fs::read_to_string(story_path) {
                 let sep = file::detect_separator(&content);
@@ -430,7 +513,7 @@ fn load_story_stages(
     }
 
     if !inv_story_file.is_empty() {
-        let resolved_paths = crate::common::resolver::get(map_path, [inv_story_file], ctx.lang_priority);
+        let resolved_paths = resolver::get(map_path, [inv_story_file], ctx.lang_priority);
         if let Some(inv_story_path) = resolved_paths.first()
             && let Ok(content) = fs::read_to_string(inv_story_path) {
             let sep = file::detect_separator(&content);

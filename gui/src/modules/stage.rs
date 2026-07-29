@@ -9,28 +9,50 @@ mod list;
 mod materials;
 mod treasure;
 
+use std::thread;
+
 use iced::alignment;
+use iced::futures::channel::mpsc;
 use iced::widget::{button, column, container, row, scrollable, space, stack, text};
-use iced::{Element, Length, Size, Subscription, Task, Theme};
-use tracing::{debug, warn};
+use iced::{task, Element, Length, Size, Subscription, Task, Theme};
+use tracing::{info, warn};
 
 use core::common::context::GlobalContext;
 use core::modules::settings::Settings;
+use core::modules::stage::scanner::{self, StageBundle};
 use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Message {
     Tick,
+    ScanProgress(usize, usize),
+    Loaded(StageBundle),
     ToggleSidebar,
     SelectCrown(u8),
     List(list::Message),
     Filter(filter::Message),
 }
 
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tick => write!(f, "Tick"),
+            Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
+            Self::Loaded(bundle) => write!(f, "Loaded({} maps, {} stages)", bundle.registry.maps.len(), bundle.registry.stages.len()),
+            Self::ToggleSidebar => write!(f, "ToggleSidebar"),
+            Self::SelectCrown(crown) => write!(f, "SelectCrown({})", crown),
+            Self::List(msg) => write!(f, "List({:?})", msg),
+            Self::Filter(msg) => write!(f, "Filter({:?})", msg),
+        }
+    }
+}
+
 pub struct State {
     pub data: StageDataState,
     pub is_sidebar_open: bool,
     pub selected_crown: u8,
+    load_handle: Option<task::Handle>,
+    scan_progress: Option<(usize, usize)>,
     filter: filter::State,
     list: list::State,
     info: info::State,
@@ -46,6 +68,8 @@ impl Default for State {
             data: StageDataState::default(),
             is_sidebar_open: true,
             selected_crown: 0,
+            load_handle: None,
+            scan_progress: None,
             filter: filter::State::default(),
             list: list::State::default(),
             info: info::State::default(),
@@ -63,24 +87,74 @@ impl State {
     }
 
     pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
-        match message {
+        let task = match message {
             Message::Tick => {
-                if self.data.scan_receiver.is_none() && !self.data.initialized {
-                    debug!("Triggering initial stage scan");
-                    self.data.restart_scan(settings.scanner_config());
-                } else if self.data.scan_receiver.is_some() {
-                    self.data.update_data();
+                if self.load_handle.is_none() {
+                    info!("Triggering initial stage load");
+                    let config = settings.scanner_config();
+                    let (tx, rx) = mpsc::unbounded();
+
+                    thread::spawn(move || {
+                        let bundle = scanner::load(config, |done, total| {
+                            let _ = tx.unbounded_send(Message::ScanProgress(done, total));
+                        });
+                        let _ = tx.unbounded_send(Message::Loaded(bundle));
+                    });
+
+                    let (load_task, handle) = Task::stream(rx).abortable();
+                    self.load_handle = Some(handle);
+                    load_task
+                } else {
+                    Task::none()
                 }
             }
-            Message::ToggleSidebar => self.is_sidebar_open = !self.is_sidebar_open,
-            Message::SelectCrown(crown) => self.selected_crown = crown,
-            Message::List(list::Message::ToggleFilter) => self.filter.update(filter::Message::Toggle),
-            Message::List(msg) => self.list.update(msg, &mut self.data),
-            Message::Filter(msg) => self.filter.update(msg),
-        }
+            Message::ScanProgress(done, total) => {
+                if self.scan_progress.is_none_or(|(prev, _)| done > prev) {
+                    self.scan_progress = Some((done, total));
+                }
+                Task::none()
+            }
+            Message::Loaded(bundle) => {
+                info!("Stage load finished with {} maps and {} stages", bundle.registry.maps.len(), bundle.registry.stages.len());
+                self.scan_progress = None;
+                self.data.registry = bundle.registry;
+
+                let dictionaries = bundle.dictionaries;
+                self.data.enemy_name_registry = dictionaries.enemy_name_registry;
+                self.data.item_buy_registry = dictionaries.item_buy_registry;
+                self.data.item_name_registry = dictionaries.item_name_registry;
+                self.data.drop_chara_registry = dictionaries.drop_chara_registry;
+                self.data.unit_buy_registry = dictionaries.unit_buy_registry;
+                self.data.cat_name_registry = dictionaries.cat_name_registry;
+                self.data.lock_skip_registry = dictionaries.lock_skip_registry;
+                self.data.scat_cpu_setting = dictionaries.scat_cpu_setting;
+                self.data.active_language_priority = dictionaries.active_language_priority;
+                Task::none()
+            }
+            Message::ToggleSidebar => {
+                self.is_sidebar_open = !self.is_sidebar_open;
+                Task::none()
+            }
+            Message::SelectCrown(crown) => {
+                self.selected_crown = crown;
+                Task::none()
+            }
+            Message::List(list::Message::ToggleFilter) => {
+                self.filter.update(filter::Message::Toggle);
+                Task::none()
+            }
+            Message::List(msg) => {
+                self.list.update(msg, &mut self.data);
+                Task::none()
+            }
+            Message::Filter(msg) => {
+                self.filter.update(msg);
+                Task::none()
+            }
+        };
 
         self.list.refresh(&self.filter.filter_state);
-        Task::none()
+        task
     }
 
     pub fn view<'a>(&'a self, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
@@ -118,7 +192,15 @@ impl State {
         let mut layer = row![].height(Length::Fill);
 
         if self.is_sidebar_open {
-            let sidebar_panel = container(self.list.view(&self.data, &self.filter.filter_state).map(Message::List))
+            let mut sidebar_content = column![];
+
+            if let Some((done, total)) = self.scan_progress {
+                sidebar_content = sidebar_content.push(text(format!("Scanning stages... {}/{}", done, total)).size(12));
+            }
+
+            sidebar_content = sidebar_content.push(self.list.view(&self.data, &self.filter.filter_state).map(Message::List));
+
+            let sidebar_panel = container(sidebar_content)
                 .style(|theme: &Theme| container::Style {
                     background: Some(theme.palette().background.into()),
                     ..Default::default()

@@ -3,58 +3,65 @@ use std::fs;
 use std::process::Command;
 use std::thread;
 
+use iced::futures::channel::mpsc;
+use iced::Task;
 use self_update::{cargo_crate_version, version};
 use self_update::backends::github::{ReleaseList, Update as GithubUpdate};
 use self_update::update::Release;
 use tracing::{error, info};
 
-use super::{BattleCatsApp, UpdateStatus, UpdaterMsg};
+use super::{BattleCatsApp, Message, UpdateStatus, UpdaterMsg};
 
 const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "battle-cats-complete";
 const BIN_NAME: &str = "Battle Cats Complete";
 
 impl BattleCatsApp {
-    pub(crate) fn check_for_updates(&mut self, is_manual: bool) {
+    pub(crate) fn check_for_updates(&mut self, is_manual: bool) -> Task<Message> {
         let is_valid_state = matches!(self.updater_status, UpdateStatus::Idle | UpdateStatus::UpToDate | UpdateStatus::CheckFailed);
-        if !is_valid_state { return; }
+        if !is_valid_state { return Task::none(); }
 
         info!("Checking Github for releases...");
         self.updater_status = UpdateStatus::Checking;
 
-        let Some(tx) = self.updater_tx.clone() else { return; };
+        let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
             match check_remote() {
                 Ok(Some(release)) => {
                     info!("Found new release: {}", release.version);
-                    let _ = tx.send(UpdaterMsg::UpdateFound(release));
+                    let _ = tx.unbounded_send(UpdaterMsg::UpdateFound(release));
                 },
                 Ok(None) if is_manual => {
                     info!("Software is up to date");
-                    let _ = tx.send(UpdaterMsg::UpToDate);
+                    let _ = tx.unbounded_send(UpdaterMsg::UpToDate);
                 },
-                Ok(None) => { let _ = tx.send(UpdaterMsg::SilentFail); },
+                Ok(None) => { let _ = tx.unbounded_send(UpdaterMsg::SilentFail); },
                 Err(err) if is_manual => {
                     error!("Update check failed: {}", err);
-                    let _ = tx.send(UpdaterMsg::CheckFailed);
+                    let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
                 }
-                Err(_) => { let _ = tx.send(UpdaterMsg::SilentFail); }
+                Err(_) => { let _ = tx.unbounded_send(UpdaterMsg::SilentFail); }
             }
         });
+
+        let (task, handle) = Task::stream(rx).abortable();
+        self.updater_handle = Some(handle);
+        task.map(Message::Updater)
     }
 
-    pub(crate) fn download_and_install(&mut self, release: Release) {
-        let Some(tx) = self.updater_tx.clone() else { return; };
+    pub(crate) fn download_and_install(&mut self, release: Release) -> Task<Message> {
         let target_version = release.version.clone();
         self.updater_status = UpdateStatus::Downloading(target_version.clone());
         self.download_progress = 0.0;
 
         info!("Initializing download process for version: {}", target_version);
 
+        let (tx, rx) = mpsc::unbounded();
+
         thread::spawn(move || {
             cleanup_temp_files();
-            let _ = tx.send(UpdaterMsg::DownloadStarted(target_version.clone()));
+            let _ = tx.unbounded_send(UpdaterMsg::DownloadStarted(target_version.clone()));
 
             let target_tag = if target_version.starts_with('v') { target_version.clone() } else { format!("v{}", target_version) };
 
@@ -77,21 +84,25 @@ impl BattleCatsApp {
                 .build() else {
                 cleanup_temp_files();
                 error!("Failed to build download configurator");
-                let _ = tx.send(UpdaterMsg::CheckFailed);
+                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
                 return;
             };
 
             if update_box.update().is_err() {
                 cleanup_temp_files();
                 error!("Failed during update installation sequence");
-                let _ = tx.send(UpdaterMsg::CheckFailed);
+                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
                 return;
             }
 
             info!("Download and extraction finished");
             cleanup_temp_files();
-            let _ = tx.send(UpdaterMsg::DownloadFinished(target_version));
+            let _ = tx.unbounded_send(UpdaterMsg::DownloadFinished(target_version));
         });
+
+        let (task, handle) = Task::stream(rx).abortable();
+        self.updater_handle = Some(handle);
+        task.map(Message::Updater)
     }
 }
 

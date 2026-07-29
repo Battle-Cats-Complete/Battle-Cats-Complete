@@ -96,8 +96,6 @@ pub fn get_game_hash(active_mod: Option<&str>) -> u64 {
     hash_result
 }
 
-const SCHEMA_VERSION: u32 = 1;
-
 #[derive(Serialize, Deserialize)]
 struct CachePayload<T> {
     schema_version: u32,
@@ -105,8 +103,22 @@ struct CachePayload<T> {
     data: T,
 }
 
+pub trait CacheSpec {
+    type Data: Serialize + DeserializeOwned;
+    const FILE: &'static str;
+    const VERSION: u32;
+}
+
+pub fn read<C: CacheSpec>() -> Option<(u64, C::Data)> {
+    load_payload(C::FILE, C::VERSION)
+}
+
+pub fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
+    save_payload(C::FILE, C::VERSION, hash, data);
+}
+
 #[tracing::instrument(level = "debug", skip_all, fields(file = %filename))]
-pub fn load_with_hash<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
+fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> Option<(u64, T)> {
     let Some(cache_directory) = get_cache_dir() else {
         return None;
     };
@@ -125,10 +137,10 @@ pub fn load_with_hash<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
 
     match options.deserialize_from::<_, CachePayload<T>>(reader) {
         Ok(payload) => {
-            if payload.schema_version != SCHEMA_VERSION {
+            if payload.schema_version != expected_version {
                 tracing::warn!(
                     "Cache schema mismatch for {} (found v{}, expected v{}). Purging stale cache file.",
-                    filename, payload.schema_version, SCHEMA_VERSION
+                    filename, payload.schema_version, expected_version
                 );
                 let _ = fs::remove_file(&cache_path);
                 return None;
@@ -146,7 +158,7 @@ pub fn load_with_hash<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
 }
 
 #[tracing::instrument(level = "debug", skip(data))]
-pub fn save<T: Serialize>(filename: &str, hash: u64, data: &T) {
+fn save_payload<T: Serialize>(filename: &str, version: u32, hash: u64, data: &T) {
     let Some(cache_directory) = get_cache_dir() else {
         tracing::warn!("Cache directory unavailable; skipping save for {}", filename);
         return;
@@ -161,7 +173,7 @@ pub fn save<T: Serialize>(filename: &str, hash: u64, data: &T) {
     };
 
     let mut writer = BufWriter::new(cache_file);
-    let payload = CachePayload { schema_version: SCHEMA_VERSION, hash, data };
+    let payload = CachePayload { schema_version: version, hash, data };
     let options = bincode::DefaultOptions::new()
         .with_limit(1024 * 1024 * 100);
 

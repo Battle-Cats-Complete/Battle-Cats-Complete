@@ -81,7 +81,6 @@ pub struct ModDataState {
     #[serde(skip)] pub rename_buffer: String,
     pub import: ModImportState,
     pub export: ExportState,
-    #[serde(skip)] pub needs_rescan: bool,
 }
 
 impl ModDataState {

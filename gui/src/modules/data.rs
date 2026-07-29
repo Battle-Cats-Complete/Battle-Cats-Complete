@@ -1,17 +1,21 @@
 use std::env;
 use std::path::Path;
-use std::sync::atomic::Ordering;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use iced::futures::channel::mpsc;
+use iced::task;
 use iced::widget::{
     button, checkbox, column, container, pick_list, progress_bar, row, scrollable, slider, text,
     text_input, Space,
 };
-use iced::{Alignment, Element, Font, Length, Subscription, Task};
+use iced::{Alignment, Element, Font, Length, Task};
+use smol::Timer;
 use tracing::{info, trace, warn};
 
+use core::common::job::{JobEvent, JobOutcome};
 use core::common::region::Region;
 use core::modules::addons::paths::{self, Presence};
 use core::modules::data::{
@@ -22,7 +26,6 @@ use core::modules::settings::Settings;
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Tick,
     TabSelected(DataTab),
     ImportJobSelected(ImportSubTab),
     AdbImportTypeChanged(usize),
@@ -33,11 +36,118 @@ pub enum Message {
     SelectImportData,
     TriggerImportJob,
     AbortImportJob,
+    ImportJob(JobEvent),
+    ImportBannerExpired,
     ToggleIncludeRaw(bool),
     ExportFilenameChanged(String),
     CompressionLevelChanged(i32),
     TriggerExportJob,
     AbortExportJob,
+    ExportJob(JobEvent),
+    ExportBannerExpired,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Banner {
+    Completed,
+    Aborted,
+}
+
+#[derive(Default)]
+struct JobSlot {
+    running: bool,
+    aborting: bool,
+    log: String,
+    progress: Option<(usize, usize)>,
+    banner: Option<Banner>,
+    abort: Arc<AtomicBool>,
+    job_handle: Option<task::Handle>,
+    banner_handle: Option<task::Handle>,
+}
+
+impl JobSlot {
+    fn begin(&mut self) {
+        self.running = true;
+        self.aborting = false;
+        self.log.clear();
+        self.progress = None;
+        self.banner = None;
+        self.abort.store(false, Ordering::Relaxed);
+        if let Some(handle) = self.banner_handle.take() {
+            handle.abort();
+        }
+    }
+
+    fn request_abort(&mut self) {
+        self.aborting = true;
+        self.abort.store(true, Ordering::Relaxed);
+    }
+
+    fn apply(&mut self, event: JobEvent, label: &str, expired: Message) -> Task<Message> {
+        match event {
+            JobEvent::Log(line) => {
+                self.log.push_str(&line);
+                self.log.push('\n');
+                Task::none()
+            }
+            JobEvent::Progress { current, total } => {
+                self.progress = Some((current, total));
+                Task::none()
+            }
+            JobEvent::Finished(outcome) => {
+                self.running = false;
+                self.aborting = false;
+                self.abort.store(false, Ordering::Relaxed);
+                self.progress = None;
+                self.job_handle = None;
+
+                match outcome {
+                    JobOutcome::Completed => {
+                        info!("{} job completed.", label);
+                        self.show_banner(Banner::Completed, expired)
+                    }
+                    JobOutcome::Aborted => {
+                        info!("{} job aborted.", label);
+                        self.show_banner(Banner::Aborted, expired)
+                    }
+                    JobOutcome::Failed(message) => {
+                        warn!("{} job failed: {}", label, message);
+                        self.log.push_str(&format!("Error: {}\n", message));
+                        Task::none()
+                    }
+                }
+            }
+        }
+    }
+
+    fn show_banner(&mut self, banner: Banner, expired: Message) -> Task<Message> {
+        self.banner = Some(banner);
+        if let Some(handle) = self.banner_handle.take() {
+            handle.abort();
+        }
+
+        let (banner_task, handle) = Task::perform(
+            async {
+                Timer::after(Duration::from_secs(2)).await;
+            },
+            move |_| expired,
+        )
+        .abortable();
+
+        self.banner_handle = Some(handle);
+        banner_task
+    }
+}
+
+fn job_outcome(result: Result<(), String>, abort: &AtomicBool) -> JobOutcome {
+    if abort.load(Ordering::Relaxed) {
+        return JobOutcome::Aborted;
+    }
+
+    match result {
+        Ok(()) => JobOutcome::Completed,
+        Err(message) => JobOutcome::Failed(message),
+    }
 }
 
 #[derive(Default)]
@@ -45,25 +155,13 @@ pub struct State {
     pub config: DataConfigState,
     pub import_censored: String,
     pub decrypt_censored: String,
+    import: JobSlot,
+    export: JobSlot,
 }
 
 impl State {
-    pub fn subscription(&self) -> Subscription<Message> {
-        // TODO: Rewrite `core` to handle `iced` without ticking
-        iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick)
-    }
-
     pub fn update(&mut self, message: Message, settings: &mut Settings) -> Task<Message> {
         match message {
-            Message::Tick => {
-                let flags = self.config.tick_threads();
-                if flags.import_finished_just_now {
-                    info!("Import/Export thread job completed.");
-                }
-
-                self.import_censored = censor_path(&self.config.import_path);
-                self.decrypt_censored = censor_path(&self.config.decrypt_path);
-            }
             Message::TabSelected(tab) => {
                 trace!("Switching data tab");
                 self.config.active_tab = tab;
@@ -108,13 +206,18 @@ impl State {
             }
             Message::TriggerImportJob => {
                 info!("Starting import job.");
-                self.trigger_import_job(settings);
+                return self.trigger_import_job(settings);
             }
             Message::AbortImportJob => {
                 warn!("Aborting import job.");
-                self.config.import_abort_flag.store(true, Ordering::Relaxed);
-                self.config.import_progress_current.store(0, Ordering::Relaxed);
-                self.config.import_progress_maximum.store(0, Ordering::Relaxed);
+                self.import.request_abort();
+            }
+            Message::ImportJob(event) => {
+                return self.import.apply(event, "Import", Message::ImportBannerExpired);
+            }
+            Message::ImportBannerExpired => {
+                self.import.banner = None;
+                self.import.banner_handle = None;
             }
             Message::ToggleIncludeRaw(include) => {
                 self.config.include_raw = include;
@@ -128,13 +231,18 @@ impl State {
             }
             Message::TriggerExportJob => {
                 info!("Starting export job.");
-                self.trigger_export_job();
+                return self.trigger_export_job();
             }
             Message::AbortExportJob => {
                 warn!("Aborting export job.");
-                self.config.export_abort_flag.store(true, Ordering::Relaxed);
-                self.config.export_progress_current.store(0, Ordering::Relaxed);
-                self.config.export_progress_maximum.store(0, Ordering::Relaxed);
+                self.export.request_abort();
+            }
+            Message::ExportJob(event) => {
+                return self.export.apply(event, "Export", Message::ExportBannerExpired);
+            }
+            Message::ExportBannerExpired => {
+                self.export.banner = None;
+                self.export.banner_handle = None;
             }
         }
         Task::none()
@@ -177,8 +285,7 @@ impl State {
     }
 
     fn view_import(&self, settings: &Settings) -> Element<'_, Message> {
-        let current_status = self.config.import_job_status.load(Ordering::Relaxed);
-        let is_running = current_status == 1;
+        let is_running = self.import.running;
         let adb_installed = paths::adb_status() == Presence::Installed;
 
         let android_btn = button(
@@ -362,15 +469,9 @@ impl State {
 
         let sections_row = row![android_col, pack_col, raw_col].spacing(20);
 
-        let show_success = self
-            .config
-            .import_job_completed_time
-            .is_some_and(|time| time.elapsed().as_secs() < 2);
-        let show_aborted = self
-            .config
-            .import_job_aborted_time
-            .is_some_and(|time| time.elapsed().as_secs() < 2);
-        let is_aborting = is_running && self.config.import_abort_flag.load(Ordering::Relaxed);
+        let show_success = self.import.banner == Some(Banner::Completed);
+        let show_aborted = self.import.banner == Some(Banner::Aborted);
+        let is_aborting = is_running && self.import.aborting;
 
         let (button_text, can_run) = match self.config.selected_job {
             Some(ImportSubTab::Emulator) => {
@@ -429,8 +530,7 @@ impl State {
     }
 
     fn view_export(&self, settings: &Settings) -> Element<'_, Message> {
-        let current_status = self.config.export_job_status.load(Ordering::Relaxed);
-        let is_running = current_status == 1;
+        let is_running = self.export.running;
 
         let title = text("Package database into a ZST archive").size(16);
 
@@ -482,15 +582,9 @@ impl State {
             .size(14)
             .style(if is_success { text::success } else { text::danger });
 
-        let show_success = self
-            .config
-            .export_job_completed_time
-            .is_some_and(|time| time.elapsed().as_secs() < 2);
-        let show_aborted = self
-            .config
-            .export_job_aborted_time
-            .is_some_and(|time| time.elapsed().as_secs() < 2);
-        let is_aborting = is_running && self.config.export_abort_flag.load(Ordering::Relaxed);
+        let show_success = self.export.banner == Some(Banner::Completed);
+        let show_aborted = self.export.banner == Some(Banner::Aborted);
+        let is_aborting = is_running && self.export.aborting;
 
         let base_filename = if self.config.export_filename.trim().is_empty() {
             "battlecats"
@@ -544,26 +638,15 @@ impl State {
     }
 
     fn view_progress_and_console(&self) -> Element<'_, Message> {
-        let (is_running, log_content, cur, max) = match self.config.active_tab {
-            DataTab::Import => (
-                self.config.import_job_status.load(Ordering::Relaxed) == 1,
-                &self.config.import_log_content,
-                self.config.import_progress_current.load(Ordering::Relaxed),
-                self.config.import_progress_maximum.load(Ordering::Relaxed),
-            ),
-            DataTab::Export => (
-                self.config.export_job_status.load(Ordering::Relaxed) == 1,
-                &self.config.export_log_content,
-                self.config.export_progress_current.load(Ordering::Relaxed),
-                self.config.export_progress_maximum.load(Ordering::Relaxed),
-            ),
+        let slot = match self.config.active_tab {
+            DataTab::Import => &self.import,
+            DataTab::Export => &self.export,
         };
 
-        let progress_fraction = if is_running {
-            if max > 0 {
-                cur as f32 / max as f32
-            } else {
-                1.0
+        let progress_fraction = if slot.running {
+            match slot.progress {
+                Some((current, total)) if total > 0 => current as f32 / total as f32,
+                _ => 1.0,
             }
         } else {
             1.0
@@ -572,7 +655,7 @@ impl State {
         let progress = progress_bar(0.0..=1.0, progress_fraction);
 
         let console_area = scrollable(
-            container(text(log_content).size(12).font(Font::MONOSPACE))
+            container(text(&slot.log).size(12).font(Font::MONOSPACE))
                 .width(Length::Fill)
                 .padding(5),
         )
@@ -581,26 +664,22 @@ impl State {
         column![progress, Space::new().height(10), console_area].into()
     }
 
-    fn trigger_import_job(&mut self, settings: &Settings) {
-        self.config.import_job_status.store(1, Ordering::Relaxed);
-        self.config.import_abort_flag.store(false, Ordering::Relaxed);
-        self.config.import_progress_current.store(0, Ordering::Relaxed);
-        self.config.import_progress_maximum.store(0, Ordering::Relaxed);
-        self.config.import_log_content.clear();
-        self.config.import_job_completed_time = None;
-        self.config.import_job_aborted_time = None;
+    fn trigger_import_job(&mut self, settings: &Settings) -> Task<Message> {
+        if self.import.running {
+            return Task::none();
+        }
+        let Some(job) = self.config.selected_job else {
+            return Task::none();
+        };
 
-        let (sender, receiver) = mpsc::channel();
-        self.config.import_rx = Some(receiver);
+        self.import.begin();
 
-        let abort = self.config.import_abort_flag.clone();
-        let status = self.config.import_job_status.clone();
-        let progress_current = self.config.import_progress_current.clone();
-        let progress_max = self.config.import_progress_maximum.clone();
+        let (tx, rx) = mpsc::unbounded();
+        let abort = self.import.abort.clone();
         let enforce_val = settings.game_data.enforce_key_validation;
 
-        match self.config.selected_job {
-            Some(ImportSubTab::Emulator) => {
+        match job {
+            ImportSubTab::Emulator => {
                 let mode = if settings.game_data.adb_import_type_idx == 1 {
                     AdbImportType::Update
                 } else {
@@ -613,85 +692,77 @@ impl State {
                     3 => AdbTarget::Specific(Region::Ko),
                     _ => AdbTarget::All,
                 };
-                android::run(
-                    sender,
-                    mode,
-                    region,
-                    settings.emulator_config(),
-                    enforce_val,
-                    abort,
-                    status,
-                    progress_current,
-                    progress_max,
-                );
+                let emulator_config = settings.emulator_config();
+
+                let thread_tx = tx.clone();
+                let spawn_result = thread::Builder::new()
+                    .name("android_import_worker".to_string())
+                    .stack_size(8 * 1024 * 1024)
+                    .spawn(move || {
+                        let emit = |event: JobEvent| {
+                            let _ = thread_tx.unbounded_send(event);
+                        };
+                        let result =
+                            android::run(mode, region, emulator_config, enforce_val, &emit, &abort);
+                        emit(JobEvent::Finished(job_outcome(result, &abort)));
+                    });
+
+                if spawn_result.is_err() {
+                    warn!("Failed to spawn android import worker thread.");
+                    let _ = tx.unbounded_send(JobEvent::Finished(JobOutcome::Failed(
+                        "Failed to spawn worker thread".to_string(),
+                    )));
+                }
             }
-            Some(ImportSubTab::Decrypt) => {
+            ImportSubTab::Decrypt => {
                 let folder_path = self.config.decrypt_path.clone();
-                let mode = ImportMode::Folder;
-                let region = self.config.adb_target.clone();
+                let region = self.config.adb_target;
 
                 thread::spawn(move || {
+                    let emit = |event: JobEvent| {
+                        let _ = tx.unbounded_send(event);
+                    };
                     let result = pack::run(
                         &folder_path,
-                        mode,
+                        ImportMode::Folder,
                         region,
                         enforce_val,
-                        sender,
-                        abort,
-                        progress_current,
-                        progress_max,
+                        &emit,
+                        &abort,
                     );
-
-                    if result.is_err() {
-                        status.store(3, Ordering::Relaxed);
-                    } else {
-                        status.store(2, Ordering::Relaxed);
-                    }
+                    emit(JobEvent::Finished(job_outcome(result, &abort)));
                 });
             }
-            Some(ImportSubTab::Sort) => {
+            ImportSubTab::Sort => {
                 let data_path = self.config.import_path.clone();
                 let lang_priority = settings.general.language_priority.clone();
 
                 thread::spawn(move || {
-                    let result = raw::run(
-                        &data_path,
-                        sender,
-                        abort,
-                        progress_current,
-                        progress_max,
-                        &lang_priority,
-                    );
-
-                    if result.is_err() {
-                        status.store(3, Ordering::Relaxed);
-                    } else {
-                        status.store(2, Ordering::Relaxed);
-                    }
+                    let emit = |event: JobEvent| {
+                        let _ = tx.unbounded_send(event);
+                    };
+                    let result = raw::run(&data_path, &emit, &abort, &lang_priority);
+                    emit(JobEvent::Finished(job_outcome(result, &abort)));
                 });
             }
-            None => {}
         }
+
+        let (stream_task, handle) = Task::stream(rx).abortable();
+        self.import.job_handle = Some(handle);
+        stream_task.map(Message::ImportJob)
     }
 
-    fn trigger_export_job(&mut self) {
-        self.config.export_job_status.store(1, Ordering::Relaxed);
-        self.config.export_abort_flag.store(false, Ordering::Relaxed);
-        self.config.export_progress_current.store(0, Ordering::Relaxed);
-        self.config.export_progress_maximum.store(0, Ordering::Relaxed);
-        self.config.export_log_content.clear();
-        self.config.export_job_completed_time = None;
-        self.config.export_job_aborted_time = None;
+    fn trigger_export_job(&mut self) -> Task<Message> {
+        if self.export.running {
+            return Task::none();
+        }
 
-        let (sender, receiver) = mpsc::channel();
-        self.config.export_rx = Some(receiver);
+        self.export.begin();
 
+        let (tx, rx) = mpsc::unbounded();
+        let abort = self.export.abort.clone();
         let compression_level = self.config.compression_level;
         let include_raw = self.config.include_raw;
-        let status = self.config.export_job_status.clone();
-        let abort = self.config.export_abort_flag.clone();
-        let progress_current = self.config.export_progress_current.clone();
-        let progress_maximum = self.config.export_progress_maximum.clone();
 
         let base_filename = if self.config.export_filename.trim().is_empty() {
             "battlecats"
@@ -701,25 +772,17 @@ impl State {
         let full_filename = format!("{}.tar.zst", base_filename);
 
         thread::spawn(move || {
-            let result = export::create_game_archive(
-                sender.clone(),
-                abort.clone(),
-                progress_current,
-                progress_maximum,
-                compression_level,
-                full_filename,
-                include_raw,
-            );
-
-            if let Err(error) = result {
-                let _ = sender.send(format!("Error Packing: {}", error));
-                status.store(3, Ordering::Relaxed);
-            } else if !abort.load(Ordering::Relaxed) {
-                status.store(2, Ordering::Relaxed);
-            } else {
-                status.store(3, Ordering::Relaxed);
-            }
+            let emit = |event: JobEvent| {
+                let _ = tx.unbounded_send(event);
+            };
+            let result =
+                export::create_game_archive(&emit, &abort, compression_level, full_filename, include_raw);
+            emit(JobEvent::Finished(job_outcome(result, &abort)));
         });
+
+        let (stream_task, handle) = Task::stream(rx).abortable();
+        self.export.job_handle = Some(handle);
+        stream_task.map(Message::ExportJob)
     }
 }
 

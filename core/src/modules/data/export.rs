@@ -1,22 +1,17 @@
 use std::fs;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::sync::mpsc::Sender;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
+use crate::common::job::JobEvent;
+
 pub fn create_game_archive(
-    status_sender: Sender<String>,
-    abort_flag: Arc<AtomicBool>,
-    progress_current: Arc<AtomicUsize>,
-    progress_maximum: Arc<AtomicUsize>,
+    emit: impl Fn(JobEvent) + Sync,
+    abort_flag: &AtomicBool,
     compression_level: i32,
     filename: String,
     include_raw: bool,
 ) -> Result<(), String> {
-    progress_current.store(0, Ordering::Relaxed);
-    progress_maximum.store(0, Ordering::Relaxed);
-
     let game_root_path = Path::new("game");
     let export_directory = Path::new("exports");
 
@@ -41,8 +36,8 @@ pub fn create_game_archive(
         fs::create_dir_all(export_directory).map_err(|e| e.to_string())?;
     }
 
-    let _ = status_sender.send("Estimating bundle size...".to_string());
-    let mut total_files = 0;
+    emit(JobEvent::Log("Estimating bundle size...".to_string()));
+    let mut total_files: usize = 0;
     let mut directory_stack = vec![game_root_path.to_path_buf()];
 
     while let Some(current_directory) = directory_stack.pop() {
@@ -68,18 +63,19 @@ pub fn create_game_archive(
         }
     }
 
-    progress_maximum.store(total_files, Ordering::Relaxed);
     let update_interval = (total_files / 100).max(10);
+    let progress_step = (total_files / 100).max(1);
+    emit(JobEvent::Progress { current: 0, total: total_files });
 
     let thread_count = match thread::available_parallelism() {
         Ok(n) => n.get() as u32,
         Err(_) => 4,
     };
 
-    let _ = status_sender.send(format!(
+    emit(JobEvent::Log(format!(
         "Starting Multi-Threaded Compression ({} threads)...",
         thread_count
-    ));
+    )));
 
     let file_handle = fs::File::create(&archive_path).map_err(|e| e.to_string())?;
     let mut zstd_encoder = zstd::stream::write::Encoder::new(file_handle, compression_level)
@@ -89,7 +85,7 @@ pub fn create_game_archive(
     zstd_encoder.include_checksum(true).map_err(|e| e.to_string())?;
 
     let mut tar_builder = tar::Builder::new(zstd_encoder);
-    let mut processed_file_count = 0;
+    let mut processed_file_count: usize = 0;
 
     let mut export_stack = vec![game_root_path.to_path_buf()];
 
@@ -137,14 +133,17 @@ pub fn create_game_archive(
 
             if tar_builder.append_file(relative_file_name, &mut active_file_handle).is_ok() {
                 processed_file_count += 1;
-                progress_current.store(processed_file_count, Ordering::Relaxed);
 
-                if processed_file_count % update_interval == 0 {
+                if processed_file_count.is_multiple_of(progress_step) || processed_file_count == total_files {
+                    emit(JobEvent::Progress { current: processed_file_count, total: total_files });
+                }
+
+                if processed_file_count.is_multiple_of(update_interval) {
                     let simple_filename = file_path.file_name().unwrap_or_default().to_string_lossy();
-                    let _ = status_sender.send(format!(
+                    emit(JobEvent::Log(format!(
                         "Packed {} files | Current: {}",
                         processed_file_count, simple_filename
-                    ));
+                    )));
                 }
             }
         }
@@ -153,10 +152,10 @@ pub fn create_game_archive(
     let final_encoder = tar_builder.into_inner().map_err(|e| e.to_string())?;
     let _ = final_encoder.finish().map_err(|e| e.to_string())?;
 
-    let _ = status_sender.send(format!(
+    emit(JobEvent::Log(format!(
         "Success! Exported {} files to {:?}",
         processed_file_count, archive_path
-    ));
+    )));
 
     Ok(())
 }

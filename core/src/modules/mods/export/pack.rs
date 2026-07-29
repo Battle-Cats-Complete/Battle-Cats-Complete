@@ -1,89 +1,61 @@
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::thread;
 
 use nyanko::pack::cryptology;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::common::job::JobEvent;
 use crate::common::region::Region;
 use crate::modules::data::engine::keys;
 use crate::modules::settings::RegionKey;
-use crate::modules::settings::Settings;
 
-use super::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
-use super::super::ModDataState;
-
-pub fn start_pack_export(state: &mut ModDataState) {
-    if state.export.is_busy {
-        warn!("Pack export requested, but an export is already busy. Ignoring.");
-        return;
-    }
-
-    let Some(mod_folder) = state.selected_mod.clone() else {
-        error!("No mod selected for pack export.");
-        return;
-    };
-
+pub fn run(mod_folder: String, pack_name: String, target_region: Region, enforce_validation: bool, emit: impl Fn(JobEvent) + Sync) -> Result<(), String> {
     info!("Initializing Pack Export for mod: {}", mod_folder);
-    state.export.log_content.clear();
-    state.export.is_busy = true;
-    state.export.status_message = "Initializing Pack Export...".to_string();
 
-    let pack_name = if state.export.pack_name.trim().is_empty() {
+    let pack_name = if pack_name.trim().is_empty() {
         "DownloadLocal".to_string()
     } else {
-        state.export.pack_name.clone()
+        pack_name
     };
-    let target_region = state.export.target_region;
 
-    let (transmitter, receiver) = mpsc::channel();
-    if let Ok(mut guard) = EVENT_RECEIVER.lock() { *guard = Some(receiver); }
+    let log_callback = |message: String| emit(JobEvent::Log(message));
 
-    thread::spawn(move || {
-        let string_transmitter = spawn_log_adapter(transmitter.clone());
-        let log_callback = |message: String| { let _ = transmitter.send(ExportEvent::Log(message)); };
-
-        trace!("Loading settings for pack export...");
-        let settings: Settings = crate::common::io::json::load("settings.json").unwrap_or_default();
-
-        debug!("Verifying keys...");
-        let user_keys = match keys::verify(settings.game_data.enforce_key_validation, &string_transmitter) {
-            Ok(keys) => {
-                trace!("Keys successfully verified.");
-                keys
-            },
-            Err(error) => {
-                error!("Key verification failed: {}", error);
-                let _ = transmitter.send(ExportEvent::Error(error));
-                return;
-            }
-        };
-
-        let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("../../../../../../../../.."));
-        let mod_path = base_dir.join("mods").join(&mod_folder);
-        let export_dir = base_dir.join("exports");
-
-        let patch_dir = mod_path.join("patch");
-        let _ = fs::create_dir_all(&export_dir);
-
-        let region_key = match target_region {
-            Region::En => &user_keys.en,
-            Region::Ja => &user_keys.ja,
-            Region::Ko => &user_keys.ko,
-            Region::Tw => &user_keys.tw,
-        };
-
-        debug!("Starting stream pack and list build targeting region: {:?}", target_region);
-        if let Err(error) = stream_pack_and_list(&patch_dir, &export_dir, &pack_name, region_key, &log_callback) {
-            error!("Pack and list streaming failed: {}", error);
-            let _ = transmitter.send(ExportEvent::Error(error)); return;
+    debug!("Verifying keys...");
+    let user_keys = match keys::verify(enforce_validation, &log_callback) {
+        Ok(keys) => {
+            trace!("Keys successfully verified.");
+            keys
+        },
+        Err(error) => {
+            error!("Key verification failed: {}", error);
+            return Err(error);
         }
+    };
 
-        info!("Pack Export successfully finished: {}.pack", pack_name);
-        let _ = transmitter.send(ExportEvent::Success(format!("\nSuccessfully Created {}.pack!", pack_name)));
-    });
+    let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("../../../../../../../../.."));
+    let mod_path = base_dir.join("mods").join(&mod_folder);
+    let export_dir = base_dir.join("exports");
+
+    let patch_dir = mod_path.join("patch");
+    let _ = fs::create_dir_all(&export_dir);
+
+    let region_key = match target_region {
+        Region::En => &user_keys.en,
+        Region::Ja => &user_keys.ja,
+        Region::Ko => &user_keys.ko,
+        Region::Tw => &user_keys.tw,
+    };
+
+    debug!("Starting stream pack and list build targeting region: {:?}", target_region);
+    if let Err(error) = stream_pack_and_list(&patch_dir, &export_dir, &pack_name, region_key, &log_callback) {
+        error!("Pack and list streaming failed: {}", error);
+        return Err(error);
+    }
+
+    info!("Pack Export successfully finished: {}.pack", pack_name);
+    log_callback(format!("\nSuccessfully Created {}.pack!", pack_name));
+    Ok(())
 }
 
 pub fn stream_pack_and_list(

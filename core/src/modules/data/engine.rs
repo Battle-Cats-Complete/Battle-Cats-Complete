@@ -12,8 +12,6 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::sync::mpsc::Sender;
 
 use nyanko::common::tools::variant::Region;
 use nyanko::pack::chronology;
@@ -21,6 +19,7 @@ use nyanko::pack::cryptology;
 use rayon::prelude::*;
 
 use crate::common::io;
+use crate::common::job::JobEvent;
 use crate::modules::settings::RuleHandling;
 use crate::modules::settings::UserKeys;
 
@@ -77,10 +76,8 @@ fn cleanup_temporary_directories(directories: &[PathBuf]) {
 
 pub fn run_universal_import(
     source_directories: &[PathBuf],
-    status_sender: &Sender<String>,
-    abort_flag: &Arc<AtomicBool>,
-    progress_current: &Arc<AtomicUsize>,
-    progress_maximum: &Arc<AtomicUsize>,
+    emit: &(dyn Fn(JobEvent) + Sync),
+    abort_flag: &AtomicBool,
 ) -> Result<(), String> {
     let user_keys = UserKeys::load();
     if user_keys.is_empty() {
@@ -106,7 +103,7 @@ pub fn run_universal_import(
     let asset_router_utility = router::AssetRouter::new(game_root_path).map_err(|error| error.to_string())?;
     let (compiled_regex_set, compiled_exception_rules) = rules::compile();
 
-    let _ = status_sender.send("Collecting game data...".to_string());
+    emit(JobEvent::Log("Collecting game data...".to_string()));
 
     let mut universal_task_map: HashMap<String, Vec<UniversalTask>> = HashMap::new();
     let mut global_temporary_directories: Vec<PathBuf> = Vec::new();
@@ -147,7 +144,7 @@ pub fn run_universal_import(
         );
 
         if !discovered_apk_files.is_empty() && !has_notified_extraction {
-            let _ = status_sender.send("Extracting update data...".to_string());
+            emit(JobEvent::Log("Extracting update data...".to_string()));
             has_notified_extraction = true;
         }
 
@@ -419,8 +416,7 @@ pub fn run_universal_import(
     }
 
     if final_extraction_queue.is_empty() {
-        let _ = status_sender.send("Workspace is completely up to date.".to_string());
-        progress_maximum.store(0, Ordering::Relaxed);
+        emit(JobEvent::Log("Workspace is completely up to date.".to_string()));
 
         for (region_key, pack_map) in current_pack_hashes {
             let region_entry = global_pack_registry.entry(region_key).or_default();
@@ -432,14 +428,23 @@ pub fn run_universal_import(
         return Ok(());
     }
 
-    progress_maximum.store(final_extraction_queue.len(), Ordering::Relaxed);
-    progress_current.store(0, Ordering::Relaxed);
+    let total = final_extraction_queue.len();
+    emit(JobEvent::Progress { current: 0, total });
+
+    let progress_step = (total / 100).max(1);
+    let progress_counter = AtomicUsize::new(0);
+    let advance_progress = || {
+        let current = progress_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        if current.is_multiple_of(progress_step) || current == total {
+            emit(JobEvent::Progress { current, total });
+        }
+    };
 
     let successfully_extracted_count = AtomicI32::new(0);
     let failed_decryption_count = AtomicUsize::new(0);
-    let console_update_interval = (final_extraction_queue.len() / 100).max(10);
+    let console_update_interval = (total / 100).max(10);
 
-    let _ = status_sender.send(format!("Comparing and organizing {} game files...", final_extraction_queue.len()));
+    emit(JobEvent::Log(format!("Comparing and organizing {} game files...", final_extraction_queue.len())));
 
     let updated_manifest_entries: Vec<(String, manifest::ManifestEntry)> = final_extraction_queue
         .into_par_iter()
@@ -497,7 +502,7 @@ pub fn run_universal_import(
             }
 
             if decrypted_candidates.is_empty() {
-                progress_current.fetch_add(1, Ordering::Relaxed);
+                advance_progress();
                 return None;
             }
 
@@ -511,7 +516,7 @@ pub fn run_universal_import(
             });
 
             let Some(winning_candidate) = decrypted_candidates.pop() else {
-                progress_current.fetch_add(1, Ordering::Relaxed);
+                advance_progress();
                 return None;
             };
 
@@ -540,10 +545,10 @@ pub fn run_universal_import(
 
                 let current_extracted_total = successfully_extracted_count.fetch_add(1, Ordering::Relaxed) + 1;
                 if (current_extracted_total as usize).is_multiple_of(console_update_interval) {
-                    let _ = status_sender.send(format!("Processed {} files | Routing: {}", current_extracted_total, resolved_filename));
+                    emit(JobEvent::Log(format!("Processed {} files | Routing: {}", current_extracted_total, resolved_filename)));
                 }
 
-                progress_current.fetch_add(1, Ordering::Relaxed);
+                advance_progress();
 
                 return Some((
                     resolved_filename.clone(),
@@ -557,7 +562,7 @@ pub fn run_universal_import(
                 ));
             }
 
-            progress_current.fetch_add(1, Ordering::Relaxed);
+            advance_progress();
             None
         })
         .collect();
@@ -569,7 +574,7 @@ pub fn run_universal_import(
 
     let final_errors = failed_decryption_count.load(Ordering::Relaxed);
     if final_errors > 0 {
-        let _ = status_sender.send(format!("Encountered {} errors decrypting pack chunks.", final_errors));
+        emit(JobEvent::Log(format!("Encountered {} errors decrypting pack chunks.", final_errors)));
     }
 
     for (filename_key, entry_data) in updated_manifest_entries {
@@ -586,6 +591,6 @@ pub fn run_universal_import(
 
     cleanup_temporary_directories(&global_temporary_directories);
 
-    let _ = status_sender.send("Files successfully organized and updated.".to_string());
+    emit(JobEvent::Log("Files successfully organized and updated.".to_string()));
     Ok(())
 }

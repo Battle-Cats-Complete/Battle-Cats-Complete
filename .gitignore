@@ -16,9 +16,11 @@ crash*
 .cargo/
 .cl*/
 .st*/
+.re*/
 *.py
 CL*.md
 ST*.md
+RE*.ms
 
 # Extracted Game Data
 /game/

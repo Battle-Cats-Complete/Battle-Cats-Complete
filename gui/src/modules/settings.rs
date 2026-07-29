@@ -12,7 +12,7 @@ use iced::widget::{
     button, column, container, opaque, pick_list, row, scrollable, stack, text, text_input, toggler,
 };
 use iced::{Alignment, Element, Length, Size, Subscription, Task, Theme};
-use tracing::info;
+use tracing::debug;
 
 use core::modules::settings::lang;
 use core::modules::settings::{
@@ -219,8 +219,7 @@ impl State {
                 Task::none()
             }
             Message::ManualUpdateCheck => {
-                info!("Manual update check requested from Settings");
-                core_settings.runtime.manual_check_requested = true;
+                debug!("Manual update check requested, deferring to root app");
                 Task::none()
             }
 

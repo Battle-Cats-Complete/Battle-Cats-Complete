@@ -5,16 +5,17 @@ mod statblock;
 mod talents;
 
 use std::collections::HashMap;
-use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
 use iced::alignment::{Horizontal, Vertical};
+use iced::futures::channel::mpsc;
 use iced::widget::{
     button, column, container, row, scrollable,
     text, text_input, Space,
 };
-use iced::{Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
+use iced::{task, Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::cat::unit::Battle;
 use tracing::{error, info};
 
@@ -22,7 +23,7 @@ use core::common::context::GlobalContext;
 use core::modules::cat::game::registry::{format_cat_stat, get_cat_stat};
 use core::modules::cat::game::stats::get_final_stats;
 use core::modules::cat::game::CatRenderContext;
-use core::modules::cat::scanner::CatEntry;
+use core::modules::cat::scanner::{self, CatEntry};
 use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
@@ -54,6 +55,9 @@ pub enum ExportAction {
 pub enum Message {
     Tick,
     AnimationTick,
+    ScanProgress(usize, usize),
+    Loaded(Vec<CatEntry>),
+    StatblockFinished(JobResult),
     SearchChanged(String),
     SelectCat(u32),
     SelectForm(usize),
@@ -74,6 +78,9 @@ impl std::fmt::Debug for Message {
         match self {
             Self::Tick => write!(f, "Tick"),
             Self::AnimationTick => write!(f, "AnimationTick"),
+            Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
+            Self::Loaded(cats) => write!(f, "Loaded({})", cats.len()),
+            Self::StatblockFinished(_) => write!(f, "StatblockFinished"),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
             Self::SelectCat(id) => write!(f, "SelectCat({})", id),
             Self::SelectForm(i) => write!(f, "SelectForm({})", i),
@@ -107,8 +114,10 @@ pub struct State {
     img022_sheets: Vec<SpriteSheet>,
     custom_assets: CustomAssets,
 
+    load_handle: Option<task::Handle>,
+    scan_progress: Option<(usize, usize)>,
+
     statblock_pending: Option<ExportAction>,
-    statblock_job: Option<mpsc::Receiver<JobResult>>,
     statblock_clipboard: Option<Clipboard>,
     statblock_copy_feedback: Option<(bool, Instant)>,
     statblock_save_feedback: Option<(bool, Instant)>,
@@ -137,8 +146,10 @@ impl Default for State {
             img022_sheets: Vec::new(),
             custom_assets: CustomAssets::new(),
 
+            load_handle: None,
+            scan_progress: None,
+
             statblock_pending: None,
-            statblock_job: None,
             statblock_clipboard: None,
             statblock_copy_feedback: None,
             statblock_save_feedback: None,
@@ -174,13 +185,24 @@ impl State {
     fn update_inner(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
             Message::Tick => {
-                if !self.data.initialized {
-                    self.data.initialized = true;
-                    info!("Triggering initial cat scan");
-                    self.data.restart_scan(settings.scanner_config());
-                } else if self.data.scan_receiver.is_some() {
-                    self.data.update_data();
-                }
+                let load_task = if self.load_handle.is_none() {
+                    info!("Triggering initial cat load");
+                    let config = settings.scanner_config();
+                    let (tx, rx) = mpsc::unbounded();
+
+                    thread::spawn(move || {
+                        let cats = scanner::load(config, |done, total| {
+                            let _ = tx.unbounded_send(Message::ScanProgress(done, total));
+                        });
+                        let _ = tx.unbounded_send(Message::Loaded(cats));
+                    });
+
+                    let (load_task, handle) = Task::stream(rx).abortable();
+                    self.load_handle = Some(handle);
+                    load_task
+                } else {
+                    Task::none()
+                };
 
                 crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings);
                 crate::common::img022::ensure_loaded(&mut self.img022_sheets, settings);
@@ -189,16 +211,28 @@ impl State {
                     self.animation.export_tick();
                 }
 
-                let received = self.statblock_job.as_ref().and_then(|rx| rx.try_recv().ok());
-                if let Some(job) = received {
-                    self.statblock_pending = None;
-                    self.statblock_job = None;
-                    self.finish_statblock_job(job);
-                }
-
-                self.list
+                let list_task = self.list
                     .update(list::Message::Tick, &self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality)
-                    .map(Message::List)
+                    .map(Message::List);
+
+                Task::batch([load_task, list_task])
+            }
+            Message::ScanProgress(done, total) => {
+                if self.scan_progress.is_none_or(|(prev, _)| done > prev) {
+                    self.scan_progress = Some((done, total));
+                }
+                Task::none()
+            }
+            Message::Loaded(cats) => {
+                info!("Cat load finished with {} entries", cats.len());
+                self.scan_progress = None;
+                self.data.cats = cats;
+                Task::none()
+            }
+            Message::StatblockFinished(job) => {
+                self.statblock_pending = None;
+                self.finish_statblock_job(job);
+                Task::none()
             }
             Message::AnimationTick => {
                 if let Some(cat) = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
@@ -268,10 +302,7 @@ impl State {
                 }
                 Task::none()
             }
-            Message::ExportStatblock(action) => {
-                self.start_statblock_export(action, settings, global_ctx);
-                Task::none()
-            }
+            Message::ExportStatblock(action) => self.start_statblock_export(action, settings, global_ctx),
             Message::List(msg) => {
                 if let list::Message::SelectCat(id) = msg {
                     return self.update(Message::SelectCat(id), settings, global_ctx);
@@ -318,16 +349,16 @@ impl State {
         }
     }
 
-    fn start_statblock_export(&mut self, action: ExportAction, settings: &Settings, global_ctx: GlobalContext<'_>) {
+    fn start_statblock_export(&mut self, action: ExportAction, settings: &Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
         if self.statblock_pending.is_some() {
-            return;
+            return Task::none();
         }
 
-        let Some(selected_id) = self.selected_cat else { return; };
-        let Some(cat) = self.data.cats.iter().find(|c| c.id == selected_id) else { return; };
+        let Some(selected_id) = self.selected_cat else { return Task::none(); };
+        let Some(cat) = self.data.cats.iter().find(|c| c.id == selected_id) else { return Task::none(); };
 
         let dynamic_stats = unitid(cat.id as i32, &settings.general.language_priority);
-        let Some(base_stats) = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form)) else { return; };
+        let Some(base_stats) = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form)) else { return Task::none(); };
 
         let form_allows_talents = self.selected_form >= 2;
         let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
@@ -358,14 +389,12 @@ impl State {
         }
         let priority = settings.general.language_priority.clone();
 
-        let (tx, rx) = mpsc::channel();
-        self.statblock_job = Some(rx);
         self.statblock_pending = Some(action);
 
-        std::thread::spawn(move || {
+        Task::perform(async move {
             let build_result = builder::build_statblock_image(&priority, data, cuts_map);
 
-            let job = match action {
+            match action {
                 ExportAction::Copy => JobResult::Copy(build_result),
                 ExportAction::Save => {
                     let result = build_result.and_then(|image| builder::save_to_disk(&image, is_cat, &id_str, &top_value).map(|_| ()));
@@ -374,10 +403,8 @@ impl State {
                     }
                     JobResult::Save(result)
                 }
-            };
-
-            let _ = tx.send(job);
-        });
+            }
+        }, Message::StatblockFinished)
     }
 
     fn finish_statblock_job(&mut self, job: JobResult) {
@@ -462,12 +489,19 @@ impl State {
 
         let cat_list = self.list.view(&self.data.cats, self.selected_cat).map(Message::List);
 
+        let mut sidebar = column![
+            row![search_input, filter_button].spacing(4),
+            Space::new().height(Length::Fixed(8.0)),
+        ];
+
+        if let Some((done, total)) = self.scan_progress {
+            sidebar = sidebar.push(text(format!("Scanning cats... {}/{}", done, total)).size(12));
+        }
+
+        sidebar = sidebar.push(cat_list);
+
         container(
-            column![
-                row![search_input, filter_button].spacing(4),
-                Space::new().height(Length::Fixed(8.0)),
-                cat_list
-            ]
+            sidebar
                 .spacing(4)
                 .height(Length::Fill)
         )

@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::Sender;
 
 use nyanko::common::tools::variant::Region;
 use nyanko::pack::cryptology;
@@ -32,7 +31,7 @@ fn format_log_name(name: &str, path: &Path) -> String {
     }
 }
 
-pub fn run(pack_file: &Path, workspace_dir: &Path, status_sender: Sender<String>, user_keys: &UserKeys) -> Result<(), String> {
+pub fn run(pack_file: &Path, workspace_dir: &Path, emit_log: &(dyn Fn(String) + Sync), user_keys: &UserKeys) -> Result<(), String> {
     info!("Starting decryption for pack file: {:?}", pack_file);
     let list_path = pack_file.with_extension("list");
 
@@ -94,7 +93,7 @@ pub fn run(pack_file: &Path, workspace_dir: &Path, status_sender: Sender<String>
                 let file_name = path.file_name().unwrap_or_default().to_string_lossy();
                 let display_name = format_log_name(&file_name, path);
                 trace!("Decrypted chunk stream: {}", display_name);
-                let _ = status_sender.send(format!("Extracted {} Files | Streaming: {}", current, display_name));
+                emit_log(format!("Extracted {} Files | Streaming: {}", current, display_name));
             }
         }
     });
