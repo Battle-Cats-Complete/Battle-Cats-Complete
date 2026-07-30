@@ -13,7 +13,7 @@ use tracing::trace;
 use nyanko::graphics::rig::Animation;
 
 use core::modules::addons::paths::{self, Presence};
-use core::modules::animation::export::{leader, process, EncoderStatus, ExportFormat, ExportMode, ExporterState};
+use core::modules::animation::export::{find_loop, leader, process, EncoderStatus, ExportFormat, ExportMode, ExporterState, LoopStatus};
 use core::modules::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
 use core::modules::settings::Settings;
 
@@ -50,12 +50,33 @@ struct JobState {
     encoder_handle: task::Handle,
 }
 
+enum LoopResult {
+    Found,
+    Terminated,
+    Error(String),
+}
+
+enum LoopPhase {
+    Running,
+    Aborting,
+    Done { result: LoopResult, shown_at: Option<Instant> },
+}
+
+struct LoopJob {
+    phase: LoopPhase,
+    abort: Arc<AtomicBool>,
+    frames_searched: usize,
+    start_time: Instant,
+    task_handle: task::Handle,
+}
+
 #[derive(Default)]
 pub struct State {
     pub is_open: bool,
     popup: popup::State,
     exporter: ExporterState,
     jobs: HashMap<JobKey, JobState>,
+    loop_job: Option<(JobKey, LoopJob)>,
     synced_key: Option<JobKey>,
     scanned_showcase: Option<String>,
 }
@@ -87,6 +108,9 @@ pub enum Message {
     Encoder(JobKey, EncoderStatus),
     SetCamera,
     UseBounds,
+    FindLoop,
+    AbortLoopSearch,
+    LoopSearch(JobKey, LoopStatus),
 }
 
 impl State {
@@ -261,6 +285,28 @@ impl State {
             }
             true
         });
+
+        if let Some((_, job)) = &mut self.loop_job
+            && matches!(job.phase, LoopPhase::Aborting) {
+            job.phase = LoopPhase::Done { result: LoopResult::Terminated, shown_at: None };
+        }
+
+        if let Some(key) = &self.synced_key
+            && let Some((job_key, job)) = &mut self.loop_job
+            && job_key == key
+            && let LoopPhase::Done { shown_at, .. } = &mut job.phase
+            && shown_at.is_none() {
+            *shown_at = Some(Instant::now());
+        }
+
+        let loop_expired = self.loop_job.as_ref().is_some_and(|(_, job)| {
+            matches!(&job.phase, LoopPhase::Done { shown_at: Some(at), .. } if at.elapsed().as_secs_f32() > 3.0)
+        });
+
+        if loop_expired
+            && let Some((_, job)) = self.loop_job.take() {
+            job.task_handle.abort();
+        }
     }
 
     pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings) -> Task<Message> {
@@ -497,6 +543,110 @@ impl State {
                     job.phase = JobPhase::Aborting;
                 }
             }
+            Message::FindLoop => {
+                let Some(key) = self.synced_key.clone() else {
+                    return Task::none();
+                };
+
+                if matches!(
+                    self.jobs.get(&key).map(|job| &job.phase),
+                    Some(JobPhase::Running | JobPhase::Aborting)
+                ) {
+                    return Task::none();
+                }
+
+                if self.loop_job.as_ref().is_some_and(|(job_key, job)| {
+                    *job_key == key && matches!(job.phase, LoopPhase::Running | LoopPhase::Aborting)
+                }) {
+                    return Task::none();
+                }
+
+                let Some(unit) = data.held_unit.clone() else {
+                    return Task::none();
+                };
+                let Some(animation) = data.current_anim.clone() else {
+                    return Task::none();
+                };
+
+                let tolerance = self.exporter.loop_tolerance as f32;
+                let minimum = self.exporter.loop_min;
+                let maximum = self.exporter.loop_max;
+
+                let abort = Arc::new(AtomicBool::new(false));
+                let (tx, rx) = unbounded();
+
+                let worker_abort = abort.clone();
+                thread::spawn(move || {
+                    find_loop::search(&unit, &animation, tolerance, minimum, maximum, |status| {
+                        let _ = tx.unbounded_send(status);
+                    }, &worker_abort);
+                });
+
+                let map_key = key.clone();
+                let (search_task, handle) = Task::stream(rx)
+                    .map(move |status| Message::LoopSearch(map_key.clone(), status))
+                    .abortable();
+
+                if let Some((_, previous)) = self.loop_job.take() {
+                    previous.abort.store(true, Ordering::Relaxed);
+                    previous.task_handle.abort();
+                }
+
+                self.loop_job = Some((key, LoopJob {
+                    phase: LoopPhase::Running,
+                    abort,
+                    frames_searched: 0,
+                    start_time: Instant::now(),
+                    task_handle: handle,
+                }));
+
+                return search_task;
+            }
+            Message::AbortLoopSearch => {
+                if let Some(key) = &self.synced_key
+                    && let Some((job_key, job)) = &mut self.loop_job
+                    && job_key == key
+                    && matches!(job.phase, LoopPhase::Running) {
+                    job.abort.store(true, Ordering::Relaxed);
+                    job.phase = LoopPhase::Aborting;
+                }
+            }
+            Message::LoopSearch(key, status) => {
+                let Some((job_key, job)) = &mut self.loop_job else {
+                    trace!("Dropping loop search event for missing job {:?}", key);
+                    return Task::none();
+                };
+
+                if *job_key != key {
+                    trace!("Dropping stale loop search event for {:?}", key);
+                    return Task::none();
+                }
+
+                match status {
+                    LoopStatus::Searching(frames) => job.frames_searched = frames,
+                    LoopStatus::Found(start, end) => {
+                        let was_aborting = matches!(job.phase, LoopPhase::Aborting);
+                        job.phase = LoopPhase::Done {
+                            result: if was_aborting { LoopResult::Terminated } else { LoopResult::Found },
+                            shown_at: None,
+                        };
+
+                        if !was_aborting && self.synced_key.as_ref() == Some(&key) {
+                            self.exporter.frame_start = start;
+                            self.exporter.frame_end = end;
+                            self.exporter.frame_start_str = start.to_string();
+                            self.exporter.frame_end_str = end.to_string();
+                        }
+                    }
+                    LoopStatus::Error(message) => {
+                        let was_aborting = matches!(job.phase, LoopPhase::Aborting);
+                        job.phase = LoopPhase::Done {
+                            result: if was_aborting { LoopResult::Terminated } else { LoopResult::Error(message) },
+                            shown_at: None,
+                        };
+                    }
+                }
+            }
             Message::Encoder(key, status) => {
                 let Some(job) = self.jobs.get_mut(&key) else {
                     trace!("Dropping encoder event for pruned export job {:?}", key);
@@ -575,6 +725,14 @@ impl State {
         );
         let is_locked = job_active;
 
+        let current_loop = self.loop_job.as_ref()
+            .filter(|(key, _)| Some(key) == self.synced_key.as_ref())
+            .map(|(_, job)| job);
+        let loop_active = matches!(
+            current_loop.map(|job| &job.phase),
+            Some(LoopPhase::Running | LoopPhase::Aborting)
+        );
+
         let selected_mode = match self.exporter.export_mode {
             ExportMode::Manual => "Manual",
             ExportMode::Loop => "Loop",
@@ -637,11 +795,31 @@ impl State {
                     text_input(&end_hint, &self.exporter.frame_end_str).on_input(Message::SetEndFrame).width(Length::Fixed(60.0)),
                 ].spacing(5).align_y(Alignment::Center)
             ].into(),
-            ExportMode::Loop => column![
-                row![text("Tolerance %"), text_input("30", &self.exporter.loop_tolerance_str).on_input(Message::SetLoopTolerance).width(Length::Fixed(50.0))].spacing(5),
-                row![text("Min Frames"), text_input("15", &self.exporter.loop_min_str).on_input(Message::SetLoopMin).width(Length::Fixed(50.0))].spacing(5),
-                row![text("Max Frames"), text_input("None", &self.exporter.loop_max_str).on_input(Message::SetLoopMax).width(Length::Fixed(50.0))].spacing(5),
-            ].spacing(5).into(),
+            ExportMode::Loop => {
+                let find_loop_button: Element<'_, Message> = match current_loop.map(|job| &job.phase) {
+                    Some(LoopPhase::Running | LoopPhase::Aborting) => {
+                        button(text("Abort Loop")).style(button::danger).width(Length::Fill).on_press(Message::AbortLoopSearch).into()
+                    }
+                    phase => {
+                        let is_terminated = matches!(phase, Some(LoopPhase::Done { result: LoopResult::Terminated, .. }));
+                        let label = if is_terminated { "Loop Terminated!" } else { "Find Loop" };
+                        let style = if is_terminated { button::danger } else { button::secondary };
+                        let mut find_button = button(text(label)).style(style).width(Length::Fill);
+                        if !job_active {
+                            find_button = find_button.on_press(Message::FindLoop);
+                        }
+                        find_button.into()
+                    }
+                };
+
+                column![
+                    row![text("Tolerance %"), text_input("30", &self.exporter.loop_tolerance_str).on_input(Message::SetLoopTolerance).width(Length::Fixed(50.0))].spacing(5),
+                    row![text("Min Frames"), text_input("15", &self.exporter.loop_min_str).on_input(Message::SetLoopMin).width(Length::Fixed(50.0))].spacing(5),
+                    row![text("Max Frames"), text_input("None", &self.exporter.loop_max_str).on_input(Message::SetLoopMax).width(Length::Fixed(50.0))].spacing(5),
+                    text(format!("Range: {}f ~ {}f", self.exporter.frame_start, self.exporter.frame_end)).size(13),
+                    find_loop_button,
+                ].spacing(5).into()
+            }
             ExportMode::Showcase => {
                 let walk_hint = self.exporter.detected_walk_len.to_string();
                 let idle_hint = self.exporter.detected_idle_len.to_string();
@@ -729,26 +907,35 @@ impl State {
             ].spacing(8).align_y(Alignment::Center),
         ].spacing(10);
 
-        let (ratio, status_label) = match current_job {
-            Some(job) => {
-                let progress_ratio = |value: i32| (value as f32 / job.total_frames.max(1) as f32).min(1.0);
+        let (ratio, status_label) = if let Some(job) = current_loop.filter(|job| matches!(job.phase, LoopPhase::Running | LoopPhase::Aborting)) {
+            let pulse = job.start_time.elapsed().as_secs_f32() % 1.0;
+            (pulse, format!("Searching | {} frames", job.frames_searched))
+        } else if let Some(job) = current_job {
+            let progress_ratio = |value: i32| (value as f32 / job.total_frames.max(1) as f32).min(1.0);
 
-                match &job.phase {
-                    JobPhase::Running => {
-                        if job.rendered_frames < job.total_frames {
-                            let ratio = progress_ratio(job.rendered_frames);
-                            (ratio, format!("Rendering | {}f/{}f ({}%)", job.rendered_frames, job.total_frames, (ratio * 100.0) as i32))
-                        } else {
-                            let ratio = progress_ratio(job.encoded_frames);
-                            (ratio, format!("Encoding | {}f/{}f ({}%)", job.encoded_frames, job.total_frames, (ratio * 100.0) as i32))
-                        }
+            match &job.phase {
+                JobPhase::Running => {
+                    if job.rendered_frames < job.total_frames {
+                        let ratio = progress_ratio(job.rendered_frames);
+                        (ratio, format!("Rendering | {}f/{}f ({}%)", job.rendered_frames, job.total_frames, (ratio * 100.0) as i32))
+                    } else {
+                        let ratio = progress_ratio(job.encoded_frames);
+                        (ratio, format!("Encoding | {}f/{}f ({}%)", job.encoded_frames, job.total_frames, (ratio * 100.0) as i32))
                     }
-                    JobPhase::Aborting => (1.0, "Aborting...".to_string()),
-                    JobPhase::Done { result: JobResult::Completed, .. } => (1.0, "Done".to_string()),
-                    JobPhase::Done { result: JobResult::Terminated, .. } => (1.0, "Export Terminated!".to_string()),
                 }
+                JobPhase::Aborting => (1.0, "Aborting...".to_string()),
+                JobPhase::Done { result: JobResult::Completed, .. } => (1.0, "Done".to_string()),
+                JobPhase::Done { result: JobResult::Terminated, .. } => (1.0, "Export Terminated!".to_string()),
             }
-            None => (1.0, "Ready".to_string()),
+        } else if let Some(LoopPhase::Done { result, .. }) = current_loop.map(|job| &job.phase) {
+            let label = match result {
+                LoopResult::Found => "Done".to_string(),
+                LoopResult::Terminated => "Loop Terminated!".to_string(),
+                LoopResult::Error(message) => message.clone(),
+            };
+            (1.0, label)
+        } else {
+            (1.0, "Ready".to_string())
         };
 
         let progress_section = column![
@@ -777,7 +964,7 @@ impl State {
                 let style = if is_terminated { button::danger } else { button::primary };
 
                 let mut begin = button(text(label)).style(style);
-                if is_valid && !is_locked {
+                if is_valid && !is_locked && !loop_active {
                     begin = begin.on_press(Message::BeginExport);
                 }
                 begin.into()
