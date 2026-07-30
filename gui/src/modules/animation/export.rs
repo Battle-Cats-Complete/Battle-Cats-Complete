@@ -113,10 +113,6 @@ pub enum Message {
 }
 
 impl State {
-    pub fn open(&mut self, settings: &mut Settings) {
-        settings.animation.export_popup_open = true;
-    }
-
     pub fn sync(&mut self, data: &data::State, settings: &Settings) {
         self.check_settings_defaults(settings);
 

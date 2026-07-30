@@ -6,7 +6,7 @@ use iced::widget::{button, column, container, row, rule, scrollable, space, text
 use iced::{Element, Length, Theme};
 use nyanko::chapter::Category;
 
-use core::modules::stage::filter::{CompiledStageFilter, StageFilterState};
+use core::modules::stage::filter::{CompiledStageFilter, StageFilterState, StageLookupContext};
 use core::modules::stage::{navigate, GlobalMapId, GlobalStageId, StageDataState};
 
 use super::category::CategoryExt;
@@ -29,6 +29,7 @@ pub struct State {
     matching_stages: HashSet<GlobalStageId>,
     matching_maps: HashSet<GlobalMapId>,
     matching_categories: HashSet<Category>,
+    sorted_categories: Option<Vec<Category>>,
 }
 
 impl State {
@@ -51,6 +52,12 @@ impl State {
     }
 
     pub fn refresh(&mut self, filter_state: &StageFilterState, data: &StageDataState) {
+        if self.sorted_categories.is_none() {
+            let mut categories = navigate::get_categories(&data.registry);
+            categories.sort_by_key(|category| category.sort_order());
+            self.sorted_categories = Some(categories);
+        }
+
         let mut hasher = DefaultHasher::new();
         filter_state.hash(&mut hasher);
         let current_hash = hasher.finish();
@@ -64,23 +71,13 @@ impl State {
             self.matching_categories.clear();
 
             if compiled.is_active() {
+                let ctx = StageLookupContext::from_data(data);
+
                 for (stage_key, stage) in &data.registry.stages {
                     let map_key = GlobalMapId { category: stage_key.category.clone(), map: stage_key.map };
                     let Some(map) = data.registry.maps.get(&map_key) else { continue };
 
-                    if compiled.matches(
-                        stage_key.category.display_name(),
-                        map,
-                        stage,
-                        &data.enemy_name_registry,
-                        &data.lock_skip_registry,
-                        &data.scat_cpu_setting,
-                        &data.item_buy_registry,
-                        &data.item_name_registry,
-                        &data.drop_chara_registry,
-                        &data.unit_buy_registry,
-                        &data.cat_name_registry,
-                    ) {
+                    if compiled.matches(stage_key.category.display_name(), map, stage, &ctx) {
                         self.matching_stages.insert(stage_key.clone());
                         self.matching_maps.insert(map_key);
                         self.matching_categories.insert(stage_key.category.clone());
@@ -94,12 +91,15 @@ impl State {
 
     pub fn invalidate(&mut self) {
         self.compiled_filter = None;
+        self.sorted_categories = None;
     }
 
     pub fn view<'a>(&'a self, data: &'a StageDataState, filter_state: &StageFilterState) -> Element<'a, Message> {
-        let categories = navigate::get_categories(&data.registry);
+        let Some(sorted_categories) = self.sorted_categories.as_ref() else {
+            return space().into();
+        };
 
-        if categories.is_empty() {
+        if sorted_categories.is_empty() {
             return container(text("No Stages Found").style(|theme: &Theme| text::Style {
                 color: Some(theme.palette().danger),
             }))
@@ -132,11 +132,8 @@ impl State {
 
         let mut sidebar_row = row![].height(Length::Fill);
 
-        let mut sorted_categories = categories;
-        sorted_categories.sort_by_key(|category| category.sort_order());
-
         let mut cat_col = column![].spacing(BTN_SPACING_Y).width(CATEGORY_COLUMN_WIDTH);
-        for category in sorted_categories {
+        for category in sorted_categories.iter().cloned() {
             if filter_active && !self.matching_categories.contains(&category) {
                 continue;
             }

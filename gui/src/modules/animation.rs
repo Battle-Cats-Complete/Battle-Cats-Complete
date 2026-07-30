@@ -77,7 +77,7 @@ impl State {
             }
             Message::Controls(controls::Message::OpenExport) => {
                 let was_open = settings.animation.export_popup_open;
-                self.export.open(settings);
+                settings.animation.export_popup_open = true;
                 if settings.animation.auto_set_camera_region && !was_open && !self.overlay.selecting {
                     return self.export.update(export::Message::UseBounds, &self.data, settings).map(Message::Export);
                 }
