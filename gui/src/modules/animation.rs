@@ -76,19 +76,19 @@ impl State {
                 Task::none()
             }
             Message::Controls(controls::Message::OpenExport) => {
-                let was_open = self.export.is_open;
-                self.export.open();
+                let was_open = settings.animation.export_popup_open;
+                self.export.open(settings);
                 if settings.animation.auto_set_camera_region && !was_open && !self.overlay.selecting {
                     return self.export.update(export::Message::UseBounds, &self.data, settings).map(Message::Export);
                 }
                 Task::none()
             }
             Message::Controls(msg) => {
-                self.controls.update(msg, &mut self.canvas, &mut self.data);
+                self.controls.update(msg, &mut self.canvas, &mut self.data, settings);
                 Task::none()
             }
             Message::Export(export::Message::SetCamera) => {
-                self.export.is_open = false;
+                settings.animation.export_popup_open = false;
                 self.overlay.selecting = true;
                 Task::none()
             }
@@ -99,7 +99,7 @@ impl State {
                     overlay::Message::Cancelled => {}
                 }
                 self.overlay.selecting = false;
-                self.export.is_open = true;
+                settings.animation.export_popup_open = true;
                 Task::none()
             }
             Message::Preloaded(result) => {
@@ -142,12 +142,12 @@ impl State {
         self.viewer_view(settings)
     }
 
-    pub fn export_popup_open(&self) -> bool {
-        self.export.is_open
+    pub fn export_popup_open(&self, settings: &Settings) -> bool {
+        settings.animation.export_popup_open
     }
 
-    pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
-        (self.export.is_open && self.data.held_unit.is_some())
+    pub fn export_popup_view(&self, window: Size, settings: &Settings) -> Option<Element<'_, Message>> {
+        (settings.animation.export_popup_open && self.data.held_unit.is_some())
             .then(|| self.export.view(window).map(Message::Export))
     }
 
@@ -172,10 +172,10 @@ impl State {
         let viewport = self.canvas.view(&self.data).map(Message::Canvas);
 
         let selection_overlay = self.overlay
-            .view(&self.canvas, self.export.camera_region(), settings.animation.debug_view)
+            .view(&self.canvas, self.export.camera_region(settings), settings.animation.debug_view)
             .map(Message::Overlay);
 
-        let controls_overlay = container(self.controls.view(&self.canvas, &self.data).map(Message::Controls))
+        let controls_overlay = container(self.controls.view(&self.canvas, &self.data, settings).map(Message::Controls))
             .width(Length::Fill)
             .align_x(iced::alignment::Horizontal::Left)
             .padding(10);

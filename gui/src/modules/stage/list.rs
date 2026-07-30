@@ -1,4 +1,5 @@
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
 use iced::widget::{button, column, container, row, rule, scrollable, space, text};
@@ -6,7 +7,7 @@ use iced::{Element, Length, Theme};
 use nyanko::chapter::Category;
 
 use core::modules::stage::filter::{CompiledStageFilter, StageFilterState};
-use core::modules::stage::{navigate, GlobalMapId, GlobalStageId, Map, StageDataState};
+use core::modules::stage::{navigate, GlobalMapId, GlobalStageId, StageDataState};
 
 use super::category::CategoryExt;
 
@@ -25,6 +26,9 @@ pub enum Message {
 #[derive(Default)]
 pub struct State {
     compiled_filter: Option<CompiledStageFilter>,
+    matching_stages: HashSet<GlobalStageId>,
+    matching_maps: HashSet<GlobalMapId>,
+    matching_categories: HashSet<Category>,
 }
 
 impl State {
@@ -46,7 +50,7 @@ impl State {
         }
     }
 
-    pub fn refresh(&mut self, filter_state: &StageFilterState) {
+    pub fn refresh(&mut self, filter_state: &StageFilterState, data: &StageDataState) {
         let mut hasher = DefaultHasher::new();
         filter_state.hash(&mut hasher);
         let current_hash = hasher.finish();
@@ -54,8 +58,42 @@ impl State {
         if self.compiled_filter.as_ref().is_none_or(|cf| cf.source_hash != current_hash) {
             let mut compiled = filter_state.compile();
             compiled.source_hash = current_hash;
+
+            self.matching_stages.clear();
+            self.matching_maps.clear();
+            self.matching_categories.clear();
+
+            if compiled.is_active() {
+                for (stage_key, stage) in &data.registry.stages {
+                    let map_key = GlobalMapId { category: stage_key.category.clone(), map: stage_key.map };
+                    let Some(map) = data.registry.maps.get(&map_key) else { continue };
+
+                    if compiled.matches(
+                        stage_key.category.display_name(),
+                        map,
+                        stage,
+                        &data.enemy_name_registry,
+                        &data.lock_skip_registry,
+                        &data.scat_cpu_setting,
+                        &data.item_buy_registry,
+                        &data.item_name_registry,
+                        &data.drop_chara_registry,
+                        &data.unit_buy_registry,
+                        &data.cat_name_registry,
+                    ) {
+                        self.matching_stages.insert(stage_key.clone());
+                        self.matching_maps.insert(map_key);
+                        self.matching_categories.insert(stage_key.category.clone());
+                    }
+                }
+            }
+
             self.compiled_filter = Some(compiled);
         }
+    }
+
+    pub fn invalidate(&mut self) {
+        self.compiled_filter = None;
     }
 
     pub fn view<'a>(&'a self, data: &'a StageDataState, filter_state: &StageFilterState) -> Element<'a, Message> {
@@ -76,6 +114,7 @@ impl State {
             return space().into();
         };
 
+        let filter_active = compiled_filter.is_active();
         let filter_btn_active = filter_state.is_active();
         let filter_btn = button(text("Filter Stages").size(13))
             .width(Length::Fill)
@@ -98,7 +137,7 @@ impl State {
 
         let mut cat_col = column![].spacing(BTN_SPACING_Y).width(CATEGORY_COLUMN_WIDTH);
         for category in sorted_categories {
-            if !has_matching_stage_in_category(data, compiled_filter, &category) {
+            if filter_active && !self.matching_categories.contains(&category) {
                 continue;
             }
 
@@ -112,12 +151,11 @@ impl State {
         sidebar_row = sidebar_row.push(scrollable(cat_col).height(Length::Fill));
 
         if let Some(category) = &data.selected_category {
-            let category_display_name = category.display_name();
             let mut map_col = column![].spacing(BTN_SPACING_Y).width(COLUMN_WIDTH);
 
             for map in navigate::get_maps(&data.registry, category) {
                 let map_key = GlobalMapId { category: category.clone(), map: map.map_id };
-                if !has_matching_stage_in_map(data, compiled_filter, category_display_name, &map_key, &map) {
+                if filter_active && !self.matching_maps.contains(&map_key) {
                     continue;
                 }
 
@@ -128,32 +166,20 @@ impl State {
         }
 
         if let Some(map_id) = &data.selected_map
-            && let Some(map) = data.registry.maps.get(map_id) {
-            let category_display_name = map_id.category.display_name();
+            && data.registry.maps.contains_key(map_id) {
             let mut stage_col = column![].spacing(BTN_SPACING_Y).width(COLUMN_WIDTH);
 
             for stage in navigate::get_stages(&data.registry, map_id) {
-                if !compiled_filter.matches(
-                    category_display_name,
-                    map,
-                    &stage,
-                    &data.enemy_name_registry,
-                    &data.lock_skip_registry,
-                    &data.scat_cpu_setting,
-                    &data.item_buy_registry,
-                    &data.item_name_registry,
-                    &data.drop_chara_registry,
-                    &data.unit_buy_registry,
-                    &data.cat_name_registry,
-                ) {
-                    continue;
-                }
-
                 let stage_key = GlobalStageId {
                     category: map_id.category.clone(),
                     map: map_id.map,
                     stage: stage.stage_id,
                 };
+
+                if filter_active && !self.matching_stages.contains(&stage_key) {
+                    continue;
+                }
+
                 let is_selected = data.selected_stage.as_ref() == Some(&stage_key);
                 stage_col = stage_col.push(sidebar_button(stage.name.clone(), is_selected, Message::SelectStage(stage_key)));
             }
@@ -198,43 +224,4 @@ fn sidebar_button(label: String, is_selected: bool, msg: Message) -> Element<'st
             ..Default::default()
         })
         .into()
-}
-
-fn has_matching_stage_in_map(
-    data: &StageDataState,
-    compiled_filter: &CompiledStageFilter,
-    category_display_name: &str,
-    map_key: &GlobalMapId,
-    map: &Map,
-) -> bool {
-    if !compiled_filter.is_active() {
-        return true;
-    }
-
-    navigate::get_stages(&data.registry, map_key).iter().any(|stage| {
-        compiled_filter.matches(
-            category_display_name,
-            map,
-            stage,
-            &data.enemy_name_registry,
-            &data.lock_skip_registry,
-            &data.scat_cpu_setting,
-            &data.item_buy_registry,
-            &data.item_name_registry,
-            &data.drop_chara_registry,
-            &data.unit_buy_registry,
-            &data.cat_name_registry,
-        )
-    })
-}
-
-fn has_matching_stage_in_category(data: &StageDataState, compiled_filter: &CompiledStageFilter, category: &Category) -> bool {
-    if !compiled_filter.is_active() {
-        return true;
-    }
-
-    navigate::get_maps(&data.registry, category).iter().any(|map| {
-        let map_key = GlobalMapId { category: category.clone(), map: map.map_id };
-        has_matching_stage_in_map(data, compiled_filter, category.display_name(), &map_key, map)
-    })
 }

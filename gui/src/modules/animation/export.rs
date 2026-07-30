@@ -72,7 +72,6 @@ struct LoopJob {
 
 #[derive(Default)]
 pub struct State {
-    pub is_open: bool,
     popup: popup::State,
     exporter: ExporterState,
     jobs: HashMap<JobKey, JobState>,
@@ -114,8 +113,8 @@ pub enum Message {
 }
 
 impl State {
-    pub fn open(&mut self) {
-        self.is_open = true;
+    pub fn open(&mut self, settings: &mut Settings) {
+        settings.animation.export_popup_open = true;
     }
 
     pub fn sync(&mut self, data: &data::State, settings: &Settings) {
@@ -253,8 +252,8 @@ impl State {
         self.exporter.zoom = 1.0;
     }
 
-    pub fn camera_region(&self) -> Option<Region> {
-        if self.is_open && self.exporter.region_w > 0.1 && self.exporter.region_h > 0.1 {
+    pub fn camera_region(&self, settings: &Settings) -> Option<Region> {
+        if settings.animation.export_popup_open && self.exporter.region_w > 0.1 && self.exporter.region_h > 0.1 {
             Some(Region {
                 x: self.exporter.region_x,
                 y: self.exporter.region_y,
@@ -313,7 +312,7 @@ impl State {
         match message {
             Message::Popup(msg) => {
                 if self.popup.update(msg, POPUP_SIZE) {
-                    self.is_open = false;
+                    settings.animation.export_popup_open = false;
                 }
             }
             Message::SetMode(mode) => {

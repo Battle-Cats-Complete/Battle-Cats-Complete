@@ -379,16 +379,16 @@ impl EnemyState {
         self.animation.expanded_view(settings).map(|view| view.map(Message::Animation))
     }
 
-    pub fn export_popup_open(&self) -> bool {
-        self.animation.export_popup_open()
+    pub fn export_popup_open(&self, settings: &Settings) -> bool {
+        self.animation.export_popup_open(settings)
     }
 
     pub fn export_popup_visible(&self) -> bool {
         self.selected_tab == EnemyDetailTab::Animation
     }
 
-    pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
-        self.animation.export_popup_view(window).map(|view| view.map(Message::Animation))
+    pub fn export_popup_view(&self, window: Size, settings: &Settings) -> Option<Element<'_, Message>> {
+        self.animation.export_popup_view(window, settings).map(|view| view.map(Message::Animation))
     }
 
     fn view_sidebar(&self) -> Element<'_, Message> {

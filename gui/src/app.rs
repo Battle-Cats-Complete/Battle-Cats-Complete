@@ -304,7 +304,7 @@ impl BattleCatsApp {
             Message::Cat(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
                 let task = self.cat_state.update(msg, &mut self.settings, global_ctx).map(Message::Cat);
-                self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open());
+                self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open(&self.settings));
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
                 task
             }
@@ -320,7 +320,7 @@ impl BattleCatsApp {
                     self.stage_state.sync_enemies(&self.enemy_state.data.enemies);
                 }
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
-                self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open());
+                self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open(&self.settings));
                 task
             }
             Message::Stage(msg) => {
@@ -420,7 +420,7 @@ impl BattleCatsApp {
                         return None;
                     }
 
-                    self.cat_state.export_popup_view(self.window_size).map(|view| view.map(Message::Cat))
+                    self.cat_state.export_popup_view(self.window_size, &self.settings).map(|view| view.map(Message::Cat))
                 }
                 ActivePopup::CatFilter => {
                     if !matches!(self.current_page, Page::Cats) {
@@ -434,7 +434,7 @@ impl BattleCatsApp {
                         return None;
                     }
 
-                    self.enemy_state.export_popup_view(self.window_size).map(|view| view.map(Message::Enemy))
+                    self.enemy_state.export_popup_view(self.window_size, &self.settings).map(|view| view.map(Message::Enemy))
                 }
                 ActivePopup::EnemyFilter => {
                     if !matches!(self.current_page, Page::Enemies) {

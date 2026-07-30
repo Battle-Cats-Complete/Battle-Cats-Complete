@@ -125,6 +125,7 @@ impl State {
                 self.treasure.clear_icons();
                 self.materials.clear_icons();
                 self.fixedlineup.clear_icons();
+                self.list.invalidate();
                 self.data.registry = bundle.registry;
 
                 let dictionaries = bundle.dictionaries;
@@ -167,7 +168,7 @@ impl State {
             }
         };
 
-        self.list.refresh(&self.filter.filter_state);
+        self.list.refresh(&self.filter.filter_state, &self.data);
         task
     }
 

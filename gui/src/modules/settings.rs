@@ -492,7 +492,7 @@ impl State {
             row![
                 text("Default Level:"),
                 text_input("Level", &self.default_cat_level_buffer)
-                    .on_input(Message::DefaultLevelChanged)
+                    .on_input_maybe((!core_settings.cat_data.auto_level_calculations).then_some(Message::DefaultLevelChanged))
                     .width(Length::Fixed(60.0)),
             ].spacing(10).align_y(Alignment::Center),
 

@@ -578,8 +578,8 @@ impl State {
         self.animation.expanded_view(settings).map(|view| view.map(Message::Animation))
     }
 
-    pub fn export_popup_open(&self) -> bool {
-        self.animation.export_popup_open()
+    pub fn export_popup_open(&self, settings: &Settings) -> bool {
+        self.animation.export_popup_open(settings)
     }
 
     pub fn export_popup_visible(&self) -> bool {
@@ -597,8 +597,8 @@ impl State {
             .then(|| self.filter.view(&self.img015_sheets, &self.custom_assets, window).map(Message::Filter))
     }
 
-    pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
-        self.animation.export_popup_view(window).map(|view| view.map(Message::Animation))
+    pub fn export_popup_view(&self, window: Size, settings: &Settings) -> Option<Element<'_, Message>> {
+        self.animation.export_popup_view(window, settings).map(|view| view.map(Message::Animation))
     }
 
     pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
