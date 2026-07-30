@@ -93,7 +93,6 @@ impl Default for GeneralSettings {
 #[serde(default)]
 pub struct CatDataSettings {
     pub preferred_banner_form: usize,
-    pub high_banner_quality: bool,
     pub show_invalid_cats: bool,
     pub expand_spirit_details: bool,
     pub default_level: i32,
@@ -105,7 +104,6 @@ impl Default for CatDataSettings {
     fn default() -> Self {
         Self {
             preferred_banner_form: 3,
-            high_banner_quality: true,
             show_invalid_cats: false,
             expand_spirit_details: false,
             default_level: 50,

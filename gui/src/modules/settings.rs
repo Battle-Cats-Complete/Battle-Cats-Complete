@@ -42,8 +42,6 @@ enum DesktopFeedback {
 #[derive(Debug, Clone)]
 pub enum Message {
     TabSelected(Tab),
-
-    // General Tab
     ToggleLogging(bool),
     ToggleNightly(bool),
     UpdateModeSelected(UpdateMode),
@@ -55,39 +53,22 @@ pub enum Message {
     #[cfg(target_os = "linux")]
     DesktopFeedbackExpired,
     ManualUpdateCheck,
-
-    // Cats Tab
     PreferredBannerSelected(usize),
-    ToggleSmoothBanner(bool),
     ToggleInvalidCats(bool),
     ToggleExpandSpirit(bool),
     DefaultLevelChanged(String),
     ToggleAutoLevel(bool),
     ToggleBumpUltra(bool),
-
-    // Enemies Tab
     ToggleInvalidEnemies(bool),
-
-    // Stages Tab
     SidebarBehaviorSelected(SidebarBehavior),
-
-    // Mods Tab
     ExportBehaviorSelected(ExportBehavior),
-
-    // Data Tab
     ToggleKeyValidation(bool),
     ToggleAppPersistence(bool),
     Keys(keys::Message),
     Exceptions(exceptions::Message),
     Disk(disk::Message),
-
-    // Mods Tab (PEM)
     Pem(pem::Message),
-
-    // Addons Tab
     Addons(addons::Message),
-
-    // Animation Tab
     ToggleDebugView(bool),
     ToggleTightBounds(bool),
     ToggleAutoCamera(bool),
@@ -151,7 +132,6 @@ impl State {
                 Task::none()
             }
 
-            // General Tab
             Message::ToggleLogging(enabled) => {
                 core_settings.general.enable_logging = enabled;
                 Task::none()
@@ -201,13 +181,8 @@ impl State {
                 Task::none()
             }
 
-            // Cats Tab
             Message::PreferredBannerSelected(val) => {
                 core_settings.cat_data.preferred_banner_form = val;
-                Task::none()
-            }
-            Message::ToggleSmoothBanner(val) => {
-                core_settings.cat_data.high_banner_quality = val;
                 Task::none()
             }
             Message::ToggleInvalidCats(val) => {
@@ -234,26 +209,22 @@ impl State {
                 Task::none()
             }
 
-            // Enemies Tab
             Message::ToggleInvalidEnemies(val) => {
                 core_settings.enemy_data.show_invalid_enemies = val;
                 Task::none()
             }
 
-            // Stages Tab
             Message::SidebarBehaviorSelected(val) => {
                 core_settings.stages.sidebar_behavior = val;
                 Task::none()
             }
 
-            // Mods Tab
             Message::ExportBehaviorSelected(val) => {
                 core_settings.mods.export_behavior = val;
                 Task::none()
             }
             Message::Pem(msg) => self.pem.update(msg).map(Message::Pem),
 
-            // Data Tab
             Message::ToggleKeyValidation(val) => {
                 core_settings.game_data.enforce_key_validation = val;
                 Task::none()
@@ -266,10 +237,8 @@ impl State {
             Message::Exceptions(msg) => self.exceptions.update(msg).map(Message::Exceptions),
             Message::Disk(msg) => self.disk.update(msg).map(Message::Disk),
 
-            // Addons Tab
             Message::Addons(msg) => self.addons.update(msg).map(Message::Addons),
 
-            // Animation Tab
             Message::ToggleDebugView(val) => {
                 core_settings.animation.debug_view = val;
                 Task::none()
@@ -507,11 +476,6 @@ impl State {
                     Message::PreferredBannerSelected,
                 ),
             ].spacing(10).align_y(Alignment::Center),
-
-            row![
-                toggler(core_settings.cat_data.high_banner_quality).on_toggle(Message::ToggleSmoothBanner),
-                text("Smooth Banner Scaling"),
-            ].spacing(10),
 
             row![
                 toggler(core_settings.cat_data.show_invalid_cats).on_toggle(Message::ToggleInvalidCats),

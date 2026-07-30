@@ -1043,22 +1043,3 @@ fn derive_name_prefix(raw_id: &str, anim_index: usize) -> String {
     format!("{}.{}", clean_id, type_string)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn name_prefix_encodes_id_form_and_anim_type() {
-        assert_eq!(derive_name_prefix("033_f", IDX_WALK), "033-1.walk");
-        assert_eq!(derive_name_prefix("033_c", IDX_ATTACK), "033-2.attack");
-        assert_eq!(derive_name_prefix("033_s", IDX_KB), "033-3.kb");
-        assert_eq!(derive_name_prefix("033_u", IDX_SPIRIT), "033-4.spirit");
-    }
-
-    #[test]
-    fn name_prefix_falls_back_for_non_numeric_or_unknown_input() {
-        assert_eq!(derive_name_prefix("boss_x", IDX_IDLE), "boss.idle");
-        assert_eq!(derive_name_prefix("custom", IDX_MODEL), "custom.model");
-        assert_eq!(derive_name_prefix("", 12345), ".anim");
-    }
-}

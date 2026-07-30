@@ -56,8 +56,6 @@ impl Default for State {
         let (tx_request, rx_request) = mpsc::channel::<LoadRequest>();
         let (tx_result, rx_result) = unbounded::<LoadResult>();
 
-        // Dedicated dispatcher thread hands each request off to rayon's pool, mirroring
-        // cat/list.rs and enemy/list.rs so icon decoding never blocks the render loop.
         thread::spawn(move || {
             while let Ok(request) = rx_request.recv() {
                 let tx = tx_result.clone();

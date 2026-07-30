@@ -467,8 +467,6 @@ impl State {
             column![title, row![yes_btn, no_btn].spacing(16)].into()
         )
     }
-
-    // Helper function for reducing code duplication in the view
     fn modal_container<'a>(&self, title: &str, close_msg: Message, content: Element<'a, Message>) -> Element<'a, Message> {
         let header = row![
             text(title.to_string()).size(20),
@@ -503,7 +501,6 @@ fn job_finished(result: Result<(), String>) -> JobEvent {
     })
 }
 
-// Styling closures for buttons
 fn primary_button_style(theme: &Theme, status: button::Status) -> button::Style {
     let palette = theme.palette();
     let bg = if status == button::Status::Hovered {

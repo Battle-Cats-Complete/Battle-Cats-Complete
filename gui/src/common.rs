@@ -3,6 +3,7 @@ pub mod img015;
 pub mod img022;
 pub mod name_box;
 pub mod popup;
+pub mod row_window;
 pub mod shared;
 pub mod stat_grid;
 pub mod watcher;

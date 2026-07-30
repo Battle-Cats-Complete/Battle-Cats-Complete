@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use iced::futures::channel::mpsc::{unbounded, UnboundedReceiver};
 use iced::widget::image::Handle;
-use iced::widget::{button, column, container, image as iced_image, row, scrollable, text, tooltip};
-use iced::{Border, Color, Element, Length, Task, Theme};
+use iced::widget::{button, column, container, image as iced_image, responsive, row, scrollable, space, text, tooltip, Column};
+use iced::{Border, Color, Element, Length, Size, Task, Theme};
 use image::{imageops, RgbaImage};
 use tracing::{info, warn};
 
@@ -16,12 +16,13 @@ use core::common::{assets, gfx};
 use core::modules::cat::filter::{evaluation, CatFilterState};
 use core::modules::cat::scanner::CatEntry;
 
-const ROW_HEIGHT: f32 = 50.0;
+use crate::common::row_window::{self, RowWindow};
 
 #[derive(Clone)]
 pub enum Message {
     IconLoaded(LoadResult),
     SelectCat(u32),
+    Scrolled(f32),
 }
 
 impl std::fmt::Debug for Message {
@@ -29,6 +30,7 @@ impl std::fmt::Debug for Message {
         match self {
             Self::IconLoaded(result) => write!(f, "IconLoaded({})", result.id),
             Self::SelectCat(id) => write!(f, "SelectCat({})", id),
+            Self::Scrolled(offset) => write!(f, "Scrolled({})", offset),
         }
     }
 }
@@ -37,7 +39,6 @@ struct LoadRequest {
     id: u32,
     path: PathBuf,
     background: Arc<RgbaImage>,
-    high_quality: bool,
     generation: u64,
 }
 
@@ -58,6 +59,7 @@ pub struct State {
     last_unit_count: usize,
     last_filter_state: CatFilterState,
     cached_indices: Vec<usize>,
+    scroll_offset: f32,
     generation: u64,
     tx_request: Sender<LoadRequest>,
     rx_result: Option<UnboundedReceiver<LoadResult>>,
@@ -78,14 +80,11 @@ impl Default for State {
         let (tx_request, rx_request) = mpsc::channel::<LoadRequest>();
         let (tx_result, rx_result) = unbounded::<LoadResult>();
 
-        // Dedicated dispatcher thread hands each request off to rayon's pool for the
-        // actual decode/composite work. Plain std::thread + mpsc: no async runtime
-        // needed, so this can't panic on a missing Tokio reactor.
         thread::spawn(move || {
             while let Ok(request) = rx_request.recv() {
                 let tx = tx_result.clone();
                 rayon::spawn(move || {
-                    let payload = composite_banner(&request.path, &request.background, request.high_quality);
+                    let payload = composite_banner(&request.path, &request.background);
                     let _ = tx.unbounded_send(LoadResult { id: request.id, payload, generation: request.generation });
                 });
             }
@@ -101,6 +100,7 @@ impl Default for State {
             last_unit_count: usize::MAX,
             last_filter_state: CatFilterState::default(),
             cached_indices: Vec::new(),
+            scroll_offset: 0.0,
             generation: 0,
             tx_request,
             rx_result: Some(rx_result),
@@ -117,6 +117,11 @@ impl State {
     }
 
     pub fn update(&mut self, message: Message) {
+        if let Message::Scrolled(offset) = message {
+            self.scroll_offset = offset;
+            return;
+        }
+
         let Message::IconLoaded(result) = message else { return };
 
         if result.generation != self.generation {
@@ -142,8 +147,7 @@ impl State {
         self.last_unit_count = usize::MAX;
     }
 
-    // Called from every parent `update`, so the list reflects new data/search/filter state immediately.
-    pub fn refresh(&mut self, cats: &[CatEntry], query: &str, filter_state: &CatFilterState, high_banner_quality: bool) {
+    pub fn refresh(&mut self, cats: &[CatEntry], query: &str, filter_state: &CatFilterState) {
         if query == self.last_search_query && cats.len() == self.last_unit_count && filter_state == &self.last_filter_state {
             return;
         }
@@ -172,10 +176,10 @@ impl State {
 
         info!("Visible cats: {} (of {} total)", self.cached_indices.len(), cats.len());
 
-        self.dispatch_requests(cats, high_banner_quality);
+        self.dispatch_requests(cats);
     }
 
-    fn dispatch_requests(&mut self, cats: &[CatEntry], high_banner_quality: bool) {
+    fn dispatch_requests(&mut self, cats: &[CatEntry]) {
         let Some(background) = self.background.clone() else { return; };
 
         for &index in &self.cached_indices {
@@ -193,24 +197,44 @@ impl State {
 
             self.pending_requests.insert(id);
 
-            let _ = self.tx_request.send(LoadRequest { id, path, background: background.clone(), high_quality: high_banner_quality, generation: self.generation });
+            let _ = self.tx_request.send(LoadRequest { id, path, background: background.clone(), generation: self.generation });
         }
     }
 
     pub fn view<'a>(&'a self, cats: &'a [CatEntry], selected_id: Option<u32>) -> Element<'a, Message> {
-        let mut list_col = column![].spacing(4).width(Length::Fill);
+        responsive(move |size: Size| {
+            let RowWindow { range, pad_before, pad_after } =
+                row_window::compute(self.cached_indices.len(), size.height, self.scroll_offset);
 
-        for &index in &self.cached_indices {
-            let Some(cat) = cats.get(index) else { continue; };
-            list_col = list_col.push(self.view_row(cat, selected_id == Some(cat.id)));
-        }
+            let mut list_col = Column::with_capacity(range.len() + 2)
+                .spacing(row_window::ROW_SPACING)
+                .width(Length::Fill);
 
-        scrollable(list_col).height(Length::Fill).width(Length::Fill).into()
+            if pad_before > 0.0 {
+                list_col = list_col.push(space().height(Length::Fixed(pad_before)));
+            }
+
+            for &index in &self.cached_indices[range] {
+                let Some(cat) = cats.get(index) else { continue; };
+                list_col = list_col.push(self.view_row(cat, selected_id == Some(cat.id)));
+            }
+
+            if pad_after > 0.0 {
+                list_col = list_col.push(space().height(Length::Fixed(pad_after)));
+            }
+
+            scrollable(list_col)
+                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+                .height(Length::Fill)
+                .width(Length::Fill)
+                .into()
+        })
+            .into()
     }
 
     fn view_row<'a>(&'a self, cat: &'a CatEntry, is_selected: bool) -> Element<'a, Message> {
         let handle = self.texture_cache.get(&cat.id).cloned().unwrap_or_else(|| self.placeholder.clone());
-        let banner = iced_image(handle).height(Length::Fixed(ROW_HEIGHT));
+        let banner = iced_image(handle).height(Length::Fixed(row_window::ROW_HEIGHT));
 
         let banner_button = button(row![banner].width(Length::Fill))
             .on_press(Message::SelectCat(cat.id))
@@ -252,7 +276,7 @@ impl State {
     }
 }
 
-fn composite_banner(path: &PathBuf, background: &RgbaImage, high_quality: bool) -> Option<(u32, u32, Vec<u8>)> {
+fn composite_banner(path: &PathBuf, background: &RgbaImage) -> Option<(u32, u32, Vec<u8>)> {
     for _ in 0..3 {
         if !path.exists() {
             return None;
@@ -281,15 +305,10 @@ fn composite_banner(path: &PathBuf, background: &RgbaImage, high_quality: bool) 
 
         imageops::overlay(&mut final_image, &unit_img, x, y);
 
-        let (target_h, filter) = if high_quality {
-            (100, imageops::FilterType::Lanczos3)
-        } else {
-            (50, imageops::FilterType::Nearest)
-        };
-
-        let ratio = target_h as f32 / final_image.height() as f32;
+        const TARGET_H: u32 = 100;
+        let ratio = TARGET_H as f32 / final_image.height() as f32;
         let target_w = (final_image.width() as f32 * ratio) as u32;
-        let resized = imageops::resize(&final_image, target_w, target_h, filter);
+        let resized = imageops::resize(&final_image, target_w, TARGET_H, imageops::FilterType::Lanczos3);
 
         return Some((resized.width(), resized.height(), resized.into_raw()));
     }

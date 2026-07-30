@@ -4,12 +4,7 @@ mod draw;
 use iced::{Color, Theme};
 use image::RgbaImage;
 
-/// Result of a background statblock export job.
-///
-/// Copy only builds the image on the background thread — the clipboard itself must be set from
-/// the caller's persistent, main-thread `arboard::Clipboard` (see `builder::copy_to_clipboard`),
-/// since dropping a short-lived `Clipboard` hands the X11/Wayland selection ownership back and
-/// the copied content becomes unreadable by other applications.
+
 #[derive(Clone)]
 pub enum JobResult {
     Copy(Result<RgbaImage, String>),

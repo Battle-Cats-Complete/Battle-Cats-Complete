@@ -6,8 +6,8 @@ use std::thread;
 
 use iced::futures::channel::mpsc::{unbounded, UnboundedReceiver};
 use iced::widget::image::Handle;
-use iced::widget::{button, column, container, image as iced_image, row, scrollable, text, tooltip};
-use iced::{Border, Color, Element, Length, Task, Theme};
+use iced::widget::{button, column, container, image as iced_image, responsive, row, scrollable, space, text, tooltip, Column};
+use iced::{Border, Color, Element, Length, Size, Task, Theme};
 use image::{imageops, Pixel, RgbaImage};
 use tracing::warn;
 
@@ -16,7 +16,8 @@ use core::modules::enemy::filter::evaluation::entity_passes_filter;
 use core::modules::enemy::filter::EnemyFilterState;
 use core::modules::enemy::scanner::EnemyEntry;
 
-const ROW_HEIGHT: f32 = 50.0;
+use crate::common::row_window::{self, RowWindow};
+
 const ENEMY_ICON_SCALE_FACTOR: f32 = 2.6;
 const ENEMY_ICON_OFFSET_X: i64 = 8;
 const ENEMY_SHADOW_MARGIN: u32 = 8;
@@ -25,6 +26,7 @@ const ENEMY_SHADOW_MARGIN: u32 = 8;
 pub enum Message {
     IconLoaded(LoadResult),
     SelectEnemy(u32),
+    Scrolled(f32),
 }
 
 impl std::fmt::Debug for Message {
@@ -32,6 +34,7 @@ impl std::fmt::Debug for Message {
         match self {
             Self::IconLoaded(result) => write!(f, "IconLoaded({})", result.id),
             Self::SelectEnemy(id) => write!(f, "SelectEnemy({})", id),
+            Self::Scrolled(offset) => write!(f, "Scrolled({})", offset),
         }
     }
 }
@@ -60,6 +63,7 @@ pub struct State {
     last_unit_count: usize,
     last_filter_state: EnemyFilterState,
     cached_indices: Vec<usize>,
+    scroll_offset: f32,
     generation: u64,
     tx_request: Sender<LoadRequest>,
     rx_result: Option<UnboundedReceiver<LoadResult>>,
@@ -100,6 +104,7 @@ impl Default for State {
             last_unit_count: usize::MAX,
             last_filter_state: EnemyFilterState::default(),
             cached_indices: Vec::new(),
+            scroll_offset: 0.0,
             generation: 0,
             tx_request,
             rx_result: Some(rx_result),
@@ -116,6 +121,11 @@ impl State {
     }
 
     pub fn update(&mut self, message: Message) {
+        if let Message::Scrolled(offset) = message {
+            self.scroll_offset = offset;
+            return;
+        }
+
         let Message::IconLoaded(result) = message else { return };
 
         if result.generation != self.generation {
@@ -197,19 +207,39 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, entries: &'a [EnemyEntry], selected_id: Option<u32>) -> Element<'a, Message> {
-        let mut list_col = column![].spacing(4).width(Length::Fill);
+        responsive(move |size: Size| {
+            let RowWindow { range, pad_before, pad_after } =
+                row_window::compute(self.cached_indices.len(), size.height, self.scroll_offset);
 
-        for &index in &self.cached_indices {
-            let Some(entry) = entries.get(index) else { continue; };
-            list_col = list_col.push(self.view_row(entry, selected_id == Some(entry.id)));
-        }
+            let mut list_col = Column::with_capacity(range.len() + 2)
+                .spacing(row_window::ROW_SPACING)
+                .width(Length::Fill);
 
-        scrollable(list_col).height(Length::Fill).width(Length::Fill).into()
+            if pad_before > 0.0 {
+                list_col = list_col.push(space().height(Length::Fixed(pad_before)));
+            }
+
+            for &index in &self.cached_indices[range] {
+                let Some(entry) = entries.get(index) else { continue; };
+                list_col = list_col.push(self.view_row(entry, selected_id == Some(entry.id)));
+            }
+
+            if pad_after > 0.0 {
+                list_col = list_col.push(space().height(Length::Fixed(pad_after)));
+            }
+
+            scrollable(list_col)
+                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+                .height(Length::Fill)
+                .width(Length::Fill)
+                .into()
+        })
+            .into()
     }
 
     fn view_row<'a>(&'a self, entry: &'a EnemyEntry, is_selected: bool) -> Element<'a, Message> {
         let handle = self.texture_cache.get(&entry.id).cloned().unwrap_or_else(|| self.placeholder.clone());
-        let icon = iced_image(handle).height(Length::Fixed(ROW_HEIGHT));
+        let icon = iced_image(handle).height(Length::Fixed(row_window::ROW_HEIGHT));
 
         let icon_button = button(row![icon].width(Length::Fill))
             .on_press(Message::SelectEnemy(entry.id))

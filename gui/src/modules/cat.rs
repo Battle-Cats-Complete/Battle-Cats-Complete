@@ -313,7 +313,7 @@ impl State {
         let task = self.update_inner(message, settings, global_ctx);
 
         self.sync_ultra_bump(settings);
-        self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state, settings.cat_data.high_banner_quality);
+        self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
 
         task
     }
