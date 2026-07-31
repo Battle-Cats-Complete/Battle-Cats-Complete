@@ -166,12 +166,22 @@ pub fn confirm_modal_container(theme: &Theme) -> container::Style {
     }
 }
 
-#[allow(dead_code)]
 pub fn rounded_input(theme: &Theme, status: text_input::Status) -> text_input::Style {
     let style = text_input::default(theme, status);
+    let shade = |c: f32, factor: f32| c * factor;
+    let background = match style.background {
+        Background::Color(color) => Background::Color(Color {
+            r: shade(color.r, 0.7),
+            g: shade(color.g, 0.7),
+            b: shade(color.b, 0.7),
+            a: color.a,
+        }),
+        other => other,
+    };
 
     text_input::Style {
-        border: Border { radius: Radius::from(RADIUS_MD), ..style.border },
+        background,
+        border: Border { radius: Radius::from(RADIUS_SM), ..style.border },
         ..style
     }
 }

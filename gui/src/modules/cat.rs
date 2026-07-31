@@ -625,7 +625,8 @@ impl State {
             .on_input(Message::SearchChanged)
             .padding(4)
             .size(13)
-            .width(Length::Fill);
+            .width(Length::Fill)
+            .style(theme::rounded_input);
 
         let filter_button = button(
             text("Filter")
