@@ -636,7 +636,8 @@ impl State {
         )
             .on_press(Message::Filter(filter::Message::Toggle))
             .padding([4, 8])
-            .width(Length::Fill);
+            .width(Length::Fill)
+            .style(move |t: &Theme, status| theme::toggle_button(t, status, self.filter.filter_state.is_active()));
 
         let cat_list = self.list.view(&self.data.cats, self.selected_cat).map(Message::List);
 
