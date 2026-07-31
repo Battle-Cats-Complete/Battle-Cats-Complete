@@ -17,6 +17,9 @@ use core::modules::cat::filter::{evaluation, CatFilterState};
 use core::modules::cat::scanner::CatEntry;
 
 use crate::common::row_window::{self, RowWindow};
+const BANNER_ASPECT: f32 = 318.0 / 133.0;
+const SCROLLBAR_WIDTH: f32 = 16.0;
+pub(super) const LIST_WIDTH: f32 = row_window::ROW_HEIGHT * BANNER_ASPECT + SCROLLBAR_WIDTH;
 
 #[derive(Clone)]
 pub enum Message {

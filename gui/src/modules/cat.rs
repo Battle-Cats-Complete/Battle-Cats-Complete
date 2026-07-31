@@ -613,34 +613,47 @@ impl State {
     }
 
     fn view_sidebar(&self) -> Element<'_, Message> {
+        const SEARCH_FILTER_GAP: f32 = 4.0;
+        const FILTER_LIST_GAP: f32 = 4.0;
+
         let search_input = text_input("Search Cat...", &self.search_query)
             .on_input(Message::SearchChanged)
-            .padding(8)
+            .padding(4)
+            .size(13)
             .width(Length::Fill);
 
-        let filter_button = button(text("Filter").align_x(Horizontal::Center))
+        let filter_button = button(
+            text("Filter")
+                .size(13)
+                .align_x(Horizontal::Center)
+                .width(Length::Fill)
+        )
             .on_press(Message::Filter(filter::Message::Toggle))
+            .padding([4, 8])
             .width(Length::Fill);
 
         let cat_list = self.list.view(&self.data.cats, self.selected_cat).map(Message::List);
 
         let mut sidebar = column![
-            row![search_input, filter_button].spacing(4),
-            Space::new().height(Length::Fixed(8.0)),
+            search_input,
+            Space::new().height(Length::Fixed(SEARCH_FILTER_GAP)),
+            filter_button,
+            Space::new().height(Length::Fixed(FILTER_LIST_GAP)),
         ];
 
         if let Some((done, total)) = self.scan_progress {
             sidebar = sidebar.push(text(format!("Scanning cats... {}/{}", done, total)).size(12));
+            sidebar = sidebar.push(Space::new().height(Length::Fixed(FILTER_LIST_GAP)));
         }
 
         sidebar = sidebar.push(cat_list);
 
         container(
             sidebar
-                .spacing(4)
+                .spacing(0)
                 .height(Length::Fill)
         )
-            .width(Length::Fixed(220.0))
+            .width(Length::Fixed(list::LIST_WIDTH + 16.0))
             .height(Length::Fill)
             .padding(8)
             .style(container::bordered_box)
