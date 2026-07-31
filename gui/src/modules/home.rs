@@ -19,15 +19,9 @@ const SPACE_BETWEEN_SECTIONS: f32 = 20.0;
 const BUTTON_WIDTH: f32 = 120.0;
 const BUTTON_SPACING: f32 = 10.0;
 
-const NOTICE_TITLE: &str = "VERSION 1.0.0 UPDATE";
+const NOTICE_TITLE: &str = "TEST";
 const NOTICE_CONTENT: &str = r#"
-Battle Cats Complete has officially hit version 1.0.0! Featuring Cat stats, Enemy stats, Animations, Stages, and Mods!
-
-You will have to re-sort your database to allow stages to be parsed correctly. If you have a pre-existing database go to "Data" page, select "Raw" import type, change the drop down from "Archive" to "Folder" (if it isnt already), and select your "game" folder for import.
-
-Updates will not cease entirely, the project will only slow down. Extra utilities will occasionally be added, as well as minor features. And of course, bugs will always be fixed. The backend may also be reworked a few times, which will allow to app to grow faster!
-
-That doesnt mean Battle Cats Complete is "done" however. There are plans for more daunting features in the future. But for now, the developer is going to take a break and go in "Maintenance Mode" for a while.
+This is a test pop-up, if you are seeing this, tell @omochikeari15 she accidentally shipped a test in an stable release.
 "#;
 
 #[derive(Serialize, Deserialize, Default)]

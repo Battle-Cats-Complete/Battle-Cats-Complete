@@ -79,6 +79,35 @@ pub fn toggle_button(theme: &Theme, status: button::Status, is_active: bool) -> 
     }
 }
 
+pub fn header_toggle_button(theme: &Theme, status: button::Status, is_selected: bool, is_available: bool) -> button::Style {
+    let palette = theme.palette();
+    let lighten = |c: f32, factor: f32| c + (1.0 - c) * factor;
+    let border_color = Color {
+        r: lighten(palette.background.r, 0.4),
+        g: lighten(palette.background.g, 0.4),
+        b: lighten(palette.background.b, 0.4),
+        a: palette.background.a,
+    };
+
+    if !is_available {
+        let ext = theme.extended_palette();
+
+        return button::Style {
+            background: Some(Background::Color(ext.background.weak.color)),
+            text_color: Color { a: 0.4, ..ext.background.weak.text },
+            border: Border { color: border_color, width: 1.0, radius: Radius::from(RADIUS_SM) },
+            ..button::Style::default()
+        };
+    }
+
+    let base = toggle_button(theme, status, is_selected);
+
+    button::Style {
+        border: Border { color: border_color, width: 1.0, ..base.border },
+        ..base
+    }
+}
+
 pub fn solid_button(background: Color) -> button::Style {
     button::Style {
         background: Some(Background::Color(background)),

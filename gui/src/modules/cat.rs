@@ -12,7 +12,7 @@ use arboard::Clipboard;
 use iced::alignment::{Horizontal, Vertical};
 use iced::futures::channel::mpsc;
 use iced::widget::{
-    button, column, container, row, scrollable,
+    button, column, container, row, rule, scrollable,
     text, text_input, Space,
 };
 use iced::{Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
@@ -39,6 +39,10 @@ use crate::modules::statblock::{feedback_color, feedback_label};
 
 use super::statblock::{builder, JobResult};
 use statblock::build_cat_statblock;
+
+const HEADER_BUTTON_WIDTH: f32 = 65.0;
+const HEADER_BUTTON_HEIGHT: f32 = 26.0;
+const HEADER_BUTTON_TOP_PADDING: f32 = 5.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
@@ -696,23 +700,28 @@ impl State {
         ]
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(16)
+            .padding(iced::Padding { top: 4.0, right: 16.0, bottom: 16.0, left: 16.0 })
             .into()
     }
 
     fn view_header(&self, cat: &CatEntry) -> Element<'_, Message> {
-        let mut form_row = row![].spacing(8);
+        let mut form_row = row![].spacing(4);
         let form_labels = ["Normal", "Evolved", "True", "Ultra"];
 
         for (i, label) in form_labels.iter().enumerate() {
             let exists = cat.forms.get(i).copied().unwrap_or(false);
-            if exists {
-                let mut btn = button(text(*label)).padding([4, 12]);
-                if self.selected_form != i {
-                    btn = btn.on_press(Message::SelectForm(i));
-                }
-                form_row = form_row.push(btn);
-            }
+            let is_selected = self.selected_form == i;
+
+            let btn = button(text(*label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+                .width(Length::Fixed(HEADER_BUTTON_WIDTH))
+                .height(Length::Fixed(HEADER_BUTTON_HEIGHT))
+                .on_press_maybe(exists.then_some(Message::SelectForm(i)))
+                .style(move |theme: &Theme, status| button::Style {
+                    border: Border { radius: 0.0.into(), ..theme::header_toggle_button(theme, status, is_selected, exists).border },
+                    ..theme::header_toggle_button(theme, status, is_selected, exists)
+                });
+
+            form_row = form_row.push(btn);
         }
 
         let copy_busy = self.statblock_pending == Some(ExportAction::Copy);
@@ -739,7 +748,7 @@ impl State {
                 ..Default::default()
             });
 
-        let mut tab_row = row![].spacing(8);
+        let mut tab_row = row![].spacing(4);
         let tabs = [
             (DetailTab::Abilities, "Abilities"),
             (DetailTab::Talents, "Talents"),
@@ -749,19 +758,20 @@ impl State {
 
         for (tab_enum, label) in tabs {
             let is_talents = tab_enum == DetailTab::Talents;
-            let enabled = if is_talents {
+            let available = if is_talents {
                 self.selected_form >= 2 && cat.talent_data.is_some()
             } else {
                 true
             };
+            let is_selected = self.selected_tab == tab_enum;
 
-            if enabled {
-                let mut btn = button(text(label)).padding([4, 12]);
-                if self.selected_tab != tab_enum {
-                    btn = btn.on_press(Message::SelectTab(tab_enum));
-                }
-                tab_row = tab_row.push(btn);
-            }
+            let btn = button(text(label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+                .width(Length::Fixed(HEADER_BUTTON_WIDTH))
+                .height(Length::Fixed(HEADER_BUTTON_HEIGHT))
+                .on_press_maybe(available.then_some(Message::SelectTab(tab_enum)))
+                .style(move |theme: &Theme, status| theme::header_toggle_button(theme, status, is_selected, available));
+
+            tab_row = tab_row.push(btn);
         }
 
         let level_row = row![
@@ -772,15 +782,22 @@ impl State {
         ].spacing(8).align_y(Vertical::Center);
 
         column![
-            row![form_row, Space::new().width(Length::Fill), copy_btn, save_btn].spacing(8),
+            Space::new().height(Length::Fixed(HEADER_BUTTON_TOP_PADDING)),
+            row![
+                form_row,
+                container(rule::vertical(1)).height(Length::Fixed(HEADER_BUTTON_HEIGHT - 4.0)),
+                tab_row,
+            ].spacing(12).align_y(Vertical::Center),
+            Space::new().height(Length::Fixed(8.0)),
+            rule::horizontal(1),
+            Space::new().height(Length::Fixed(8.0)),
+            row![copy_btn, save_btn].spacing(8),
             Space::new().height(Length::Fixed(16.0)),
             row![
                 text(format!("ID: {:03}-{}", cat.id, self.selected_form + 1)).size(12),
                 Space::new().width(Length::Fill),
                 level_row
             ],
-            Space::new().height(Length::Fixed(16.0)),
-            tab_row
         ].into()
     }
 
