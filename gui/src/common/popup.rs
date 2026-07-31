@@ -1,8 +1,8 @@
 use iced::advanced::{layout, overlay, renderer, widget, Clipboard, Layout, Shell, Widget};
 use iced::border::Radius;
 use iced::mouse::{self, Interaction};
-use iced::widget::{button, column, container, mouse_area, opaque, responsive, row, stack, text, Space};
-use iced::{Alignment, Border, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
+use iced::widget::{button, column, container, mouse_area, opaque, responsive, stack, text, Space};
+use iced::{Alignment, Border, Color, Element, Event, Length, Padding, Point, Rectangle, Size, Theme, Vector};
 
 use crate::app::theme;
 
@@ -70,25 +70,29 @@ impl State {
             let bounds = if window.width < 1.0 || window.height < 1.0 { layer } else { window };
             let position = self.resolved_position(size, bounds);
 
-            let close_button = button(text("✕").size(14))
+            let close_button = button(text("✕").size(18))
                 .style(button::text)
-                .padding([0.0, 8.0])
+                .padding(2.0)
                 .on_press(to_message(Message::Close));
 
-            let header = mouse_area(
-                container(
-                    row![
-                        text(title).size(14),
-                        Space::new().width(Length::Fill),
-                        close_button,
-                    ]
-                    .align_y(Alignment::Center),
-                )
+            let title_layer = container(text(title).size(14))
                 .width(Length::Fill)
-                .height(Length::Fixed(HEADER_HEIGHT))
-                .align_y(iced::alignment::Vertical::Center)
-                .padding([0.0, 10.0])
-                .style(header_style),
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center);
+
+            let button_layer = container(close_button)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::End)
+                .align_y(Alignment::Center);
+
+            let header = mouse_area(
+                container(stack![title_layer, button_layer])
+                    .width(Length::Fill)
+                    .height(Length::Fixed(HEADER_HEIGHT))
+                    .padding(Padding { top: 0.0, right: 6.0, bottom: 0.0, left: 10.0 })
+                    .style(header_style),
             )
             .interaction(Interaction::Grab)
             .on_press(to_message(Message::HeaderPressed));
@@ -258,10 +262,17 @@ fn clamp(position: Point, size: Size, window: Size) -> Point {
 }
 
 fn header_style(theme: &Theme) -> container::Style {
-    let palette = theme.extended_palette();
+    let palette = theme.palette();
+    let shade = |c: f32| c * 0.7;
+    let background = Color {
+        r: shade(palette.background.r),
+        g: shade(palette.background.g),
+        b: shade(palette.background.b),
+        a: palette.background.a,
+    };
 
     container::Style {
-        background: Some(palette.background.strong.color.into()),
+        background: Some(background.into()),
         border: Border {
             radius: Radius {
                 top_left: theme::RADIUS_MD,
@@ -279,7 +290,7 @@ fn window_style(theme: &Theme) -> container::Style {
     let palette = theme.extended_palette();
 
     container::Style {
-        background: Some(palette.background.weak.color.into()),
+        background: Some(palette.background.base.color.into()),
         border: Border {
             color: palette.background.strong.color,
             width: 1.0,
