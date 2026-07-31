@@ -2,10 +2,11 @@ use std::fs;
 use std::path::Path;
 
 use iced::widget::{button, column, container, row, scrollable, text, text_input};
-use iced::{Alignment, Border, Element, Length, Size, Task, Theme};
+use iced::{Alignment, Element, Length, Size, Task, Theme};
 
 use core::modules::settings::UserKeys;
 
+use crate::app::theme;
 use crate::common::{feedback::Slot, popup};
 
 const POPUP_SIZE: Size = Size::new(650.0, 400.0);
@@ -176,12 +177,7 @@ impl State {
         let action_button = |label: &'a str, msg: Message, color: [u8; 3]| {
             button(text(label).size(12))
                 .padding([6, 14])
-                .style(move |_theme: &Theme, _status| button::Style {
-                    background: Some(iced::Color::from_rgb8(color[0], color[1], color[2]).into()),
-                    text_color: iced::Color::WHITE,
-                    border: Border { radius: 4.0.into(), ..Default::default() },
-                    ..Default::default()
-                })
+                .style(move |_theme: &Theme, _status| theme::solid_button(iced::Color::from_rgb8(color[0], color[1], color[2])))
                 .on_press(msg)
         };
 

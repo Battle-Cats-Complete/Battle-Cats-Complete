@@ -9,12 +9,14 @@ use std::time::Duration;
 use iced::widget::{
     button, column, container, row, scrollable, space, stack, text, text_input,
 };
-use iced::{Alignment, Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
+use iced::{Alignment, Background, Color, Element, Length, Size, Subscription, Task, Theme};
 use tracing::warn;
 
 use core::common::job::{JobEvent, JobOutcome};
 use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
+
+use crate::app::theme;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MetadataField {
@@ -368,30 +370,22 @@ impl State {
         )
             .width(Length::Fixed(135.0))
             .on_press(Message::ToggleModStatus(mod_folder.clone()))
-            .style(move |theme: &Theme, _status| {
-                let palette = theme.palette();
-                button::Style {
-                    background: Some(Background::Color(if is_enabled { palette.danger } else { palette.success })),
-                    text_color: Color::WHITE,
-                    border: Border::default().rounded(4.0),
-                    ..Default::default()
-                }
-            });
+            .style(move |theme: &Theme, _status| theme::solid_button(if is_enabled { theme.palette().danger } else { theme.palette().success }));
 
         let open_btn = button(text("Open Folder").align_x(Alignment::Center))
             .width(Length::Fixed(135.0))
             .on_press(Message::OpenFolder(mod_folder.clone()))
-            .style(primary_button_style);
+            .style(theme::primary_button);
 
         let export_btn = button(text("Export Mod").align_x(Alignment::Center))
             .width(Length::Fixed(135.0))
             .on_press(Message::Export(export::Message::Open))
-            .style(primary_button_style);
+            .style(theme::primary_button);
 
         let delete_btn = button(text("Delete Mod").align_x(Alignment::Center))
             .width(Length::Fixed(135.0))
             .on_press(Message::ShowDeleteConfirm)
-            .style(danger_button_style);
+            .style(theme::danger_button);
 
         let actions_row = row![toggle_btn, open_btn, export_btn, delete_btn]
             .spacing(10)
@@ -454,12 +448,12 @@ impl State {
         let yes_btn = button(text("Yes").align_x(Alignment::Center))
             .width(Length::Fixed(80.0))
             .on_press(Message::ConfirmDelete)
-            .style(danger_button_style);
+            .style(theme::danger_button);
 
         let no_btn = button(text("No").align_x(Alignment::Center))
             .width(Length::Fixed(80.0))
             .on_press(Message::HideDeleteConfirm)
-            .style(primary_button_style);
+            .style(theme::primary_button);
 
         self.modal_container(
             "Confirm Deletion",
@@ -471,7 +465,7 @@ impl State {
         let header = row![
             text(title.to_string()).size(20),
             space().width(Length::Fill),
-            button(text("X")).on_press(close_msg).style(danger_button_style)
+            button(text("X")).on_press(close_msg).style(theme::danger_button)
         ].align_y(Alignment::Center);
 
         container(
@@ -482,14 +476,7 @@ impl State {
             .width(Length::Fixed(500.0))
             .height(Length::Shrink)
             .padding(20)
-            .style(|theme: &Theme| {
-                let palette = theme.palette();
-                container::Style {
-                    background: Some(Background::Color(palette.background)),
-                    border: Border::default().rounded(8.0).width(1.0).color(palette.text),
-                    ..Default::default()
-                }
-            })
+            .style(theme::confirm_modal_container)
             .into()
     }
 }
@@ -501,32 +488,3 @@ fn job_finished(result: Result<(), String>) -> JobEvent {
     })
 }
 
-fn primary_button_style(theme: &Theme, status: button::Status) -> button::Style {
-    let palette = theme.palette();
-    let bg = if status == button::Status::Hovered {
-        Color { a: 0.8, ..palette.primary }
-    } else {
-        palette.primary
-    };
-    button::Style {
-        background: Some(Background::Color(bg)),
-        text_color: Color::WHITE,
-        border: Border::default().rounded(4.0),
-        ..Default::default()
-    }
-}
-
-fn danger_button_style(theme: &Theme, status: button::Status) -> button::Style {
-    let palette = theme.palette();
-    let bg = if status == button::Status::Hovered {
-        Color { a: 0.8, ..palette.danger }
-    } else {
-        palette.danger
-    };
-    button::Style {
-        background: Some(Background::Color(bg)),
-        text_color: Color::WHITE,
-        border: Border::default().rounded(4.0),
-        ..Default::default()
-    }
-}

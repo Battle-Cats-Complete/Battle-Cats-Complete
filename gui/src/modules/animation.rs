@@ -13,6 +13,8 @@ use core::modules::cat::scanner::CatEntry;
 use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::Settings;
 
+use crate::app::theme;
+
 #[derive(Default)]
 pub struct State {
     data: data::State,
@@ -180,10 +182,10 @@ impl State {
             .align_x(iced::alignment::Horizontal::Left)
             .padding(10);
 
-        let expand_style = if self.is_expanded { button::primary } else { button::secondary };
+        let is_expanded = self.is_expanded;
         let expand_button = container(
             button(text("⛶").size(20))
-                .style(expand_style)
+                .style(move |t: &Theme, status| theme::toggle_button(t, status, is_expanded))
                 .on_press(Message::ToggleExpanded),
         )
         .padding(8);

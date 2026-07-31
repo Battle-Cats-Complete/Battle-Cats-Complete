@@ -22,6 +22,7 @@ pub fn main() -> iced::Result {
         app::BattleCatsApp::view,
     )
         .title("Battle Cats Complete")
+        .theme(app::BattleCatsApp::theme)
         .font(assets::FONT_JP)
         .font(assets::FONT_KR)
         .font(assets::FONT_TC)

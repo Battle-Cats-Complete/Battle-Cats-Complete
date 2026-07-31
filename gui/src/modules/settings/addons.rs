@@ -2,7 +2,7 @@ use std::thread;
 
 use iced::futures::channel::mpsc;
 use iced::widget::{button, column, container, row, text};
-use iced::{Alignment, Border, Element, Task, Theme};
+use iced::{Alignment, Element, Task, Theme};
 use tracing::error;
 
 use core::modules::addons::adb::AdbManager;
@@ -12,6 +12,8 @@ use core::modules::addons::ffmpeg::FfmpegManager;
 #[cfg(target_os = "windows")]
 use core::modules::addons::oem::{OemDriver, OemManager};
 use core::modules::addons::{manager, AddonStatus};
+
+use crate::app::theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Addon {
@@ -233,10 +235,7 @@ impl State {
                 ].spacing(10)
             ].spacing(20).padding(25).align_x(Alignment::Center)
         )
-            .style(|theme: &Theme| {
-                container::background(theme.palette().background)
-                    .border(Border { color: theme.palette().text, width: 1.0, radius: 8.0.into() })
-            })
+            .style(theme::confirm_modal_container)
             .into()
     }
 }

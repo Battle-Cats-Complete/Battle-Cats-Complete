@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use iced::widget::{button, column, container, row, text};
-use iced::{task, Alignment, Border, Element, Length, Task, Theme};
+use iced::{task, Alignment, Element, Length, Task, Theme};
 use tracing::{debug, error};
+
+use crate::app::theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
@@ -250,10 +252,7 @@ impl State {
         );
 
         container(content.padding(25).align_x(Alignment::Center))
-            .style(|theme: &Theme| {
-                container::background(theme.palette().background)
-                    .border(Border { color: theme.palette().text, width: 1.0, radius: 8.0.into() })
-            })
+            .style(theme::confirm_modal_container)
             .width(Length::Shrink)
             .into()
     }

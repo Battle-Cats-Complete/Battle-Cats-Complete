@@ -10,6 +10,8 @@ use core::modules::cat::waiter::unitexplanation;
 use core::modules::stage::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
 use core::modules::stage::paths;
 
+use crate::app::theme;
+
 use super::icons;
 
 const ICON_SIZE: f32 = 128.0 * 0.45;
@@ -63,7 +65,7 @@ impl State {
         )
             .padding(4)
             .style(|_theme: &Theme| container::Style {
-                border: Border { color: Color::from_rgb8(80, 80, 80), width: 2.0, radius: 4.0.into() },
+                border: Border { color: Color::from_rgb8(80, 80, 80), width: 2.0, radius: theme::RADIUS_SM.into() },
                 ..Default::default()
             });
 
@@ -129,7 +131,7 @@ fn empty_slot<'a>() -> Element<'a, super::Message> {
         .height(Length::Fixed(ICON_SIZE))
         .style(|_theme: &Theme| container::Style {
             background: Some(Color::from_rgb8(64, 64, 64).into()),
-            border: Border::default().rounded(4.0),
+            border: Border::default().rounded(theme::RADIUS_SM),
             ..Default::default()
         })
         .into()

@@ -29,6 +29,7 @@ use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
 
+use crate::app::theme;
 use crate::common::feedback::Slot;
 use crate::common::stat_grid;
 use crate::common::CustomAssets;
@@ -656,7 +657,7 @@ impl State {
             .width(Length::Fixed(list::LIST_WIDTH + 16.0))
             .height(Length::Fill)
             .padding(8)
-            .style(container::bordered_box)
+            .style(theme::list_panel_container)
             .into()
     }
 

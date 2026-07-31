@@ -17,7 +17,10 @@ use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, sta
 
 mod logging;
 mod startup;
+pub(crate) mod theme;
 mod updater;
+
+pub use theme::AppTheme;
 
 #[derive(PartialEq, Clone, Copy, serde::Deserialize, serde::Serialize, Debug)]
 pub enum Page {
@@ -159,6 +162,8 @@ pub struct BattleCatsApp {
     pub updater_status: UpdateStatus,
     #[serde(skip)]
     pub download_progress: f32,
+
+    pub app_theme: AppTheme,
 }
 
 impl Default for BattleCatsApp {
@@ -183,11 +188,16 @@ impl Default for BattleCatsApp {
             updater_handle: None,
             updater_status: UpdateStatus::Idle,
             download_progress: 0.0,
+            app_theme: AppTheme::default(),
         }
     }
 }
 
 impl BattleCatsApp {
+    pub fn theme(&self) -> Theme {
+        self.app_theme.to_iced_theme()
+    }
+
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subs = vec![
             window::resize_events().map(|(_, size)| Message::WindowResized(size)),
@@ -495,7 +505,7 @@ impl BattleCatsApp {
             .width(Length::Fixed(40.0))
             .height(Length::Fixed(40.0))
             .on_press(Message::ToggleSidebar)
-            .style(|theme: &Theme, _status| button::primary(theme, _status));
+            .style(theme::primary_button);
 
         let toggle_container = column![toggle_btn]
             .padding(iced::Padding {
@@ -511,17 +521,11 @@ impl BattleCatsApp {
             let mut tabs: iced::widget::Column<'_, Message> = column![].spacing(10);
             for page in ALL_PAGES {
                 let is_active = self.current_page == *page;
-                let btn = button(text(page.tab_name()).size(16).align_x(alignment::Horizontal::Center))
+                let btn = button(text(page.tab_name()).size(16).width(Length::Fill).align_x(alignment::Horizontal::Center))
                     .width(Length::Fill)
                     .padding(10)
                     .on_press(Message::Navigate(*page))
-                    .style(move |theme: &Theme, _status| {
-                        if is_active {
-                            button::primary(theme, _status)
-                        } else {
-                            button::secondary(theme, _status)
-                        }
-                    });
+                    .style(move |theme: &Theme, status| theme::toggle_button(theme, status, is_active));
 
                 tabs = tabs.push(btn);
             }
@@ -530,14 +534,7 @@ impl BattleCatsApp {
                 .width(Length::Fixed(180.0))
                 .height(Length::Fill)
                 .padding(15)
-                .style(|theme: &Theme| {
-                    let palette = theme.palette();
-                    container::Style {
-                        background: Some(palette.background.into()),
-                        border: iced::border::rounded(10).color(palette.text).width(1),
-                        ..Default::default()
-                    }
-                });
+                .style(theme::sidebar_container);
 
             layer = layer.push(sidebar_panel);
         }

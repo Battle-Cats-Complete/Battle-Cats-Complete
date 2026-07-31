@@ -11,7 +11,7 @@ use iced::widget::{
     button, checkbox, column, container, pick_list, progress_bar, row, scrollable, slider, text,
     text_input, Space,
 };
-use iced::{Alignment, Element, Font, Length, Task};
+use iced::{Alignment, Element, Font, Length, Task, Theme};
 use smol::Timer;
 use tracing::{info, trace, warn};
 
@@ -23,6 +23,8 @@ use core::modules::data::{
     ImportSubTab,
 };
 use core::modules::settings::Settings;
+
+use crate::app::theme;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -252,11 +254,11 @@ impl State {
 
         let tabs_row = row![
             button(text("Import").size(16))
-                .style(if is_import { button::primary } else { button::secondary })
+                .style(move |t: &Theme, status| theme::toggle_button(t, status, is_import))
                 .width(Length::Fixed(120.0))
                 .on_press(Message::TabSelected(DataTab::Import)),
             button(text("Export").size(16))
-                .style(if is_export { button::primary } else { button::secondary })
+                .style(move |t: &Theme, status| theme::toggle_button(t, status, is_export))
                 .width(Length::Fixed(120.0))
                 .on_press(Message::TabSelected(DataTab::Export)),
         ]
@@ -292,11 +294,7 @@ impl State {
                 .width(Length::Fill)
                 .align_x(Alignment::Center),
         )
-            .style(if self.config.selected_job == Some(ImportSubTab::Emulator) {
-                button::primary
-            } else {
-                button::secondary
-            })
+            .style(move |t: &Theme, status| theme::toggle_button(t, status, self.config.selected_job == Some(ImportSubTab::Emulator)))
             .on_press_maybe(if !is_running && adb_installed {
                 Some(Message::ImportJobSelected(ImportSubTab::Emulator))
             } else {
@@ -353,11 +351,7 @@ impl State {
                 .width(Length::Fill)
                 .align_x(Alignment::Center),
         )
-            .style(if self.config.selected_job == Some(ImportSubTab::Decrypt) {
-                button::primary
-            } else {
-                button::secondary
-            })
+            .style(move |t: &Theme, status| theme::toggle_button(t, status, self.config.selected_job == Some(ImportSubTab::Decrypt)))
             .on_press_maybe(if !is_running {
                 Some(Message::ImportJobSelected(ImportSubTab::Decrypt))
             } else {
@@ -415,11 +409,7 @@ impl State {
                 .width(Length::Fill)
                 .align_x(Alignment::Center),
         )
-            .style(if self.config.selected_job == Some(ImportSubTab::Sort) {
-                button::primary
-            } else {
-                button::secondary
-            })
+            .style(move |t: &Theme, status| theme::toggle_button(t, status, self.config.selected_job == Some(ImportSubTab::Sort)))
             .on_press_maybe(if !is_running {
                 Some(Message::ImportJobSelected(ImportSubTab::Sort))
             } else {
@@ -517,7 +507,7 @@ impl State {
                 .on_press(Message::AbortImportJob)
         } else {
             button(text(button_text).size(18))
-                .style(if can_run { button::primary } else { button::secondary })
+                .style(move |t: &Theme, status| theme::toggle_button(t, status, can_run))
                 .width(Length::Fixed(300.0))
                 .on_press_maybe(if can_run { Some(Message::TriggerImportJob) } else { None })
         };

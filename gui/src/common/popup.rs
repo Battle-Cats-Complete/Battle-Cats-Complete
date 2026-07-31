@@ -4,6 +4,8 @@ use iced::mouse::{self, Interaction};
 use iced::widget::{button, column, container, mouse_area, opaque, responsive, row, stack, text, Space};
 use iced::{Alignment, Border, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
 
+use crate::app::theme;
+
 const HEADER_HEIGHT: f32 = 28.0;
 const HEADER_MARGIN_X: f32 = 50.0;
 const HEADER_MARGIN_Y: f32 = 30.0;
@@ -262,8 +264,8 @@ fn header_style(theme: &Theme) -> container::Style {
         background: Some(palette.background.strong.color.into()),
         border: Border {
             radius: Radius {
-                top_left: 6.0,
-                top_right: 6.0,
+                top_left: theme::RADIUS_MD,
+                top_right: theme::RADIUS_MD,
                 bottom_right: 0.0,
                 bottom_left: 0.0,
             },
@@ -281,7 +283,7 @@ fn window_style(theme: &Theme) -> container::Style {
         border: Border {
             color: palette.background.strong.color,
             width: 1.0,
-            radius: 6.0.into(),
+            radius: theme::RADIUS_MD.into(),
         },
         ..container::Style::default()
     }

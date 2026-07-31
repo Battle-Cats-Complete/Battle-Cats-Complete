@@ -3,7 +3,7 @@ use std::thread;
 use iced::futures::channel::mpsc;
 use iced::task;
 use iced::widget::{button, column, container, pick_list, row, scrollable, slider, space, text, text_input};
-use iced::{Alignment, Background, Border, Color, Element, Length, Size, Task, Theme};
+use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 use tracing::{error, info};
 
 use core::common::job::{JobEvent, JobOutcome};
@@ -12,6 +12,7 @@ use core::modules::mods::export::{apk, bcm, pack, ExportType};
 use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
+use crate::app::theme;
 use crate::common::popup;
 
 use super::job_finished;
@@ -294,7 +295,7 @@ impl State {
             ].align_y(Alignment::Center).spacing(8),
             button("Apply Mod")
                 .on_press_maybe((!is_busy && is_ready && data.export.selected_apk.is_some()).then_some(Message::StartExport))
-                .style(primary_button_style)
+                .style(theme::primary_button)
         ].spacing(12).into()
     }
 
@@ -314,7 +315,7 @@ impl State {
             ].align_y(Alignment::Center).spacing(4),
             button("Create BCM Package")
                 .on_press_maybe((!is_busy && is_ready).then_some(Message::StartExport))
-                .style(primary_button_style)
+                .style(theme::primary_button)
         ].spacing(12).into()
     }
 
@@ -330,7 +331,7 @@ impl State {
             row![text("Key:"), self.region_select(data.export.target_region)].align_y(Alignment::Center).spacing(4),
             button("Create Pack")
                 .on_press_maybe((!is_busy && is_ready).then_some(Message::StartExport))
-                .style(primary_button_style)
+                .style(theme::primary_button)
         ].spacing(12).into()
     }
 }
@@ -359,28 +360,5 @@ fn tab_button<'a>(label: &'a str, is_active: bool, msg: Message) -> iced::widget
     button(text(label).align_x(Alignment::Center))
         .width(Length::Fixed(80.0))
         .on_press(msg)
-        .style(move |theme: &Theme, _status| {
-            let palette = theme.palette();
-            button::Style {
-                background: Some(Background::Color(if is_active { palette.primary } else { Color { a: 0.2, ..palette.text } })),
-                text_color: Color::WHITE,
-                border: Border::default().rounded(4.0),
-                ..Default::default()
-            }
-        })
-}
-
-fn primary_button_style(theme: &Theme, status: button::Status) -> button::Style {
-    let palette = theme.palette();
-    let bg = if status == button::Status::Hovered {
-        Color { a: 0.8, ..palette.primary }
-    } else {
-        palette.primary
-    };
-    button::Style {
-        background: Some(Background::Color(bg)),
-        text_color: Color::WHITE,
-        border: Border::default().rounded(4.0),
-        ..Default::default()
-    }
+        .style(move |t: &Theme, status| theme::toggle_button(t, status, is_active))
 }

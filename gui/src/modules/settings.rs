@@ -15,6 +15,7 @@ use core::modules::settings::{
     ExportBehavior, Settings as CoreSettings, SidebarBehavior, UpdateMode,
 };
 
+use crate::app::theme;
 #[cfg(target_os = "linux")]
 use crate::common::feedback::Slot;
 
@@ -354,13 +355,7 @@ impl State {
 
             let btn = button(text(label).size(14))
                 .padding([6, 12])
-                .style(move |theme: &Theme, status| {
-                    if is_active {
-                        button::primary(theme, status)
-                    } else {
-                        button::secondary(theme, status)
-                    }
-                })
+                .style(move |t: &Theme, status| theme::toggle_button(t, status, is_active))
                 .on_press(Message::TabSelected(tab_enum));
 
             row_tabs = row_tabs.push(btn);

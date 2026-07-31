@@ -23,6 +23,7 @@ use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::{EnemyDataState, EnemyDetailTab};
 use core::modules::settings::Settings;
 
+use crate::app::theme;
 use crate::common::feedback::Slot;
 use crate::common::stat_grid;
 use crate::common::CustomAssets;
@@ -398,7 +399,7 @@ impl EnemyState {
                 .width(Length::Fill),
             button(text("Filter"))
                 .on_press(Message::Filter(filter::Message::Toggle))
-                .style(if self.filter.filter_state.is_active() { iced::widget::button::primary } else { iced::widget::button::secondary })
+                .style(move |t: &Theme, status| theme::toggle_button(t, status, self.filter.filter_state.is_active()))
         ]
             .spacing(5)
             .padding(5);
@@ -486,11 +487,11 @@ impl EnemyState {
     fn view_header(&self, enemy: &EnemyEntry) -> Element<'_, Message> {
         let tabs = row![
             button("Abilities").on_press(Message::TabSelected(EnemyDetailTab::Abilities))
-                .style(if self.selected_tab == EnemyDetailTab::Abilities { iced::widget::button::primary } else { iced::widget::button::secondary }),
+                .style(move |t: &Theme, status| theme::toggle_button(t, status, self.selected_tab == EnemyDetailTab::Abilities)),
             button("Details").on_press(Message::TabSelected(EnemyDetailTab::Details))
-                .style(if self.selected_tab == EnemyDetailTab::Details { iced::widget::button::primary } else { iced::widget::button::secondary }),
+                .style(move |t: &Theme, status| theme::toggle_button(t, status, self.selected_tab == EnemyDetailTab::Details)),
             button("Animation").on_press(Message::TabSelected(EnemyDetailTab::Animation))
-                .style(if self.selected_tab == EnemyDetailTab::Animation { iced::widget::button::primary } else { iced::widget::button::secondary }),
+                .style(move |t: &Theme, status| theme::toggle_button(t, status, self.selected_tab == EnemyDetailTab::Animation)),
         ].spacing(10);
 
         let info_box = column![

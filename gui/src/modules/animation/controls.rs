@@ -7,6 +7,8 @@ use core::modules::animation::{
 };
 use core::modules::settings::Settings;
 
+use crate::app::theme;
+
 use super::{canvas, data};
 
 const HOLD_DELAY_SECS: f32 = 0.2;
@@ -236,8 +238,8 @@ impl State {
                     let is_active = data.loaded_anim_index == *index && data.loaded_anim_index != IDX_NONE;
 
                     let mut btn = button(text(*label).size(13))
-                        .width(Length::Fixed(70.0));
-                    btn = if is_active { btn.style(button::primary) } else { btn.style(button::secondary) };
+                        .width(Length::Fixed(70.0))
+                        .style(move |t: &Theme, status| theme::toggle_button(t, status, is_active));
                     if available && !is_locked {
                         btn = btn.on_press(Message::SelectAnimation(*index));
                     }

@@ -18,6 +18,8 @@ use core::modules::cat::scanner::CatEntry;
 use core::modules::cat::waiter::unitid;
 use core::modules::settings::Settings;
 
+use crate::app::theme;
+
 use crate::common::shared::{fallback_icon, text_with_superscript, ICON_SIZE};
 use crate::common::{CustomAssets, SpriteSheet};
 
@@ -178,7 +180,7 @@ impl State {
             } else {
                 let expanded = self.conjure_expanded(spirit.cat_id, settings);
                 let details_btn = button(text("Details").size(11))
-                    .style(if expanded { button::primary } else { button::secondary })
+                    .style(move |t: &Theme, status| theme::toggle_button(t, status, expanded))
                     .on_press(Message::ToggleConjureExpand(spirit.cat_id));
 
                 row![icon, description, details_btn].spacing(8).align_y(Alignment::Center).width(Length::Fill).into()
