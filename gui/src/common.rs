@@ -5,6 +5,7 @@ pub mod name_box;
 pub mod popup;
 pub mod row_window;
 pub mod shared;
+pub mod smooth_scroll;
 pub mod stat_grid;
 pub mod watcher;
 

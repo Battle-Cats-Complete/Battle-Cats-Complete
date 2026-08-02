@@ -17,6 +17,7 @@ use core::modules::cat::filter::{evaluation, CatFilterState};
 use core::modules::cat::scanner::CatEntry;
 
 use crate::common::row_window::{self, RowWindow};
+use crate::common::smooth_scroll::smooth_scroll;
 const BANNER_ASPECT: f32 = 318.0 / 133.0;
 const SCROLLBAR_WIDTH: f32 = 16.0;
 pub(super) const LIST_WIDTH: f32 = row_window::ROW_HEIGHT * BANNER_ASPECT + SCROLLBAR_WIDTH;
@@ -226,11 +227,12 @@ impl State {
                 list_col = list_col.push(space().height(Length::Fixed(pad_after)));
             }
 
-            scrollable(list_col)
-                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
-                .height(Length::Fill)
-                .width(Length::Fill)
-                .into()
+            smooth_scroll(
+                scrollable(list_col)
+                    .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+                    .height(Length::Fill)
+                    .width(Length::Fill),
+            )
         })
             .into()
     }
