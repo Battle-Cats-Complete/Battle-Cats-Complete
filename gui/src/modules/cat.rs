@@ -13,7 +13,7 @@ use iced::alignment::{Horizontal, Vertical};
 use iced::futures::channel::mpsc;
 use iced::widget::{
     button, column, container, row, rule, scrollable,
-    text, text_input, Space,
+    text, text_input, Id, Space,
 };
 use iced::{Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::cat::unit::Battle;
@@ -181,6 +181,14 @@ impl Default for State {
 }
 
 impl State {
+    pub(crate) fn list_scrollable_id() -> Id {
+        list::scrollable_id()
+    }
+
+    pub(crate) fn list_scroll_offset(&self) -> f32 {
+        self.list.scroll_offset()
+    }
+
     pub fn icon_stream(&mut self) -> Task<Message> {
         self.list.result_stream().map(Message::List)
     }

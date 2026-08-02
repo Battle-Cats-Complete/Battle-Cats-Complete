@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use iced::alignment;
-use iced::widget::{button, column, container, progress_bar, row, scrollable, stack, text};
+use iced::widget::{button, column, container, operation, progress_bar, row, scrollable, stack, text};
 use iced::{task, window, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
@@ -221,11 +221,21 @@ impl BattleCatsApp {
             Page::Home => self.home_state.update(home::Message::CheckInit).map(Message::Home),
             Page::Cats => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
-                self.cat_state.update(cat::Message::SheetsCheck, &mut self.settings, global_ctx).map(Message::Cat)
+                let sheets_task = self.cat_state.update(cat::Message::SheetsCheck, &mut self.settings, global_ctx).map(Message::Cat);
+                let scroll_task = operation::scroll_to(
+                    cat::State::list_scrollable_id(),
+                    scrollable::AbsoluteOffset { x: 0.0, y: self.cat_state.list_scroll_offset() },
+                );
+                Task::batch([sheets_task, scroll_task])
             }
             Page::Enemies => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
-                self.enemy_state.update(enemy::Message::SheetsCheck, &mut self.settings, global_ctx).map(Message::Enemy)
+                let sheets_task = self.enemy_state.update(enemy::Message::SheetsCheck, &mut self.settings, global_ctx).map(Message::Enemy);
+                let scroll_task = operation::scroll_to(
+                    enemy::EnemyState::list_scrollable_id(),
+                    scrollable::AbsoluteOffset { x: 0.0, y: self.enemy_state.list_scroll_offset() },
+                );
+                Task::batch([sheets_task, scroll_task])
             }
             _ => Task::none(),
         }

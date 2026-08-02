@@ -6,7 +6,7 @@ use std::thread;
 
 use iced::futures::channel::mpsc::{unbounded, UnboundedReceiver};
 use iced::widget::image::Handle;
-use iced::widget::{button, column, container, image as iced_image, responsive, row, scrollable, space, text, tooltip, Column};
+use iced::widget::{button, column, container, image as iced_image, responsive, row, scrollable, space, text, tooltip, Column, Id};
 use iced::{Border, Color, Element, Length, Size, Task, Theme};
 use image::{imageops, Pixel, RgbaImage};
 use tracing::warn;
@@ -112,7 +112,15 @@ impl Default for State {
     }
 }
 
+pub(super) fn scrollable_id() -> Id {
+    Id::new("enemy-banner-list")
+}
+
 impl State {
+    pub(super) fn scroll_offset(&self) -> f32 {
+        self.scroll_offset
+    }
+
     pub fn result_stream(&mut self) -> Task<Message> {
         match self.rx_result.take() {
             Some(rx) => Task::stream(rx).map(Message::IconLoaded),
@@ -229,6 +237,7 @@ impl State {
             }
 
             scrollable(list_col)
+                .id(scrollable_id())
                 .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
                 .height(Length::Fill)
                 .width(Length::Fill)
