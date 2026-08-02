@@ -22,6 +22,7 @@ use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::{EnemyDataState, EnemyDetailTab};
 use core::modules::settings::Settings;
+use core::modules::state::AppState;
 
 use crate::app::theme;
 use crate::common::feedback::Slot;
@@ -142,6 +143,10 @@ impl EnemyState {
         self.list.scroll_offset()
     }
 
+    pub(crate) fn set_list_scroll_offset(&mut self, offset: f32) {
+        self.list.set_scroll_offset(offset);
+    }
+
     pub fn icon_stream(&mut self) -> Task<Message> {
         self.list.result_stream().map(Message::List)
     }
@@ -180,15 +185,15 @@ impl EnemyState {
             .map(|(index, sheet)| Message::Img015Loaded(index, sheet))
     }
 
-    pub fn update(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
-        let task = self.update_inner(message, settings, global_ctx);
+    pub fn update(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
+        let task = self.update_inner(message, settings, app_state, global_ctx);
 
         self.list.refresh(&self.data.enemies, &self.search_query, &self.filter.filter_state);
 
         task
     }
 
-    fn update_inner(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
+    fn update_inner(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
             Message::SheetsCheck => self.check_sheets(settings),
             Message::Img015Loaded(index, sheet) => {
@@ -227,7 +232,7 @@ impl EnemyState {
             }
             Message::AnimationTick => {
                 if let Some(enemy) = self.data.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
-                    self.animation.sync_enemy(enemy, settings);
+                    self.animation.sync_enemy(enemy, settings, &app_state.animation);
                 }
                 self.animation.tick();
                 Task::none()
@@ -275,13 +280,13 @@ impl EnemyState {
             }
             Message::List(msg) => {
                 if let list::Message::SelectEnemy(id) = msg {
-                    return self.update(Message::EnemySelected(id), settings, global_ctx);
+                    return self.update(Message::EnemySelected(id), settings, app_state, global_ctx);
                 }
 
                 self.list.update(msg);
                 Task::none()
             }
-            Message::Animation(msg) => self.animation.update(msg, settings).map(Message::Animation),
+            Message::Animation(msg) => self.animation.update(msg, settings, &mut app_state.animation).map(Message::Animation),
         }
     }
 
@@ -363,10 +368,10 @@ impl EnemyState {
         self.statblock_clipboard.as_mut()
     }
 
-    pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         row![
             self.view_sidebar(),
-            self.view_main_panel(settings, global_ctx),
+            self.view_main_panel(settings, app_state, global_ctx),
         ]
             .width(Length::Fill)
             .height(Length::Fill)
@@ -384,20 +389,20 @@ impl EnemyState {
             .then(|| self.filter.view(&self.img015_sheets, &self.custom_assets, window).map(Message::Filter))
     }
 
-    pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings) -> Option<Element<'a, Message>> {
-        self.animation.expanded_view(settings).map(|view| view.map(Message::Animation))
+    pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
+        self.animation.expanded_view(settings, &app_state.animation).map(|view| view.map(Message::Animation))
     }
 
-    pub fn export_popup_open(&self, settings: &Settings) -> bool {
-        self.animation.export_popup_open(settings)
+    pub fn export_popup_open(&self, app_state: &AppState) -> bool {
+        self.animation.export_popup_open(&app_state.animation)
     }
 
     pub fn export_popup_visible(&self) -> bool {
         self.selected_tab == EnemyDetailTab::Animation
     }
 
-    pub fn export_popup_view(&self, window: Size, settings: &Settings) -> Option<Element<'_, Message>> {
-        self.animation.export_popup_view(window, settings).map(|view| view.map(Message::Animation))
+    pub fn export_popup_view(&self, window: Size, app_state: &AppState) -> Option<Element<'_, Message>> {
+        self.animation.export_popup_view(window, &app_state.animation).map(|view| view.map(Message::Animation))
     }
 
     fn view_sidebar(&self) -> Element<'_, Message> {
@@ -442,7 +447,7 @@ impl EnemyState {
             .into()
     }
 
-    fn view_main_panel<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+    fn view_main_panel<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let Some(selected_id) = self.data.selected_enemy else {
             return container(text("Select an Enemy").size(24))
                 .width(Length::Fill)
@@ -469,7 +474,7 @@ impl EnemyState {
                 self.view_details(enemy_entry)
             }
             EnemyDetailTab::Animation => {
-                self.animation.view(settings).map(Message::Animation)
+                self.animation.view(settings, &app_state.animation).map(Message::Animation)
             }
         };
 

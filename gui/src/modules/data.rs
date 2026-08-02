@@ -23,6 +23,7 @@ use core::modules::data::{
     ImportSubTab,
 };
 use core::modules::settings::Settings;
+use core::modules::state::AppState;
 
 use crate::app::theme;
 
@@ -162,7 +163,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn update(&mut self, message: Message, settings: &mut Settings) -> Task<Message> {
+    pub fn update(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState) -> Task<Message> {
         match message {
             Message::TabSelected(tab) => {
                 trace!("Switching data tab");
@@ -173,10 +174,10 @@ impl State {
                 self.config.selected_job = Some(job);
             }
             Message::AdbImportTypeChanged(idx) => {
-                settings.game_data.adb_import_type_idx = idx;
+                app_state.game_data.adb_import_type_idx = idx;
             }
             Message::AdbRegionChangedEmu(idx) => {
-                settings.game_data.adb_region_idx = idx;
+                app_state.game_data.adb_region_idx = idx;
             }
             Message::AdbRegionChangedDec(target) => {
                 self.config.adb_target = target;
@@ -207,7 +208,7 @@ impl State {
             }
             Message::TriggerImportJob => {
                 info!("Starting import job.");
-                return self.trigger_import_job(settings);
+                return self.trigger_import_job(settings, app_state);
             }
             Message::AbortImportJob => {
                 warn!("Aborting import job.");
@@ -248,7 +249,7 @@ impl State {
         Task::none()
     }
 
-    pub fn view(&self, settings: &Settings) -> Element<'_, Message> {
+    pub fn view(&self, app_state: &AppState) -> Element<'_, Message> {
         let is_import = self.config.active_tab == DataTab::Import;
         let is_export = self.config.active_tab == DataTab::Export;
 
@@ -265,7 +266,7 @@ impl State {
             .spacing(10);
 
         let content = if is_import {
-            self.view_import(settings)
+            self.view_import(app_state)
         } else {
             self.view_export()
         };
@@ -284,7 +285,7 @@ impl State {
             .into()
     }
 
-    fn view_import(&self, settings: &Settings) -> Element<'_, Message> {
+    fn view_import(&self, app_state: &AppState) -> Element<'_, Message> {
         let is_running = self.import.running;
         let adb_installed = paths::adb_status() == Presence::Installed;
 
@@ -302,7 +303,7 @@ impl State {
             });
 
         let import_types = vec!["All Content", "Update Only"];
-        let current_type = if settings.game_data.adb_import_type_idx == 1 {
+        let current_type = if app_state.game_data.adb_import_type_idx == 1 {
             "Update Only"
         } else {
             "All Content"
@@ -313,7 +314,7 @@ impl State {
 
         let emu_regions = vec!["Global", "Japan", "Taiwan", "Korea", "All Regions"];
         let emu_selected = emu_regions
-            .get(settings.game_data.adb_region_idx)
+            .get(app_state.game_data.adb_region_idx)
             .copied()
             .unwrap_or("Global");
         let emu_region_picker = pick_list(emu_regions, Some(emu_selected), |sel| {
@@ -642,7 +643,7 @@ impl State {
         column![progress, Space::new().height(10), console_area].into()
     }
 
-    fn trigger_import_job(&mut self, settings: &Settings) -> Task<Message> {
+    fn trigger_import_job(&mut self, settings: &Settings, app_state: &AppState) -> Task<Message> {
         if self.import.running {
             return Task::none();
         }
@@ -658,12 +659,12 @@ impl State {
 
         match job {
             ImportSubTab::Emulator => {
-                let mode = if settings.game_data.adb_import_type_idx == 1 {
+                let mode = if app_state.game_data.adb_import_type_idx == 1 {
                     AdbImportType::Update
                 } else {
                     AdbImportType::All
                 };
-                let region = match settings.game_data.adb_region_idx {
+                let region = match app_state.game_data.adb_region_idx {
                     0 => AdbTarget::Specific(Region::En),
                     1 => AdbTarget::Specific(Region::Ja),
                     2 => AdbTarget::Specific(Region::Tw),

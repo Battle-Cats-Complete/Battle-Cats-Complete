@@ -12,6 +12,7 @@ use iced::{Alignment, Element, Length, Size, Task, Theme};
 use core::modules::cat::scanner::CatEntry;
 use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::Settings;
+use core::modules::state::AnimState;
 
 use crate::app::theme;
 
@@ -36,14 +37,14 @@ pub enum Message {
 }
 
 impl State {
-    pub fn sync(&mut self, cat: &CatEntry, form: usize, settings: &Settings) {
+    pub fn sync(&mut self, cat: &CatEntry, form: usize, settings: &Settings, anim_state: &AnimState) {
         self.data.sync(cat, form, settings);
-        self.export.sync(&self.data, settings);
+        self.export.sync(&self.data, settings, anim_state);
     }
 
-    pub fn sync_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) {
+    pub fn sync_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings, anim_state: &AnimState) {
         self.data.sync_enemy(enemy, settings);
-        self.export.sync(&self.data, settings);
+        self.export.sync(&self.data, settings, anim_state);
     }
 
     pub fn preload(&mut self, cat: &CatEntry, form: usize, settings: &Settings) -> Task<Message> {
@@ -71,37 +72,37 @@ impl State {
         self.export.tick();
     }
 
-    pub fn update(&mut self, message: Message, settings: &mut Settings) -> Task<Message> {
+    pub fn update(&mut self, message: Message, settings: &mut Settings, anim_state: &mut AnimState) -> Task<Message> {
         match message {
             Message::Canvas(msg) => {
                 self.canvas.update(msg, &self.data);
                 Task::none()
             }
             Message::Controls(controls::Message::OpenExport) => {
-                let was_open = settings.animation.export_popup_open;
-                settings.animation.export_popup_open = true;
+                let was_open = anim_state.export_popup_open;
+                anim_state.export_popup_open = true;
                 if settings.animation.auto_set_camera_region && !was_open && !self.overlay.selecting {
-                    return self.export.update(export::Message::UseBounds, &self.data, settings).map(Message::Export);
+                    return self.export.update(export::Message::UseBounds, &self.data, settings, anim_state).map(Message::Export);
                 }
                 Task::none()
             }
             Message::Controls(msg) => {
-                self.controls.update(msg, &mut self.canvas, &mut self.data, settings);
+                self.controls.update(msg, &mut self.canvas, &mut self.data, anim_state);
                 Task::none()
             }
             Message::Export(export::Message::SetCamera) => {
-                settings.animation.export_popup_open = false;
+                anim_state.export_popup_open = false;
                 self.overlay.selecting = true;
                 Task::none()
             }
-            Message::Export(msg) => self.export.update(msg, &self.data, settings).map(Message::Export),
+            Message::Export(msg) => self.export.update(msg, &self.data, settings, anim_state).map(Message::Export),
             Message::Overlay(msg) => {
                 match msg {
                     overlay::Message::Selected(region) => self.export.set_region(region),
                     overlay::Message::Cancelled => {}
                 }
                 self.overlay.selecting = false;
-                settings.animation.export_popup_open = true;
+                anim_state.export_popup_open = true;
                 Task::none()
             }
             Message::Preloaded(result) => {
@@ -115,7 +116,7 @@ impl State {
         }
     }
 
-    pub fn view(&self, settings: &Settings) -> Element<'_, Message> {
+    pub fn view(&self, settings: &Settings, anim_state: &AnimState) -> Element<'_, Message> {
         if self.data.held_unit.is_none() {
             return container(text("No unit loaded for this form"))
                 .width(Length::Fill)
@@ -141,25 +142,25 @@ impl State {
             .into();
         }
 
-        self.viewer_view(settings)
+        self.viewer_view(settings, anim_state)
     }
 
-    pub fn export_popup_open(&self, settings: &Settings) -> bool {
-        settings.animation.export_popup_open
+    pub fn export_popup_open(&self, anim_state: &AnimState) -> bool {
+        anim_state.export_popup_open
     }
 
-    pub fn export_popup_view(&self, window: Size, settings: &Settings) -> Option<Element<'_, Message>> {
-        (settings.animation.export_popup_open && self.data.held_unit.is_some())
+    pub fn export_popup_view(&self, window: Size, anim_state: &AnimState) -> Option<Element<'_, Message>> {
+        (anim_state.export_popup_open && self.data.held_unit.is_some())
             .then(|| self.export.view(window).map(Message::Export))
     }
 
-    pub fn expanded_view(&self, settings: &Settings) -> Option<Element<'_, Message>> {
+    pub fn expanded_view(&self, settings: &Settings, anim_state: &AnimState) -> Option<Element<'_, Message>> {
         if !self.is_expanded || self.data.held_unit.is_none() {
             return None;
         }
 
         Some(
-            container(self.viewer_view(settings))
+            container(self.viewer_view(settings, anim_state))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .style(|theme: &Theme| container::Style {
@@ -170,14 +171,14 @@ impl State {
         )
     }
 
-    fn viewer_view(&self, settings: &Settings) -> Element<'_, Message> {
+    fn viewer_view(&self, settings: &Settings, anim_state: &AnimState) -> Element<'_, Message> {
         let viewport = self.canvas.view(&self.data).map(Message::Canvas);
 
         let selection_overlay = self.overlay
-            .view(&self.canvas, self.export.camera_region(settings), settings.animation.debug_view)
+            .view(&self.canvas, self.export.camera_region(anim_state), settings.animation.debug_view)
             .map(Message::Overlay);
 
-        let controls_overlay = container(self.controls.view(&self.canvas, &self.data, settings).map(Message::Controls))
+        let controls_overlay = container(self.controls.view(&self.canvas, &self.data, anim_state).map(Message::Controls))
             .width(Length::Fill)
             .align_x(iced::alignment::Horizontal::Left)
             .padding(10);

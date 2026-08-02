@@ -123,8 +123,6 @@ pub struct EnemyDataSettings {
 #[serde(default)]
 pub struct GameDataSettings {
     pub app_folder_persistence: bool,
-    pub adb_import_type_idx: usize,
-    pub adb_region_idx: usize,
     pub enforce_key_validation: bool,
 }
 
@@ -132,8 +130,6 @@ impl Default for GameDataSettings {
     fn default() -> Self {
         Self {
             app_folder_persistence: false,
-            adb_import_type_idx: 0,
-            adb_region_idx: 4,
             enforce_key_validation: true,
         }
     }
@@ -148,11 +144,6 @@ pub struct AnimSettings {
     pub default_showcase_walk: i32,
     pub default_showcase_idle: i32,
     pub default_showcase_kb: i32,
-    pub last_export_format: i32,
-    pub last_export_quality: Option<i32>,
-    pub last_export_compression: Option<i32>,
-    pub controls_expanded: bool,
-    pub export_popup_open: bool,
 }
 
 impl Default for AnimSettings {
@@ -164,11 +155,6 @@ impl Default for AnimSettings {
             default_showcase_walk: 90,
             default_showcase_idle: 90,
             default_showcase_kb: 60,
-            last_export_format: 0,
-            last_export_quality: None,
-            last_export_compression: None,
-            controls_expanded: true,
-            export_popup_open: false,
         }
     }
 }

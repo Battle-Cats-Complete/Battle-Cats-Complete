@@ -5,7 +5,7 @@ use core::modules::animation::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT, IDX_SURFACE,
     IDX_WALK,
 };
-use core::modules::settings::Settings;
+use core::modules::state::AnimState;
 
 use crate::app::theme;
 
@@ -81,10 +81,10 @@ fn step_control(label: &'static str) -> iced::widget::Container<'static, Message
 }
 
 impl State {
-    pub fn update(&mut self, message: Message, canvas: &mut canvas::State, data: &mut data::State, settings: &mut Settings) {
+    pub fn update(&mut self, message: Message, canvas: &mut canvas::State, data: &mut data::State, anim_state: &mut AnimState) {
         match message {
             Message::TogglePlay => canvas.is_playing = !canvas.is_playing,
-            Message::ToggleExpanded => settings.animation.controls_expanded = !settings.animation.controls_expanded,
+            Message::ToggleExpanded => anim_state.controls_expanded = !anim_state.controls_expanded,
             Message::HoldStart(dir) => {
                 self.hold_dir = dir;
                 self.hold_timer = 0.0;
@@ -169,7 +169,7 @@ impl State {
         self.step(canvas, data, delta);
     }
 
-    pub fn view<'a>(&'a self, canvas: &'a canvas::State, data: &'a data::State, settings: &Settings) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, canvas: &'a canvas::State, data: &'a data::State, anim_state: &AnimState) -> Element<'a, Message> {
         let play_icon = if canvas.is_playing { "⏸" } else { "▶" };
         let is_locked = false;
 
@@ -217,10 +217,10 @@ impl State {
             text_input("1.0", &self.speed_input).on_input(Message::SpeedInputChanged).width(Length::Fixed(50.0)),
         ].spacing(4);
 
-        let expand_icon = if settings.animation.controls_expanded { "▼" } else { "▲" };
+        let expand_icon = if anim_state.controls_expanded { "▼" } else { "▲" };
         let toggle_button = button(text(expand_icon)).on_press(Message::ToggleExpanded).width(Length::Fill).style(button::text);
 
-        let body: Element<'_, Message> = if settings.animation.controls_expanded {
+        let body: Element<'_, Message> = if anim_state.controls_expanded {
             let controls_column = column![transport_row, frame_display, frame_status, speed_row].spacing(6);
 
             let base_available = data.base_assets_available();

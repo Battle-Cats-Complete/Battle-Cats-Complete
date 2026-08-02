@@ -16,6 +16,7 @@ use core::modules::addons::paths::{self, Presence};
 use core::modules::animation::export::{find_loop, leader, process, EncoderStatus, ExportFormat, ExportMode, ExporterState, LoopStatus};
 use core::modules::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
 use core::modules::settings::Settings;
+use core::modules::state::AnimState;
 
 use crate::common::popup;
 
@@ -113,7 +114,7 @@ pub enum Message {
 }
 
 impl State {
-    pub fn sync(&mut self, data: &data::State, settings: &Settings) {
+    pub fn sync(&mut self, data: &data::State, settings: &Settings, anim_state: &AnimState) {
         self.check_settings_defaults(settings);
 
         let key = (data.loaded_id().to_string(), data.loaded_anim_index);
@@ -123,7 +124,7 @@ impl State {
             self.synced_key = Some(key);
 
             if unit_changed {
-                self.reset(settings);
+                self.reset(settings, anim_state);
             }
 
             self.exporter.loop_supported = matches!(data.loaded_anim_index, IDX_WALK | IDX_IDLE);
@@ -234,9 +235,9 @@ impl State {
         }
     }
 
-    fn reset(&mut self, settings: &Settings) {
+    fn reset(&mut self, settings: &Settings, anim_state: &AnimState) {
         let previous_mode = self.exporter.export_mode.clone();
-        self.exporter = ExporterState::with_settings(settings);
+        self.exporter = ExporterState::with_settings(settings, anim_state);
         self.exporter.export_mode = previous_mode;
     }
 
@@ -248,8 +249,8 @@ impl State {
         self.exporter.zoom = 1.0;
     }
 
-    pub fn camera_region(&self, settings: &Settings) -> Option<Region> {
-        if settings.animation.export_popup_open && self.exporter.region_w > 0.1 && self.exporter.region_h > 0.1 {
+    pub fn camera_region(&self, anim_state: &AnimState) -> Option<Region> {
+        if anim_state.export_popup_open && self.exporter.region_w > 0.1 && self.exporter.region_h > 0.1 {
             Some(Region {
                 x: self.exporter.region_x,
                 y: self.exporter.region_y,
@@ -304,11 +305,11 @@ impl State {
         }
     }
 
-    pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings) -> Task<Message> {
+    pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings, anim_state: &mut AnimState) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
                 if self.popup.update(msg, POPUP_SIZE) {
-                    settings.animation.export_popup_open = false;
+                    anim_state.export_popup_open = false;
                 }
             }
             Message::SetMode(mode) => {
@@ -323,7 +324,7 @@ impl State {
             }
             Message::SetFormat(format) => {
                 self.exporter.format = format.clone();
-                settings.animation.last_export_format = match format {
+                anim_state.last_export_format = match format {
                     ExportFormat::Gif => 0,
                     ExportFormat::WebP => 1,
                     ExportFormat::Avif => 2,
@@ -424,20 +425,20 @@ impl State {
                 self.exporter.quality_percent_str = value.clone();
                 if value.trim().is_empty() {
                     self.exporter.quality_percent = 100;
-                    settings.animation.last_export_quality = None;
+                    anim_state.last_export_quality = None;
                 } else if let Ok(parsed) = value.parse::<i32>() {
                     self.exporter.quality_percent = parsed.clamp(0, 100);
-                    settings.animation.last_export_quality = Some(self.exporter.quality_percent);
+                    anim_state.last_export_quality = Some(self.exporter.quality_percent);
                 }
             }
             Message::SetCompression(value) => {
                 self.exporter.compression_percent_str = value.clone();
                 if value.trim().is_empty() {
                     self.exporter.compression_percent = 0;
-                    settings.animation.last_export_compression = None;
+                    anim_state.last_export_compression = None;
                 } else if let Ok(parsed) = value.parse::<i32>() {
                     self.exporter.compression_percent = parsed.clamp(0, 100);
-                    settings.animation.last_export_compression = Some(self.exporter.compression_percent);
+                    anim_state.last_export_compression = Some(self.exporter.compression_percent);
                 }
             }
             Message::ToggleBackground(enabled) => {

@@ -28,6 +28,7 @@ use core::modules::cat::scanner::{self, CatEntry};
 use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
+use core::modules::state::AppState;
 
 use crate::app::theme;
 use crate::common::feedback::Slot;
@@ -189,6 +190,10 @@ impl State {
         self.list.scroll_offset()
     }
 
+    pub(crate) fn set_list_scroll_offset(&mut self, offset: f32) {
+        self.list.set_scroll_offset(offset);
+    }
+
     pub fn icon_stream(&mut self) -> Task<Message> {
         self.list.result_stream().map(Message::List)
     }
@@ -322,8 +327,8 @@ impl State {
         Task::batch([img015_task, img022_task])
     }
 
-    pub fn update(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
-        let task = self.update_inner(message, settings, global_ctx);
+    pub fn update(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
+        let task = self.update_inner(message, settings, app_state, global_ctx);
 
         self.sync_ultra_bump(settings);
         self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
@@ -331,7 +336,7 @@ impl State {
         task
     }
 
-    fn update_inner(&mut self, message: Message, settings: &mut Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
+    fn update_inner(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
             Message::SheetsCheck => self.check_sheets(settings),
             Message::Img015Loaded(index, sheet) => {
@@ -381,7 +386,7 @@ impl State {
             }
             Message::AnimationTick => {
                 if let Some(cat) = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
-                    self.animation.sync(cat, self.selected_form, settings);
+                    self.animation.sync(cat, self.selected_form, settings, &app_state.animation);
                 }
                 self.animation.tick();
                 Task::none()
@@ -454,7 +459,7 @@ impl State {
             Message::ExportStatblock(action) => self.start_statblock_export(action, settings, global_ctx),
             Message::List(msg) => {
                 if let list::Message::SelectCat(id) = msg {
-                    return self.update(Message::SelectCat(id), settings, global_ctx);
+                    return self.update(Message::SelectCat(id), settings, app_state, global_ctx);
                 }
 
                 self.list.update(msg);
@@ -471,7 +476,7 @@ impl State {
             Message::Talents(msg) => {
                 match msg {
                     talents::Message::LevelChanged(index, level) => {
-                        return self.update(Message::ChangeTalentLevel(index, level), settings, global_ctx);
+                        return self.update(Message::ChangeTalentLevel(index, level), settings, app_state, global_ctx);
                     }
                     talents::Message::LevelInputChanged(index, input) => {
                         let max_level = self.selected_cat
@@ -493,7 +498,7 @@ impl State {
                 }
                 Task::none()
             }
-            Message::Animation(msg) => self.animation.update(msg, settings).map(Message::Animation),
+            Message::Animation(msg) => self.animation.update(msg, settings, &mut app_state.animation).map(Message::Animation),
         }
     }
 
@@ -587,12 +592,12 @@ impl State {
         self.statblock_clipboard.as_mut()
     }
 
-    pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings) -> Option<Element<'a, Message>> {
-        self.animation.expanded_view(settings).map(|view| view.map(Message::Animation))
+    pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
+        self.animation.expanded_view(settings, &app_state.animation).map(|view| view.map(Message::Animation))
     }
 
-    pub fn export_popup_open(&self, settings: &Settings) -> bool {
-        self.animation.export_popup_open(settings)
+    pub fn export_popup_open(&self, app_state: &AppState) -> bool {
+        self.animation.export_popup_open(&app_state.animation)
     }
 
     pub fn export_popup_visible(&self) -> bool {
@@ -610,13 +615,13 @@ impl State {
             .then(|| self.filter.view(&self.img015_sheets, &self.custom_assets, window).map(Message::Filter))
     }
 
-    pub fn export_popup_view(&self, window: Size, settings: &Settings) -> Option<Element<'_, Message>> {
-        self.animation.export_popup_view(window, settings).map(|view| view.map(Message::Animation))
+    pub fn export_popup_view(&self, window: Size, app_state: &AppState) -> Option<Element<'_, Message>> {
+        self.animation.export_popup_view(window, &app_state.animation).map(|view| view.map(Message::Animation))
     }
 
-    pub fn view<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let sidebar = self.view_sidebar();
-        let main_content = self.view_main_content(settings, global_ctx);
+        let main_content = self.view_main_content(settings, app_state, global_ctx);
 
         let base_layout = row![sidebar, main_content]
             .width(Length::Fill)
@@ -675,7 +680,7 @@ impl State {
             .into()
     }
 
-    fn view_main_content<'a>(&'a self, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+    fn view_main_content<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let Some(selected_id) = self.selected_cat else {
             return container(text("Select a Unit").size(24))
                 .width(Length::Fill)
@@ -700,7 +705,7 @@ impl State {
             DetailTab::Abilities => self.view_abilities(cat, settings, global_ctx),
             DetailTab::Talents => self.view_talents(cat, settings),
             DetailTab::Details => self.view_details(cat),
-            DetailTab::Animation => self.animation.view(settings).map(Message::Animation),
+            DetailTab::Animation => self.animation.view(settings, &app_state.animation).map(Message::Animation),
         };
 
         column![

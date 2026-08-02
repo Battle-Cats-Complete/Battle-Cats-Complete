@@ -14,9 +14,13 @@ use super::{logging, updater, BattleCatsApp, Message};
 impl BattleCatsApp {
     pub fn new() -> (Self, Task<Message>) {
         let mut app: Self = json::load("settings.json").unwrap_or_default();
+        app.app_state = json::load("state.json").unwrap_or_default();
 
         logging::init_logging(app.settings.general.enable_logging);
         info!("Starting initialization sequence...");
+
+        app.cat_state.set_list_scroll_offset(app.app_state.cat_data.list_scroll_offset);
+        app.enemy_state.set_list_scroll_offset(app.app_state.enemy_data.list_scroll_offset);
 
         ExceptionList::sync_on_boot();
 

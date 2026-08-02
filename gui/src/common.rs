@@ -1,4 +1,5 @@
 pub mod feedback;
+pub mod icon_loader;
 pub mod img015;
 pub mod img022;
 pub mod name_box;

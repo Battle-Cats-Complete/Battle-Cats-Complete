@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use iced::futures::channel::mpsc::{unbounded, UnboundedReceiver};
+use iced::futures::channel::mpsc::UnboundedReceiver;
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, responsive, row, scrollable, space, text, tooltip, Column, Id};
 use iced::{Border, Color, Element, Length, Size, Task, Theme};
@@ -16,6 +15,7 @@ use core::common::{assets, gfx};
 use core::modules::cat::filter::{evaluation, CatFilterState};
 use core::modules::cat::scanner::CatEntry;
 
+use crate::common::icon_loader::{self, Dispatcher, LoadRequest, LoadResult};
 use crate::common::row_window::{self, RowWindow};
 use crate::common::smooth_scroll::smooth_scroll;
 const BANNER_ASPECT: f32 = 318.0 / 133.0;
@@ -39,20 +39,6 @@ impl std::fmt::Debug for Message {
     }
 }
 
-struct LoadRequest {
-    id: u32,
-    path: PathBuf,
-    background: Arc<RgbaImage>,
-    generation: u64,
-}
-
-#[derive(Clone)]
-pub struct LoadResult {
-    id: u32,
-    payload: Option<(u32, u32, Vec<u8>)>,
-    generation: u64,
-}
-
 pub struct State {
     texture_cache: HashMap<u32, Handle>,
     placeholder: Handle,
@@ -64,8 +50,9 @@ pub struct State {
     last_filter_state: CatFilterState,
     cached_indices: Vec<usize>,
     scroll_offset: f32,
+    last_focus_row: usize,
     generation: u64,
-    tx_request: Sender<LoadRequest>,
+    loader: Dispatcher,
     rx_result: Option<UnboundedReceiver<LoadResult>>,
 }
 
@@ -81,18 +68,7 @@ impl Default for State {
             }
         };
 
-        let (tx_request, rx_request) = mpsc::channel::<LoadRequest>();
-        let (tx_result, rx_result) = unbounded::<LoadResult>();
-
-        thread::spawn(move || {
-            while let Ok(request) = rx_request.recv() {
-                let tx = tx_result.clone();
-                rayon::spawn(move || {
-                    let payload = composite_banner(&request.path, &request.background);
-                    let _ = tx.unbounded_send(LoadResult { id: request.id, payload, generation: request.generation });
-                });
-            }
-        });
+        let (loader, rx_result) = icon_loader::spawn(composite_banner);
 
         Self {
             texture_cache: HashMap::new(),
@@ -105,8 +81,9 @@ impl Default for State {
             last_filter_state: CatFilterState::default(),
             cached_indices: Vec::new(),
             scroll_offset: 0.0,
+            last_focus_row: 0,
             generation: 0,
-            tx_request,
+            loader,
             rx_result: Some(rx_result),
         }
     }
@@ -121,6 +98,10 @@ impl State {
         self.scroll_offset
     }
 
+    pub(super) fn set_scroll_offset(&mut self, offset: f32) {
+        self.scroll_offset = offset;
+    }
+
     pub fn result_stream(&mut self) -> Task<Message> {
         match self.rx_result.take() {
             Some(rx) => Task::stream(rx).map(Message::IconLoaded),
@@ -131,6 +112,12 @@ impl State {
     pub fn update(&mut self, message: Message) {
         if let Message::Scrolled(offset) = message {
             self.scroll_offset = offset;
+
+            let row = (offset / row_window::ROW_PITCH) as usize;
+            if row != self.last_focus_row {
+                self.last_focus_row = row;
+                self.loader.set_focus(row);
+            }
             return;
         }
 
@@ -194,6 +181,12 @@ impl State {
     fn dispatch_requests(&mut self, cats: &[CatEntry]) {
         let Some(background) = self.background.clone() else { return; };
 
+        let ranked = self.cached_indices.iter().filter_map(|&index| cats.get(index).map(|cat| cat.id)).collect();
+        self.loader.set_rank(ranked);
+
+        self.last_focus_row = (self.scroll_offset / row_window::ROW_PITCH) as usize;
+        self.loader.set_focus(self.last_focus_row);
+
         for &index in &self.cached_indices {
             let Some(cat) = cats.get(index) else { continue; };
             let id = cat.id;
@@ -209,7 +202,7 @@ impl State {
 
             self.pending_requests.insert(id);
 
-            let _ = self.tx_request.send(LoadRequest { id, path, background: background.clone(), generation: self.generation });
+            self.loader.request(LoadRequest { id, path, background: background.clone(), generation: self.generation });
         }
     }
 

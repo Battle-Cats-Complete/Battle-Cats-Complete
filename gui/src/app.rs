@@ -11,6 +11,7 @@ use tracing::{info, trace, warn};
 use core::common::context::GlobalContext;
 use core::common::io::json;
 use core::modules::settings::{Settings, UpdateMode};
+use core::modules::state::AppState;
 
 use crate::common::watcher::GuiWatcher;
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
@@ -148,6 +149,9 @@ pub struct BattleCatsApp {
     pub settings: Settings,
 
     #[serde(skip)]
+    pub app_state: AppState,
+
+    #[serde(skip)]
     pub param: Param,
     #[serde(skip)]
     pub localizable: Localizable,
@@ -155,6 +159,8 @@ pub struct BattleCatsApp {
     pub global_watcher: Option<GuiWatcher>,
     #[serde(skip)]
     pub last_saved_hash: u64,
+    #[serde(skip)]
+    pub last_saved_state_hash: u64,
 
     #[serde(skip)]
     pub updater_handle: Option<task::Handle>,
@@ -181,10 +187,12 @@ impl Default for BattleCatsApp {
             data_state: data::State::default(),
             settings_state: gui_settings::State::default(),
             settings: Settings::default(),
+            app_state: AppState::default(),
             param: Param::default(),
             localizable: Localizable::default(),
             global_watcher: None,
             last_saved_hash: 0,
+            last_saved_state_hash: 0,
             updater_handle: None,
             updater_status: UpdateStatus::Idle,
             download_progress: 0.0,
@@ -221,7 +229,7 @@ impl BattleCatsApp {
             Page::Home => self.home_state.update(home::Message::CheckInit).map(Message::Home),
             Page::Cats => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
-                let sheets_task = self.cat_state.update(cat::Message::SheetsCheck, &mut self.settings, global_ctx).map(Message::Cat);
+                let sheets_task = self.cat_state.update(cat::Message::SheetsCheck, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
                 let scroll_task = operation::scroll_to(
                     cat::State::list_scrollable_id(),
                     scrollable::AbsoluteOffset { x: 0.0, y: self.cat_state.list_scroll_offset() },
@@ -230,7 +238,7 @@ impl BattleCatsApp {
             }
             Page::Enemies => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
-                let sheets_task = self.enemy_state.update(enemy::Message::SheetsCheck, &mut self.settings, global_ctx).map(Message::Enemy);
+                let sheets_task = self.enemy_state.update(enemy::Message::SheetsCheck, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Enemy);
                 let scroll_task = operation::scroll_to(
                     enemy::EnemyState::list_scrollable_id(),
                     scrollable::AbsoluteOffset { x: 0.0, y: self.enemy_state.list_scroll_offset() },
@@ -257,6 +265,7 @@ impl BattleCatsApp {
             }
             Message::AutoSave => {
                 self.check_auto_save();
+                self.check_auto_save_state();
                 Task::none()
             }
             Message::DownloadTick => {
@@ -323,8 +332,9 @@ impl BattleCatsApp {
             }
             Message::Cat(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
-                let task = self.cat_state.update(msg, &mut self.settings, global_ctx).map(Message::Cat);
-                self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open(&self.settings));
+                let task = self.cat_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
+                self.app_state.cat_data.list_scroll_offset = self.cat_state.list_scroll_offset();
+                self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open(&self.app_state));
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
                 task
             }
@@ -335,12 +345,13 @@ impl BattleCatsApp {
             Message::Enemy(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
                 let enemies_loaded = matches!(msg, enemy::Message::Loaded(_));
-                let task = self.enemy_state.update(msg, &mut self.settings, global_ctx).map(Message::Enemy);
+                let task = self.enemy_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Enemy);
                 if enemies_loaded {
                     self.stage_state.sync_enemies(&self.enemy_state.data.enemies);
                 }
+                self.app_state.enemy_data.list_scroll_offset = self.enemy_state.list_scroll_offset();
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
-                self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open(&self.settings));
+                self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open(&self.app_state));
                 task
             }
             Message::Stage(msg) => {
@@ -358,7 +369,7 @@ impl BattleCatsApp {
                 }
                 task
             }
-            Message::Data(msg) => self.data_state.update(msg, &mut self.settings).map(Message::Data),
+            Message::Data(msg) => self.data_state.update(msg, &mut self.settings, &mut self.app_state).map(Message::Data),
             Message::Settings(msg) => {
                 if matches!(msg, gui_settings::Message::ManualUpdateCheck) {
                     info!("Manual update check requested from Settings");
@@ -376,11 +387,11 @@ impl BattleCatsApp {
     pub fn view(&self) -> Element<'_, Message> {
         let content = match self.current_page {
             Page::Home => self.home_state.view().map(Message::Home),
-            Page::Cats => self.cat_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Cat),
-            Page::Enemies => self.enemy_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Enemy),
+            Page::Cats => self.cat_state.view(&self.settings, &self.app_state, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Cat),
+            Page::Enemies => self.enemy_state.view(&self.settings, &self.app_state, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Enemy),
             Page::Stages => self.stage_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
-            Page::Data => self.data_state.view(&self.settings).map(Message::Data),
+            Page::Data => self.data_state.view(&self.app_state).map(Message::Data),
             Page::Settings => self.settings_state.view(&self.settings).map(Message::Settings),
         };
 
@@ -391,8 +402,8 @@ impl BattleCatsApp {
         let sidebar_overlay = self.view_sidebar_overlay();
 
         let expanded: Option<Element<'_, Message>> = match self.current_page {
-            Page::Cats => self.cat_state.expanded_animation_view(&self.settings).map(|view| view.map(Message::Cat)),
-            Page::Enemies => self.enemy_state.expanded_animation_view(&self.settings).map(|view| view.map(Message::Enemy)),
+            Page::Cats => self.cat_state.expanded_animation_view(&self.settings, &self.app_state).map(|view| view.map(Message::Cat)),
+            Page::Enemies => self.enemy_state.expanded_animation_view(&self.settings, &self.app_state).map(|view| view.map(Message::Enemy)),
             _ => None,
         };
 
@@ -440,7 +451,7 @@ impl BattleCatsApp {
                         return None;
                     }
 
-                    self.cat_state.export_popup_view(self.window_size, &self.settings).map(|view| view.map(Message::Cat))
+                    self.cat_state.export_popup_view(self.window_size, &self.app_state).map(|view| view.map(Message::Cat))
                 }
                 ActivePopup::CatFilter => {
                     if !matches!(self.current_page, Page::Cats) {
@@ -454,7 +465,7 @@ impl BattleCatsApp {
                         return None;
                     }
 
-                    self.enemy_state.export_popup_view(self.window_size, &self.settings).map(|view| view.map(Message::Enemy))
+                    self.enemy_state.export_popup_view(self.window_size, &self.app_state).map(|view| view.map(Message::Enemy))
                 }
                 ActivePopup::EnemyFilter => {
                     if !matches!(self.current_page, Page::Enemies) {
@@ -651,6 +662,23 @@ impl BattleCatsApp {
                 return;
             }
             self.last_saved_hash = current_hash;
+        }
+    }
+
+    fn check_auto_save_state(&mut self) {
+        let Ok(json_string) = serde_json::to_string(&self.app_state) else { return; };
+
+        let mut hasher = FxHasher::default();
+        json_string.hash(&mut hasher);
+        let current_hash = hasher.finish();
+
+        if self.last_saved_state_hash != current_hash {
+            trace!("App state changed. Saving to state.json");
+            if let Err(err) = json::save("state.json", &self.app_state) {
+                warn!("Failed to save state.json: {}", err);
+                return;
+            }
+            self.last_saved_state_hash = current_hash;
         }
     }
 }
