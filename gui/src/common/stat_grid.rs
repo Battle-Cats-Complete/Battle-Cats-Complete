@@ -10,9 +10,9 @@ pub const CELL_HEIGHT: f32 = 28.0;
 
 const CELL_TEXT_SIZE: f32 = 13.0;
 const TOOLTIP_TEXT_SIZE: f32 = 14.0;
-const CELL_PADDING: f32 = 3.0;
 const CELL_BORDER_WIDTH: f32 = 2.0;
 const CELL_RADIUS: f32 = 4.0;
+const CELL_CLIP_INSET: f32 = CELL_BORDER_WIDTH;
 const HEADER_SHADE: f32 = 0.08;
 const VALUE_SHADE: f32 = 0.1;
 
@@ -26,13 +26,18 @@ fn cell_colors(theme: &Theme) -> (Color, Color, Color) {
 }
 
 fn cell<'a, Message: 'a>(content: Element<'a, Message>, is_header: bool) -> Element<'a, Message> {
-    container(content)
-        .padding(CELL_PADDING)
+    let window = container(content)
+        .width(Length::Fixed(CELL_WIDTH - CELL_CLIP_INSET * 2.0))
+        .height(Length::Fill)
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Center)
+        .clip(true);
+
+    container(window)
         .width(Length::Fixed(CELL_WIDTH))
         .height(Length::Fixed(CELL_HEIGHT))
         .align_x(Horizontal::Center)
         .align_y(Vertical::Center)
-        .clip(true)
         .style(move |theme: &Theme| {
             let (header, value, border_color) = cell_colors(theme);
 
