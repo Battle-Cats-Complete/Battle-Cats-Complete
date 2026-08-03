@@ -52,6 +52,7 @@ const HEADER_BUTTON_HEIGHT: f32 = 26.0;
 const HEADER_BUTTON_TOP_PADDING: f32 = 5.0;
 const EXPORT_BUTTON_WIDTH: f32 = 100.0;
 const EXPORT_BUTTON_HEIGHT: f32 = 24.0;
+const EXPORT_BUTTON_RULE_GAP: f32 = 0.0;
 const TALENT_HISTORY_CAP: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -878,7 +879,7 @@ impl State {
 
             detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
             detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(8.0)));
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
             detail_row = detail_row.push(export_col);
         }
 
