@@ -561,9 +561,9 @@ impl BattleCatsApp {
 
     fn view_sidebar_overlay(&self) -> Element<'_, Message> {
         let arrow_text = if self.sidebar_open { "▶" } else { "◀" };
-        let toggle_btn = button(text(arrow_text).size(20).align_x(alignment::Horizontal::Center))
-            .width(Length::Fixed(40.0))
-            .height(Length::Fixed(40.0))
+        let toggle_btn = button(text(arrow_text).size(20).align_x(alignment::Horizontal::Center).align_y(alignment::Vertical::Center))
+            .width(Length::Fixed(37.0))
+            .height(Length::Fixed(37.0))
             .on_press(Message::ToggleSidebar)
             .style(theme::primary_button);
 
