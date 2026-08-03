@@ -4,23 +4,28 @@ mod list;
 mod statblock;
 mod talents;
 
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
 use arboard::Clipboard;
 use iced::alignment::{Horizontal, Vertical};
 use iced::futures::channel::mpsc;
+use iced::widget::image::Handle;
 use iced::widget::{
-    button, column, container, row, rule, scrollable,
+    button, column, container, image as iced_image, row, rule, scrollable,
     text, text_input, Id, Space,
 };
 use iced::{Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::cat::unit::Battle;
 use tracing::{error, info};
 
+use core::common::assets;
 use core::common::context::GlobalContext;
 use core::common::formats::SpriteSheet as CoreSpriteSheet;
+use core::common::gfx::autocrop;
 use core::modules::cat::game::registry::{format_cat_stat, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
 use core::modules::cat::game::stats::get_final_stats;
 use core::modules::cat::game::CatRenderContext;
@@ -32,6 +37,7 @@ use core::modules::settings::Settings;
 use crate::app::state::{AppState, CatListState};
 use crate::app::theme;
 use crate::common::feedback::Slot;
+use crate::common::name_box;
 use crate::common::stat_grid;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
@@ -44,6 +50,8 @@ use statblock::build_cat_statblock;
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
 const HEADER_BUTTON_TOP_PADDING: f32 = 5.0;
+const EXPORT_BUTTON_WIDTH: f32 = 100.0;
+const EXPORT_BUTTON_HEIGHT: f32 = 24.0;
 const TALENT_HISTORY_CAP: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +142,9 @@ pub struct State {
     img022_sheets: Vec<SpriteSheet>,
     custom_assets: CustomAssets,
 
+    header_icon_cache: RefCell<HashMap<PathBuf, Handle>>,
+    header_icon_fallback: Handle,
+
     scan_progress: Option<(usize, usize)>,
 
     statblock_pending: Option<ExportAction>,
@@ -150,6 +161,13 @@ pub struct State {
 
 impl Default for State {
     fn default() -> Self {
+        let header_icon_fallback = image::load_from_memory(assets::UNKNOWN)
+            .map(|img| {
+                let rgba = img.to_rgba8();
+                Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw())
+            })
+            .unwrap_or_else(|_| Handle::from_rgba(1, 1, vec![80, 80, 80, 255]));
+
         Self {
             data: CatDataState::default(),
             selected_cat: None,
@@ -167,6 +185,9 @@ impl Default for State {
             img015_sheets: Vec::new(),
             img022_sheets: Vec::new(),
             custom_assets: CustomAssets::new(),
+
+            header_icon_cache: RefCell::new(HashMap::new()),
+            header_icon_fallback,
 
             scan_progress: None,
 
@@ -771,7 +792,7 @@ impl State {
             .into()
     }
 
-    fn view_header(&self, cat: &CatEntry) -> Element<'_, Message> {
+    fn view_header<'a>(&'a self, cat: &'a CatEntry) -> Element<'a, Message> {
         let mut form_row = row![].spacing(4);
         let form_labels = ["Normal", "Evolved", "True", "Ultra"];
 
@@ -794,7 +815,9 @@ impl State {
         let copy_busy = self.statblock_pending == Some(ExportAction::Copy);
         let copy_feedback = self.statblock_copy_feedback.get().copied();
         let copy_label = feedback_label(copy_busy, copy_feedback, "Copy Image", "Copying...", "Copied!", "Failed!");
-        let copy_btn = button(text(copy_label).size(12))
+        let copy_btn = button(text(copy_label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+            .width(Length::Fixed(EXPORT_BUTTON_WIDTH))
+            .height(Length::Fixed(EXPORT_BUTTON_HEIGHT))
             .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportStatblock(ExportAction::Copy)))
             .style(move |theme: &Theme, _status| button::Style {
                 background: Some(Background::Color(feedback_color(theme, copy_busy, copy_feedback))),
@@ -806,7 +829,9 @@ impl State {
         let save_busy = self.statblock_pending == Some(ExportAction::Save);
         let save_feedback = self.statblock_save_feedback.get().copied();
         let save_label = feedback_label(save_busy, save_feedback, "Export Image", "Exporting...", "Exported!", "Failed!");
-        let save_btn = button(text(save_label).size(12))
+        let save_btn = button(text(save_label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+            .width(Length::Fixed(EXPORT_BUTTON_WIDTH))
+            .height(Length::Fixed(EXPORT_BUTTON_HEIGHT))
             .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportStatblock(ExportAction::Save)))
             .style(move |theme: &Theme, _status| button::Style {
                 background: Some(Background::Color(feedback_color(theme, save_busy, save_feedback))),
@@ -841,12 +866,19 @@ impl State {
             tab_row = tab_row.push(btn);
         }
 
-        let level_row = row![
-            text("Level:").align_y(Vertical::Center),
-            text_input("Level", &self.level_input)
-                .on_input(Message::LevelInputChanged)
-                .width(Length::Fixed(60.0))
-        ].spacing(8).align_y(Vertical::Center);
+        let mut detail_row = row![
+            self.view_cat_icon(cat),
+            self.view_info_box(cat),
+        ].spacing(12).align_y(Vertical::Center);
+
+        if self.selected_tab == DetailTab::Abilities {
+            let export_col = column![copy_btn, save_btn].spacing(6).align_x(Horizontal::Center);
+
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
+            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(70.0)));
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
+            detail_row = detail_row.push(export_col);
+        }
 
         column![
             Space::new().height(Length::Fixed(HEADER_BUTTON_TOP_PADDING)),
@@ -858,14 +890,57 @@ impl State {
             Space::new().height(Length::Fixed(8.0)),
             rule::horizontal(1),
             Space::new().height(Length::Fixed(8.0)),
-            row![copy_btn, save_btn].spacing(8),
-            Space::new().height(Length::Fixed(16.0)),
-            row![
-                text(format!("ID: {:03}-{}", cat.id, self.selected_form + 1)).size(12),
-                Space::new().width(Length::Fill),
-                level_row
-            ],
+            detail_row,
         ].into()
+    }
+
+    fn view_cat_icon(&self, cat: &CatEntry) -> Element<'_, Message> {
+        let path = cat.deploy_icon_paths[self.selected_form].as_ref();
+        let handle = self.cat_icon_handle(path);
+
+        iced_image(handle).height(Length::Fixed(96.0)).into()
+    }
+
+    fn cat_icon_handle(&self, path: Option<&PathBuf>) -> Handle {
+        if let Some(path) = path
+            && path.exists()
+        {
+            if let Some(cached) = self.header_icon_cache.borrow().get(path) {
+                return cached.clone();
+            }
+
+            if let Ok(img) = image::open(path) {
+                let rgba = autocrop(img.to_rgba8());
+                let handle = Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw());
+                self.header_icon_cache.borrow_mut().insert(path.clone(), handle.clone());
+                return handle;
+            }
+        }
+
+        self.header_icon_fallback.clone()
+    }
+
+    fn view_info_box<'a>(&'a self, cat: &'a CatEntry) -> Element<'a, Message> {
+        let disp_name = cat.display_name(self.selected_form);
+
+        let id_text = text(format!("ID: {:03}-{}", cat.id, self.selected_form + 1))
+            .size(9)
+            .style(|theme: &Theme| text::Style { color: Some(theme.extended_palette().background.strong.color) });
+
+        let level_row = row![
+            text("Level:").size(11).align_y(Vertical::Center),
+            text_input("Level", &self.level_input)
+                .on_input(Message::LevelInputChanged)
+                .size(11)
+                .width(Length::Fixed(45.0))
+                .style(theme::rounded_input)
+        ].spacing(6).align_y(Vertical::Center);
+
+        column![
+            name_box::name_box(disp_name, 123.0, 48.0),
+            id_text,
+            level_row,
+        ].spacing(4).into()
     }
 
     fn view_abilities<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
