@@ -13,7 +13,7 @@ use nyanko::graphics::engine::{resolve_frame, FrameData};
 use nyanko::graphics::rig::{Animation, Unit};
 
 use core::modules::animation::export::process::calculate_export_time;
-use core::modules::animation::export::{EncoderMessage, ExportMode, ExporterState};
+use core::modules::animation::export::{EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
 use core::modules::animation::{multiply_mat3, IDX_ATTACK, IDX_IDLE, IDX_KB, IDX_WALK};
 
 use super::pipeline::{build_vertices, Pipeline};
@@ -234,10 +234,7 @@ pub struct Job {
     pub unit: Arc<Unit>,
     pub animation: Option<Arc<Animation>>,
     pub available_anims: Vec<(usize, PathBuf)>,
-    pub mode: ExportMode,
-    pub frame_start: i32,
-    pub frame_end: i32,
-    pub loop_supported: bool,
+    pub timing: FrameTiming,
     pub lengths: ShowcaseLengths,
     pub camera: Camera,
     pub region_w: f32,
@@ -247,14 +244,6 @@ pub struct Job {
     pub tx: mpsc::Sender<EncoderMessage>,
     pub abort: Arc<AtomicBool>,
     pub progress: Arc<AtomicI32>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct ShowcaseLengths {
-    pub walk: i32,
-    pub idle: i32,
-    pub attack: i32,
-    pub kb: i32,
 }
 
 pub fn spawn(job: Job) {
@@ -270,21 +259,13 @@ fn run(job: Job) {
         }
     };
 
-    let clips = if job.mode == ExportMode::Showcase {
+    let clips = if job.timing.mode == ExportMode::Showcase {
         Some(ShowcaseClips::load(&job.available_anims))
     } else {
         None
     };
 
-    let calc = ExporterState {
-        export_mode: job.mode.clone(),
-        frame_start: job.frame_start,
-        frame_end: job.frame_end,
-        loop_supported: job.loop_supported,
-        ..ExporterState::default()
-    };
-
-    let frame_count = (job.frame_end - job.frame_start).abs() + 1;
+    let frame_count = (job.timing.frame_end - job.timing.frame_start).abs() + 1;
     let delay_ms = (1000.0 / job.fps as f32) as u32;
     let background = if job.background { [80, 80, 80, 255] } else { [0, 0, 0, 0] };
 
@@ -307,7 +288,7 @@ fn run(job: Job) {
             None => (job.animation.as_deref(), 0.0),
         };
 
-        let frame_time = calculate_export_time(&calc, animation, local_time, progress);
+        let frame_time = calculate_export_time(&job.timing, animation, local_time, progress);
 
         match renderer.render_frame(&job.unit, animation, frame_time, job.camera, background) {
             Ok(pixels) => {

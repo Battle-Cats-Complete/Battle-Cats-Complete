@@ -13,7 +13,7 @@ use tracing::trace;
 use nyanko::graphics::rig::Animation;
 
 use core::modules::addons::paths::{self, Presence};
-use core::modules::animation::export::{find_loop, leader, process, EncoderStatus, ExportFormat, ExportMode, ExporterState, LoopStatus};
+use core::modules::animation::export::{find_loop, leader, process, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
 use core::modules::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
 use core::modules::settings::Settings;
 
@@ -21,12 +21,16 @@ use crate::app::state::AnimState;
 use crate::common::popup;
 
 use super::data;
-use super::offscreen::{self, Camera, ShowcaseLengths};
+use super::offscreen::{self, Camera};
 use super::overlay::Region;
 
 const POPUP_SIZE: Size = Size::new(320.0, 500.0);
 const MODE_OPTIONS: [&str; 3] = ["Manual", "Loop", "Showcase"];
 const FORMAT_OPTIONS: [&str; 8] = ["GIF", "WebP", "AVIF", "PNG", "MP4", "MKV", "WebM", "ZIP"];
+
+const DEFAULT_WALK_LEN: i32 = 90;
+const DEFAULT_IDLE_LEN: i32 = 90;
+const DEFAULT_KB_LEN: i32 = 60;
 
 type JobKey = (String, usize);
 
@@ -71,10 +75,144 @@ struct LoopJob {
     task_handle: task::Handle,
 }
 
+struct ExportForm {
+    frame_start: i32,
+    frame_end: i32,
+    max_frame: i32,
+    frame_start_str: String,
+    frame_end_str: String,
+    export_mode: ExportMode,
+    loop_supported: bool,
+    loop_tolerance: i32,
+    loop_tolerance_str: String,
+    loop_min: i32,
+    loop_min_str: String,
+    loop_max: Option<i32>,
+    loop_max_str: String,
+    showcase_walk_str: String,
+    showcase_idle_str: String,
+    showcase_attack_str: String,
+    showcase_kb_str: String,
+    showcase_walk_len: i32,
+    showcase_idle_len: i32,
+    detected_attack_len: i32,
+    showcase_attack_len: i32,
+    showcase_kb_len: i32,
+    detected_walk_len: i32,
+    detected_idle_len: i32,
+    last_known_walk_default: i32,
+    last_known_idle_default: i32,
+    last_known_kb_default: i32,
+    fps: i32,
+    zoom: f32,
+    region_x: f32,
+    region_y: f32,
+    region_w: f32,
+    region_h: f32,
+    file_name: String,
+    name_prefix: String,
+    format: ExportFormat,
+    quality_percent: i32,
+    quality_percent_str: String,
+    compression_percent: i32,
+    compression_percent_str: String,
+    background: bool,
+    user_bg_preference: bool,
+}
+
+impl Default for ExportForm {
+    fn default() -> Self {
+        Self {
+            frame_start: 0,
+            frame_end: 0,
+            max_frame: 100,
+            frame_start_str: String::new(),
+            frame_end_str: String::new(),
+            export_mode: ExportMode::Manual,
+            loop_supported: false,
+            loop_tolerance: 30,
+            loop_tolerance_str: String::new(),
+            loop_min: 15,
+            loop_min_str: String::new(),
+            loop_max: None,
+            loop_max_str: String::new(),
+            showcase_walk_str: String::new(),
+            showcase_idle_str: String::new(),
+            showcase_attack_str: String::new(),
+            showcase_kb_str: String::new(),
+            showcase_walk_len: DEFAULT_WALK_LEN,
+            showcase_idle_len: DEFAULT_IDLE_LEN,
+            detected_attack_len: 0,
+            showcase_attack_len: 0,
+            showcase_kb_len: DEFAULT_KB_LEN,
+            detected_walk_len: DEFAULT_WALK_LEN,
+            detected_idle_len: DEFAULT_IDLE_LEN,
+            last_known_walk_default: DEFAULT_WALK_LEN,
+            last_known_idle_default: DEFAULT_IDLE_LEN,
+            last_known_kb_default: DEFAULT_KB_LEN,
+            fps: 30,
+            zoom: 1.0,
+            region_x: 0.0,
+            region_y: 0.0,
+            region_w: 0.0,
+            region_h: 0.0,
+            file_name: String::new(),
+            name_prefix: String::new(),
+            format: ExportFormat::Gif,
+            quality_percent: 100,
+            quality_percent_str: String::new(),
+            compression_percent: 0,
+            compression_percent_str: String::new(),
+            background: false,
+            user_bg_preference: false,
+        }
+    }
+}
+
+impl ExportForm {
+    fn with_settings(settings: &Settings) -> Self {
+        Self {
+            showcase_walk_len: settings.animation.default_showcase_walk,
+            showcase_idle_len: settings.animation.default_showcase_idle,
+            showcase_kb_len: settings.animation.default_showcase_kb,
+            last_known_walk_default: settings.animation.default_showcase_walk,
+            last_known_idle_default: settings.animation.default_showcase_idle,
+            last_known_kb_default: settings.animation.default_showcase_kb,
+            ..Self::default()
+        }
+    }
+
+    fn to_request(&self) -> ExportRequest {
+        ExportRequest {
+            timing: FrameTiming {
+                mode: self.export_mode.clone(),
+                frame_start: self.frame_start,
+                frame_end: self.frame_end,
+                loop_supported: self.loop_supported,
+            },
+            showcase: ShowcaseLengths {
+                walk: self.showcase_walk_len,
+                idle: self.showcase_idle_len,
+                attack: self.showcase_attack_len,
+                kb: self.showcase_kb_len,
+            },
+            file_name: (!self.file_name.trim().is_empty()).then(|| self.file_name.clone()),
+            name_prefix: self.name_prefix.clone(),
+            format: self.format.clone(),
+            quality_percent: self.quality_percent as u32,
+            compression_percent: self.compression_percent as u32,
+            fps: self.fps as u32,
+            width: self.region_w.round() as u32,
+            height: self.region_h.round() as u32,
+            background: self.background,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct State {
     popup: popup::State,
-    exporter: ExporterState,
+    exporter: ExportForm,
     jobs: HashMap<JobKey, JobState>,
     loop_job: Option<(JobKey, LoopJob)>,
     synced_key: Option<JobKey>,
@@ -237,7 +375,7 @@ impl State {
 
     fn reset(&mut self, settings: &Settings, anim_state: &AnimState) {
         let previous_mode = self.exporter.export_mode.clone();
-        self.exporter = ExporterState::with_settings(settings);
+        self.exporter = ExportForm::with_settings(settings);
         self.exporter.export_mode = previous_mode;
         self.exporter.format = anim_state.last_export_format.clone();
         self.exporter.quality_percent = anim_state.last_export_quality.unwrap_or(100);
@@ -464,8 +602,15 @@ impl State {
                 self.exporter.region_w = self.exporter.region_w.round();
                 self.exporter.region_h = self.exporter.region_h.round();
 
-                let config = process::build_config(&mut self.exporter);
+                let request = self.exporter.to_request();
+                let config = process::build_config(&request);
                 let total_frames = (config.end_frame - config.start_frame).abs() + 1;
+
+                let timing = FrameTiming {
+                    frame_start: config.start_frame,
+                    frame_end: config.end_frame,
+                    ..request.timing.clone()
+                };
 
                 let abort = Arc::new(AtomicBool::new(false));
                 let render_progress = Arc::new(AtomicI32::new(0));
@@ -484,16 +629,8 @@ impl State {
                     unit,
                     animation: data.current_anim.clone(),
                     available_anims: data.available_anims.clone(),
-                    mode: self.exporter.export_mode.clone(),
-                    frame_start: self.exporter.frame_start,
-                    frame_end: self.exporter.frame_end,
-                    loop_supported: self.exporter.loop_supported,
-                    lengths: ShowcaseLengths {
-                        walk: self.exporter.showcase_walk_len,
-                        idle: self.exporter.showcase_idle_len,
-                        attack: self.exporter.showcase_attack_len,
-                        kb: self.exporter.showcase_kb_len,
-                    },
+                    timing,
+                    lengths: request.showcase,
                     camera: Camera {
                         region_x: self.exporter.region_x,
                         region_y: self.exporter.region_y,
@@ -990,7 +1127,7 @@ fn is_forced_opaque(format: &ExportFormat) -> bool {
     matches!(format, ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm)
 }
 
-fn background_checkbox(exporter: &ExporterState) -> Element<'_, Message> {
+fn background_checkbox(exporter: &ExportForm) -> Element<'_, Message> {
     if is_forced_opaque(&exporter.format) {
         tooltip(
             checkbox(true),
