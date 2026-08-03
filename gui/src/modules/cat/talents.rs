@@ -39,7 +39,7 @@ pub enum Message {
 pub struct ViewCtx<'a, 'b> {
     pub cat_id: u32,
     pub talent_data: &'a Talent,
-    pub talent_levels: &'a HashMap<u8, u8>,
+    pub talent_levels: Option<&'a HashMap<u8, u8>>,
     pub level_inputs: &'a HashMap<u8, String>,
     pub talent_costs: &'a HashMap<u8, TalentCost>,
     pub descriptions: &'a [String],
@@ -147,7 +147,7 @@ impl State {
 
         let description_box = dark_box(text(description_text).size(13).color(Color::WHITE).width(Length::Fill));
 
-        let current_level = *ctx.talent_levels.get(&index).unwrap_or(&0);
+        let current_level = ctx.talent_levels.and_then(|levels| levels.get(&index)).copied().unwrap_or(0);
         let np_cost = talent_logic::get_talent_np_cost(group.cost_id, current_level, ctx.talent_costs);
 
         let np_row = row![self.np_icon(ctx.img022_sheets), bold_text(np_cost, 18.0)]

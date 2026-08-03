@@ -1,3 +1,5 @@
+use std::collections::{HashMap, VecDeque};
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default)]
@@ -9,16 +11,35 @@ pub struct AppState {
     pub(crate) animation: AnimState,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub(crate) struct CatListState {
     pub list_scroll_offset: f32,
+    pub selected_cat: Option<u32>,
+    pub talent_levels: HashMap<u32, HashMap<u8, u8>>,
+    pub talent_history: VecDeque<u32>,
+    pub current_level: i32,
+    pub level_input: String,
+}
+
+impl Default for CatListState {
+    fn default() -> Self {
+        Self {
+            list_scroll_offset: 0.0,
+            selected_cat: None,
+            talent_levels: HashMap::new(),
+            talent_history: VecDeque::new(),
+            current_level: 1,
+            level_input: String::from("1"),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub(crate) struct EnemyListState {
     pub list_scroll_offset: f32,
+    pub selected_enemy: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

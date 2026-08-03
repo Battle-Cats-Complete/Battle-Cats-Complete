@@ -4,7 +4,7 @@ mod list;
 mod statblock;
 mod talents;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::thread;
 use std::time::Duration;
 
@@ -29,7 +29,7 @@ use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
 
-use crate::app::state::AppState;
+use crate::app::state::{AppState, CatListState};
 use crate::app::theme;
 use crate::common::feedback::Slot;
 use crate::common::stat_grid;
@@ -44,6 +44,7 @@ use statblock::build_cat_statblock;
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
 const HEADER_BUTTON_TOP_PADDING: f32 = 5.0;
+const TALENT_HISTORY_CAP: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
@@ -123,7 +124,8 @@ pub struct State {
 
     pub current_level: i32,
     pub level_input: String,
-    pub talent_levels: HashMap<u8, u8>,
+    pub talent_levels: HashMap<u32, HashMap<u8, u8>>,
+    pub talent_history: VecDeque<u32>,
     pub talent_level_inputs: HashMap<u8, String>,
     is_in_ultra_state: bool,
     saved_pre_ultra_level: Option<(i32, String)>,
@@ -157,6 +159,7 @@ impl Default for State {
             current_level: 1,
             level_input: String::from("1"),
             talent_levels: HashMap::new(),
+            talent_history: VecDeque::new(),
             talent_level_inputs: HashMap::new(),
             is_in_ultra_state: false,
             saved_pre_ultra_level: None,
@@ -190,8 +193,29 @@ impl State {
         self.list.scroll_offset()
     }
 
-    pub(crate) fn set_list_scroll_offset(&mut self, offset: f32) {
-        self.list.set_scroll_offset(offset);
+    pub(crate) fn restore_state(&mut self, state: &CatListState) {
+        self.list.set_scroll_offset(state.list_scroll_offset);
+        self.selected_cat = state.selected_cat;
+        self.talent_levels = state.talent_levels.clone();
+        self.talent_history = state.talent_history.clone();
+        self.current_level = state.current_level;
+        self.level_input = state.level_input.clone();
+    }
+
+    pub(crate) fn sync_state(&self, state: &mut CatListState) {
+        state.list_scroll_offset = self.list.scroll_offset();
+        state.selected_cat = self.selected_cat;
+        state.current_level = self.current_level;
+
+        if state.level_input != self.level_input {
+            state.level_input = self.level_input.clone();
+        }
+        if state.talent_history != self.talent_history {
+            state.talent_history = self.talent_history.clone();
+        }
+        if state.talent_levels != self.talent_levels {
+            state.talent_levels = self.talent_levels.clone();
+        }
     }
 
     pub fn icon_stream(&mut self) -> Task<Message> {
@@ -276,18 +300,32 @@ impl State {
         let cat = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id))?;
 
         let mut ultra = self.selected_form == 3;
-        if self.selected_form >= 2 && !ultra {
+        if self.selected_form >= 2 && !ultra
+            && let Some(levels) = self.talent_levels.get(&cat.id) {
             if let Some(talent_data) = &cat.talent_data {
                 ultra = talent_data.groups.iter().enumerate().any(|(idx, group)| {
                     group.limit == 1
-                        && self.talent_levels.get(&(idx as u8)).is_some_and(|&lvl| lvl > 0)
+                        && levels.get(&(idx as u8)).is_some_and(|&lvl| lvl > 0)
                 });
             } else {
-                ultra = self.talent_levels.iter().any(|(&idx, &lvl)| idx >= 5 && lvl > 0);
+                ultra = levels.iter().any(|(&idx, &lvl)| idx >= 5 && lvl > 0);
             }
         }
 
         Some(ultra)
+    }
+
+    fn push_talent_history(&mut self, id: u32) {
+        if let Some(pos) = self.talent_history.iter().position(|&existing| existing == id) {
+            self.talent_history.remove(pos);
+        }
+        self.talent_history.push_back(id);
+
+        while self.talent_history.len() > TALENT_HISTORY_CAP {
+            if let Some(evicted) = self.talent_history.pop_front() {
+                self.talent_levels.remove(&evicted);
+            }
+        }
     }
 
     fn sync_ultra_bump(&mut self, settings: &Settings) {
@@ -396,9 +434,13 @@ impl State {
                 Task::none()
             }
             Message::SelectCat(id) => {
+                if self.selected_cat == Some(id) {
+                    return Task::none();
+                }
+
                 self.selected_cat = Some(id);
-                self.talent_levels.clear();
                 self.talent_level_inputs.clear();
+                self.push_talent_history(id);
 
                 info!("Selected cat ID: {}", id);
                 match self.data.cats.iter().find(|c| c.id == id) {
@@ -438,7 +480,8 @@ impl State {
                 Task::none()
             }
             Message::ChangeTalentLevel(index, level) => {
-                self.talent_levels.insert(index, level);
+                let Some(cat_id) = self.selected_cat else { return Task::none(); };
+                self.talent_levels.entry(cat_id).or_default().insert(index, level);
                 self.talent_level_inputs.remove(&index);
                 Task::none()
             }
@@ -446,10 +489,11 @@ impl State {
                 if let Some(cat_id) = self.selected_cat
                     && let Some(cat) = self.data.cats.iter().find(|c| c.id == cat_id)
                     && let Some(talent_data) = &cat.talent_data {
+                    let levels = self.talent_levels.entry(cat_id).or_default();
                     for (index, group) in talent_data.groups.iter().enumerate() {
                         let target_group = if is_ultra { group.limit == 1 } else { group.limit != 1 };
                         if target_group {
-                            self.talent_levels.insert(index as u8, group.max_level.max(1));
+                            levels.insert(index as u8, group.max_level.max(1));
                             self.talent_level_inputs.remove(&(index as u8));
                         }
                     }
@@ -486,10 +530,13 @@ impl State {
                             .map(|group| group.max_level.max(1))
                             .unwrap_or(u8::MAX);
 
-                        if let Ok(parsed) = input.trim().parse::<u8>() {
-                            self.talent_levels.insert(index, parsed.min(max_level));
-                        } else if input.trim().is_empty() {
-                            self.talent_levels.insert(index, 0);
+                        if let Some(cat_id) = self.selected_cat {
+                            let levels = self.talent_levels.entry(cat_id).or_default();
+                            if let Ok(parsed) = input.trim().parse::<u8>() {
+                                levels.insert(index, parsed.min(max_level));
+                            } else if input.trim().is_empty() {
+                                levels.insert(index, 0);
+                            }
                         }
 
                         self.talent_level_inputs.insert(index, input);
@@ -515,7 +562,7 @@ impl State {
 
         let form_allows_talents = self.selected_form >= 2;
         let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
-        let talent_levels = if form_allows_talents { Some(&self.talent_levels) } else { None };
+        let talent_levels = if form_allows_talents { self.talent_levels.get(&cat.id) } else { None };
         let final_stats = get_final_stats(base_stats, cat.curve.as_ref(), self.current_level, talent_data, talent_levels);
 
         let cat_ctx = CatRenderContext {
@@ -824,7 +871,7 @@ impl State {
 
         let form_allows_talents = self.selected_form >= 2;
         let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
-        let talent_levels = if form_allows_talents { Some(&self.talent_levels) } else { None };
+        let talent_levels = if form_allows_talents { self.talent_levels.get(&cat.id) } else { None };
 
         let final_stats = get_final_stats(base_stats, cat.curve.as_ref(), self.current_level, talent_data, talent_levels);
 
@@ -916,7 +963,7 @@ impl State {
         let talents_view = self.talents.view(talents::ViewCtx {
             cat_id: cat.id,
             talent_data,
-            talent_levels: &self.talent_levels,
+            talent_levels: self.talent_levels.get(&cat.id),
             level_inputs: &self.talent_level_inputs,
             talent_costs: &cat.talent_costs,
             descriptions: &cat.skill_descriptions,

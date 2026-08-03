@@ -23,7 +23,7 @@ use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::{EnemyDataState, EnemyDetailTab};
 use core::modules::settings::Settings;
 
-use crate::app::state::AppState;
+use crate::app::state::{AppState, EnemyListState};
 use crate::app::theme;
 use crate::common::feedback::Slot;
 use crate::common::stat_grid;
@@ -143,8 +143,14 @@ impl EnemyState {
         self.list.scroll_offset()
     }
 
-    pub(crate) fn set_list_scroll_offset(&mut self, offset: f32) {
-        self.list.set_scroll_offset(offset);
+    pub(crate) fn restore_state(&mut self, state: &EnemyListState) {
+        self.list.set_scroll_offset(state.list_scroll_offset);
+        self.data.selected_enemy = state.selected_enemy;
+    }
+
+    pub(crate) fn sync_state(&self, state: &mut EnemyListState) {
+        state.list_scroll_offset = self.list.scroll_offset();
+        state.selected_enemy = self.data.selected_enemy;
     }
 
     pub fn icon_stream(&mut self) -> Task<Message> {

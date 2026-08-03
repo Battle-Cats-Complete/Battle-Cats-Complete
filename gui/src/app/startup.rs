@@ -19,8 +19,8 @@ impl BattleCatsApp {
         logging::init_logging(app.settings.general.enable_logging);
         info!("Starting initialization sequence...");
 
-        app.cat_state.set_list_scroll_offset(app.app_state.cat_data.list_scroll_offset);
-        app.enemy_state.set_list_scroll_offset(app.app_state.enemy_data.list_scroll_offset);
+        app.cat_state.restore_state(&app.app_state.cat_data);
+        app.enemy_state.restore_state(&app.app_state.enemy_data);
 
         ExceptionList::sync_on_boot();
 
