@@ -7,6 +7,8 @@ pub const RADIUS_SM: f32 = 4.0;
 pub const RADIUS_MD: f32 = 6.0;
 pub const RADIUS_LG: f32 = 8.0;
 
+const DISABLED_BUTTON_SHADE: f32 = 0.6;
+
 #[derive(PartialEq, Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub enum AppTheme {
     Light,
@@ -91,9 +93,17 @@ pub fn header_toggle_button(theme: &Theme, status: button::Status, is_selected: 
 
     if !is_available {
         let ext = theme.extended_palette();
+        let shade = |c: f32, factor: f32| c * factor;
+        let weak = ext.background.weak.color;
+        let background = Color {
+            r: shade(weak.r, DISABLED_BUTTON_SHADE),
+            g: shade(weak.g, DISABLED_BUTTON_SHADE),
+            b: shade(weak.b, DISABLED_BUTTON_SHADE),
+            a: weak.a,
+        };
 
         return button::Style {
-            background: Some(Background::Color(ext.background.weak.color)),
+            background: Some(Background::Color(background)),
             text_color: Color { a: 0.4, ..ext.background.weak.text },
             border: Border { color: border_color, width: 1.0, radius: Radius::from(RADIUS_SM) },
             ..button::Style::default()
@@ -102,8 +112,10 @@ pub fn header_toggle_button(theme: &Theme, status: button::Status, is_selected: 
 
     let base = toggle_button(theme, status, is_selected);
 
+    let (border_color, border_width) = if is_selected { (Color::WHITE, 2.0) } else { (border_color, 1.0) };
+
     button::Style {
-        border: Border { color: border_color, width: 1.0, ..base.border },
+        border: Border { color: border_color, width: border_width, ..base.border },
         ..base
     }
 }
