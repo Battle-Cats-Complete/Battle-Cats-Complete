@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use iced::Task;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use core::common::game::{localizable, param};
 use core::common::io::json;
@@ -9,14 +9,24 @@ use core::modules::settings::{desktop, lang, ExceptionList, UpdateMode};
 
 use crate::modules::home;
 
-use super::{logging, updater, BattleCatsApp, Message};
+use super::{logging, migrate, updater, BattleCatsApp, Message};
 
 impl BattleCatsApp {
     pub fn new() -> (Self, Task<Message>) {
+        let migration_notes = migrate::run();
+
         let mut app: Self = json::load("settings.json").unwrap_or_default();
-        app.app_state = json::load("state.json").unwrap_or_default();
+        app.app_state = json::load_state("state.json").unwrap_or_default();
 
         logging::init_logging(app.settings.general.enable_logging);
+
+        for note in migration_notes {
+            match note {
+                migrate::Note::Info(message) => info!("{}", message),
+                migrate::Note::Warn(message) => warn!("{}", message),
+            }
+        }
+
         info!("Starting initialization sequence...");
 
         app.cat_state.restore_state(&app.app_state.cat_data);

@@ -3,9 +3,10 @@ use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use directories::BaseDirs;
 use tracing::{debug, info, Level};
 use tracing_subscriber::{fmt, EnvFilter};
+
+use core::common::dirs;
 
 fn find_override_file(cwd: &Path, names: &[&str]) -> Option<PathBuf> {
     names.iter().map(|name| cwd.join(name)).find(|path| path.exists())
@@ -17,7 +18,7 @@ pub(crate) fn init_logging(enable_logging: bool) {
     let trace_file = find_override_file(&cwd, &["trace.txt", "trace"]);
     let debug_file = find_override_file(&cwd, &["debug.txt", "debug"]);
 
-    let app_dir = BaseDirs::new().map(|base| base.data_local_dir().join("battle_cats_complete"));
+    let app_dir = dirs::data();
 
     let (log_level, filter_directive, file_path) = if let Some(path) = trace_file {
         (Level::TRACE, "info,gui=trace,core=trace,nyanko=trace,zbus=error", path)
@@ -25,10 +26,6 @@ pub(crate) fn init_logging(enable_logging: bool) {
         (Level::DEBUG, "info,gui=debug,core=debug,nyanko=debug,zbus=error", path)
     } else if enable_logging {
         let Some(dir) = app_dir else { return };
-
-        if fs::create_dir_all(&dir).is_err() {
-            return;
-        }
 
         let log_file = dir.join("logs.txt");
         let prev_log = dir.join("logs.prev.txt");

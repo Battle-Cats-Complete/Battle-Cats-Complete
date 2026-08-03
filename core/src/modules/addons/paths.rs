@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use tracing::{debug, error};
 
+use crate::common::dirs;
+
 pub use super::{AddonStatus, Presence};
 
 #[cfg(target_os = "windows")]
@@ -28,10 +30,9 @@ pub(crate) const JAVA_BIN: &str = "bin/java";
 pub(crate) const APKEDITOR_JAR: &str = "APKEditor.jar";
 
 pub(crate) fn get_tools_dir() -> PathBuf {
-    let base_dir = if let Some(proj_dirs) = directories::ProjectDirs::from("", "", "Battle_Cats_Complete") {
-        proj_dirs.data_dir().join("tools")
-    } else {
-        PathBuf::from("tools")
+    let base_dir = match dirs::data() {
+        Some(data_dir) => data_dir.join("tools"),
+        None => PathBuf::from("tools"),
     };
 
     if !base_dir.exists() {

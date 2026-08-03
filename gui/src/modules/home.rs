@@ -83,7 +83,7 @@ impl State {
                 let new_meta = AppMeta { app_version: current_version };
 
                 Task::future(async move {
-                    if let Err(err) = json::save("meta.json", &new_meta) {
+                    if let Err(err) = json::save_state("meta.json", &new_meta) {
                         warn!("Failed to save meta.json: {}", err);
                     }
                 })
@@ -379,16 +379,9 @@ async fn check_initialization() -> (bool, bool) {
         }
     };
 
-    let needs_notice = {
-        let meta_path = Path::new("meta.json");
-        if !meta_path.exists() {
-            true
-        } else {
-            match json::load::<AppMeta>("meta.json") {
-                Some(meta) => meta.app_version != env!("CARGO_PKG_VERSION"),
-                None => true,
-            }
-        }
+    let needs_notice = match json::load_state::<AppMeta>("meta.json") {
+        Some(meta) => meta.app_version != env!("CARGO_PKG_VERSION"),
+        None => true,
     };
 
     (is_empty, needs_notice)

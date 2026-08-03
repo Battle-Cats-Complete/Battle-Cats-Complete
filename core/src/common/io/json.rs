@@ -1,25 +1,32 @@
 use std::fs;
 use std::io::{self, Error};
-use std::path::PathBuf;
+use std::path::Path;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-pub(crate) fn get_app_data_dir() -> PathBuf {
-    let mut path = if cfg!(target_os = "windows") {
-        PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string()))
-    } else {
-        PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string())).join(".config")
-    };
-    path.push("battle_cats_complete");
-    path.push("data");
-    let _ = fs::create_dir_all(&path);
-    path
-}
+use crate::common::dirs;
 
 pub fn save<T: Serialize>(filename: &str, data: &T) -> io::Result<()> {
-    let mut path = get_app_data_dir();
-    path.push(filename);
+    let directory = dirs::config().ok_or_else(|| Error::other("Config directory unavailable"))?;
+    save_in(&directory, filename, data)
+}
+
+pub fn load<T: DeserializeOwned>(filename: &str) -> Option<T> {
+    load_in(&dirs::config()?, filename)
+}
+
+pub fn save_state<T: Serialize>(filename: &str, data: &T) -> io::Result<()> {
+    let directory = dirs::state().ok_or_else(|| Error::other("State directory unavailable"))?;
+    save_in(&directory, filename, data)
+}
+
+pub fn load_state<T: DeserializeOwned>(filename: &str) -> Option<T> {
+    load_in(&dirs::state()?, filename)
+}
+
+fn save_in<T: Serialize>(directory: &Path, filename: &str, data: &T) -> io::Result<()> {
+    let path = directory.join(filename);
 
     let json = serde_json::to_string_pretty(data).map_err(Error::other)?;
     let tmp_path = path.with_extension("tmp");
@@ -27,9 +34,8 @@ pub fn save<T: Serialize>(filename: &str, data: &T) -> io::Result<()> {
     fs::rename(&tmp_path, &path)
 }
 
-pub fn load<T: DeserializeOwned>(filename: &str) -> Option<T> {
-    let mut path = get_app_data_dir();
-    path.push(filename);
+fn load_in<T: DeserializeOwned>(directory: &Path, filename: &str) -> Option<T> {
+    let path = directory.join(filename);
 
     if path.exists()
         && let Ok(data) = fs::read_to_string(&path)

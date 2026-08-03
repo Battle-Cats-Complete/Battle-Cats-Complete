@@ -127,7 +127,7 @@ impl State {
                     }
                     Target::Raw => PathBuf::from("game/raw"),
                     Target::Cache => {
-                        let Some(cache_dir) = core::common::io::cache::get_cache_dir() else {
+                        let Some(cache_dir) = core::common::dirs::cache_path() else {
                             return Task::none();
                         };
                         cache_dir
@@ -208,7 +208,7 @@ impl State {
     pub fn view<'a>(&'a self) -> Element<'a, Message> {
         let game_exists = Path::new("game").exists();
         let raw_exists = Path::new("game/raw").exists();
-        let cache_size = core::common::io::cache::get_cache_dir()
+        let cache_size = core::common::dirs::cache_path()
             .map(|dir| folder_size(&dir))
             .unwrap_or(0);
 
@@ -233,7 +233,7 @@ impl State {
             ),
             Some(Target::Cache) => (
                 "Are you sure you want to clear the Cache?\nIt will automatically rebuild the next time the app loads.".to_string(),
-                core::common::io::cache::get_cache_dir().map(|dir| format_size(folder_size(&dir))),
+                core::common::dirs::cache_path().map(|dir| format_size(folder_size(&dir))),
             ),
             None => (String::new(), None),
         };

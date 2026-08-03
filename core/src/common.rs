@@ -1,5 +1,6 @@
 pub mod assets;
 pub mod context;
+pub mod dirs;
 pub mod formats;
 pub mod game;
 pub mod gfx;

@@ -5,34 +5,15 @@ use std::hash::Hasher;
 use std::io::BufReader;
 use std::io::BufWriter;
 use std::path::Path;
-use std::path::PathBuf;
 
 use bincode::Options;
-use directories::BaseDirs;
 use rayon::prelude::*;
 use rustc_hash::FxHasher;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
-pub fn get_cache_dir() -> Option<PathBuf> {
-    let Some(base_dirs) = BaseDirs::new() else {
-        tracing::error!("Failed to retrieve BaseDirs. Caching system is disabled.");
-        return None;
-    };
-
-    let cache_directory = base_dirs.data_local_dir().join("battle_cats_complete").join("cache");
-
-    if !cache_directory.exists() {
-        tracing::debug!("Creating missing cache directory at {:?}", cache_directory);
-        if let Err(err) = fs::create_dir_all(&cache_directory) {
-            tracing::error!("Failed to create cache directory: {}", err);
-            return None;
-        }
-    }
-
-    Some(cache_directory)
-}
+use crate::common::dirs;
 
 fn hash_directory_parallel(directory_path: &Path) -> u64 {
     if !directory_path.exists() {
@@ -119,7 +100,7 @@ pub(crate) fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
 
 #[tracing::instrument(level = "debug", skip_all, fields(file = %filename))]
 fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> Option<(u64, T)> {
-    let cache_directory = get_cache_dir()?;
+    let cache_directory = dirs::cache_path()?;
 
     let cache_path = cache_directory.join(filename);
 
@@ -157,7 +138,7 @@ fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> O
 
 #[tracing::instrument(level = "debug", skip(data))]
 fn save_payload<T: Serialize>(filename: &str, version: u32, hash: u64, data: &T) {
-    let Some(cache_directory) = get_cache_dir() else {
+    let Some(cache_directory) = dirs::cache() else {
         tracing::warn!("Cache directory unavailable; skipping save for {}", filename);
         return;
     };

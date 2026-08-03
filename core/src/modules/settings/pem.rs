@@ -9,7 +9,7 @@ use rsa::{Pkcs1v15Sign, RsaPrivateKey};
 use sha2::{Digest, Sha256};
 use tracing::{debug, error, info};
 
-use crate::common::io::json;
+use crate::common::dirs;
 
 const DEFAULT_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCmBNx3G6wn5h63
@@ -60,14 +60,14 @@ R8lCToYI1d9YTN3UwkzWp1Id0b6DLMrKznir6uiWsiOKc9s4fMILOK0ehSlZ6V6H
 0JkeMoqTC9BNIOYSCKyFcUmGZ1YUhU8Mf4Si
 -----END CERTIFICATE-----"#;
 
-fn get_pem_path() -> PathBuf {
-    let mut config_path = json::get_app_data_dir();
-    config_path.push("identity.pem");
-    config_path
+fn get_pem_path() -> Option<PathBuf> {
+    Some(dirs::config()?.join("identity.pem"))
 }
 
 pub fn get_active_pem() -> (String, bool) {
-    let certificate_path = get_pem_path();
+    let Some(certificate_path) = get_pem_path() else {
+        return (DEFAULT_PEM.to_string(), false);
+    };
 
     if let Ok(pem_content) = fs::read_to_string(&certificate_path)
         && pem_content.contains("-----BEGIN PRIVATE KEY-----") && pem_content.contains("-----BEGIN CERTIFICATE-----") {
@@ -79,13 +79,17 @@ pub fn get_active_pem() -> (String, bool) {
 }
 
 pub fn save_pem(pem_content: &str) -> Result<()> {
-    let certificate_path = get_pem_path();
+    let certificate_path = get_pem_path().context("Config directory unavailable")?;
     info!("Writing new PEM certificate payload to {:?}", certificate_path);
     fs::write(certificate_path, pem_content).context("Failed to write identity.pem")
 }
 
 pub fn delete_pem() {
-    let certificate_path = get_pem_path();
+    let Some(certificate_path) = get_pem_path() else {
+        error!("Config directory unavailable; could not remove PEM file.");
+        return;
+    };
+
     if let Err(delete_error) = fs::remove_file(&certificate_path) {
         error!("Could not remove PEM file: {}", delete_error);
     } else {

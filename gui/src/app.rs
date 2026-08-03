@@ -18,6 +18,7 @@ use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, sta
 use state::AppState;
 
 mod logging;
+mod migrate;
 mod startup;
 pub mod state;
 pub(crate) mod theme;
@@ -676,7 +677,7 @@ impl BattleCatsApp {
 
         if self.last_saved_state_hash != current_hash {
             trace!("App state changed. Saving to state.json");
-            if let Err(err) = json::save("state.json", &self.app_state) {
+            if let Err(err) = json::save_state("state.json", &self.app_state) {
                 warn!("Failed to save state.json: {}", err);
                 return;
             }
