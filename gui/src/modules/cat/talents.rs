@@ -77,6 +77,44 @@ impl State {
         }
     }
 
+    pub fn set_level(&self, index: u8, level: u8, levels: &mut HashMap<u8, u8>, inputs: &mut HashMap<u8, String>) {
+        levels.insert(index, level);
+        inputs.remove(&index);
+    }
+
+    pub fn set_level_input(
+        &self,
+        index: u8,
+        input: String,
+        levels: Option<&mut HashMap<u8, u8>>,
+        inputs: &mut HashMap<u8, String>,
+        talent_data: Option<&Talent>,
+    ) {
+        let max_level = talent_data
+            .and_then(|data| data.groups.get(index as usize))
+            .map_or(u8::MAX, |group| group.max_level.max(1));
+
+        if let Some(levels) = levels {
+            if let Ok(parsed) = input.trim().parse::<u8>() {
+                levels.insert(index, parsed.min(max_level));
+            } else if input.trim().is_empty() {
+                levels.insert(index, 0);
+            }
+        }
+
+        inputs.insert(index, input);
+    }
+
+    pub fn maximize(&self, is_ultra: bool, talent_data: &Talent, levels: &mut HashMap<u8, u8>, inputs: &mut HashMap<u8, String>) {
+        for (index, group) in talent_data.groups.iter().enumerate() {
+            let target_group = if is_ultra { group.limit == 1 } else { group.limit != 1 };
+            if target_group {
+                levels.insert(index as u8, group.max_level.max(1));
+                inputs.remove(&(index as u8));
+            }
+        }
+    }
+
     pub fn view<'a>(&'a self, ctx: ViewCtx<'a, '_>) -> Element<'a, Message> {
         let mut col = column![].spacing(8).width(Length::Fill);
 

@@ -1,8 +1,10 @@
 mod abilities;
+mod export;
 mod filter;
 mod list;
 mod statblock;
 mod talents;
+mod ultra;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -10,7 +12,6 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
-use arboard::Clipboard;
 use iced::alignment::{Horizontal, Vertical};
 use iced::futures::channel::mpsc;
 use iced::widget::image::Handle;
@@ -18,16 +19,16 @@ use iced::widget::{
     button, column, container, image as iced_image, row, rule, scrollable,
     text, text_input, Id, Space,
 };
-use iced::{Background, Border, Color, Element, Length, Size, Subscription, Task, Theme};
+use iced::{Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::cat::unit::Battle;
-use tracing::{error, info};
+use tracing::info;
 
 use core::common::assets;
 use core::common::context::GlobalContext;
 use core::common::formats::SpriteSheet as CoreSpriteSheet;
 use core::common::gfx::autocrop;
 use core::modules::cat::game::registry::{format_cat_stat, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
-use core::modules::cat::game::stats::get_final_stats;
+use core::modules::cat::game::stats::{get_final_stats, seeded_level};
 use core::modules::cat::game::CatRenderContext;
 use core::modules::cat::scanner::{self, CatEntry};
 use core::modules::cat::waiter::unitid;
@@ -36,22 +37,15 @@ use core::modules::settings::Settings;
 
 use crate::app::state::{AppState, CatListState};
 use crate::app::theme;
-use crate::common::feedback::Slot;
 use crate::common::name_box;
 use crate::common::stat_grid;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 use crate::modules::animation;
-use crate::modules::statblock::{feedback_color, feedback_label};
-
-use super::statblock::{builder, JobResult};
-use statblock::build_cat_statblock;
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
 const HEADER_BUTTON_TOP_PADDING: f32 = 5.0;
-const EXPORT_BUTTON_WIDTH: f32 = 100.0;
-const EXPORT_BUTTON_HEIGHT: f32 = 24.0;
 const EXPORT_BUTTON_RULE_GAP: f32 = 2.0;
 const TALENT_HISTORY_CAP: usize = 3;
 
@@ -63,12 +57,6 @@ pub enum DetailTab {
     Animation,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExportAction {
-    Copy,
-    Save,
-}
-
 #[derive(Clone)]
 pub enum Message {
     AnimationTick,
@@ -77,9 +65,6 @@ pub enum Message {
     Loaded(Vec<CatEntry>),
     Img015Loaded(usize, Option<CoreSpriteSheet>),
     Img022Loaded(usize, Option<CoreSpriteSheet>),
-    StatblockFinished(JobResult),
-    CopyFeedbackExpired,
-    SaveFeedbackExpired,
     SearchChanged(String),
     SelectCat(u32),
     SelectForm(usize),
@@ -87,11 +72,11 @@ pub enum Message {
     LevelInputChanged(String),
     ChangeTalentLevel(u8, u8),
     MaximizeTalents(bool),
-    ExportStatblock(ExportAction),
     List(list::Message),
     Filter(filter::Message),
     Abilities(abilities::Message),
     Talents(talents::Message),
+    Export(export::Message),
     Animation(animation::Message),
 }
 
@@ -104,9 +89,6 @@ impl std::fmt::Debug for Message {
             Self::Loaded(cats) => write!(f, "Loaded({})", cats.len()),
             Self::Img015Loaded(i, _) => write!(f, "Img015Loaded({})", i),
             Self::Img022Loaded(i, _) => write!(f, "Img022Loaded({})", i),
-            Self::StatblockFinished(_) => write!(f, "StatblockFinished"),
-            Self::CopyFeedbackExpired => write!(f, "CopyFeedbackExpired"),
-            Self::SaveFeedbackExpired => write!(f, "SaveFeedbackExpired"),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
             Self::SelectCat(id) => write!(f, "SelectCat({})", id),
             Self::SelectForm(i) => write!(f, "SelectForm({})", i),
@@ -114,11 +96,11 @@ impl std::fmt::Debug for Message {
             Self::LevelInputChanged(s) => write!(f, "LevelInputChanged({})", s),
             Self::ChangeTalentLevel(i, l) => write!(f, "ChangeTalentLevel({}, {})", i, l),
             Self::MaximizeTalents(b) => write!(f, "MaximizeTalents({})", b),
-            Self::ExportStatblock(e) => write!(f, "ExportStatblock({:?})", e),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
             Self::Abilities(msg) => write!(f, "Abilities({:?})", msg),
             Self::Talents(msg) => write!(f, "Talents({:?})", msg),
+            Self::Export(msg) => write!(f, "Export({:?})", msg),
             Self::Animation(msg) => write!(f, "Animation({:?})", msg),
         }
     }
@@ -136,8 +118,6 @@ pub struct State {
     pub talent_levels: HashMap<u32, HashMap<u8, u8>>,
     pub talent_history: VecDeque<u32>,
     pub talent_level_inputs: HashMap<u8, String>,
-    is_in_ultra_state: bool,
-    saved_pre_ultra_level: Option<(i32, String)>,
 
     img015_sheets: Vec<SpriteSheet>,
     img022_sheets: Vec<SpriteSheet>,
@@ -148,15 +128,12 @@ pub struct State {
 
     scan_progress: Option<(usize, usize)>,
 
-    statblock_pending: Option<ExportAction>,
-    statblock_clipboard: Option<Clipboard>,
-    statblock_copy_feedback: Slot<bool>,
-    statblock_save_feedback: Slot<bool>,
-
     list: list::State,
     filter: filter::State,
     abilities: abilities::State,
     talents: talents::State,
+    export: export::State,
+    ultra: ultra::State,
     animation: animation::State,
 }
 
@@ -180,8 +157,6 @@ impl Default for State {
             talent_levels: HashMap::new(),
             talent_history: VecDeque::new(),
             talent_level_inputs: HashMap::new(),
-            is_in_ultra_state: false,
-            saved_pre_ultra_level: None,
 
             img015_sheets: Vec::new(),
             img022_sheets: Vec::new(),
@@ -192,15 +167,12 @@ impl Default for State {
 
             scan_progress: None,
 
-            statblock_pending: None,
-            statblock_clipboard: None,
-            statblock_copy_feedback: Slot::default(),
-            statblock_save_feedback: Slot::default(),
-
             list: list::State::default(),
             filter: filter::State::default(),
             abilities: abilities::State::default(),
             talents: talents::State::default(),
+            export: export::State::default(),
+            ultra: ultra::State::default(),
             animation: animation::State::default(),
         }
     }
@@ -279,33 +251,6 @@ impl State {
         self.start_load(settings)
     }
 
-    fn seeded_level(cat: &CatEntry, settings: &Settings) -> (i32, String) {
-        if !settings.cat_data.auto_level_calculations {
-            let default_level = settings.cat_data.default_level.max(1);
-            return (default_level, default_level.to_string());
-        }
-
-        let base_max = cat.unitbuy.level_cap_catseye;
-        let plus_max = cat.unitbuy.level_cap_plus;
-        let is_legend_rare = cat.unitbuy.rarity == 5;
-        let is_normal_rare = cat.unitbuy.rarity == 0;
-
-        if is_legend_rare {
-            (50, "50".to_string())
-        } else if base_max == 1 || (5..=65).contains(&plus_max) || is_normal_rare {
-            let input = if plus_max > 0 {
-                format!("{}+{}", base_max, plus_max)
-            } else {
-                base_max.to_string()
-            };
-            (base_max + plus_max, input)
-        } else if base_max > 50 {
-            (50, "50".to_string())
-        } else {
-            (base_max, base_max.to_string())
-        }
-    }
-
     fn clamped_selection(&self, cat: &CatEntry) -> (usize, DetailTab) {
         let max_form = cat.forms.iter().rposition(|&exists| exists).unwrap_or(0);
         let current_exists = cat.forms.get(self.selected_form).copied().unwrap_or(false);
@@ -324,25 +269,6 @@ impl State {
         (form, tab)
     }
 
-    fn current_ultra_state(&self) -> Option<bool> {
-        let cat = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id))?;
-
-        let mut ultra = self.selected_form == 3;
-        if self.selected_form >= 2 && !ultra
-            && let Some(levels) = self.talent_levels.get(&cat.id) {
-            if let Some(talent_data) = &cat.talent_data {
-                ultra = talent_data.groups.iter().enumerate().any(|(idx, group)| {
-                    group.limit == 1
-                        && levels.get(&(idx as u8)).is_some_and(|&lvl| lvl > 0)
-                });
-            } else {
-                ultra = levels.iter().any(|(&idx, &lvl)| idx >= 5 && lvl > 0);
-            }
-        }
-
-        Some(ultra)
-    }
-
     fn push_talent_history(&mut self, id: u32) {
         if let Some(pos) = self.talent_history.iter().position(|&existing| existing == id) {
             self.talent_history.remove(pos);
@@ -354,34 +280,6 @@ impl State {
                 self.talent_levels.remove(&evicted);
             }
         }
-    }
-
-    fn sync_ultra_bump(&mut self, settings: &Settings) {
-        let Some(current_ultra) = self.current_ultra_state() else {
-            return;
-        };
-
-        if !settings.cat_data.bump_ultra_60 {
-            self.is_in_ultra_state = current_ultra;
-            self.saved_pre_ultra_level = None;
-            return;
-        }
-
-        if !self.is_in_ultra_state && current_ultra {
-            self.saved_pre_ultra_level = Some((self.current_level, self.level_input.clone()));
-            if self.current_level < 60 {
-                self.current_level = 60;
-                self.level_input = "60".to_string();
-            }
-        } else if self.is_in_ultra_state && !current_ultra
-            && let Some((saved_level, saved_input)) = self.saved_pre_ultra_level.take() {
-            let expected_level = if saved_level < 60 { 60 } else { saved_level };
-            if self.current_level == expected_level {
-                self.current_level = saved_level;
-                self.level_input = saved_input;
-            }
-        }
-        self.is_in_ultra_state = current_ultra;
     }
 
     fn check_sheets(&mut self, settings: &Settings) -> Task<Message> {
@@ -396,7 +294,19 @@ impl State {
     pub fn update(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
         let task = self.update_inner(message, settings, app_state, global_ctx);
 
-        self.sync_ultra_bump(settings);
+        let cat = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id));
+        let talent_levels = cat.and_then(|entry| self.talent_levels.get(&entry.id));
+        self.ultra.sync(
+            ultra::Ctx {
+                cat,
+                form: self.selected_form,
+                talent_levels,
+                bump_enabled: settings.cat_data.bump_ultra_60,
+            },
+            &mut self.current_level,
+            &mut self.level_input,
+        );
+
         self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
 
         task
@@ -438,18 +348,6 @@ impl State {
                     None => Task::none(),
                 }
             }
-            Message::StatblockFinished(job) => {
-                self.statblock_pending = None;
-                self.finish_statblock_job(job)
-            }
-            Message::CopyFeedbackExpired => {
-                self.statblock_copy_feedback.expire();
-                Task::none()
-            }
-            Message::SaveFeedbackExpired => {
-                self.statblock_save_feedback.expire();
-                Task::none()
-            }
             Message::AnimationTick => {
                 if let Some(cat) = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
                     self.animation.sync(cat, self.selected_form, settings, &app_state.animation);
@@ -473,7 +371,7 @@ impl State {
                 info!("Selected cat ID: {}", id);
                 match self.data.cats.iter().find(|c| c.id == id) {
                     Some(cat) => {
-                        let (level, input) = Self::seeded_level(cat, settings);
+                        let (level, input) = seeded_level(cat, settings);
                         self.current_level = level;
                         self.level_input = input;
                         let (form, tab) = self.clamped_selection(cat);
@@ -509,26 +407,20 @@ impl State {
             }
             Message::ChangeTalentLevel(index, level) => {
                 let Some(cat_id) = self.selected_cat else { return Task::none(); };
-                self.talent_levels.entry(cat_id).or_default().insert(index, level);
-                self.talent_level_inputs.remove(&index);
+                self.talents.set_level(index, level, self.talent_levels.entry(cat_id).or_default(), &mut self.talent_level_inputs);
                 Task::none()
             }
             Message::MaximizeTalents(is_ultra) => {
+                let talent_data = self.selected_cat
+                    .and_then(|id| self.data.cats.iter().find(|c| c.id == id))
+                    .and_then(|cat| cat.talent_data.as_ref());
+
                 if let Some(cat_id) = self.selected_cat
-                    && let Some(cat) = self.data.cats.iter().find(|c| c.id == cat_id)
-                    && let Some(talent_data) = &cat.talent_data {
-                    let levels = self.talent_levels.entry(cat_id).or_default();
-                    for (index, group) in talent_data.groups.iter().enumerate() {
-                        let target_group = if is_ultra { group.limit == 1 } else { group.limit != 1 };
-                        if target_group {
-                            levels.insert(index as u8, group.max_level.max(1));
-                            self.talent_level_inputs.remove(&(index as u8));
-                        }
-                    }
+                    && let Some(talent_data) = talent_data {
+                    self.talents.maximize(is_ultra, talent_data, self.talent_levels.entry(cat_id).or_default(), &mut self.talent_level_inputs);
                 }
                 Task::none()
             }
-            Message::ExportStatblock(action) => self.start_statblock_export(action, settings, global_ctx),
             Message::List(msg) => {
                 if let list::Message::SelectCat(id) = msg {
                     return self.update(Message::SelectCat(id), settings, app_state, global_ctx);
@@ -551,119 +443,35 @@ impl State {
                         return self.update(Message::ChangeTalentLevel(index, level), settings, app_state, global_ctx);
                     }
                     talents::Message::LevelInputChanged(index, input) => {
-                        let max_level = self.selected_cat
-                            .and_then(|cat_id| self.data.cats.iter().find(|c| c.id == cat_id))
-                            .and_then(|cat| cat.talent_data.as_ref())
-                            .and_then(|talent_data| talent_data.groups.get(index as usize))
-                            .map(|group| group.max_level.max(1))
-                            .unwrap_or(u8::MAX);
+                        let talent_data = self.selected_cat
+                            .and_then(|id| self.data.cats.iter().find(|c| c.id == id))
+                            .and_then(|cat| cat.talent_data.as_ref());
+                        let levels = self.selected_cat.map(|id| self.talent_levels.entry(id).or_default());
 
-                        if let Some(cat_id) = self.selected_cat {
-                            let levels = self.talent_levels.entry(cat_id).or_default();
-                            if let Ok(parsed) = input.trim().parse::<u8>() {
-                                levels.insert(index, parsed.min(max_level));
-                            } else if input.trim().is_empty() {
-                                levels.insert(index, 0);
-                            }
-                        }
-
-                        self.talent_level_inputs.insert(index, input);
+                        self.talents.set_level_input(index, input, levels, &mut self.talent_level_inputs, talent_data);
                     }
                     other => self.talents.update(other),
                 }
                 Task::none()
             }
+            Message::Export(msg) => {
+                let cat = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id));
+                let ctx = cat.map(|cat| export::Ctx {
+                    cat,
+                    form: self.selected_form,
+                    current_level: self.current_level,
+                    level_input: &self.level_input,
+                    talent_levels: self.talent_levels.get(&cat.id),
+                    is_conjure_expanded: self.abilities.is_conjure_expanded(cat.id, settings),
+                    sheets: &self.img015_sheets,
+                    global: global_ctx,
+                    settings,
+                });
+
+                self.export.update(msg, ctx).map(Message::Export)
+            }
             Message::Animation(msg) => self.animation.update(msg, settings, &mut app_state.animation).map(Message::Animation),
         }
-    }
-
-    fn start_statblock_export(&mut self, action: ExportAction, settings: &Settings, global_ctx: GlobalContext<'_>) -> Task<Message> {
-        if self.statblock_pending.is_some() {
-            return Task::none();
-        }
-
-        let Some(selected_id) = self.selected_cat else { return Task::none(); };
-        let Some(cat) = self.data.cats.iter().find(|c| c.id == selected_id) else { return Task::none(); };
-
-        let dynamic_stats = unitid(cat.id as i32, &settings.general.language_priority);
-        let Some(base_stats) = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form)) else { return Task::none(); };
-
-        let form_allows_talents = self.selected_form >= 2;
-        let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
-        let talent_levels = if form_allows_talents { self.talent_levels.get(&cat.id) } else { None };
-        let final_stats = get_final_stats(base_stats, cat.curve.as_ref(), self.current_level, talent_data, talent_levels);
-
-        let cat_ctx = CatRenderContext {
-            global: global_ctx,
-            base_stats,
-            final_stats: &final_stats,
-            current_level: self.current_level,
-            level_curve: cat.curve.as_ref(),
-            talent_data,
-            talent_levels,
-            is_conjure_unit: false,
-        };
-
-        let is_conjure_expanded = self.abilities.is_conjure_expanded(cat.id, settings);
-        let data = build_cat_statblock(&cat_ctx, cat, self.selected_form, self.level_input.clone(), is_conjure_expanded, settings);
-
-        let is_cat = data.is_cat;
-        let id_str = data.id_str.clone();
-        let top_value = data.top_value.clone();
-
-        let mut cuts_map = HashMap::new();
-        for sheet in self.img015_sheets.iter().rev() {
-            cuts_map.extend(sheet.core.cuts_map.clone());
-        }
-        let priority = settings.general.language_priority.clone();
-
-        self.statblock_pending = Some(action);
-
-        Task::perform(async move {
-            let build_result = builder::build_statblock_image(&priority, data, cuts_map);
-
-            match action {
-                ExportAction::Copy => JobResult::Copy(build_result),
-                ExportAction::Save => {
-                    let result = build_result.and_then(|image| builder::save_to_disk(&image, is_cat, &id_str, &top_value).map(|_| ()));
-                    if let Err(err) = &result {
-                        error!("Cat statblock save failed: {err}");
-                    }
-                    JobResult::Save(result)
-                }
-            }
-        }, Message::StatblockFinished)
-    }
-
-    fn finish_statblock_job(&mut self, job: JobResult) -> Task<Message> {
-        match job {
-            JobResult::Copy(Ok(image)) => {
-                let result = self
-                    .ensure_clipboard()
-                    .map_or_else(|| Err("Clipboard unavailable".to_string()), |clipboard| builder::copy_to_clipboard(clipboard, &image));
-                if let Err(err) = &result {
-                    error!("Cat statblock copy failed: {err}");
-                }
-                self.statblock_copy_feedback.set(result.is_ok(), Message::CopyFeedbackExpired)
-            }
-            JobResult::Copy(Err(err)) => {
-                error!("Cat statblock export failed: {err}");
-                self.statblock_copy_feedback.set(false, Message::CopyFeedbackExpired)
-            }
-            JobResult::Save(result) => {
-                self.statblock_save_feedback.set(result.is_ok(), Message::SaveFeedbackExpired)
-            }
-        }
-    }
-
-    fn ensure_clipboard(&mut self) -> Option<&mut Clipboard> {
-        if self.statblock_clipboard.is_none() {
-            match Clipboard::new() {
-                Ok(clipboard) => self.statblock_clipboard = Some(clipboard),
-                Err(err) => error!("Failed to open system clipboard: {err}"),
-            }
-        }
-        self.statblock_clipboard.as_mut()
     }
 
     pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
@@ -815,34 +623,6 @@ impl State {
             form_row = form_row.push(btn);
         }
 
-        let copy_busy = self.statblock_pending == Some(ExportAction::Copy);
-        let copy_feedback = self.statblock_copy_feedback.get().copied();
-        let copy_label = feedback_label(copy_busy, copy_feedback, "Copy Image", "Copying...", "Copied!", "Failed!");
-        let copy_btn = button(text(copy_label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
-            .width(Length::Fixed(EXPORT_BUTTON_WIDTH))
-            .height(Length::Fixed(EXPORT_BUTTON_HEIGHT))
-            .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportStatblock(ExportAction::Copy)))
-            .style(move |theme: &Theme, _status| button::Style {
-                background: Some(Background::Color(feedback_color(theme, copy_busy, copy_feedback))),
-                text_color: Color::WHITE,
-                border: Border::default().rounded(4.0),
-                ..Default::default()
-            });
-
-        let save_busy = self.statblock_pending == Some(ExportAction::Save);
-        let save_feedback = self.statblock_save_feedback.get().copied();
-        let save_label = feedback_label(save_busy, save_feedback, "Export Image", "Exporting...", "Exported!", "Failed!");
-        let save_btn = button(text(save_label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
-            .width(Length::Fixed(EXPORT_BUTTON_WIDTH))
-            .height(Length::Fixed(EXPORT_BUTTON_HEIGHT))
-            .on_press_maybe(self.statblock_pending.is_none().then_some(Message::ExportStatblock(ExportAction::Save)))
-            .style(move |theme: &Theme, _status| button::Style {
-                background: Some(Background::Color(feedback_color(theme, save_busy, save_feedback))),
-                text_color: Color::WHITE,
-                border: Border::default().rounded(4.0),
-                ..Default::default()
-            });
-
         let mut tab_row = row![].spacing(4);
         let tabs = [
             (DetailTab::Abilities, "Abilities"),
@@ -875,12 +655,10 @@ impl State {
         ].spacing(12).align_y(Vertical::Center);
 
         if self.selected_tab == DetailTab::Abilities {
-            let export_col = column![copy_btn, save_btn].spacing(6).align_x(Horizontal::Center);
-
             detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
             detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
             detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = detail_row.push(export_col);
+            detail_row = detail_row.push(self.export.view().map(Message::Export));
         }
 
         column![
