@@ -2,6 +2,8 @@ use std::collections::{HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
+use core::modules::animation::export::ExportFormat;
+
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct AppState {
@@ -66,7 +68,7 @@ impl Default for GameDataState {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub(crate) struct AnimState {
-    pub last_export_format: i32,
+    pub last_export_format: ExportFormat,
     pub last_export_quality: Option<i32>,
     pub last_export_compression: Option<i32>,
     pub controls_expanded: bool,
@@ -76,7 +78,7 @@ pub(crate) struct AnimState {
 impl Default for AnimState {
     fn default() -> Self {
         Self {
-            last_export_format: 0,
+            last_export_format: ExportFormat::Gif,
             last_export_quality: None,
             last_export_compression: None,
             controls_expanded: true,

@@ -239,7 +239,7 @@ impl State {
         let previous_mode = self.exporter.export_mode.clone();
         self.exporter = ExporterState::with_settings(settings);
         self.exporter.export_mode = previous_mode;
-        self.exporter.format = format_from_index(anim_state.last_export_format);
+        self.exporter.format = anim_state.last_export_format.clone();
         self.exporter.quality_percent = anim_state.last_export_quality.unwrap_or(100);
         self.exporter.quality_percent_str = anim_state.last_export_quality.map_or_else(String::new, |v| v.to_string());
         self.exporter.compression_percent = anim_state.last_export_compression.unwrap_or(0);
@@ -329,16 +329,7 @@ impl State {
             }
             Message::SetFormat(format) => {
                 self.exporter.format = format.clone();
-                anim_state.last_export_format = match format {
-                    ExportFormat::Gif => 0,
-                    ExportFormat::WebP => 1,
-                    ExportFormat::Avif => 2,
-                    ExportFormat::Png => 3,
-                    ExportFormat::Mp4 => 4,
-                    ExportFormat::Mkv => 5,
-                    ExportFormat::Webm => 6,
-                    ExportFormat::Zip => 7,
-                };
+                anim_state.last_export_format = format;
                 if is_forced_opaque(&self.exporter.format) {
                     self.exporter.background = true;
                 } else {
@@ -992,19 +983,6 @@ impl State {
             .height(Length::Fill)
             .padding(25)
             .into()
-    }
-}
-
-fn format_from_index(index: i32) -> ExportFormat {
-    match index {
-        1 => ExportFormat::WebP,
-        2 => ExportFormat::Avif,
-        3 => ExportFormat::Png,
-        4 => ExportFormat::Mp4,
-        5 => ExportFormat::Mkv,
-        6 => ExportFormat::Webm,
-        7 => ExportFormat::Zip,
-        _ => ExportFormat::Gif,
     }
 }
 

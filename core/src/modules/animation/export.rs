@@ -5,6 +5,8 @@ pub mod process;
 
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 use crate::modules::settings::Settings;
 
 const DEFAULT_WALK_LEN: i32 = 90;
@@ -40,7 +42,7 @@ pub struct ExportConfig {
     pub background: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ExportFormat {
     Gif,
     WebP,
