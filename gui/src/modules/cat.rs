@@ -877,8 +877,8 @@ impl State {
             let export_col = column![copy_btn, save_btn].spacing(6).align_x(Horizontal::Center);
 
             detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
-            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(70.0)));
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
+            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(8.0)));
             detail_row = detail_row.push(export_col);
         }
 
