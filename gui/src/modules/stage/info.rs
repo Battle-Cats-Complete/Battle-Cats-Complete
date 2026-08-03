@@ -11,7 +11,7 @@ use nyanko::chapter::Category;
 
 use core::modules::stage::{paths, Map, Stage};
 
-use crate::common::stat_grid::grid_cell;
+use crate::common::stat_grid::{grid_header, grid_value};
 
 use super::icons;
 
@@ -240,43 +240,50 @@ impl State {
         let skip_value = get_skip_status(&stage.category, stage.map_id, lock_registry, cpu_setting);
 
         let headers_row_1 = row![
-            grid_cell(hp_header, true),
-            grid_cell("Width", true),
-            grid_cell(energy_header, true),
-            grid_cell("XP", true),
-            grid_cell("Boss Guard", true),
-            grid_cell("Max Enemy", true),
-            grid_cell("Respawn", true),
+            grid_header(hp_header),
+            grid_header("Width"),
+            grid_header(energy_header),
+            grid_header("XP"),
+            grid_header("Boss Guard"),
+            grid_header("Max Enemy"),
+            grid_header("Respawn"),
         ].spacing(4);
 
+        let width_value = stage.width.to_string();
+        let xp_value = stage.xp.to_string();
+        let max_enemies_value = stage.max_enemies.to_string();
+
         let values_row_1 = row![
-            grid_cell(&hp_value, false),
-            grid_cell(&stage.width.to_string(), false),
-            grid_cell(&energy_value, false),
-            grid_cell(&stage.xp.to_string(), false),
-            grid_cell(&indestructible_value, false),
-            grid_cell(&stage.max_enemies.to_string(), false),
-            grid_cell(&respawn_value, false),
+            grid_value(hp_header, &hp_value),
+            grid_value("Width", &width_value),
+            grid_value(energy_header, &energy_value),
+            grid_value("XP", &xp_value),
+            grid_value("Boss Guard", &indestructible_value),
+            grid_value("Max Enemy", &max_enemies_value),
+            grid_value("Respawn", &respawn_value),
         ].spacing(4);
 
         let headers_row_2 = row![
-            grid_cell(&base_header, true),
-            grid_cell("Background", true),
-            grid_cell("Music", true),
-            grid_cell("Boss Music", true),
-            grid_cell("Difficulty", true),
-            grid_cell("CPU Skip", true),
-            grid_cell("Continues", true),
+            grid_header(&base_header),
+            grid_header("Background"),
+            grid_header("Music"),
+            grid_header("Boss Music"),
+            grid_header("Difficulty"),
+            grid_header("CPU Skip"),
+            grid_header("Continues"),
         ].spacing(4);
 
+        let background_value = stage.background_id.to_string();
+        let music_value = stage.init_track.to_string();
+
         let values_row_2 = row![
-            grid_cell(&base_value, false),
-            grid_cell(&stage.background_id.to_string(), false),
-            grid_cell(&stage.init_track.to_string(), false),
-            grid_cell(&boss_bgm_value, false),
-            grid_cell(&difficulty_value, false),
-            grid_cell(&skip_value, false),
-            grid_cell(&continue_value, false),
+            grid_value(&base_header, &base_value),
+            grid_value("Background", &background_value),
+            grid_value("Music", &music_value),
+            grid_value("Boss Music", &boss_bgm_value),
+            grid_value("Difficulty", &difficulty_value),
+            grid_value("CPU Skip", &skip_value),
+            grid_value("Continues", &continue_value),
         ].spacing(4);
 
         column![

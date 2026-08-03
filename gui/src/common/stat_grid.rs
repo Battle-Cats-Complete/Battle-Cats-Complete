@@ -1,52 +1,81 @@
-use iced::alignment::Vertical;
-use iced::{border, Element, Length, Theme};
-use iced::widget::{container, row, text};
+use iced::alignment::{Horizontal, Vertical};
+use iced::theme::palette::{darken, lighten, mix};
+use iced::{border, Color, Element, Length, Theme};
+use iced::widget::{container, row, text, tooltip};
 
-pub fn grid_cell<'a, Message: 'a>(text_content: &str, is_header: bool) -> Element<'a, Message> {
-    container(text(text_content.to_string()))
-        .padding(1.5)
-        .width(Length::Fixed(60.0))
-        .center_x(Length::Fill)
-        .style(move |theme: &Theme| {
-            let palette = theme.palette();
-            container::Style {
-                background: Some(if is_header { palette.background.into() } else { palette.primary.into() }),
-                border: border::rounded(4).color(palette.text).width(1),
-                ..Default::default()
-            }
-        })
-        .into()
+use crate::common::superscript;
+
+pub const CELL_WIDTH: f32 = 82.0;
+pub const CELL_HEIGHT: f32 = 28.0;
+
+const CELL_TEXT_SIZE: f32 = 13.0;
+const CELL_PADDING: f32 = 3.0;
+const CELL_BORDER_WIDTH: f32 = 2.0;
+const CELL_RADIUS: f32 = 4.0;
+const HEADER_SHADE: f32 = 0.08;
+const VALUE_SHADE: f32 = 0.1;
+
+fn cell_colors(theme: &Theme) -> (Color, Color, Color) {
+    let background = theme.palette().background;
+    let header = darken(background, HEADER_SHADE);
+    let value = lighten(background, VALUE_SHADE);
+    let border_color = mix(header, value, 0.5);
+
+    (header, value, border_color)
 }
 
-pub fn grid_cell_element<'a, Message: 'a>(content: Element<'a, Message>, is_header: bool) -> Element<'a, Message> {
+fn cell<'a, Message: 'a>(content: Element<'a, Message>, is_header: bool) -> Element<'a, Message> {
     container(content)
-        .padding(1.5)
-        .width(Length::Fixed(60.0))
-        .center_x(Length::Fill)
+        .padding(CELL_PADDING)
+        .width(Length::Fixed(CELL_WIDTH))
+        .height(Length::Fixed(CELL_HEIGHT))
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Center)
+        .clip(true)
         .style(move |theme: &Theme| {
-            let palette = theme.palette();
+            let (header, value, border_color) = cell_colors(theme);
+
             container::Style {
-                background: Some(if is_header { palette.background.into() } else { palette.primary.into() }),
-                border: border::rounded(4).color(palette.text).width(1),
+                background: Some(if is_header { header } else { value }.into()),
+                border: border::rounded(CELL_RADIUS).color(border_color).width(CELL_BORDER_WIDTH),
                 ..Default::default()
             }
         })
         .into()
 }
 
-pub fn render_frames<'a, Message: 'a>(frames: i32, max_width: f32) -> Element<'a, Message> {
+fn with_tooltip<'a, Message: 'a>(content: Element<'a, Message>, header: &str, value: &str) -> Element<'a, Message> {
+    let tooltip_content = row![
+        text(format!("{header}: ")),
+        superscript::text_with_superscript(value),
+    ].align_y(Vertical::Center);
+
+    tooltip(
+        content,
+        container(tooltip_content).padding(6).style(container::bordered_box),
+        tooltip::Position::Top,
+    ).into()
+}
+
+pub fn grid_header<'a, Message: 'a>(label: &str) -> Element<'a, Message> {
+    cell(text(label.to_string()).size(CELL_TEXT_SIZE).into(), true)
+}
+
+pub fn grid_value<'a, Message: 'a>(header: &str, value: &str) -> Element<'a, Message> {
+    let content = cell(text(value.to_string()).size(CELL_TEXT_SIZE).into(), false);
+
+    with_tooltip(content, header, value)
+}
+
+pub fn grid_frames<'a, Message: 'a>(header: &str, frames: i32) -> Element<'a, Message> {
+    let raw = frame_text(frames);
+    let content = cell(superscript::text_with_superscript(&raw), false);
+
+    with_tooltip(content, header, &raw)
+}
+
+fn frame_text(frames: i32) -> String {
     let seconds = frames as f32 / 30.0;
 
-    let base_text = format!("{:.2}s", seconds);
-    let frame_text = format!(" {}f", frames);
-
-    container(
-        row![
-            text(base_text),
-            text(frame_text).size(10)
-        ]
-            .align_y(Vertical::Bottom)
-    )
-        .width(Length::Fixed(max_width))
-        .into()
+    format!("{seconds:.2}s^{frames}f")
 }

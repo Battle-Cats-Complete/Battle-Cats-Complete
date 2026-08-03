@@ -996,35 +996,35 @@ impl State {
         let cd_val = (STAT_COOLDOWN.get_value)(final_stats, anim_frames, unitbuy_opt);
 
         let header_row = row![
-            stat_grid::grid_cell(STAT_ATTACK.display_name, true),
-            stat_grid::grid_cell(STAT_DPS.display_name, true),
-            stat_grid::grid_cell(STAT_RANGE.display_name, true),
-            stat_grid::grid_cell(STAT_ATK_CYCLE.display_name, true),
-            stat_grid::grid_cell(STAT_RARITY.display_name, true),
+            stat_grid::grid_header(STAT_ATTACK.display_name),
+            stat_grid::grid_header(STAT_DPS.display_name),
+            stat_grid::grid_header(STAT_RANGE.display_name),
+            stat_grid::grid_header(STAT_ATK_CYCLE.display_name),
+            stat_grid::grid_header(STAT_RARITY.display_name),
         ].spacing(4);
 
         let value_row = row![
-            stat_grid::grid_cell(&atk_str, false),
-            stat_grid::grid_cell(&dps_str, false),
-            stat_grid::grid_cell(&range_str, false),
-            stat_grid::grid_cell_element(stat_grid::render_frames(cycle, 60.0), false),
-            stat_grid::grid_cell(&rarity_str, false),
+            stat_grid::grid_value(STAT_ATTACK.display_name, &atk_str),
+            stat_grid::grid_value(STAT_DPS.display_name, &dps_str),
+            stat_grid::grid_value(STAT_RANGE.display_name, &range_str),
+            stat_grid::grid_frames(STAT_ATK_CYCLE.display_name, cycle),
+            stat_grid::grid_value(STAT_RARITY.display_name, &rarity_str),
         ].spacing(4);
 
         let header_row2 = row![
-            stat_grid::grid_cell(STAT_HITPOINTS.display_name, true),
-            stat_grid::grid_cell(STAT_KNOCKBACKS.display_name, true),
-            stat_grid::grid_cell(STAT_SPEED.display_name, true),
-            stat_grid::grid_cell(STAT_COOLDOWN.display_name, true),
-            stat_grid::grid_cell(STAT_COST.display_name, true),
+            stat_grid::grid_header(STAT_HITPOINTS.display_name),
+            stat_grid::grid_header(STAT_KNOCKBACKS.display_name),
+            stat_grid::grid_header(STAT_SPEED.display_name),
+            stat_grid::grid_header(STAT_COOLDOWN.display_name),
+            stat_grid::grid_header(STAT_COST.display_name),
         ].spacing(4);
 
         let value_row2 = row![
-            stat_grid::grid_cell(&hp_str, false),
-            stat_grid::grid_cell(&kb_str, false),
-            stat_grid::grid_cell(&speed_str, false),
-            stat_grid::grid_cell_element(stat_grid::render_frames(cd_val, 60.0), false),
-            stat_grid::grid_cell(&cost_str, false),
+            stat_grid::grid_value(STAT_HITPOINTS.display_name, &hp_str),
+            stat_grid::grid_value(STAT_KNOCKBACKS.display_name, &kb_str),
+            stat_grid::grid_value(STAT_SPEED.display_name, &speed_str),
+            stat_grid::grid_frames(STAT_COOLDOWN.display_name, cd_val),
+            stat_grid::grid_value(STAT_COST.display_name, &cost_str),
         ].spacing(4);
 
         column![header_row, value_row, header_row2, value_row2].spacing(4).into()
