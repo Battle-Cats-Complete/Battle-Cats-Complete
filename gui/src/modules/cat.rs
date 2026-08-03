@@ -684,7 +684,7 @@ impl State {
 
     fn view_sidebar(&self) -> Element<'_, Message> {
         const SEARCH_FILTER_GAP: f32 = 4.0;
-        const FILTER_LIST_GAP: f32 = 4.0;
+        const FILTER_LIST_GAP: f32 = 8.0;
 
         let search_input = text_input("Search Cat...", &self.search_query)
             .on_input(Message::SearchChanged)
