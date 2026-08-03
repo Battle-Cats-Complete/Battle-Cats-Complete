@@ -783,7 +783,9 @@ impl State {
 
         column![
             header,
-            Space::new().height(Length::Fixed(16.0)),
+            Space::new().height(Length::Fixed(8.0)),
+            rule::horizontal(1),
+            Space::new().height(Length::Fixed(8.0)),
             content
         ]
             .width(Length::Fill)
@@ -925,7 +927,7 @@ impl State {
 
         let id_text = text(format!("ID: {:03}-{}", cat.id, self.selected_form + 1))
             .size(11)
-            .style(|theme: &Theme| text::Style { color: Some(Color { a: 0.6, ..theme.palette().text }) });
+            .style(|theme: &Theme| text::Style { color: Some(Color { a: 0.4, ..theme.palette().text }) });
 
         let level_row = row![
             text("Level:").size(11).align_y(Vertical::Center),
@@ -941,7 +943,7 @@ impl State {
             name_box::name_box(disp_name, 123.0, 56.0, 145.0),
             id_text,
             level_row,
-        ].spacing(2).into()
+        ].spacing(0).into()
     }
 
     fn view_abilities<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
