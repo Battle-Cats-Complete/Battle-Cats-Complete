@@ -16,6 +16,8 @@ pub struct AppState {
 pub(crate) struct CatListState {
     pub list_scroll_offset: f32,
     pub selected_cat: Option<u32>,
+    pub selected_form: usize,
+    pub search_query: String,
     pub talent_levels: HashMap<u32, HashMap<u8, u8>>,
     pub talent_history: VecDeque<u32>,
     pub current_level: i32,
@@ -27,6 +29,8 @@ impl Default for CatListState {
         Self {
             list_scroll_offset: 0.0,
             selected_cat: None,
+            selected_form: 0,
+            search_query: String::new(),
             talent_levels: HashMap::new(),
             talent_history: VecDeque::new(),
             current_level: 1,
@@ -40,6 +44,7 @@ impl Default for CatListState {
 pub(crate) struct EnemyListState {
     pub list_scroll_offset: f32,
     pub selected_enemy: Option<u32>,
+    pub search_query: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

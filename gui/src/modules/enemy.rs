@@ -146,11 +146,15 @@ impl EnemyState {
     pub(crate) fn restore_state(&mut self, state: &EnemyListState) {
         self.list.set_scroll_offset(state.list_scroll_offset);
         self.data.selected_enemy = state.selected_enemy;
+        self.search_query = state.search_query.clone();
     }
 
     pub(crate) fn sync_state(&self, state: &mut EnemyListState) {
         state.list_scroll_offset = self.list.scroll_offset();
         state.selected_enemy = self.data.selected_enemy;
+        if state.search_query != self.search_query {
+            state.search_query = self.search_query.clone();
+        }
     }
 
     pub fn icon_stream(&mut self) -> Task<Message> {

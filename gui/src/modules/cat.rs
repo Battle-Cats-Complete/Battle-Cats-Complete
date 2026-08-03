@@ -196,6 +196,8 @@ impl State {
     pub(crate) fn restore_state(&mut self, state: &CatListState) {
         self.list.set_scroll_offset(state.list_scroll_offset);
         self.selected_cat = state.selected_cat;
+        self.selected_form = state.selected_form;
+        self.search_query = state.search_query.clone();
         self.talent_levels = state.talent_levels.clone();
         self.talent_history = state.talent_history.clone();
         self.current_level = state.current_level;
@@ -205,8 +207,12 @@ impl State {
     pub(crate) fn sync_state(&self, state: &mut CatListState) {
         state.list_scroll_offset = self.list.scroll_offset();
         state.selected_cat = self.selected_cat;
+        state.selected_form = self.selected_form;
         state.current_level = self.current_level;
 
+        if state.search_query != self.search_query {
+            state.search_query = self.search_query.clone();
+        }
         if state.level_input != self.level_input {
             state.level_input = self.level_input.clone();
         }
