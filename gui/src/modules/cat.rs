@@ -52,7 +52,7 @@ const HEADER_BUTTON_HEIGHT: f32 = 26.0;
 const HEADER_BUTTON_TOP_PADDING: f32 = 5.0;
 const EXPORT_BUTTON_WIDTH: f32 = 100.0;
 const EXPORT_BUTTON_HEIGHT: f32 = 24.0;
-const EXPORT_BUTTON_RULE_GAP: f32 = 0.0;
+const EXPORT_BUTTON_RULE_GAP: f32 = 2.0;
 const TALENT_HISTORY_CAP: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
