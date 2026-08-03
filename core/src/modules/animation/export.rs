@@ -6,7 +6,6 @@ pub mod process;
 use std::path::PathBuf;
 
 use crate::modules::settings::Settings;
-use crate::modules::state::AnimState;
 
 const DEFAULT_WALK_LEN: i32 = 90;
 const DEFAULT_IDLE_LEN: i32 = 90;
@@ -159,24 +158,8 @@ impl Default for ExporterState {
 }
 
 impl ExporterState {
-    pub fn with_settings(settings: &Settings, anim_state: &AnimState) -> Self {
-        let format = match anim_state.last_export_format {
-            1 => ExportFormat::WebP,
-            2 => ExportFormat::Avif,
-            3 => ExportFormat::Png,
-            4 => ExportFormat::Mp4,
-            5 => ExportFormat::Mkv,
-            6 => ExportFormat::Webm,
-            7 => ExportFormat::Zip,
-            _ => ExportFormat::Gif,
-        };
-
+    pub fn with_settings(settings: &Settings) -> Self {
         Self {
-            format,
-            quality_percent: anim_state.last_export_quality.unwrap_or(100),
-            quality_percent_str: anim_state.last_export_quality.map_or_else(String::new, |v| v.to_string()),
-            compression_percent: anim_state.last_export_compression.unwrap_or(0),
-            compression_percent_str: anim_state.last_export_compression.map_or_else(String::new, |v| v.to_string()),
             showcase_walk_len: settings.animation.default_showcase_walk,
             showcase_idle_len: settings.animation.default_showcase_idle,
             showcase_kb_len: settings.animation.default_showcase_kb,

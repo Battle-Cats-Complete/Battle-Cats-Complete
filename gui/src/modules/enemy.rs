@@ -22,8 +22,8 @@ use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::{EnemyDataState, EnemyDetailTab};
 use core::modules::settings::Settings;
-use core::modules::state::AppState;
 
+use crate::app::state::AppState;
 use crate::app::theme;
 use crate::common::feedback::Slot;
 use crate::common::stat_grid;

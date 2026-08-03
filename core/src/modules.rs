@@ -6,4 +6,3 @@ pub mod enemy;
 pub mod mods;
 pub mod settings;
 pub mod stage;
-pub mod state;

@@ -11,13 +11,15 @@ use tracing::{info, trace, warn};
 use core::common::context::GlobalContext;
 use core::common::io::json;
 use core::modules::settings::{Settings, UpdateMode};
-use core::modules::state::AppState;
 
 use crate::common::watcher::GuiWatcher;
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
 
+use state::AppState;
+
 mod logging;
 mod startup;
+pub mod state;
 pub(crate) mod theme;
 mod updater;
 

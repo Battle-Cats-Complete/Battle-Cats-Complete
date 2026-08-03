@@ -12,8 +12,8 @@ use iced::{Alignment, Element, Length, Size, Task, Theme};
 use core::modules::cat::scanner::CatEntry;
 use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::Settings;
-use core::modules::state::AnimState;
 
+use crate::app::state::AnimState;
 use crate::app::theme;
 
 #[derive(Default)]

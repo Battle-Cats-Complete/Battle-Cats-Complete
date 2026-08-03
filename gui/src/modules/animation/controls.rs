@@ -5,8 +5,8 @@ use core::modules::animation::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT, IDX_SURFACE,
     IDX_WALK,
 };
-use core::modules::state::AnimState;
 
+use crate::app::state::AnimState;
 use crate::app::theme;
 
 use super::{canvas, data};

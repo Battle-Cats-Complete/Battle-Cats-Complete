@@ -23,8 +23,8 @@ use core::modules::data::{
     ImportSubTab,
 };
 use core::modules::settings::Settings;
-use core::modules::state::AppState;
 
+use crate::app::state::AppState;
 use crate::app::theme;
 
 #[derive(Debug, Clone)]

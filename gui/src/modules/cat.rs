@@ -28,8 +28,8 @@ use core::modules::cat::scanner::{self, CatEntry};
 use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
-use core::modules::state::AppState;
 
+use crate::app::state::AppState;
 use crate::app::theme;
 use crate::common::feedback::Slot;
 use crate::common::stat_grid;

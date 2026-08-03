@@ -3,27 +3,27 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct AppState {
-    pub cat_data: CatListState,
-    pub enemy_data: EnemyListState,
-    pub game_data: GameDataState,
-    pub animation: AnimState,
+    pub(crate) cat_data: CatListState,
+    pub(crate) enemy_data: EnemyListState,
+    pub(crate) game_data: GameDataState,
+    pub(crate) animation: AnimState,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
-pub struct CatListState {
+pub(crate) struct CatListState {
     pub list_scroll_offset: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
-pub struct EnemyListState {
+pub(crate) struct EnemyListState {
     pub list_scroll_offset: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
-pub struct GameDataState {
+pub(crate) struct GameDataState {
     pub adb_import_type_idx: usize,
     pub adb_region_idx: usize,
 }
@@ -39,7 +39,7 @@ impl Default for GameDataState {
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
-pub struct AnimState {
+pub(crate) struct AnimState {
     pub last_export_format: i32,
     pub last_export_quality: Option<i32>,
     pub last_export_compression: Option<i32>,
