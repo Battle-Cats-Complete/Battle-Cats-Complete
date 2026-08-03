@@ -24,7 +24,6 @@ const EXPECTED_HASHES: [(&str, &str); 4] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum UpdateMode {
     #[default]
-    #[serde(alias = "AutoReset", alias = "AutoLoad")]
     Prompt,
     Ignore,
 }
@@ -311,11 +310,9 @@ pub struct RegionKey {
 
 #[derive(Clone, Serialize, Deserialize, Default, PartialEq, Debug)]
 pub struct UserKeys {
-    #[serde(alias = "jp")]
     pub ja: RegionKey,
     pub en: RegionKey,
     pub tw: RegionKey,
-    #[serde(alias = "kr")]
     pub ko: RegionKey,
 }
 
