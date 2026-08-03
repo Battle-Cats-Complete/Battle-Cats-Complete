@@ -616,10 +616,9 @@ impl State {
     fn finish_statblock_job(&mut self, job: JobResult) -> Task<Message> {
         match job {
             JobResult::Copy(Ok(image)) => {
-                let result = match self.ensure_clipboard() {
-                    Some(clipboard) => builder::copy_to_clipboard(clipboard, &image),
-                    None => Err("Clipboard unavailable".to_string()),
-                };
+                let result = self
+                    .ensure_clipboard()
+                    .map_or_else(|| Err("Clipboard unavailable".to_string()), |clipboard| builder::copy_to_clipboard(clipboard, &image));
                 if let Err(err) = &result {
                     error!("Cat statblock copy failed: {err}");
                 }

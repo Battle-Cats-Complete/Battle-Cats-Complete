@@ -114,10 +114,8 @@ impl State {
         let name_el: Element<Message> = match self.skill_name_handle(group, ctx.settings) {
             Some(handle) => iced_image(handle).into(),
             None => {
-                let fallback_text = match get_talent(group.ability_id) {
-                    Some(def) => get_display_def(def.identity).name.to_string(),
-                    None => format!("Unknown Skill (ID: {})", group.ability_id),
-                };
+                let fallback_text = get_talent(group.ability_id)
+                    .map_or_else(|| format!("Unknown Skill (ID: {})", group.ability_id), |def| get_display_def(def.identity).name.to_string());
                 bold_text(fallback_text, 18.0).into()
             }
         };
@@ -207,10 +205,8 @@ impl State {
     }
 
     fn np_icon<'a>(&'a self, img022_sheets: &'a [SpriteSheet]) -> Element<'a, Message> {
-        match self.icon_handle(img022::ICON_NP_COST, img022_sheets) {
-            Some(handle) => iced_image(handle).height(Length::Fixed(NP_ICON_SIZE)).into(),
-            None => bold_text("NP Cost", 18.0).into(),
-        }
+        self.icon_handle(img022::ICON_NP_COST, img022_sheets)
+            .map_or_else(|| bold_text("NP Cost", 18.0).into(), |handle| iced_image(handle).height(Length::Fixed(NP_ICON_SIZE)).into())
     }
 
     fn icon_handle(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Option<Handle> {

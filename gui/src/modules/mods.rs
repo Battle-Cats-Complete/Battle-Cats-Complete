@@ -482,9 +482,6 @@ impl State {
 }
 
 fn job_finished(result: Result<(), String>) -> JobEvent {
-    JobEvent::Finished(match result {
-        Ok(()) => JobOutcome::Completed,
-        Err(message) => JobOutcome::Failed(message),
-    })
+    JobEvent::Finished(result.map_or_else(JobOutcome::Failed, |()| JobOutcome::Completed))
 }
 

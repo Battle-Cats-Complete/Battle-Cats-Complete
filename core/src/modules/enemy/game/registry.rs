@@ -178,10 +178,9 @@ fn fmt_sage(param: &Param) -> String {
             let formatted_effect_list = match effect_names.len() {
                 1 => effect_names[0].to_string(),
                 2 => format!("{} and {}", effect_names[0], effect_names[1]),
-                _ => match effect_names.split_last() {
-                    Some((last_effect, leading_effects)) => format!("{}, and {}", leading_effects.join(", "), last_effect),
-                    None => String::new(),
-                }
+                _ => effect_names
+                    .split_last()
+                    .map_or(String::new(), |(last_effect, leading_effects)| format!("{}, and {}", leading_effects.join(", "), last_effect)),
             };
             formatted_resistance_lines.push(format!("{}% for {}", percentage, formatted_effect_list));
         }

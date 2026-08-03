@@ -38,12 +38,10 @@ pub fn main() -> iced::Result {
 }
 
 fn load_icon() -> Option<window::icon::Icon> {
-    if let Ok(image) = image::load_from_memory(assets::ICON) {
+    image::load_from_memory(assets::ICON).ok().and_then(|image| {
         let rgba = image.into_rgba8();
         let (width, height) = rgba.dimensions();
         let raw_pixels = rgba.into_raw();
         window::icon::from_rgba(raw_pixels, width, height).ok()
-    } else {
-        None
-    }
+    })
 }

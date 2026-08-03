@@ -147,10 +147,7 @@ fn job_outcome(result: Result<(), String>, abort: &AtomicBool) -> JobOutcome {
         return JobOutcome::Aborted;
     }
 
-    match result {
-        Ok(()) => JobOutcome::Completed,
-        Err(message) => JobOutcome::Failed(message),
-    }
+    result.map_or_else(JobOutcome::Failed, |()| JobOutcome::Completed)
 }
 
 #[derive(Default)]

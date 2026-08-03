@@ -26,11 +26,7 @@ fn clear_override_cache() {
 }
 
 fn get_active_mod() -> Option<String> {
-    if let Ok(active) = ACTIVE_MOD.read() {
-        active.clone()
-    } else {
-        None
-    }
+    ACTIVE_MOD.read().map_or(None, |active| active.clone())
 }
 
 pub(crate) fn is_mod_active() -> bool {

@@ -56,10 +56,7 @@ impl State {
     }
 
     fn preload_task(request: Option<data::PreloadRequest>) -> Task<Message> {
-        match request {
-            Some(request) => Task::perform(smol::unblock(move || request.run()), Message::Preloaded),
-            None => Task::none(),
-        }
+        request.map_or_else(Task::none, |request| Task::perform(smol::unblock(move || request.run()), Message::Preloaded))
     }
 
     pub fn invalidate_paths(&mut self) {

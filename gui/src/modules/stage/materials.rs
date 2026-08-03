@@ -118,17 +118,18 @@ impl State {
                         .center_x(Length::Fill)
                 );
 
-                let icon_element: Element<'a, super::Message> = match &drop.image_path {
-                    Some(path) => match self.icon(material_id, path) {
-                        Some(handle) => tooltip(
+                let icon_element: Element<'a, super::Message> = drop
+                    .image_path
+                    .as_ref()
+                    .and_then(|path| self.icon(material_id, path))
+                    .map_or_else(
+                        || text(drop.name.clone()).size(11).into(),
+                        |handle| tooltip(
                             iced_image(handle).width(Length::Fixed(MAX_ICON_SIZE)).height(Length::Fixed(MAX_ICON_SIZE)),
                             container(text(drop.name.clone())).padding(6).style(container::bordered_box),
                             tooltip::Position::Top,
                         ).into(),
-                        None => text(drop.name.clone()).size(11).into(),
-                    },
-                    None => text(drop.name.clone()).size(11).into(),
-                };
+                    );
 
                 icon_row = icon_row.push(container(icon_element).width(Length::Fixed(column_width)).center_x(Length::Fill));
 

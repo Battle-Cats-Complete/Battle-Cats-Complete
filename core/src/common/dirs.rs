@@ -13,10 +13,9 @@ pub fn config() -> Option<PathBuf> {
 pub fn state() -> Option<PathBuf> {
     let base_dirs = base()?;
 
-    let path = match base_dirs.state_dir() {
-        Some(state_root) => state_root.join(APP_DIR),
-        None => base_dirs.data_local_dir().join(APP_DIR).join("state"),
-    };
+    let path = base_dirs
+        .state_dir()
+        .map_or_else(|| base_dirs.data_local_dir().join(APP_DIR).join("state"), |state_root| state_root.join(APP_DIR));
 
     ensure(path)
 }

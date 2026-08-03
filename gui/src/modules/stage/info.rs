@@ -296,11 +296,11 @@ impl State {
 }
 
 fn banner_element<'a, Message: 'a>(texture: Option<(Handle, u32, u32)>, target_height: f32, fallback_name: &str) -> Element<'a, Message> {
-    match texture {
-        Some((handle, width, height)) => {
+    texture.map_or_else(
+        || container(bold_text(fallback_name.to_string()).size(32.0)).into(),
+        |(handle, width, height)| {
             let display_width = width as f32 * (target_height / height as f32);
             iced_image(handle).width(Length::Fixed(display_width)).height(Length::Fixed(target_height)).into()
-        }
-        None => container(bold_text(fallback_name.to_string()).size(32.0)).into(),
-    }
+        },
+    )
 }

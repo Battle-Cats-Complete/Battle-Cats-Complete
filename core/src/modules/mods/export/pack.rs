@@ -138,10 +138,7 @@ pub(crate) fn stream_pack_and_list(
 
         let mut file_data = fs::read(file_path).map_err(|error| format!("Failed to read {}: {}", filename, error))?;
 
-        let (cipher_key, cipher_iv) = match &standard_keys {
-            Some((key_array, iv_array)) => (Some(key_array), Some(iv_array)),
-            None => (None, None),
-        };
+        let (cipher_key, cipher_iv) = standard_keys.as_ref().map_or((None, None), |(key_array, iv_array)| (Some(key_array), Some(iv_array)));
 
         file_data = cryptology::encrypt_chunk(&file_data, pack_type, cipher_key, cipher_iv)
             .map_err(|error| format!("Encryption failed for {}: {}", filename, error))?;

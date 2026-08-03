@@ -66,16 +66,9 @@ impl State {
     }
 
     pub fn loop_bound(&self) -> Option<i32> {
-        match &self.current_anim {
-            None => Some(0),
-            Some(anim) => {
-                if self.loaded_anim_index <= IDX_IDLE {
-                    anim.calculate_true_loop()
-                } else {
-                    Some(anim.max_frame)
-                }
-            }
-        }
+        self.current_anim.as_ref().map_or(Some(0), |anim| {
+            if self.loaded_anim_index <= IDX_IDLE { anim.calculate_true_loop() } else { Some(anim.max_frame) }
+        })
     }
 
     pub fn loaded_id(&self) -> &str {
@@ -457,18 +450,15 @@ impl State {
 
     fn resolve_paths(&self, target_index: usize) -> (Option<PathBuf>, Option<PathBuf>, Option<PathBuf>, Option<PathBuf>) {
         if target_index == IDX_SPIRIT {
-            if let Some((png, cut, model, anim)) = &self.secondary_assets {
-                return (Some(png.clone()), Some(cut.clone()), Some(model.clone()), Some(anim.clone()));
-            }
-            return (None, None, None, None);
+            return self.secondary_assets.as_ref().map_or((None, None, None, None), |(png, cut, model, anim)| {
+                (Some(png.clone()), Some(cut.clone()), Some(model.clone()), Some(anim.clone()))
+            });
         }
 
         let anim_path = self.available_anims.iter().find(|(index, _)| *index == target_index).map(|(_, path)| path.clone());
-        if let Some((png, cut, model)) = &self.primary_assets {
-            return (Some(png.clone()), Some(cut.clone()), Some(model.clone()), anim_path);
-        }
-
-        (None, None, None, None)
+        self.primary_assets
+            .as_ref()
+            .map_or((None, None, None, None), |(png, cut, model)| (Some(png.clone()), Some(cut.clone()), Some(model.clone()), anim_path))
     }
 }
 

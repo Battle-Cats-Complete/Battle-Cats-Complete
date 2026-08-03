@@ -107,10 +107,10 @@ fn migrate_entry(from: &Path, to: &Path, label: &str, notes: &mut Vec<Note>) {
         return;
     }
 
-    match move_path(from, to) {
-        Ok(()) => notes.push(Note::Info(format!("Migrated {} to {:?}", label, to))),
-        Err(err) => notes.push(Note::Warn(format!("Failed to migrate {}: {}", label, err))),
-    }
+    notes.push(move_path(from, to).map_or_else(
+        |err| Note::Warn(format!("Failed to migrate {}: {}", label, err)),
+        |()| Note::Info(format!("Migrated {} to {:?}", label, to)),
+    ));
 }
 
 pub(crate) fn run() -> Vec<Note> {

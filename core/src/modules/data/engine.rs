@@ -164,8 +164,7 @@ pub(crate) fn run_universal_import(
                 .next()
                 .map(|index| &compiled_exception_rules[index]);
 
-            if let Some(rule) = matched_user_rule
-                && rule.handling == RuleHandling::Ignore {
+            if matched_user_rule.is_some_and(|rule| rule.handling == RuleHandling::Ignore) {
                 continue;
             }
 
@@ -268,8 +267,7 @@ pub(crate) fn run_universal_import(
                     .next()
                     .map(|index| &compiled_exception_rules[index]);
 
-                if let Some(rule) = matched_user_rule
-                    && rule.handling == RuleHandling::Ignore {
+                if matched_user_rule.is_some_and(|rule| rule.handling == RuleHandling::Ignore) {
                     continue;
                 }
 

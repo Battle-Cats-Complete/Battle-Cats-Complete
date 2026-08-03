@@ -113,14 +113,15 @@ fn scan(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<Ca
         skill_descriptions: Arc::new(skilldescriptions(cats_directory, priority)),
     };
 
-    let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
-        Ok(read_dir_iter) => read_dir_iter
-            .filter_map(|entry_result| entry_result.ok())
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir())
-            .collect(),
-        Err(_) => Vec::new(),
-    };
+    let folder_entries: Vec<PathBuf> = fs::read_dir(cats_directory)
+        .map(|read_dir_iter| {
+            read_dir_iter
+                .filter_map(|entry_result| entry_result.ok())
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .collect()
+        })
+        .unwrap_or_default();
 
     let total_folders = folder_entries.len();
     let processed_count = AtomicUsize::new(0);

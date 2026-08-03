@@ -211,13 +211,9 @@ impl<'a, M> Widget<M, Theme, iced::Renderer> for Anchored<'a, M> {
         viewport: &Rectangle,
         renderer: &iced::Renderer,
     ) -> mouse::Interaction {
-        match layout.children().next() {
-            Some(child) => self
-                .content
-                .as_widget()
-                .mouse_interaction(tree, child, cursor, viewport, renderer),
-            None => mouse::Interaction::None,
-        }
+        layout.children().next().map_or(mouse::Interaction::None, |child| {
+            self.content.as_widget().mouse_interaction(tree, child, cursor, viewport, renderer)
+        })
     }
 
     fn draw(

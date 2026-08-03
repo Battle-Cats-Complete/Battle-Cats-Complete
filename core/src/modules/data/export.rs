@@ -67,10 +67,7 @@ pub fn create_game_archive(
     let progress_step = (total_files / 100).max(1);
     emit(JobEvent::Progress { current: 0, total: total_files });
 
-    let thread_count = match thread::available_parallelism() {
-        Ok(n) => n.get() as u32,
-        Err(_) => 4,
-    };
+    let thread_count = thread::available_parallelism().map_or(4, |n| n.get() as u32);
 
     emit(JobEvent::Log(format!(
         "Starting Multi-Threaded Compression ({} threads)...",
@@ -94,9 +91,8 @@ pub fn create_game_archive(
             return Err("Job Aborted".to_string());
         }
 
-        let directory_entries = match fs::read_dir(&current_directory) {
-            Ok(iter) => iter,
-            Err(_) => continue,
+        let Ok(directory_entries) = fs::read_dir(&current_directory) else {
+            continue;
         };
 
         for entry_result in directory_entries.flatten() {
@@ -126,9 +122,8 @@ pub fn create_game_archive(
                 continue;
             };
 
-            let mut active_file_handle = match fs::File::open(&file_path) {
-                Ok(f) => f,
-                Err(_) => continue,
+            let Ok(mut active_file_handle) = fs::File::open(&file_path) else {
+                continue;
             };
 
             if tar_builder.append_file(relative_file_name, &mut active_file_handle).is_ok() {

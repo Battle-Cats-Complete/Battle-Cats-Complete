@@ -30,10 +30,7 @@ pub(crate) const JAVA_BIN: &str = "bin/java";
 pub(crate) const APKEDITOR_JAR: &str = "APKEditor.jar";
 
 pub(crate) fn get_tools_dir() -> PathBuf {
-    let base_dir = match dirs::data() {
-        Some(data_dir) => data_dir.join("tools"),
-        None => PathBuf::from("tools"),
-    };
+    let base_dir = dirs::data().map_or_else(|| PathBuf::from("tools"), |data_dir| data_dir.join("tools"));
 
     if !base_dir.exists() {
         debug!("Tools directory missing, creating at {:?}", base_dir);

@@ -332,10 +332,10 @@ impl State {
     }
 
     fn raw_icon(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Element<'_, Message> {
-        match self.icon_handle(icon_id, sheets) {
-            Some(handle) => iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into(),
-            None => fallback_icon(get_fallback_by_icon(AbilityIcon::Standard(icon_id))),
-        }
+        self.icon_handle(icon_id, sheets).map_or_else(
+            || fallback_icon(get_fallback_by_icon(AbilityIcon::Standard(icon_id))),
+            |handle| iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into(),
+        )
     }
 
     fn icon_handle(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Option<Handle> {

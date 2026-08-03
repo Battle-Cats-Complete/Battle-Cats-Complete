@@ -99,9 +99,6 @@ fn best_pending(pending: &[LoadRequest], rank: &HashMap<u32, usize>, focus: usiz
     pending
         .iter()
         .enumerate()
-        .min_by_key(|(_, request)| match rank.get(&request.id) {
-            Some(&row) => (0, row.abs_diff(focus)),
-            None => (1, 0),
-        })
+        .min_by_key(|(_, request)| rank.get(&request.id).map_or((1, 0), |&row| (0, row.abs_diff(focus))))
         .map(|(index, _)| index)
 }

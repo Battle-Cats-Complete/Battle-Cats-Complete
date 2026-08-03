@@ -79,9 +79,8 @@ pub(crate) fn extract_all(apk_paths: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>,
             };
 
             for index in 0..archive_reader.len() {
-                let mut current_file = match archive_reader.by_index(index) {
-                    Ok(file) => file,
-                    Err(_) => continue,
+                let Ok(mut current_file) = archive_reader.by_index(index) else {
+                    continue;
                 };
 
                 if current_file.is_dir() {

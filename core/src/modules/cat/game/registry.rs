@@ -929,13 +929,7 @@ pub const STAT_ATK_CYCLE: CatStatsDef = CatStatsDef {
 pub const STAT_RARITY: CatStatsDef = CatStatsDef {
     name: "Rarity",
     display_name: "Rarity",
-    get_value: |_, _, unitbuy| {
-        if let Some(unitbuy) = unitbuy {
-            unitbuy.rarity
-        } else {
-            -1
-        }
-    },
+    get_value: |_, _, unitbuy| unitbuy.map_or(-1, |ub| ub.rarity),
     formatter: |rarity_val| match rarity_val {
         0 => "N".to_string(),
         1 => "EX".to_string(),

@@ -81,10 +81,7 @@ impl Default for State {
 
 impl State {
     pub fn result_stream(&mut self) -> Task<Message> {
-        match self.rx_result.take() {
-            Some(rx) => Task::stream(rx).map(Message::IconLoaded),
-            None => Task::none(),
-        }
+        self.rx_result.take().map_or_else(Task::none, |rx| Task::stream(rx).map(Message::IconLoaded))
     }
 
     pub fn update(&mut self, message: Message) {

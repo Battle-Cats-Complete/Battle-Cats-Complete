@@ -122,15 +122,13 @@ pub fn run(
     let root_elem = apk_editor.manifest.root.get_element(&["manifest"], &apk_editor.manifest.string_pool);
     let pkg_attr = root_elem.and_then(|root| root.get_attribute("package", &apk_editor.manifest.string_pool));
 
-    let current_pkg = if let Some(attr) = pkg_attr {
+    let current_pkg = pkg_attr.map_or_else(String::new, |attr| {
         if let ResValueType::String(ref string_value) = attr.typed_value.data {
             string_value.resolve(&apk_editor.manifest.string_pool).unwrap_or_default().to_string()
         } else {
             String::new()
         }
-    } else {
-        String::new()
-    };
+    });
 
     let is_update_patch = current_pkg == target_package;
 

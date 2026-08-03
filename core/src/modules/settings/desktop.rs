@@ -30,12 +30,7 @@ fn get_base_directory(sub_path: &str) -> Option<PathBuf> {
 }
 
 pub fn is_desktop_data_present() -> bool {
-    if let Some(applications_directory) = get_base_directory(".local/share/applications") {
-        let desktop_file_path = applications_directory.join(desktop_file_name());
-        desktop_file_path.exists()
-    } else {
-        false
-    }
+    get_base_directory(".local/share/applications").is_some_and(|dir| dir.join(desktop_file_name()).exists())
 }
 
 fn remove_legacy_desktop_data() -> bool {

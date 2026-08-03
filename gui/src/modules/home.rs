@@ -298,10 +298,7 @@ async fn check_initialization() -> bool {
         return true;
     }
 
-    match fs::read_dir(game_dir) {
-        Ok(mut iter) => iter.next().is_none(),
-        Err(_) => true,
-    }
+    fs::read_dir(game_dir).map_or(true, |mut iter| iter.next().is_none())
 }
 
 fn fetch_changelogs() -> Result<Vec<(String, String)>, String> {

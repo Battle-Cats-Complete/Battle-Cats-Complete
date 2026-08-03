@@ -602,10 +602,6 @@ impl AssetRouter {
             .or_else(|| self.enemy_matcher.get_dest(&base_name, &self.enemy_dir))
             .or_else(|| self.stage_matcher.get_dest(&base_name, &self.stages_dir));
 
-        if let Some(folder) = routed_folder {
-            folder.join(final_name)
-        } else {
-            self.raw_dir.join(final_name)
-        }
+        routed_folder.map_or_else(|| self.raw_dir.join(final_name), |folder| folder.join(final_name))
     }
 }

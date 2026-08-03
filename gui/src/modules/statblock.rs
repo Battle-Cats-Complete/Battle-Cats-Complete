@@ -23,11 +23,7 @@ pub(crate) fn feedback_label(
         return busy_label.to_string();
     }
 
-    if let Some(success) = feedback {
-        return if success { success_label.to_string() } else { fail_label.to_string() };
-    }
-
-    idle_label.to_string()
+    feedback.map_or_else(|| idle_label.to_string(), |success| if success { success_label.to_string() } else { fail_label.to_string() })
 }
 
 pub(crate) fn feedback_color(theme: &Theme, busy: bool, feedback: Option<bool>) -> Color {
@@ -37,9 +33,5 @@ pub(crate) fn feedback_color(theme: &Theme, busy: bool, feedback: Option<bool>) 
         return palette.warning;
     }
 
-    if let Some(success) = feedback {
-        return if success { palette.success } else { palette.danger };
-    }
-
-    palette.primary
+    feedback.map_or_else(|| palette.primary, |success| if success { palette.success } else { palette.danger })
 }

@@ -287,10 +287,7 @@ impl ExceptionList {
     pub fn sync_on_boot() {
         let disk_list = json::load::<ExceptionList>("exceptions.json");
 
-        let needs_overwrite = match disk_list {
-            Some(list) => list.source == RuleSource::Default,
-            None => true,
-        };
+        let needs_overwrite = disk_list.is_none_or(|list| list.source == RuleSource::Default);
 
         if needs_overwrite {
             info!("Syncing default exceptions.json to disk...");

@@ -80,13 +80,13 @@ impl State {
                         let _ = tx.unbounded_send(status);
                     });
 
-                    let terminal = match result {
-                        Ok(()) => AddonStatus::Installed,
-                        Err(err) => {
+                    let terminal = result.map_or_else(
+                        |err| {
                             error!("Addon download failed: {}", err);
                             AddonStatus::Error(err)
-                        }
-                    };
+                        },
+                        |()| AddonStatus::Installed,
+                    );
                     let _ = tx.unbounded_send(terminal);
                 });
 
