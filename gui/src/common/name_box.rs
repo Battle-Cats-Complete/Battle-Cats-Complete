@@ -4,20 +4,21 @@ use iced::advanced::{layout, mouse, renderer, Layout, Widget};
 use iced::alignment::Vertical;
 use iced::{Element, Length, Pixels, Rectangle, Renderer as IcedRenderer, Size, Theme};
 
-const MAX_FONT_SIZE: f32 = 20.0;
+const MAX_FONT_SIZE: f32 = 22.0;
 const MIN_FONT_SIZE: f32 = 8.0;
 const MAX_LINES: f32 = 2.0;
 
 type RendererParagraph = <IcedRenderer as text::Renderer>::Paragraph;
 
-pub fn name_box<'a, Message: 'a>(name_text: impl Into<String>, width: f32, height: f32) -> Element<'a, Message> {
-    Element::new(NameBox { content: name_text.into(), width, height })
+pub fn name_box<'a, Message: 'a>(name_text: impl Into<String>, width: f32, height: f32, wrap_width: f32) -> Element<'a, Message> {
+    Element::new(NameBox { content: name_text.into(), width, height, wrap_width })
 }
 
 struct NameBox {
     content: String,
     width: f32,
     height: f32,
+    wrap_width: f32,
 }
 
 impl<Message> Widget<Message, Theme, IcedRenderer> for NameBox {
@@ -42,7 +43,7 @@ impl<Message> Widget<Message, Theme, IcedRenderer> for NameBox {
             let paragraph = loop {
                 let candidate = RendererParagraph::with_text(text::Text {
                     content: self.content.as_str(),
-                    bounds: Size::new(bounds.width, f32::INFINITY),
+                    bounds: Size::new(self.wrap_width, f32::INFINITY),
                     size: Pixels(size),
                     line_height: text::LineHeight::default(),
                     font,
@@ -53,13 +54,14 @@ impl<Message> Widget<Message, Theme, IcedRenderer> for NameBox {
                 });
 
                 let line_height = text::LineHeight::default().to_absolute(Pixels(size)).0;
-                let fits = candidate.min_bounds().height <= line_height * MAX_LINES + 0.5;
+                let lines = (candidate.min_bounds().height / line_height).round();
+                let fits = lines <= MAX_LINES;
 
                 if fits || size <= MIN_FONT_SIZE {
                     break candidate;
                 }
 
-                size -= 1.0;
+                size -= 0.5;
             };
 
             *tree.state.downcast_mut::<RendererParagraph>() = paragraph;
