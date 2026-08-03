@@ -1,7 +1,7 @@
 use iced::alignment::{Horizontal, Vertical};
 use iced::theme::palette::{darken, lighten, mix};
 use iced::{border, Color, Element, Length, Theme};
-use iced::widget::{container, row, text, tooltip};
+use iced::widget::{container, text, tooltip};
 
 use crate::common::superscript;
 
@@ -9,6 +9,7 @@ pub const CELL_WIDTH: f32 = 82.0;
 pub const CELL_HEIGHT: f32 = 28.0;
 
 const CELL_TEXT_SIZE: f32 = 13.0;
+const TOOLTIP_TEXT_SIZE: f32 = 14.0;
 const CELL_PADDING: f32 = 3.0;
 const CELL_BORDER_WIDTH: f32 = 2.0;
 const CELL_RADIUS: f32 = 4.0;
@@ -45,10 +46,7 @@ fn cell<'a, Message: 'a>(content: Element<'a, Message>, is_header: bool) -> Elem
 }
 
 fn with_tooltip<'a, Message: 'a>(content: Element<'a, Message>, header: &str, value: &str) -> Element<'a, Message> {
-    let tooltip_content = row![
-        text(format!("{header}: ")),
-        superscript::text_with_superscript(value),
-    ].align_y(Vertical::Center);
+    let tooltip_content = superscript::text_with_superscript(&format!("{header}: {value}"), TOOLTIP_TEXT_SIZE);
 
     tooltip(
         content,
@@ -69,7 +67,7 @@ pub fn grid_value<'a, Message: 'a>(header: &str, value: &str) -> Element<'a, Mes
 
 pub fn grid_frames<'a, Message: 'a>(header: &str, frames: i32) -> Element<'a, Message> {
     let raw = frame_text(frames);
-    let content = cell(superscript::text_with_superscript(&raw), false);
+    let content = cell(superscript::text_with_superscript(&raw, CELL_TEXT_SIZE), false);
 
     with_tooltip(content, header, &raw)
 }

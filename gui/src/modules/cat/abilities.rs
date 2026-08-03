@@ -24,6 +24,7 @@ use crate::common::ability_fallback::{fallback_icon, ICON_SIZE};
 use crate::common::{CustomAssets, SpriteSheet};
 
 const SCROLLBAR_RESERVE: f32 = 24.0;
+const DESCRIPTION_TEXT_SIZE: f32 = 13.0;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -148,7 +149,7 @@ impl State {
                 let icon = self.icon_element(item, sheets, assets);
                 wrapped_row = wrapped_row.push(tooltip(
                     icon,
-                    container(text_with_superscript(&item.text)).padding(6).style(container::bordered_box),
+                    container(text_with_superscript(&item.text, DESCRIPTION_TEXT_SIZE)).padding(6).style(container::bordered_box),
                     tooltip::Position::Top,
                 ));
             }
@@ -173,7 +174,7 @@ impl State {
         for (i, item) in items.iter().enumerate() {
             let is_conjure = item.icon_id == Some(img015::ICON_CONJURE) && item.custom_icon == CustomIcon::None;
             let icon = self.icon_element(item, sheets, assets);
-            let description = container(text_with_superscript(&item.text)).width(Length::Fill);
+            let description = container(text_with_superscript(&item.text, DESCRIPTION_TEXT_SIZE)).width(Length::Fill);
 
             let item_row: Element<Message> = if !is_conjure {
                 row![icon, description].spacing(8).align_y(Alignment::Center).width(Length::Fill).into()

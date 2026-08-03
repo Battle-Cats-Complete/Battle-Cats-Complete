@@ -18,6 +18,7 @@ use crate::common::{CustomAssets, SpriteSheet};
 use super::Message;
 
 const SCROLLBAR_RESERVE: f32 = 24.0;
+const DESCRIPTION_TEXT_SIZE: f32 = 13.0;
 
 pub struct State {
     icon_cache: RefCell<HashMap<usize, Handle>>,
@@ -105,7 +106,7 @@ impl State {
                 let icon = self.icon_element(item, sheets, assets);
                 wrapped_row = wrapped_row.push(tooltip(
                     icon,
-                    container(text_with_superscript(&item.text)).padding(6).style(container::bordered_box),
+                    container(text_with_superscript(&item.text, DESCRIPTION_TEXT_SIZE)).padding(6).style(container::bordered_box),
                     tooltip::Position::Top,
                 ));
             }
@@ -121,7 +122,7 @@ impl State {
 
         for (i, item) in items.iter().enumerate() {
             let icon = self.icon_element(item, sheets, assets);
-            let description = container(text_with_superscript(&item.text)).width(Length::Fill);
+            let description = container(text_with_superscript(&item.text, DESCRIPTION_TEXT_SIZE)).width(Length::Fill);
 
             col = col.push(row![icon, description].spacing(8).align_y(Alignment::Center).width(Length::Fill));
 
