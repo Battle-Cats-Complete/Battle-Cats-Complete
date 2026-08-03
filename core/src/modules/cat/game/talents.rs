@@ -333,3 +333,12 @@ pub fn get_talent_np_cost(cost_id: u8, current_level: u8, costs_map: &HashMap<u8
 
     total_cost
 }
+
+pub fn get_total_np_cost(talent_data: &Talent, talent_levels: &HashMap<u8, u8>, costs_map: &HashMap<u8, TalentCost>) -> i32 {
+    talent_data.groups.iter().enumerate()
+        .map(|(index, group)| {
+            let current_level = talent_levels.get(&(index as u8)).copied().unwrap_or(0);
+            get_talent_np_cost(group.cost_id, current_level, costs_map)
+        })
+        .sum()
+}

@@ -71,7 +71,7 @@ pub enum Message {
     SelectTab(DetailTab),
     LevelInputChanged(String),
     ChangeTalentLevel(u8, u8),
-    MaximizeTalents(bool),
+    ToggleTalents(bool),
     List(list::Message),
     Filter(filter::Message),
     Abilities(abilities::Message),
@@ -95,7 +95,7 @@ impl std::fmt::Debug for Message {
             Self::SelectTab(t) => write!(f, "SelectTab({:?})", t),
             Self::LevelInputChanged(s) => write!(f, "LevelInputChanged({})", s),
             Self::ChangeTalentLevel(i, l) => write!(f, "ChangeTalentLevel({}, {})", i, l),
-            Self::MaximizeTalents(b) => write!(f, "MaximizeTalents({})", b),
+            Self::ToggleTalents(b) => write!(f, "ToggleTalents({})", b),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
             Self::Abilities(msg) => write!(f, "Abilities({:?})", msg),
@@ -410,14 +410,14 @@ impl State {
                 self.talents.set_level(index, level, self.talent_levels.entry(cat_id).or_default(), &mut self.talent_level_inputs);
                 Task::none()
             }
-            Message::MaximizeTalents(is_ultra) => {
+            Message::ToggleTalents(is_ultra) => {
                 let talent_data = self.selected_cat
                     .and_then(|id| self.data.cats.iter().find(|c| c.id == id))
                     .and_then(|cat| cat.talent_data.as_ref());
 
                 if let Some(cat_id) = self.selected_cat
                     && let Some(talent_data) = talent_data {
-                    self.talents.maximize(is_ultra, talent_data, self.talent_levels.entry(cat_id).or_default(), &mut self.talent_level_inputs);
+                    self.talents.toggle(is_ultra, talent_data, self.talent_levels.entry(cat_id).or_default(), &mut self.talent_level_inputs);
                 }
                 Task::none()
             }
@@ -449,6 +449,12 @@ impl State {
                         let levels = self.selected_cat.map(|id| self.talent_levels.entry(id).or_default());
 
                         self.talents.set_level_input(index, input, levels, &mut self.talent_level_inputs, talent_data);
+                    }
+                    talents::Message::ToggleNormal => {
+                        return self.update(Message::ToggleTalents(false), settings, app_state, global_ctx);
+                    }
+                    talents::Message::ToggleUltra => {
+                        return self.update(Message::ToggleTalents(true), settings, app_state, global_ctx);
                     }
                     other => self.talents.update(other),
                 }
@@ -659,6 +665,16 @@ impl State {
             detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
             detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
             detail_row = detail_row.push(self.export.view().map(Message::Export));
+        } else if self.selected_tab == DetailTab::Talents
+            && let Some(talent_data) = cat.talent_data.as_ref() {
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
+            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
+            detail_row = detail_row.push(
+                self.talents
+                    .header_view(talent_data, self.talent_levels.get(&cat.id), &cat.talent_costs, &self.img022_sheets)
+                    .map(Message::Talents),
+            );
         }
 
         column![
@@ -817,12 +833,7 @@ impl State {
         let dynamic_stats = unitid(cat.id as i32, &settings.general.language_priority);
         let base_stats = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form));
 
-        let normal_talents_btn = button("Max Normal Talents")
-            .on_press(Message::MaximizeTalents(false));
-        let ultra_talents_btn = button("Max Ultra Talents")
-            .on_press(Message::MaximizeTalents(true));
-
-        let talents_view = self.talents.view(talents::ViewCtx {
+        self.talents.view(talents::ViewCtx {
             cat_id: cat.id,
             talent_data,
             talent_levels: self.talent_levels.get(&cat.id),
@@ -836,16 +847,7 @@ impl State {
             img022_sheets: &self.img022_sheets,
             assets: &self.custom_assets,
             settings,
-        }).map(Message::Talents);
-
-        column![
-            row![normal_talents_btn, ultra_talents_btn].spacing(8),
-            Space::new().height(Length::Fixed(12.0)),
-            talents_view
-        ]
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        }).map(Message::Talents)
     }
 
     fn view_details(&self, cat: &CatEntry) -> Element<'_, Message> {

@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use iced::alignment::{Horizontal, Vertical};
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, row, scrollable, slider, text, text_input, Space};
 use iced::{font, Alignment, Color, Element, Length, Theme};
@@ -20,6 +21,10 @@ use crate::common::{CustomAssets, SpriteSheet};
 
 const GROUP_ICON_SIZE: f32 = 40.0;
 const NP_ICON_SIZE: f32 = 20.0;
+const HEADER_NP_ICON_SIZE: f32 = 24.0;
+const HEADER_NP_TEXT_SIZE: f32 = 20.0;
+const TALENT_BTN_WIDTH: f32 = 100.0;
+const TALENT_BTN_HEIGHT: f32 = 23.0;
 const SECTION_SPACING: f32 = 2.0;
 
 fn bold_text<'a>(content: impl ToString, size: f32) -> iced::widget::Text<'a> {
@@ -34,6 +39,32 @@ pub enum Message {
     ToggleGroup(u32, u8),
     LevelChanged(u8, u8),
     LevelInputChanged(u8, String),
+    ToggleNormal,
+    ToggleUltra,
+}
+
+pub struct ToggleAvailability {
+    pub has_normal_enabled: bool,
+    pub has_ultra_enabled: bool,
+    pub has_ultra_talents: bool,
+}
+
+pub fn toggle_availability(talent_data: &Talent, talent_levels: Option<&HashMap<u8, u8>>) -> ToggleAvailability {
+    let mut has_normal_enabled = false;
+    let mut has_ultra_enabled = false;
+    let mut has_ultra_talents = false;
+
+    for (index, group) in talent_data.groups.iter().enumerate() {
+        let level = talent_levels.and_then(|levels| levels.get(&(index as u8))).copied().unwrap_or(0);
+        if group.limit == 1 {
+            has_ultra_talents = true;
+            if level > 0 { has_ultra_enabled = true; }
+        } else if level > 0 {
+            has_normal_enabled = true;
+        }
+    }
+
+    ToggleAvailability { has_normal_enabled, has_ultra_enabled, has_ultra_talents }
 }
 
 pub struct ViewCtx<'a, 'b> {
@@ -105,14 +136,47 @@ impl State {
         inputs.insert(index, input);
     }
 
-    pub fn maximize(&self, is_ultra: bool, talent_data: &Talent, levels: &mut HashMap<u8, u8>, inputs: &mut HashMap<u8, String>) {
+    pub fn toggle(&self, is_ultra: bool, talent_data: &Talent, levels: &mut HashMap<u8, u8>, inputs: &mut HashMap<u8, String>) {
+        let availability = toggle_availability(talent_data, Some(levels));
+        let has_enabled = if is_ultra { availability.has_ultra_enabled } else { availability.has_normal_enabled };
+
         for (index, group) in talent_data.groups.iter().enumerate() {
             let target_group = if is_ultra { group.limit == 1 } else { group.limit != 1 };
             if target_group {
-                levels.insert(index as u8, group.max_level.max(1));
+                let new_level = if has_enabled { 0 } else { group.max_level.max(1) };
+                levels.insert(index as u8, new_level);
                 inputs.remove(&(index as u8));
             }
         }
+    }
+
+    pub fn header_view<'a>(
+        &'a self,
+        talent_data: &'a Talent,
+        talent_levels: Option<&'a HashMap<u8, u8>>,
+        talent_costs: &'a HashMap<u8, TalentCost>,
+        img022_sheets: &'a [SpriteSheet],
+    ) -> Element<'a, Message> {
+        let total_np = talent_levels.map_or(0, |levels| talent_logic::get_total_np_cost(talent_data, levels, talent_costs));
+        let availability = toggle_availability(talent_data, talent_levels);
+
+        let np_row = row![self.np_icon(img022_sheets, HEADER_NP_ICON_SIZE), bold_text(total_np, HEADER_NP_TEXT_SIZE)]
+            .spacing(6)
+            .align_y(Alignment::Center);
+
+        let normal_label = if availability.has_normal_enabled { "No Talents" } else { "All Talents" };
+        let normal_btn = button(text(normal_label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+            .width(Length::Fixed(TALENT_BTN_WIDTH))
+            .height(Length::Fixed(TALENT_BTN_HEIGHT))
+            .on_press(Message::ToggleNormal);
+
+        let ultra_label = if availability.has_ultra_enabled { "No Ultra" } else { "All Ultra" };
+        let ultra_btn = button(text(ultra_label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+            .width(Length::Fixed(TALENT_BTN_WIDTH))
+            .height(Length::Fixed(TALENT_BTN_HEIGHT))
+            .on_press_maybe(availability.has_ultra_talents.then_some(Message::ToggleUltra));
+
+        column![np_row, normal_btn, ultra_btn].spacing(5).into()
     }
 
     pub fn view<'a>(&'a self, ctx: ViewCtx<'a, '_>) -> Element<'a, Message> {
@@ -186,7 +250,7 @@ impl State {
         let current_level = ctx.talent_levels.and_then(|levels| levels.get(&index)).copied().unwrap_or(0);
         let np_cost = talent_logic::get_talent_np_cost(group.cost_id, current_level, ctx.talent_costs);
 
-        let np_row = row![self.np_icon(ctx.img022_sheets), bold_text(np_cost, 18.0)]
+        let np_row = row![self.np_icon(ctx.img022_sheets, NP_ICON_SIZE), bold_text(np_cost, 18.0)]
             .spacing(4)
             .align_y(Alignment::Center);
         let np_box = dark_box(np_row);
@@ -242,9 +306,9 @@ impl State {
         fallback_icon(display_def.fallback)
     }
 
-    fn np_icon<'a>(&'a self, img022_sheets: &'a [SpriteSheet]) -> Element<'a, Message> {
+    fn np_icon<'a>(&'a self, img022_sheets: &'a [SpriteSheet], size: f32) -> Element<'a, Message> {
         self.icon_handle(img022::ICON_NP_COST, img022_sheets)
-            .map_or_else(|| bold_text("NP Cost", 18.0).into(), |handle| iced_image(handle).height(Length::Fixed(NP_ICON_SIZE)).into())
+            .map_or_else(|| bold_text("NP Cost", 18.0).into(), |handle| iced_image(handle).height(Length::Fixed(size)).into())
     }
 
     fn icon_handle(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Option<Handle> {
