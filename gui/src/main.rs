@@ -9,6 +9,7 @@ use iced::window;
 use iced::Size;
 
 use core::common::assets;
+use core::common::dirs::APP_DIR;
 
 pub fn main() -> iced::Result {
     panic::set_hook(Box::new(|panic_info| {
@@ -31,10 +32,21 @@ pub fn main() -> iced::Result {
             size: Size::new(800.0, 600.0),
             min_size: Some(Size::new(800.0, 600.0)),
             icon: load_icon(),
+            platform_specific: platform_specific_settings(),
             ..Default::default()
         })
         .subscription(app::BattleCatsApp::subscription)
         .run()
+}
+
+#[cfg(target_os = "linux")]
+fn platform_specific_settings() -> window::settings::PlatformSpecific {
+    window::settings::PlatformSpecific { application_id: APP_DIR.to_string(), ..Default::default() }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn platform_specific_settings() -> window::settings::PlatformSpecific {
+    window::settings::PlatformSpecific::default()
 }
 
 fn load_icon() -> Option<window::icon::Icon> {

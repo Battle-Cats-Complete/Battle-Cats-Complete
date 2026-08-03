@@ -743,7 +743,7 @@ impl State {
         };
 
         let Some(cat) = self.data.cats.iter().find(|c| c.id == selected_id) else {
-            return container(text("Loading Unit Data..."))
+            return container(text("No Cat Data"))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .center_x(Length::Fill)

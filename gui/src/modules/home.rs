@@ -35,7 +35,8 @@ pub enum Message {
     ChangelogsFetched(Result<Vec<(String, String)>, String>),
     SelectChangelogVersion(String),
     Navigate(Page),
-    NavigateSettings(String),
+    NavigateSettingsKeys,
+    NavigateSettingsAddOns,
 }
 
 impl State {
@@ -97,7 +98,7 @@ impl State {
                 Task::none()
             }
 
-            Message::Navigate(_) | Message::NavigateSettings(_) => {
+            Message::Navigate(_) | Message::NavigateSettingsKeys | Message::NavigateSettingsAddOns => {
                 debug!("Navigation requested, deferring to root app");
                 Task::none()
             }
@@ -169,7 +170,7 @@ impl State {
             Space::new().height(8.0),
             button(text("Settings > Data > Manage Keys").size(15.0))
                 .style(button::primary)
-                .on_press(Message::NavigateSettings("Data".to_string())),
+                .on_press(Message::NavigateSettingsKeys),
 
             Space::new().height(35.0),
 
@@ -177,7 +178,7 @@ impl State {
             Space::new().height(8.0),
             button(text("Settings > Add-Ons").size(15.0))
                 .style(button::primary)
-                .on_press(Message::NavigateSettings("Add-Ons".to_string())),
+                .on_press(Message::NavigateSettingsAddOns),
         ]
             .align_x(Alignment::Center)
             .into()

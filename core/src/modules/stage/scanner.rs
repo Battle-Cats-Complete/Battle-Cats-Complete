@@ -87,7 +87,8 @@ pub fn load(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> St
     let dictionaries = build_dictionaries(&config);
 
     if !resolver::is_mod_active()
-        && let Some((hash, registry)) = cache::read::<StageCache>() {
+        && let Some((hash, registry)) = cache::read::<StageCache>()
+        && hash == cache::get_game_hash(None) {
         debug!(hash, maps = registry.maps.len(), stages = registry.stages.len(), "loaded stages from cache fast-path");
         return StageBundle { registry, dictionaries };
     }

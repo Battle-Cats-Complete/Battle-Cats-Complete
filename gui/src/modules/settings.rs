@@ -66,6 +66,7 @@ pub enum Message {
     ToggleKeyValidation(bool),
     ToggleAppPersistence(bool),
     Keys(keys::Message),
+    OpenKeysPopup,
     Exceptions(exceptions::Message),
     Disk(disk::Message),
     Pem(pem::Message),
@@ -235,6 +236,7 @@ impl State {
                 Task::none()
             }
             Message::Keys(msg) => self.keys.update(msg).map(Message::Keys),
+            Message::OpenKeysPopup => self.keys.update(keys::Message::Open).map(Message::Keys),
             Message::Exceptions(msg) => self.exceptions.update(msg).map(Message::Exceptions),
             Message::Disk(msg) => self.disk.update(msg).map(Message::Disk),
 

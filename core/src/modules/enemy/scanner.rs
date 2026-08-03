@@ -52,7 +52,8 @@ impl cache::CacheSpec for EnemyCache {
 
 pub fn load(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
     if !resolver::is_mod_active()
-        && let Some((hash, cached_enemies)) = cache::read::<EnemyCache>() {
+        && let Some((hash, cached_enemies)) = cache::read::<EnemyCache>()
+        && hash == cache::get_game_hash(None) {
         debug!(hash, count = cached_enemies.len(), "loaded enemies from cache fast-path");
         return cached_enemies;
     }

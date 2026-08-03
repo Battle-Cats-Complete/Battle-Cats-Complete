@@ -75,7 +75,8 @@ pub fn load(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Ve
     let priority = &config.language_priority;
 
     if !resolver::is_mod_active()
-        && let Some((hash, cached_cats)) = cache::read::<CatCache>() {
+        && let Some((hash, cached_cats)) = cache::read::<CatCache>()
+        && hash == cache::get_game_hash(None) {
         debug!(hash, count = cached_cats.len(), "loaded cats from cache fast-path");
 
         let talent_costs_arc = Arc::new(skilllevel(cats_directory, priority));

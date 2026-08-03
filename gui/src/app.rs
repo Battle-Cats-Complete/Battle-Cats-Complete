@@ -356,7 +356,15 @@ impl BattleCatsApp {
             Message::Home(msg) => {
                 match msg {
                     home::Message::Navigate(page) => self.navigate(page),
-                    home::Message::NavigateSettings(_tab_str) => self.navigate(Page::Settings),
+                    home::Message::NavigateSettingsAddOns => Task::batch([
+                        self.navigate(Page::Settings),
+                        self.update(Message::Settings(gui_settings::Message::TabSelected(gui_settings::Tab::AddOns))),
+                    ]),
+                    home::Message::NavigateSettingsKeys => Task::batch([
+                        self.navigate(Page::Settings),
+                        self.update(Message::Settings(gui_settings::Message::TabSelected(gui_settings::Tab::Data))),
+                        self.update(Message::Settings(gui_settings::Message::OpenKeysPopup)),
+                    ]),
                     _ => self.home_state.update(msg).map(Message::Home),
                 }
             }

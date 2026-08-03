@@ -104,9 +104,11 @@ pub fn create_desktop_data() -> Result<(), String> {
         Icon={}\n\
         Terminal=false\n\
         Categories=Development;Game;\n\
+        StartupWMClass={}\n\
         X-AppVersion={}\n",
         executable_string,
         working_directory_string,
+        APP_DIR,
         APP_DIR,
         cargo_version
     );
@@ -174,10 +176,12 @@ pub fn sync_desktop_data() -> Result<(), String> {
 
     let expected_exec_line = format!("Exec=\"{}\"", executable_string);
     let expected_path_line = format!("Path={}", working_directory_string);
+    let expected_wm_class_line = format!("StartupWMClass={}", APP_DIR);
     let expected_version_line = format!("X-AppVersion={}", cargo_version);
 
     if !file_content.contains(&expected_exec_line)
         || !file_content.contains(&expected_path_line)
+        || !file_content.contains(&expected_wm_class_line)
         || !file_content.contains(&expected_version_line)
     {
         debug!("Desktop entry is out of date. Initiating sync regeneration...");
