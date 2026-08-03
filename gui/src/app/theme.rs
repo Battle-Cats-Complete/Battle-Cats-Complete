@@ -183,9 +183,9 @@ pub fn rounded_input(theme: &Theme, status: text_input::Status) -> text_input::S
     let shade = |c: f32, factor: f32| c * factor;
     let background = match style.background {
         Background::Color(color) => Background::Color(Color {
-            r: shade(color.r, 0.7),
-            g: shade(color.g, 0.7),
-            b: shade(color.b, 0.7),
+            r: shade(color.r, 0.5),
+            g: shade(color.g, 0.5),
+            b: shade(color.b, 0.5),
             a: color.a,
         }),
         other => other,
@@ -194,16 +194,6 @@ pub fn rounded_input(theme: &Theme, status: text_input::Status) -> text_input::S
     text_input::Style {
         background,
         border: Border { radius: Radius::from(RADIUS_SM), ..style.border },
-        ..style
-    }
-}
-
-#[allow(dead_code)]
-pub fn card_container(theme: &Theme) -> container::Style {
-    let style = container::rounded_box(theme);
-
-    container::Style {
-        border: Border { radius: Radius::from(RADIUS_MD), ..style.border },
         ..style
     }
 }
