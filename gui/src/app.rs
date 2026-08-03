@@ -12,13 +12,14 @@ use core::common::context::GlobalContext;
 use core::common::io::json;
 use core::modules::settings::{Settings, UpdateMode};
 
-use crate::common::watcher::GuiWatcher;
+use crate::common::{popup, watcher::GuiWatcher};
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
 
 use state::AppState;
 
 mod logging;
 mod migrate;
+mod notice;
 mod startup;
 pub mod state;
 pub(crate) mod theme;
@@ -92,6 +93,7 @@ pub enum UpdaterAction {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActivePopup {
+    VersionNotice,
     CatExport,
     CatFilter,
     EnemyExport,
@@ -113,6 +115,8 @@ pub enum Message {
     WindowResized(Size),
     Updater(UpdaterMsg),
     UpdaterAction(UpdaterAction),
+    Notice(popup::Message),
+    AcknowledgeNotice,
     Home(home::Message),
     Cat(cat::Message),
     Enemy(enemy::Message),
@@ -133,6 +137,10 @@ pub struct BattleCatsApp {
     pub window_size: Size,
     #[serde(skip)]
     active_popups: Vec<ActivePopup>,
+    #[serde(skip)]
+    notice_popup: popup::State,
+    #[serde(skip)]
+    notice_open: bool,
 
     #[serde(skip)]
     pub home_state: home::State,
@@ -182,6 +190,8 @@ impl Default for BattleCatsApp {
             sidebar_open: true,
             window_size: Size::new(800.0, 600.0),
             active_popups: Vec::new(),
+            notice_popup: popup::State::default(),
+            notice_open: false,
             home_state: home::State::default(),
             cat_state: cat::State::default(),
             enemy_state: enemy::EnemyState::default(),
@@ -326,6 +336,23 @@ impl BattleCatsApp {
                     }
                 }
             }
+            Message::Notice(msg) => {
+                if notice::update(&mut self.notice_popup, msg) {
+                    self.notice_open = false;
+                }
+                self.sync_popup(ActivePopup::VersionNotice, self.notice_open);
+                Task::none()
+            }
+            Message::AcknowledgeNotice => {
+                let hash = notice::hash();
+                if !self.app_state.notice.acknowledged.contains(&hash) {
+                    info!("Notice {} acknowledged", hash);
+                    self.app_state.notice.acknowledged.push(hash);
+                }
+                self.notice_open = false;
+                self.sync_popup(ActivePopup::VersionNotice, false);
+                Task::none()
+            }
             Message::Home(msg) => {
                 match msg {
                     home::Message::Navigate(page) => self.navigate(page),
@@ -449,6 +476,7 @@ impl BattleCatsApp {
         self.active_popups
             .iter()
             .filter_map(|popup| match popup {
+                ActivePopup::VersionNotice => Some(notice::view(&self.notice_popup, self.window_size)),
                 ActivePopup::CatExport => {
                     if !matches!(self.current_page, Page::Cats) || !self.cat_state.export_popup_visible() {
                         return None;

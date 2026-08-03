@@ -11,6 +11,13 @@ pub struct AppState {
     pub(crate) enemy_data: EnemyListState,
     pub(crate) game_data: GameDataState,
     pub(crate) animation: AnimState,
+    pub(crate) notice: NoticeState,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub(crate) struct NoticeState {
+    pub acknowledged: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

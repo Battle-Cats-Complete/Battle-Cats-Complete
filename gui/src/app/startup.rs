@@ -1,15 +1,17 @@
+use std::fs;
 use std::path::Path;
 
 use iced::Task;
 use tracing::{debug, info, warn};
 
+use core::common::dirs;
 use core::common::game::{localizable, param};
 use core::common::io::json;
 use core::modules::settings::{desktop, lang, ExceptionList, UpdateMode};
 
 use crate::modules::home;
 
-use super::{logging, migrate, updater, BattleCatsApp, Message};
+use super::{logging, migrate, notice, updater, ActivePopup, BattleCatsApp, Message};
 
 impl BattleCatsApp {
     pub fn new() -> (Self, Task<Message>) {
@@ -31,6 +33,16 @@ impl BattleCatsApp {
 
         app.cat_state.restore_state(&app.app_state.cat_data);
         app.enemy_state.restore_state(&app.app_state.enemy_data);
+
+        if notice::should_show(&app.app_state.notice.acknowledged) {
+            info!("Notice {} not yet acknowledged, showing at startup", notice::hash());
+            app.notice_open = true;
+            app.sync_popup(ActivePopup::VersionNotice, true);
+        }
+
+        if let Some(state_dir) = dirs::state() {
+            let _ = fs::remove_file(state_dir.join("meta.json"));
+        }
 
         ExceptionList::sync_on_boot();
 

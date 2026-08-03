@@ -1,3 +1,5 @@
+// TODO: One week after `iced` release delete this entire
+// file and resolve the like one error it will create
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};

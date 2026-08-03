@@ -28,6 +28,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 directories = "5.0.1"
 rustc-hash = "2.1.2"
+sha2 = "0.10.9"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

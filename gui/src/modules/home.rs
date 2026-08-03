@@ -5,10 +5,7 @@ use std::path::Path;
 use iced::widget::{button, column, container, pick_list, row, scrollable, stack, text, Space};
 use iced::{Alignment, Background, Color, Element, Length, Task, Theme};
 use self_update::backends::github::ReleaseList;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, warn};
-
-use core::common::io::json;
+use tracing::{debug, error, info};
 
 use crate::app::Page;
 
@@ -19,16 +16,6 @@ const SPACE_BETWEEN_SECTIONS: f32 = 20.0;
 const BUTTON_WIDTH: f32 = 120.0;
 const BUTTON_SPACING: f32 = 10.0;
 
-const NOTICE_TITLE: &str = "TEST";
-const NOTICE_CONTENT: &str = r#"
-This is a test pop-up, if you are seeing this, tell @omochikeari15 she accidentally shipped a test in an stable release.
-"#;
-
-#[derive(Serialize, Deserialize, Default)]
-struct AppMeta {
-    app_version: String,
-}
-
 #[derive(Default)]
 pub struct State {
     is_game_empty: Option<bool>,
@@ -37,14 +24,12 @@ pub struct State {
     changelog_error: bool,
     releases: Vec<(String, String)>,
     selected_version: Option<String>,
-    notice_open: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     CheckInit,
-    InitChecked { is_empty: bool, needs_notice: bool },
-    AcknowledgeNotice,
+    InitChecked(bool),
     OpenChangelog,
     CloseChangelog,
     ChangelogsFetched(Result<Vec<(String, String)>, String>),
@@ -55,39 +40,16 @@ pub enum Message {
 
 impl State {
     pub fn new() -> (Self, Task<Message>) {
-        (
-            Self::default(),
-            Task::perform(check_initialization(), |(is_empty, needs_notice)| {
-                Message::InitChecked { is_empty, needs_notice }
-            }),
-        )
+        (Self::default(), Task::perform(check_initialization(), Message::InitChecked))
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::CheckInit => {
-                Task::perform(check_initialization(), |(is_empty, needs_notice)| {
-                    Message::InitChecked { is_empty, needs_notice }
-                })
-            }
+            Message::CheckInit => Task::perform(check_initialization(), Message::InitChecked),
 
-            Message::InitChecked { is_empty, needs_notice } => {
+            Message::InitChecked(is_empty) => {
                 self.is_game_empty = Some(is_empty);
-                self.notice_open = needs_notice && !NOTICE_CONTENT.trim().is_empty();
                 Task::none()
-            }
-
-            Message::AcknowledgeNotice => {
-                self.notice_open = false;
-                let current_version = env!("CARGO_PKG_VERSION").to_string();
-                let new_meta = AppMeta { app_version: current_version };
-
-                Task::future(async move {
-                    if let Err(err) = json::save_state("meta.json", &new_meta) {
-                        warn!("Failed to save meta.json: {}", err);
-                    }
-                })
-                .discard()
             }
 
             Message::OpenChangelog => {
@@ -185,9 +147,7 @@ impl State {
             footer
         ];
 
-        if self.notice_open {
-            stack![layout, self.view_notice_modal()].into()
-        } else if self.changelog_open {
+        if self.changelog_open {
             stack![layout, self.view_changelog_modal()].into()
         } else {
             layout.into()
@@ -253,42 +213,6 @@ impl State {
             nav_row(&[("Settings", Page::Settings)]),
         ]
             .align_x(Alignment::Center)
-            .into()
-    }
-
-    fn view_notice_modal(&self) -> Element<'_, Message> {
-        let content = column![
-            text(NOTICE_TITLE).size(24.0),
-            Space::new().height(15.0),
-            scrollable(text(NOTICE_CONTENT).size(14.0)).height(Length::Fill),
-            Space::new().height(20.0),
-            button(text("Acknowledge").size(16.0))
-                .style(button::primary)
-                .on_press(Message::AcknowledgeNotice)
-        ]
-            .align_x(Alignment::Center)
-            .padding(20.0);
-
-        container(
-            container(content)
-                .width(500.0)
-                .height(400.0)
-                .style(container::bordered_box)
-        )
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .style(|theme: &Theme| {
-                let palette = theme.extended_palette();
-                container::Style {
-                    background: Some(Background::Color(Color {
-                        a: 0.8,
-                        ..palette.background.base.color
-                    })),
-                    ..Default::default()
-                }
-            })
             .into()
     }
 
@@ -368,23 +292,16 @@ impl State {
     }
 }
 
-async fn check_initialization() -> (bool, bool) {
+async fn check_initialization() -> bool {
     let game_dir = Path::new("game");
-    let is_empty = if !game_dir.exists() {
-        true
-    } else {
-        match fs::read_dir(game_dir) {
-            Ok(mut iter) => iter.next().is_none(),
-            Err(_) => true,
-        }
-    };
+    if !game_dir.exists() {
+        return true;
+    }
 
-    let needs_notice = match json::load_state::<AppMeta>("meta.json") {
-        Some(meta) => meta.app_version != env!("CARGO_PKG_VERSION"),
-        None => true,
-    };
-
-    (is_empty, needs_notice)
+    match fs::read_dir(game_dir) {
+        Ok(mut iter) => iter.next().is_none(),
+        Err(_) => true,
+    }
 }
 
 fn fetch_changelogs() -> Result<Vec<(String, String)>, String> {
