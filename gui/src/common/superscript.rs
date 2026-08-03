@@ -1,27 +1,11 @@
 use iced::alignment::Vertical;
-use iced::{border, Element, Length, Theme};
-use iced::widget::{column, container, row, text};
-
-pub const ICON_SIZE: f32 = 40.0;
+use iced::{Color, Element, Length, Theme};
+use iced::widget::{column, row, text, Row, Space};
 
 const ABILITY_TEXT_SIZE: f32 = 13.0;
 const ABILITY_SUPERSCRIPT_SIZE: f32 = ABILITY_TEXT_SIZE - 3.0;
-
-pub fn fallback_icon<'a, Message: 'a>(icon_text: &str) -> Element<'a, Message> {
-    container(text(icon_text.to_string()).size(10))
-        .width(Length::Fixed(ICON_SIZE))
-        .height(Length::Fixed(ICON_SIZE))
-        .center_x(Length::Fill)
-        .center_y(Length::Fill)
-        .style(|theme: &Theme| {
-            let palette = theme.palette();
-            container::Style {
-                border: border::rounded(0).color(palette.danger).width(1.5),
-                ..Default::default()
-            }
-        })
-        .into()
-}
+const SUPERSCRIPT_ALPHA: f32 = 0.7;
+const SUPERSCRIPT_SPACING: f32 = 1.25;
 
 pub fn text_with_superscript<'a, Message: 'a>(raw_text: &str) -> Element<'a, Message> {
     let mut lines_col = column![];
@@ -38,12 +22,14 @@ fn superscript_line<'a, Message: 'a>(line: &str) -> Element<'a, Message> {
         return text(line.to_string()).size(ABILITY_TEXT_SIZE).into();
     }
 
-    let mut result_row = row![].align_y(Vertical::Bottom);
+    let mut result_row = row![].align_y(Vertical::Top);
     let mut parts = line.split('^');
+    let mut has_content = false;
 
     if let Some(first) = parts.next()
         && !first.is_empty() {
         result_row = result_row.push(text(first.to_string()).size(ABILITY_TEXT_SIZE));
+        has_content = true;
     }
 
     for part in parts {
@@ -52,15 +38,37 @@ fn superscript_line<'a, Message: 'a>(line: &str) -> Element<'a, Message> {
             let normal_str = &part[break_idx..];
 
             if !super_str.is_empty() {
-                result_row = result_row.push(text(super_str.to_string()).size(ABILITY_SUPERSCRIPT_SIZE));
+                result_row = push_superscript(result_row, has_content, super_str);
+                has_content = true;
             }
             if !normal_str.is_empty() {
                 result_row = result_row.push(text(normal_str.to_string()).size(ABILITY_TEXT_SIZE));
+                has_content = true;
             }
         } else if !part.is_empty() {
-            result_row = result_row.push(text(part.to_string()).size(ABILITY_SUPERSCRIPT_SIZE));
+            result_row = push_superscript(result_row, has_content, part);
+            has_content = true;
         }
     }
 
     result_row.into()
+}
+
+fn push_superscript<'a, Message: 'a>(result_row: Row<'a, Message>, has_content: bool, super_str: &str) -> Row<'a, Message> {
+    let result_row = if has_content {
+        result_row.push(Space::new().width(Length::Fixed(SUPERSCRIPT_SPACING)))
+    } else {
+        result_row
+    };
+
+    result_row.push(weak_superscript_text(super_str))
+}
+
+fn weak_superscript_text<'a, Message: 'a>(super_str: &str) -> Element<'a, Message> {
+    text(super_str.to_string())
+        .size(ABILITY_SUPERSCRIPT_SIZE)
+        .style(|theme: &Theme| text::Style {
+            color: Some(Color { a: SUPERSCRIPT_ALPHA, ..theme.palette().text }),
+        })
+        .into()
 }

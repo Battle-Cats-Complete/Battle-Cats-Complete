@@ -15,7 +15,7 @@ use core::common::{assets, gfx};
 use core::modules::cat::filter::{evaluation, CatFilterState};
 use core::modules::cat::scanner::CatEntry;
 
-use crate::common::icon_loader::{self, Dispatcher, LoadRequest, LoadResult};
+use crate::common::udi_loader::{self, Dispatcher, LoadRequest, LoadResult};
 use crate::common::row_window::{self, RowWindow};
 use crate::common::smooth_scroll::smooth_scroll;
 const BANNER_ASPECT: f32 = 318.0 / 133.0;
@@ -68,7 +68,7 @@ impl Default for State {
             }
         };
 
-        let (loader, rx_result) = icon_loader::spawn(composite_banner);
+        let (loader, rx_result) = udi_loader::spawn(composite_banner);
 
         Self {
             texture_cache: HashMap::new(),

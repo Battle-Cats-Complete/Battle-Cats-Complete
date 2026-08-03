@@ -11,7 +11,8 @@ use core::modules::enemy::game::abilities::collect_ability_data;
 use core::modules::enemy::game::registry::{get_fallback_by_icon, AbilityIcon};
 use core::modules::enemy::game::EnemyRenderContext;
 
-use crate::common::shared::{fallback_icon, text_with_superscript, ICON_SIZE};
+use crate::common::superscript::text_with_superscript;
+use crate::common::ability_fallback::{fallback_icon, ICON_SIZE};
 use crate::common::{CustomAssets, SpriteSheet};
 
 use super::Message;

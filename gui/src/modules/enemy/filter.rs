@@ -13,7 +13,7 @@ use core::modules::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDEN
 use core::modules::enemy::game::registry::{get_display_def, AbilityIcon, DisplayGroup};
 
 use crate::common::popup;
-use crate::common::shared::{fallback_icon, ICON_SIZE};
+use crate::common::ability_fallback::{fallback_icon, ICON_SIZE};
 use crate::common::{CustomAssets, SpriteSheet};
 
 const STAT_KEYS: [&str; 8] = [

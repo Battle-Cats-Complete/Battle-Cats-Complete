@@ -13,7 +13,7 @@ use core::modules::cat::filter::{icons, ATTACK_TYPE_ICONS, CatFilterState, Match
 use core::modules::cat::game::registry::{get_display_def, AbilityIcon, DisplayGroup};
 
 use crate::common::popup;
-use crate::common::shared::{fallback_icon, ICON_SIZE};
+use crate::common::ability_fallback::{fallback_icon, ICON_SIZE};
 use crate::common::{CustomAssets, SpriteSheet};
 
 const STAT_KEYS: [&str; 9] = [

@@ -15,7 +15,7 @@ use core::modules::cat::game::talents as talent_logic;
 use core::modules::cat::paths;
 use core::modules::settings::Settings;
 
-use crate::common::shared::fallback_icon;
+use crate::common::ability_fallback::fallback_icon;
 use crate::common::{CustomAssets, SpriteSheet};
 
 const GROUP_ICON_SIZE: f32 = 40.0;

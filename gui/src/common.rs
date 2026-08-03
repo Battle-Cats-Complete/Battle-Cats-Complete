@@ -1,13 +1,14 @@
 pub mod feedback;
-pub mod icon_loader;
+pub mod udi_loader;
 pub mod img015;
 pub mod img022;
 pub mod name_box;
 pub mod popup;
 pub mod row_window;
-pub mod shared;
 pub mod smooth_scroll;
 pub mod stat_grid;
+pub mod superscript;
+pub mod ability_fallback;
 pub mod watcher;
 
 use std::path::Path;

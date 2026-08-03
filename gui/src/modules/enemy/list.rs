@@ -14,7 +14,7 @@ use core::modules::enemy::filter::evaluation::entity_passes_filter;
 use core::modules::enemy::filter::EnemyFilterState;
 use core::modules::enemy::scanner::EnemyEntry;
 
-use crate::common::icon_loader::{self, Dispatcher, LoadRequest, LoadResult};
+use crate::common::udi_loader::{self, Dispatcher, LoadRequest, LoadResult};
 use crate::common::row_window::{self, RowWindow};
 
 const ENEMY_ICON_SCALE_FACTOR: f32 = 2.6;
@@ -67,7 +67,7 @@ impl Default for State {
             }
         };
 
-        let (loader, rx_result) = icon_loader::spawn(composite_icon);
+        let (loader, rx_result) = udi_loader::spawn(composite_icon);
 
         Self {
             texture_cache: HashMap::new(),

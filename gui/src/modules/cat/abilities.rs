@@ -19,8 +19,8 @@ use core::modules::cat::waiter::unitid;
 use core::modules::settings::Settings;
 
 use crate::app::theme;
-
-use crate::common::shared::{fallback_icon, text_with_superscript, ICON_SIZE};
+use crate::common::superscript::text_with_superscript;
+use crate::common::ability_fallback::{fallback_icon, ICON_SIZE};
 use crate::common::{CustomAssets, SpriteSheet};
 
 const SCROLLBAR_RESERVE: f32 = 24.0;
