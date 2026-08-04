@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use iced::alignment::Vertical;
+use iced::alignment::{Horizontal, Vertical};
 use iced::widget::image::Handle;
-use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, text, text_input, tooltip, Space};
-use iced::{Border, Color, Element, Length, Size, Theme};
+use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, stack, text, text_input, tooltip, Space};
+use iced::{Element, Length, Size, Theme};
 use image::imageops;
 use nyanko::cat::abilities::{AttrUnit, REGISTRY};
 
@@ -12,6 +12,7 @@ use core::common::game::CustomIcon;
 use core::modules::cat::filter::{icons, ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
 use core::modules::cat::game::registry::{get_display_def, AbilityIcon, DisplayGroup};
 
+use crate::app::theme;
 use crate::common::popup;
 use crate::common::ability_fallback::{fallback_icon, ICON_SIZE};
 use crate::common::{CustomAssets, SpriteSheet};
@@ -22,6 +23,7 @@ const STAT_KEYS: [&str; 9] = [
 
 const ICONS_PER_ROW: usize = 11;
 const POPUP_SIZE: Size = Size::new(600.0, 528.0);
+const CLEAR_BTN_CLEARANCE: f32 = 56.0;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -145,7 +147,8 @@ impl State {
             text("Target Level:").align_y(Vertical::Center),
             text_input("Any", &self.filter_state.level_input)
                 .on_input(Message::LevelInputChanged)
-                .width(Length::Fixed(60.0)),
+                .width(Length::Fixed(60.0))
+                .style(theme::rounded_input),
         ].spacing(8).align_y(Vertical::Center);
 
         let mut stats_col = column![].spacing(6);
@@ -216,10 +219,6 @@ impl State {
             }
         }
 
-        let clear_btn = button(text("Clear Filter").style(text::danger))
-            .on_press(Message::Clear)
-            .padding([8, 16]);
-
         let content = column![
             text("Attributes").size(18),
             rarity_row,
@@ -239,11 +238,24 @@ impl State {
             Space::new().height(Length::Fixed(16.0)),
             text("Abilities").size(18),
             abilities_col,
-            Space::new().height(Length::Fixed(24.0)),
-            clear_btn,
+            Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
         ].spacing(8).padding(24);
 
-        container(scrollable(content))
+        let scroll_layer = scrollable(content).width(Length::Fill).height(Length::Fill);
+
+        let clear_btn = button(text("Clear Filter"))
+            .on_press(Message::Clear)
+            .padding([8, 16])
+            .style(button::danger);
+
+        let clear_btn_layer = container(clear_btn)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Bottom)
+            .padding(16);
+
+        stack![scroll_layer, clear_btn_layer]
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -305,7 +317,7 @@ impl State {
 
         container(column![header, grid_col].spacing(6))
             .padding(8)
-            .style(container::bordered_box)
+            .style(theme::card_container)
             .into()
     }
 
@@ -316,9 +328,9 @@ impl State {
 
         row![
             text(format!("{}:", attr)).width(Length::Fixed(110.0)),
-            text_input("Any", min_str).on_input(move |v| Message::AdvMinChanged(icon, attr, v)).width(Length::Fixed(55.0)),
+            text_input("Any", min_str).on_input(move |v| Message::AdvMinChanged(icon, attr, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
             text("~"),
-            text_input("Any", max_str).on_input(move |v| Message::AdvMaxChanged(icon, attr, v)).width(Length::Fixed(55.0)),
+            text_input("Any", max_str).on_input(move |v| Message::AdvMaxChanged(icon, attr, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
         ].spacing(4).align_y(Vertical::Center).into()
     }
 
@@ -417,23 +429,7 @@ fn ability_schema(icon: AbilityIcon) -> &'static [(&'static str, AttrUnit)] {
 fn toggle_button<'a>(label: &'a str, active: bool, on_press: Message) -> Element<'a, Message> {
     button(text(label))
         .on_press(on_press)
-        .style(move |theme: &Theme, status| {
-            let palette = theme.palette();
-            let background = if active {
-                palette.primary
-            } else if status == button::Status::Hovered {
-                Color { a: 0.15, ..palette.text }
-            } else {
-                Color::TRANSPARENT
-            };
-
-            button::Style {
-                background: Some(background.into()),
-                text_color: if active { palette.background } else { palette.text },
-                border: Border::default().rounded(4.0),
-                ..Default::default()
-            }
-        })
+        .style(move |t: &Theme, status| theme::toggle_button(t, status, active))
         .into()
 }
 
@@ -445,9 +441,9 @@ fn stat_range_field<'a>(stat: &'static str, filter_state: &'a CatFilterState) ->
 
     row![
         text(format!("{}:", stat)).width(Length::Fixed(110.0)),
-        text_input("Any", min_str).on_input(move |v| Message::StatMinChanged(stat, v)).width(Length::Fixed(55.0)),
+        text_input("Any", min_str).on_input(move |v| Message::StatMinChanged(stat, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
         text("~"),
-        text_input("Any", max_str).on_input(move |v| Message::StatMaxChanged(stat, v)).width(Length::Fixed(55.0)),
+        text_input("Any", max_str).on_input(move |v| Message::StatMaxChanged(stat, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
     ].spacing(4).align_y(Vertical::Center).into()
 }
 

@@ -178,23 +178,20 @@ pub fn confirm_modal_container(theme: &Theme) -> container::Style {
     }
 }
 
-const SPIRIT_CARD_SHADE: f32 = 0.15;
-const SPIRIT_CARD_ALPHA: f32 = 0.92;
+const CARD_SHADE: f32 = 0.15;
+const CARD_ALPHA: f32 = 0.92;
 
-pub fn spirit_card_container(theme: &Theme) -> container::Style {
+pub fn card_container(theme: &Theme) -> container::Style {
     let palette = theme.palette();
 
     container::Style {
         background: Some(Background::Color(Color {
-            r: palette.background.r * SPIRIT_CARD_SHADE,
-            g: palette.background.g * SPIRIT_CARD_SHADE,
-            b: palette.background.b * SPIRIT_CARD_SHADE,
-            a: SPIRIT_CARD_ALPHA,
+            r: palette.background.r * CARD_SHADE,
+            g: palette.background.g * CARD_SHADE,
+            b: palette.background.b * CARD_SHADE,
+            a: CARD_ALPHA,
         })),
-        border: Border {
-            radius: Radius { top_left: 0.0, top_right: 0.0, bottom_left: RADIUS_LG, bottom_right: RADIUS_LG },
-            ..Border::default()
-        },
+        border: Border { radius: Radius::from(RADIUS_MD), ..Border::default() },
         ..container::Style::default()
     }
 }

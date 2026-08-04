@@ -1,5 +1,6 @@
+use iced::border::Radius;
 use iced::widget::{button, column, container, row, text, Space};
-use iced::{Alignment, Element, Length, Theme};
+use iced::{Alignment, Border, Element, Length, Theme};
 use nyanko::common::data::img015;
 
 use core::common::game::{ABILITY_Y, TRAIT_Y};
@@ -128,6 +129,18 @@ impl State {
             col = col.push(self.icon_row(&s_footer, sheets, assets, per_row));
         }
 
-        container(col).width(Length::Shrink).padding(8).style(theme::spirit_card_container).into()
+        container(col).width(Length::Shrink).padding(8).style(spirit_card_container).into()
+    }
+}
+
+fn spirit_card_container(t: &Theme) -> container::Style {
+    let style = theme::card_container(t);
+
+    container::Style {
+        border: Border {
+            radius: Radius { top_left: 0.0, top_right: 0.0, bottom_left: theme::RADIUS_LG, bottom_right: theme::RADIUS_LG },
+            ..style.border
+        },
+        ..style
     }
 }
