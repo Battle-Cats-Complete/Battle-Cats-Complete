@@ -2,12 +2,13 @@ mod canvas;
 mod controls;
 mod data;
 mod export;
+mod icon;
 mod offscreen;
 mod overlay;
 mod pipeline;
 
 use iced::widget::{button, column, container, stack, text, Space};
-use iced::{font, Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
+use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
 
 use core::modules::cat::scanner::CatEntry;
 use core::modules::enemy::scanner::EnemyEntry;
@@ -21,7 +22,6 @@ const FRAME_BORDER_RADIUS: f32 = 5.0;
 const EMPTY_BACKGROUND_SHADE: f32 = 0.6;
 
 const EXPAND_BUTTON_SIZE: f32 = 30.0;
-const EXPAND_ICON_SIZE: f32 = 20.0;
 const EXPAND_BUTTON_INSET: f32 = 8.0;
 
 const CONTROLS_INSET_LEFT: f32 = 7.0;
@@ -223,38 +223,31 @@ impl State {
 
         let is_expanded = self.is_expanded;
         let expand_button = container(
-            button(
-                text("⛶")
-                    .size(EXPAND_ICON_SIZE)
-                    .font(font::Font { weight: font::Weight::Bold, ..font::Font::DEFAULT })
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .center(),
-            )
-            .width(Length::Fixed(EXPAND_BUTTON_SIZE))
-            .height(Length::Fixed(EXPAND_BUTTON_SIZE))
-            .padding(0)
-            .style(move |t: &Theme, status| {
-                let base = theme::toggle_button(t, status, is_expanded);
-                button::Style {
-                    border: Border {
-                        color: t.extended_palette().background.strong.color,
-                        width: 1.0,
-                        ..base.border
-                    },
-                    ..base
-                }
-            })
-            .on_press(Message::ToggleExpanded),
+            button(icon::expand(is_expanded))
+                .width(Length::Fixed(EXPAND_BUTTON_SIZE))
+                .height(Length::Fixed(EXPAND_BUTTON_SIZE))
+                .padding(0)
+                .style(move |t: &Theme, status| {
+                    let base = theme::toggle_button(t, status, is_expanded);
+                    button::Style {
+                        border: Border {
+                            color: t.extended_palette().background.strong.color,
+                            width: 1.0,
+                            ..base.border
+                        },
+                        ..base
+                    }
+                })
+                .on_press(Message::ToggleExpanded),
         )
         .padding(EXPAND_BUTTON_INSET);
 
         let layers = stack![
             viewport,
             selection_overlay,
-            frame_border(),
             expand_button,
             controls_overlay,
+            frame_border(),
         ];
 
         container(layers)

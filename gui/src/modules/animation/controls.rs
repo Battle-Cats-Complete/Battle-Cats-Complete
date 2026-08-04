@@ -44,6 +44,9 @@ const PANEL_ALPHA: f32 = 160.0 / 255.0;
 const PANEL_SHADE: f32 = 0.15;
 const DISABLED_ALPHA: f32 = 0.5;
 
+const PLAY_GLYPH: &str = "\u{25B6}";
+const PAUSE_GLYPH: &str = "\u{25AE}\u{25AE}";
+
 const ANIM_BUTTONS: [(&str, usize); 8] = [
     ("Walk", IDX_WALK),
     ("Idle", IDX_IDLE),
@@ -407,7 +410,7 @@ impl State {
         let base_available = data.base_assets_available();
         let anim_loaded = base_available && data.loaded_anim_index != IDX_NONE;
 
-        let play_icon = if canvas.is_playing { "⏸" } else { "▶" };
+        let play_icon = if canvas.is_playing { PAUSE_GLYPH } else { PLAY_GLYPH };
 
         let transport = column![
             control_button(play_icon, PLAY_TEXT_SIZE, ICON_W, anim_loaded.then_some(Message::TogglePlay)),
