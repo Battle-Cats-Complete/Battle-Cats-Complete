@@ -1,4 +1,5 @@
 mod abilities;
+mod conjure;
 mod details;
 mod export;
 mod filter;

@@ -178,6 +178,27 @@ pub fn confirm_modal_container(theme: &Theme) -> container::Style {
     }
 }
 
+const SPIRIT_CARD_SHADE: f32 = 0.15;
+const SPIRIT_CARD_ALPHA: f32 = 0.92;
+
+pub fn spirit_card_container(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+
+    container::Style {
+        background: Some(Background::Color(Color {
+            r: palette.background.r * SPIRIT_CARD_SHADE,
+            g: palette.background.g * SPIRIT_CARD_SHADE,
+            b: palette.background.b * SPIRIT_CARD_SHADE,
+            a: SPIRIT_CARD_ALPHA,
+        })),
+        border: Border {
+            radius: Radius { top_left: 0.0, top_right: 0.0, bottom_left: RADIUS_LG, bottom_right: RADIUS_LG },
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}
+
 pub fn rounded_input(theme: &Theme, status: text_input::Status) -> text_input::Style {
     let style = text_input::default(theme, status);
     let shade = |c: f32, factor: f32| c * factor;
