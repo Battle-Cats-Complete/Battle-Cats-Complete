@@ -1,6 +1,6 @@
 use iced::widget::{button, column, container, mouse_area, opaque, row, rule, text, text_input, Button, Container, TextInput};
 use iced::border::Radius;
-use iced::{alignment, border, font, Background, Border, Color, Element, Length, Theme, Vector};
+use iced::{alignment, border, font, Background, Border, Color, Element, Length, Padding, Theme, Vector};
 
 use core::modules::animation::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT, IDX_SURFACE,
@@ -32,6 +32,7 @@ const PANEL_WIDTH: f32 = ICON_W + COL2_W + COL3_W + DIVIDER_W * 2.0 + GAP * 4.0;
 const ANIM_BUTTON_W: f32 = 70.0;
 const ANIM_BUTTON_H: f32 = 25.0;
 const GRID_GAP: f32 = 5.0;
+const GRID_PAD: f32 = 2.0;
 
 const TOGGLE_HEIGHT: f32 = 18.0;
 const TOGGLE_TEXT_SIZE: f32 = 14.0;
@@ -60,7 +61,6 @@ const ANIM_BUTTONS: [(&str, usize); 8] = [
 
 #[derive(Default)]
 pub struct State {
-    frame_input: String,
     speed_input: String,
     range_start_input: String,
     range_end_input: String,
@@ -76,7 +76,6 @@ pub enum Message {
     HoldEnd,
     HoldCancel,
     FrameInputChanged(String),
-    FrameInputSubmitted,
     SpeedInputChanged(String),
     RangeStartChanged(String),
     RangeEndChanged(String),
@@ -95,6 +94,26 @@ fn display_max(data: &data::State) -> String {
         Some(value) => value.to_string(),
         None => "???".to_string(),
     }
+}
+
+fn frame_text(canvas: &canvas::State) -> String {
+    (canvas.current_frame.trunc() as i32).to_string()
+}
+
+fn frame_bounds(canvas: &canvas::State, data: &data::State) -> (f32, Option<f32>) {
+    if data.loaded_anim_index == IDX_MODEL {
+        return (0.0, Some(0.0));
+    }
+
+    let min = canvas.loop_start.unwrap_or(0.0).max(0.0);
+    let max = canvas.loop_end.or_else(|| loop_max(data)).map(|max| max.max(min));
+
+    (min, max)
+}
+
+pub(super) fn clamp_frame(canvas: &mut canvas::State, data: &data::State) {
+    let (min, max) = frame_bounds(canvas, data);
+    canvas.current_frame = max.map_or(canvas.current_frame.max(min), |max| canvas.current_frame.clamp(min, max));
 }
 
 fn effective_max(canvas: &canvas::State, data: &data::State) -> String {
@@ -302,12 +321,14 @@ impl State {
                 self.hold_dir = 0;
                 self.hold_timer = 0.0;
             }
-            Message::FrameInputChanged(value) => self.frame_input = value,
-            Message::FrameInputSubmitted => {
-                if let Ok(parsed) = self.frame_input.parse::<f32>() {
-                    canvas.current_frame = parsed.max(0.0);
+            Message::FrameInputChanged(value) => {
+                let trimmed = value.trim();
+                let target = if trimmed.is_empty() { Some(0.0) } else { trimmed.parse::<f32>().ok() };
+
+                if let Some(target) = target {
+                    canvas.current_frame = target;
+                    clamp_frame(canvas, data);
                 }
-                self.frame_input.clear();
             }
             Message::SpeedInputChanged(value) => {
                 self.speed_input = value.clone();
@@ -351,17 +372,16 @@ impl State {
     }
 
     fn step(&mut self, canvas: &mut canvas::State, data: &data::State, direction: f32) {
-        let max = loop_max(data);
-        let mut new_frame = canvas.current_frame + direction;
+        let (min, max) = frame_bounds(canvas, data);
+        let stepped = canvas.current_frame + direction;
 
-        match max {
-            Some(max) if new_frame > max => new_frame = 0.0,
-            Some(max) if new_frame < 0.0 => new_frame = max,
-            None if new_frame < 0.0 => new_frame = 0.0,
-            _ => {}
-        }
-
-        canvas.current_frame = new_frame;
+        canvas.current_frame = if stepped < min {
+            max.unwrap_or(min)
+        } else if max.is_some_and(|max| stepped > max) {
+            min
+        } else {
+            stepped
+        };
     }
 
     pub fn tick(&mut self, canvas: &mut canvas::State, data: &data::State) {
@@ -403,9 +423,17 @@ impl State {
         if is_expanded {
             panel = panel
                 .push(rule::horizontal(1))
-                .push(container(anim_grid(data)).width(Length::Fill).align_x(alignment::Horizontal::Center))
+                .push(
+                    container(anim_grid(data))
+                        .width(Length::Fill)
+                        .padding(Padding { top: GRID_PAD, right: 0.0, bottom: GRID_PAD, left: 0.0 })
+                        .align_x(alignment::Horizontal::Center),
+                )
                 .push(rule::horizontal(1))
-                .push(self.transport_row(canvas, data));
+                .push(
+                    container(self.transport_row(canvas, data))
+                        .padding(Padding { top: GRID_PAD, right: 0.0, bottom: 0.0, left: 0.0 }),
+                );
         }
 
         opaque(container(panel).padding(PANEL_PAD).style(panel_style))
@@ -432,9 +460,7 @@ impl State {
             .spacing(GAP)
             .into()
         } else {
-            let frame_hint = (canvas.current_frame.trunc() as i32).to_string();
-            let frame_input = tile_input(&frame_hint, &self.frame_input, anim_loaded, Message::FrameInputChanged)
-                .on_submit(Message::FrameInputSubmitted);
+            let frame_input = tile_input("0", &frame_text(canvas), anim_loaded, Message::FrameInputChanged);
 
             row![
                 step_control("◀", -1, anim_loaded),
@@ -446,7 +472,7 @@ impl State {
         };
 
         let counter_row = row![
-            label_tile(RANGE_W, (canvas.current_frame.trunc() as i32).to_string()),
+            label_tile(RANGE_W, frame_text(canvas)),
             label_tile(TILDE_W, "/"),
             label_tile(RANGE_W, effective_max(canvas, data)),
         ]

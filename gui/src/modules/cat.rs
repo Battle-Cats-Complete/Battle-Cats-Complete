@@ -372,6 +372,7 @@ impl State {
                 self.selected_cat = Some(id);
                 self.talent_level_inputs.clear();
                 self.push_talent_history(id);
+                self.animation.reset_playhead();
 
                 info!("Selected cat ID: {}", id);
                 match self.data.cats.iter().find(|c| c.id == id) {

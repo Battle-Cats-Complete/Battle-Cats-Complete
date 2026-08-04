@@ -49,6 +49,8 @@ pub struct State {
     export: export::State,
     overlay: overlay::State,
     is_expanded: bool,
+    playhead_id: String,
+    playhead_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -65,11 +67,27 @@ impl State {
     pub fn sync(&mut self, cat: &CatEntry, form: usize, settings: &Settings, anim_state: &AnimState) {
         self.data.sync(cat, form, settings);
         self.export.sync(&self.data, settings, anim_state);
+        self.sync_playhead();
     }
 
     pub fn sync_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings, anim_state: &AnimState) {
         self.data.sync_enemy(enemy, settings);
         self.export.sync(&self.data, settings, anim_state);
+        self.sync_playhead();
+    }
+
+    pub fn reset_playhead(&mut self) {
+        self.canvas.current_frame = 0.0;
+    }
+
+    fn sync_playhead(&mut self) {
+        if self.playhead_id == self.data.loaded_id() && self.playhead_index == self.data.loaded_anim_index {
+            return;
+        }
+
+        self.playhead_id = self.data.loaded_id().to_string();
+        self.playhead_index = self.data.loaded_anim_index;
+        controls::clamp_frame(&mut self.canvas, &self.data);
     }
 
     pub fn preload(&mut self, cat: &CatEntry, form: usize, settings: &Settings) -> Task<Message> {
@@ -129,6 +147,7 @@ impl State {
             }
             Message::Preloaded(result) => {
                 self.data.apply_preload(result);
+                self.sync_playhead();
                 Task::none()
             }
             Message::ToggleExpanded => {

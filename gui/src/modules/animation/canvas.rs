@@ -144,8 +144,10 @@ impl<'a> shader::Program<Message> for Viewport<'a> {
     }
 
     fn draw(&self, _interaction: &Interaction, _cursor: mouse::Cursor, _bounds: Rectangle) -> Scene {
+        let frame = self.data.playback_frame(self.state.current_frame);
+
         let (parts, image) = self.data.held_unit.as_ref().map_or((Vec::new(), None), |unit| {
-            (resolve_frame(unit, self.data.current_anim.as_deref(), self.state.current_frame), unit.sheet.image_data.clone())
+            (resolve_frame(unit, self.data.current_anim.as_deref(), frame), unit.sheet.image_data.clone())
         });
 
         Scene {

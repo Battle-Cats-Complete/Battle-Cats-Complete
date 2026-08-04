@@ -256,6 +256,7 @@ impl EnemyState {
                     self.data.selected_enemy = Some(id);
                     self.mag_input = "100".to_string();
                     self.magnification = Magnification { hitpoints: 100, attack: 100 };
+                    self.animation.reset_playhead();
                     return match self.data.enemies.iter().find(|e| e.id == id) {
                         Some(enemy) => self.animation.preload_enemy(enemy, settings).map(Message::Animation),
                         None => Task::none(),

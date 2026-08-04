@@ -6,8 +6,8 @@ use tracing::warn;
 use nyanko::graphics::rig::{Animation, Unit};
 
 use core::modules::animation::{
-    IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT, IDX_SURFACE,
-    IDX_WALK,
+    loop_frame, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT,
+    IDX_SURFACE, IDX_WALK,
 };
 use core::modules::cat::paths::{self, AnimType};
 use core::modules::cat::scanner::CatEntry;
@@ -69,6 +69,14 @@ impl State {
         self.current_anim.as_ref().map_or(Some(0), |anim| {
             if self.loaded_anim_index <= IDX_IDLE { anim.calculate_true_loop() } else { Some(anim.max_frame) }
         })
+    }
+
+    pub fn playback_frame(&self, frame: f32) -> f32 {
+        if self.loaded_anim_index <= IDX_IDLE {
+            return frame;
+        }
+
+        self.current_anim.as_ref().map_or(frame, |anim| loop_frame(anim, frame))
     }
 
     pub fn loaded_id(&self) -> &str {

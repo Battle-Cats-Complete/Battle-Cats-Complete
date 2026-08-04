@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use nyanko::graphics::rig::Animation;
 use tracing::info;
 
+use crate::modules::animation::loop_frame;
+
 use super::{ExportConfig, ExportFormat, ExportMode, ExportRequest, FrameTiming};
 
 pub fn build_config(request: &ExportRequest) -> ExportConfig {
@@ -104,23 +106,11 @@ pub fn calculate_export_time(
         (start + (current_progress * step)) as f32
     };
 
-    let loop_boundary = animation.calculate_true_loop().unwrap_or(animation.max_frame);
-
-    if is_showcase {
-        let natively_loops = animation.curves.iter().any(|c| c.loop_count != 1);
-
-        if natively_loops {
-            raw_frame
-        } else if loop_boundary > 0 {
-            raw_frame.rem_euclid(loop_boundary as f32 + 1.0)
-        } else {
-            raw_frame
-        }
-    } else if timing.loop_supported {
-        raw_frame
-    } else if loop_boundary > 0 {
-        raw_frame.rem_euclid(loop_boundary as f32 + 1.0)
+    let natively_loops = if is_showcase {
+        animation.curves.iter().any(|c| c.loop_count != 1)
     } else {
-        raw_frame
-    }
+        timing.loop_supported
+    };
+
+    if natively_loops { raw_frame } else { loop_frame(animation, raw_frame) }
 }
