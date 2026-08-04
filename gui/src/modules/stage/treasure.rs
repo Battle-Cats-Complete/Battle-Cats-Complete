@@ -15,8 +15,7 @@ use core::modules::stage::Stage;
 
 use crate::app::theme;
 use crate::common::item_icon;
-
-use super::section::section;
+use crate::widget::section;
 
 const TREASURE_TABLE_WIDTH: f32 = 345.0;
 const MAX_ICON_SIZE: f32 = 32.0;

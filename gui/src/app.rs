@@ -414,7 +414,7 @@ impl BattleCatsApp {
             Message::Cat(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
                 let task = self.cat_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
-                self.cat_state.sync_state(&mut self.app_state.cat_data);
+                self.cat_state.sync_state(&mut self.app_state.cat);
                 self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open(&self.app_state));
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
                 task
@@ -430,13 +430,14 @@ impl BattleCatsApp {
                 if enemies_loaded {
                     self.stage_state.sync_enemies(&self.enemy_state.data.enemies);
                 }
-                self.enemy_state.sync_state(&mut self.app_state.enemy_data);
+                self.enemy_state.sync_state(&mut self.app_state.enemy);
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
                 self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open(&self.app_state));
                 task
             }
             Message::Stage(msg) => {
                 let task = self.stage_state.update(msg).map(Message::Stage);
+                self.stage_state.sync_state(&mut self.app_state.stage);
                 self.sync_popup(ActivePopup::StageFilter, self.stage_state.filter_popup_open());
                 task
             }

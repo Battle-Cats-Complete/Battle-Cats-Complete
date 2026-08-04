@@ -10,24 +10,26 @@ use core::modules::stage::filter::treasure::TreasureFilter;
 use core::modules::stage::filter::StageFilterState;
 
 use crate::app::theme;
-use crate::widget::{popup, range_row};
+use crate::widget::{popup, range_row, section};
 
-use super::section::section;
 
-const POPUP_SIZE: Size = Size::new(400.0, 528.0);
+const POPUP_SIZE: Size = Size::new(720.0, 528.0);
 const CLEAR_BTN_CLEARANCE: f32 = 56.0;
 const CONTENT_PADDING: f32 = 20.0;
+const SCROLLBAR_GAP: f32 = 2.0;
 const SECTION_SPACING: f32 = 12.0;
 const CARD_SPACING: f32 = 8.0;
 const FIELD_SPACING: f32 = 8.0;
 const PAIR_SPACING: f32 = 16.0;
 const CONTROL_TEXT_SIZE: f32 = 13.0;
 const TRISTATE_WIDTH: f32 = 60.0;
+const FLAG_LABEL_WIDTH: f32 = 130.0;
+const FLAG_COLUMNS: usize = 3;
 const REMOVE_BTN_WIDTH: f32 = 28.0;
 const LABEL_WIDTH: f32 = 90.0;
 const NAME_LABEL_WIDTH: f32 = 70.0;
-const NAME_INPUT_WIDTH: f32 = 180.0;
-const VALUE_INPUT_WIDTH: f32 = 150.0;
+const NAME_INPUT_WIDTH: f32 = 320.0;
+const VALUE_INPUT_WIDTH: f32 = 260.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flag {
@@ -504,7 +506,7 @@ impl State {
             Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
         ].spacing(SECTION_SPACING).padding(CONTENT_PADDING);
 
-        let scroll_layer = scrollable(content).width(Length::Fill).height(Length::Fill);
+        let scroll_layer = scrollable(content).width(Length::Fill).height(Length::Fill).spacing(SCROLLBAR_GAP);
 
         let clear_btn_layer = container(
             button(text("Clear Filter")).on_press(Message::Clear).padding([8, 16]).style(button::danger)
@@ -563,19 +565,22 @@ fn wrap_pairs<'a>(flags: impl IntoIterator<Item = Flag>, filter_state: &'a Stage
     for flag in flags {
         let value = flag_ref(filter_state, flag);
         current = current.push(
-            row![text(format!("{}:", flag_label(flag))), tristate_button(value, Message::FlagToggled(flag))]
+            row![
+                text(format!("{}:", flag_label(flag))).size(CONTROL_TEXT_SIZE).width(Length::Fixed(FLAG_LABEL_WIDTH)),
+                tristate_button(value, Message::FlagToggled(flag)),
+            ]
                 .spacing(FIELD_SPACING)
                 .align_y(Vertical::Center)
         );
         count += 1;
 
-        if count % 2 == 0 {
+        if count % FLAG_COLUMNS == 0 {
             col = col.push(current);
             current = row![].spacing(PAIR_SPACING).align_y(Vertical::Center);
         }
     }
 
-    if count % 2 != 0 {
+    if !count.is_multiple_of(FLAG_COLUMNS) {
         col = col.push(current);
     }
 

@@ -2,7 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
-use iced::alignment::Vertical;
+use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, column, container, row, rule, scrollable, space, text, Column, Container};
 use iced::{Element, Length, Padding, Theme};
 use nyanko::chapter::Category;
@@ -24,7 +24,10 @@ const COLUMN_GAP: f32 = 7.0;
 const COLUMN_SEPARATOR_WIDTH: f32 = RULE_THICKNESS + COLUMN_GAP * 2.0;
 const CATEGORY_COLUMN_WIDTH: f32 = 180.0;
 const COLUMN_WIDTH: f32 = 200.0;
-const SCROLLBAR_RESERVE: f32 = 12.0;
+
+const SCROLLBAR_WIDTH: f32 = 10.0;
+const SCROLLBAR_GAP: f32 = 2.0;
+const SCROLLBAR_RESERVE: f32 = SCROLLBAR_WIDTH + SCROLLBAR_GAP;
 
 const FILTER_RULE_GAP: f32 = 8.0;
 
@@ -131,7 +134,7 @@ impl State {
             .on_press(Message::ToggleFilter)
             .style(move |theme: &Theme, status| theme::toggle_button(theme, status, is_filter_set));
 
-        let mut cat_col = button_column(CATEGORY_COLUMN_WIDTH);
+        let mut cat_col = button_column();
         for category in sorted_categories {
             if filter_active && !self.matching_categories.contains(category) {
                 continue;
@@ -141,16 +144,17 @@ impl State {
             cat_col = cat_col.push(sidebar_button(
                 category.display_name(),
                 is_selected,
+                CATEGORY_COLUMN_WIDTH,
                 Message::SelectCategory(category.clone()),
             ));
         }
 
-        let mut columns = row![scrollable(cat_col).height(Length::Fill)]
+        let mut columns = row![column_scroller(CATEGORY_COLUMN_WIDTH, cat_col)]
             .spacing(COLUMN_GAP)
             .height(Length::Fill);
 
         if let Some(category) = &data.selected_category {
-            let mut map_col = button_column(COLUMN_WIDTH);
+            let mut map_col = button_column();
 
             for map in navigate::get_maps(&data.registry, category) {
                 let map_key = GlobalMapId { category: category.clone(), map: map.map_id };
@@ -159,17 +163,17 @@ impl State {
                 }
 
                 let is_selected = data.selected_map.as_ref() == Some(&map_key);
-                map_col = map_col.push(sidebar_button(&map.name, is_selected, Message::SelectMap(map_key)));
+                map_col = map_col.push(sidebar_button(&map.name, is_selected, COLUMN_WIDTH, Message::SelectMap(map_key)));
             }
 
             columns = columns.push(rule::vertical(RULE_THICKNESS));
-            columns = columns.push(scrollable(map_col).height(Length::Fill));
+            columns = columns.push(column_scroller(COLUMN_WIDTH, map_col));
         }
 
         if let Some(map_id) = &data.selected_map
             && data.registry.maps.contains_key(map_id)
         {
-            let mut stage_col = button_column(COLUMN_WIDTH);
+            let mut stage_col = button_column();
 
             for stage in navigate::get_stages(&data.registry, map_id) {
                 let stage_key = GlobalStageId {
@@ -183,11 +187,11 @@ impl State {
                 }
 
                 let is_selected = data.selected_stage.as_ref() == Some(&stage_key);
-                stage_col = stage_col.push(sidebar_button(&stage.name, is_selected, Message::SelectStage(stage_key)));
+                stage_col = stage_col.push(sidebar_button(&stage.name, is_selected, COLUMN_WIDTH, Message::SelectStage(stage_key)));
             }
 
             columns = columns.push(rule::vertical(RULE_THICKNESS));
-            columns = columns.push(scrollable(stage_col).height(Length::Fill));
+            columns = columns.push(column_scroller(COLUMN_WIDTH, stage_col));
         }
 
         column![
@@ -215,11 +219,20 @@ pub fn sidebar_width(data: &StageDataState) -> f32 {
     width
 }
 
-fn button_column<'a>(width: f32) -> Column<'a, Message> {
+fn button_column<'a>() -> Column<'a, Message> {
     column![]
         .spacing(BTN_SPACING_Y)
+        .width(Length::Fill)
+        .align_x(Horizontal::Center)
+        .padding(Padding { top: BTN_SPACING_Y, bottom: BTN_SPACING_Y, ..Padding::ZERO })
+}
+
+fn column_scroller<'a>(width: f32, content: Column<'a, Message>) -> Element<'a, Message> {
+    scrollable(content)
+        .spacing(SCROLLBAR_GAP)
         .width(Length::Fixed(width))
-        .padding(Padding { top: BTN_SPACING_Y, right: SCROLLBAR_RESERVE, bottom: BTN_SPACING_Y, left: 0.0 })
+        .height(Length::Fill)
+        .into()
 }
 
 fn button_face(label: &str) -> Container<'_, Message> {
@@ -229,6 +242,6 @@ fn button_face(label: &str) -> Container<'_, Message> {
         .padding(BTN_PADDING)
 }
 
-fn sidebar_button(label: &str, is_selected: bool, msg: Message) -> Element<'_, Message> {
-    list_row(button_face(label), is_selected, true, Length::Fill, msg)
+fn sidebar_button(label: &str, is_selected: bool, width: f32, msg: Message) -> Element<'_, Message> {
+    list_row(button_face(label), is_selected, true, Length::Fixed(width - SCROLLBAR_RESERVE), msg)
 }

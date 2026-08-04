@@ -2,14 +2,18 @@ use std::collections::{HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
+use nyanko::chapter::Category;
+
 use core::animation::export::ExportFormat;
+use core::modules::stage::{GlobalMapId, GlobalStageId};
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct AppState {
-    pub(crate) cat_data: CatListState,
-    pub(crate) enemy_data: EnemyListState,
-    pub(crate) game_data: GameDataState,
+    pub(crate) cat: CatListState,
+    pub(crate) enemy: EnemyListState,
+    pub(crate) stage: StageListState,
+    pub(crate) data: GameDataState,
     pub(crate) animation: AnimState,
     pub(crate) notice: NoticeState,
 }
@@ -54,6 +58,15 @@ pub(crate) struct EnemyListState {
     pub list_scroll_offset: f32,
     pub selected_enemy: Option<u32>,
     pub search_query: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub(crate) struct StageListState {
+    pub selected_category: Option<Category>,
+    pub selected_map: Option<GlobalMapId>,
+    pub selected_stage: Option<GlobalStageId>,
+    pub selected_crown: u8,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

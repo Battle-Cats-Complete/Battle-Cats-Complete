@@ -12,8 +12,7 @@ use core::modules::stage::paths;
 
 use crate::app::theme;
 use crate::common::item_icon;
-
-use super::section::section;
+use crate::widget::section;
 
 const ICON_SIZE: f32 = 128.0 * 0.45;
 const ICON_SPACING: f32 = 8.0;

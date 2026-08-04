@@ -6,7 +6,6 @@ mod fixedlineup;
 mod info;
 mod list;
 mod materials;
-mod section;
 mod treasure;
 
 use std::thread;
@@ -14,7 +13,7 @@ use std::thread;
 use iced::futures::channel::mpsc;
 use iced::widget::{button, column, container, row, scrollable, space, stack, text};
 use iced::{Alignment, Element, Length, Padding, Size, Task};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use core::common::context::GlobalContext;
 use core::modules::enemy::scanner::EnemyEntry;
@@ -24,6 +23,7 @@ use core::modules::stage::filter::StageFilterState;
 use core::modules::stage::scanner::{self, StageBundle};
 use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
 
+use crate::app::state::StageListState;
 use crate::app::theme;
 
 const SIDEBAR_PUSH_GAP: f32 = 10.0;
@@ -116,6 +116,27 @@ impl State {
         self.start_load(settings)
     }
 
+    pub(crate) fn restore_state(&mut self, state: &StageListState) {
+        self.data.selected_category = state.selected_category.clone();
+        self.data.selected_map = state.selected_map.clone();
+        self.data.selected_stage = state.selected_stage.clone();
+        self.selected_crown = state.selected_crown;
+    }
+
+    pub(crate) fn sync_state(&self, state: &mut StageListState) {
+        state.selected_crown = self.selected_crown;
+
+        if state.selected_category != self.data.selected_category {
+            state.selected_category = self.data.selected_category.clone();
+        }
+        if state.selected_map != self.data.selected_map {
+            state.selected_map = self.data.selected_map.clone();
+        }
+        if state.selected_stage != self.data.selected_stage {
+            state.selected_stage = self.data.selected_stage.clone();
+        }
+    }
+
     pub fn sync_enemies(&mut self, enemies: &[EnemyEntry]) {
         self.data.sync_enemies(enemies);
         self.battleground.clear_icons();
@@ -149,6 +170,8 @@ impl State {
                 self.data.lock_skip_registry = dictionaries.lock_skip_registry;
                 self.data.scat_cpu_setting = dictionaries.scat_cpu_setting;
                 self.data.active_language_priority = dictionaries.active_language_priority;
+                self.prune_selection();
+                self.clamp_crown();
                 Task::none()
             }
             Message::ToggleSidebar => {
@@ -171,6 +194,7 @@ impl State {
             }
             Message::List(msg) => {
                 self.list.update(msg, &mut self.data);
+                self.clamp_crown();
                 Task::none()
             }
             Message::Filter(msg) => {
@@ -212,6 +236,35 @@ impl State {
             .filter_state
             .is_open
             .then(|| self.filter.view(window).map(Message::Filter))
+    }
+
+    fn prune_selection(&mut self) {
+        if self.data.selected_stage.as_ref().is_some_and(|id| !self.data.registry.stages.contains_key(id)) {
+            warn!("Dropping restored stage selection missing from the rebuilt registry");
+            self.data.selected_stage = None;
+        }
+        if self.data.selected_map.as_ref().is_some_and(|id| !self.data.registry.maps.contains_key(id)) {
+            self.data.selected_map = None;
+            self.data.selected_stage = None;
+        }
+        if self.data.selected_category.as_ref().is_some_and(|category| {
+            !self.data.registry.maps.keys().any(|key| key.category == *category)
+        }) {
+            self.data.selected_category = None;
+            self.data.selected_map = None;
+            self.data.selected_stage = None;
+        }
+    }
+
+    fn clamp_crown(&mut self) {
+        let Some(stage) = self.data.selected_stage.as_ref().and_then(|id| self.data.registry.stages.get(id)) else {
+            return;
+        };
+
+        if self.selected_crown >= stage.max_crowns {
+            debug!(current = self.selected_crown, max = stage.max_crowns, "Resetting selected crown out of bounds");
+            self.selected_crown = 0;
+        }
     }
 
     fn sidebar_span(&self) -> f32 {

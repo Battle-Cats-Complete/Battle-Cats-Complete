@@ -9,8 +9,9 @@ use std::sync::Arc;
 
 use image::RgbaImage;
 use nyanko::graphics::rig::SpriteCut;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatyaItemBuy {
     pub rarity: i32,
     pub reflect_or_storage: i32,
@@ -28,7 +29,7 @@ pub struct GatyaItemBuy {
     pub row_index: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatyaItemName {
     pub name: String,
     pub description: Vec<String>,

@@ -13,8 +13,7 @@ use core::modules::stage::{Map, Stage};
 
 use crate::app::theme;
 use crate::common::item_icon;
-
-use super::section::section;
+use crate::widget::section;
 
 const MAT_TABLE_WIDTH: f32 = 345.0;
 const MAX_ICON_SIZE: f32 = 32.0;

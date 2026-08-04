@@ -171,10 +171,10 @@ impl State {
                 self.config.selected_job = Some(job);
             }
             Message::AdbImportTypeChanged(idx) => {
-                app_state.game_data.adb_import_type_idx = idx;
+                app_state.data.adb_import_type_idx = idx;
             }
             Message::AdbRegionChangedEmu(idx) => {
-                app_state.game_data.adb_region_idx = idx;
+                app_state.data.adb_region_idx = idx;
             }
             Message::AdbRegionChangedDec(target) => {
                 self.config.adb_target = target;
@@ -300,7 +300,7 @@ impl State {
             });
 
         let import_types = vec!["All Content", "Update Only"];
-        let current_type = if app_state.game_data.adb_import_type_idx == 1 {
+        let current_type = if app_state.data.adb_import_type_idx == 1 {
             "Update Only"
         } else {
             "All Content"
@@ -311,7 +311,7 @@ impl State {
 
         let emu_regions = vec!["Global", "Japan", "Taiwan", "Korea", "All Regions"];
         let emu_selected = emu_regions
-            .get(app_state.game_data.adb_region_idx)
+            .get(app_state.data.adb_region_idx)
             .copied()
             .unwrap_or("Global");
         let emu_region_picker = pick_list(emu_regions, Some(emu_selected), |sel| {
@@ -656,12 +656,12 @@ impl State {
 
         match job {
             ImportSubTab::Emulator => {
-                let mode = if app_state.game_data.adb_import_type_idx == 1 {
+                let mode = if app_state.data.adb_import_type_idx == 1 {
                     AdbImportType::Update
                 } else {
                     AdbImportType::All
                 };
-                let region = match app_state.game_data.adb_region_idx {
+                let region = match app_state.data.adb_region_idx {
                     0 => AdbTarget::Specific(Region::En),
                     1 => AdbTarget::Specific(Region::Ja),
                     2 => AdbTarget::Specific(Region::Tw),

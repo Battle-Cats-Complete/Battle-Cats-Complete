@@ -32,8 +32,9 @@ impl BattleCatsApp {
 
         info!("Starting initialization sequence...");
 
-        app.cat_state.restore_state(&app.app_state.cat_data);
-        app.enemy_state.restore_state(&app.app_state.enemy_data);
+        app.cat_state.restore_state(&app.app_state.cat);
+        app.enemy_state.restore_state(&app.app_state.enemy);
+        app.stage_state.restore_state(&app.app_state.stage);
 
         if notice::should_show(&app.app_state.notice.acknowledged) {
             info!("Notice {} not yet acknowledged, showing at startup", notice::hash());

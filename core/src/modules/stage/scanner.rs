@@ -11,6 +11,7 @@ use nyanko::chapter::map::{DropItemEntry, LockSkipDataEntry, MapOptionEntry, Rul
 use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, ScatCpuSetting, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
 use nyanko::common::tools::file;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::common::formats::{gatyaitembuy, gatyaitemname, GatyaItemBuy, GatyaItemName};
@@ -46,12 +47,12 @@ struct ScanContext<'a> {
 struct StageCache;
 
 impl cache::CacheSpec for StageCache {
-    type Data = StageRegistry;
+    type Data = StageBundle;
     const FILE: &'static str = "stages_cache.bin";
-    const VERSION: u32 = 1;
+    const VERSION: u32 = 2;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StageDictionaries {
     pub enemy_name_registry: Vec<String>,
     pub item_buy_registry: HashMap<u32, GatyaItemBuy>,
@@ -64,7 +65,7 @@ pub struct StageDictionaries {
     pub active_language_priority: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StageBundle {
     pub registry: StageRegistry,
     pub dictionaries: StageDictionaries,
@@ -84,16 +85,20 @@ struct MapJob {
 }
 
 pub fn load(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
-    let dictionaries = build_dictionaries(&config);
-
     if !resolver::is_mod_active()
-        && let Some((hash, registry)) = cache::read::<StageCache>()
-        && hash == cache::get_game_hash(None) {
-        debug!(hash, maps = registry.maps.len(), stages = registry.stages.len(), "loaded stages from cache fast-path");
-        return StageBundle { registry, dictionaries };
+        && let Some((hash, bundle)) = cache::read::<StageCache>()
+        && hash == cache::get_game_hash(None)
+        && bundle.dictionaries.active_language_priority == config.language_priority {
+        debug!(
+            hash,
+            maps = bundle.registry.maps.len(),
+            stages = bundle.registry.stages.len(),
+            "loaded stages from cache fast-path"
+        );
+        return bundle;
     }
 
-    StageBundle { registry: scan(&config, progress), dictionaries }
+    scan(&config, progress)
 }
 
 #[instrument(level = "debug", skip(config))]
@@ -118,17 +123,19 @@ fn build_dictionaries(config: &ScannerConfig) -> StageDictionaries {
     let cats_dir = Path::new(paths::DIR_CATS);
     let unit_buy_registry = unitbuy(cats_dir, langs);
 
-    let mut cat_name_registry = HashMap::new();
-    for &unit_id in unit_buy_registry.keys() {
-        let cat_folder = paths::cat_folder(unit_id);
-        let expl = unitexplanation(unit_id, &cat_folder, langs);
-        let names: Vec<String> = expl.names
-            .into_iter()
-            .flatten()
-            .map(|n| n.to_lowercase())
-            .collect();
-        cat_name_registry.insert(unit_id, names);
-    }
+    let cat_name_registry: HashMap<u32, Vec<String>> = unit_buy_registry
+        .par_iter()
+        .map(|(&unit_id, _)| {
+            let cat_folder = paths::cat_folder(unit_id);
+            let names = unitexplanation(unit_id, &cat_folder, langs)
+                .names
+                .into_iter()
+                .flatten()
+                .map(|name| name.to_lowercase())
+                .collect();
+            (unit_id, names)
+        })
+        .collect();
 
     StageDictionaries {
         enemy_name_registry,
@@ -143,22 +150,25 @@ fn build_dictionaries(config: &ScannerConfig) -> StageDictionaries {
     }
 }
 
-fn scan(config: &ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> StageRegistry {
+fn scan(config: &ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
     info!("--- STAGE SCANNER INITIATED ---");
+    let dictionaries = build_dictionaries(config);
     let registry = scan_all(&config.language_priority, progress);
     info!("--- STAGE SCANNER COMPLETE: Found {} maps and {} stages ---", registry.maps.len(), registry.stages.len());
 
+    let bundle = StageBundle { registry, dictionaries };
+
     if !resolver::is_mod_active() {
-        if registry.maps.is_empty() {
+        if bundle.registry.maps.is_empty() {
             warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
-            return registry;
+            return bundle;
         }
 
         let hash = cache::get_game_hash(None);
-        cache::write::<StageCache>(hash, &registry);
+        cache::write::<StageCache>(hash, &bundle);
     }
 
-    registry
+    bundle
 }
 
 #[instrument(skip_all)]
@@ -295,7 +305,7 @@ fn process_map(reg_mtx: &Mutex<StageRegistry>, info: &CategoryInfo, map_id: u32,
         }
     }
 
-    let mut active_stage_names = info.stage_names.clone();
+    let mut proxy_stage_names = None;
 
     if cat_prefix == "Z" {
         let proxy_prefix = match map_id {
@@ -315,11 +325,13 @@ fn process_map(reg_mtx: &Mutex<StageRegistry>, info: &CategoryInfo, map_id: u32,
                 let names = stagename(&dir, &file, ctx.lang_priority);
                 if names.is_empty() { continue; }
 
-                active_stage_names = names;
+                proxy_stage_names = Some(names);
                 break;
             }
         }
     }
+
+    let active_stage_names = proxy_stage_names.as_ref().unwrap_or(&info.stage_names);
 
     let map_display_name = global_map_id
         .and_then(|id| ctx.map_names.get(&id))
@@ -333,7 +345,7 @@ fn process_map(reg_mtx: &Mutex<StageRegistry>, info: &CategoryInfo, map_id: u32,
         map_id,
         map_path,
         &map_display_name,
-        &active_stage_names,
+        active_stage_names,
         ctx,
         global_map_id
     );
@@ -734,10 +746,9 @@ fn build_base_stage(
             .unwrap_or_else(|| format!("{:02}", stage_id))
     };
 
-    let stage_opts = global_map_id
+    let stage_opts: &[StageOptionEntry] = global_map_id
         .and_then(|id| ctx.stage_options.get(&id))
-        .cloned()
-        .unwrap_or_default();
+        .map_or(&[], Vec::as_slice);
 
     let mut final_opt = StageOptionEntry { target_crowns: -1, ..Default::default() };
 

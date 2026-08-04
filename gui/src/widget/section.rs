@@ -8,7 +8,7 @@ const SUBTITLE_SIZE: f32 = 14.0;
 const RULE_HEIGHT: f32 = 1.0;
 const SPACING: f32 = 6.0;
 
-pub(super) fn section<'a, Message: 'a>(
+pub(crate) fn section<'a, Message: 'a>(
     title: impl ToString,
     rule_width: Length,
     content: impl Into<Element<'a, Message>>,
@@ -22,7 +22,7 @@ pub(super) fn section<'a, Message: 'a>(
         .into()
 }
 
-pub(super) fn subsection<'a, Message: 'a>(title: &'a str, content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+pub(crate) fn subsection<'a, Message: 'a>(title: &'a str, content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     column![theme::bold_text(title).size(SUBTITLE_SIZE), content.into()]
         .spacing(SPACING)
         .into()

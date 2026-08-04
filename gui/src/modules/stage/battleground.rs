@@ -16,8 +16,7 @@ use core::modules::stage::{restrictions, Map, Stage};
 
 use crate::app::theme;
 use crate::common::item_icon;
-
-use super::section::{section, subsection};
+use crate::widget::{section, subsection};
 
 const MAX_ICON_SIZE: f32 = 32.0;
 const HEADER_TEXT_SIZE: f32 = 12.0;

@@ -6,8 +6,8 @@ use std::thread;
 use std::time::Instant;
 
 use iced::futures::channel::mpsc::unbounded;
-use iced::widget::{button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text, text_input, tooltip, Space};
-use iced::{task, Alignment, Element, Length, Size, Task};
+use iced::widget::{button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text, text_input, tooltip};
+use iced::{task, Alignment, Element, Length, Size, Task, Theme};
 use tracing::trace;
 
 use nyanko::graphics::rig::Animation;
@@ -18,7 +18,8 @@ use core::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_S
 use core::modules::settings::Settings;
 
 use crate::app::state::AnimState;
-use crate::widget::popup;
+use crate::app::theme;
+use crate::widget::{popup, range_row_hinted, section};
 
 use super::data;
 use super::offscreen::{self, Camera};
@@ -27,6 +28,17 @@ use super::overlay::Region;
 const POPUP_SIZE: Size = Size::new(320.0, 500.0);
 const MODE_OPTIONS: [&str; 3] = ["Manual", "Loop", "Showcase"];
 const FORMAT_OPTIONS: [&str; 8] = ["GIF", "WebP", "AVIF", "PNG", "MP4", "MKV", "WebM", "ZIP"];
+
+const CONTENT_PADDING: f32 = 20.0;
+const SECTION_SPACING: f32 = 14.0;
+const ROW_SPACING: f32 = 6.0;
+const FIELD_SPACING: f32 = 8.0;
+const FIELD_LABEL_WIDTH: f32 = 110.0;
+const NAME_INPUT_WIDTH: f32 = 140.0;
+const SMALL_INPUT_WIDTH: f32 = 55.0;
+const AXIS_LABEL_WIDTH: f32 = 18.0;
+const SCROLLBAR_GAP: f32 = 2.0;
+const CONTROL_TEXT_SIZE: f32 = 13.0;
 
 const DEFAULT_WALK_LEN: i32 = 90;
 const DEFAULT_IDLE_LEN: i32 = 90;
@@ -278,10 +290,9 @@ impl State {
             if self.exporter.export_mode != ExportMode::Showcase {
                 match &data.current_anim {
                     Some(anim) => {
-                        let true_end = anim.calculate_true_loop().unwrap_or(anim.max_frame);
-                        self.exporter.max_frame = true_end;
+                        self.exporter.max_frame = anim.max_frame;
                         self.exporter.frame_start = 0;
-                        self.exporter.frame_end = true_end;
+                        self.exporter.frame_end = anim.max_frame;
                     }
                     None => {
                         self.exporter.max_frame = 0;
@@ -477,13 +488,17 @@ impl State {
             Message::SetFileName(name) => self.exporter.file_name = name,
             Message::SetStartFrame(value) => {
                 self.exporter.frame_start_str = value.clone();
-                if let Ok(parsed) = value.parse::<i32>() {
+                if value.trim().is_empty() {
+                    self.exporter.frame_start = 0;
+                } else if let Ok(parsed) = value.trim().parse::<i32>() {
                     self.exporter.frame_start = parsed;
                 }
             }
             Message::SetEndFrame(value) => {
                 self.exporter.frame_end_str = value.clone();
-                if let Ok(parsed) = value.parse::<i32>() {
+                if value.trim().is_empty() {
+                    self.exporter.frame_end = self.exporter.max_frame;
+                } else if let Ok(parsed) = value.trim().parse::<i32>() {
                     self.exporter.frame_end = parsed;
                 }
             }
@@ -868,8 +883,8 @@ impl State {
             ExportMode::Showcase => "Showcase",
         };
 
-        let mode_picker = row![
-            text("Mode"),
+        let mode_picker = field_row(
+            "Mode",
             pick_list(&MODE_OPTIONS[..], Some(selected_mode), |selected: &str| {
                 Message::SetMode(match selected {
                     "Loop" => ExportMode::Loop,
@@ -877,7 +892,10 @@ impl State {
                     _ => ExportMode::Manual,
                 })
             })
-        ].spacing(10).align_y(Alignment::Center);
+                .width(Length::Fill)
+                .style(theme::combo_box)
+                .menu_style(theme::combo_box_menu),
+        );
 
         let selected_format = match self.exporter.format {
             ExportFormat::Gif => "GIF",
@@ -898,8 +916,8 @@ impl State {
             }
         }).collect();
 
-        let format_picker = row![
-            text("Format"),
+        let format_picker = field_row(
+            "Format",
             pick_list(format_options, Some(selected_format), |selected: &str| {
                 Message::SetFormat(match selected {
                     "WebP" => ExportFormat::WebP,
@@ -912,42 +930,43 @@ impl State {
                     _ => ExportFormat::Gif,
                 })
             })
-        ].spacing(10).align_y(Alignment::Center);
+                .width(Length::Fill)
+                .style(theme::combo_box)
+                .menu_style(theme::combo_box_menu),
+        );
 
         let end_hint = self.exporter.max_frame.to_string();
 
         let input_section: Element<'_, Message> = match self.exporter.export_mode {
-            ExportMode::Manual => column![
-                row![
-                    text_input("0", &self.exporter.frame_start_str).on_input(Message::SetStartFrame).width(Length::Fixed(60.0)),
-                    text("~"),
-                    text_input(&end_hint, &self.exporter.frame_end_str).on_input(Message::SetEndFrame).width(Length::Fixed(60.0)),
-                ].spacing(5).align_y(Alignment::Center)
-            ].into(),
+            ExportMode::Manual => range_row_hinted(
+                "Frames",
+                &self.exporter.frame_start_str,
+                &self.exporter.frame_end_str,
+                "0",
+                &end_hint,
+                Message::SetStartFrame,
+                Message::SetEndFrame,
+            ),
             ExportMode::Loop => {
                 let find_loop_button: Element<'_, Message> = match current_loop.map(|job| &job.phase) {
                     Some(LoopPhase::Running | LoopPhase::Aborting) => {
-                        button(text("Abort Loop")).style(button::danger).width(Length::Fill).on_press(Message::AbortLoopSearch).into()
+                        action_button("Abort Loop", theme::danger_button, Some(Message::AbortLoopSearch))
                     }
                     phase => {
                         let is_terminated = matches!(phase, Some(LoopPhase::Done { result: LoopResult::Terminated, .. }));
                         let label = if is_terminated { "Loop Terminated!" } else { "Find Loop" };
-                        let style = if is_terminated { button::danger } else { button::secondary };
-                        let mut find_button = button(text(label)).style(style).width(Length::Fill);
-                        if !job_active {
-                            find_button = find_button.on_press(Message::FindLoop);
-                        }
-                        find_button.into()
+                        let style = if is_terminated { theme::danger_button } else { theme::neutral_button };
+                        action_button(label, style, (!job_active).then_some(Message::FindLoop))
                     }
                 };
 
                 column![
-                    row![text("Tolerance %"), text_input("30", &self.exporter.loop_tolerance_str).on_input(Message::SetLoopTolerance).width(Length::Fixed(50.0))].spacing(5),
-                    row![text("Min Frames"), text_input("15", &self.exporter.loop_min_str).on_input(Message::SetLoopMin).width(Length::Fixed(50.0))].spacing(5),
-                    row![text("Max Frames"), text_input("None", &self.exporter.loop_max_str).on_input(Message::SetLoopMax).width(Length::Fixed(50.0))].spacing(5),
-                    text(format!("Range: {}f ~ {}f", self.exporter.frame_start, self.exporter.frame_end)).size(13),
+                    field_row("Tolerance %", small_input("30", &self.exporter.loop_tolerance_str, Message::SetLoopTolerance)),
+                    field_row("Min Frames", small_input("15", &self.exporter.loop_min_str, Message::SetLoopMin)),
+                    field_row("Max Frames", small_input("None", &self.exporter.loop_max_str, Message::SetLoopMax)),
+                    text(format!("Range: {}f ~ {}f", self.exporter.frame_start, self.exporter.frame_end)).size(CONTROL_TEXT_SIZE),
                     find_loop_button,
-                ].spacing(5).into()
+                ].spacing(ROW_SPACING).into()
             }
             ExportMode::Showcase => {
                 let walk_hint = self.exporter.detected_walk_len.to_string();
@@ -956,29 +975,34 @@ impl State {
                 let kb_hint = self.exporter.last_known_kb_default.to_string();
 
                 column![
-                    row![text("Walk"), text_input(&walk_hint, &self.exporter.showcase_walk_str).on_input(Message::SetShowcaseWalk).width(Length::Fixed(50.0))].spacing(5),
-                    row![text("Idle"), text_input(&idle_hint, &self.exporter.showcase_idle_str).on_input(Message::SetShowcaseIdle).width(Length::Fixed(50.0))].spacing(5),
-                    row![text("Attack"), text_input(&attack_hint, &self.exporter.showcase_attack_str).on_input(Message::SetShowcaseAttack).width(Length::Fixed(50.0))].spacing(5),
-                    row![text("Knockback"), text_input(&kb_hint, &self.exporter.showcase_kb_str).on_input(Message::SetShowcaseKb).width(Length::Fixed(50.0))].spacing(5),
-                ].spacing(5).into()
+                    field_row("Walk", small_input(&walk_hint, &self.exporter.showcase_walk_str, Message::SetShowcaseWalk)),
+                    field_row("Idle", small_input(&idle_hint, &self.exporter.showcase_idle_str, Message::SetShowcaseIdle)),
+                    field_row("Attack", small_input(&attack_hint, &self.exporter.showcase_attack_str, Message::SetShowcaseAttack)),
+                    field_row("Knockback", small_input(&kb_hint, &self.exporter.showcase_kb_str, Message::SetShowcaseKb)),
+                ].spacing(ROW_SPACING).into()
             }
         };
 
         let camera_buttons = row![
-            button(text("Set Camera")).on_press_maybe((!is_locked).then_some(Message::SetCamera)),
-            button(text("Use Bounds")).on_press_maybe((!is_locked).then_some(Message::UseBounds)),
-        ].spacing(10);
+            action_button("Set Camera", theme::neutral_button, (!is_locked).then_some(Message::SetCamera)),
+            action_button("Use Bounds", theme::neutral_button, (!is_locked).then_some(Message::UseBounds)),
+        ].spacing(FIELD_SPACING);
 
-        let camera_section = column![
-            text("Camera").size(18),
-            camera_buttons,
-            row![
-                text_input("X", &self.exporter.region_x.to_string()).on_input(Message::SetRegionX).width(Length::Fixed(60.0)),
-                text_input("Y", &self.exporter.region_y.to_string()).on_input(Message::SetRegionY).width(Length::Fixed(60.0)),
-                text_input("W", &self.exporter.region_w.to_string()).on_input(Message::SetRegionW).width(Length::Fixed(60.0)),
-                text_input("H", &self.exporter.region_h.to_string()).on_input(Message::SetRegionH).width(Length::Fixed(60.0)),
-            ].spacing(10)
-        ].spacing(10);
+        let camera_section = section(
+            "Camera",
+            Length::Fill,
+            column![
+                camera_buttons,
+                row![
+                    axis_input("X", self.exporter.region_x, Message::SetRegionX),
+                    axis_input("Y", self.exporter.region_y, Message::SetRegionY),
+                ].spacing(FIELD_SPACING),
+                row![
+                    axis_input("W", self.exporter.region_w, Message::SetRegionW),
+                    axis_input("H", self.exporter.region_h, Message::SetRegionH),
+                ].spacing(FIELD_SPACING),
+            ].spacing(ROW_SPACING),
+        );
 
         let (display_start, display_end) = if self.exporter.export_mode == ExportMode::Showcase {
             let total = self.exporter.showcase_walk_len
@@ -1015,26 +1039,26 @@ impl State {
             format!("{}.{}", prefix_display, range_part)
         };
 
-        let output_section = column![
-            text("Output").size(18),
-            row![
-                text("Name"),
-                text_input(&name_hint, &self.exporter.file_name).on_input(Message::SetFileName).width(Length::Fixed(150.0)),
-            ].spacing(10).align_y(Alignment::Center),
-            format_picker,
-            row![
-                text("Quality %"),
-                text_input("100", &self.exporter.quality_percent_str).on_input(Message::SetQuality).width(Length::Fixed(50.0)),
-            ].spacing(10).align_y(Alignment::Center),
-            row![
-                text("Compression %"),
-                text_input("0", &self.exporter.compression_percent_str).on_input(Message::SetCompression).width(Length::Fixed(50.0)),
-            ].spacing(10).align_y(Alignment::Center),
-            row![
-                background_checkbox(&self.exporter),
-                text("Background")
-            ].spacing(8).align_y(Alignment::Center),
-        ].spacing(10);
+        let output_section = section(
+            "Output",
+            Length::Fill,
+            column![
+                field_row(
+                    "Name",
+                    text_input(&name_hint, &self.exporter.file_name)
+                        .on_input(Message::SetFileName)
+                        .width(Length::Fixed(NAME_INPUT_WIDTH))
+                        .style(theme::rounded_input),
+                ),
+                format_picker,
+                field_row("Quality %", small_input("100", &self.exporter.quality_percent_str, Message::SetQuality)),
+                field_row("Compression %", small_input("0", &self.exporter.compression_percent_str, Message::SetCompression)),
+                row![
+                    background_checkbox(&self.exporter),
+                    text("Background").size(CONTROL_TEXT_SIZE),
+                ].spacing(FIELD_SPACING).align_y(Alignment::Center),
+            ].spacing(ROW_SPACING),
+        );
 
         let (ratio, status_label) = if let Some(job) = current_loop.filter(|job| matches!(job.phase, LoopPhase::Running | LoopPhase::Aborting)) {
             let pulse = job.start_time.elapsed().as_secs_f32() % 1.0;
@@ -1069,15 +1093,12 @@ impl State {
 
         let progress_section = column![
             progress_bar(0.0..=1.0, ratio),
-            text(status_label).size(13),
-        ].spacing(5);
+            text(status_label).size(CONTROL_TEXT_SIZE),
+        ].spacing(ROW_SPACING);
 
-        let action_button: Element<'_, Message> = match current_job.map(|job| &job.phase) {
-            Some(JobPhase::Running) => button(text("Abort Export"))
-                .style(button::danger)
-                .on_press(Message::AbortExport)
-                .into(),
-            Some(JobPhase::Aborting) => button(text("Aborting...")).style(button::danger).into(),
+        let export_button: Element<'_, Message> = match current_job.map(|job| &job.phase) {
+            Some(JobPhase::Running) => action_button("Abort Export", theme::danger_button, Some(Message::AbortExport)),
+            Some(JobPhase::Aborting) => action_button("Aborting...", theme::danger_button, None),
             phase => {
                 let is_valid = self.exporter.region_w > 0.1 && self.exporter.region_h > 0.1;
                 let is_terminated = matches!(phase, Some(JobPhase::Done { result: JobResult::Terminated, .. }));
@@ -1090,37 +1111,73 @@ impl State {
                     "No Camera Set"
                 };
 
-                let style = if is_terminated { button::danger } else { button::primary };
+                let style = if is_terminated { theme::danger_button } else { theme::primary_button };
+                let press = (is_valid && !is_locked && !loop_active).then_some(Message::BeginExport);
 
-                let mut begin = button(text(label)).style(style);
-                if is_valid && !is_locked && !loop_active {
-                    begin = begin.on_press(Message::BeginExport);
-                }
-                begin.into()
+                action_button(label, style, press)
             }
         };
 
         let popup_content = column![
-            mode_picker,
-            input_section,
-            Space::new().height(Length::Fixed(10.0)),
+            section("Input", Length::Fill, column![mode_picker, input_section].spacing(ROW_SPACING)),
             camera_section,
-            Space::new().height(Length::Fixed(10.0)),
             output_section,
-            Space::new().height(Length::Fixed(10.0)),
             progress_section,
-            Space::new().height(Length::Fixed(10.0)),
-            action_button,
-        ].spacing(10);
+            export_button,
+        ].spacing(SECTION_SPACING);
 
         container(
-            scrollable(popup_content).height(Length::Fill)
+            scrollable(popup_content).height(Length::Fill).spacing(SCROLLBAR_GAP)
         )
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(25)
+            .padding(CONTENT_PADDING)
             .into()
     }
+}
+
+fn field_row<'a>(label: &'a str, control: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    row![
+        text(label).size(CONTROL_TEXT_SIZE).width(Length::Fixed(FIELD_LABEL_WIDTH)),
+        control.into(),
+    ]
+        .spacing(FIELD_SPACING)
+        .align_y(Alignment::Center)
+        .into()
+}
+
+fn small_input<'a>(hint: &str, value: &'a str, on_input: impl Fn(String) -> Message + 'a) -> Element<'a, Message> {
+    text_input(hint, value)
+        .on_input(on_input)
+        .width(Length::Fixed(SMALL_INPUT_WIDTH))
+        .style(theme::rounded_input)
+        .into()
+}
+
+fn axis_input<'a>(label: &'a str, value: f32, on_input: impl Fn(String) -> Message + 'a) -> Element<'a, Message> {
+    row![
+        text(label).size(CONTROL_TEXT_SIZE).width(Length::Fixed(AXIS_LABEL_WIDTH)),
+        text_input("0", &value.to_string())
+            .on_input(on_input)
+            .width(Length::Fixed(SMALL_INPUT_WIDTH))
+            .style(theme::rounded_input),
+    ]
+        .spacing(4)
+        .align_y(Alignment::Center)
+        .into()
+}
+
+fn action_button<'a>(
+    label: &'a str,
+    style: fn(&Theme, button::Status) -> button::Style,
+    on_press: Option<Message>,
+) -> Element<'a, Message> {
+    button(theme::button_label(label).size(CONTROL_TEXT_SIZE))
+        .width(Length::Fill)
+        .padding([6, 10])
+        .style(style)
+        .on_press_maybe(on_press)
+        .into()
 }
 
 fn is_forced_opaque(format: &ExportFormat) -> bool {
