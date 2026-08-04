@@ -587,7 +587,7 @@ impl EnemyState {
             .style(|theme: &Theme| text::Style { color: Some(Color { a: 0.4, ..theme.palette().text }) });
 
         let mag_row = row![
-            text("Magnification:").size(11).align_y(Vertical::Center),
+            text("Magnify:").size(11).align_y(Vertical::Center),
             text_input("100", &self.mag_input)
                 .on_input(Message::MagnificationChanged)
                 .size(11)
