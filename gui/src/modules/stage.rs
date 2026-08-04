@@ -10,7 +10,6 @@ mod treasure;
 
 use std::thread;
 
-use iced::alignment;
 use iced::futures::channel::mpsc;
 use iced::widget::{button, column, container, row, scrollable, space, stack, text};
 use iced::{Element, Length, Size, Task, Theme};
@@ -19,12 +18,14 @@ use tracing::{info, warn};
 use core::common::context::GlobalContext;
 use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::{Settings, SidebarBehavior};
-const SIDEBAR_PUSH_GAP: f32 = 10.0;
-
 use core::modules::stage::filter::enemy::EnemyFilter;
 use core::modules::stage::filter::StageFilterState;
 use core::modules::stage::scanner::{self, StageBundle};
 use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
+
+use crate::app::theme;
+
+const SIDEBAR_PUSH_GAP: f32 = 10.0;
 
 #[derive(Clone)]
 pub enum Message {
@@ -204,7 +205,7 @@ impl State {
 
     fn view_sidebar_overlay(&self) -> Element<'_, Message> {
         let arrow_text = if self.is_sidebar_open { "◀" } else { "▶" };
-        let toggle_btn = button(text(arrow_text).size(20).align_x(alignment::Horizontal::Center))
+        let toggle_btn = button(theme::centered_text(arrow_text).size(20))
             .width(40)
             .height(40)
             .on_press(Message::ToggleSidebar)

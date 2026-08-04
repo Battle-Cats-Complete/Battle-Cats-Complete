@@ -389,12 +389,7 @@ impl EnemyState {
             .width(Length::Fill)
             .style(theme::rounded_input);
 
-        let filter_button = button(
-            text("Filter")
-                .size(13)
-                .align_x(Horizontal::Center)
-                .width(Length::Fill)
-        )
+        let filter_button = button(theme::button_label("Filter").size(13))
             .on_press(Message::Filter(filter::Message::Toggle))
             .padding([4, 8])
             .width(Length::Fill)
@@ -479,11 +474,11 @@ impl EnemyState {
         for (tab_enum, label) in tabs {
             let is_selected = self.selected_tab == tab_enum;
 
-            let btn = button(text(label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+            let btn = button(theme::centered_text(label).size(12))
                 .width(Length::Fixed(HEADER_BUTTON_WIDTH))
                 .height(Length::Fixed(HEADER_BUTTON_HEIGHT))
                 .on_press(Message::SelectTab(tab_enum))
-                .style(move |theme: &Theme, status| theme::header_toggle_button(theme, status, is_selected, true));
+                .style(move |t: &Theme, status| theme::header_toggle_button(t, status, is_selected, true));
 
             tab_row = tab_row.push(btn);
         }
@@ -520,10 +515,8 @@ impl EnemyState {
     }
 
     fn view_appearances_button(&self, enemy_id: u32) -> Element<'_, Message> {
-        let label = text("Appearances")
+        let label = theme::centered_text("Appearances")
             .size(APPEARANCES_TEXT_SIZE)
-            .align_x(Horizontal::Center)
-            .align_y(Vertical::Center)
             .width(Length::Fill)
             .height(Length::Fill);
 

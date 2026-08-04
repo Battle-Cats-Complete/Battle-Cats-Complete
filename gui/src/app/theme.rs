@@ -1,4 +1,4 @@
-use iced::alignment::Horizontal;
+use iced::alignment::{Horizontal, Vertical};
 use iced::border::Radius;
 use iced::theme::Palette;
 use iced::widget::overlay::menu;
@@ -232,8 +232,12 @@ pub fn table_cell_text(content: &str, width: Length) -> Text<'_> {
     text(content).width(width).align_x(Horizontal::Center)
 }
 
-pub fn button_label(content: &str) -> Text<'_> {
+pub fn button_label<'a>(content: impl text::IntoFragment<'a>) -> Text<'a> {
     text(content).width(Length::Fill).align_x(Horizontal::Center)
+}
+
+pub fn centered_text<'a>(content: impl text::IntoFragment<'a>) -> Text<'a> {
+    text(content).align_x(Horizontal::Center).align_y(Vertical::Center)
 }
 
 pub fn rounded_input(theme: &Theme, status: text_input::Status) -> text_input::Style {

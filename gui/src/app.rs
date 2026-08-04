@@ -604,7 +604,7 @@ impl BattleCatsApp {
 
     fn view_sidebar_overlay(&self) -> Element<'_, Message> {
         let arrow_text = if self.sidebar_open { "▶" } else { "◀" };
-        let toggle_btn = button(text(arrow_text).size(20).align_x(alignment::Horizontal::Center).align_y(alignment::Vertical::Center))
+        let toggle_btn = button(theme::centered_text(arrow_text).size(20))
             .width(Length::Fixed(37.0))
             .height(Length::Fixed(37.0))
             .on_press(Message::ToggleSidebar)
@@ -624,7 +624,7 @@ impl BattleCatsApp {
             let mut tabs: iced::widget::Column<'_, Message> = column![].spacing(10);
             for page in ALL_PAGES {
                 let is_active = self.current_page == *page;
-                let btn = button(text(page.tab_name()).size(16).width(Length::Fill).align_x(alignment::Horizontal::Center))
+                let btn = button(theme::button_label(page.tab_name()).size(16))
                     .width(Length::Fill)
                     .padding(10)
                     .on_press(Message::Navigate(*page))

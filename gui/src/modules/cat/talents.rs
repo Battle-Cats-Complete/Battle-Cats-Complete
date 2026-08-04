@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use iced::alignment::{Horizontal, Vertical};
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, row, scrollable, slider, text, text_input, Space};
 use iced::{font, Alignment, Color, Element, Length, Theme};
@@ -16,6 +15,7 @@ use core::modules::cat::game::talents as talent_logic;
 use core::modules::cat::paths;
 use core::modules::settings::Settings;
 
+use crate::app::theme;
 use crate::common::ability_icon;
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::widget::fallback_icon;
@@ -166,13 +166,13 @@ impl State {
             .align_y(Alignment::Center);
 
         let normal_label = if availability.has_normal_enabled { "No Talents" } else { "All Talents" };
-        let normal_btn = button(text(normal_label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+        let normal_btn = button(theme::centered_text(normal_label).size(12))
             .width(Length::Fixed(TALENT_BTN_WIDTH))
             .height(Length::Fixed(TALENT_BTN_HEIGHT))
             .on_press(Message::ToggleNormal);
 
         let ultra_label = if availability.has_ultra_enabled { "No Ultra" } else { "All Ultra" };
-        let ultra_btn = button(text(ultra_label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+        let ultra_btn = button(theme::centered_text(ultra_label).size(12))
             .width(Length::Fixed(TALENT_BTN_WIDTH))
             .height(Length::Fixed(TALENT_BTN_HEIGHT))
             .on_press_maybe(availability.has_ultra_talents.then_some(Message::ToggleUltra));

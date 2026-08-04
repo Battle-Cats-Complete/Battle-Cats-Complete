@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
 use arboard::Clipboard;
-use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, column, text};
+use iced::alignment::Horizontal;
+use iced::widget::{button, column};
 use iced::{Background, Border, Color, Element, Length, Task, Theme};
 use tracing::error;
 
 use core::modules::settings::Settings;
 
+use crate::app::theme;
 use crate::common::SpriteSheet;
 use crate::modules::statblock::builder::{self, StatblockData};
 use crate::modules::statblock::JobResult;
@@ -179,10 +180,8 @@ impl State {
 
     fn action_button(&self, label: String, busy: bool, feedback: Option<bool>, action: ExportAction) -> Element<'_, Message> {
         button(
-            text(label)
+            theme::centered_text(label)
                 .size(BUTTON_TEXT_SIZE)
-                .align_x(Horizontal::Center)
-                .align_y(Vertical::Center)
                 .width(Length::Fill)
                 .height(Length::Fill)
         )

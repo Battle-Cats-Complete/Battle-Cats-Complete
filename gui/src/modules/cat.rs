@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
-use iced::alignment::{Horizontal, Vertical};
+use iced::alignment::Vertical;
 use iced::futures::channel::mpsc;
 use iced::widget::image::Handle;
 use iced::widget::{
@@ -534,12 +534,7 @@ impl State {
             .width(Length::Fill)
             .style(theme::rounded_input);
 
-        let filter_button = button(
-            text("Filter")
-                .size(13)
-                .align_x(Horizontal::Center)
-                .width(Length::Fill)
-        )
+        let filter_button = button(theme::button_label("Filter").size(13))
             .on_press(Message::Filter(filter::Message::Toggle))
             .padding([4, 8])
             .width(Length::Fill)
@@ -622,7 +617,7 @@ impl State {
             let exists = cat.forms.get(i).copied().unwrap_or(false);
             let is_selected = self.selected_form == i;
 
-            let btn = button(text(*label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+            let btn = button(theme::centered_text(*label).size(12))
                 .width(Length::Fixed(HEADER_BUTTON_WIDTH))
                 .height(Length::Fixed(HEADER_BUTTON_HEIGHT))
                 .on_press_maybe(exists.then_some(Message::SelectForm(i)))
@@ -651,7 +646,7 @@ impl State {
             };
             let is_selected = self.selected_tab == tab_enum;
 
-            let btn = button(text(label).size(12).align_x(Horizontal::Center).align_y(Vertical::Center))
+            let btn = button(theme::centered_text(label).size(12))
                 .width(Length::Fixed(HEADER_BUTTON_WIDTH))
                 .height(Length::Fixed(HEADER_BUTTON_HEIGHT))
                 .on_press_maybe(available.then_some(Message::SelectTab(tab_enum)))
