@@ -212,11 +212,13 @@ impl State {
         for (index, rule) in self.rules.iter().enumerate() {
             let pattern_input = text_input("pattern", &rule.pattern)
                 .on_input(move |v| Message::PatternChanged(index, v))
-                .width(Length::Fixed(180.0));
+                .width(Length::Fixed(180.0))
+                .style(theme::rounded_input);
 
             let extension_input = text_input("ext", &rule.extension)
                 .on_input(move |v| Message::ExtensionChanged(index, v))
-                .width(Length::Fixed(90.0));
+                .width(Length::Fixed(90.0))
+                .style(theme::rounded_input);
 
             let handling_pick = pick_list(
                 RuleHandling::all().map(|h| h.to_string()).to_vec(),
@@ -227,7 +229,7 @@ impl State {
                         .unwrap_or(RuleHandling::Include);
                     Message::HandlingSelected(index, handling)
                 }
-            ).width(Length::Fixed(110.0));
+            ).width(Length::Fixed(110.0)).style(theme::combo_box).menu_style(theme::combo_box_menu);
 
             let mut lang_row = row![].spacing(6);
             for &(lang_code, _) in APP_LANGUAGES {
@@ -235,7 +237,7 @@ impl State {
                     let code = lang_code.to_string();
                     lang_row = lang_row.push(
                         row![
-                            toggler(enabled).on_toggle(move |v| Message::LanguageToggled(index, code.clone(), v)).size(16),
+                            toggler(enabled).on_toggle(move |v| Message::LanguageToggled(index, code.clone(), v)).size(16).style(theme::ios_toggle),
                             text(lang_code.to_uppercase()).size(11),
                         ].spacing(3).align_y(Alignment::Center)
                     );

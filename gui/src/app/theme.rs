@@ -1,13 +1,25 @@
+use iced::alignment::Horizontal;
 use iced::border::Radius;
 use iced::theme::Palette;
-use iced::widget::{button, container, text_input};
-use iced::{Background, Border, Color, Theme};
+use iced::widget::overlay::menu;
+use iced::widget::text::Text;
+use iced::widget::{button, container, pick_list, text, text_input, toggler};
+use iced::{Background, Border, Color, Length, Theme};
 
 pub const RADIUS_SM: f32 = 4.0;
 pub const RADIUS_MD: f32 = 6.0;
 pub const RADIUS_LG: f32 = 8.0;
 
 const DISABLED_BUTTON_SHADE: f32 = 0.6;
+
+fn shade_color(color: Color, factor: f32) -> Color {
+    Color { r: color.r * factor, g: color.g * factor, b: color.b * factor, a: color.a }
+}
+
+fn lighten_color(color: Color, factor: f32) -> Color {
+    let lighten = |c: f32| c + (1.0 - c) * factor;
+    Color { r: lighten(color.r), g: lighten(color.g), b: lighten(color.b), a: color.a }
+}
 
 #[derive(PartialEq, Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub enum AppTheme {
@@ -83,24 +95,11 @@ pub fn toggle_button(theme: &Theme, status: button::Status, is_active: bool) -> 
 
 pub fn header_toggle_button(theme: &Theme, status: button::Status, is_selected: bool, is_available: bool) -> button::Style {
     let palette = theme.palette();
-    let lighten = |c: f32, factor: f32| c + (1.0 - c) * factor;
-    let border_color = Color {
-        r: lighten(palette.background.r, 0.4),
-        g: lighten(palette.background.g, 0.4),
-        b: lighten(palette.background.b, 0.4),
-        a: palette.background.a,
-    };
+    let border_color = lighten_color(palette.background, 0.4);
 
     if !is_available {
         let ext = theme.extended_palette();
-        let shade = |c: f32, factor: f32| c * factor;
-        let weak = ext.background.weak.color;
-        let background = Color {
-            r: shade(weak.r, DISABLED_BUTTON_SHADE),
-            g: shade(weak.g, DISABLED_BUTTON_SHADE),
-            b: shade(weak.b, DISABLED_BUTTON_SHADE),
-            a: weak.a,
-        };
+        let background = shade_color(ext.background.weak.color, DISABLED_BUTTON_SHADE);
 
         return button::Style {
             background: Some(Background::Color(background)),
@@ -131,19 +130,8 @@ pub fn solid_button(background: Color) -> button::Style {
 
 pub fn sidebar_container(theme: &Theme) -> container::Style {
     let palette = theme.palette();
-    let shade = |c: f32, factor: f32| c * factor;
-    let background = Color {
-        r: shade(palette.background.r, 0.35),
-        g: shade(palette.background.g, 0.35),
-        b: shade(palette.background.b, 0.35),
-        a: palette.background.a,
-    };
-    let border_color = Color {
-        r: shade(palette.background.r, 0.6),
-        g: shade(palette.background.g, 0.6),
-        b: shade(palette.background.b, 0.6),
-        a: palette.background.a,
-    };
+    let background = shade_color(palette.background, 0.35);
+    let border_color = shade_color(palette.background, 0.6);
 
     container::Style {
         background: Some(Background::Color(background)),
@@ -185,27 +173,69 @@ pub fn card_container(theme: &Theme) -> container::Style {
     let palette = theme.palette();
 
     container::Style {
-        background: Some(Background::Color(Color {
-            r: palette.background.r * CARD_SHADE,
-            g: palette.background.g * CARD_SHADE,
-            b: palette.background.b * CARD_SHADE,
-            a: CARD_ALPHA,
-        })),
+        background: Some(Background::Color(Color { a: CARD_ALPHA, ..shade_color(palette.background, CARD_SHADE) })),
         border: Border { radius: Radius::from(RADIUS_MD), ..Border::default() },
         ..container::Style::default()
     }
 }
 
+pub fn combo_box(theme: &Theme, status: pick_list::Status) -> pick_list::Style {
+    let base = pick_list::default(theme, status);
+
+    pick_list::Style { border: Border { radius: Radius::from(RADIUS_SM), ..base.border }, ..base }
+}
+
+pub fn combo_box_menu(theme: &Theme) -> menu::Style {
+    let palette = theme.palette();
+    let base = menu::default(theme);
+
+    menu::Style {
+        selected_text_color: palette.text,
+        selected_background: Background::Color(palette.primary),
+        border: Border { radius: Radius::from(RADIUS_SM), ..base.border },
+        ..base
+    }
+}
+
+pub fn ios_toggle(theme: &Theme, status: toggler::Status) -> toggler::Style {
+    let base = toggler::default(theme, status);
+
+    toggler::Style { border_radius: Some(Radius::from(RADIUS_SM)), ..base }
+}
+
+const TABLE_HEADER_SHADE: f32 = 0.55;
+const TABLE_ROW_SHADE: f32 = 0.8;
+
+pub fn zebra_table_header(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    let background = shade_color(palette.background, TABLE_HEADER_SHADE);
+
+    container::Style {
+        background: Some(Background::Color(background)),
+        text_color: Some(Color::WHITE),
+        border: Border {
+            radius: Radius { top_left: RADIUS_SM, top_right: RADIUS_SM, bottom_left: 0.0, bottom_right: 0.0 },
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}
+
+pub fn zebra_table_row(theme: &Theme, index: usize) -> container::Style {
+    let palette = theme.palette();
+    let background = if index.is_multiple_of(2) { shade_color(palette.background, TABLE_ROW_SHADE) } else { palette.background };
+
+    container::Style { background: Some(Background::Color(background)), ..container::Style::default() }
+}
+
+pub fn table_cell_text(content: &str, width: Length) -> Text<'_> {
+    text(content).width(width).align_x(Horizontal::Center)
+}
+
 pub fn rounded_input(theme: &Theme, status: text_input::Status) -> text_input::Style {
     let style = text_input::default(theme, status);
-    let shade = |c: f32, factor: f32| c * factor;
     let background = match style.background {
-        Background::Color(color) => Background::Color(Color {
-            r: shade(color.r, 0.5),
-            g: shade(color.g, 0.5),
-            b: shade(color.b, 0.5),
-            a: color.a,
-        }),
+        Background::Color(color) => Background::Color(shade_color(color, 0.5)),
         other => other,
     };
 

@@ -200,7 +200,7 @@ impl State {
                                     .unwrap_or_default();
                                 Message::OemDriverSelected(driver)
                             }
-                        ),
+                        ).style(theme::combo_box).menu_style(theme::combo_box_menu),
                         button(text(btn_text)).on_press(Message::OemAction),
                     ].spacing(10).align_y(Alignment::Center),
                 ].spacing(6)

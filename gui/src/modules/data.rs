@@ -307,7 +307,7 @@ impl State {
         };
         let type_picker = pick_list(import_types, Some(current_type), |sel| {
             Message::AdbImportTypeChanged(if sel == "Update Only" { 1 } else { 0 })
-        });
+        }).style(theme::combo_box).menu_style(theme::combo_box_menu);
 
         let emu_regions = vec!["Global", "Japan", "Taiwan", "Korea", "All Regions"];
         let emu_selected = emu_regions
@@ -323,7 +323,7 @@ impl State {
                 _ => 0,
             };
             Message::AdbRegionChangedEmu(idx)
-        });
+        }).style(theme::combo_box).menu_style(theme::combo_box_menu);
 
         let mut android_col = column![
             android_btn,
@@ -373,7 +373,7 @@ impl State {
                 _ => AdbTarget::Specific(Region::En),
             };
             Message::AdbRegionChangedDec(target)
-        });
+        }).style(theme::combo_box).menu_style(theme::combo_box_menu);
 
         let pack_folder_label = if self.decrypt_censored.is_empty() {
             "None selected"
@@ -425,7 +425,7 @@ impl State {
             } else {
                 ImportMode::Zip
             })
-        });
+        }).style(theme::combo_box).menu_style(theme::combo_box_menu);
 
         let raw_folder_label = if self.import_censored.is_empty() {
             "None selected"

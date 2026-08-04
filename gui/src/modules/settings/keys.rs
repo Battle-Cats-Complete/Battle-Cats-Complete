@@ -9,8 +9,8 @@ use core::modules::settings::UserKeys;
 use crate::app::theme;
 use crate::common::{feedback::Slot, popup};
 
-const POPUP_SIZE: Size = Size::new(650.0, 400.0);
-const COLUMN_INPUT_WIDTH: f32 = 220.0;
+const POPUP_SIZE: Size = Size::new(650.0, 335.0);
+const REGION_COLUMN_WIDTH: f32 = 60.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionSlot {
@@ -215,13 +215,18 @@ impl State {
         let default_validation = [(true, true); 4];
         let validations = self.validation_status.unwrap_or(default_validation);
 
-        let mut grid = column![
+        let header = container(
             row![
-                text("Region").width(Length::Fixed(60.0)).size(13),
-                text("Decryption Key").width(Length::Fixed(COLUMN_INPUT_WIDTH)).size(13),
-                text("Initialization Vector").width(Length::Fixed(COLUMN_INPUT_WIDTH)).size(13),
-            ].spacing(15)
-        ].spacing(8);
+                theme::table_cell_text("Region", Length::Fixed(REGION_COLUMN_WIDTH)).size(13),
+                theme::table_cell_text("Decryption Key", Length::FillPortion(1)).size(13),
+                theme::table_cell_text("Initialization Vector", Length::FillPortion(1)).size(13),
+            ].spacing(15).width(Length::Fill)
+        )
+        .style(theme::zebra_table_header)
+        .padding([6, 10])
+        .width(Length::Fill);
+
+        let mut grid = column![header].spacing(0).width(Length::Fill);
 
         for (index, slot) in RegionSlot::ALL.into_iter().enumerate() {
             let region = self.region_ref(slot);
@@ -229,9 +234,10 @@ impl State {
 
             let key_input = text_input("Key", &region.key)
                 .on_input(move |value| Message::KeyChanged(slot, value))
-                .width(Length::Fixed(COLUMN_INPUT_WIDTH))
+                .size(12)
+                .width(Length::FillPortion(1))
                 .style(move |theme: &Theme, status| {
-                    let mut style = text_input::default(theme, status);
+                    let mut style = theme::rounded_input(theme, status);
                     if self.validation_status.is_some() {
                         style.background = if key_valid {
                             iced::Color::from_rgb8(30, 80, 40).into()
@@ -244,9 +250,10 @@ impl State {
 
             let iv_input = text_input("IV", &region.iv)
                 .on_input(move |value| Message::IvChanged(slot, value))
-                .width(Length::Fixed(COLUMN_INPUT_WIDTH))
+                .size(12)
+                .width(Length::FillPortion(1))
                 .style(move |theme: &Theme, status| {
-                    let mut style = text_input::default(theme, status);
+                    let mut style = theme::rounded_input(theme, status);
                     if self.validation_status.is_some() {
                         style.background = if iv_valid {
                             iced::Color::from_rgb8(30, 80, 40).into()
@@ -258,18 +265,23 @@ impl State {
                 });
 
             grid = grid.push(
-                row![
-                    text(slot.label()).width(Length::Fixed(60.0)),
-                    key_input,
-                    iv_input,
-                ].spacing(15).align_y(Alignment::Center)
+                container(
+                    row![
+                        theme::table_cell_text(slot.label(), Length::Fixed(REGION_COLUMN_WIDTH)),
+                        key_input,
+                        iv_input,
+                    ].spacing(15).align_y(Alignment::Center).width(Length::Fill)
+                )
+                .style(move |theme: &Theme| theme::zebra_table_row(theme, index))
+                .padding([6, 10])
+                .width(Length::Fill)
             );
         }
 
         let content = column![
             actions,
-            scrollable(grid).height(Length::Shrink),
-        ].spacing(15).padding(20).align_x(Alignment::Center);
+            scrollable(grid).height(Length::Shrink).width(Length::Fill),
+        ].spacing(15).padding(20).width(Length::Fill).align_x(Alignment::Center);
 
         container(scrollable(content))
             .width(Length::Fill)

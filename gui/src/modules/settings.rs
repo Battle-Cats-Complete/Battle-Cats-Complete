@@ -430,17 +430,17 @@ impl State {
             text("Behavior").size(24),
             hover_hint(
                 row![
-                    toggler(core_settings.general.enable_logging).on_toggle(Message::ToggleLogging),
+                    toggler(core_settings.general.enable_logging).on_toggle(Message::ToggleLogging).style(theme::ios_toggle),
                     text("Enable Logging"),
-                ].spacing(10),
+                ].spacing(10).align_y(Alignment::Center),
                 "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs",
             ),
             row![
-                toggler(core_settings.general.enable_nightly).on_toggle(Message::ToggleNightly),
+                toggler(core_settings.general.enable_nightly).on_toggle(Message::ToggleNightly).style(theme::ios_toggle),
                 text("Enable Nightly Features 🌙"),
-            ].spacing(10),
+            ].spacing(10).align_y(Alignment::Center),
             row![
-                text("Update Handling:"),
+                text("Update Handling"),
                 pick_list(
                     update_modes,
                     Some(current_update_mode),
@@ -451,7 +451,7 @@ impl State {
                         };
                         Message::UpdateModeSelected(mode)
                     }
-                ),
+                ).style(theme::combo_box).menu_style(theme::combo_box_menu),
             ].spacing(10).align_y(Alignment::Center),
 
             text("Language Priority").size(24),
@@ -466,46 +466,47 @@ impl State {
         column![
             text("Cat List").size(24),
             row![
-                text("Preferred Banner Form:"),
+                text("Preferred Banner Form"),
                 pick_list(
                     banner_options,
                     Some(core_settings.cat_data.preferred_banner_form),
                     Message::PreferredBannerSelected,
-                ),
+                ).style(theme::combo_box).menu_style(theme::combo_box_menu),
             ].spacing(10).align_y(Alignment::Center),
 
             row![
-                toggler(core_settings.cat_data.show_invalid_cats).on_toggle(Message::ToggleInvalidCats),
+                toggler(core_settings.cat_data.show_invalid_cats).on_toggle(Message::ToggleInvalidCats).style(theme::ios_toggle),
                 text("Show Invalid Cats"),
-            ].spacing(10),
+            ].spacing(10).align_y(Alignment::Center),
 
             text("Ability Display").size(24),
             row![
-                toggler(core_settings.cat_data.expand_spirit_details).on_toggle(Message::ToggleExpandSpirit),
+                toggler(core_settings.cat_data.expand_spirit_details).on_toggle(Message::ToggleExpandSpirit).style(theme::ios_toggle),
                 text("Expand Spirit Details by Default"),
-            ].spacing(10),
+            ].spacing(10).align_y(Alignment::Center),
 
             text("Level Display").size(24),
             row![
-                text("Default Level:"),
+                text("Default Level"),
                 text_input("Level", &self.default_cat_level_buffer)
                     .on_input_maybe((!core_settings.cat_data.auto_level_calculations).then_some(Message::DefaultLevelChanged))
-                    .width(Length::Fixed(60.0)),
+                    .width(Length::Fixed(60.0))
+                    .style(theme::rounded_input),
             ].spacing(10).align_y(Alignment::Center),
 
             hover_hint(
                 row![
-                    toggler(core_settings.cat_data.auto_level_calculations).on_toggle(Message::ToggleAutoLevel),
+                    toggler(core_settings.cat_data.auto_level_calculations).on_toggle(Message::ToggleAutoLevel).style(theme::ios_toggle),
                     text("Auto Level Calculations"),
-                ].spacing(10),
+                ].spacing(10).align_y(Alignment::Center),
                 "Automatically calculates the max reasonable level for a unit based on their level caps",
             ),
 
             hover_hint(
                 row![
-                    toggler(core_settings.cat_data.bump_ultra_60).on_toggle(Message::ToggleBumpUltra),
+                    toggler(core_settings.cat_data.bump_ultra_60).on_toggle(Message::ToggleBumpUltra).style(theme::ios_toggle),
                     text("Lv60 For Ultra"),
-                ].spacing(10),
+                ].spacing(10).align_y(Alignment::Center),
                 "Automatically bumps the level to 60 (if not higher already) when an Ultra Form or Ultra Talent is selected",
             ),
         ].spacing(20).into()
@@ -515,9 +516,9 @@ impl State {
         column![
             text("Enemy List").size(24),
             row![
-                toggler(core_settings.enemy_data.show_invalid_enemies).on_toggle(Message::ToggleInvalidEnemies),
+                toggler(core_settings.enemy_data.show_invalid_enemies).on_toggle(Message::ToggleInvalidEnemies).style(theme::ios_toggle),
                 text("Show Invalid Enemies"),
-            ].spacing(10),
+            ].spacing(10).align_y(Alignment::Center),
         ].spacing(20).into()
     }
 
@@ -531,7 +532,7 @@ impl State {
         column![
             text("Stage List").size(24),
             row![
-                text("Sidebar Behavior:"),
+                text("Sidebar Behavior"),
                 pick_list(
                     sidebar_options,
                     Some(current_sidebar),
@@ -542,7 +543,7 @@ impl State {
                         };
                         Message::SidebarBehaviorSelected(behavior)
                     }
-                ),
+                ).style(theme::combo_box).menu_style(theme::combo_box_menu),
             ].spacing(10).align_y(Alignment::Center),
         ].spacing(20).into()
     }
@@ -560,7 +561,7 @@ impl State {
             button("Manage PEM").on_press(Message::Pem(pem::Message::Open)),
             row![
                 hover_hint(
-                    text("Export Behavior:"),
+                    text("Export Behavior"),
                     "Determines whether to scan and automatically choose, always create a new APK, or always overwrite the input APK.",
                 ),
                 pick_list(
@@ -574,7 +575,7 @@ impl State {
                         };
                         Message::ExportBehaviorSelected(behavior)
                     }
-                ),
+                ).style(theme::combo_box).menu_style(theme::combo_box_menu),
             ].spacing(10).align_y(Alignment::Center),
         ].spacing(20).into()
     }
@@ -592,17 +593,17 @@ impl State {
 
             hover_hint(
                 row![
-                    toggler(core_settings.game_data.enforce_key_validation).on_toggle(Message::ToggleKeyValidation),
+                    toggler(core_settings.game_data.enforce_key_validation).on_toggle(Message::ToggleKeyValidation).style(theme::ios_toggle),
                     text("Enforce Key Validation"),
-                ].spacing(10),
+                ].spacing(10).align_y(Alignment::Center),
                 "Prevents decryption/encryption if the cryptographic keys don't match the known official file hashes\nTurn this off only if the game keys have changed and you haven't updated BCC yet",
             ),
             text("Android").size(24),
             hover_hint(
                 row![
-                    toggler(core_settings.game_data.app_folder_persistence).on_toggle(Message::ToggleAppPersistence),
+                    toggler(core_settings.game_data.app_folder_persistence).on_toggle(Message::ToggleAppPersistence).style(theme::ios_toggle),
                     text("App Folder Persistence"),
-                ].spacing(10),
+                ].spacing(10).align_y(Alignment::Center),
                 "Skip the deletion of the \"game/app\" directory after android import",
             ),
         ].spacing(20).into()
@@ -612,30 +613,30 @@ impl State {
         column![
             text("Viewer").size(24),
             row![
-                toggler(core_settings.animation.debug_view).on_toggle(Message::ToggleDebugView),
+                toggler(core_settings.animation.debug_view).on_toggle(Message::ToggleDebugView).style(theme::ios_toggle),
                 text("Enable Debug View"),
-            ].spacing(10),
+            ].spacing(10).align_y(Alignment::Center),
 
             text("Exporter").size(24),
             hover_hint(
                 row![
-                    toggler(core_settings.animation.use_tight_bounds).on_toggle(Message::ToggleTightBounds),
+                    toggler(core_settings.animation.use_tight_bounds).on_toggle(Message::ToggleTightBounds).style(theme::ios_toggle),
                     text("Use Tight Bounds"),
-                ].spacing(10),
+                ].spacing(10).align_y(Alignment::Center),
                 "Automatically crops out minor vfx and glow when calculating camera bounds",
             ),
             hover_hint(
                 row![
-                    toggler(core_settings.animation.auto_set_camera_region).on_toggle(Message::ToggleAutoCamera),
+                    toggler(core_settings.animation.auto_set_camera_region).on_toggle(Message::ToggleAutoCamera).style(theme::ios_toggle),
                     text("Auto-Set Camera Region"),
-                ].spacing(10),
+                ].spacing(10).align_y(Alignment::Center),
                 "Automatically calculates a Units tight bounding box when exporting\nThis setting may cause lag spikes on some devices",
             ),
 
             text("Showcase").size(18),
-            row![text("Walk Frames:"), text_input("0", &self.showcase_walk_buffer).on_input(Message::ShowcaseWalkChanged).width(Length::Fixed(60.0))].spacing(10),
-            row![text("Idle Frames:"), text_input("0", &self.showcase_idle_buffer).on_input(Message::ShowcaseIdleChanged).width(Length::Fixed(60.0))].spacing(10),
-            row![text("KB Frames:"), text_input("0", &self.showcase_kb_buffer).on_input(Message::ShowcaseKbChanged).width(Length::Fixed(60.0))].spacing(10),
+            row![text("Walk Frames"), text_input("0", &self.showcase_walk_buffer).on_input(Message::ShowcaseWalkChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
+            row![text("Idle Frames"), text_input("0", &self.showcase_idle_buffer).on_input(Message::ShowcaseIdleChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
+            row![text("KB Frames"), text_input("0", &self.showcase_kb_buffer).on_input(Message::ShowcaseKbChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
         ].spacing(20).into()
     }
 

@@ -132,15 +132,15 @@ impl State {
             text("Mode:").align_y(Vertical::Center),
             pick_list(vec!["And", "Or"], Some(match_mode_label), |s| {
                 Message::MatchModeChanged(if s == "And" { MatchMode::And } else { MatchMode::Or })
-            }),
+            }).style(theme::combo_box).menu_style(theme::combo_box_menu),
             text("Talents:").align_y(Vertical::Center),
             pick_list(vec!["Ignore", "Consider", "Only"], Some(self.filter_state.talent_mode.label()), |s| {
                 Message::TalentModeChanged(talent_mode_from_label(s))
-            }),
+            }).style(theme::combo_box).menu_style(theme::combo_box_menu),
             text("Ultra Talents:").align_y(Vertical::Center),
             pick_list(vec!["Ignore", "Consider", "Only"], Some(self.filter_state.ultra_talent_mode.label()), |s| {
                 Message::UltraTalentModeChanged(talent_mode_from_label(s))
-            }),
+            }).style(theme::combo_box).menu_style(theme::combo_box_menu),
         ].spacing(8).align_y(Vertical::Center);
 
         let level_row = row![
