@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::image::Handle;
-use iced::widget::{column, container, image as iced_image, row, rule, scrollable, stack, text, Space};
+use iced::widget::{column, container, image as iced_image, row, scrollable, stack, text, Space};
 use iced::{font, Border, Color, Element, Font, Length, Padding, Theme};
 
 use core::common::io;
@@ -15,6 +15,9 @@ use super::Message;
 
 const HEADING_SIZE: f32 = 20.0;
 const SECTION_SPACING: f32 = 16.0;
+const SECTION_GAP: f32 = 11.0;
+const HEADING_BODY_GAP: f32 = 8.0;
+const EVOLVE_ITEM_SPACING: f32 = 6.0;
 const MATERIAL_CANVAS: u32 = 128;
 const MATERIAL_SIZE: f32 = 64.0;
 const MATERIAL_SPACING: f32 = 5.0;
@@ -23,6 +26,7 @@ const XP_ICON_ID: i32 = 6;
 const XP_ICON_HEIGHT: f32 = 32.0;
 const XP_TEXT_SIZE: f32 = 18.0;
 const XP_SPACING: f32 = 5.0;
+const EVOLVE_TEXT_LINES: usize = 3;
 
 #[derive(Clone)]
 struct TrimmedIcon {
@@ -72,10 +76,14 @@ impl State {
             .filter(|text| !text.trim().is_empty())
             .unwrap_or_else(|| "No description available".to_string());
 
-        let mut content = column![
+        let description_section = column![
             text("Description").size(HEADING_SIZE),
             text(description),
         ]
+            .spacing(HEADING_BODY_GAP)
+            .width(Length::Fill);
+
+        let mut content = column![description_section]
             .spacing(SECTION_SPACING)
             .width(Length::Fill);
 
@@ -95,24 +103,27 @@ impl State {
 
         let evolve_text = cat.evolve_text.texts.get(form)
             .and_then(|t| t.as_ref())
-            .map(|lines| lines.join("\n"))
-            .filter(|text| !text.trim().is_empty());
+            .filter(|lines| !lines.is_empty())
+            .map(|lines| {
+                let mut padded = lines.clone();
+                padded.resize(EVOLVE_TEXT_LINES, String::new());
+                padded.join("\n")
+            });
 
         if materials.is_empty() && evolve_text.is_none() && xp_cost <= 0 {
             return None;
         }
 
         let mut section = column![
-            rule::horizontal(1),
-            Space::new().height(Length::Fixed(10.0)),
+            Space::new().height(Length::Fixed(SECTION_GAP)),
             text("Evolve").size(HEADING_SIZE),
-            Space::new().height(Length::Fixed(8.0)),
+            Space::new().height(Length::Fixed(HEADING_BODY_GAP)),
         ]
             .width(Length::Fill);
 
         if let Some(evolve_text) = evolve_text {
             section = section.push(text(evolve_text));
-            section = section.push(Space::new().height(Length::Fixed(2.0)));
+            section = section.push(Space::new().height(Length::Fixed(EVOLVE_ITEM_SPACING)));
         }
 
         if !materials.is_empty() {
@@ -121,7 +132,7 @@ impl State {
                 icon_row = icon_row.push(self.view_material(*item_id, *amount, langs));
             }
             section = section.push(icon_row);
-            section = section.push(Space::new().height(Length::Fixed(2.0)));
+            section = section.push(Space::new().height(Length::Fixed(EVOLVE_ITEM_SPACING)));
         }
 
         if xp_cost > 0 {

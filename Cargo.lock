@@ -3543,7 +3543,7 @@ checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 [[package]]
 name = "nyanko"
 version = "0.6.0"
-source = "git+https://github.com/omochikaeri15/nyanko#59e1f3c1f6e30b6aa80a06969f8a6a0fc1d3fcd7"
+source = "git+https://github.com/omochikaeri15/nyanko#ff09aa55527eb806639f47426bb3fedd82027277"
 dependencies = [
  "aes 0.9.1",
  "block-padding",
