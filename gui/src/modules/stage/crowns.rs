@@ -1,49 +1,39 @@
-use iced::widget::{button, row, space, text};
-use iced::{Border, Color, Element, Length, Theme};
+use iced::widget::{button, row, space};
+use iced::{Element, Length, Theme};
 
 use core::modules::stage::Stage;
+
+use crate::app::theme;
+
+const CROWN_BTN_WIDTH: f32 = 50.0;
+const CROWN_BTN_HEIGHT: f32 = 30.0;
+const CROWN_BTN_SPACING: f32 = 5.0;
+const CROWN_TEXT_SIZE: f32 = 14.0;
 
 pub fn view(stage: &Stage, selected_crown: u8) -> Element<'_, super::Message> {
     if stage.max_crowns <= 1 {
         return space().into();
     }
 
-    let mut crown_row = row![].spacing(5);
+    let mut crown_row = row![].spacing(CROWN_BTN_SPACING);
 
-    for c in 0..stage.max_crowns {
-        let is_selected = selected_crown == c;
-        let is_enabled = stage.target_crowns == -1 || stage.target_crowns as u8 == c;
+    for crown in 0..stage.max_crowns {
+        let is_selected = selected_crown == crown;
+        let is_enabled = stage.target_crowns == -1 || stage.target_crowns as u8 == crown;
 
-        let label = format!("{}♔", c + 1);
-        let mut crown_btn = button(text(label).size(14))
-            .width(Length::Fixed(50.0))
-            .height(Length::Fixed(30.0))
-            .style(move |_theme: &Theme, _status| {
-                let (background, border_color, text_color) = if is_selected {
-                    (Color::from_rgb8(0, 100, 200), Color::WHITE, Color::WHITE)
-                } else if is_enabled {
-                    (Color::from_rgb8(40, 40, 40), Color::from_rgb8(100, 100, 100), Color::from_rgb8(200, 200, 200))
-                } else {
-                    (Color::from_rgb8(15, 15, 15), Color::from_rgb8(50, 50, 50), Color::from_rgb8(120, 120, 120))
-                };
+        let label = theme::centered_text(format!("{}♔", crown + 1))
+            .size(CROWN_TEXT_SIZE)
+            .width(Length::Fill)
+            .height(Length::Fill);
 
-                button::Style {
-                    background: Some(background.into()),
-                    text_color,
-                    border: Border {
-                        color: border_color,
-                        width: if is_selected { 2.0 } else { 1.0 },
-                        radius: 0.0.into(),
-                    },
-                    ..button::Style::default()
-                }
-            });
-
-        if is_enabled {
-            crown_btn = crown_btn.on_press(super::Message::SelectCrown(c));
-        }
-
-        crown_row = crown_row.push(crown_btn);
+        crown_row = crown_row.push(
+            button(label)
+                .width(Length::Fixed(CROWN_BTN_WIDTH))
+                .height(Length::Fixed(CROWN_BTN_HEIGHT))
+                .padding(0)
+                .on_press_maybe(is_enabled.then_some(super::Message::SelectCrown(crown)))
+                .style(move |theme: &Theme, status| theme::header_toggle_button(theme, status, is_selected, is_enabled)),
+        );
     }
 
     crown_row.into()

@@ -1,6 +1,6 @@
-use iced::alignment::Vertical;
-use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, Space};
-use iced::{Border, Color, Element, Length, Size, Theme};
+use iced::alignment::{Horizontal, Vertical};
+use iced::widget::{button, column, container, pick_list, row, scrollable, stack, text, text_input, Space};
+use iced::{Element, Length, Size, Theme};
 
 use core::modules::stage::filter::enemy::EnemyFilter;
 use core::modules::stage::filter::lineup::LineupFilter;
@@ -9,9 +9,25 @@ use core::modules::stage::filter::range::StatRange;
 use core::modules::stage::filter::treasure::TreasureFilter;
 use core::modules::stage::filter::StageFilterState;
 
+use crate::app::theme;
 use crate::widget::{popup, range_row};
 
+use super::section::section;
+
 const POPUP_SIZE: Size = Size::new(400.0, 528.0);
+const CLEAR_BTN_CLEARANCE: f32 = 56.0;
+const CONTENT_PADDING: f32 = 20.0;
+const SECTION_SPACING: f32 = 12.0;
+const CARD_SPACING: f32 = 8.0;
+const FIELD_SPACING: f32 = 8.0;
+const PAIR_SPACING: f32 = 16.0;
+const CONTROL_TEXT_SIZE: f32 = 13.0;
+const TRISTATE_WIDTH: f32 = 60.0;
+const REMOVE_BTN_WIDTH: f32 = 28.0;
+const LABEL_WIDTH: f32 = 90.0;
+const NAME_LABEL_WIDTH: f32 = 70.0;
+const NAME_INPUT_WIDTH: f32 = 180.0;
+const VALUE_INPUT_WIDTH: f32 = 150.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flag {
@@ -453,103 +469,109 @@ impl State {
         for (idx, enemy) in self.filter_state.enemies.iter().enumerate() {
             enemies_col = enemies_col.push(enemy_card(idx, enemy));
         }
-        enemies_col = enemies_col.push(button("+ Add New Enemy").on_press(Message::AddEnemy));
+        enemies_col = enemies_col.push(add_button("+ Add New Enemy", Message::AddEnemy));
 
-        let mut lineup_col = column![].spacing(8);
+        let mut lineup_col = column![].spacing(CARD_SPACING);
         for (idx, cat) in self.filter_state.lineup_cats.iter().enumerate() {
             lineup_col = lineup_col.push(lineup_card(idx, cat));
         }
-        lineup_col = lineup_col.push(button("+ Add Lineup Cat").on_press(Message::AddLineup));
+        lineup_col = lineup_col.push(add_button("+ Add Lineup Cat", Message::AddLineup));
 
-        let mut treasure_col = column![].spacing(8);
+        let mut treasure_col = column![].spacing(CARD_SPACING);
         for (idx, treasure) in self.filter_state.treasures.iter().enumerate() {
             treasure_col = treasure_col.push(treasure_card(idx, treasure));
         }
-        treasure_col = treasure_col.push(button("+ Add New Treasure").on_press(Message::AddTreasure));
+        treasure_col = treasure_col.push(add_button("+ Add New Treasure", Message::AddTreasure));
 
-        let mut material_col = column![].spacing(8);
+        let mut material_col = column![].spacing(CARD_SPACING);
         for (idx, material) in self.filter_state.materials.iter().enumerate() {
             material_col = material_col.push(material_card(idx, material));
         }
-        material_col = material_col.push(button("+ Add New Material").on_press(Message::AddMaterial));
+        material_col = material_col.push(add_button("+ Add New Material", Message::AddMaterial));
 
         let content = column![
-            section("Name", name_grid.into()),
-            section("General Rules", general_rules),
-            section("Special Map Rules", special_rules),
-            section("Score Bonuses", score_bonuses),
-            section("Stats", stats),
-            section("Restrictions", restrictions),
-            section("IDs & Audio", ids_audio),
-            section("Battleground", enemies_col.into()),
-            section("Fixed Lineup Cats", lineup_col.into()),
-            section("Treasures", treasure_col.into()),
-            section("Materials", material_col.into()),
-            Space::new().height(Length::Fixed(20.0)),
-            button(text("Clear Filter").style(text::danger)).on_press(Message::Clear).padding([8, 16]),
-        ].spacing(10).padding(20);
+            section("Name", Length::Fill, name_grid),
+            section("General Rules", Length::Fill, general_rules),
+            section("Special Map Rules", Length::Fill, special_rules),
+            section("Score Bonuses", Length::Fill, score_bonuses),
+            section("Stats", Length::Fill, stats),
+            section("Restrictions", Length::Fill, restrictions),
+            section("IDs & Audio", Length::Fill, ids_audio),
+            section("Battleground", Length::Fill, enemies_col),
+            section("Fixed Lineup Cats", Length::Fill, lineup_col),
+            section("Treasures", Length::Fill, treasure_col),
+            section("Materials", Length::Fill, material_col),
+            Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
+        ].spacing(SECTION_SPACING).padding(CONTENT_PADDING);
 
-        container(scrollable(content))
+        let scroll_layer = scrollable(content).width(Length::Fill).height(Length::Fill);
+
+        let clear_btn_layer = container(
+            button(text("Clear Filter")).on_press(Message::Clear).padding([8, 16]).style(button::danger)
+        )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Bottom)
+            .padding(16);
+
+        stack![scroll_layer, clear_btn_layer]
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
     }
 }
 
-fn section<'a>(title: &'a str, content: Element<'a, Message>) -> Element<'a, Message> {
-    column![text(title).size(18), content].spacing(6).into()
-}
-
 fn name_field<'a>(label: &'a str, value: &'a str, on_input: impl Fn(String) -> Message + 'a) -> Element<'a, Message> {
     row![
-        text(label).width(Length::Fixed(70.0)),
-        text_input("Any", value).on_input(on_input).width(Length::Fixed(180.0)),
-    ].spacing(8).align_y(Vertical::Center).into()
+        text(label).width(Length::Fixed(NAME_LABEL_WIDTH)),
+        text_input("Any", value).on_input(on_input).width(Length::Fixed(NAME_INPUT_WIDTH)).style(theme::rounded_input),
+    ].spacing(FIELD_SPACING).align_y(Vertical::Center).into()
 }
 
-fn tristate_button<'a>(flag: Flag, value: Option<bool>) -> Element<'a, Message> {
+fn add_button<'a>(label: &'a str, on_press: Message) -> Element<'a, Message> {
+    button(text(label).size(CONTROL_TEXT_SIZE))
+        .on_press(on_press)
+        .padding([6, 12])
+        .style(theme::primary_button)
+        .into()
+}
+
+fn tristate_button<'a>(value: Option<bool>, on_press: Message) -> Element<'a, Message> {
     let label = match value {
         Some(true) => "Yes",
         Some(false) => "No",
         None => "Any",
     };
 
-    button(text(label).size(13))
-        .width(Length::Fixed(60.0))
-        .on_press(Message::FlagToggled(flag))
-        .style(move |theme: &Theme, _status| {
-            let background = match value {
-                Some(true) => Color::from_rgb8(31, 106, 165),
-                Some(false) => Color::from_rgb8(210, 50, 50),
-                None => theme.extended_palette().background.weak.color,
-            };
-            button::Style {
-                background: Some(background.into()),
-                text_color: theme.palette().text,
-                border: Border::default().rounded(4.0),
-                ..Default::default()
-            }
+    button(theme::button_label(label).size(CONTROL_TEXT_SIZE))
+        .width(Length::Fixed(TRISTATE_WIDTH))
+        .on_press(on_press)
+        .style(move |theme: &Theme, status| match value {
+            Some(true) => theme::primary_button(theme, status),
+            Some(false) => theme::danger_button(theme, status),
+            None => theme::neutral_button(theme, status),
         })
         .into()
 }
 
 fn wrap_pairs<'a>(flags: impl IntoIterator<Item = Flag>, filter_state: &'a StageFilterState) -> Element<'a, Message> {
     let mut col = column![].spacing(6);
-    let mut current = row![].spacing(16).align_y(Vertical::Center);
+    let mut current = row![].spacing(PAIR_SPACING).align_y(Vertical::Center);
     let mut count = 0;
 
     for flag in flags {
         let value = flag_ref(filter_state, flag);
         current = current.push(
-            row![text(format!("{}:", flag_label(flag))), tristate_button(flag, value)]
-                .spacing(8)
+            row![text(format!("{}:", flag_label(flag))), tristate_button(value, Message::FlagToggled(flag))]
+                .spacing(FIELD_SPACING)
                 .align_y(Vertical::Center)
         );
         count += 1;
 
         if count % 2 == 0 {
             col = col.push(current);
-            current = row![].spacing(16).align_y(Vertical::Center);
+            current = row![].spacing(PAIR_SPACING).align_y(Vertical::Center);
         }
     }
 
@@ -572,7 +594,7 @@ fn range_field<'a>(range: Range, value: &'a StatRange) -> Element<'a, Message> {
 
 fn range_pairs<'a>(ranges: impl IntoIterator<Item = Range>, filter_state: &'a StageFilterState) -> Element<'a, Message> {
     let mut col = column![].spacing(6);
-    let mut current = row![].spacing(16);
+    let mut current = row![].spacing(PAIR_SPACING);
     let mut count = 0;
 
     for range in ranges {
@@ -581,7 +603,7 @@ fn range_pairs<'a>(ranges: impl IntoIterator<Item = Range>, filter_state: &'a St
 
         if count % 2 == 0 {
             col = col.push(current);
-            current = row![].spacing(16);
+            current = row![].spacing(PAIR_SPACING);
         }
     }
 
@@ -618,55 +640,57 @@ fn range_ref(filter_state: &StageFilterState, range: Range) -> &StatRange {
     }
 }
 
-fn card_frame<'a>(content: Element<'a, Message>) -> Element<'a, Message> {
-    container(content)
+fn card_frame<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(content.into())
         .padding(8)
-        .style(|_theme: &Theme| container::Style {
-            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
-            border: Border::default().rounded(6.0),
-            ..Default::default()
-        })
+        .style(theme::card_container)
         .into()
 }
 
 fn mode_pick_list<'a>(is_exclude: bool, on_change: impl Fn(bool) -> Message + 'a) -> Element<'a, Message> {
     let label = if is_exclude { "Exclude" } else { "Include" };
-    pick_list(vec!["Include", "Exclude"], Some(label), move |s| on_change(s == "Exclude")).into()
+
+    pick_list(vec!["Include", "Exclude"], Some(label), move |s| on_change(s == "Exclude"))
+        .style(theme::combo_box)
+        .menu_style(theme::combo_box_menu)
+        .into()
 }
 
 fn close_row<'a>(mode: Element<'a, Message>, on_remove: Message) -> Element<'a, Message> {
     row![
         mode,
         Space::new().width(Length::Fill),
-        button(text(" X ").style(text::danger)).on_press(on_remove),
+        button(theme::button_label("X").size(CONTROL_TEXT_SIZE))
+            .width(Length::Fixed(REMOVE_BTN_WIDTH))
+            .on_press(on_remove)
+            .style(theme::danger_button),
     ].align_y(Vertical::Center).into()
 }
 
 fn name_or_id_row<'a>(value: &'a str, on_input: impl Fn(String) -> Message + 'a) -> Element<'a, Message> {
     row![
-        text("Name or ID:").width(Length::Fixed(90.0)),
-        text_input("Any", value).on_input(on_input).width(Length::Fixed(150.0)),
-    ].spacing(8).align_y(Vertical::Center).into()
+        text("Name or ID:").width(Length::Fixed(LABEL_WIDTH)),
+        text_input("Any", value).on_input(on_input).width(Length::Fixed(VALUE_INPUT_WIDTH)).style(theme::rounded_input),
+    ].spacing(FIELD_SPACING).align_y(Vertical::Center).into()
 }
 
 fn enemy_card<'a>(idx: usize, enemy: &'a EnemyFilter) -> Element<'a, Message> {
     let mode = mode_pick_list(enemy.is_exclude, move |is_exclude| Message::EnemyModeChanged(idx, is_exclude));
 
     let mut ranges_col = column![].spacing(4);
-    let mut current = row![].spacing(16);
+    let mut current = row![].spacing(PAIR_SPACING);
     for (i, &range) in ENEMY_RANGES.iter().enumerate() {
         let value = enemy_range_ref(enemy, range);
-        current = current.push(
-            row![
-                text(format!("{}:", enemy_range_label(range))).width(Length::Fixed(90.0)),
-                text_input("Any", &value.min).on_input(move |v| Message::EnemyRangeMinChanged(idx, range, v)).width(Length::Fixed(50.0)),
-                text("~"),
-                text_input("Any", &value.max).on_input(move |v| Message::EnemyRangeMaxChanged(idx, range, v)).width(Length::Fixed(50.0)),
-            ].spacing(4).align_y(Vertical::Center)
-        );
+        current = current.push(range_row(
+            enemy_range_label(range),
+            &value.min,
+            &value.max,
+            move |v| Message::EnemyRangeMinChanged(idx, range, v),
+            move |v| Message::EnemyRangeMaxChanged(idx, range, v),
+        ));
         if (i + 1) % 2 == 0 {
             ranges_col = ranges_col.push(current);
-            current = row![].spacing(16);
+            current = row![].spacing(PAIR_SPACING);
         }
     }
     if !ENEMY_RANGES.len().is_multiple_of(2) {
@@ -687,41 +711,17 @@ fn enemy_card<'a>(idx: usize, enemy: &'a EnemyFilter) -> Element<'a, Message> {
             text("Boss Type:"),
             pick_list(vec!["Any", "None", "Boss", "Screen Shake"], Some(boss_type_label), move |s| {
                 Message::EnemyBossTypeChanged(idx, match s { "None" => Some(0), "Boss" => Some(1), "Screen Shake" => Some(2), _ => None })
-            }),
+            })
+                .style(theme::combo_box)
+                .menu_style(theme::combo_box_menu),
             text("Is Base:"),
-            tristate_is_base(idx, enemy.is_base),
+            tristate_button(enemy.is_base, Message::EnemyIsBaseToggled(idx)),
         ].spacing(10).align_y(Vertical::Center),
         name_or_id_row(&enemy.name_or_id, move |v| Message::EnemyNameChanged(idx, v)),
         ranges_col,
-    ].spacing(8);
+    ].spacing(CARD_SPACING);
 
-    card_frame(body.into())
-}
-
-fn tristate_is_base<'a>(idx: usize, value: Option<bool>) -> Element<'a, Message> {
-    let label = match value {
-        Some(true) => "Yes",
-        Some(false) => "No",
-        None => "Any",
-    };
-
-    button(text(label).size(13))
-        .width(Length::Fixed(60.0))
-        .on_press(Message::EnemyIsBaseToggled(idx))
-        .style(move |theme: &Theme, _status| {
-            let background = match value {
-                Some(true) => Color::from_rgb8(31, 106, 165),
-                Some(false) => Color::from_rgb8(210, 50, 50),
-                None => theme.extended_palette().background.weak.color,
-            };
-            button::Style {
-                background: Some(background.into()),
-                text_color: theme.palette().text,
-                border: Border::default().rounded(4.0),
-                ..Default::default()
-            }
-        })
-        .into()
+    card_frame(body)
 }
 
 fn enemy_range_ref(enemy: &EnemyFilter, range: EnemyRange) -> &StatRange {
@@ -747,15 +747,16 @@ fn lineup_card<'a>(idx: usize, cat: &'a LineupFilter) -> Element<'a, Message> {
     let body = column![
         close_row(mode, Message::RemoveLineup(idx)),
         name_or_id_row(&cat.name_or_id, move |v| Message::LineupNameChanged(idx, v)),
-        row![
-            text("Total Level:").width(Length::Fixed(90.0)),
-            text_input("Any", &cat.level.min).on_input(move |v| Message::LineupLevelMinChanged(idx, v)).width(Length::Fixed(50.0)),
-            text("~"),
-            text_input("Any", &cat.level.max).on_input(move |v| Message::LineupLevelMaxChanged(idx, v)).width(Length::Fixed(50.0)),
-        ].spacing(4).align_y(Vertical::Center),
-    ].spacing(8);
+        range_row(
+            "Total Level",
+            &cat.level.min,
+            &cat.level.max,
+            move |v| Message::LineupLevelMinChanged(idx, v),
+            move |v| Message::LineupLevelMaxChanged(idx, v),
+        ),
+    ].spacing(CARD_SPACING);
 
-    card_frame(body.into())
+    card_frame(body)
 }
 
 fn treasure_card<'a>(idx: usize, treasure: &'a TreasureFilter) -> Element<'a, Message> {
@@ -764,21 +765,23 @@ fn treasure_card<'a>(idx: usize, treasure: &'a TreasureFilter) -> Element<'a, Me
     let body = column![
         close_row(mode, Message::RemoveTreasure(idx)),
         name_or_id_row(&treasure.name_or_id, move |v| Message::TreasureNameChanged(idx, v)),
-        row![
-            text("Amount:").width(Length::Fixed(90.0)),
-            text_input("Any", &treasure.amount.min).on_input(move |v| Message::TreasureAmountMinChanged(idx, v)).width(Length::Fixed(50.0)),
-            text("~"),
-            text_input("Any", &treasure.amount.max).on_input(move |v| Message::TreasureAmountMaxChanged(idx, v)).width(Length::Fixed(50.0)),
-        ].spacing(4).align_y(Vertical::Center),
-        row![
-            text("Chance (%):").width(Length::Fixed(90.0)),
-            text_input("Any", &treasure.chance.min).on_input(move |v| Message::TreasureChanceMinChanged(idx, v)).width(Length::Fixed(50.0)),
-            text("~"),
-            text_input("Any", &treasure.chance.max).on_input(move |v| Message::TreasureChanceMaxChanged(idx, v)).width(Length::Fixed(50.0)),
-        ].spacing(4).align_y(Vertical::Center),
-    ].spacing(8);
+        range_row(
+            "Amount",
+            &treasure.amount.min,
+            &treasure.amount.max,
+            move |v| Message::TreasureAmountMinChanged(idx, v),
+            move |v| Message::TreasureAmountMaxChanged(idx, v),
+        ),
+        range_row(
+            "Chance (%)",
+            &treasure.chance.min,
+            &treasure.chance.max,
+            move |v| Message::TreasureChanceMinChanged(idx, v),
+            move |v| Message::TreasureChanceMaxChanged(idx, v),
+        ),
+    ].spacing(CARD_SPACING);
 
-    card_frame(body.into())
+    card_frame(body)
 }
 
 fn material_card<'a>(idx: usize, material: &'a MaterialFilter) -> Element<'a, Message> {
@@ -787,13 +790,14 @@ fn material_card<'a>(idx: usize, material: &'a MaterialFilter) -> Element<'a, Me
     let body = column![
         close_row(mode, Message::RemoveMaterial(idx)),
         name_or_id_row(&material.name_or_id, move |v| Message::MaterialNameChanged(idx, v)),
-        row![
-            text("Amount:").width(Length::Fixed(90.0)),
-            text_input("Any", &material.amount.min).on_input(move |v| Message::MaterialAmountMinChanged(idx, v)).width(Length::Fixed(50.0)),
-            text("~"),
-            text_input("Any", &material.amount.max).on_input(move |v| Message::MaterialAmountMaxChanged(idx, v)).width(Length::Fixed(50.0)),
-        ].spacing(4).align_y(Vertical::Center),
-    ].spacing(8);
+        range_row(
+            "Amount",
+            &material.amount.min,
+            &material.amount.max,
+            move |v| Message::MaterialAmountMinChanged(idx, v),
+            move |v| Message::MaterialAmountMaxChanged(idx, v),
+        ),
+    ].spacing(CARD_SPACING);
 
-    card_frame(body.into())
+    card_frame(body)
 }

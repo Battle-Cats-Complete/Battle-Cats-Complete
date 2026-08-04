@@ -3,26 +3,26 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use iced::widget::image::Handle;
-use iced::widget::{column, container, image as iced_image, row, rule, space, text};
-use iced::{font, Alignment, Element, Length};
+use iced::widget::{column, container, image as iced_image, row, rule};
+use iced::{Alignment, Element, Length};
 use nyanko::chapter::map::LockSkipDataEntry;
 use nyanko::chapter::stage::ScatCpuSetting;
 use nyanko::chapter::Category;
 
 use core::modules::stage::{paths, Map, Stage};
 
+use crate::app::theme;
 use crate::common::item_icon;
 use crate::widget::{grid_header, grid_value};
 
+use super::section::section;
+
 const MAP_IMG_HEIGHT: f32 = 50.0;
 const STAGE_IMG_HEIGHT: f32 = 35.0;
-
-fn bold_text<'a>(content: impl ToString) -> iced::widget::Text<'a> {
-    text(content.to_string()).font(font::Font {
-        weight: font::Weight::Bold,
-        ..Default::default()
-    })
-}
+const BANNER_GAP: f32 = 12.0;
+const RULE_HEIGHT: f32 = 1.0;
+const GRID_SPACING: f32 = 4.0;
+const FALLBACK_NAME_SIZE: f32 = 32.0;
 
 fn format_diff(difficulty_level: u16) -> String {
     if difficulty_level == 0 {
@@ -202,9 +202,9 @@ impl State {
 
         let banner_row = row![
             banner_element(map_texture, MAP_IMG_HEIGHT, &map.name),
-            space().width(Length::Fixed(12.0)),
             banner_element(stage_texture, STAGE_IMG_HEIGHT, &stage.name),
         ]
+            .spacing(BANNER_GAP)
             .align_y(Alignment::End);
 
         let crown_row = super::crowns::view(stage, selected_crown);
@@ -246,7 +246,7 @@ impl State {
             grid_header("Boss Guard"),
             grid_header("Max Enemy"),
             grid_header("Respawn"),
-        ].spacing(4);
+        ].spacing(GRID_SPACING);
 
         let width_value = stage.width.to_string();
         let xp_value = stage.xp.to_string();
@@ -260,7 +260,7 @@ impl State {
             grid_value("Boss Guard", &indestructible_value),
             grid_value("Max Enemy", &max_enemies_value),
             grid_value("Respawn", &respawn_value),
-        ].spacing(4);
+        ].spacing(GRID_SPACING);
 
         let headers_row_2 = row![
             grid_header(&base_header),
@@ -270,7 +270,7 @@ impl State {
             grid_header("Difficulty"),
             grid_header("CPU Skip"),
             grid_header("Continues"),
-        ].spacing(4);
+        ].spacing(GRID_SPACING);
 
         let background_value = stage.background_id.to_string();
         let music_value = stage.init_track.to_string();
@@ -283,18 +283,15 @@ impl State {
             grid_value("Difficulty", &difficulty_value),
             grid_value("CPU Skip", &skip_value),
             grid_value("Continues", &continue_value),
-        ].spacing(4);
+        ].spacing(GRID_SPACING);
+
+        let grids = column![headers_row_1, values_row_1, headers_row_2, values_row_2].spacing(GRID_SPACING);
 
         column![
             banner_row,
-            rule::horizontal(1),
+            rule::horizontal(RULE_HEIGHT),
             crown_row,
-            bold_text("Information").size(20),
-            rule::horizontal(1),
-            headers_row_1,
-            values_row_1,
-            headers_row_2,
-            values_row_2,
+            section("Information", Length::Fixed(super::CONTENT_WIDTH), grids),
         ]
             .spacing(8)
             .into()
@@ -303,7 +300,7 @@ impl State {
 
 fn banner_element<'a, Message: 'a>(texture: Option<(Handle, u32, u32)>, target_height: f32, fallback_name: &str) -> Element<'a, Message> {
     texture.map_or_else(
-        || container(bold_text(fallback_name.to_string()).size(32.0)).into(),
+        || container(theme::bold_text(fallback_name).size(FALLBACK_NAME_SIZE)).into(),
         |(handle, width, height)| {
             let display_width = width as f32 * (target_height / height as f32);
             iced_image(handle).width(Length::Fixed(display_width)).height(Length::Fixed(target_height)).into()

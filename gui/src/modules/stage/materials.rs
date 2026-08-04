@@ -1,25 +1,31 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::Path;
 
-use iced::widget::{column, container, image as iced_image, row, text, tooltip};
-use iced::{font, Alignment, Color, Element, Length, Theme};
+use iced::alignment::Horizontal;
+use iced::widget::image::Handle;
+use iced::widget::{column, container, image as iced_image, row, space, text, tooltip, Column};
+use iced::{Color, Element, Length, Theme};
 
 use core::common::formats::{GatyaItemBuy, GatyaItemName};
 use core::modules::stage::materials;
 use core::modules::stage::{Map, Stage};
 
+use crate::app::theme;
 use crate::common::item_icon;
+
+use super::section::section;
 
 const MAT_TABLE_WIDTH: f32 = 345.0;
 const MAX_ICON_SIZE: f32 = 32.0;
 const COL_SPACING: f32 = 8.0;
-
-fn bold_text<'a>(content: impl ToString) -> iced::widget::Text<'a> {
-    text(content.to_string()).font(font::Font {
-        weight: font::Weight::Bold,
-        ..Default::default()
-    })
-}
+const CELL_PADDING_Y: u16 = 4;
+const CELL_PADDING_X: u16 = 6;
+const CELL_PADDING: [u16; 2] = [CELL_PADDING_Y, CELL_PADDING_X];
+const CHUNK_SPACING: f32 = 8.0;
+const LABEL_TEXT_SIZE: f32 = 12.0;
+const FALLBACK_TEXT_SIZE: f32 = 11.0;
+const EMPTY_CHANCE_ALPHA: f32 = 0.35;
 
 pub fn has_drops(_stage: &Stage, map: &Map) -> bool {
     map.drop_items.as_ref().is_some_and(|drops| drops.material_drops.iter().any(|&count| count > 0))
@@ -27,7 +33,7 @@ pub fn has_drops(_stage: &Stage, map: &Map) -> bool {
 
 #[derive(Default)]
 pub struct State {
-    icon_cache: RefCell<HashMap<u32, iced::widget::image::Handle>>,
+    icon_cache: RefCell<HashMap<u32, Handle>>,
 }
 
 impl State {
@@ -35,7 +41,7 @@ impl State {
         self.icon_cache.borrow_mut().clear();
     }
 
-    fn icon(&self, id: u32, path: &std::path::Path) -> Option<iced::widget::image::Handle> {
+    fn icon(&self, id: u32, path: &Path) -> Option<Handle> {
         if let Some(cached) = self.icon_cache.borrow().get(&id) {
             return Some(cached.clone());
         }
@@ -55,11 +61,11 @@ impl State {
         langs: &'a [String],
     ) -> Element<'a, super::Message> {
         if !has_drops(stage, map) {
-            return iced::widget::space().into();
+            return space().into();
         }
 
         let Some(drops) = &map.drop_items else {
-            return iced::widget::space().into();
+            return space().into();
         };
 
         let stage_idx = stage.stage_id as usize;
@@ -67,12 +73,10 @@ impl State {
         let multiplier = drops.crown_multipliers.get(selected_crown as usize).copied().unwrap_or(1.0);
         let final_amount = (base_amount as f32 * multiplier).round() as u32;
 
-        let header = bold_text(format!("Materials | Amount: {} ({}×{:.2})", final_amount, base_amount, multiplier)).size(18);
-
         let base_mats = &drops.material_drops[0..8];
         let z_mats = &drops.material_drops[8..16];
 
-        let mut grid_col = column![].spacing(6);
+        let mut grid_col = column![].spacing(CHUNK_SPACING);
 
         if base_mats.iter().any(|&count| count > 0) {
             grid_col = self.push_chunks(grid_col, base_mats, 0, item_buys, item_names, langs);
@@ -81,22 +85,21 @@ impl State {
             grid_col = self.push_chunks(grid_col, z_mats, 8, item_buys, item_names, langs);
         }
 
-        column![header, iced::widget::rule::horizontal(1), grid_col]
-            .spacing(6)
+        container(section(format!("Materials | Amount: {} ({}×{:.2})", final_amount, base_amount, multiplier), Length::Fill, grid_col))
             .width(Length::Fixed(MAT_TABLE_WIDTH))
             .into()
     }
 
     fn push_chunks<'a>(
         &'a self,
-        mut col: iced::widget::Column<'a, super::Message>,
+        mut col: Column<'a, super::Message>,
         chances: &'a [u32],
         offset: usize,
         item_buys: &'a HashMap<u32, GatyaItemBuy>,
         item_names: &'a HashMap<usize, GatyaItemName>,
         langs: &'a [String],
-    ) -> iced::widget::Column<'a, super::Message> {
-        let column_width = (MAT_TABLE_WIDTH - (COL_SPACING * 3.0)) / 4.0;
+    ) -> Column<'a, super::Message> {
+        let column_width = (MAT_TABLE_WIDTH - (CELL_PADDING_X as f32 * 2.0) - (COL_SPACING * 3.0)) / 4.0;
 
         for (chunk_idx, chunk) in chances.chunks(4).enumerate() {
             let chunk_offset = offset + (chunk_idx * 4);
@@ -112,18 +115,14 @@ impl State {
             for (idx, (drop, chance)) in resolved.iter().enumerate() {
                 let material_id = 10000 + (chunk_offset + idx) as u32;
 
-                name_row = name_row.push(
-                    container(bold_text(drop.name.clone()).size(12))
-                        .width(Length::Fixed(column_width))
-                        .center_x(Length::Fill)
-                );
+                name_row = name_row.push(theme::table_cell_text(drop.name.clone(), Length::Fixed(column_width)).size(LABEL_TEXT_SIZE));
 
                 let icon_element: Element<'a, super::Message> = drop
                     .image_path
                     .as_ref()
                     .and_then(|path| self.icon(material_id, path))
                     .map_or_else(
-                        || text(drop.name.clone()).size(11).into(),
+                        || text(drop.name.clone()).size(FALLBACK_TEXT_SIZE).into(),
                         |handle| tooltip(
                             iced_image(handle).width(Length::Fixed(MAX_ICON_SIZE)).height(Length::Fixed(MAX_ICON_SIZE)),
                             container(text(drop.name.clone())).padding(6).style(container::bordered_box),
@@ -131,21 +130,36 @@ impl State {
                         ).into(),
                     );
 
-                icon_row = icon_row.push(container(icon_element).width(Length::Fixed(column_width)).center_x(Length::Fill));
+                icon_row = icon_row.push(cell(icon_element, column_width));
 
-                let pct_color = if *chance > 0 { None } else { Some(Color::from_rgb8(80, 80, 80)) };
-                pct_row = pct_row.push(
-                    container(text(format!("{}%", chance)).style(move |theme: &Theme| text::Style {
-                        color: pct_color.or(Some(theme.palette().text)),
-                    }))
-                        .width(Length::Fixed(column_width))
-                        .center_x(Length::Fill)
-                );
+                let is_empty = *chance == 0;
+                let chance_text = theme::centered_text(format!("{}%", chance)).style(move |theme: &Theme| text::Style {
+                    color: Some(chance_color(theme, is_empty)),
+                });
+
+                pct_row = pct_row.push(cell(chance_text, column_width));
             }
 
-            col = col.push(column![name_row, icon_row, pct_row].spacing(4).align_x(Alignment::Center));
+            col = col.push(column![
+                container(name_row).style(theme::zebra_table_header).padding(CELL_PADDING).width(Length::Fill),
+                container(icon_row).style(|theme: &Theme| theme::zebra_table_row(theme, 0)).padding(CELL_PADDING).width(Length::Fill),
+                container(pct_row).style(|theme: &Theme| theme::zebra_table_row(theme, 1)).padding(CELL_PADDING).width(Length::Fill),
+            ].width(Length::Fill));
         }
 
         col
     }
+}
+
+fn chance_color(theme: &Theme, is_empty: bool) -> Color {
+    let color = theme.palette().text;
+
+    if is_empty { Color { a: EMPTY_CHANCE_ALPHA, ..color } } else { color }
+}
+
+fn cell<'a>(content: impl Into<Element<'a, super::Message>>, width: f32) -> Element<'a, super::Message> {
+    container(content)
+        .width(Length::Fixed(width))
+        .align_x(Horizontal::Center)
+        .into()
 }

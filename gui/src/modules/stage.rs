@@ -6,13 +6,14 @@ mod fixedlineup;
 mod info;
 mod list;
 mod materials;
+mod section;
 mod treasure;
 
 use std::thread;
 
 use iced::futures::channel::mpsc;
 use iced::widget::{button, column, container, row, scrollable, space, stack, text};
-use iced::{Element, Length, Size, Task, Theme};
+use iced::{Alignment, Element, Length, Padding, Size, Task};
 use tracing::{info, warn};
 
 use core::common::context::GlobalContext;
@@ -26,6 +27,16 @@ use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDa
 use crate::app::theme;
 
 const SIDEBAR_PUSH_GAP: f32 = 10.0;
+const SIDEBAR_PADDING: f32 = 15.0;
+const TOGGLE_BUTTON_SIZE: f32 = 30.0;
+const TOGGLE_BUTTON_GAP: f32 = 5.0;
+const MIN_WINDOW_WIDTH: f32 = 800.0;
+const CONTENT_PADDING: f32 = 40.0;
+const CONTENT_TOP_PADDING: f32 = 3.0;
+const CONTENT_SPACING: f32 = 20.0;
+const DROP_TABLE_GAP: f32 = 15.0;
+
+pub(super) const CONTENT_WIDTH: f32 = MIN_WINDOW_WIDTH - CONTENT_PADDING * 2.0;
 
 #[derive(Clone)]
 pub enum Message {
@@ -176,9 +187,9 @@ impl State {
         let mut base = self.view_main_panel(global_ctx);
 
         if settings.stages.sidebar_behavior == SidebarBehavior::Push && self.is_sidebar_open {
-            let push_offset = list::sidebar_width(&self.data) + SIDEBAR_PUSH_GAP;
+            let push_offset = self.sidebar_span() + SIDEBAR_PUSH_GAP;
             base = container(base)
-                .padding(iced::Padding { top: 0.0, right: 0.0, bottom: 0.0, left: push_offset })
+                .padding(Padding { left: push_offset, ..Padding::ZERO })
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into();
@@ -203,21 +214,26 @@ impl State {
             .then(|| self.filter.view(window).map(Message::Filter))
     }
 
+    fn sidebar_span(&self) -> f32 {
+        list::sidebar_width(&self.data) + SIDEBAR_PADDING * 2.0
+    }
+
     fn view_sidebar_overlay(&self) -> Element<'_, Message> {
         let arrow_text = if self.is_sidebar_open { "◀" } else { "▶" };
-        let toggle_btn = button(theme::centered_text(arrow_text).size(20))
-            .width(40)
-            .height(40)
+        let toggle_btn = button(theme::centered_text(arrow_text).size(16).width(Length::Fill).height(Length::Fill))
+            .width(TOGGLE_BUTTON_SIZE)
+            .height(TOGGLE_BUTTON_SIZE)
+            .padding(0)
             .on_press(Message::ToggleSidebar)
-            .style(|theme: &Theme, status| button::primary(theme, status));
+            .style(theme::neutral_button);
 
-        let toggle_container = column![toggle_btn]
-            .padding(iced::Padding { top: 2.5, right: 0.0, bottom: 0.0, left: 10.0 });
+        let toggle_container = container(toggle_btn)
+            .padding(Padding { top: TOGGLE_BUTTON_GAP, left: TOGGLE_BUTTON_GAP, ..Padding::ZERO });
 
-        let mut layer = row![].height(Length::Fill);
+        let mut layer = row![].height(Length::Fill).align_y(Alignment::Start);
 
         if self.is_sidebar_open {
-            let mut sidebar_content = column![];
+            let mut sidebar_content = column![].height(Length::Fill);
 
             if let Some((done, total)) = self.scan_progress {
                 sidebar_content = sidebar_content.push(text(format!("Scanning stages... {}/{}", done, total)).size(12));
@@ -226,11 +242,10 @@ impl State {
             sidebar_content = sidebar_content.push(self.list.view(&self.data, &self.filter.filter_state).map(Message::List));
 
             let sidebar_panel = container(sidebar_content)
-                .style(|theme: &Theme| container::Style {
-                    background: Some(theme.palette().background.into()),
-                    ..Default::default()
-                })
-                .height(Length::Fill);
+                .width(Length::Fixed(self.sidebar_span()))
+                .height(Length::Fill)
+                .padding(SIDEBAR_PADDING)
+                .style(theme::left_sidebar_container);
 
             layer = layer.push(sidebar_panel);
         }
@@ -246,9 +261,7 @@ impl State {
 
     fn view_main_panel<'a>(&'a self, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let Some(stage_id) = &self.data.selected_stage else {
-            return container(text("Select a stage to view details"))
-                .width(Length::Fill)
-                .height(Length::Fill)
+            return container(theme::centered_text("Select a stage to view details").size(16))
                 .center_x(Length::Fill)
                 .center_y(Length::Fill)
                 .into();
@@ -267,7 +280,14 @@ impl State {
 
         let langs = &self.data.active_language_priority;
 
-        let mut content = column![].spacing(20).padding(40);
+        let mut content = column![]
+            .spacing(CONTENT_SPACING)
+            .padding(Padding {
+                top: CONTENT_TOP_PADDING,
+                right: CONTENT_PADDING,
+                bottom: CONTENT_PADDING,
+                left: CONTENT_PADDING,
+            });
 
         content = content.push(self.info.view(stage, map, langs, &self.data.lock_skip_registry, &self.data.scat_cpu_setting, self.selected_crown));
 
@@ -275,10 +295,10 @@ impl State {
             content = content.push(
                 row![
                     self.materials.view(stage, map, self.selected_crown, &self.data.item_buy_registry, &self.data.item_name_registry, langs),
-                    space().width(Length::Fixed(15.0)),
                     self.treasure.view(stage, &self.data.item_buy_registry, &self.data.item_name_registry, &self.data.drop_chara_registry, &self.data.unit_buy_registry, langs),
                 ]
-                    .align_y(iced::Alignment::Start)
+                    .spacing(DROP_TABLE_GAP)
+                    .align_y(Alignment::Start)
             );
         } else {
             content = content.push(self.treasure.view(stage, &self.data.item_buy_registry, &self.data.item_name_registry, &self.data.drop_chara_registry, &self.data.unit_buy_registry, langs));

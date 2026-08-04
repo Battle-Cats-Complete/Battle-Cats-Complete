@@ -2,18 +2,31 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
-use iced::widget::{button, column, container, row, rule, scrollable, space, text};
-use iced::{Element, Length, Theme};
+use iced::alignment::Vertical;
+use iced::widget::{button, column, container, row, rule, scrollable, space, text, Column, Container};
+use iced::{Element, Length, Padding, Theme};
 use nyanko::chapter::Category;
 
 use core::modules::stage::filter::{CompiledStageFilter, StageFilterState, StageLookupContext};
 use core::modules::stage::{navigate, GlobalMapId, GlobalStageId, StageDataState};
 
+use crate::app::theme;
+use crate::widget::list_row;
+
 use super::category::CategoryExt;
 
-const BTN_SPACING_Y: f32 = 6.0;
+const BTN_SPACING_Y: f32 = 4.0;
+const BTN_TEXT_SIZE: f32 = 12.0;
+const BTN_PADDING: Padding = Padding { top: 5.0, right: 8.0, bottom: 5.0, left: 8.0 };
+
+const RULE_THICKNESS: f32 = 1.0;
+const COLUMN_GAP: f32 = 7.0;
+const COLUMN_SEPARATOR_WIDTH: f32 = RULE_THICKNESS + COLUMN_GAP * 2.0;
 const CATEGORY_COLUMN_WIDTH: f32 = 180.0;
 const COLUMN_WIDTH: f32 = 200.0;
+const SCROLLBAR_RESERVE: f32 = 12.0;
+
+const FILTER_RULE_GAP: f32 = 8.0;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -100,11 +113,7 @@ impl State {
         };
 
         if sorted_categories.is_empty() {
-            return container(text("No Stages Found").style(|theme: &Theme| text::Style {
-                color: Some(theme.palette().danger),
-            }))
-                .width(CATEGORY_COLUMN_WIDTH)
-                .height(Length::Fill)
+            return container(theme::centered_text("No Stages Found").size(16).style(text::danger))
                 .center_x(Length::Fill)
                 .center_y(Length::Fill)
                 .into();
@@ -115,40 +124,33 @@ impl State {
         };
 
         let filter_active = compiled_filter.is_active();
-        let filter_btn_active = filter_state.is_active();
-        let filter_btn = button(text("Filter Stages").size(13))
+        let is_filter_set = filter_state.is_active();
+        let filter_btn = button(button_face("Filter"))
             .width(Length::Fill)
-            .height(28)
+            .padding(0)
             .on_press(Message::ToggleFilter)
-            .style(move |theme: &Theme, _status| button::Style {
-                background: Some(if filter_btn_active {
-                    theme.palette().primary.into()
-                } else {
-                    theme.palette().background.into()
-                }),
-                text_color: theme.palette().text,
-                ..Default::default()
-            });
+            .style(move |theme: &Theme, status| theme::toggle_button(theme, status, is_filter_set));
 
-        let mut sidebar_row = row![].height(Length::Fill);
-
-        let mut cat_col = column![].spacing(BTN_SPACING_Y).width(CATEGORY_COLUMN_WIDTH);
-        for category in sorted_categories.iter().cloned() {
-            if filter_active && !self.matching_categories.contains(&category) {
+        let mut cat_col = button_column(CATEGORY_COLUMN_WIDTH);
+        for category in sorted_categories {
+            if filter_active && !self.matching_categories.contains(category) {
                 continue;
             }
 
-            let is_selected = data.selected_category.as_ref() == Some(&category);
+            let is_selected = data.selected_category.as_ref() == Some(category);
             cat_col = cat_col.push(sidebar_button(
-                category.display_name().to_string(),
+                category.display_name(),
                 is_selected,
-                Message::SelectCategory(category),
+                Message::SelectCategory(category.clone()),
             ));
         }
-        sidebar_row = sidebar_row.push(scrollable(cat_col).height(Length::Fill));
+
+        let mut columns = row![scrollable(cat_col).height(Length::Fill)]
+            .spacing(COLUMN_GAP)
+            .height(Length::Fill);
 
         if let Some(category) = &data.selected_category {
-            let mut map_col = column![].spacing(BTN_SPACING_Y).width(COLUMN_WIDTH);
+            let mut map_col = button_column(COLUMN_WIDTH);
 
             for map in navigate::get_maps(&data.registry, category) {
                 let map_key = GlobalMapId { category: category.clone(), map: map.map_id };
@@ -157,14 +159,17 @@ impl State {
                 }
 
                 let is_selected = data.selected_map.as_ref() == Some(&map_key);
-                map_col = map_col.push(sidebar_button(map.name.clone(), is_selected, Message::SelectMap(map_key)));
+                map_col = map_col.push(sidebar_button(&map.name, is_selected, Message::SelectMap(map_key)));
             }
-            sidebar_row = sidebar_row.push(scrollable(map_col).height(Length::Fill));
+
+            columns = columns.push(rule::vertical(RULE_THICKNESS));
+            columns = columns.push(scrollable(map_col).height(Length::Fill));
         }
 
         if let Some(map_id) = &data.selected_map
-            && data.registry.maps.contains_key(map_id) {
-            let mut stage_col = column![].spacing(BTN_SPACING_Y).width(COLUMN_WIDTH);
+            && data.registry.maps.contains_key(map_id)
+        {
+            let mut stage_col = button_column(COLUMN_WIDTH);
 
             for stage in navigate::get_stages(&data.registry, map_id) {
                 let stage_key = GlobalStageId {
@@ -178,18 +183,21 @@ impl State {
                 }
 
                 let is_selected = data.selected_stage.as_ref() == Some(&stage_key);
-                stage_col = stage_col.push(sidebar_button(stage.name.clone(), is_selected, Message::SelectStage(stage_key)));
+                stage_col = stage_col.push(sidebar_button(&stage.name, is_selected, Message::SelectStage(stage_key)));
             }
-            sidebar_row = sidebar_row.push(scrollable(stage_col).height(Length::Fill));
+
+            columns = columns.push(rule::vertical(RULE_THICKNESS));
+            columns = columns.push(scrollable(stage_col).height(Length::Fill));
         }
 
         column![
-            container(filter_btn).padding(5),
-            rule::horizontal(1),
-            scrollable(sidebar_row)
+            filter_btn,
+            rule::horizontal(RULE_THICKNESS),
+            scrollable(columns)
                 .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default()))
                 .height(Length::Fill),
         ]
+            .spacing(FILTER_RULE_GAP)
             .width(Length::Fixed(sidebar_width(data)))
             .height(Length::Fill)
             .into()
@@ -199,26 +207,28 @@ impl State {
 pub fn sidebar_width(data: &StageDataState) -> f32 {
     let mut width = CATEGORY_COLUMN_WIDTH;
     if data.selected_category.is_some() {
-        width += COLUMN_WIDTH;
+        width += COLUMN_SEPARATOR_WIDTH + COLUMN_WIDTH;
     }
-    if data.selected_map.is_some() {
-        width += COLUMN_WIDTH;
+    if data.selected_map.as_ref().is_some_and(|map_id| data.registry.maps.contains_key(map_id)) {
+        width += COLUMN_SEPARATOR_WIDTH + COLUMN_WIDTH;
     }
     width
 }
 
-fn sidebar_button(label: String, is_selected: bool, msg: Message) -> Element<'static, Message> {
-    button(text(label).size(13))
+fn button_column<'a>(width: f32) -> Column<'a, Message> {
+    column![]
+        .spacing(BTN_SPACING_Y)
+        .width(Length::Fixed(width))
+        .padding(Padding { top: BTN_SPACING_Y, right: SCROLLBAR_RESERVE, bottom: BTN_SPACING_Y, left: 0.0 })
+}
+
+fn button_face(label: &str) -> Container<'_, Message> {
+    container(theme::button_label(label).size(BTN_TEXT_SIZE))
         .width(Length::Fill)
-        .on_press(msg)
-        .style(move |theme: &Theme, _status| button::Style {
-            background: Some(if is_selected {
-                theme.palette().primary.into()
-            } else {
-                theme.palette().background.into()
-            }),
-            text_color: theme.palette().text,
-            ..Default::default()
-        })
-        .into()
+        .align_y(Vertical::Center)
+        .padding(BTN_PADDING)
+}
+
+fn sidebar_button(label: &str, is_selected: bool, msg: Message) -> Element<'_, Message> {
+    list_row(button_face(label), is_selected, true, Length::Fill, msg)
 }

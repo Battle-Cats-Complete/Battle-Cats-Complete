@@ -4,7 +4,7 @@ use iced::theme::Palette;
 use iced::widget::overlay::menu;
 use iced::widget::text::Text;
 use iced::widget::{button, container, pick_list, text, text_input, toggler};
-use iced::{Background, Border, Color, Length, Theme};
+use iced::{font, Background, Border, Color, Length, Theme};
 
 pub const RADIUS_SM: f32 = 4.0;
 pub const RADIUS_MD: f32 = 6.0;
@@ -119,6 +119,23 @@ pub fn header_toggle_button(theme: &Theme, status: button::Status, is_selected: 
     }
 }
 
+pub fn neutral_button(theme: &Theme, status: button::Status) -> button::Style {
+    let palette = theme.extended_palette();
+
+    let pair = match status {
+        button::Status::Hovered => palette.background.strongest,
+        button::Status::Pressed => palette.background.weak,
+        _ => palette.background.strong,
+    };
+
+    button::Style {
+        background: Some(Background::Color(pair.color)),
+        text_color: pair.text,
+        border: Border { radius: Radius::from(RADIUS_SM), ..Border::default() },
+        ..button::Style::default()
+    }
+}
+
 pub fn solid_button(background: Color) -> button::Style {
     button::Style {
         background: Some(Background::Color(background)),
@@ -128,20 +145,26 @@ pub fn solid_button(background: Color) -> button::Style {
     }
 }
 
-pub fn sidebar_container(theme: &Theme) -> container::Style {
+const SIDEBAR_RADIUS: f32 = 10.0;
+
+fn sidebar_style(theme: &Theme, radius: Radius) -> container::Style {
     let palette = theme.palette();
     let background = shade_color(palette.background, 0.35);
     let border_color = shade_color(palette.background, 0.6);
 
     container::Style {
         background: Some(Background::Color(background)),
-        border: Border {
-            color: border_color,
-            width: 1.0,
-            radius: Radius { top_left: 10.0, bottom_left: 10.0, top_right: 0.0, bottom_right: 0.0 },
-        },
+        border: Border { color: border_color, width: 1.0, radius },
         ..container::Style::default()
     }
+}
+
+pub fn sidebar_container(theme: &Theme) -> container::Style {
+    sidebar_style(theme, Radius { top_left: SIDEBAR_RADIUS, bottom_left: SIDEBAR_RADIUS, top_right: 0.0, bottom_right: 0.0 })
+}
+
+pub fn left_sidebar_container(theme: &Theme) -> container::Style {
+    sidebar_style(theme, Radius { top_left: 0.0, bottom_left: 0.0, top_right: SIDEBAR_RADIUS, bottom_right: SIDEBAR_RADIUS })
 }
 
 pub fn list_panel_container(theme: &Theme) -> container::Style {
@@ -228,12 +251,16 @@ pub fn zebra_table_row(theme: &Theme, index: usize) -> container::Style {
     container::Style { background: Some(Background::Color(background)), ..container::Style::default() }
 }
 
-pub fn table_cell_text(content: &str, width: Length) -> Text<'_> {
-    text(content).width(width).align_x(Horizontal::Center)
+pub fn table_cell_text<'a>(content: impl text::IntoFragment<'a>, width: Length) -> Text<'a> {
+    text(content).width(width).align_x(Horizontal::Center).align_y(Vertical::Center)
 }
 
 pub fn button_label<'a>(content: impl text::IntoFragment<'a>) -> Text<'a> {
     text(content).width(Length::Fill).align_x(Horizontal::Center)
+}
+
+pub fn bold_text<'a>(content: impl ToString) -> Text<'a> {
+    text(content.to_string()).font(font::Font { weight: font::Weight::Bold, ..font::Font::DEFAULT })
 }
 
 pub fn centered_text<'a>(content: impl text::IntoFragment<'a>) -> Text<'a> {

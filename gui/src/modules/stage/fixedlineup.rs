@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use iced::widget::image::Handle;
-use iced::widget::{column, container, image as iced_image, row, scrollable, text, tooltip};
-use iced::{font, Alignment, Border, Color, Element, Length, Theme};
+use iced::widget::{column, container, image as iced_image, row, scrollable, space, text, tooltip};
+use iced::{Alignment, Border, Element, Length, Theme};
 use nyanko::chapter::stage::{AbilityType, CannonType, CertificationPreset, EvolutionForm, TreasureType};
 
 use core::modules::cat::waiter::unitexplanation;
@@ -13,16 +13,18 @@ use core::modules::stage::paths;
 use crate::app::theme;
 use crate::common::item_icon;
 
+use super::section::section;
+
 const ICON_SIZE: f32 = 128.0 * 0.45;
 const ICON_SPACING: f32 = 8.0;
 const SCROLL_AREA_HEIGHT: f32 = 90.0;
-
-fn bold_text<'a>(content: impl ToString) -> iced::widget::Text<'a> {
-    text(content.to_string()).font(font::Font {
-        weight: font::Weight::Bold,
-        ..Default::default()
-    })
-}
+const UPGRADES_GAP: f32 = 24.0;
+const GRID_SPACING: f32 = 4.0;
+const GRID_COLUMN_GAP: f32 = 24.0;
+const GRID_BLOCK_GAP: f32 = 12.0;
+const CANNON_LABEL_WIDTH: f32 = 140.0;
+const UPGRADE_LABEL_WIDTH: f32 = 160.0;
+const CHAPTER_LABEL_WIDTH: f32 = 110.0;
 
 #[derive(Default)]
 pub struct State {
@@ -63,16 +65,18 @@ impl State {
                 .height(Length::Fixed(SCROLL_AREA_HEIGHT))
         )
             .padding(4)
-            .style(|_theme: &Theme| container::Style {
-                border: Border { color: Color::from_rgb8(80, 80, 80), width: 2.0, radius: theme::RADIUS_SM.into() },
-                ..Default::default()
+            .style(|theme: &Theme| container::Style {
+                border: Border {
+                    color: theme.extended_palette().background.strong.color,
+                    width: 2.0,
+                    radius: theme::RADIUS_SM.into(),
+                },
+                ..container::Style::default()
             });
 
-        let body = row![slots_col, container(upgrades_panel).padding([0, 24])].align_y(Alignment::Start);
+        let body = row![slots_col, upgrades_panel].spacing(UPGRADES_GAP).align_y(Alignment::Start);
 
-        column![bold_text("Fixed Lineup").size(18), iced::widget::rule::horizontal(1), body]
-            .spacing(6)
-            .into()
+        section("Fixed Lineup", Length::Fixed(super::CONTENT_WIDTH), body)
     }
 
     fn slot_view<'a>(&'a self, slot: &ResolvedSlot, preset: &'a CertificationPreset, langs: &'a [String]) -> Element<'a, super::Message> {
@@ -125,13 +129,13 @@ impl State {
 }
 
 fn empty_slot<'a>() -> Element<'a, super::Message> {
-    container(iced::widget::space())
+    container(space())
         .width(Length::Fixed(ICON_SIZE))
         .height(Length::Fixed(ICON_SIZE))
-        .style(|_theme: &Theme| container::Style {
-            background: Some(Color::from_rgb8(64, 64, 64).into()),
+        .style(|theme: &Theme| container::Style {
+            background: Some(theme.extended_palette().background.strong.color.into()),
             border: Border::default().rounded(theme::RADIUS_SM),
-            ..Default::default()
+            ..container::Style::default()
         })
         .into()
 }
@@ -151,9 +155,9 @@ fn upgrades_section<'a>(preset: &'a CertificationPreset) -> Element<'a, super::M
     let cannon_level = preset.cannon_levels.get(&preset.slot_cannon_type).copied().unwrap_or(0);
 
     let cannon_grid = column![
-        row![bold_text("Cannon").width(Length::Fixed(140.0)), bold_text("Level")].spacing(24),
-        row![text(cannon_name).width(Length::Fixed(140.0)), text(cannon_level.to_string())].spacing(24),
-    ].spacing(4);
+        row![theme::bold_text("Cannon").width(Length::Fixed(CANNON_LABEL_WIDTH)), theme::bold_text("Level")].spacing(GRID_COLUMN_GAP),
+        row![text(cannon_name).width(Length::Fixed(CANNON_LABEL_WIDTH)), text(cannon_level.to_string())].spacing(GRID_COLUMN_GAP),
+    ].spacing(GRID_SPACING);
 
     const ABILITIES: [(AbilityType, &str); 10] = [
         (AbilityType::CatCannonAttack, "Cat Cannon Attack"),
@@ -168,12 +172,14 @@ fn upgrades_section<'a>(preset: &'a CertificationPreset) -> Element<'a, super::M
         (AbilityType::CatEnergy, "Cat Energy"),
     ];
 
-    let mut abilities_grid = column![row![bold_text("Upgrade").width(Length::Fixed(160.0)), bold_text("Level")].spacing(24)].spacing(4);
+    let mut abilities_grid = column![
+        row![theme::bold_text("Upgrade").width(Length::Fixed(UPGRADE_LABEL_WIDTH)), theme::bold_text("Level")].spacing(GRID_COLUMN_GAP)
+    ].spacing(GRID_SPACING);
     for (ability_type, name) in ABILITIES {
         let level_string = preset.abilities.get(&ability_type).map_or("0".to_string(), |ability| {
             if ability.plus_level > 0 { format!("{} +{}", ability.level, ability.plus_level) } else { ability.level.to_string() }
         });
-        abilities_grid = abilities_grid.push(row![text(name).width(Length::Fixed(160.0)), text(level_string)].spacing(24));
+        abilities_grid = abilities_grid.push(row![text(name).width(Length::Fixed(UPGRADE_LABEL_WIDTH)), text(level_string)].spacing(GRID_COLUMN_GAP));
     }
 
     const TREASURES: [(TreasureType, &str); 9] = [
@@ -188,17 +194,18 @@ fn upgrades_section<'a>(preset: &'a CertificationPreset) -> Element<'a, super::M
         (TreasureType::CotC3, "CotC Ch. 3"),
     ];
 
-    let mut treasures_grid = column![row![bold_text("Chapter").width(Length::Fixed(110.0)), bold_text("Grades")].spacing(24)].spacing(4);
+    let mut treasures_grid = column![
+        row![theme::bold_text("Chapter").width(Length::Fixed(CHAPTER_LABEL_WIDTH)), theme::bold_text("Grades")].spacing(GRID_COLUMN_GAP)
+    ].spacing(GRID_SPACING);
     for (treasure_type, name) in TREASURES {
         let grades_string = preset.treasures.get(&treasure_type).map_or("0/0/0".to_string(), |treasure| {
             format!("{}/{}/{}", treasure.superior_count, treasure.normal_count, treasure.inferior_count)
         });
-        treasures_grid = treasures_grid.push(row![text(name).width(Length::Fixed(110.0)), text(grades_string)].spacing(24));
+        treasures_grid = treasures_grid.push(row![text(name).width(Length::Fixed(CHAPTER_LABEL_WIDTH)), text(grades_string)].spacing(GRID_COLUMN_GAP));
     }
 
     column![
         cannon_grid,
-        iced::widget::space().height(Length::Fixed(12.0)),
-        row![abilities_grid, treasures_grid].spacing(24),
-    ].into()
+        row![abilities_grid, treasures_grid].spacing(GRID_COLUMN_GAP),
+    ].spacing(GRID_BLOCK_GAP).into()
 }

@@ -1,9 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use iced::alignment::Horizontal;
 use iced::widget::image::Handle;
 use iced::widget::{column, container, image as iced_image, row, text, tooltip};
-use iced::{font, Alignment, Element, Length};
+use iced::{Alignment, Element, Length, Theme};
 use nyanko::chapter::map::{BonusType, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry};
 use nyanko::chapter::stage::{BossType, EnemyAmount};
 use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
@@ -13,17 +14,30 @@ use core::common::context::GlobalContext;
 use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::stage::{restrictions, Map, Stage};
 
+use crate::app::theme;
 use crate::common::item_icon;
 
-const SUBHEADER_SIZE: f32 = 14.0;
-const MAX_ICON_SIZE: f32 = 32.0;
+use super::section::{section, subsection};
 
-fn bold_text<'a>(content: impl ToString) -> iced::widget::Text<'a> {
-    text(content.to_string()).font(font::Font {
-        weight: font::Weight::Bold,
-        ..Default::default()
-    })
-}
+const MAX_ICON_SIZE: f32 = 32.0;
+const HEADER_TEXT_SIZE: f32 = 12.0;
+const CELL_TEXT_SIZE: f32 = 12.0;
+const CELL_PADDING: [u16; 2] = [4, 6];
+const COLUMN_SPACING: f32 = 6.0;
+const BODY_SPACING: f32 = 10.0;
+const LINE_SPACING: f32 = 2.0;
+
+const ENEMY_COLUMN: u16 = 4;
+const COUNT_COLUMN: u16 = 5;
+const MAG_COLUMN: u16 = 9;
+const MAG_SPLIT_COLUMN: u16 = 9;
+const BASE_COLUMN: u16 = 6;
+const SPAWN_COLUMN: u16 = 6;
+const RESPAWN_COLUMN: u16 = 9;
+const LAYER_COLUMN: u16 = 6;
+const BOSS_COLUMN: u16 = 8;
+const SCORE_COLUMN: u16 = 5;
+const KILLS_COLUMN: u16 = 5;
 
 fn format_enemy_amount(spawn_amount: &EnemyAmount) -> String {
     match spawn_amount {
@@ -177,12 +191,15 @@ fn format_score_bonus(score_bonus: &ScoreBonusMapEntry, global_ctx: &GlobalConte
     description
 }
 
-fn header_cell<'a>(label: impl ToString, width: f32) -> Element<'a, super::Message> {
-    container(bold_text(label).size(12)).width(Length::Fixed(width)).center_x(Length::Fill).into()
+fn header_cell<'a>(label: &'a str, portion: u16) -> Element<'a, super::Message> {
+    theme::table_cell_text(label, Length::FillPortion(portion)).size(HEADER_TEXT_SIZE).into()
 }
 
-fn value_cell<'a>(label: impl ToString, width: f32) -> Element<'a, super::Message> {
-    container(text(label.to_string()).size(12)).width(Length::Fixed(width)).center_x(Length::Fill).into()
+fn value_cell<'a>(label: impl ToString, portion: u16) -> Element<'a, super::Message> {
+    container(theme::centered_text(label.to_string()).size(CELL_TEXT_SIZE))
+        .width(Length::FillPortion(portion))
+        .align_x(Horizontal::Center)
+        .into()
 }
 
 #[derive(Default)]
@@ -214,37 +231,32 @@ impl State {
         enemy_name_registry: &'a [String],
         global_ctx: GlobalContext<'a>,
     ) -> Element<'a, super::Message> {
-        let mut content = column![bold_text("Battleground").size(18), iced::widget::rule::horizontal(1)].spacing(6);
+        let mut content = column![].spacing(BODY_SPACING);
 
         let restriction_lines = restrictions::parse_restrictions(stage, selected_crown as i8, global_ctx);
 
         if !restriction_lines.is_empty() {
-            let mut restriction_col = column![bold_text("Restrictions").size(SUBHEADER_SIZE)].spacing(2);
+            let mut restriction_col = column![].spacing(LINE_SPACING);
             for line in &restriction_lines {
                 restriction_col = restriction_col.push(text(line.clone()));
             }
-            content = content.push(restriction_col);
+            content = content.push(subsection("Restrictions", restriction_col));
         }
 
         if let Some(rule) = &map.special_rules {
-            let mut rules_col = column![bold_text("Rules").size(SUBHEADER_SIZE)].spacing(2);
-            rules_col = rules_col.push(text(format_special_rule(rule, &global_ctx)));
+            let mut rules_col = column![text(format_special_rule(rule, &global_ctx))].spacing(LINE_SPACING);
             if !map.invalid_combos.is_empty() {
                 rules_col = rules_col.push(text(format!("Disabled Combos: {} total", map.invalid_combos.len())));
             }
-            content = content.push(rules_col);
+            content = content.push(subsection("Rules", rules_col));
         }
 
         if let Some(score_bonus) = &map.score_bonuses {
-            let bonus_col = column![
-                bold_text("Score Bonus").size(SUBHEADER_SIZE),
-                text(format_score_bonus(score_bonus, &global_ctx)),
-            ].spacing(2);
-            content = content.push(bonus_col);
+            content = content.push(subsection("Score Bonus", text(format_score_bonus(score_bonus, &global_ctx))));
         }
 
         if stage.enemies.is_empty() {
-            return content.push(text("No enemies defined for this stage.")).into();
+            return section("Battleground", Length::Fixed(super::CONTENT_WIDTH), content.push(text("No enemies defined for this stage.")));
         }
 
         let crown_mag = match selected_crown {
@@ -262,29 +274,31 @@ impl State {
             final_hp_mag != final_atk_mag
         });
 
-        let mag_width = if has_split_magnification { 110.0 } else { 80.0 };
+        let mag_column = if has_split_magnification { MAG_SPLIT_COLUMN } else { MAG_COLUMN };
         let mag_header = if has_split_magnification { "Magnification %\n(HP% / ATK%)" } else { "Magnification %" };
         let base_header = if is_dojo_mechanic { "Dmg #" } else { "Base %" };
 
         let mut header_row = row![
-            header_cell("Enemy", 60.0),
-            header_cell("Count", 45.0),
-            header_cell(mag_header, mag_width),
-            header_cell(base_header, 55.0),
-            header_cell("Spawn", 55.0),
-            header_cell("Respawn", 70.0),
-            header_cell("Layer", 50.0),
-            header_cell("Boss", 60.0),
-        ].spacing(6);
+            header_cell("Enemy", ENEMY_COLUMN),
+            header_cell("Count", COUNT_COLUMN),
+            header_cell(mag_header, mag_column),
+            header_cell(base_header, BASE_COLUMN),
+            header_cell("Spawn", SPAWN_COLUMN),
+            header_cell("Respawn", RESPAWN_COLUMN),
+            header_cell("Layer", LAYER_COLUMN),
+            header_cell("Boss", BOSS_COLUMN),
+        ].spacing(COLUMN_SPACING).align_y(Alignment::Center);
 
         if show_score_column {
-            header_row = header_row.push(header_cell("Score", 50.0));
+            header_row = header_row.push(header_cell("Score", SCORE_COLUMN));
         }
-        header_row = header_row.push(header_cell("Kills", 50.0));
+        header_row = header_row.push(header_cell("Kills", KILLS_COLUMN));
 
-        let mut grid = column![header_row].spacing(4);
+        let mut grid = column![
+            container(header_row).style(theme::zebra_table_header).padding(CELL_PADDING).width(Length::Fill)
+        ].width(Length::Fixed(super::CONTENT_WIDTH));
 
-        for spawn in &stage.enemies {
+        for (index, spawn) in stage.enemies.iter().enumerate() {
             let resolved_name = enemy_name_registry
                 .get(spawn.enemy_id as usize)
                 .filter(|name| !name.is_empty())
@@ -314,24 +328,29 @@ impl State {
             };
 
             let mut value_row = row![
-                container(icon_element).width(Length::Fixed(60.0)).center_x(Length::Fill).align_y(Alignment::Center),
-                value_cell(format_enemy_amount(&spawn.amount), 45.0),
-                value_cell(formatted_mag, mag_width),
-                value_cell(format_base_hp_percentage(spawn.base_hp_perc, is_dojo_mechanic), 55.0),
-                value_cell(format!("{}f", spawn.start_frame), 55.0),
-                value_cell(format_enemy_respawn(&spawn.amount, spawn.respawn_min, spawn.respawn_max), 70.0),
-                value_cell(format_layer(spawn.layer_min, spawn.layer_max), 50.0),
-                value_cell(format_boss_type(&spawn.boss_type), 60.0),
-            ].spacing(6).align_y(Alignment::Center);
+                container(icon_element).width(Length::FillPortion(ENEMY_COLUMN)).align_x(Horizontal::Center).align_y(Alignment::Center),
+                value_cell(format_enemy_amount(&spawn.amount), COUNT_COLUMN),
+                value_cell(formatted_mag, mag_column),
+                value_cell(format_base_hp_percentage(spawn.base_hp_perc, is_dojo_mechanic), BASE_COLUMN),
+                value_cell(format!("{}f", spawn.start_frame), SPAWN_COLUMN),
+                value_cell(format_enemy_respawn(&spawn.amount, spawn.respawn_min, spawn.respawn_max), RESPAWN_COLUMN),
+                value_cell(format_layer(spawn.layer_min, spawn.layer_max), LAYER_COLUMN),
+                value_cell(format_boss_type(&spawn.boss_type), BOSS_COLUMN),
+            ].spacing(COLUMN_SPACING).align_y(Alignment::Center);
 
             if show_score_column {
-                value_row = value_row.push(value_cell(format_score(spawn.score), 50.0));
+                value_row = value_row.push(value_cell(format_score(spawn.score), SCORE_COLUMN));
             }
-            value_row = value_row.push(value_cell(format_kill_count(spawn.kill_count), 50.0));
+            value_row = value_row.push(value_cell(format_kill_count(spawn.kill_count), KILLS_COLUMN));
 
-            grid = grid.push(value_row);
+            grid = grid.push(
+                container(value_row)
+                    .style(move |theme: &Theme| theme::zebra_table_row(theme, index))
+                    .padding(CELL_PADDING)
+                    .width(Length::Fill),
+            );
         }
 
-        content.push(grid).into()
+        section("Battleground", Length::Fixed(super::CONTENT_WIDTH), content.push(grid))
     }
 }
