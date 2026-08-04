@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use iced::alignment::Vertical;
+use iced::alignment::{Horizontal, Vertical};
 use iced::widget::image::Handle;
-use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, text, text_input, tooltip, Space};
+use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, stack, text, text_input, tooltip, Space};
 use iced::{Element, Length, Size};
 use image::imageops;
 use nyanko::enemy::abilities::{AttrUnit, Identity, REGISTRY};
@@ -12,6 +12,7 @@ use core::modules::enemy::filter::evaluation::get_identity_name;
 use core::modules::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
 use core::modules::enemy::game::registry::{get_display_def, AbilityIcon, DisplayGroup};
 
+use crate::app::theme;
 use crate::common::popup;
 use crate::common::ability_fallback::{fallback_icon, ICON_SIZE};
 use crate::common::{CustomAssets, SpriteSheet};
@@ -22,6 +23,7 @@ const STAT_KEYS: [&str; 8] = [
 
 const ICONS_PER_ROW: usize = 11;
 const POPUP_SIZE: Size = Size::new(600.0, 528.0);
+const CLEAR_BTN_CLEARANCE: f32 = 56.0;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -96,19 +98,21 @@ impl State {
     }
 
     fn content_view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
-
         let match_mode_label = if self.filter_state.match_mode == MatchMode::And { "And" } else { "Or" };
 
         let mode_row = row![
             text("Mode:").align_y(Vertical::Center),
             pick_list(vec!["And", "Or"], Some(match_mode_label), |s| {
                 Message::MatchModeChanged(if s == "And" { MatchMode::And } else { MatchMode::Or })
-            }),
+            }).style(theme::combo_box).menu_style(theme::combo_box_menu),
         ].spacing(8).align_y(Vertical::Center);
 
         let mag_row = row![
             text("Target Magnification:").align_y(Vertical::Center),
-            text_input("100", &self.filter_state.mag_input).on_input(Message::MagChanged).width(Length::Fixed(60.0)),
+            text_input("100", &self.filter_state.mag_input)
+                .on_input(Message::MagChanged)
+                .width(Length::Fixed(60.0))
+                .style(theme::rounded_input),
             text("%"),
         ].spacing(8).align_y(Vertical::Center);
 
@@ -157,10 +161,6 @@ impl State {
             abilities_col = abilities_col.push(self.icon_wrap(footer_identities.into_iter(), sheets, assets));
         }
 
-        let clear_btn = button(text("Clear Filter").style(text::danger))
-            .on_press(Message::Clear)
-            .padding([8, 16]);
-
         let content = column![
             text("Attributes").size(18),
             mode_row,
@@ -177,11 +177,24 @@ impl State {
             Space::new().height(Length::Fixed(16.0)),
             text("Abilities").size(18),
             abilities_col,
-            Space::new().height(Length::Fixed(24.0)),
-            clear_btn,
+            Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
         ].spacing(8).padding(24);
 
-        container(scrollable(content))
+        let scroll_layer = scrollable(content).width(Length::Fill).height(Length::Fill);
+
+        let clear_btn = button(text("Clear Filter"))
+            .on_press(Message::Clear)
+            .padding([8, 16])
+            .style(button::danger);
+
+        let clear_btn_layer = container(clear_btn)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Bottom)
+            .padding(16);
+
+        stack![scroll_layer, clear_btn_layer]
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -243,7 +256,7 @@ impl State {
 
         container(column![header, grid_col].spacing(6))
             .padding(8)
-            .style(container::bordered_box)
+            .style(theme::card_container)
             .into()
     }
 
@@ -254,9 +267,9 @@ impl State {
 
         row![
             text(format!("{}:", attr)).width(Length::Fixed(110.0)),
-            text_input("Any", min_str).on_input(move |v| Message::AdvMinChanged(identity, attr, v)).width(Length::Fixed(55.0)),
+            text_input("Any", min_str).on_input(move |v| Message::AdvMinChanged(identity, attr, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
             text("~"),
-            text_input("Any", max_str).on_input(move |v| Message::AdvMaxChanged(identity, attr, v)).width(Length::Fixed(55.0)),
+            text_input("Any", max_str).on_input(move |v| Message::AdvMaxChanged(identity, attr, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
         ].spacing(4).align_y(Vertical::Center).into()
     }
 
@@ -353,8 +366,8 @@ fn stat_range_field<'a>(stat: &'static str, filter_state: &'a EnemyFilterState) 
 
     row![
         text(format!("{}:", stat)).width(Length::Fixed(110.0)),
-        text_input("Any", min_str).on_input(move |v| Message::StatMinChanged(stat, v)).width(Length::Fixed(55.0)),
+        text_input("Any", min_str).on_input(move |v| Message::StatMinChanged(stat, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
         text("~"),
-        text_input("Any", max_str).on_input(move |v| Message::StatMaxChanged(stat, v)).width(Length::Fixed(55.0)),
+        text_input("Any", max_str).on_input(move |v| Message::StatMaxChanged(stat, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
     ].spacing(4).align_y(Vertical::Center).into()
 }

@@ -153,7 +153,7 @@ impl State {
             return icon_widget.into();
         }
 
-        let icon_enum = if item.custom_icon != core::common::game::CustomIcon::None {
+        let icon_enum = if item.custom_icon != CustomIcon::None {
             AbilityIcon::Custom(item.custom_icon)
         } else {
             AbilityIcon::Standard(item.icon_id.unwrap_or(9999))

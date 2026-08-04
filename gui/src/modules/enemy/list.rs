@@ -7,7 +7,7 @@ use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, responsive, row, scrollable, space, text, tooltip, Column, Id};
 use iced::{Border, Color, Element, Length, Size, Task, Theme};
 use image::{imageops, Pixel, RgbaImage};
-use tracing::warn;
+use tracing::{info, warn};
 
 use core::common::assets;
 use core::modules::enemy::filter::evaluation::entity_passes_filter;
@@ -16,6 +16,11 @@ use core::modules::enemy::scanner::EnemyEntry;
 
 use crate::common::udi_loader::{self, Dispatcher, LoadRequest, LoadResult};
 use crate::common::row_window::{self, RowWindow};
+use crate::common::smooth_scroll::smooth_scroll;
+
+const BANNER_ASPECT: f32 = 318.0 / 133.0;
+const SCROLLBAR_WIDTH: f32 = 16.0;
+pub(super) const LIST_WIDTH: f32 = row_window::ROW_HEIGHT * BANNER_ASPECT + SCROLLBAR_WIDTH;
 
 const ENEMY_ICON_SCALE_FACTOR: f32 = 2.6;
 const ENEMY_ICON_OFFSET_X: i64 = 8;
@@ -172,6 +177,8 @@ impl State {
             }
         }
 
+        info!("Visible enemies: {} (of {} total)", self.cached_indices.len(), entries.len());
+
         self.dispatch_requests(entries);
     }
 
@@ -225,12 +232,13 @@ impl State {
                 list_col = list_col.push(space().height(Length::Fixed(pad_after)));
             }
 
-            scrollable(list_col)
-                .id(scrollable_id())
-                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
-                .height(Length::Fill)
-                .width(Length::Fill)
-                .into()
+            smooth_scroll(
+                scrollable(list_col)
+                    .id(scrollable_id())
+                    .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+                    .height(Length::Fill)
+                    .width(Length::Fill),
+            )
         })
             .into()
     }
