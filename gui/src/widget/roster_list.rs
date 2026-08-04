@@ -246,6 +246,7 @@ impl<R: Roster> State<R> {
                     .height(Length::Fill)
                     .width(Length::Fill),
             )
+            .into()
         })
             .into()
     }

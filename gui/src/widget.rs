@@ -18,6 +18,6 @@ pub(crate) use list_row::list_row;
 pub(crate) use name_box::name_box;
 pub(crate) use range_row::range_row;
 pub(crate) use roster_row::roster_row;
-pub(crate) use smooth_scroll::smooth_scroll;
+pub(crate) use smooth_scroll::{smooth_scroll, LINE_PIXELS};
 pub(crate) use stat_grid::{grid_frames, grid_header, grid_value};
 pub(crate) use superscript::text_with_superscript;

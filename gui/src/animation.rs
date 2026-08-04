@@ -16,6 +16,7 @@ use core::modules::settings::Settings;
 
 use crate::app::state::AnimState;
 use crate::app::theme;
+use crate::widget::smooth_scroll;
 
 const FRAME_BORDER_WIDTH: f32 = 4.0;
 const FRAME_BORDER_RADIUS: f32 = 5.0;
@@ -25,6 +26,8 @@ const EXPAND_BUTTON_SIZE: f32 = 30.0;
 const EXPAND_BUTTON_INSET: f32 = 8.0;
 
 const CONTROLS_INSET_LEFT: f32 = 7.0;
+
+const ZOOM_SCROLL_STRENGTH: f32 = 2.5;
 
 fn frame_border<'a>() -> Element<'a, Message> {
     container(Space::new().width(Length::Fill).height(Length::Fill))
@@ -234,7 +237,7 @@ impl State {
     }
 
     fn viewer_view(&self, settings: &Settings, anim_state: &AnimState) -> Element<'_, Message> {
-        let viewport = self.canvas.view(&self.data).map(Message::Canvas);
+        let viewport = smooth_scroll(self.canvas.view(&self.data).map(Message::Canvas)).strength(ZOOM_SCROLL_STRENGTH);
 
         let selection_overlay = self.overlay
             .view(&self.canvas, self.export.camera_region(anim_state), settings.animation.debug_view)

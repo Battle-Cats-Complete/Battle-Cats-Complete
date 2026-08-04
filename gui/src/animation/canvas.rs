@@ -10,11 +10,14 @@ use nyanko::graphics::engine::{resolve_frame, FrameData};
 
 use core::animation::multiply_mat3;
 
+use crate::widget::LINE_PIXELS;
+
 use super::data;
 use super::pipeline::{build_vertices, Pipeline};
 
 const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 10.0;
+const ZOOM_RATE_PER_PIXEL: f32 = 0.0016;
 const FRAME_ADVANCE_PER_TICK: f32 = 0.5;
 
 #[derive(Debug, Clone)]
@@ -22,6 +25,13 @@ pub enum Message {
     Panned(Vector),
     Zoomed(f32),
     Tick,
+}
+
+fn zoom_delta(delta: &mouse::ScrollDelta) -> f32 {
+    match delta {
+        mouse::ScrollDelta::Lines { y, .. } => *y * LINE_PIXELS,
+        mouse::ScrollDelta::Pixels { y, .. } => *y,
+    }
 }
 
 pub struct State {
@@ -54,7 +64,8 @@ impl State {
             Message::Panned(delta) => {
                 self.pan += Vector::new(delta.x / self.zoom, delta.y / self.zoom);
             }
-            Message::Zoomed(factor) => {
+            Message::Zoomed(pixels) => {
+                let factor = (pixels * ZOOM_RATE_PER_PIXEL).exp();
                 self.zoom = (self.zoom * factor).clamp(ZOOM_MIN, ZOOM_MAX);
             }
             Message::Tick => {
@@ -127,17 +138,13 @@ impl<'a> shader::Program<Message> for Viewport<'a> {
                     return None;
                 }
 
-                let amount = match delta {
-                    mouse::ScrollDelta::Lines { y, .. } => *y,
-                    mouse::ScrollDelta::Pixels { y, .. } => *y / 40.0,
-                };
+                let pixels = zoom_delta(delta);
 
-                if amount == 0.0 {
+                if pixels == 0.0 {
                     return None;
                 }
 
-                let factor = 1.0 + (amount * 0.1);
-                Some(shader::Action::publish(Message::Zoomed(factor)).and_capture())
+                Some(shader::Action::publish(Message::Zoomed(pixels)).and_capture())
             }
             _ => None,
         }

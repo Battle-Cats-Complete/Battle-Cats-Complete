@@ -2,17 +2,32 @@ use iced::advanced::{layout, mouse, overlay, renderer, widget, Clipboard, Layout
 use iced::time::{Duration, Instant};
 use iced::{window, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
 
-const LINE_PIXELS: f32 = 60.0;
+pub(crate) const LINE_PIXELS: f32 = 60.0;
 const DECAY_RATE: f32 = 16.0;
 const EPSILON: f32 = 0.05;
+const DEFAULT_STRENGTH: f32 = 1.0;
 const BOOTSTRAP_DT: Duration = Duration::from_millis(16);
 
-pub(crate) fn smooth_scroll<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-    Element::new(SmoothScroll { content: content.into() })
+pub(crate) fn smooth_scroll<'a, Message>(content: impl Into<Element<'a, Message>>) -> SmoothScroll<'a, Message> {
+    SmoothScroll { content: content.into(), strength: DEFAULT_STRENGTH }
 }
 
-struct SmoothScroll<'a, Message> {
+pub(crate) struct SmoothScroll<'a, Message> {
     content: Element<'a, Message>,
+    strength: f32,
+}
+
+impl<'a, Message> SmoothScroll<'a, Message> {
+    pub(crate) fn strength(mut self, strength: f32) -> Self {
+        self.strength = strength;
+        self
+    }
+}
+
+impl<'a, Message: 'a> From<SmoothScroll<'a, Message>> for Element<'a, Message> {
+    fn from(widget: SmoothScroll<'a, Message>) -> Self {
+        Element::new(widget)
+    }
 }
 
 struct ScrollState {
@@ -81,7 +96,7 @@ impl<'a, Message> Widget<Message, Theme, iced::Renderer> for SmoothScroll<'a, Me
                 };
 
                 state.anchor = cursor.position().unwrap_or(state.anchor);
-                state.remaining += raw;
+                state.remaining += raw * self.strength;
 
                 shell.capture_event();
                 shell.request_redraw();
