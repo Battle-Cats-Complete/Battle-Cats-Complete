@@ -1,5 +1,4 @@
 pub mod ability_icon;
-pub(crate) mod animation;
 pub mod feedback;
 pub mod img015;
 pub mod img022;

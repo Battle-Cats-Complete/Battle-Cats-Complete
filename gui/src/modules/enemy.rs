@@ -32,13 +32,12 @@ use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::EnemyDataState;
 use core::modules::settings::Settings;
 
+use crate::animation;
 use crate::app::state::{AppState, EnemyListState};
 use crate::app::theme;
-use crate::common::animation;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
-use crate::widget::{grid_frames, grid_header, grid_value};
-use crate::widget::{name_box, statblock_export};
+use crate::widget::{grid_frames, grid_header, grid_value, name_box, statblock_export};
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
