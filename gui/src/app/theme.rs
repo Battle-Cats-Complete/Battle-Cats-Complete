@@ -232,6 +232,10 @@ pub fn table_cell_text(content: &str, width: Length) -> Text<'_> {
     text(content).width(width).align_x(Horizontal::Center)
 }
 
+pub fn button_label(content: &str) -> Text<'_> {
+    text(content).width(Length::Fill).align_x(Horizontal::Center)
+}
+
 pub fn rounded_input(theme: &Theme, status: text_input::Status) -> text_input::Style {
     let style = text_input::default(theme, status);
     let background = match style.background {

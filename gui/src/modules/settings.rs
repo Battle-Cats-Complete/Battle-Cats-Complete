@@ -18,6 +18,7 @@ use core::modules::settings::{
 use crate::app::theme;
 #[cfg(target_os = "linux")]
 use crate::common::feedback::Slot;
+use crate::widget::list_row;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -303,12 +304,13 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
-        let main_content = column![
-            self.view_tabs(),
+        let main_content = row![
+            self.view_sidebar(),
             scrollable(container(self.view_tab_content(core_settings)).padding(15))
                 .width(Length::Fill)
                 .height(Length::Fill),
-        ];
+        ]
+            .height(Length::Fill);
 
         let modal: Option<Element<'a, Message>> = if self.addons.is_modal_open() {
             Some(self.addons.view_modal().map(Message::Addons))
@@ -337,7 +339,9 @@ impl State {
         }
     }
 
-    fn view_tabs<'a>(&'a self) -> Element<'a, Message> {
+    fn view_sidebar<'a>(&'a self) -> Element<'a, Message> {
+        const SIDEBAR_WIDTH: f32 = 110.0;
+
         let tabs = [
             (Tab::General, "General"),
             (Tab::Cats, "Cats"),
@@ -350,20 +354,21 @@ impl State {
             (Tab::About, "About"),
         ];
 
-        let mut row_tabs = row![].spacing(5).padding(10);
+        let mut tab_list = column![].spacing(4);
 
         for (tab_enum, label) in tabs {
             let is_active = self.active_tab == tab_enum;
+            let row_content = container(theme::button_label(label).size(14)).padding([8, 12]).width(Length::Fill);
 
-            let btn = button(text(label).size(14))
-                .padding([6, 12])
-                .style(move |t: &Theme, status| theme::toggle_button(t, status, is_active))
-                .on_press(Message::TabSelected(tab_enum));
-
-            row_tabs = row_tabs.push(btn);
+            tab_list = tab_list.push(list_row(row_content, is_active, true, Length::Fill, Message::TabSelected(tab_enum)));
         }
 
-        container(row_tabs).width(Length::Fill).into()
+        container(scrollable(tab_list).width(Length::Fill).height(Length::Fill))
+            .width(Length::Fixed(SIDEBAR_WIDTH))
+            .height(Length::Fill)
+            .padding(8)
+            .style(theme::list_panel_container)
+            .into()
     }
 
     fn view_tab_content<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
