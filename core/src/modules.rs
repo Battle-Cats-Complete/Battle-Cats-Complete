@@ -1,5 +1,3 @@
-pub mod addons;
-pub mod animation;
 pub mod cat;
 pub mod data;
 pub mod enemy;

@@ -6,11 +6,11 @@ use std::sync::mpsc;
 
 use tracing::{debug, error, info, warn};
 
-use crate::modules::animation::export::{
+use crate::animation::export::{
     EncoderMessage, EncoderStatus,
     ExportConfig, ExportFormat,
 };
-use crate::modules::animation::export::encoding::prepare_image;
+use crate::animation::export::encoding::prepare_image;
 
 use super::get_ffmpeg_path;
 

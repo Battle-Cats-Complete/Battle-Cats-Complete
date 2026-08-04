@@ -8,7 +8,7 @@ use image::RgbaImage;
 
 use nyanko::graphics::engine::{resolve_frame, FrameData};
 
-use core::modules::animation::multiply_mat3;
+use core::animation::multiply_mat3;
 
 use super::data;
 use super::pipeline::{build_vertices, Pipeline};

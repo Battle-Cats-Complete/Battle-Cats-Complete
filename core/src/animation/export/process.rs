@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use nyanko::graphics::rig::Animation;
 use tracing::info;
 
-use crate::modules::animation::loop_frame;
+use crate::animation::loop_frame;
 
 use super::{ExportConfig, ExportFormat, ExportMode, ExportRequest, FrameTiming};
 

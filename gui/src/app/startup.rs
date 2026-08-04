@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use iced::Task;
+use smol::Timer;
 use tracing::{debug, info, warn};
 
 use core::common::dirs;
@@ -87,8 +88,10 @@ impl BattleCatsApp {
             app.stage_state.start_load(&app.settings).map(Message::Stage),
         ]);
 
+        let reveal_fallback = Task::future(Timer::after(super::WINDOW_SHOW_FALLBACK)).map(|_| Message::ShowWindow);
+
         info!("Initialization sequence complete");
 
-        (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams, boot_loads]))
+        (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams, boot_loads, reveal_fallback]))
     }
 }

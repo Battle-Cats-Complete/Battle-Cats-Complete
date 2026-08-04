@@ -7,9 +7,9 @@ use iced::widget::{button, column, container, pick_list, row, scrollable, space,
 use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 use tracing::{info, warn};
 
+use core::addons::adb::mods as adb_mods;
+use core::addons::paths::{self, Presence};
 use core::common::job::{JobEvent, JobOutcome};
-use core::modules::addons::adb::mods as adb_mods;
-use core::modules::addons::paths::{self, Presence};
 use core::modules::mods::import::{self, ModImportTab, ModPackType};
 use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;

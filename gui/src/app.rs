@@ -1,4 +1,5 @@
 use std::hash::{Hash, Hasher};
+use std::time::Duration;
 
 use iced::alignment;
 use iced::widget::{button, column, container, operation, progress_bar, row, scrollable, stack, text};
@@ -52,6 +53,10 @@ impl Page {
         }
     }
 }
+
+pub(crate) const WINDOW_SHOW_FALLBACK: Duration = Duration::from_millis(400);
+
+const FRAMES_BEFORE_SHOW: u8 = 2;
 
 const ALL_PAGES: &[Page] = &[
     Page::Home,
@@ -111,6 +116,8 @@ enum ActivePopup {
 pub enum Message {
     AutoSave,
     DownloadTick,
+    FramePainted,
+    ShowWindow,
     Navigate(Page),
     ToggleSidebar,
     WindowResized(Size),
@@ -142,6 +149,10 @@ pub struct BattleCatsApp {
     notice_popup: popup::State,
     #[serde(skip)]
     notice_open: bool,
+    #[serde(skip)]
+    frames_painted: u8,
+    #[serde(skip)]
+    window_shown: bool,
 
     #[serde(skip)]
     pub home_state: home::State,
@@ -193,6 +204,8 @@ impl Default for BattleCatsApp {
             active_popups: Vec::new(),
             notice_popup: popup::State::default(),
             notice_open: false,
+            frames_painted: 0,
+            window_shown: false,
             home_state: home::State::default(),
             cat_state: cat::State::default(),
             enemy_state: enemy::EnemyState::default(),
@@ -233,7 +246,16 @@ impl BattleCatsApp {
             subs.push(iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::DownloadTick));
         }
 
+        if !self.window_shown {
+            subs.push(window::frames().map(|_| Message::FramePainted));
+        }
+
         Subscription::batch(subs)
+    }
+
+    fn show_window(&mut self) -> Task<Message> {
+        self.window_shown = true;
+        window::latest().and_then(|id| window::set_mode(id, window::Mode::Windowed))
     }
 
     fn navigate(&mut self, page: Page) -> Task<Message> {
@@ -281,6 +303,26 @@ impl BattleCatsApp {
                 self.check_auto_save();
                 self.check_auto_save_state();
                 Task::none()
+            }
+            Message::FramePainted => {
+                if self.window_shown {
+                    return Task::none();
+                }
+
+                self.frames_painted = self.frames_painted.saturating_add(1);
+                if self.frames_painted < FRAMES_BEFORE_SHOW {
+                    return Task::none();
+                }
+
+                self.show_window()
+            }
+            Message::ShowWindow => {
+                if self.window_shown {
+                    return Task::none();
+                }
+
+                warn!("First frame never reported; revealing the window on the startup fallback");
+                self.show_window()
             }
             Message::DownloadTick => {
                 self.download_progress += 0.01;

@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use tracing::{error, info};
 
-use crate::modules::addons::DownloadConfig;
-use crate::modules::addons::paths::{get_tools_dir, AddonStatus, AVIF_BIN};
+use crate::addons::DownloadConfig;
+use crate::addons::paths::{get_tools_dir, AddonStatus, AVIF_BIN};
 
 pub struct AvifManager {
     pub status: AddonStatus,

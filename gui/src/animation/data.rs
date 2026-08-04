@@ -5,7 +5,7 @@ use tracing::warn;
 
 use nyanko::graphics::rig::{Animation, Unit};
 
-use core::modules::animation::{
+use core::animation::{
     loop_frame, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT,
     IDX_SURFACE, IDX_WALK,
 };

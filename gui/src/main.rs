@@ -33,6 +33,7 @@ pub fn main() -> iced::Result {
         .window(window::Settings {
             size: Size::new(800.0, 600.0),
             min_size: Some(Size::new(800.0, 600.0)),
+            visible: false,
             icon: load_icon(),
             platform_specific: platform_specific_settings(),
             ..Default::default()

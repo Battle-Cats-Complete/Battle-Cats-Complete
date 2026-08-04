@@ -5,13 +5,13 @@ use iced::widget::{button, column, container, row, text};
 use iced::{Alignment, Element, Task, Theme};
 use tracing::error;
 
-use core::modules::addons::adb::AdbManager;
-use core::modules::addons::apkeditor::ApkeditorManager;
-use core::modules::addons::avifenc::AvifManager;
-use core::modules::addons::ffmpeg::FfmpegManager;
+use core::addons::adb::AdbManager;
+use core::addons::apkeditor::ApkeditorManager;
+use core::addons::avifenc::AvifManager;
+use core::addons::ffmpeg::FfmpegManager;
 #[cfg(target_os = "windows")]
-use core::modules::addons::oem::{OemDriver, OemManager};
-use core::modules::addons::{manager, AddonStatus};
+use core::addons::oem::{OemDriver, OemManager};
+use core::addons::{manager, AddonStatus};
 
 use crate::app::theme;
 

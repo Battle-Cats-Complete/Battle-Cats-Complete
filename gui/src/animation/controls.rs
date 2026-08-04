@@ -2,7 +2,7 @@ use iced::widget::{button, column, container, mouse_area, opaque, row, rule, tex
 use iced::border::Radius;
 use iced::{alignment, border, font, Background, Border, Color, Element, Length, Padding, Theme, Vector};
 
-use core::modules::animation::{
+use core::animation::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT, IDX_SURFACE,
     IDX_WALK,
 };

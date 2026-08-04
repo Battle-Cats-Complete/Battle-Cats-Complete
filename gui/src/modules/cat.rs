@@ -42,7 +42,7 @@ use crate::app::state::{AppState, CatListState};
 use crate::app::theme;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
-use crate::widget::{grid_frames, grid_header, grid_value, name_box, statblock_export};
+use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export};
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
@@ -183,7 +183,7 @@ impl Default for State {
 
 impl State {
     pub(crate) fn list_scrollable_id() -> Id {
-        list::scrollable_id()
+        list::State::scrollable_id()
     }
 
     pub(crate) fn list_scroll_offset(&self) -> f32 {
@@ -427,7 +427,7 @@ impl State {
                 Task::none()
             }
             Message::List(msg) => {
-                if let list::Message::SelectCat(id) = msg {
+                if let list::Message::Select(id) = msg {
                     return self.update(Message::SelectCat(id), settings, app_state, global_ctx);
                 }
 
@@ -566,7 +566,7 @@ impl State {
                 .spacing(0)
                 .height(Length::Fill)
         )
-            .width(Length::Fixed(list::LIST_WIDTH + 16.0))
+            .width(Length::Fixed(roster_list::LIST_WIDTH + 16.0))
             .height(Length::Fill)
             .padding(8)
             .style(theme::list_panel_container)

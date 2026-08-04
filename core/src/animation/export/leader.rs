@@ -5,9 +5,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tracing::{error, info, trace, warn};
 
-use crate::modules::addons::avifenc::encoding as avifenc;
-use crate::modules::addons::ffmpeg::encoding as ffmpeg;
-use crate::modules::addons::paths::{self, Presence};
+use crate::addons::avifenc::encoding as avifenc;
+use crate::addons::ffmpeg::encoding as ffmpeg;
+use crate::addons::paths::{self, Presence};
 
 use super::{
     encoding, EncoderMessage, EncoderStatus, ExportConfig, ExportFormat,

@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
-use crate::modules::addons::DownloadConfig;
-use crate::modules::addons::paths::{get_tools_dir, AddonStatus, ADB_BIN};
+use crate::addons::DownloadConfig;
+use crate::addons::paths::{get_tools_dir, AddonStatus, ADB_BIN};
 
 
 pub struct AdbManager {

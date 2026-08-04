@@ -4,7 +4,7 @@ use std::process::Command;
 
 use tracing::{debug, error, info, warn};
 
-use crate::modules::addons::apkeditor::{get_apkeditor_path, get_java_path};
+use crate::addons::apkeditor::{get_apkeditor_path, get_java_path};
 
 fn execute_command(
     binary_path: &Path,

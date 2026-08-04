@@ -8,12 +8,12 @@ use std::thread;
 
 use tracing::{debug, error, info, warn};
 
-use crate::modules::addons::ffmpeg as ffmpeg_dl;
-use crate::modules::addons::paths::{self, Presence};
-use crate::modules::animation::export::{
+use crate::addons::ffmpeg as ffmpeg_dl;
+use crate::addons::paths::{self, Presence};
+use crate::animation::export::{
     EncoderMessage, EncoderStatus, ExportConfig,
 };
-use crate::modules::animation::export::encoding::prepare_image;
+use crate::animation::export::encoding::prepare_image;
 
 use super::get_avif_path;
 

@@ -5,10 +5,10 @@ use std::path::Path;
 use tracing::{debug, info};
 use zip::ZipArchive;
 
+use crate::addons::DownloadConfig;
+
 use super::paths::get_tools_dir;
 use super::AddonStatus;
-
-use crate::modules::addons::DownloadConfig;
 
 const RELEASE_TAG: &str = "tools";
 const REPO_OWNER: &str = "omochikaeri15";

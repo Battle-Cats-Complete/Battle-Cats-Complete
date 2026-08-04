@@ -8,6 +8,7 @@ mod stat_grid;
 mod superscript;
 
 pub(crate) mod popup;
+pub mod roster_list;
 pub mod statblock_export;
 
 pub(crate) use ability_fallback::{fallback_icon, ICON_SIZE};

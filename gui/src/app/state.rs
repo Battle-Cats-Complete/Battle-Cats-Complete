@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
-use core::modules::animation::export::ExportFormat;
+use core::animation::export::ExportFormat;
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]

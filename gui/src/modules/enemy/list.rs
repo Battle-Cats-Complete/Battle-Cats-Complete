@@ -1,255 +1,53 @@
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use iced::futures::channel::mpsc::UnboundedReceiver;
-use iced::widget::image::Handle;
-use iced::widget::{column, responsive, row, scrollable, space, text, Column, Id};
-use iced::{Element, Length, Size, Task};
+use iced::widget::{column, row, text};
+use iced::Element;
 use image::{imageops, Pixel, RgbaImage};
-use tracing::{info, warn};
 
-use core::common::assets;
 use core::modules::enemy::filter::evaluation::entity_passes_filter;
 use core::modules::enemy::filter::EnemyFilterState;
 use core::modules::enemy::scanner::EnemyEntry;
 
-use crate::common::row_window::{self, RowWindow};
-use crate::common::udi_loader::{self, Dispatcher, LoadRequest, LoadResult};
-use crate::widget::{roster_row, smooth_scroll};
-
-const BANNER_ASPECT: f32 = 318.0 / 133.0;
-const SCROLLBAR_WIDTH: f32 = 16.0;
-pub(super) const LIST_WIDTH: f32 = row_window::ROW_HEIGHT * BANNER_ASPECT + SCROLLBAR_WIDTH;
+use crate::common::udi_loader::Composite;
+use crate::widget::roster_list::{self, Roster};
 
 const ENEMY_ICON_SCALE_FACTOR: f32 = 2.6;
 const ENEMY_ICON_OFFSET_X: i64 = 8;
 const ENEMY_SHADOW_MARGIN: u32 = 8;
 
-#[derive(Clone)]
-pub enum Message {
-    IconLoaded(LoadResult),
-    SelectEnemy(u32),
-    Scrolled(f32),
-}
+pub(super) type State = roster_list::State<EnemyRoster>;
+pub(super) type Message = roster_list::Message;
 
-impl std::fmt::Debug for Message {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::IconLoaded(result) => write!(f, "IconLoaded({})", result.id),
-            Self::SelectEnemy(id) => write!(f, "SelectEnemy({})", id),
-            Self::Scrolled(offset) => write!(f, "Scrolled({})", offset),
-        }
-    }
-}
+pub(super) struct EnemyRoster;
 
-pub struct State {
-    texture_cache: HashMap<u32, Handle>,
-    placeholder: Handle,
-    background: Option<Arc<RgbaImage>>,
-    pending_requests: HashSet<u32>,
-    missing_ids: HashSet<u32>,
-    last_search_query: String,
-    last_unit_count: usize,
-    last_filter_state: EnemyFilterState,
-    cached_indices: Vec<usize>,
-    scroll_offset: f32,
-    last_focus_row: usize,
-    generation: u64,
-    loader: Dispatcher,
-    rx_result: Option<UnboundedReceiver<LoadResult>>,
-}
+impl Roster for EnemyRoster {
+    type Entry = EnemyEntry;
+    type Filter = EnemyFilterState;
 
-impl Default for State {
-    fn default() -> Self {
-        let background = image::load_from_memory(assets::UDI_F).ok().map(|img| Arc::new(img.to_rgba8()));
+    const SCROLLABLE_ID: &'static str = "enemy-banner-list";
+    const LABEL: &'static str = "enemies";
+    const COMPOSITE: Composite = composite_icon;
 
-        let placeholder = match &background {
-            Some(bg) => Handle::from_rgba(bg.width(), bg.height(), bg.as_raw().clone()),
-            None => {
-                warn!("Failed to decode embedded banner background asset");
-                Handle::from_rgba(1, 1, vec![80, 80, 80, 255])
-            }
-        };
-
-        let (loader, rx_result) = udi_loader::spawn(composite_icon);
-
-        Self {
-            texture_cache: HashMap::new(),
-            placeholder,
-            background,
-            pending_requests: HashSet::new(),
-            missing_ids: HashSet::new(),
-            last_search_query: String::new(),
-            last_unit_count: usize::MAX,
-            last_filter_state: EnemyFilterState::default(),
-            cached_indices: Vec::new(),
-            scroll_offset: 0.0,
-            last_focus_row: 0,
-            generation: 0,
-            loader,
-            rx_result: Some(rx_result),
-        }
-    }
-}
-
-pub(super) fn scrollable_id() -> Id {
-    Id::new("enemy-banner-list")
-}
-
-impl State {
-    pub(super) fn scroll_offset(&self) -> f32 {
-        self.scroll_offset
+    fn id(entry: &EnemyEntry) -> u32 {
+        entry.id
     }
 
-    pub(super) fn set_scroll_offset(&mut self, offset: f32) {
-        self.scroll_offset = offset;
+    fn image_path(entry: &EnemyEntry) -> Option<PathBuf> {
+        entry.icon_path.clone()
     }
 
-    pub fn result_stream(&mut self) -> Task<Message> {
-        self.rx_result.take().map_or_else(Task::none, |rx| Task::stream(rx).map(Message::IconLoaded))
+    fn passes_filter(entry: &EnemyEntry, filter: &EnemyFilterState) -> bool {
+        entity_passes_filter(entry, filter)
     }
 
-    pub fn update(&mut self, message: Message) {
-        if let Message::Scrolled(offset) = message {
-            self.scroll_offset = offset;
+    fn matches_query(entry: &EnemyEntry, query: &str) -> bool {
+        let is_id_search = query.chars().next().is_some_and(|c| c.is_ascii_digit());
 
-            let row = (offset / row_window::ROW_PITCH) as usize;
-            if row != self.last_focus_row {
-                self.last_focus_row = row;
-                self.loader.set_focus(row);
-            }
-            return;
-        }
-
-        let Message::IconLoaded(result) = message else { return };
-
-        if result.generation != self.generation {
-            return;
-        }
-
-        self.pending_requests.remove(&result.id);
-        match result.payload {
-            Some((width, height, pixels)) => {
-                self.texture_cache.insert(result.id, Handle::from_rgba(width, height, pixels));
-            }
-            None => {
-                self.missing_ids.insert(result.id);
-            }
-        }
+        (is_id_search && entry.id_str().to_lowercase().contains(query))
+            || entry.name.to_lowercase().contains(query)
     }
 
-    pub fn invalidate(&mut self) {
-        self.generation += 1;
-        self.texture_cache.clear();
-        self.missing_ids.clear();
-        self.pending_requests.clear();
-        self.last_unit_count = usize::MAX;
-    }
-
-    pub fn refresh(&mut self, entries: &[EnemyEntry], query: &str, filter_state: &EnemyFilterState) {
-        if query == self.last_search_query && entries.len() == self.last_unit_count && filter_state == &self.last_filter_state {
-            return;
-        }
-
-        self.last_search_query = query.to_string();
-        self.last_unit_count = entries.len();
-        self.last_filter_state = filter_state.clone();
-        self.cached_indices.clear();
-
-        let query_lower = query.to_lowercase();
-        let is_empty = query_lower.is_empty();
-        let is_id_search = query_lower.chars().next().is_some_and(|c| c.is_ascii_digit());
-
-        for (index, entry) in entries.iter().enumerate() {
-            if !entity_passes_filter(entry, filter_state) {
-                continue;
-            }
-
-            let full_id = entry.id_str().to_lowercase();
-
-            let matches = is_empty
-                || (is_id_search && full_id.contains(&query_lower))
-                || entry.name.to_lowercase().contains(&query_lower);
-
-            if matches {
-                self.cached_indices.push(index);
-            }
-        }
-
-        info!("Visible enemies: {} (of {} total)", self.cached_indices.len(), entries.len());
-
-        self.dispatch_requests(entries);
-    }
-
-    fn dispatch_requests(&mut self, entries: &[EnemyEntry]) {
-        let Some(background) = self.background.clone() else { return; };
-
-        let ranked = self.cached_indices.iter().filter_map(|&index| entries.get(index).map(|entry| entry.id)).collect();
-        self.loader.set_rank(ranked);
-
-        self.last_focus_row = (self.scroll_offset / row_window::ROW_PITCH) as usize;
-        self.loader.set_focus(self.last_focus_row);
-
-        for &index in &self.cached_indices {
-            let Some(entry) = entries.get(index) else { continue; };
-            let id = entry.id;
-
-            if self.texture_cache.contains_key(&id) || self.missing_ids.contains(&id) || self.pending_requests.contains(&id) {
-                continue;
-            }
-
-            let Some(path) = entry.icon_path.clone() else {
-                self.missing_ids.insert(id);
-                continue;
-            };
-
-            self.pending_requests.insert(id);
-
-            self.loader.request(LoadRequest { id, path, background: background.clone(), generation: self.generation });
-        }
-    }
-
-    pub fn view<'a>(&'a self, entries: &'a [EnemyEntry], selected_id: Option<u32>) -> Element<'a, Message> {
-        responsive(move |size: Size| {
-            let RowWindow { range, pad_before, pad_after } =
-                row_window::compute(self.cached_indices.len(), size.height, self.scroll_offset);
-
-            let mut list_col = Column::with_capacity(range.len() + 2)
-                .spacing(row_window::ROW_SPACING)
-                .width(Length::Fill);
-
-            if pad_before > 0.0 {
-                list_col = list_col.push(space().height(Length::Fixed(pad_before)));
-            }
-
-            for &index in &self.cached_indices[range] {
-                let Some(entry) = entries.get(index) else { continue; };
-                list_col = list_col.push(self.view_row(entry, selected_id == Some(entry.id)));
-            }
-
-            if pad_after > 0.0 {
-                list_col = list_col.push(space().height(Length::Fixed(pad_after)));
-            }
-
-            smooth_scroll(
-                scrollable(list_col)
-                    .id(scrollable_id())
-                    .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
-                    .height(Length::Fill)
-                    .width(Length::Fill),
-            )
-        })
-            .into()
-    }
-
-    fn view_row<'a>(&'a self, entry: &'a EnemyEntry, is_selected: bool) -> Element<'a, Message> {
-        let handle = self.texture_cache.get(&entry.id).cloned().unwrap_or_else(|| self.placeholder.clone());
-
-        roster_row(handle, is_selected, Message::SelectEnemy(entry.id), self.view_tooltip(entry))
-    }
-
-    fn view_tooltip<'a>(&self, entry: &EnemyEntry) -> Element<'a, Message> {
+    fn tooltip<'a>(entry: &EnemyEntry) -> Element<'a, Message> {
         column![
             row![text("[ID]").size(11), text(entry.id_str())].spacing(4),
             row![text("[Name]").size(11), text(entry.display_name())].spacing(4),

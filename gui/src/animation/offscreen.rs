@@ -12,9 +12,9 @@ use tracing::{error, warn};
 use nyanko::graphics::engine::{resolve_frame, FrameData};
 use nyanko::graphics::rig::{Animation, Unit};
 
-use core::modules::animation::export::process::calculate_export_time;
-use core::modules::animation::export::{EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
-use core::modules::animation::{multiply_mat3, IDX_ATTACK, IDX_IDLE, IDX_KB, IDX_WALK};
+use core::animation::export::process::calculate_export_time;
+use core::animation::export::{EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
+use core::animation::{multiply_mat3, IDX_ATTACK, IDX_IDLE, IDX_KB, IDX_WALK};
 
 use super::pipeline::{build_vertices, Pipeline};
 

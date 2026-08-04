@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::addons::adb::bridge;
 use crate::common::job::JobEvent;
-use crate::modules::addons::adb::bridge;
 use crate::modules::settings::EmulatorConfig;
 
 use super::engine;
