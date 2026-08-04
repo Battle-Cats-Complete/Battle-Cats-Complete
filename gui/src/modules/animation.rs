@@ -51,6 +51,7 @@ pub struct State {
     is_expanded: bool,
     playhead_id: String,
     playhead_index: usize,
+    playhead_reset: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -77,16 +78,21 @@ impl State {
     }
 
     pub fn reset_playhead(&mut self) {
-        self.canvas.current_frame = 0.0;
+        self.playhead_reset = true;
     }
 
     fn sync_playhead(&mut self) {
-        if self.playhead_id == self.data.loaded_id() && self.playhead_index == self.data.loaded_anim_index {
+        if self.playhead_id == self.data.loaded_id() && self.playhead_index == self.data.active_index() {
             return;
         }
 
         self.playhead_id = self.data.loaded_id().to_string();
-        self.playhead_index = self.data.loaded_anim_index;
+        self.playhead_index = self.data.active_index();
+
+        if std::mem::take(&mut self.playhead_reset) {
+            self.canvas.current_frame = 0.0;
+        }
+
         controls::clamp_frame(&mut self.canvas, &self.data);
     }
 
@@ -128,6 +134,7 @@ impl State {
             }
             Message::Controls(msg) => {
                 self.controls.update(msg, &mut self.canvas, &mut self.data, anim_state);
+                self.sync_playhead();
                 Task::none()
             }
             Message::Export(export::Message::SetCamera) => {

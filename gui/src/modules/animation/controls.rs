@@ -101,7 +101,7 @@ fn frame_text(canvas: &canvas::State) -> String {
 }
 
 fn frame_bounds(canvas: &canvas::State, data: &data::State) -> (f32, Option<f32>) {
-    if data.loaded_anim_index == IDX_MODEL {
+    if data.active_index() == IDX_MODEL {
         return (0.0, Some(0.0));
     }
 
@@ -117,7 +117,7 @@ pub(super) fn clamp_frame(canvas: &mut canvas::State, data: &data::State) {
 }
 
 fn effective_max(canvas: &canvas::State, data: &data::State) -> String {
-    if data.loaded_anim_index == IDX_MODEL {
+    if data.active_index() == IDX_MODEL {
         return "0".to_string();
     }
 

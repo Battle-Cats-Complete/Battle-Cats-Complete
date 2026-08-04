@@ -67,12 +67,16 @@ impl State {
 
     pub fn loop_bound(&self) -> Option<i32> {
         self.current_anim.as_ref().map_or(Some(0), |anim| {
-            if self.loaded_anim_index <= IDX_IDLE { anim.calculate_true_loop() } else { Some(anim.max_frame) }
+            if self.current_anim_index <= IDX_IDLE { anim.calculate_true_loop() } else { Some(anim.max_frame) }
         })
     }
 
+    pub fn active_index(&self) -> usize {
+        self.current_anim_index
+    }
+
     pub fn playback_frame(&self, frame: f32) -> f32 {
-        if self.loaded_anim_index <= IDX_IDLE {
+        if self.current_anim_index <= IDX_IDLE {
             return frame;
         }
 
@@ -88,7 +92,12 @@ impl State {
     }
 
     pub fn select(&mut self, index: usize) {
+        if self.loaded_anim_index == index {
+            return;
+        }
+
         self.loaded_anim_index = index;
+        self.load_active();
     }
 
     pub fn invalidate_paths(&mut self) {
@@ -105,7 +114,7 @@ impl State {
 
     pub fn sync(&mut self, cat: &CatEntry, form: usize, settings: &Settings) {
         self.prepare(cat, form, settings);
-        self.load_active(settings);
+        self.load_active();
     }
 
     pub fn preload_request(&mut self, cat: &CatEntry, form: usize, settings: &Settings) -> Option<PreloadRequest> {
@@ -265,7 +274,7 @@ impl State {
 
     pub fn sync_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) {
         self.prepare_enemy(enemy, settings);
-        self.load_active(settings);
+        self.load_active();
     }
 
     fn prepare_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) {
@@ -365,7 +374,7 @@ impl State {
         }
     }
 
-    fn load_active(&mut self, settings: &Settings) {
+    fn load_active(&mut self) {
         let valid_index = self.loaded_anim_index;
 
         if valid_index == IDX_NONE {
@@ -384,7 +393,7 @@ impl State {
             if has_failed {
                 return;
             }
-            self.sync_animation(valid_index, settings);
+            self.sync_animation(valid_index);
             return;
         }
 
@@ -428,7 +437,7 @@ impl State {
         loaded_for != target
     }
 
-    fn sync_animation(&mut self, valid_index: usize, _settings: &Settings) {
+    fn sync_animation(&mut self, valid_index: usize) {
         if !Self::needs_animation_reload(self.current_anim_index, valid_index) {
             return;
         }

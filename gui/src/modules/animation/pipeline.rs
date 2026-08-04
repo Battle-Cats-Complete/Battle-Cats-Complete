@@ -51,7 +51,7 @@ pub(super) struct Batch {
 
 pub(super) struct AtlasBinding {
     pub bind_group: wgpu::BindGroup,
-    pub image_id: usize,
+    image: Arc<RgbaImage>,
 }
 
 pub struct Pipeline {
@@ -162,9 +162,7 @@ impl Pipeline {
     }
 
     pub fn upload_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, image: &Arc<RgbaImage>) {
-        let image_id = Arc::as_ptr(image) as usize;
-
-        if self.atlas.as_ref().is_some_and(|atlas| atlas.image_id == image_id) {
+        if self.atlas.as_ref().is_some_and(|atlas| Arc::ptr_eq(&atlas.image, image)) {
             return;
         }
 
@@ -218,7 +216,7 @@ impl Pipeline {
             ],
         });
 
-        self.atlas = Some(AtlasBinding { bind_group, image_id });
+        self.atlas = Some(AtlasBinding { bind_group, image: image.clone() });
     }
 
     pub fn upload_vertices(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, vertex_data: &[f32]) {
