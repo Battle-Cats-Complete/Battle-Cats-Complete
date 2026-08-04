@@ -1,4 +1,4 @@
-use iced::widget::{button, column, container, mouse_area, row, rule, text, text_input, Button, Container, TextInput};
+use iced::widget::{button, column, container, mouse_area, opaque, row, rule, text, text_input, Button, Container, TextInput};
 use iced::border::Radius;
 use iced::{alignment, border, font, Background, Border, Color, Element, Length, Theme, Vector};
 
@@ -321,7 +321,11 @@ impl State {
                 if value.is_empty() {
                     canvas.loop_start = None;
                 } else if let Ok(parsed) = value.parse::<f32>() {
-                    canvas.loop_start = Some(parsed.max(0.0));
+                    let start = parsed.max(0.0);
+                    canvas.loop_start = Some(start);
+                    if canvas.current_frame < start {
+                        canvas.current_frame = start;
+                    }
                 }
                 self.range_start_input = value;
             }
@@ -329,7 +333,11 @@ impl State {
                 if value.is_empty() {
                     canvas.loop_end = None;
                 } else if let Ok(parsed) = value.parse::<f32>() {
-                    canvas.loop_end = Some(parsed.max(0.0));
+                    let end = parsed.max(0.0);
+                    canvas.loop_end = Some(end);
+                    if canvas.current_frame > end {
+                        canvas.current_frame = end;
+                    }
                 }
                 self.range_end_input = value;
             }
@@ -400,10 +408,7 @@ impl State {
                 .push(self.transport_row(canvas, data));
         }
 
-        container(panel)
-            .padding(PANEL_PAD)
-            .style(panel_style)
-            .into()
+        opaque(container(panel).padding(PANEL_PAD).style(panel_style))
     }
 
     fn transport_row<'a>(&'a self, canvas: &'a canvas::State, data: &'a data::State) -> Element<'a, Message> {

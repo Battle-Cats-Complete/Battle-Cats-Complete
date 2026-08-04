@@ -2,7 +2,7 @@ mod canvas;
 mod controls;
 mod data;
 mod export;
-mod icon;
+mod expand;
 mod offscreen;
 mod overlay;
 mod pipeline;
@@ -223,7 +223,7 @@ impl State {
 
         let is_expanded = self.is_expanded;
         let expand_button = container(
-            button(icon::expand(is_expanded))
+            button(expand::expand(is_expanded))
                 .width(Length::Fixed(EXPAND_BUTTON_SIZE))
                 .height(Length::Fixed(EXPAND_BUTTON_SIZE))
                 .padding(0)
