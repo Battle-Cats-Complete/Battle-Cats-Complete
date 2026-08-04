@@ -12,10 +12,10 @@ use core::modules::cat::waiter::unitid;
 use core::modules::settings::Settings;
 
 use crate::app::theme;
-use crate::common::superscript::text_with_superscript;
 use crate::common::{CustomAssets, SpriteSheet};
+use crate::widget::{ability_spacer, text_with_superscript};
 
-use super::abilities::{spacer, DESCRIPTION_TEXT_SIZE};
+use super::abilities::DESCRIPTION_TEXT_SIZE;
 use super::abilities::{ListLayout, Message, SpiritContext, State};
 
 const ICON_TEXT_GAP: f32 = 8.0;
@@ -90,21 +90,21 @@ impl State {
         let mut last_was_trait = false;
 
         if !s_traits.is_empty() {
-            col = col.push(spacer(ABILITY_Y));
+            col = col.push(ability_spacer(ABILITY_Y));
             col = col.push(self.icon_row(&s_traits, sheets, assets, per_row));
             prev = true;
             last_was_trait = true;
         }
 
         if !s_h1.is_empty() {
-            col = col.push(spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+            col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
             col = col.push(self.icon_row(&s_h1, sheets, assets, per_row));
             prev = true;
             last_was_trait = false;
         }
 
         if !s_h2.is_empty() {
-            col = col.push(spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+            col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
             col = col.push(self.icon_row(&s_h2, sheets, assets, per_row));
             prev = true;
             last_was_trait = false;
@@ -113,10 +113,10 @@ impl State {
         let has_body = !s_b1.is_empty() || !s_b2.is_empty();
         if has_body {
             let layout = ListLayout { per_row, fill: false };
-            col = col.push(spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+            col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
             col = col.push(self.ability_list(&s_b1, spirit, sheets, assets, settings, layout));
             if !s_b1.is_empty() && !s_b2.is_empty() {
-                col = col.push(spacer(ABILITY_Y));
+                col = col.push(ability_spacer(ABILITY_Y));
             }
             col = col.push(self.ability_list(&s_b2, spirit, sheets, assets, settings, layout));
             prev = true;
@@ -124,7 +124,7 @@ impl State {
 
         if !s_footer.is_empty() {
             if prev {
-                col = col.push(spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+                col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
             }
             col = col.push(self.icon_row(&s_footer, sheets, assets, per_row));
         }

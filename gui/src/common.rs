@@ -1,15 +1,11 @@
+pub mod ability_icon;
+pub(crate) mod animation;
 pub mod feedback;
-pub mod udi_loader;
-pub mod item_icon;
 pub mod img015;
 pub mod img022;
-pub mod name_box;
-pub mod popup;
+pub mod item_icon;
 pub mod row_window;
-pub mod smooth_scroll;
-pub mod stat_grid;
-pub mod superscript;
-pub mod ability_fallback;
+pub mod udi_loader;
 pub mod watcher;
 
 use std::path::Path;

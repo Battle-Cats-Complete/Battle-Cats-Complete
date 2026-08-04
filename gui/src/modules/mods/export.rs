@@ -13,7 +13,7 @@ use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
 use crate::app::theme;
-use crate::common::popup;
+use crate::widget::popup;
 
 use super::job_finished;
 

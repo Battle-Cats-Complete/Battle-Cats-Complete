@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use iced::futures::channel::mpsc::UnboundedReceiver;
 use iced::widget::image::Handle;
-use iced::widget::{button, column, container, image as iced_image, responsive, row, scrollable, space, text, tooltip, Column, Id};
-use iced::{Border, Color, Element, Length, Size, Task, Theme};
+use iced::widget::{column, responsive, row, scrollable, space, text, Column, Id};
+use iced::{Element, Length, Size, Task};
 use image::{imageops, RgbaImage};
 use tracing::{info, warn};
 
@@ -15,9 +15,10 @@ use core::common::{assets, gfx};
 use core::modules::cat::filter::{evaluation, CatFilterState};
 use core::modules::cat::scanner::CatEntry;
 
-use crate::common::udi_loader::{self, Dispatcher, LoadRequest, LoadResult};
 use crate::common::row_window::{self, RowWindow};
-use crate::common::smooth_scroll::smooth_scroll;
+use crate::common::udi_loader::{self, Dispatcher, LoadRequest, LoadResult};
+use crate::widget::{roster_row, smooth_scroll};
+
 const BANNER_ASPECT: f32 = 318.0 / 133.0;
 const SCROLLBAR_WIDTH: f32 = 16.0;
 pub(super) const LIST_WIDTH: f32 = row_window::ROW_HEIGHT * BANNER_ASPECT + SCROLLBAR_WIDTH;
@@ -238,31 +239,8 @@ impl State {
 
     fn view_row<'a>(&'a self, cat: &'a CatEntry, is_selected: bool) -> Element<'a, Message> {
         let handle = self.texture_cache.get(&cat.id).cloned().unwrap_or_else(|| self.placeholder.clone());
-        let banner = iced_image(handle).height(Length::Fixed(row_window::ROW_HEIGHT));
 
-        let banner_button = button(row![banner].width(Length::Fill))
-            .on_press(Message::SelectCat(cat.id))
-            .width(Length::Fill)
-            .padding(0)
-            .style(move |theme: &Theme, status| {
-                let palette = theme.palette();
-                let background = if is_selected {
-                    palette.primary
-                } else if status == button::Status::Hovered {
-                    Color { a: 0.15, ..palette.text }
-                } else {
-                    Color::TRANSPARENT
-                };
-
-                button::Style {
-                    background: Some(background.into()),
-                    text_color: palette.text,
-                    border: Border::default().rounded(4.0).width(if is_selected { 2.0 } else { 0.0 }).color(palette.primary),
-                    ..Default::default()
-                }
-            });
-
-        tooltip(banner_button, self.view_tooltip(cat), tooltip::Position::Right).into()
+        roster_row(handle, is_selected, Message::SelectCat(cat.id), self.view_tooltip(cat))
     }
 
     fn view_tooltip<'a>(&self, cat: &CatEntry) -> Element<'a, Message> {
@@ -276,7 +254,7 @@ impl State {
             content = content.push(row![text(format!("[{}]", label)).size(11), text(cat.display_name(i))].spacing(4));
         }
 
-        container(content).padding(8).style(container::bordered_box).into()
+        content.into()
     }
 }
 

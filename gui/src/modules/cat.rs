@@ -39,11 +39,11 @@ use core::modules::settings::Settings;
 
 use crate::app::state::{AppState, CatListState};
 use crate::app::theme;
-use crate::common::name_box;
-use crate::common::stat_grid;
+use crate::common::animation;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
-use crate::modules::animation;
+use crate::widget::{grid_frames, grid_header, grid_value};
+use crate::widget::{name_box, statblock_export};
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
@@ -78,7 +78,7 @@ pub enum Message {
     Filter(filter::Message),
     Abilities(abilities::Message),
     Talents(talents::Message),
-    Export(export::Message),
+    Export(statblock_export::Message),
     Animation(animation::Message),
 }
 
@@ -135,7 +135,7 @@ pub struct State {
     abilities: abilities::State,
     details: details::State,
     talents: talents::State,
-    export: export::State,
+    export: statblock_export::State,
     ultra: ultra::State,
     animation: animation::State,
 }
@@ -175,7 +175,7 @@ impl Default for State {
             abilities: abilities::State::default(),
             details: details::State::default(),
             talents: talents::State::default(),
-            export: export::State::default(),
+            export: statblock_export::State::new("Cat"),
             ultra: ultra::State::default(),
             animation: animation::State::default(),
         }
@@ -480,7 +480,7 @@ impl State {
                     settings,
                 });
 
-                self.export.update(msg, ctx).map(Message::Export)
+                self.export.update(msg, || ctx.and_then(export::request)).map(Message::Export)
             }
             Message::Animation(msg) => self.animation.update(msg, settings, &mut app_state.animation).map(Message::Animation),
         }
@@ -741,7 +741,7 @@ impl State {
         ].spacing(6).align_y(Vertical::Center);
 
         column![
-            name_box::name_box(disp_name, 123.0, 56.0, 145.0),
+            name_box(disp_name, 123.0, 56.0, 145.0),
             id_text,
             level_row,
         ].spacing(0).into()
@@ -797,35 +797,35 @@ impl State {
         let cd_val = (STAT_COOLDOWN.get_value)(final_stats, anim_frames, unitbuy_opt);
 
         let header_row = row![
-            stat_grid::grid_header(STAT_ATTACK.display_name),
-            stat_grid::grid_header(STAT_DPS.display_name),
-            stat_grid::grid_header(STAT_RANGE.display_name),
-            stat_grid::grid_header(STAT_ATK_CYCLE.display_name),
-            stat_grid::grid_header(STAT_RARITY.display_name),
+            grid_header(STAT_ATTACK.display_name),
+            grid_header(STAT_DPS.display_name),
+            grid_header(STAT_RANGE.display_name),
+            grid_header(STAT_ATK_CYCLE.display_name),
+            grid_header(STAT_RARITY.display_name),
         ].spacing(4);
 
         let value_row = row![
-            stat_grid::grid_value(STAT_ATTACK.display_name, &atk_str),
-            stat_grid::grid_value(STAT_DPS.display_name, &dps_str),
-            stat_grid::grid_value(STAT_RANGE.display_name, &range_str),
-            stat_grid::grid_frames(STAT_ATK_CYCLE.display_name, cycle),
-            stat_grid::grid_value(STAT_RARITY.display_name, &rarity_str),
+            grid_value(STAT_ATTACK.display_name, &atk_str),
+            grid_value(STAT_DPS.display_name, &dps_str),
+            grid_value(STAT_RANGE.display_name, &range_str),
+            grid_frames(STAT_ATK_CYCLE.display_name, cycle),
+            grid_value(STAT_RARITY.display_name, &rarity_str),
         ].spacing(4);
 
         let header_row2 = row![
-            stat_grid::grid_header(STAT_HITPOINTS.display_name),
-            stat_grid::grid_header(STAT_KNOCKBACKS.display_name),
-            stat_grid::grid_header(STAT_SPEED.display_name),
-            stat_grid::grid_header(STAT_COOLDOWN.display_name),
-            stat_grid::grid_header(STAT_COST.display_name),
+            grid_header(STAT_HITPOINTS.display_name),
+            grid_header(STAT_KNOCKBACKS.display_name),
+            grid_header(STAT_SPEED.display_name),
+            grid_header(STAT_COOLDOWN.display_name),
+            grid_header(STAT_COST.display_name),
         ].spacing(4);
 
         let value_row2 = row![
-            stat_grid::grid_value(STAT_HITPOINTS.display_name, &hp_str),
-            stat_grid::grid_value(STAT_KNOCKBACKS.display_name, &kb_str),
-            stat_grid::grid_value(STAT_SPEED.display_name, &speed_str),
-            stat_grid::grid_frames(STAT_COOLDOWN.display_name, cd_val),
-            stat_grid::grid_value(STAT_COST.display_name, &cost_str),
+            grid_value(STAT_HITPOINTS.display_name, &hp_str),
+            grid_value(STAT_KNOCKBACKS.display_name, &kb_str),
+            grid_value(STAT_SPEED.display_name, &speed_str),
+            grid_frames(STAT_COOLDOWN.display_name, cd_val),
+            grid_value(STAT_COST.display_name, &cost_str),
         ].spacing(4);
 
         column![header_row, value_row, header_row2, value_row2].spacing(4).into()

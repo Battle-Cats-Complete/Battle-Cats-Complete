@@ -12,8 +12,9 @@ use core::common::context::GlobalContext;
 use core::common::io::json;
 use core::modules::settings::{Settings, UpdateMode};
 
-use crate::common::{popup, watcher::GuiWatcher};
+use crate::common::watcher::GuiWatcher;
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
+use crate::widget::popup;
 
 use state::AppState;
 

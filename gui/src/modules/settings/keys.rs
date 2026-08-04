@@ -7,7 +7,8 @@ use iced::{Alignment, Element, Length, Size, Task, Theme};
 use core::modules::settings::UserKeys;
 
 use crate::app::theme;
-use crate::common::{feedback::Slot, popup};
+use crate::common::feedback::Slot;
+use crate::widget::popup;
 
 const POPUP_SIZE: Size = Size::new(650.0, 335.0);
 const REGION_COLUMN_WIDTH: f32 = 60.0;

@@ -1,11 +1,8 @@
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, stack, text, text_input, tooltip, Space};
 use iced::{Element, Length, Size};
-use image::imageops;
 use nyanko::enemy::abilities::{AttrUnit, Identity, REGISTRY};
 
 use core::modules::enemy::filter::evaluation::get_identity_name;
@@ -13,9 +10,11 @@ use core::modules::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDEN
 use core::modules::enemy::game::registry::{get_display_def, AbilityIcon, DisplayGroup};
 
 use crate::app::theme;
-use crate::common::popup;
-use crate::common::ability_fallback::{fallback_icon, ICON_SIZE};
+use crate::common::ability_icon;
 use crate::common::{CustomAssets, SpriteSheet};
+use crate::widget::popup;
+use crate::widget::range_row;
+use crate::widget::{fallback_icon, ICON_SIZE};
 
 const STAT_KEYS: [&str; 8] = [
     "Attack", "Dps", "Range", "Atk Cycle (f)", "Hitpoints", "Knockbacks", "Speed", "Cash Drop",
@@ -39,21 +38,13 @@ pub enum Message {
     AdvMaxChanged(Identity, &'static str, String),
 }
 
+#[derive(Default)]
 pub struct State {
     pub filter_state: EnemyFilterState,
     popup: popup::State,
-    icon_cache: RefCell<HashMap<usize, Handle>>,
+    icons: ability_icon::Cache,
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            filter_state: EnemyFilterState::default(),
-            popup: popup::State::default(),
-            icon_cache: RefCell::new(HashMap::new()),
-        }
-    }
-}
 
 impl State {
     pub fn update(&mut self, message: Message) {
@@ -262,15 +253,16 @@ impl State {
 
     fn adv_range_row<'a>(&'a self, identity: Identity, attr: &'static str) -> Element<'a, Message> {
         let range = self.filter_state.adv_ranges.get(&identity).and_then(|ranges| ranges.get(attr));
-        let min_str: &str = range.map(|r| r.min.as_str()).unwrap_or("");
-        let max_str: &str = range.map(|r| r.max.as_str()).unwrap_or("");
+        let min = range.map_or("", |r| r.min.as_str());
+        let max = range.map_or("", |r| r.max.as_str());
 
-        row![
-            text(format!("{}:", attr)).width(Length::Fixed(110.0)),
-            text_input("Any", min_str).on_input(move |v| Message::AdvMinChanged(identity, attr, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
-            text("~"),
-            text_input("Any", max_str).on_input(move |v| Message::AdvMaxChanged(identity, attr, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
-        ].spacing(4).align_y(Vertical::Center).into()
+        range_row(
+            attr,
+            min,
+            max,
+            move |v| Message::AdvMinChanged(identity, attr, v),
+            move |v| Message::AdvMaxChanged(identity, attr, v),
+        )
     }
 
     fn icon_button<'a>(&'a self, identity: Identity, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, is_active: bool) -> Element<'a, Message> {
@@ -293,7 +285,7 @@ impl State {
                 }
             }
             AbilityIcon::Standard(icon_id) => {
-                if let Some(handle) = self.icon_handle(icon_id, sheets) {
+                if let Some(handle) = self.icons.handle(icon_id, sheets) {
                     return iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).opacity(opacity).into();
                 }
             }
@@ -303,35 +295,6 @@ impl State {
         fallback_icon("?")
     }
 
-    fn icon_handle(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Option<Handle> {
-        if let Some(cached) = self.icon_cache.borrow().get(&icon_id) {
-            return Some(cached.clone());
-        }
-
-        for sheet in sheets {
-            let Some(cut) = sheet.core.cuts_map.get(&icon_id) else { continue; };
-            let Some(image_data) = &sheet.core.image_data else { continue; };
-
-            let width = image_data.width();
-            let height = image_data.height();
-
-            let px = (cut.uv_coordinates.min.x * width as f32).round() as u32;
-            let py = (cut.uv_coordinates.min.y * height as f32).round() as u32;
-            let pw = cut.original_size.x.round() as u32;
-            let ph = cut.original_size.y.round() as u32;
-
-            if pw == 0 || ph == 0 || px + pw > width || py + ph > height {
-                continue;
-            }
-
-            let cropped = imageops::crop_imm(image_data.as_ref(), px, py, pw, ph).to_image();
-            let handle = Handle::from_rgba(pw, ph, cropped.into_raw());
-            self.icon_cache.borrow_mut().insert(icon_id, handle.clone());
-            return Some(handle);
-        }
-
-        None
-    }
 }
 
 fn collect_group_identities(target_group: DisplayGroup, rendered_identities: &mut HashSet<Identity>) -> Vec<Identity> {
@@ -359,15 +322,15 @@ fn ability_schema(identity: Identity) -> &'static [(&'static str, AttrUnit)] {
 }
 
 fn stat_range_field<'a>(stat: &'static str, filter_state: &'a EnemyFilterState) -> Element<'a, Message> {
-    const EMPTY: &str = "";
     let range = filter_state.stat_ranges.get(stat);
-    let min_str: &str = range.map(|r| r.min.as_str()).unwrap_or(EMPTY);
-    let max_str: &str = range.map(|r| r.max.as_str()).unwrap_or(EMPTY);
+    let min = range.map_or("", |r| r.min.as_str());
+    let max = range.map_or("", |r| r.max.as_str());
 
-    row![
-        text(format!("{}:", stat)).width(Length::Fixed(110.0)),
-        text_input("Any", min_str).on_input(move |v| Message::StatMinChanged(stat, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
-        text("~"),
-        text_input("Any", max_str).on_input(move |v| Message::StatMaxChanged(stat, v)).width(Length::Fixed(55.0)).style(theme::rounded_input),
-    ].spacing(4).align_y(Vertical::Center).into()
+    range_row(
+        stat,
+        min,
+        max,
+        move |v| Message::StatMinChanged(stat, v),
+        move |v| Message::StatMaxChanged(stat, v),
+    )
 }

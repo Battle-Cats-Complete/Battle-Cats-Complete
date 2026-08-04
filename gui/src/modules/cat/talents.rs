@@ -16,8 +16,9 @@ use core::modules::cat::game::talents as talent_logic;
 use core::modules::cat::paths;
 use core::modules::settings::Settings;
 
-use crate::common::ability_fallback::fallback_icon;
+use crate::common::ability_icon;
 use crate::common::{CustomAssets, SpriteSheet};
+use crate::widget::fallback_icon;
 
 const GROUP_ICON_SIZE: f32 = 40.0;
 const NP_ICON_SIZE: f32 = 20.0;
@@ -84,7 +85,7 @@ pub struct ViewCtx<'a, 'b> {
 }
 
 pub struct State {
-    icon_cache: RefCell<HashMap<usize, Handle>>,
+    icons: ability_icon::Cache,
     skill_name_cache: RefCell<HashMap<String, Handle>>,
     expanded: HashMap<(u32, u8), bool>,
 }
@@ -92,7 +93,7 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
-            icon_cache: RefCell::new(HashMap::new()),
+            icons: ability_icon::Cache::default(),
             skill_name_cache: RefCell::new(HashMap::new()),
             expanded: HashMap::new(),
         }
@@ -296,7 +297,7 @@ impl State {
                 }
             }
             AbilityIcon::Standard(icon_id) => {
-                if let Some(handle) = self.icon_handle(icon_id, sheets) {
+                if let Some(handle) = self.icons.handle(icon_id, sheets) {
                     return iced_image(handle).width(Length::Fixed(GROUP_ICON_SIZE)).height(Length::Fixed(GROUP_ICON_SIZE)).into();
                 }
             }
@@ -307,39 +308,10 @@ impl State {
     }
 
     fn np_icon<'a>(&'a self, img022_sheets: &'a [SpriteSheet], size: f32) -> Element<'a, Message> {
-        self.icon_handle(img022::ICON_NP_COST, img022_sheets)
+        self.icons.handle(img022::ICON_NP_COST, img022_sheets)
             .map_or_else(|| bold_text("NP Cost", 18.0).into(), |handle| iced_image(handle).height(Length::Fixed(size)).into())
     }
 
-    fn icon_handle(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Option<Handle> {
-        if let Some(cached) = self.icon_cache.borrow().get(&icon_id) {
-            return Some(cached.clone());
-        }
-
-        for sheet in sheets {
-            let Some(cut) = sheet.core.cuts_map.get(&icon_id) else { continue; };
-            let Some(image_data) = &sheet.core.image_data else { continue; };
-
-            let width = image_data.width();
-            let height = image_data.height();
-
-            let px = (cut.uv_coordinates.min.x * width as f32).round() as u32;
-            let py = (cut.uv_coordinates.min.y * height as f32).round() as u32;
-            let pw = cut.original_size.x.round() as u32;
-            let ph = cut.original_size.y.round() as u32;
-
-            if pw == 0 || ph == 0 || px + pw > width || py + ph > height {
-                continue;
-            }
-
-            let cropped = image::imageops::crop_imm(image_data.as_ref(), px, py, pw, ph).to_image();
-            let handle = Handle::from_rgba(pw, ph, cropped.into_raw());
-            self.icon_cache.borrow_mut().insert(icon_id, handle.clone());
-            return Some(handle);
-        }
-
-        None
-    }
 
     fn skill_name_handle(&self, group: &TalentGroup, settings: &Settings) -> Option<Handle> {
         let image_id = if group.name_id > 0 { group.name_id } else { group.ability_id as i16 };

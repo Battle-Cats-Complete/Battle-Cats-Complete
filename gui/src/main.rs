@@ -1,6 +1,7 @@
 pub mod app;
 pub mod common;
 pub mod modules;
+pub mod widget;
 
 use std::fs;
 use std::panic;

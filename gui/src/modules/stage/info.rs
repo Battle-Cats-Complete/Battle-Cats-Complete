@@ -12,7 +12,7 @@ use nyanko::chapter::Category;
 use core::modules::stage::{paths, Map, Stage};
 
 use crate::common::item_icon;
-use crate::common::stat_grid::{grid_header, grid_value};
+use crate::widget::{grid_header, grid_value};
 
 const MAP_IMG_HEIGHT: f32 = 50.0;
 const STAGE_IMG_HEIGHT: f32 = 35.0;

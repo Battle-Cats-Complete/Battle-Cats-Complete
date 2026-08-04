@@ -15,7 +15,8 @@ use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
 use crate::app::theme;
-use crate::common::{feedback::Slot, popup};
+use crate::common::feedback::Slot;
+use crate::widget::popup;
 
 use super::job_finished;
 

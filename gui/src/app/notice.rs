@@ -2,7 +2,7 @@ use iced::widget::{button, column, scrollable, text, Space};
 use iced::{Alignment, Element, Length, Size};
 use sha2::{Digest, Sha256};
 
-use crate::common::popup;
+use crate::widget::popup;
 
 use super::Message;
 

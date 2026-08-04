@@ -1,10 +1,7 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 
-use iced::widget::image::Handle;
-use iced::widget::{column, container, image as iced_image, responsive, row, scrollable, stack, tooltip, Space};
+use iced::widget::{column, container, image as iced_image, responsive, row, scrollable, stack, tooltip};
 use iced::{Alignment, Element, Length, Size};
-use image::imageops;
 use nyanko::cat::unit::LevelCurve;
 use nyanko::common::data::img015;
 
@@ -16,11 +13,11 @@ use core::modules::cat::game::CatRenderContext;
 use core::modules::cat::scanner::CatEntry;
 use core::modules::settings::Settings;
 
-use crate::common::superscript::text_with_superscript;
-use crate::common::ability_fallback::{fallback_icon, ICON_SIZE};
+use crate::common::ability_icon;
 use crate::common::{CustomAssets, SpriteSheet};
+use crate::widget::text_with_superscript;
+use crate::widget::{ability_spacer, fallback_icon, icons_per_row, ICON_SIZE};
 
-const SCROLLBAR_RESERVE: f32 = 24.0;
 pub(super) const DESCRIPTION_TEXT_SIZE: f32 = 13.0;
 
 #[derive(Debug, Clone)]
@@ -43,19 +40,12 @@ pub(super) struct SpiritContext<'a> {
     pub(super) conjure_unit_id: i32,
 }
 
+#[derive(Default)]
 pub struct State {
-    icon_cache: RefCell<HashMap<usize, Handle>>,
+    icons: ability_icon::Cache,
     conjure_overrides: HashMap<u32, bool>,
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            icon_cache: RefCell::new(HashMap::new()),
-            conjure_overrides: HashMap::new(),
-        }
-    }
-}
 
 impl State {
     pub fn update(&mut self, message: Message) {
@@ -100,7 +90,7 @@ impl State {
 
             if !grp_hl1.is_empty() {
                 if previous_content {
-                    col = col.push(spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+                    col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
                     last_was_trait = false;
                 }
                 col = col.push(self.icon_row(&grp_hl1, sheets, assets, per_row));
@@ -109,7 +99,7 @@ impl State {
 
             if !grp_hl2.is_empty() {
                 if previous_content {
-                    col = col.push(spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+                    col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
                     last_was_trait = false;
                 }
                 col = col.push(self.icon_row(&grp_hl2, sheets, assets, per_row));
@@ -119,7 +109,7 @@ impl State {
             let has_body = !grp_b1.is_empty() || !grp_b2.is_empty();
             if has_body {
                 if previous_content {
-                    col = col.push(spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+                    col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
                     last_was_trait = false;
                 }
 
@@ -127,7 +117,7 @@ impl State {
                 col = col.push(self.ability_list(&grp_b1, spirit, sheets, assets, settings, layout));
 
                 if !grp_b1.is_empty() && !grp_b2.is_empty() {
-                    col = col.push(spacer(ABILITY_Y));
+                    col = col.push(ability_spacer(ABILITY_Y));
                 }
 
                 col = col.push(self.ability_list(&grp_b2, spirit, sheets, assets, settings, layout));
@@ -136,7 +126,7 @@ impl State {
 
             if !grp_footer.is_empty() {
                 if previous_content {
-                    col = col.push(spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+                    col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
                 }
                 col = col.push(self.icon_row(&grp_footer, sheets, assets, per_row));
             }
@@ -190,12 +180,12 @@ impl State {
             col = col.push(item_row);
 
             if is_conjure && self.conjure_expanded(spirit.cat_id, settings) {
-                col = col.push(spacer(ABILITY_Y));
+                col = col.push(ability_spacer(ABILITY_Y));
                 col = col.push(self.conjure_details(spirit, sheets, assets, settings, layout.per_row));
             }
 
             if i < count - 1 {
-                col = col.push(spacer(ABILITY_Y));
+                col = col.push(ability_spacer(ABILITY_Y));
             }
         }
 
@@ -217,11 +207,11 @@ impl State {
         }
 
         if let Some(icon_id) = item.icon_id
-            && let Some(handle) = self.icon_handle(icon_id, sheets) {
+            && let Some(handle) = self.icons.handle(icon_id, sheets) {
             let icon_widget = iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
 
             if let Some(border_id) = item.border_id
-                && let Some(border_handle) = self.icon_handle(border_id, sheets) {
+                && let Some(border_handle) = self.icons.handle(border_id, sheets) {
                     let border_widget = iced_image(border_handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
                     return stack![icon_widget, border_widget].width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
                 }
@@ -239,49 +229,10 @@ impl State {
     }
 
     pub(super) fn raw_icon(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Element<'_, Message> {
-        self.icon_handle(icon_id, sheets).map_or_else(
+        self.icons.handle(icon_id, sheets).map_or_else(
             || fallback_icon(get_fallback_by_icon(AbilityIcon::Standard(icon_id))),
             |handle| iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into(),
         )
     }
 
-    pub(super) fn icon_handle(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Option<Handle> {
-        if let Some(cached) = self.icon_cache.borrow().get(&icon_id) {
-            return Some(cached.clone());
-        }
-
-        for sheet in sheets {
-            let Some(cut) = sheet.core.cuts_map.get(&icon_id) else { continue; };
-            let Some(image_data) = &sheet.core.image_data else { continue; };
-
-            let width = image_data.width();
-            let height = image_data.height();
-
-            let px = (cut.uv_coordinates.min.x * width as f32).round() as u32;
-            let py = (cut.uv_coordinates.min.y * height as f32).round() as u32;
-            let pw = cut.original_size.x.round() as u32;
-            let ph = cut.original_size.y.round() as u32;
-
-            if pw == 0 || ph == 0 || px + pw > width || py + ph > height {
-                continue;
-            }
-
-            let cropped = imageops::crop_imm(image_data.as_ref(), px, py, pw, ph).to_image();
-            let handle = Handle::from_rgba(pw, ph, cropped.into_raw());
-            self.icon_cache.borrow_mut().insert(icon_id, handle.clone());
-            return Some(handle);
-        }
-
-        None
-    }
-}
-
-pub(super) fn spacer<'a>(height: f32) -> Element<'a, Message> {
-    Space::new().height(Length::Fixed(height)).into()
-}
-
-fn icons_per_row(available_width: f32) -> usize {
-    let usable = (available_width - SCROLLBAR_RESERVE).max(ICON_SIZE);
-    let slot = ICON_SIZE + ABILITY_X;
-    (((usable + ABILITY_X) / slot).floor() as usize).max(1)
 }

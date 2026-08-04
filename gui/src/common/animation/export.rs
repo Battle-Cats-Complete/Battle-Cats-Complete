@@ -18,7 +18,7 @@ use core::modules::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MOD
 use core::modules::settings::Settings;
 
 use crate::app::state::AnimState;
-use crate::common::popup;
+use crate::widget::popup;
 
 use super::data;
 use super::offscreen::{self, Camera};

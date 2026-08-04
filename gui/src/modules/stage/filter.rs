@@ -9,7 +9,7 @@ use core::modules::stage::filter::range::StatRange;
 use core::modules::stage::filter::treasure::TreasureFilter;
 use core::modules::stage::filter::StageFilterState;
 
-use crate::common::popup;
+use crate::widget::{popup, range_row};
 
 const POPUP_SIZE: Size = Size::new(400.0, 528.0);
 
@@ -560,13 +560,14 @@ fn wrap_pairs<'a>(flags: impl IntoIterator<Item = Flag>, filter_state: &'a Stage
     col.into()
 }
 
-fn range_row<'a>(range: Range, value: &'a StatRange) -> Element<'a, Message> {
-    row![
-        text(format!("{}:", range_label(range))).width(Length::Fixed(110.0)),
-        text_input("Any", &value.min).on_input(move |v| Message::RangeMinChanged(range, v)).width(Length::Fixed(55.0)),
-        text("~"),
-        text_input("Any", &value.max).on_input(move |v| Message::RangeMaxChanged(range, v)).width(Length::Fixed(55.0)),
-    ].spacing(4).align_y(Vertical::Center).into()
+fn range_field<'a>(range: Range, value: &'a StatRange) -> Element<'a, Message> {
+    range_row(
+        range_label(range),
+        &value.min,
+        &value.max,
+        move |v| Message::RangeMinChanged(range, v),
+        move |v| Message::RangeMaxChanged(range, v),
+    )
 }
 
 fn range_pairs<'a>(ranges: impl IntoIterator<Item = Range>, filter_state: &'a StageFilterState) -> Element<'a, Message> {
@@ -575,7 +576,7 @@ fn range_pairs<'a>(ranges: impl IntoIterator<Item = Range>, filter_state: &'a St
     let mut count = 0;
 
     for range in ranges {
-        current = current.push(range_row(range, range_ref(filter_state, range)));
+        current = current.push(range_field(range, range_ref(filter_state, range)));
         count += 1;
 
         if count % 2 == 0 {

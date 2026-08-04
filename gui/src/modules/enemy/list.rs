@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use iced::futures::channel::mpsc::UnboundedReceiver;
 use iced::widget::image::Handle;
-use iced::widget::{button, column, container, image as iced_image, responsive, row, scrollable, space, text, tooltip, Column, Id};
-use iced::{Border, Color, Element, Length, Size, Task, Theme};
+use iced::widget::{column, responsive, row, scrollable, space, text, Column, Id};
+use iced::{Element, Length, Size, Task};
 use image::{imageops, Pixel, RgbaImage};
 use tracing::{info, warn};
 
@@ -14,9 +14,9 @@ use core::modules::enemy::filter::evaluation::entity_passes_filter;
 use core::modules::enemy::filter::EnemyFilterState;
 use core::modules::enemy::scanner::EnemyEntry;
 
-use crate::common::udi_loader::{self, Dispatcher, LoadRequest, LoadResult};
 use crate::common::row_window::{self, RowWindow};
-use crate::common::smooth_scroll::smooth_scroll;
+use crate::common::udi_loader::{self, Dispatcher, LoadRequest, LoadResult};
+use crate::widget::{roster_row, smooth_scroll};
 
 const BANNER_ASPECT: f32 = 318.0 / 133.0;
 const SCROLLBAR_WIDTH: f32 = 16.0;
@@ -245,40 +245,15 @@ impl State {
 
     fn view_row<'a>(&'a self, entry: &'a EnemyEntry, is_selected: bool) -> Element<'a, Message> {
         let handle = self.texture_cache.get(&entry.id).cloned().unwrap_or_else(|| self.placeholder.clone());
-        let icon = iced_image(handle).height(Length::Fixed(row_window::ROW_HEIGHT));
 
-        let icon_button = button(row![icon].width(Length::Fill))
-            .on_press(Message::SelectEnemy(entry.id))
-            .width(Length::Fill)
-            .padding(0)
-            .style(move |theme: &Theme, status| {
-                let palette = theme.palette();
-                let background = if is_selected {
-                    palette.primary
-                } else if status == button::Status::Hovered {
-                    Color { a: 0.15, ..palette.text }
-                } else {
-                    Color::TRANSPARENT
-                };
-
-                button::Style {
-                    background: Some(background.into()),
-                    text_color: palette.text,
-                    border: Border::default().rounded(4.0).width(if is_selected { 2.0 } else { 0.0 }).color(palette.primary),
-                    ..Default::default()
-                }
-            });
-
-        tooltip(icon_button, self.view_tooltip(entry), tooltip::Position::Right).into()
+        roster_row(handle, is_selected, Message::SelectEnemy(entry.id), self.view_tooltip(entry))
     }
 
     fn view_tooltip<'a>(&self, entry: &EnemyEntry) -> Element<'a, Message> {
-        let content = column![
+        column![
             row![text("[ID]").size(11), text(entry.id_str())].spacing(4),
             row![text("[Name]").size(11), text(entry.display_name())].spacing(4),
-        ].spacing(2);
-
-        container(content).padding(8).style(container::bordered_box).into()
+        ].spacing(2).into()
     }
 }
 

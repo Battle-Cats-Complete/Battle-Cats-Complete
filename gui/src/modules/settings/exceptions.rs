@@ -8,7 +8,8 @@ use core::common::io::APP_LANGUAGES;
 use core::modules::settings::{ExceptionList, ExceptionRule, RuleHandling};
 
 use crate::app::theme;
-use crate::common::{feedback::Slot, popup};
+use crate::common::feedback::Slot;
+use crate::widget::popup;
 
 use super::hover_hint;
 
