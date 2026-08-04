@@ -11,7 +11,7 @@ use core::common::formats::{GatyaItemBuy, GatyaItemName};
 use core::modules::stage::treasure;
 use core::modules::stage::Stage;
 
-use super::icons;
+use crate::common::item_icon;
 
 const TREASURE_TABLE_WIDTH: f32 = 345.0;
 const MAX_ICON_SIZE: f32 = 32.0;
@@ -56,7 +56,7 @@ impl State {
             return Some(cached.clone());
         }
 
-        let handle = icons::load_scaled(path, MAX_ICON_SIZE as u32)?;
+        let handle = item_icon::load_scaled(path, MAX_ICON_SIZE as u32)?;
         self.icon_cache.borrow_mut().insert(id, handle.clone());
         Some(handle)
     }

@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 const DIR_SHEETS: &str = "game/sheets";
 
+pub(crate) const DIR_GATYA_ITEM: &str = "game/ui/gatyaitemD";
+
 const DIR_IMG015: &str = "img015";
 const DIR_IMG022: &str = "img022";
 
@@ -42,4 +44,14 @@ pub fn img015_folder(root: &Path) -> PathBuf {
 
 pub fn img022_folder(root: &Path) -> PathBuf {
     root.join(DIR_SHEETS).join(DIR_IMG022)
+}
+
+pub fn gatya_item_icon(id: i32, langs: &[String]) -> Option<PathBuf> {
+    let names = [
+        format!("gatyaitemD_{:03}_f.png", id),
+        format!("gatyaitemD_{:02}_f.png", id),
+        format!("gatyaitemD_{}_f.png", id),
+    ];
+
+    crate::common::get(Path::new(DIR_GATYA_ITEM), names, langs).into_iter().next()
 }

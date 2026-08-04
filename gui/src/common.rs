@@ -1,5 +1,6 @@
 pub mod feedback;
 pub mod udi_loader;
+pub mod item_icon;
 pub mod img015;
 pub mod img022;
 pub mod name_box;

@@ -11,8 +11,7 @@ use core::modules::stage::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
 use core::modules::stage::paths;
 
 use crate::app::theme;
-
-use super::icons;
+use crate::common::item_icon;
 
 const ICON_SIZE: f32 = 128.0 * 0.45;
 const ICON_SPACING: f32 = 8.0;
@@ -41,7 +40,7 @@ impl State {
             return Some(cached.clone());
         }
 
-        let (handle, _, _) = icons::load_cropped(path)?;
+        let (handle, _, _) = item_icon::load_cropped(path)?;
         self.icon_cache.borrow_mut().insert(key, handle.clone());
         Some(handle)
     }

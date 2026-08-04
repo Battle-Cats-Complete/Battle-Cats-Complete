@@ -1,12 +1,14 @@
 use std::path::{Path, PathBuf};
+
 use nyanko::chapter::Category;
+
+pub(crate) use crate::common::io::DIR_GATYA_ITEM;
 
 pub(crate) const DIR_STAGES: &str = "game/stages";
 pub const DIR_CATEGORIES: &str = "game/stages/categories";
 pub const DIR_CATS: &str = "game/cats";
 pub const DIR_ENEMIES: &str = "game/enemies";
 pub(crate) const DIR_TABLES: &str = "game/tables";
-pub(crate) const DIR_GATYA_ITEM: &str = "game/ui/gatyaitemD";
 
 pub(crate) fn stage_sub(sub: &str) -> PathBuf {
     Path::new(DIR_STAGES).join(sub)

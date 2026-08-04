@@ -11,9 +11,8 @@ use nyanko::chapter::Category;
 
 use core::modules::stage::{paths, Map, Stage};
 
+use crate::common::item_icon;
 use crate::common::stat_grid::{grid_header, grid_value};
-
-use super::icons;
 
 const MAP_IMG_HEIGHT: f32 = 50.0;
 const STAGE_IMG_HEIGHT: f32 = 35.0;
@@ -166,7 +165,7 @@ impl State {
             return Some(cached.clone());
         }
 
-        let loaded = icons::load_cropped(path)?;
+        let loaded = item_icon::load_cropped(path)?;
         self.icon_cache.borrow_mut().insert(key.to_string(), loaded.clone());
         Some(loaded)
     }

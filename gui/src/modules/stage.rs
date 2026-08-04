@@ -3,7 +3,6 @@ mod category;
 mod crowns;
 mod filter;
 mod fixedlineup;
-mod icons;
 mod info;
 mod list;
 mod materials;

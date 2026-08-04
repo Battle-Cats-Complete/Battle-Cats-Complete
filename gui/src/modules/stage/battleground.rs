@@ -13,7 +13,7 @@ use core::common::context::GlobalContext;
 use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::stage::{restrictions, Map, Stage};
 
-use super::icons;
+use crate::common::item_icon;
 
 const SUBHEADER_SIZE: f32 = 14.0;
 const MAX_ICON_SIZE: f32 = 32.0;
@@ -200,7 +200,7 @@ impl State {
             return Some(cached.clone());
         }
 
-        let handle = icons::load_scaled(path, MAX_ICON_SIZE as u32)?;
+        let handle = item_icon::load_scaled(path, MAX_ICON_SIZE as u32)?;
         self.icon_cache.borrow_mut().insert(id, handle.clone());
         Some(handle)
     }

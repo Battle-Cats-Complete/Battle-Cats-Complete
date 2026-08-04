@@ -1,4 +1,5 @@
 mod abilities;
+mod details;
 mod export;
 mod filter;
 mod list;
@@ -16,7 +17,7 @@ use iced::alignment::{Horizontal, Vertical};
 use iced::futures::channel::mpsc;
 use iced::widget::image::Handle;
 use iced::widget::{
-    button, column, container, image as iced_image, row, rule, scrollable,
+    button, column, container, image as iced_image, row, rule,
     text, text_input, Id, Space,
 };
 use iced::{Border, Color, Element, Length, Size, Subscription, Task, Theme};
@@ -131,6 +132,7 @@ pub struct State {
     list: list::State,
     filter: filter::State,
     abilities: abilities::State,
+    details: details::State,
     talents: talents::State,
     export: export::State,
     ultra: ultra::State,
@@ -170,6 +172,7 @@ impl Default for State {
             list: list::State::default(),
             filter: filter::State::default(),
             abilities: abilities::State::default(),
+            details: details::State::default(),
             talents: talents::State::default(),
             export: export::State::default(),
             ultra: ultra::State::default(),
@@ -337,6 +340,7 @@ impl State {
                 info!("Cat load finished with {} entries", cats.len());
                 self.scan_progress = None;
                 self.list.invalidate();
+                self.details.clear_icons();
                 self.data.cats = cats;
                 match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
                     Some(cat) => {
@@ -592,7 +596,7 @@ impl State {
         let content = match self.selected_tab {
             DetailTab::Abilities => self.view_abilities(cat, settings, global_ctx),
             DetailTab::Talents => self.view_talents(cat, settings),
-            DetailTab::Details => self.view_details(cat),
+            DetailTab::Details => self.view_details(cat, settings),
             DetailTab::Animation => self.animation.view(settings, &app_state.animation).map(Message::Animation),
         };
 
@@ -850,17 +854,7 @@ impl State {
         }).map(Message::Talents)
     }
 
-    fn view_details(&self, cat: &CatEntry) -> Element<'_, Message> {
-        let description = cat.description.get(self.selected_form)
-            .and_then(|d| d.as_ref())
-            .map(|lines| lines.join("\n"))
-            .unwrap_or_else(|| "No description available".to_string());
-
-        scrollable(
-            column![
-                text("Description").size(20),
-                text(description),
-            ].spacing(16)
-        ).into()
+    fn view_details<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings) -> Element<'a, Message> {
+        self.details.view(cat, self.selected_form, &settings.general.language_priority)
     }
 }
