@@ -21,7 +21,7 @@ pub fn view(stage: &Stage, selected_crown: u8) -> Element<'_, super::Message> {
         let is_selected = selected_crown == crown;
         let is_enabled = stage.target_crowns == -1 || stage.target_crowns as u8 == crown;
 
-        let label = theme::centered_text(format!("{}♔", crown + 1))
+        let label = theme::centered_text(format!("{}🜲", crown + 1))
             .size(CROWN_TEXT_SIZE)
             .width(Length::Fill)
             .height(Length::Fill);
