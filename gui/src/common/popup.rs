@@ -106,19 +106,17 @@ impl State {
 
             let base = anchored(window, position);
 
-            if matches!(self.drag, Drag::Idle) {
-                base
-            } else {
-                stack![
-                    base,
-                    mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
-                        .interaction(Interaction::Grabbing)
-                        .on_move(move |cursor| to_message(Message::Dragged(cursor, bounds)))
-                        .on_release(to_message(Message::Released))
-                        .on_exit(to_message(Message::Released)),
-                ]
-                .into()
+            let mut drag_layer = mouse_area(Space::new().width(Length::Fill).height(Length::Fill));
+
+            if !matches!(self.drag, Drag::Idle) {
+                drag_layer = drag_layer
+                    .interaction(Interaction::Grabbing)
+                    .on_move(move |cursor| to_message(Message::Dragged(cursor, bounds)))
+                    .on_release(to_message(Message::Released))
+                    .on_exit(to_message(Message::Released));
             }
+
+            stack![base, drag_layer].into()
         })
         .into()
     }
