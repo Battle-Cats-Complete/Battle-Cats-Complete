@@ -6,8 +6,8 @@ mod offscreen;
 mod overlay;
 mod pipeline;
 
-use iced::widget::{button, column, container, stack, text};
-use iced::{Alignment, Element, Length, Size, Task, Theme};
+use iced::widget::{button, column, container, stack, text, Space};
+use iced::{font, Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
 
 use core::modules::cat::scanner::CatEntry;
 use core::modules::enemy::scanner::EnemyEntry;
@@ -15,6 +15,31 @@ use core::modules::settings::Settings;
 
 use crate::app::state::AnimState;
 use crate::app::theme;
+
+const FRAME_BORDER_WIDTH: f32 = 4.0;
+const FRAME_BORDER_RADIUS: f32 = 5.0;
+const EMPTY_BACKGROUND_SHADE: f32 = 0.6;
+
+const EXPAND_BUTTON_SIZE: f32 = 30.0;
+const EXPAND_ICON_SIZE: f32 = 20.0;
+const EXPAND_BUTTON_INSET: f32 = 8.0;
+
+const CONTROLS_INSET_LEFT: f32 = 7.0;
+
+fn frame_border<'a>() -> Element<'a, Message> {
+    container(Space::new().width(Length::Fill).height(Length::Fill))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(|t: &Theme| container::Style {
+            border: Border {
+                color: t.palette().primary,
+                width: FRAME_BORDER_WIDTH,
+                radius: FRAME_BORDER_RADIUS.into(),
+            },
+            ..container::Style::default()
+        })
+        .into()
+}
 
 #[derive(Default)]
 pub struct State {
@@ -115,12 +140,26 @@ impl State {
 
     pub fn view(&self, settings: &Settings, anim_state: &AnimState) -> Element<'_, Message> {
         if self.data.held_unit.is_none() {
-            return container(text("No unit loaded for this form"))
+            let notice = container(text("No unit loaded for this form"))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .center_x(Length::Fill)
                 .center_y(Length::Fill)
-                .into();
+                .style(|t: &Theme| {
+                    let palette = t.palette();
+                    let shade = |c: f32| c * EMPTY_BACKGROUND_SHADE;
+                    container::Style {
+                        background: Some(Background::Color(Color {
+                            r: shade(palette.background.r),
+                            g: shade(palette.background.g),
+                            b: shade(palette.background.b),
+                            a: palette.background.a,
+                        })),
+                        ..container::Style::default()
+                    }
+                });
+
+            return stack![notice, frame_border()].into();
         }
 
         if self.is_expanded {
@@ -177,25 +216,45 @@ impl State {
 
         let controls_overlay = container(self.controls.view(&self.canvas, &self.data, anim_state).map(Message::Controls))
             .width(Length::Fill)
+            .height(Length::Fill)
             .align_x(iced::alignment::Horizontal::Left)
-            .padding(10);
+            .align_y(iced::alignment::Vertical::Bottom)
+            .padding(Padding { left: CONTROLS_INSET_LEFT, ..Padding::ZERO });
 
         let is_expanded = self.is_expanded;
         let expand_button = container(
-            button(text("⛶").size(20))
-                .style(move |t: &Theme, status| theme::toggle_button(t, status, is_expanded))
-                .on_press(Message::ToggleExpanded),
+            button(
+                text("⛶")
+                    .size(EXPAND_ICON_SIZE)
+                    .font(font::Font { weight: font::Weight::Bold, ..font::Font::DEFAULT })
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center(),
+            )
+            .width(Length::Fixed(EXPAND_BUTTON_SIZE))
+            .height(Length::Fixed(EXPAND_BUTTON_SIZE))
+            .padding(0)
+            .style(move |t: &Theme, status| {
+                let base = theme::toggle_button(t, status, is_expanded);
+                button::Style {
+                    border: Border {
+                        color: t.extended_palette().background.strong.color,
+                        width: 1.0,
+                        ..base.border
+                    },
+                    ..base
+                }
+            })
+            .on_press(Message::ToggleExpanded),
         )
-        .padding(8);
+        .padding(EXPAND_BUTTON_INSET);
 
         let layers = stack![
             viewport,
             selection_overlay,
-            container(controls_overlay)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_y(iced::alignment::Vertical::Bottom),
+            frame_border(),
             expand_button,
+            controls_overlay,
         ];
 
         container(layers)

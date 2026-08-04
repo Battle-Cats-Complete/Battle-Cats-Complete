@@ -1,5 +1,6 @@
-use iced::widget::{button, column, container, mouse_area, row, text, text_input};
-use iced::{alignment, border, Element, Length, Theme, Vector};
+use iced::widget::{button, column, container, mouse_area, row, rule, text, text_input, Button, Container, TextInput};
+use iced::border::Radius;
+use iced::{alignment, border, font, Background, Border, Color, Element, Length, Theme, Vector};
 
 use core::modules::animation::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT, IDX_SURFACE,
@@ -13,6 +14,35 @@ use super::{canvas, data};
 
 const HOLD_DELAY_SECS: f32 = 0.2;
 const TICK_SECS: f32 = 1.0 / 60.0;
+
+const TILE_HEIGHT: f32 = 28.0;
+const GAP: f32 = 4.0;
+const ROW_GAP: f32 = 3.0;
+const ICON_W: f32 = 60.0;
+const NAV_W: f32 = 30.0;
+const FRAME_INPUT_W: f32 = 80.0;
+const RANGE_W: f32 = 60.0;
+const TILDE_W: f32 = 20.0;
+const COL2_W: f32 = NAV_W * 2.0 + FRAME_INPUT_W + GAP * 2.0;
+const COL3_W: f32 = 100.0;
+const SPEED_LABEL_W: f32 = 50.0;
+const DIVIDER_W: f32 = 10.0;
+const PANEL_WIDTH: f32 = ICON_W + COL2_W + COL3_W + DIVIDER_W * 2.0 + GAP * 4.0;
+
+const ANIM_BUTTON_W: f32 = 70.0;
+const ANIM_BUTTON_H: f32 = 25.0;
+const GRID_GAP: f32 = 5.0;
+
+const TOGGLE_HEIGHT: f32 = 18.0;
+const TOGGLE_TEXT_SIZE: f32 = 14.0;
+const PLAY_TEXT_SIZE: f32 = 16.0;
+const TILE_TEXT_SIZE: f32 = 14.0;
+const ANIM_TEXT_SIZE: f32 = 13.0;
+
+const PANEL_PAD: f32 = 8.0;
+const PANEL_ALPHA: f32 = 160.0 / 255.0;
+const PANEL_SHADE: f32 = 0.15;
+const DISABLED_ALPHA: f32 = 0.5;
 
 const ANIM_BUTTONS: [(&str, usize); 8] = [
     ("Walk", IDX_WALK),
@@ -64,20 +94,189 @@ fn display_max(data: &data::State) -> String {
     }
 }
 
-fn step_control(label: &'static str) -> iced::widget::Container<'static, Message> {
-    container(text(label))
-        .width(Length::Fixed(30.0))
-        .padding(5)
+fn effective_max(canvas: &canvas::State, data: &data::State) -> String {
+    if data.loaded_anim_index == IDX_MODEL {
+        return "0".to_string();
+    }
+
+    canvas.loop_end.map_or_else(|| display_max(data), |end| (end.trunc() as i32).to_string())
+}
+
+fn bold() -> font::Font {
+    font::Font { weight: font::Weight::Bold, ..font::Font::DEFAULT }
+}
+
+fn panel_style(t: &Theme) -> container::Style {
+    let palette = t.palette();
+    let shade = |c: f32| c * PANEL_SHADE;
+
+    container::Style {
+        background: Some(Background::Color(Color {
+            r: shade(palette.background.r),
+            g: shade(palette.background.g),
+            b: shade(palette.background.b),
+            a: PANEL_ALPHA,
+        })),
+        border: Border {
+            color: t.extended_palette().background.strong.color,
+            width: 1.0,
+            radius: Radius {
+                top_left: theme::RADIUS_LG,
+                top_right: theme::RADIUS_LG,
+                bottom_left: 0.0,
+                bottom_right: 0.0,
+            },
+        },
+        ..container::Style::default()
+    }
+}
+
+fn tile_style(t: &Theme) -> container::Style {
+    let palette = t.extended_palette();
+
+    container::Style {
+        background: Some(Background::Color(palette.background.weak.color)),
+        border: Border {
+            color: palette.background.strong.color,
+            width: 1.0,
+            radius: theme::RADIUS_SM.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn step_style(t: &Theme, enabled: bool) -> container::Style {
+    let pair = t.extended_palette().background.strong;
+    let alpha = if enabled { 1.0 } else { DISABLED_ALPHA };
+
+    container::Style {
+        background: Some(Background::Color(Color { a: alpha, ..pair.color })),
+        text_color: Some(Color { a: alpha, ..pair.text }),
+        border: border::rounded(theme::RADIUS_SM),
+        ..container::Style::default()
+    }
+}
+
+fn input_style(t: &Theme, status: text_input::Status) -> text_input::Style {
+    text_input::Style {
+        background: Background::Color(Color::TRANSPARENT),
+        border: Border::default(),
+        ..text_input::default(t, status)
+    }
+}
+
+fn control_style(t: &Theme, status: button::Status, is_active: bool) -> button::Style {
+    let base = theme::toggle_button(t, status, is_active);
+
+    if status != button::Status::Disabled {
+        return base;
+    }
+
+    button::Style {
+        background: base.background.map(|background| match background {
+            Background::Color(color) => Background::Color(Color { a: color.a * DISABLED_ALPHA, ..color }),
+            other => other,
+        }),
+        text_color: Color { a: DISABLED_ALPHA, ..base.text_color },
+        ..base
+    }
+}
+
+fn tile<'a>(width: f32, content: impl Into<Element<'a, Message>>) -> Container<'a, Message> {
+    container(content)
+        .width(Length::Fixed(width))
+        .height(Length::Fixed(TILE_HEIGHT))
         .align_x(alignment::Horizontal::Center)
-        .style(|theme: &Theme| {
-            let pair = theme.extended_palette().primary.base;
-            container::Style {
-                background: Some(pair.color.into()),
-                text_color: Some(pair.text),
-                border: border::rounded(2),
-                ..Default::default()
-            }
-        })
+        .align_y(alignment::Vertical::Center)
+        .style(tile_style)
+}
+
+fn label_tile<'a>(width: f32, label: impl text::IntoFragment<'a>) -> Container<'a, Message> {
+    tile(width, text(label).size(TILE_TEXT_SIZE))
+}
+
+fn tile_input<'a>(
+    placeholder: &str,
+    value: &str,
+    enabled: bool,
+    on_input: impl Fn(String) -> Message + 'a,
+) -> TextInput<'a, Message> {
+    let input = text_input(placeholder, value)
+        .width(Length::Fill)
+        .padding(0)
+        .size(TILE_TEXT_SIZE)
+        .align_x(alignment::Horizontal::Center)
+        .style(input_style);
+
+    if enabled { input.on_input(on_input) } else { input }
+}
+
+fn control_button<'a>(label: &'a str, size: f32, width: f32, on_press: Option<Message>) -> Button<'a, Message> {
+    button(text(label).size(size).width(Length::Fill).height(Length::Fill).center())
+        .width(Length::Fixed(width))
+        .height(Length::Fixed(TILE_HEIGHT))
+        .padding(0)
+        .on_press_maybe(on_press)
+        .style(|t: &Theme, status| control_style(t, status, false))
+}
+
+fn step_control<'a>(label: &'a str, direction: i8, enabled: bool) -> Element<'a, Message> {
+    let face = container(text(label).size(TILE_TEXT_SIZE))
+        .width(Length::Fixed(NAV_W))
+        .height(Length::Fixed(TILE_HEIGHT))
+        .align_x(alignment::Horizontal::Center)
+        .align_y(alignment::Vertical::Center)
+        .style(move |t: &Theme| step_style(t, enabled));
+
+    if !enabled {
+        return face.into();
+    }
+
+    mouse_area(face)
+        .on_press(Message::HoldStart(direction))
+        .on_release(Message::HoldEnd)
+        .on_exit(Message::HoldCancel)
+        .into()
+}
+
+fn divider<'a>() -> Container<'a, Message> {
+    container(rule::vertical(1))
+        .width(Length::Fixed(DIVIDER_W))
+        .height(Length::Fixed(TILE_HEIGHT * 2.0 + GAP))
+        .align_x(alignment::Horizontal::Center)
+}
+
+fn anim_grid(data: &data::State) -> Element<'_, Message> {
+    let base_available = data.base_assets_available();
+    let secondary_available = data.secondary_available();
+
+    let mut grid = column![].spacing(GRID_GAP);
+
+    for chunk in ANIM_BUTTONS.chunks(4) {
+        let mut buttons = row![].spacing(GRID_GAP);
+
+        for (label, index) in chunk {
+            let available = match *index {
+                IDX_SPIRIT => secondary_available,
+                IDX_MODEL => base_available,
+                idx => base_available && data.available_anims.iter().any(|(a, _)| *a == idx),
+            };
+            let is_active = data.loaded_anim_index == *index && data.loaded_anim_index != IDX_NONE;
+
+            buttons = buttons.push(
+                button(text(*label).size(ANIM_TEXT_SIZE).width(Length::Fill).height(Length::Fill).center())
+                    .width(Length::Fixed(ANIM_BUTTON_W))
+                    .height(Length::Fixed(ANIM_BUTTON_H))
+                    .padding(0)
+                    .on_press_maybe(available.then_some(Message::SelectAnimation(*index)))
+                    .style(move |t: &Theme, status| control_style(t, status, is_active)),
+            );
+        }
+
+        grid = grid.push(buttons);
+    }
+
+    grid.into()
 }
 
 impl State {
@@ -105,6 +304,7 @@ impl State {
                 if let Ok(parsed) = self.frame_input.parse::<f32>() {
                     canvas.current_frame = parsed.max(0.0);
                 }
+                self.frame_input.clear();
             }
             Message::SpeedInputChanged(value) => {
                 self.speed_input = value.clone();
@@ -170,95 +370,100 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, canvas: &'a canvas::State, data: &'a data::State, anim_state: &AnimState) -> Element<'a, Message> {
+        let is_expanded = anim_state.controls_expanded;
+        let expand_icon = if is_expanded { "▼" } else { "▲" };
+
+        let toggle = button(
+            text(expand_icon)
+                .size(TOGGLE_TEXT_SIZE)
+                .font(bold())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center(),
+        )
+        .width(Length::Fill)
+        .height(Length::Fixed(TOGGLE_HEIGHT))
+        .padding(0)
+        .on_press(Message::ToggleExpanded)
+        .style(button::text);
+
+        let mut panel = column![toggle].spacing(ROW_GAP).width(Length::Fixed(PANEL_WIDTH));
+
+        if is_expanded {
+            panel = panel
+                .push(rule::horizontal(1))
+                .push(container(anim_grid(data)).width(Length::Fill).align_x(alignment::Horizontal::Center))
+                .push(rule::horizontal(1))
+                .push(self.transport_row(canvas, data));
+        }
+
+        container(panel)
+            .padding(PANEL_PAD)
+            .style(panel_style)
+            .into()
+    }
+
+    fn transport_row<'a>(&'a self, canvas: &'a canvas::State, data: &'a data::State) -> Element<'a, Message> {
+        let base_available = data.base_assets_available();
+        let anim_loaded = base_available && data.loaded_anim_index != IDX_NONE;
+
         let play_icon = if canvas.is_playing { "⏸" } else { "▶" };
-        let is_locked = false;
 
-        let transport_row = row![
-            button(text(play_icon).size(16))
-                .on_press(Message::TogglePlay)
-                .width(Length::Fixed(50.0)),
-            button(text("Orient")).on_press(Message::ResetPan).width(Length::Fixed(60.0)),
-            button(text("Export")).on_press(Message::OpenExport).width(Length::Fixed(70.0)).style(button::primary),
-        ].spacing(4);
+        let transport = column![
+            control_button(play_icon, PLAY_TEXT_SIZE, ICON_W, anim_loaded.then_some(Message::TogglePlay)),
+            control_button("Orient", TILE_TEXT_SIZE, ICON_W, base_available.then_some(Message::ResetPan)),
+        ]
+        .spacing(GAP);
 
-        let frame_display = if canvas.is_playing {
-            let start_hint = canvas.loop_start.map(|v| v.to_string()).unwrap_or_default();
-            let end_hint = canvas.loop_end.map(|v| v.to_string()).unwrap_or_default();
+        let frame_row: Element<'a, Message> = if canvas.is_playing {
             row![
-                text_input(&start_hint, &self.range_start_input).on_input(Message::RangeStartChanged).width(Length::Fixed(60.0)),
-                text("~"),
-                text_input(&end_hint, &self.range_end_input).on_input(Message::RangeEndChanged).width(Length::Fixed(60.0)),
-            ].spacing(4)
+                tile(RANGE_W, tile_input("0", &self.range_start_input, anim_loaded, Message::RangeStartChanged)),
+                label_tile(TILDE_W, "~"),
+                tile(RANGE_W, tile_input(&display_max(data), &self.range_end_input, anim_loaded, Message::RangeEndChanged)),
+            ]
+            .spacing(GAP)
+            .into()
         } else {
+            let frame_hint = (canvas.current_frame.trunc() as i32).to_string();
+            let frame_input = tile_input(&frame_hint, &self.frame_input, anim_loaded, Message::FrameInputChanged)
+                .on_submit(Message::FrameInputSubmitted);
+
             row![
-                mouse_area(step_control("◀"))
-                    .on_press(Message::HoldStart(-1))
-                    .on_release(Message::HoldEnd)
-                    .on_exit(Message::HoldCancel),
-                text_input("0", &self.frame_input)
-                    .on_input(Message::FrameInputChanged)
-                    .on_submit(Message::FrameInputSubmitted)
-                    .width(Length::Fixed(80.0)),
-                mouse_area(step_control("▶"))
-                    .on_press(Message::HoldStart(1))
-                    .on_release(Message::HoldEnd)
-                    .on_exit(Message::HoldCancel),
-            ].spacing(4)
+                step_control("◀", -1, anim_loaded),
+                tile(FRAME_INPUT_W, frame_input),
+                step_control("▶", 1, anim_loaded),
+            ]
+            .spacing(GAP)
+            .into()
         };
 
-        let frame_status = row![
-            text(format!("{:.0}", canvas.current_frame)),
-            text("/"),
-            text(display_max(data)),
-        ].spacing(4);
+        let counter_row = row![
+            label_tile(RANGE_W, (canvas.current_frame.trunc() as i32).to_string()),
+            label_tile(TILDE_W, "/"),
+            label_tile(RANGE_W, effective_max(canvas, data)),
+        ]
+        .spacing(GAP);
+
+        let playback = column![frame_row, counter_row].spacing(GAP);
 
         let speed_row = row![
-            text("Speed"),
-            text_input("1.0", &self.speed_input).on_input(Message::SpeedInputChanged).width(Length::Fixed(50.0)),
-        ].spacing(4);
+            label_tile(SPEED_LABEL_W, "Speed"),
+            tile(
+                COL3_W - SPEED_LABEL_W - GAP,
+                tile_input("1.0", &self.speed_input, base_available, Message::SpeedInputChanged),
+            ),
+        ]
+        .spacing(GAP);
 
-        let expand_icon = if anim_state.controls_expanded { "▼" } else { "▲" };
-        let toggle_button = button(text(expand_icon)).on_press(Message::ToggleExpanded).width(Length::Fill).style(button::text);
+        let output = column![
+            control_button("Export", TILE_TEXT_SIZE, COL3_W, base_available.then_some(Message::OpenExport)),
+            speed_row,
+        ]
+        .spacing(GAP);
 
-        let body: Element<'_, Message> = if anim_state.controls_expanded {
-            let controls_column = column![transport_row, frame_display, frame_status, speed_row].spacing(6);
-
-            let base_available = data.base_assets_available();
-            let secondary_available = data.secondary_available();
-
-            let mut rows: Vec<Element<'_, Message>> = Vec::new();
-            for chunk in ANIM_BUTTONS.chunks(4) {
-                let mut buttons_row = row![].spacing(4);
-                for (label, index) in chunk {
-                    let available = match *index {
-                        IDX_SPIRIT => secondary_available,
-                        IDX_MODEL => base_available,
-                        idx => base_available && data.available_anims.iter().any(|(a, _)| *a == idx),
-                    };
-                    let is_active = data.loaded_anim_index == *index && data.loaded_anim_index != IDX_NONE;
-
-                    let mut btn = button(text(*label).size(13))
-                        .width(Length::Fixed(70.0))
-                        .style(move |t: &Theme, status| theme::toggle_button(t, status, is_active));
-                    if available && !is_locked {
-                        btn = btn.on_press(Message::SelectAnimation(*index));
-                    }
-                    buttons_row = buttons_row.push(btn);
-                }
-                rows.push(buttons_row.into());
-            }
-            let grid = column(rows).spacing(4);
-
-            column![controls_column, grid].spacing(8).into()
-        } else {
-            column![].into()
-        };
-
-        container(
-            column![body, toggle_button].spacing(8)
-        )
-            .padding(10)
-            .style(container::rounded_box)
+        row![transport, divider(), playback, divider(), output]
+            .spacing(GAP)
+            .align_y(alignment::Vertical::Center)
             .into()
     }
 }
