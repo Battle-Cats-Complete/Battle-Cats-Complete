@@ -17,6 +17,7 @@ use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
 use crate::app::theme;
+use crate::widget::smooth_scroll;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MetadataField {
@@ -469,8 +470,10 @@ impl State {
         ].align_y(Alignment::Center);
 
         container(
-            scrollable(
-                column![header, space().height(16), content].spacing(8)
+            smooth_scroll(
+                scrollable(
+                    column![header, space().height(16), content].spacing(8)
+                )
             )
         )
             .width(Length::Fixed(500.0))

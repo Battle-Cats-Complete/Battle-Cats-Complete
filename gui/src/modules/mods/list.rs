@@ -11,6 +11,8 @@ use image::imageops;
 
 use core::modules::mods::ModData;
 
+use crate::widget::smooth_scroll;
+
 const ICON_UI_HEIGHT: f32 = 46.0;
 const ICON_RENDER_SIZE: u32 = 92;
 
@@ -143,7 +145,7 @@ impl State {
             list_col = list_col.push(self.view_row(mod_data, selected == Some(mod_data.folder_name.as_str())));
         }
 
-        scrollable(list_col).height(Length::Fill).width(Length::Fill).into()
+        smooth_scroll(scrollable(list_col).height(Length::Fill).width(Length::Fill)).into()
     }
 
     fn view_row<'a>(&'a self, mod_data: &'a ModData, is_selected: bool) -> Element<'a, Message> {

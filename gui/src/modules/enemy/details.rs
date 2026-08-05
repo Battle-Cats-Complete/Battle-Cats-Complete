@@ -3,6 +3,8 @@ use iced::{Element, Length};
 
 use core::modules::enemy::scanner::EnemyEntry;
 
+use crate::widget::smooth_scroll;
+
 use super::Message;
 
 const HEADING_SIZE: f32 = 20.0;
@@ -25,5 +27,5 @@ pub(super) fn view<'a>(enemy: &'a EnemyEntry) -> Element<'a, Message> {
         .spacing(SECTION_SPACING)
         .width(Length::Fill);
 
-    scrollable(content).into()
+    smooth_scroll(scrollable(content)).into()
 }

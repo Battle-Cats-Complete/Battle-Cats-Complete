@@ -19,7 +19,7 @@ use core::modules::settings::Settings;
 
 use crate::app::state::AnimState;
 use crate::app::theme;
-use crate::widget::{popup, section};
+use crate::widget::{popup, section, smooth_scroll};
 
 use super::data;
 use super::offscreen::{self, Camera};
@@ -1161,7 +1161,7 @@ impl State {
 
         container(
             column![
-                scrollable(scroll_content).height(Length::Fill).spacing(SCROLLBAR_GAP),
+                smooth_scroll(scrollable(scroll_content).height(Length::Fill).spacing(SCROLLBAR_GAP)),
                 container(rule::horizontal(RULE_HEIGHT)).width(Length::Fill),
                 bottom_bar,
             ].spacing(SECTION_SPACING)

@@ -12,7 +12,7 @@ use core::modules::stage::paths;
 
 use crate::app::theme;
 use crate::common::item_icon;
-use crate::widget::section;
+use crate::widget::{section, smooth_scroll};
 
 const ICON_SIZE: f32 = 128.0 * 0.45;
 const ICON_SPACING: f32 = 8.0;
@@ -60,8 +60,10 @@ impl State {
         let slots_col = column![top_row, bottom_row].spacing(ICON_SPACING);
 
         let upgrades_panel = container(
-            scrollable(upgrades_section(preset))
-                .height(Length::Fixed(SCROLL_AREA_HEIGHT))
+            smooth_scroll(
+                scrollable(upgrades_section(preset))
+                    .height(Length::Fixed(SCROLL_AREA_HEIGHT))
+            )
         )
             .padding(4)
             .style(|theme: &Theme| container::Style {

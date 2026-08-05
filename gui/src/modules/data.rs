@@ -26,6 +26,7 @@ use core::modules::settings::Settings;
 
 use crate::app::state::AppState;
 use crate::app::theme;
+use crate::widget::smooth_scroll;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -630,12 +631,14 @@ impl State {
 
         let progress = progress_bar(0.0..=1.0, progress_fraction);
 
-        let console_area = scrollable(
-            container(text(&slot.log).size(12).font(Font::MONOSPACE))
-                .width(Length::Fill)
-                .padding(5),
-        )
-            .height(Length::Fill);
+        let console_area = smooth_scroll(
+            scrollable(
+                container(text(&slot.log).size(12).font(Font::MONOSPACE))
+                    .width(Length::Fill)
+                    .padding(5),
+            )
+                .height(Length::Fill),
+        );
 
         column![progress, Space::new().height(10), console_area].into()
     }

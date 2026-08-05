@@ -18,7 +18,7 @@ use core::modules::settings::Settings;
 use crate::app::theme;
 use crate::common::ability_icon;
 use crate::common::{CustomAssets, SpriteSheet};
-use crate::widget::fallback_icon;
+use crate::widget::{fallback_icon, smooth_scroll};
 
 const GROUP_ICON_SIZE: f32 = 40.0;
 const NP_ICON_SIZE: f32 = 20.0;
@@ -187,7 +187,7 @@ impl State {
             col = col.push(self.group_view(&ctx, index as u8, group));
         }
 
-        scrollable(col).height(Length::Fill).width(Length::Fill).into()
+        smooth_scroll(scrollable(col).height(Length::Fill).width(Length::Fill)).into()
     }
 
     fn group_view<'a>(&'a self, ctx: &ViewCtx<'a, '_>, index: u8, group: &'a TalentGroup) -> Element<'a, Message> {

@@ -15,7 +15,7 @@ use core::modules::settings::{Settings, UpdateMode};
 
 use crate::common::watcher::GuiWatcher;
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
-use crate::widget::popup;
+use crate::widget::{popup, smooth_scroll};
 
 use state::AppState;
 
@@ -701,9 +701,11 @@ impl BattleCatsApp {
         };
 
         let modal_card = container(
-            scrollable(modal_content)
-                .width(Length::Fill)
-                .height(Length::Shrink)
+            smooth_scroll(
+                scrollable(modal_content)
+                    .width(Length::Fill)
+                    .height(Length::Shrink)
+            )
         )
             .padding(30)
             .width(Length::Fixed(400.0))

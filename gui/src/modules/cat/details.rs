@@ -10,6 +10,7 @@ use core::common::io;
 use core::modules::cat::scanner::CatEntry;
 
 use crate::common::item_icon;
+use crate::widget::smooth_scroll;
 
 use super::Message;
 
@@ -91,7 +92,7 @@ impl State {
             content = content.push(evolve);
         }
 
-        scrollable(content).into()
+        smooth_scroll(scrollable(content)).into()
     }
 
     fn view_evolve<'a>(&'a self, cat: &'a CatEntry, form: usize, langs: &'a [String]) -> Option<Element<'a, Message>> {

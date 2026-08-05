@@ -2,7 +2,7 @@ use iced::widget::{button, column, scrollable, text, Space};
 use iced::{Alignment, Element, Length, Size};
 use sha2::{Digest, Sha256};
 
-use crate::widget::popup;
+use crate::widget::{popup, smooth_scroll};
 
 use super::Message;
 
@@ -43,7 +43,7 @@ pub(super) fn update(state: &mut popup::State, message: popup::Message) -> bool 
 pub(super) fn view(state: &popup::State, window: Size) -> Element<'_, Message> {
     state.view(NOTICE_TITLE, POPUP_SIZE, window, Message::Notice, || {
         column![
-            scrollable(text(NOTICE_CONTENT).size(14.0)).height(Length::Fill),
+            smooth_scroll(scrollable(text(NOTICE_CONTENT).size(14.0)).height(Length::Fill)),
             Space::new().height(20.0),
             button(text("Acknowledge").size(16.0))
                 .style(button::primary)

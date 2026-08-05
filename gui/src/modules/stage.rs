@@ -25,6 +25,7 @@ use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDa
 
 use crate::app::state::StageListState;
 use crate::app::theme;
+use crate::widget::smooth_scroll;
 
 const SIDEBAR_PUSH_GAP: f32 = 10.0;
 const SIDEBAR_PADDING: f32 = 15.0;
@@ -364,9 +365,11 @@ impl State {
 
         content = content.push(self.battleground.view(stage, map, self.selected_crown, &self.data.enemy_registry, &self.data.enemy_name_registry, global_ctx));
 
-        scrollable(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
+        smooth_scroll(
+            scrollable(content)
+                .width(Length::Fill)
+                .height(Length::Fill)
+        )
             .into()
     }
 }

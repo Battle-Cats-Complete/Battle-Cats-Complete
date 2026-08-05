@@ -13,7 +13,7 @@ use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
 use crate::app::theme;
-use crate::widget::popup;
+use crate::widget::{popup, smooth_scroll};
 
 use super::job_finished;
 
@@ -211,7 +211,7 @@ impl State {
 
     pub fn view<'a>(&'a self, data: &'a ModDataState, window: Size) -> Element<'a, Message> {
         self.popup.view("Export Mod", POPUP_SIZE, window, Message::Popup, move || {
-            container(scrollable(self.content_view(data)))
+            container(smooth_scroll(scrollable(self.content_view(data))))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .padding(20)
@@ -254,7 +254,7 @@ impl State {
             text(display_status).color(color).into()
         };
 
-        let log_display = scrollable(text(self.log.clone()).size(12)).height(Length::Fixed(150.0));
+        let log_display = smooth_scroll(scrollable(text(self.log.clone()).size(12)).height(Length::Fixed(150.0)));
 
         column![tabs_row, space().height(10), content, space().height(10), status_row, log_display].spacing(8).into()
     }

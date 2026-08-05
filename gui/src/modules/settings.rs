@@ -18,7 +18,7 @@ use core::modules::settings::{
 use crate::app::theme;
 #[cfg(target_os = "linux")]
 use crate::common::feedback::Slot;
-use crate::widget::list_row;
+use crate::widget::{list_row, smooth_scroll};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -306,9 +306,11 @@ impl State {
     pub fn view<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
         let main_content = row![
             self.view_sidebar(),
-            scrollable(container(self.view_tab_content(core_settings)).padding(15))
-                .width(Length::Fill)
-                .height(Length::Fill),
+            smooth_scroll(
+                scrollable(container(self.view_tab_content(core_settings)).padding(15))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+            ),
         ]
             .height(Length::Fill);
 
@@ -363,7 +365,7 @@ impl State {
             tab_list = tab_list.push(list_row(row_content, is_active, true, Length::Fill, Message::TabSelected(tab_enum)));
         }
 
-        container(scrollable(tab_list).width(Length::Fill).height(Length::Fill))
+        container(smooth_scroll(scrollable(tab_list).width(Length::Fill).height(Length::Fill)))
             .width(Length::Fixed(SIDEBAR_WIDTH))
             .height(Length::Fill)
             .padding(8)
@@ -652,9 +654,11 @@ impl State {
             text("About Battle Cats Complete").size(32),
             text("A high-performance Battle Cats toolkit built by Omochi"),
             text("Open Source & Legal Info").size(20),
-            scrollable(text(license_text).size(11))
-                .width(Length::Fill)
-                .height(Length::Fill)
+            smooth_scroll(
+                scrollable(text(license_text).size(11))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+            )
         ].spacing(15).into()
     }
 }

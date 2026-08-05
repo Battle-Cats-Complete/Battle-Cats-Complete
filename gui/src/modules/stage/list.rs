@@ -11,7 +11,7 @@ use core::modules::stage::filter::{CompiledStageFilter, StageFilterState, StageL
 use core::modules::stage::{navigate, GlobalMapId, GlobalStageId, StageDataState};
 
 use crate::app::theme;
-use crate::widget::list_row;
+use crate::widget::{list_row, smooth_scroll};
 
 use super::category::CategoryExt;
 
@@ -197,9 +197,11 @@ impl State {
         column![
             filter_btn,
             rule::horizontal(RULE_THICKNESS),
-            scrollable(columns)
-                .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default()))
-                .height(Length::Fill),
+            smooth_scroll(
+                scrollable(columns)
+                    .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default()))
+                    .height(Length::Fill)
+            ),
         ]
             .spacing(FILTER_RULE_GAP)
             .width(Length::Fixed(sidebar_width(data)))
@@ -228,11 +230,12 @@ fn button_column<'a>() -> Column<'a, Message> {
 }
 
 fn column_scroller<'a>(width: f32, content: Column<'a, Message>) -> Element<'a, Message> {
-    scrollable(content)
-        .spacing(SCROLLBAR_GAP)
-        .width(Length::Fixed(width))
-        .height(Length::Fill)
-        .into()
+    smooth_scroll(
+        scrollable(content)
+            .spacing(SCROLLBAR_GAP)
+            .width(Length::Fixed(width))
+            .height(Length::Fill)
+    ).into()
 }
 
 fn button_face(label: &str) -> Container<'_, Message> {

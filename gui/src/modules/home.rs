@@ -8,6 +8,7 @@ use self_update::backends::github::ReleaseList;
 use tracing::{debug, error, info};
 
 use crate::app::Page;
+use crate::widget::smooth_scroll;
 
 const SPACE_TOP: f32 = 20.0;
 const SPACE_TITLE_SUBTITLE: f32 = 2.0;
@@ -264,7 +265,7 @@ impl State {
                 .unwrap_or("No notes available.");
 
             content = content.push(
-                scrollable(text(body_text).size(14.0)).height(Length::Fill)
+                smooth_scroll(scrollable(text(body_text).size(14.0)).height(Length::Fill))
             );
         }
 

@@ -9,7 +9,7 @@ use core::modules::settings::{ExceptionList, ExceptionRule, RuleHandling};
 
 use crate::app::theme;
 use crate::common::feedback::Slot;
-use crate::widget::popup;
+use crate::widget::{popup, smooth_scroll};
 
 use super::hover_hint;
 
@@ -257,7 +257,7 @@ impl State {
                     pattern_input,
                     extension_input,
                     handling_pick,
-                    container(scrollable(lang_row).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(4)))).width(Length::Fixed(260.0)),
+                    container(smooth_scroll(scrollable(lang_row).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(4))))).width(Length::Fixed(260.0)),
                     delete_btn,
                 ].spacing(10).align_y(Alignment::Center)
             );
@@ -278,10 +278,10 @@ impl State {
         let content = column![
             actions,
             reset_confirm,
-            scrollable(rows).height(Length::Fixed(360.0)),
+            smooth_scroll(scrollable(rows).height(Length::Fixed(360.0))),
         ].spacing(15).padding(20).align_x(Alignment::Center);
 
-        container(scrollable(content))
+        container(smooth_scroll(scrollable(content)))
             .width(Length::Fill)
             .height(Length::Fill)
             .into()

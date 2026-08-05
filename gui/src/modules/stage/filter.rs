@@ -10,7 +10,7 @@ use core::modules::stage::filter::treasure::TreasureFilter;
 use core::modules::stage::filter::StageFilterState;
 
 use crate::app::theme;
-use crate::widget::{popup, range_row, section};
+use crate::widget::{popup, range_row, section, smooth_scroll};
 
 
 const POPUP_SIZE: Size = Size::new(720.0, 528.0);
@@ -506,7 +506,7 @@ impl State {
             Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
         ].spacing(SECTION_SPACING).padding(CONTENT_PADDING);
 
-        let scroll_layer = scrollable(content).width(Length::Fill).height(Length::Fill).spacing(SCROLLBAR_GAP);
+        let scroll_layer = smooth_scroll(scrollable(content).width(Length::Fill).height(Length::Fill).spacing(SCROLLBAR_GAP));
 
         let clear_btn_layer = container(
             button(text("Clear Filter")).on_press(Message::Clear).padding([8, 16]).style(button::danger)

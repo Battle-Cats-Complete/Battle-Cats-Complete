@@ -14,7 +14,7 @@ use crate::common::ability_icon;
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::widget::popup;
 use crate::widget::range_row;
-use crate::widget::{fallback_icon, ICON_SIZE};
+use crate::widget::{fallback_icon, smooth_scroll, ICON_SIZE};
 
 const STAT_KEYS: [&str; 9] = [
     "Attack", "Dps", "Range", "Atk Cycle (f)", "Hitpoints", "Knockbacks", "Speed", "Cooldown (f)", "Cost",
@@ -232,7 +232,7 @@ impl State {
             Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
         ].spacing(8).padding(24);
 
-        let scroll_layer = scrollable(content).width(Length::Fill).height(Length::Fill);
+        let scroll_layer = smooth_scroll(scrollable(content).width(Length::Fill).height(Length::Fill));
 
         let clear_btn = button(text("Clear Filter"))
             .on_press(Message::Clear)

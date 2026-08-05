@@ -16,7 +16,7 @@ use core::modules::settings::Settings;
 use crate::common::ability_icon;
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::widget::text_with_superscript;
-use crate::widget::{ability_spacer, fallback_icon, icons_per_row, ICON_SIZE};
+use crate::widget::{ability_spacer, fallback_icon, icons_per_row, smooth_scroll, ICON_SIZE};
 
 pub(super) const DESCRIPTION_TEXT_SIZE: f32 = 13.0;
 
@@ -131,7 +131,7 @@ impl State {
                 col = col.push(self.icon_row(&grp_footer, sheets, assets, per_row));
             }
 
-            scrollable(col).height(Length::Fill).width(Length::Fill).into()
+            smooth_scroll(scrollable(col).height(Length::Fill).width(Length::Fill)).into()
         }).into()
     }
 

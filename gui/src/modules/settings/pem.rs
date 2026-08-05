@@ -8,7 +8,7 @@ use core::modules::settings::pem;
 
 use crate::app::theme;
 use crate::common::feedback::Slot;
-use crate::widget::popup;
+use crate::widget::{popup, smooth_scroll};
 
 const POPUP_SIZE: Size = Size::new(650.0, 480.0);
 
@@ -186,14 +186,16 @@ impl State {
 
         let content = column![
             actions,
-            scrollable(
-                container(text(self.active_pem.clone()).size(12).font(iced::Font::MONOSPACE))
-                    .padding(10)
-                    .width(Length::Fill)
-            ).height(Length::Fixed(320.0)),
+            smooth_scroll(
+                scrollable(
+                    container(text(self.active_pem.clone()).size(12).font(iced::Font::MONOSPACE))
+                        .padding(10)
+                        .width(Length::Fill)
+                ).height(Length::Fixed(320.0)),
+            ),
         ].spacing(15).padding(20).align_x(Alignment::Center);
 
-        container(scrollable(content))
+        container(smooth_scroll(scrollable(content)))
             .width(Length::Fill)
             .height(Length::Fill)
             .into()

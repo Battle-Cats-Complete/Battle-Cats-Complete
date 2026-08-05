@@ -8,7 +8,7 @@ use core::modules::settings::UserKeys;
 
 use crate::app::theme;
 use crate::common::feedback::Slot;
-use crate::widget::popup;
+use crate::widget::{popup, smooth_scroll};
 
 const POPUP_SIZE: Size = Size::new(650.0, 335.0);
 const REGION_COLUMN_WIDTH: f32 = 60.0;
@@ -281,10 +281,10 @@ impl State {
 
         let content = column![
             actions,
-            scrollable(grid).height(Length::Shrink).width(Length::Fill),
+            smooth_scroll(scrollable(grid).height(Length::Shrink).width(Length::Fill)),
         ].spacing(15).padding(20).width(Length::Fill).align_x(Alignment::Center);
 
-        container(scrollable(content))
+        container(smooth_scroll(scrollable(content)))
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
