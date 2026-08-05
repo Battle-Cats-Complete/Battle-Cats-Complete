@@ -137,25 +137,19 @@ impl State {
     fn addon_section<'a>(&'a self, addon: Addon, status: &'a AddonStatus, description: &'a str) -> Element<'a, Message> {
         let controls: Element<'a, Message> = match status {
             AddonStatus::Installed => {
-                button(text(format!("Delete {}", addon.label())))
-                    .padding([6, 14])
-                    .style(button::danger)
+                theme::sized_button(format!("Delete {}", addon.label()), theme::ACTION_BUTTON_WIDTH, theme::danger_button)
                     .on_press(Message::RequestDelete(addon))
                     .into()
             }
             AddonStatus::Downloading(progress, stage) => {
                 column![
-                    button(text(format!("Downloading {}...", addon.label())))
-                        .padding([6, 14])
-                        .style(button::secondary),
+                    theme::sized_button(format!("Downloading {}...", addon.label()), theme::ACTION_BUTTON_WIDTH, theme::neutral_button),
                     text(format!("{} ({:.0}%)", stage, progress * 100.0)).size(12),
                 ].spacing(4).into()
             }
             AddonStatus::NotInstalled | AddonStatus::Error(_) => {
                 let mut col = column![
-                    button(text(format!("Download {}", addon.label())))
-                        .padding([6, 14])
-                        .style(button::success)
+                    theme::sized_button(format!("Download {}", addon.label()), theme::ACTION_BUTTON_WIDTH, theme::success_button)
                         .on_press(Message::Install(addon))
                 ].spacing(4);
                 if let AddonStatus::Error(err) = status {

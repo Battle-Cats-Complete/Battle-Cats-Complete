@@ -3,7 +3,7 @@ use iced::border::Radius;
 use iced::theme::Palette;
 use iced::widget::overlay::menu;
 use iced::widget::text::Text;
-use iced::widget::{button, container, pick_list, text, text_input, toggler};
+use iced::widget::{button, container, pick_list, text, text_input, toggler, Button};
 use iced::{font, Background, Border, Color, Length, Theme};
 
 pub const RADIUS_SM: f32 = 4.0;
@@ -60,25 +60,56 @@ impl AppTheme {
     }
 }
 
-pub fn primary_button(theme: &Theme, status: button::Status) -> button::Style {
-    let palette = theme.palette();
-    let background = if status == button::Status::Hovered { Color { a: 0.8, ..palette.primary } } else { palette.primary };
+fn feedback_color_button(color: Color, status: button::Status, text_override: Option<Color>) -> button::Style {
+    let background = if status == button::Status::Hovered { Color { a: 0.8, ..color } } else { color };
+    let style = solid_button(background);
 
-    solid_button(background)
+    match text_override {
+        Some(text_color) => button::Style { text_color, ..style },
+        None => style,
+    }
+}
+
+pub fn primary_button(theme: &Theme, status: button::Status) -> button::Style {
+    feedback_color_button(theme.palette().primary, status, None)
 }
 
 pub fn danger_button(theme: &Theme, status: button::Status) -> button::Style {
-    let palette = theme.palette();
-    let background = if status == button::Status::Hovered { Color { a: 0.8, ..palette.danger } } else { palette.danger };
-
-    solid_button(background)
+    feedback_color_button(theme.palette().danger, status, None)
 }
 
 pub fn success_button(theme: &Theme, status: button::Status) -> button::Style {
-    let palette = theme.palette();
-    let background = if status == button::Status::Hovered { Color { a: 0.8, ..palette.success } } else { palette.success };
+    feedback_color_button(theme.palette().success, status, Some(theme.palette().text))
+}
 
-    button::Style { text_color: palette.text, ..solid_button(background) }
+pub fn warning_button(theme: &Theme, status: button::Status) -> button::Style {
+    feedback_color_button(theme.palette().warning, status, Some(theme.palette().text))
+}
+
+pub type ButtonStyleFn = fn(&Theme, button::Status) -> button::Style;
+
+pub fn feedback_button_style(feedback: Option<bool>) -> ButtonStyleFn {
+    match feedback {
+        Some(true) => success_button,
+        Some(false) => danger_button,
+        None => primary_button,
+    }
+}
+
+pub const ACTION_BUTTON_WIDTH: f32 = 190.0;
+pub const POPUP_ACTION_BUTTON_WIDTH: f32 = 110.0;
+pub const MANAGE_BUTTON_WIDTH: f32 = 170.0;
+pub const STATUS_BUTTON_WIDTH: f32 = 210.0;
+
+pub fn sized_button<'a, Message: Clone + 'a>(
+    label: impl text::IntoFragment<'a>,
+    width: f32,
+    style: impl Fn(&Theme, button::Status) -> button::Style + 'a,
+) -> Button<'a, Message> {
+    button(centered_text(label).size(13))
+        .width(Length::Fixed(width))
+        .padding([8, 10])
+        .style(style)
 }
 
 pub fn toggle_button(theme: &Theme, status: button::Status, is_active: bool) -> button::Style {
@@ -206,6 +237,15 @@ pub fn card_container(theme: &Theme) -> container::Style {
         background: Some(Background::Color(Color { a: CARD_ALPHA, ..shade_color(palette.background, CARD_SHADE) })),
         border: Border { radius: Radius::from(RADIUS_MD), ..Border::default() },
         ..container::Style::default()
+    }
+}
+
+pub fn card_container_outlined(theme: &Theme) -> container::Style {
+    let border_color = lighten_color(theme.palette().background, 0.4);
+
+    container::Style {
+        border: Border { color: border_color, width: 3.0, radius: Radius::from(RADIUS_MD) },
+        ..card_container(theme)
     }
 }
 

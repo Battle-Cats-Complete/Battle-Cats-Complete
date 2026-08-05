@@ -1,0 +1,288 @@
+use iced::alignment::Vertical;
+use iced::border::Radius;
+use iced::mouse::Interaction;
+use iced::widget::{column, container, mouse_area, pick_list, row, text, toggler};
+use iced::{Alignment, Border, Color, Element, Length, Point, Task, Theme};
+use tracing::debug;
+
+use core::modules::settings::lang;
+use core::modules::settings::{Settings as CoreSettings, UpdateMode};
+
+use crate::app::theme;
+use crate::app::UpdateStatus;
+#[cfg(target_os = "linux")]
+use crate::common::feedback::Slot;
+
+use super::{header_section, hover_hint, SECTION_SPACING};
+
+const ROW_HEIGHT: f32 = 32.0;
+const ROW_WIDTH: f32 = 140.0;
+const DRAG_HIGHLIGHT_ALPHA: f32 = 0.25;
+const WEAK_TEXT_ALPHA: f32 = 0.4;
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DesktopFeedback {
+    Created,
+    Deleted,
+    Failed,
+}
+
+#[derive(Default, Clone, Copy)]
+enum Drag {
+    #[default]
+    Idle,
+    Pressed {
+        index: usize,
+    },
+    Moving {
+        index: usize,
+        last: Point,
+        carry: f32,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    ToggleLogging(bool),
+    ToggleNightly(bool),
+    UpdateModeSelected(UpdateMode),
+    LanguageDragStart(usize),
+    LanguageDragMove(Point),
+    LanguageDragEnd,
+    LanguageSetDefault,
+    #[cfg(target_os = "linux")]
+    ToggleDesktopData,
+    #[cfg(target_os = "linux")]
+    DesktopFeedbackExpired,
+    ManualUpdateCheck,
+}
+
+#[derive(Default)]
+pub struct State {
+    drag: Drag,
+
+    #[cfg(target_os = "linux")]
+    desktop_feedback: Slot<DesktopFeedback>,
+}
+
+impl State {
+    pub fn update(&mut self, message: Message, core_settings: &mut CoreSettings) -> Task<Message> {
+        match message {
+            Message::ToggleLogging(enabled) => {
+                core_settings.general.enable_logging = enabled;
+                Task::none()
+            }
+            Message::ToggleNightly(enabled) => {
+                core_settings.general.enable_nightly = enabled;
+                Task::none()
+            }
+            Message::UpdateModeSelected(mode) => {
+                core_settings.general.update_mode = mode;
+                Task::none()
+            }
+            Message::LanguageDragStart(index) => {
+                self.drag = Drag::Pressed { index };
+                Task::none()
+            }
+            Message::LanguageDragMove(point) => {
+                match self.drag {
+                    Drag::Idle => {}
+                    Drag::Pressed { index } => {
+                        self.drag = Drag::Moving { index, last: point, carry: 0.0 };
+                    }
+                    Drag::Moving { index, last, carry } => {
+                        let priority = &mut core_settings.general.language_priority;
+                        let max_index = priority.len().saturating_sub(1);
+
+                        let mut new_index = index;
+                        let mut new_carry = carry + (point.y - last.y);
+
+                        while new_carry >= ROW_HEIGHT && new_index < max_index {
+                            priority.swap(new_index, new_index + 1);
+                            new_index += 1;
+                            new_carry -= ROW_HEIGHT;
+                        }
+                        while new_carry <= -ROW_HEIGHT && new_index > 0 {
+                            priority.swap(new_index, new_index - 1);
+                            new_index -= 1;
+                            new_carry += ROW_HEIGHT;
+                        }
+
+                        if (new_index == max_index && new_carry > 0.0) || (new_index == 0 && new_carry < 0.0) {
+                            new_carry = 0.0;
+                        }
+
+                        self.drag = Drag::Moving { index: new_index, last: point, carry: new_carry };
+                    }
+                }
+                Task::none()
+            }
+            Message::LanguageDragEnd => {
+                self.drag = Drag::Idle;
+                Task::none()
+            }
+            Message::LanguageSetDefault => {
+                core_settings.general.language_priority = lang::default_priority();
+                Task::none()
+            }
+            #[cfg(target_os = "linux")]
+            Message::ToggleDesktopData => {
+                let is_installed = core::modules::settings::desktop::is_desktop_data_present();
+                let (feedback, success) = if is_installed {
+                    (DesktopFeedback::Deleted, core::modules::settings::desktop::delete_desktop_data().is_ok())
+                } else {
+                    (DesktopFeedback::Created, core::modules::settings::desktop::create_desktop_data().is_ok())
+                };
+                let kind = if success { feedback } else { DesktopFeedback::Failed };
+                self.desktop_feedback.set(kind, Message::DesktopFeedbackExpired)
+            }
+            #[cfg(target_os = "linux")]
+            Message::DesktopFeedbackExpired => {
+                self.desktop_feedback.expire();
+                Task::none()
+            }
+            Message::ManualUpdateCheck => {
+                debug!("Manual update check requested, deferring to root app");
+                Task::none()
+            }
+        }
+    }
+
+    pub fn is_dragging(&self) -> bool {
+        !matches!(self.drag, Drag::Idle)
+    }
+
+    pub fn view<'a>(&'a self, core_settings: &'a CoreSettings, updater_status: &'a UpdateStatus) -> Element<'a, Message> {
+        let update_modes = vec!["Prompt", "Ignore"];
+        let current_update_mode = match core_settings.general.update_mode {
+            UpdateMode::Prompt => "Prompt",
+            UpdateMode::Ignore => "Ignore",
+        };
+
+        let mut system_content = column![].spacing(10);
+
+        #[cfg(target_os = "linux")]
+        {
+            let is_installed = core::modules::settings::desktop::is_desktop_data_present();
+            let (label, style): (&str, theme::ButtonStyleFn) = match self.desktop_feedback.get() {
+                Some(DesktopFeedback::Created) => ("Desktop Data Created!", theme::success_button),
+                Some(DesktopFeedback::Deleted) => ("Desktop Data Deleted!", theme::success_button),
+                Some(DesktopFeedback::Failed) => ("Failed!", theme::danger_button),
+                None if is_installed => ("Delete Desktop Data", theme::danger_button),
+                None => ("Create Desktop Data", theme::primary_button),
+            };
+            system_content = system_content.push(
+                theme::sized_button(label, theme::STATUS_BUTTON_WIDTH, style).on_press(Message::ToggleDesktopData)
+            );
+        }
+
+        let (update_label, update_style, update_msg): (&str, theme::ButtonStyleFn, Option<Message>) = match updater_status {
+            UpdateStatus::Checking => ("Checking for Updates...", theme::warning_button, None),
+            UpdateStatus::UpToDate => ("Up to Date!", theme::success_button, None),
+            UpdateStatus::UpdateFound(..) => ("Update Found!", theme::success_button, None),
+            UpdateStatus::CheckFailed => ("Failed to Check!", theme::danger_button, None),
+            UpdateStatus::Downloading(_) => ("Downloading Update...", theme::primary_button, None),
+            UpdateStatus::RestartPending(_) => ("Restart Pending!", theme::warning_button, None),
+            UpdateStatus::Idle => ("Check for Update Now", theme::primary_button, Some(Message::ManualUpdateCheck)),
+        };
+        system_content = system_content.push(
+            theme::sized_button(update_label, theme::STATUS_BUTTON_WIDTH, update_style).on_press_maybe(update_msg)
+        );
+
+        let behavior_content = column![
+            hover_hint(
+                row![
+                    toggler(core_settings.general.enable_logging).on_toggle(Message::ToggleLogging).style(theme::ios_toggle),
+                    text("Enable Logging"),
+                ].spacing(10).align_y(Alignment::Center),
+                "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs",
+            ),
+            row![
+                toggler(core_settings.general.enable_nightly).on_toggle(Message::ToggleNightly).style(theme::ios_toggle),
+                text("Enable Nightly Features 🌙"),
+            ].spacing(10).align_y(Alignment::Center),
+            row![
+                text("Update Handling"),
+                pick_list(
+                    update_modes,
+                    Some(current_update_mode),
+                    |val| {
+                        let mode = match val {
+                            "Prompt" => UpdateMode::Prompt,
+                            _ => UpdateMode::Ignore,
+                        };
+                        Message::UpdateModeSelected(mode)
+                    }
+                ).style(theme::combo_box).menu_style(theme::combo_box_menu),
+            ].spacing(10).align_y(Alignment::Center),
+        ].spacing(10);
+
+        let language_content = column![
+            theme::sized_button("Set to Default", theme::MANAGE_BUTTON_WIDTH, theme::danger_button)
+                .on_press(Message::LanguageSetDefault),
+            self.language_list(core_settings),
+        ].spacing(10);
+
+        column![
+            header_section(text("System").size(24), system_content),
+            header_section(text("Behavior").size(24), behavior_content),
+            header_section(text("Language Priority").size(24), language_content),
+        ].spacing(SECTION_SPACING).into()
+    }
+
+    fn language_list<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
+        let priority = &core_settings.general.language_priority;
+        let none_index = priority.iter().position(|code| code == "--");
+
+        let mut list_col = column![].spacing(0);
+        for (index, code) in priority.iter().enumerate() {
+            let is_none = Some(index) == none_index;
+            let is_weak = none_index.is_some_and(|none_index| index > none_index);
+            let is_dragging =
+                matches!(self.drag, Drag::Pressed { index: dragged } | Drag::Moving { index: dragged, .. } if dragged == index);
+
+            list_col = list_col.push(language_row(index, code, is_none, is_weak, is_dragging));
+        }
+
+        container(list_col)
+            .width(Length::Fixed(ROW_WIDTH))
+            .padding(12)
+            .style(theme::card_container_outlined)
+            .into()
+    }
+}
+
+fn language_row<'a>(index: usize, code: &'a str, is_none: bool, is_weak: bool, is_dragging: bool) -> Element<'a, Message> {
+    let handle = mouse_area(text("☰").size(14))
+        .interaction(Interaction::Grab)
+        .on_press(Message::LanguageDragStart(index));
+
+    let label = if is_none { theme::bold_text(lang::get_label_for_code(code)) } else { text(lang::get_label_for_code(code)) };
+
+    let label: Element<'_, Message> = if is_weak {
+        label.style(|theme: &Theme| iced::widget::text::Style { color: Some(Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }) }).into()
+    } else {
+        label.into()
+    };
+
+    let content = row![handle, label].spacing(8).align_y(Alignment::Center);
+
+    container(content)
+        .width(Length::Fixed(ROW_WIDTH))
+        .height(Length::Fixed(ROW_HEIGHT))
+        .align_y(Vertical::Center)
+        .padding([0, 6])
+        .style(move |theme: &Theme| {
+            if is_dragging {
+                container::Style {
+                    background: Some(Color { a: DRAG_HIGHLIGHT_ALPHA, ..theme.palette().primary }.into()),
+                    border: Border { radius: Radius::from(theme::RADIUS_SM), ..Border::default() },
+                    ..container::Style::default()
+                }
+            } else {
+                container::Style::default()
+            }
+        })
+        .into()
+}

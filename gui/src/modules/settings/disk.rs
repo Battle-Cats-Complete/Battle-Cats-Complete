@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use iced::widget::{button, column, container, row, text};
-use iced::{task, Alignment, Element, Length, Task, Theme};
+use iced::{task, Alignment, Element, Length, Task};
 use tracing::{debug, error};
 
 use crate::app::theme;
@@ -179,29 +179,25 @@ impl State {
         delete_task
     }
 
-    fn disk_button<'a>(&'a self, label_idle: String, phase: Phase, target: Target, can_delete: bool) -> Element<'a, Message> {
+    fn disk_button<'a>(&'a self, name: &str, phase: Phase, target: Target, can_delete: bool) -> Element<'a, Message> {
         match phase {
-            Phase::Deleting => button(text(format!("Deleting \"{}\"...", label_idle)).size(14))
-                .padding([8, 16])
-                .style(|_theme: &Theme, _status| button::Style {
-                    background: Some(iced::Color::from_rgb8(200, 180, 50).into()),
-                    text_color: iced::Color::WHITE,
-                    ..Default::default()
-                })
-                .into(),
-            Phase::Done => button(text(format!("Deleted \"{}\"!", label_idle)).size(14))
-                .padding([8, 16])
-                .style(button::success)
-                .into(),
-            Phase::Idle if can_delete => button(text(format!("Delete \"{}\"", label_idle)).size(14))
-                .padding([8, 16])
-                .style(button::danger)
+            Phase::Deleting => theme::sized_button(format!("Deleting \"{}\"...", name), theme::ACTION_BUTTON_WIDTH, theme::warning_button).into(),
+            Phase::Done => theme::sized_button(format!("Deleted \"{}\"!", name), theme::ACTION_BUTTON_WIDTH, theme::success_button).into(),
+            Phase::Idle if can_delete => theme::sized_button(format!("Delete \"{}\"", name), theme::ACTION_BUTTON_WIDTH, theme::danger_button)
                 .on_press(Message::RequestDelete(target))
                 .into(),
-            Phase::Idle => button(text(format!("No \"{}\"", label_idle)).size(14))
-                .padding([8, 16])
-                .style(button::secondary)
+            Phase::Idle => theme::sized_button(format!("No \"{}\"", name), theme::ACTION_BUTTON_WIDTH, theme::neutral_button).into(),
+        }
+    }
+
+    fn cache_button<'a>(&'a self, phase: Phase, can_delete: bool) -> Element<'a, Message> {
+        match phase {
+            Phase::Deleting => theme::sized_button("Clearing Cache...", theme::ACTION_BUTTON_WIDTH, theme::warning_button).into(),
+            Phase::Done => theme::sized_button("Cache Cleared!", theme::ACTION_BUTTON_WIDTH, theme::success_button).into(),
+            Phase::Idle if can_delete => theme::sized_button("Clear Cache", theme::ACTION_BUTTON_WIDTH, theme::danger_button)
+                .on_press(Message::RequestDelete(Target::Cache))
                 .into(),
+            Phase::Idle => theme::sized_button("Cache Empty", theme::ACTION_BUTTON_WIDTH, theme::neutral_button).into(),
         }
     }
 
@@ -215,12 +211,9 @@ impl State {
         let raw_can_delete = raw_exists && self.game.phase != Phase::Deleting;
 
         column![
-            self.disk_button("game".to_string(), self.game.phase, Target::Game, game_exists),
-            self.disk_button("raw".to_string(), self.raw.phase, Target::Raw, raw_can_delete),
-            self.disk_button(
-                if cache_size > 0 { "Clear Cache".to_string() } else { "Cache Empty".to_string() },
-                self.cache.phase, Target::Cache, cache_size > 0
-            ),
+            self.disk_button("game", self.game.phase, Target::Game, game_exists),
+            self.disk_button("raw", self.raw.phase, Target::Raw, raw_can_delete),
+            self.cache_button(self.cache.phase, cache_size > 0),
         ].spacing(8).into()
     }
 

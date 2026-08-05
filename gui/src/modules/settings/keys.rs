@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use iced::widget::{button, column, container, row, scrollable, text, text_input};
+use iced::widget::{column, container, row, scrollable, text_input};
 use iced::{Alignment, Element, Length, Size, Task, Theme};
 
 use core::modules::settings::UserKeys;
@@ -175,22 +175,10 @@ impl State {
     }
 
     fn content_view<'a>(&'a self) -> Element<'a, Message> {
-        let action_button = |label: &'a str, msg: Message, color: [u8; 3]| {
-            button(text(label).size(12))
-                .padding([6, 14])
-                .style(move |_theme: &Theme, _status| theme::solid_button(iced::Color::from_rgb8(color[0], color[1], color[2])))
-                .on_press(msg)
-        };
-
         let import_label = match self.import_feedback.get().copied() {
             Some(true) => "Loaded!",
             Some(false) => "Failed!",
             None => "Load Keys",
-        };
-        let import_color = match self.import_feedback.get().copied() {
-            Some(true) => [40, 160, 60],
-            Some(false) => [200, 40, 40],
-            None => [31, 106, 165],
         };
 
         let export_label = match self.export_feedback.get().copied() {
@@ -198,19 +186,14 @@ impl State {
             Some(false) => "Failed!",
             None => "Export Keys",
         };
-        let export_color = match self.export_feedback.get().copied() {
-            Some(true) => [40, 160, 60],
-            Some(false) => [200, 40, 40],
-            None => [31, 106, 165],
-        };
 
         let delete_label = if self.confirm_delete.is_set() { "Are You Sure?" } else { "Delete Keys" };
 
         let actions = row![
-            action_button(import_label, Message::Import, import_color),
-            action_button(export_label, Message::Export, export_color),
-            action_button("Validate Keys", Message::Validate, [31, 106, 165]),
-            action_button(delete_label, Message::DeleteRequested, [180, 50, 50]),
+            theme::sized_button(import_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::feedback_button_style(self.import_feedback.get().copied())).on_press(Message::Import),
+            theme::sized_button(export_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::feedback_button_style(self.export_feedback.get().copied())).on_press(Message::Export),
+            theme::sized_button("Validate Keys", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button).on_press(Message::Validate),
+            theme::sized_button(delete_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button).on_press(Message::DeleteRequested),
         ].spacing(10);
 
         let default_validation = [(true, true); 4];

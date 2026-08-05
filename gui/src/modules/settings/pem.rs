@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::Path;
 
-use iced::widget::{button, column, container, row, scrollable, text};
-use iced::{Alignment, Element, Length, Size, Task, Theme};
+use iced::widget::{column, container, row, scrollable, text};
+use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 
 use core::modules::settings::pem;
 
@@ -143,23 +143,10 @@ impl State {
     }
 
     fn content_view<'a>(&'a self) -> Element<'a, Message> {
-        let action_button = |label: &'a str, msg: Option<Message>, color: [u8; 3]| {
-            let mut b = button(text(label).size(12))
-                .padding([6, 14])
-                .style(move |_theme: &Theme, _status| theme::solid_button(iced::Color::from_rgb8(color[0], color[1], color[2])));
-            if let Some(msg) = msg { b = b.on_press(msg); }
-            b
-        };
-
         let export_label = match self.export_feedback.get().copied() {
             Some(true) => "Exported!",
             Some(false) => "Failed!",
             None => "Export PEM",
-        };
-        let export_color = match self.export_feedback.get().copied() {
-            Some(true) => [40, 160, 60],
-            Some(false) => [200, 40, 40],
-            None => [31, 106, 165],
         };
 
         let generate_label = if self.is_generating {
@@ -178,21 +165,30 @@ impl State {
         let delete_msg = if self.is_generating || !self.is_custom { None } else { Some(Message::DeleteRequested) };
 
         let actions = row![
-            action_button("Import PEM", import_msg, [31, 106, 165]),
-            action_button(export_label, export_msg, export_color),
-            action_button(generate_label, generate_msg, [200, 180, 50]),
-            action_button(delete_label, delete_msg, [180, 50, 50]),
+            theme::sized_button("Import PEM", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button).on_press_maybe(import_msg),
+            theme::sized_button(export_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::feedback_button_style(self.export_feedback.get().copied())).on_press_maybe(export_msg),
+            theme::sized_button(generate_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::warning_button).on_press_maybe(generate_msg),
+            theme::sized_button(delete_label, theme::POPUP_ACTION_BUTTON_WIDTH, if self.is_custom { theme::danger_button } else { theme::neutral_button }).on_press_maybe(delete_msg),
         ].spacing(10);
+
+        let is_custom = self.is_custom;
+        let pem_text_style = move |theme: &Theme| {
+            let palette = theme.palette();
+            let color = if is_custom { palette.text } else { Color { a: 0.5, ..palette.text } };
+            text::Style { color: Some(color) }
+        };
 
         let content = column![
             actions,
-            smooth_scroll(
-                scrollable(
-                    container(text(self.active_pem.clone()).size(12).font(iced::Font::MONOSPACE))
-                        .padding(10)
-                        .width(Length::Fill)
-                ).height(Length::Fixed(320.0)),
-            ),
+            container(
+                smooth_scroll(
+                    scrollable(
+                        container(text(self.active_pem.clone()).size(12).font(iced::Font::MONOSPACE).style(pem_text_style))
+                            .padding(10)
+                            .width(Length::Fill)
+                    ).height(Length::Fixed(320.0)),
+                )
+            ).style(theme::card_container),
         ].spacing(15).padding(20).align_x(Alignment::Center);
 
         container(smooth_scroll(scrollable(content)))

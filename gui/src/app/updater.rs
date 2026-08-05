@@ -2,6 +2,7 @@ use std::env;
 use std::fs;
 use std::process::Command;
 use std::thread;
+use std::time::Duration;
 
 use iced::futures::channel::mpsc;
 use iced::Task;
@@ -15,8 +16,23 @@ use super::{BattleCatsApp, Message, UpdateStatus, UpdaterMsg};
 const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "battle-cats-complete";
 const BIN_NAME: &str = "Battle Cats Complete";
+const STATUS_EXPIRY: Duration = Duration::from_secs(2);
 
 impl BattleCatsApp {
+    pub(crate) fn schedule_updater_status_expiry(&mut self) -> Task<Message> {
+        if let Some(handle) = self.updater_status_handle.take() {
+            handle.abort();
+        }
+
+        let (task, handle) = Task::perform(
+            async { smol::Timer::after(STATUS_EXPIRY).await; },
+            |_| Message::UpdaterStatusExpired,
+        )
+        .abortable();
+        self.updater_status_handle = Some(handle);
+        task
+    }
+
     pub(crate) fn check_for_updates(&mut self, is_manual: bool) -> Task<Message> {
         let is_valid_state = matches!(self.updater_status, UpdateStatus::Idle | UpdateStatus::UpToDate | UpdateStatus::CheckFailed);
         if !is_valid_state { return Task::none(); }

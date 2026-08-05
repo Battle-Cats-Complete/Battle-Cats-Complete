@@ -124,6 +124,7 @@ pub enum Message {
     WindowResized(Size),
     Updater(UpdaterMsg),
     UpdaterAction(UpdaterAction),
+    UpdaterStatusExpired,
     Notice(popup::Message),
     AcknowledgeNotice,
     OpenUrl(String),
@@ -194,6 +195,8 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     pub updater_status: UpdateStatus,
     #[serde(skip)]
+    pub updater_status_handle: Option<task::Handle>,
+    #[serde(skip)]
     pub download_progress: f32,
 
     pub app_theme: AppTheme,
@@ -227,6 +230,7 @@ impl Default for BattleCatsApp {
             last_saved_state_hash: 0,
             updater_handle: None,
             updater_status: UpdateStatus::Idle,
+            updater_status_handle: None,
             download_progress: 0.0,
             app_theme: AppTheme::default(),
         }
@@ -338,15 +342,18 @@ impl BattleCatsApp {
                 Task::none()
             }
             Message::Updater(msg) => {
+                let mut task = Task::none();
                 match msg {
                     UpdaterMsg::UpdateFound(release) => {
                         self.updater_status = UpdateStatus::UpdateFound(release.version.clone(), release);
                     }
                     UpdaterMsg::UpToDate => {
                         self.updater_status = UpdateStatus::UpToDate;
+                        task = self.schedule_updater_status_expiry();
                     }
                     UpdaterMsg::CheckFailed => {
                         self.updater_status = UpdateStatus::CheckFailed;
+                        task = self.schedule_updater_status_expiry();
                     }
                     UpdaterMsg::DownloadStarted(version) => {
                         self.updater_status = UpdateStatus::Downloading(version);
@@ -359,6 +366,13 @@ impl BattleCatsApp {
                         self.updater_status = UpdateStatus::Idle;
                     }
                 }
+                task
+            }
+            Message::UpdaterStatusExpired => {
+                if matches!(self.updater_status, UpdateStatus::UpToDate | UpdateStatus::CheckFailed) {
+                    self.updater_status = UpdateStatus::Idle;
+                }
+                self.updater_status_handle = None;
                 Task::none()
             }
             Message::Navigate(page) => self.navigate(page),
@@ -467,7 +481,7 @@ impl BattleCatsApp {
             }
             Message::Data(msg) => self.data_state.update(msg, &mut self.settings, &mut self.app_state).map(Message::Data),
             Message::Settings(msg) => {
-                if matches!(msg, gui_settings::Message::ManualUpdateCheck) {
+                if matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ManualUpdateCheck)) {
                     info!("Manual update check requested from Settings");
                     return self.check_for_updates(true);
                 }
@@ -488,7 +502,7 @@ impl BattleCatsApp {
             Page::Stages => self.stage_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Data => self.data_state.view(&self.app_state).map(Message::Data),
-            Page::Settings => self.settings_state.view(&self.settings).map(Message::Settings),
+            Page::Settings => self.settings_state.view(&self.settings, &self.updater_status).map(Message::Settings),
         };
 
         let content_container = container(content)
