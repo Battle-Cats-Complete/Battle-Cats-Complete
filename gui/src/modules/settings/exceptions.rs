@@ -161,7 +161,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, window: Size) -> Element<'a, Message> {
-        self.popup.view("Manage Exceptions", POPUP_SIZE, window, Message::Popup, move || self.content_view())
+        self.popup.view("Manage Exceptions", POPUP_SIZE, window, Message::Popup, move || self.content_view(), None)
     }
 
     fn content_view<'a>(&'a self) -> Element<'a, Message> {

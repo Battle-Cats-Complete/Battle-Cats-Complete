@@ -231,7 +231,7 @@ impl State {
                 .height(Length::Fill)
                 .padding(20)
                 .into()
-        })
+        }, None)
     }
 
     fn content_view<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {

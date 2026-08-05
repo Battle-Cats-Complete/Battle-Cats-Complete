@@ -54,6 +54,6 @@ pub(super) fn view(state: &popup::State, window: Size) -> Element<'_, Message> {
         .height(Length::Fill)
         .padding(20.0)
         .into()
-    })
+    }, None)
 }
 

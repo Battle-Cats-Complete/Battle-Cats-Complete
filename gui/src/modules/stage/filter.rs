@@ -431,7 +431,7 @@ impl State {
     }
 
     pub fn view(&self, window: Size) -> Element<'_, Message> {
-        self.popup.view("Advanced Stage Filter", POPUP_SIZE, window, Message::Popup, move || self.content_view())
+        self.popup.view("Advanced Stage Filter", POPUP_SIZE, window, Message::Popup, move || self.content_view(), None)
     }
 
     fn content_view(&self) -> Element<'_, Message> {

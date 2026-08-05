@@ -39,9 +39,11 @@ const SMALL_INPUT_WIDTH: f32 = 55.0;
 const AXIS_INPUT_WIDTH: f32 = 100.0;
 const AXIS_LABEL_WIDTH: f32 = 18.0;
 const COMBO_WIDTH: f32 = 130.0;
+const BUTTON_STATUS_GAP: f32 = 8.0;
 const RULE_HEIGHT: f32 = 1.0;
 const SCROLLBAR_GAP: f32 = 2.0;
 const CONTROL_TEXT_SIZE: f32 = 13.0;
+const POPUP_BODY_ALPHA: f32 = 0.95;
 
 const DEFAULT_WALK_LEN: i32 = 90;
 const DEFAULT_IDLE_LEN: i32 = 90;
@@ -859,7 +861,7 @@ impl State {
     }
 
     pub fn view(&self, window: Size) -> Element<'_, Message> {
-        self.popup.view("Export Animation", POPUP_SIZE, window, Message::Popup, move || self.content_view())
+        self.popup.view("Export Animation", POPUP_SIZE, window, Message::Popup, move || self.content_view(), Some(POPUP_BODY_ALPHA))
     }
 
     fn content_view(&self) -> Element<'_, Message> {
@@ -1155,7 +1157,7 @@ impl State {
                 theme::centered_text(status_label).size(CONTROL_TEXT_SIZE).width(Length::Fill),
                 progress_bar(0.0..=1.0, ratio),
             ].spacing(ROW_SPACING),
-        ].spacing(FIELD_SPACING);
+        ].spacing(BUTTON_STATUS_GAP);
 
         container(
             column![

@@ -9,6 +9,7 @@ use crate::app::theme;
 const HEADER_HEIGHT: f32 = 28.0;
 const HEADER_MARGIN_X: f32 = 50.0;
 const HEADER_MARGIN_Y: f32 = 30.0;
+const DEFAULT_BODY_ALPHA: f32 = 1.0;
 
 #[derive(Default)]
 pub struct State {
@@ -65,7 +66,10 @@ impl State {
         window: Size,
         to_message: fn(Message) -> M,
         content: impl Fn() -> Element<'a, M> + 'a,
+        body_alpha: Option<f32>,
     ) -> Element<'a, M> {
+        let body_alpha = body_alpha.unwrap_or(DEFAULT_BODY_ALPHA);
+
         responsive(move |layer| {
             let bounds = if window.width < 1.0 || window.height < 1.0 { layer } else { window };
             let position = self.resolved_position(size, bounds);
@@ -97,11 +101,16 @@ impl State {
             .interaction(Interaction::Grab)
             .on_press(to_message(Message::HeaderPressed));
 
+            let body = container(content())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |theme: &Theme| body_style(theme, body_alpha));
+
             let window = opaque(
-                container(column![header, content()])
+                container(column![header, body])
                     .width(Length::Fixed(size.width))
                     .height(Length::Fixed(size.height))
-                    .style(window_style),
+                    .style(frame_style),
             );
 
             let base = anchored(window, position);
@@ -280,15 +289,33 @@ fn header_style(theme: &Theme) -> container::Style {
     }
 }
 
-fn window_style(theme: &Theme) -> container::Style {
+fn frame_style(theme: &Theme) -> container::Style {
     let palette = theme.extended_palette();
 
     container::Style {
-        background: Some(palette.background.base.color.into()),
         border: Border {
             color: palette.background.strong.color,
             width: 1.0,
             radius: theme::RADIUS_MD.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn body_style(theme: &Theme, alpha: f32) -> container::Style {
+    let palette = theme.extended_palette();
+    let background = Color { a: alpha, ..palette.background.base.color };
+
+    container::Style {
+        background: Some(background.into()),
+        border: Border {
+            radius: Radius {
+                top_left: 0.0,
+                top_right: 0.0,
+                bottom_left: theme::RADIUS_MD,
+                bottom_right: theme::RADIUS_MD,
+            },
+            ..Border::default()
         },
         ..container::Style::default()
     }

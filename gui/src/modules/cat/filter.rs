@@ -101,7 +101,7 @@ impl State {
     pub fn view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, window: Size) -> Element<'a, Message> {
         self.popup.view("Advanced Cat Filter", POPUP_SIZE, window, Message::Popup, move || {
             self.content_view(sheets, assets)
-        })
+        }, None)
     }
 
     fn content_view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
