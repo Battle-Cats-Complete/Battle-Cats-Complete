@@ -8,8 +8,7 @@ use std::time::Duration;
 use iced::futures::channel::mpsc;
 use iced::task;
 use iced::widget::{
-    button, checkbox, column, container, pick_list, progress_bar, row, scrollable, slider, text,
-    text_input, Space,
+    button, column, container, pick_list, progress_bar, row, scrollable, text, Space,
 };
 use iced::{Alignment, Element, Font, Length, Task, Theme};
 use smol::Timer;
@@ -19,8 +18,7 @@ use core::addons::paths::{self, Presence};
 use core::common::job::{JobEvent, JobOutcome};
 use core::common::region::Region;
 use core::modules::data::{
-    android, export, pack, raw, AdbImportType, AdbTarget, DataConfigState, DataTab, ImportMode,
-    ImportSubTab,
+    android, pack, raw, AdbImportType, AdbTarget, DataConfigState, ImportMode, ImportSubTab,
 };
 use core::modules::settings::Settings;
 
@@ -30,7 +28,6 @@ use crate::widget::smooth_scroll;
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    TabSelected(DataTab),
     ImportJobSelected(ImportSubTab),
     AdbImportTypeChanged(usize),
     AdbRegionChangedEmu(usize),
@@ -42,13 +39,6 @@ pub enum Message {
     AbortImportJob,
     ImportJob(JobEvent),
     ImportBannerExpired,
-    ToggleIncludeRaw(bool),
-    ExportFilenameChanged(String),
-    CompressionLevelChanged(i32),
-    TriggerExportJob,
-    AbortExportJob,
-    ExportJob(JobEvent),
-    ExportBannerExpired,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -157,16 +147,11 @@ pub struct State {
     pub import_censored: String,
     pub decrypt_censored: String,
     import: JobSlot,
-    export: JobSlot,
 }
 
 impl State {
     pub fn update(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState) -> Task<Message> {
         match message {
-            Message::TabSelected(tab) => {
-                trace!("Switching data tab");
-                self.config.active_tab = tab;
-            }
             Message::ImportJobSelected(job) => {
                 trace!("Selected import sub-job");
                 self.config.selected_job = Some(job);
@@ -219,61 +204,15 @@ impl State {
                 self.import.banner = None;
                 self.import.banner_handle = None;
             }
-            Message::ToggleIncludeRaw(include) => {
-                self.config.include_raw = include;
-            }
-            Message::ExportFilenameChanged(name) => {
-                self.config.export_filename = name;
-            }
-            Message::CompressionLevelChanged(level) => {
-                self.config.compression_level = level;
-            }
-            Message::TriggerExportJob => {
-                info!("Starting export job.");
-                return self.trigger_export_job();
-            }
-            Message::AbortExportJob => {
-                warn!("Aborting export job.");
-                self.export.request_abort();
-            }
-            Message::ExportJob(event) => {
-                return self.export.apply(event, "Export", Message::ExportBannerExpired);
-            }
-            Message::ExportBannerExpired => {
-                self.export.banner = None;
-                self.export.banner_handle = None;
-            }
         }
         Task::none()
     }
 
     pub fn view(&self, app_state: &AppState) -> Element<'_, Message> {
-        let is_import = self.config.active_tab == DataTab::Import;
-        let is_export = self.config.active_tab == DataTab::Export;
-
-        let tabs_row = row![
-            button(text("Import").size(16))
-                .style(move |t: &Theme, status| theme::toggle_button(t, status, is_import))
-                .width(Length::Fixed(120.0))
-                .on_press(Message::TabSelected(DataTab::Import)),
-            button(text("Export").size(16))
-                .style(move |t: &Theme, status| theme::toggle_button(t, status, is_export))
-                .width(Length::Fixed(120.0))
-                .on_press(Message::TabSelected(DataTab::Export)),
-        ]
-            .spacing(10);
-
-        let content = if is_import {
-            self.view_import(app_state)
-        } else {
-            self.view_export()
-        };
-
+        let content = self.view_import(app_state);
         let progress_section = self.view_progress_and_console();
 
         column![
-            tabs_row,
-            Space::new().height(10),
             content,
             Space::new().height(10),
             progress_section
@@ -516,109 +455,8 @@ impl State {
         column![sections_row, Space::new().height(20), action_row].into()
     }
 
-    fn view_export(&self) -> Element<'_, Message> {
-        let is_running = self.export.running;
-
-        let title = text("Package database into a ZST archive").size(16);
-
-        let toggle_raw = row![
-            checkbox(self.config.include_raw).on_toggle_maybe(if !is_running {
-                Some(Message::ToggleIncludeRaw)
-            } else {
-                None
-            }),
-            text("Include \"raw\" Folder")
-        ]
-            .spacing(10)
-            .align_y(Alignment::Center);
-
-        let file_input = text_input("battlecats", &self.config.export_filename)
-            .on_input(Message::ExportFilenameChanged)
-            .width(Length::Fixed(150.0));
-        let file_row = row![text("Filename: "), file_input, text(".tar.zst")]
-            .align_y(Alignment::Center)
-            .spacing(10);
-
-        let comp_slider = slider(
-            1..=15,
-            self.config.compression_level,
-            Message::CompressionLevelChanged,
-        )
-            .width(Length::Fixed(200.0));
-
-        let comp_row = row![text("Compression Level: "), comp_slider]
-            .align_y(Alignment::Center)
-            .spacing(10);
-
-        let (desc_text, is_success) = match self.config.compression_level {
-            1..=9 => ("Best compression balance", true),
-            _ => ("Slow compression for low archive size", false),
-        };
-
-        let desc_label = text(desc_text)
-            .size(14)
-            .style(if is_success { text::success } else { text::danger });
-
-        let show_success = self.export.banner == Some(Banner::Completed);
-        let show_aborted = self.export.banner == Some(Banner::Aborted);
-        let is_aborting = is_running && self.export.aborting;
-
-        let base_filename = if self.config.export_filename.trim().is_empty() {
-            "battlecats"
-        } else {
-            &self.config.export_filename
-        };
-        let full_filename = format!("{}.tar.zst", base_filename);
-
-        let action_btn = if show_success {
-            button(text("Job Complete!").size(18))
-                .style(button::success)
-                .width(Length::Fixed(300.0))
-                .on_press(Message::TriggerExportJob)
-        } else if show_aborted {
-            button(text("Job Aborted!").size(18))
-                .style(button::danger)
-                .width(Length::Fixed(300.0))
-                .on_press(Message::TriggerExportJob)
-        } else if is_aborting {
-            button(text("Aborting Job...").size(18))
-                .style(button::danger)
-                .width(Length::Fixed(300.0))
-        } else if is_running {
-            button(text("Abort Job").size(18))
-                .style(button::danger)
-                .width(Length::Fixed(300.0))
-                .on_press(Message::AbortExportJob)
-        } else {
-            button(text(format!("Create {}", full_filename)).size(18))
-                .style(button::primary)
-                .width(Length::Fixed(300.0))
-                .on_press(Message::TriggerExportJob)
-        };
-
-        let action_row = container(action_btn).width(Length::Fill).center_x(Length::Fill);
-
-        let controls = column![
-            title,
-            Space::new().height(10),
-            toggle_raw,
-            Space::new().height(10),
-            file_row,
-            Space::new().height(10),
-            comp_row,
-            desc_label,
-            Space::new().height(20),
-            action_row
-        ];
-
-        controls.into()
-    }
-
     fn view_progress_and_console(&self) -> Element<'_, Message> {
-        let slot = match self.config.active_tab {
-            DataTab::Import => &self.import,
-            DataTab::Export => &self.export,
-        };
+        let slot = &self.import;
 
         let progress_fraction = if slot.running {
             match slot.progress {
@@ -729,38 +567,6 @@ impl State {
         stream_task.map(Message::ImportJob)
     }
 
-    fn trigger_export_job(&mut self) -> Task<Message> {
-        if self.export.running {
-            return Task::none();
-        }
-
-        self.export.begin();
-
-        let (tx, rx) = mpsc::unbounded();
-        let abort = self.export.abort.clone();
-        let compression_level = self.config.compression_level;
-        let include_raw = self.config.include_raw;
-
-        let base_filename = if self.config.export_filename.trim().is_empty() {
-            "battlecats"
-        } else {
-            &self.config.export_filename
-        };
-        let full_filename = format!("{}.tar.zst", base_filename);
-
-        thread::spawn(move || {
-            let emit = |event: JobEvent| {
-                let _ = tx.unbounded_send(event);
-            };
-            let result =
-                export::create_game_archive(emit, &abort, compression_level, full_filename, include_raw);
-            emit(JobEvent::Finished(job_outcome(result, &abort)));
-        });
-
-        let (stream_task, handle) = Task::stream(rx).abortable();
-        self.export.job_handle = Some(handle);
-        stream_task.map(Message::ExportJob)
-    }
 }
 
 fn censor_path(path_string: &str) -> String {
