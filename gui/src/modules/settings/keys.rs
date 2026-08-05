@@ -21,6 +21,10 @@ pub enum RegionSlot {
     Ko,
 }
 
+fn sanitize_key_input(value: &str) -> String {
+    value.chars().filter(char::is_ascii_alphanumeric).collect()
+}
+
 impl RegionSlot {
     const ALL: [Self; 4] = [Self::Ja, Self::En, Self::Tw, Self::Ko];
 
@@ -108,13 +112,13 @@ impl State {
                 Task::none()
             }
             Message::KeyChanged(slot, value) => {
-                self.region_mut(slot).key = value;
+                self.region_mut(slot).key = sanitize_key_input(&value);
                 self.validation_status = None;
                 self.keys.save();
                 Task::none()
             }
             Message::IvChanged(slot, value) => {
-                self.region_mut(slot).iv = value;
+                self.region_mut(slot).iv = sanitize_key_input(&value);
                 self.validation_status = None;
                 self.keys.save();
                 Task::none()

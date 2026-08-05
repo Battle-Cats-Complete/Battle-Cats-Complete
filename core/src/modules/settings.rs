@@ -351,10 +351,9 @@ impl UserKeys {
     pub fn validate(&self) -> [(bool, bool); 4] {
         let check_hash = |input_value: &str, expected_hash: &str| -> bool {
             if expected_hash.is_empty() { return true; }
-            let clean_value = input_value.trim();
-            if clean_value.is_empty() { return false; }
+            if input_value.is_empty() { return false; }
 
-            let hash_result = format!("{:x}", md5::compute(clean_value.as_bytes()));
+            let hash_result = format!("{:x}", md5::compute(input_value.as_bytes()));
             hash_result == expected_hash
         };
 
