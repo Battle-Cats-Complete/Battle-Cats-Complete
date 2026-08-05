@@ -1,22 +1,38 @@
 use std::env;
 use std::fs;
+#[cfg(unix)]
+use std::path::Path;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
 use iced::futures::channel::mpsc;
-use iced::Task;
+use iced::widget::{column, container, progress_bar, row, text, Space};
+use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 use self_update::{cargo_crate_version, version};
 use self_update::backends::github::{ReleaseList, Update as GithubUpdate};
 use self_update::update::Release;
 use tracing::{error, info};
 
-use super::{BattleCatsApp, Message, UpdateStatus, UpdaterMsg};
+use crate::widget::popup;
+
+use super::{theme, BattleCatsApp, Message, UpdateStatus, UpdaterAction, UpdaterMsg};
 
 const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "battle-cats-complete";
 const BIN_NAME: &str = "Battle Cats Complete";
 const STATUS_EXPIRY: Duration = Duration::from_secs(2);
+const RESTART_DELAY_SECS: u8 = 1;
+
+const POPUP_SIZE: Size = Size::new(440.0, 250.0);
+const POPUP_PADDING: f32 = 20.0;
+const CONTENT_SPACING: f32 = 14.0;
+const BUTTON_SPACING: f32 = 12.0;
+const PROGRESS_WIDTH: f32 = 300.0;
+const PROGRESS_HEIGHT: f32 = 12.0;
+const TITLE_SIZE: f32 = 18.0;
+const BODY_SIZE: f32 = 14.0;
+const SUBTLE_ALPHA: f32 = 0.6;
 
 impl BattleCatsApp {
     pub(crate) fn schedule_updater_status_expiry(&mut self) -> Task<Message> {
@@ -70,6 +86,7 @@ impl BattleCatsApp {
         let target_version = release.version.clone();
         self.updater_status = UpdateStatus::Downloading(target_version.clone());
         self.download_progress = 0.0;
+        self.set_updater_popup(true);
 
         info!("Initializing download process for version: {}", target_version);
 
@@ -122,6 +139,104 @@ impl BattleCatsApp {
     }
 }
 
+pub(super) fn update_popup(state: &mut popup::State, message: popup::Message) -> bool {
+    state.update(message, POPUP_SIZE)
+}
+
+pub(super) fn view<'a>(state: &'a popup::State, status: &'a UpdateStatus, window: Size, progress: f32) -> Option<Element<'a, Message>> {
+    let title = match status {
+        UpdateStatus::UpdateFound(..) => "Update Available",
+        UpdateStatus::Downloading(_) => "Downloading Update",
+        UpdateStatus::RestartPending(_) => "Update Complete",
+        _ => return None,
+    };
+
+    Some(state.view(title, POPUP_SIZE, window, Message::UpdaterPopup, move || {
+        let body = match status {
+            UpdateStatus::UpdateFound(tag, release) => view_update_found(tag, release),
+            UpdateStatus::Downloading(tag) => view_downloading(tag, progress),
+            UpdateStatus::RestartPending(tag) => view_restart_pending(tag),
+            _ => Space::new().into(),
+        };
+
+        container(body)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(POPUP_PADDING)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .into()
+    }, None))
+}
+
+fn display_version(tag: &str) -> String {
+    if tag.starts_with('v') { tag.to_string() } else { format!("v{}", tag) }
+}
+
+fn subtle_text<'a>(content: impl ToString) -> Element<'a, Message> {
+    text(content.to_string())
+        .size(BODY_SIZE)
+        .style(|theme: &Theme| text::Style { color: Some(Color { a: SUBTLE_ALPHA, ..theme.palette().text }) })
+        .into()
+}
+
+fn view_update_found<'a>(tag: &str, release: &Release) -> Element<'a, Message> {
+    let actions = row![
+        theme::sized_button("Yes", theme::POPUP_ACTION_BUTTON_WIDTH, theme::success_button)
+            .on_press(Message::UpdaterAction(UpdaterAction::StartDownload(release.clone()))),
+        theme::sized_button("No", theme::POPUP_ACTION_BUTTON_WIDTH, theme::neutral_button)
+            .on_press(Message::UpdaterAction(UpdaterAction::DismissUpdate)),
+        theme::sized_button("Never", theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
+            .on_press(Message::UpdaterAction(UpdaterAction::NeverUpdate)),
+    ]
+    .spacing(BUTTON_SPACING);
+
+    column![
+        theme::bold_text(format!("Battle Cats Complete {}", display_version(&release.version))).size(TITLE_SIZE),
+        subtle_text(format!("You are running v{} · found {}", cargo_crate_version!(), display_version(tag))),
+        text("Would you like to download the update now?").size(BODY_SIZE),
+        actions,
+        subtle_text("\"Never\" stops all future update checks."),
+    ]
+    .spacing(CONTENT_SPACING)
+    .align_x(Alignment::Center)
+    .into()
+}
+
+fn view_downloading<'a>(tag: &str, progress: f32) -> Element<'a, Message> {
+    column![
+        theme::bold_text(format!("Downloading {}", display_version(tag))).size(TITLE_SIZE),
+        progress_bar(0.0..=1.0, progress)
+            .length(Length::Fixed(PROGRESS_WIDTH))
+            .girth(Length::Fixed(PROGRESS_HEIGHT))
+            .style(theme::progress_track),
+        subtle_text("You will be prompted once it is ready to install."),
+    ]
+    .spacing(CONTENT_SPACING)
+    .align_x(Alignment::Center)
+    .into()
+}
+
+fn view_restart_pending<'a>(tag: &str) -> Element<'a, Message> {
+    let actions = row![
+        theme::sized_button("Yes", theme::POPUP_ACTION_BUTTON_WIDTH, theme::success_button)
+            .on_press(Message::UpdaterAction(UpdaterAction::RestartApp)),
+        theme::sized_button("No", theme::POPUP_ACTION_BUTTON_WIDTH, theme::neutral_button)
+            .on_press(Message::UpdaterAction(UpdaterAction::DismissUpdate)),
+    ]
+    .spacing(BUTTON_SPACING);
+
+    column![
+        theme::bold_text(format!("{} is installed", display_version(tag))).size(TITLE_SIZE),
+        text("Would you like to restart and apply the update now?").size(BODY_SIZE),
+        actions,
+        subtle_text("Declining keeps the update until the next launch."),
+    ]
+    .spacing(CONTENT_SPACING)
+    .align_x(Alignment::Center)
+    .into()
+}
+
 pub(crate) fn cleanup_temp_files() {
     let temp_files = [
         "tmp_update.zip",
@@ -136,23 +251,45 @@ pub(crate) fn cleanup_temp_files() {
 
 #[cfg(unix)]
 pub(crate) fn restart_app() {
-    info!("Executing unix restart sequence");
-    let Ok(exe) = env::current_exe() else { return; };
+    let Ok(exe) = env::current_exe() else {
+        error!("Restart aborted: the running executable path could not be resolved");
+        return;
+    };
+
     let path = exe.to_string_lossy();
     let clean_path = path.trim_end_matches(" (deleted)");
-    let _ = Command::new("sh")
-        .arg("-c")
-        .arg(format!("sleep 1 && \"{}\" &", clean_path))
-        .spawn();
+
+    if !Path::new(clean_path).exists() {
+        error!("Restart aborted: {} no longer exists on disk", clean_path);
+        return;
+    }
+
+    info!("Executing unix restart sequence for {}", clean_path);
+
+    let script = format!("sleep {}; exec \"$0\"", RESTART_DELAY_SECS);
+
+    if let Err(err) = Command::new("sh").arg("-c").arg(script).arg(clean_path).spawn() {
+        error!("Restart aborted: could not spawn the relaunch helper: {}", err);
+        return;
+    }
 
     std::process::exit(0);
 }
 
 #[cfg(not(unix))]
 pub(crate) fn restart_app() {
-    info!("Executing non-unix restart sequence");
-    let Ok(exe) = env::current_exe() else { return; };
-    let _ = Command::new(exe).spawn();
+    let Ok(exe) = env::current_exe() else {
+        error!("Restart aborted: the running executable path could not be resolved");
+        return;
+    };
+
+    info!("Executing non-unix restart sequence for {}", exe.display());
+
+    if let Err(err) = Command::new(&exe).spawn() {
+        error!("Restart aborted: could not spawn {}: {}", exe.display(), err);
+        return;
+    }
+
     std::process::exit(0);
 }
 

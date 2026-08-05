@@ -56,6 +56,7 @@ pub enum Message {
     #[cfg(target_os = "linux")]
     DesktopFeedbackExpired,
     ManualUpdateCheck,
+    ShowUpdatePopup,
 }
 
 #[derive(Default)]
@@ -146,6 +147,10 @@ impl State {
                 debug!("Manual update check requested, deferring to root app");
                 Task::none()
             }
+            Message::ShowUpdatePopup => {
+                debug!("Updater popup re-open requested, deferring to root app");
+                Task::none()
+            }
         }
     }
 
@@ -180,10 +185,10 @@ impl State {
         let (update_label, update_style, update_msg): (&str, theme::ButtonStyleFn, Option<Message>) = match updater_status {
             UpdateStatus::Checking => ("Checking for Updates...", theme::warning_button, None),
             UpdateStatus::UpToDate => ("Up to Date!", theme::success_button, None),
-            UpdateStatus::UpdateFound(..) => ("Update Found!", theme::success_button, None),
+            UpdateStatus::UpdateFound(..) => ("Update Found!", theme::success_button, Some(Message::ShowUpdatePopup)),
             UpdateStatus::CheckFailed => ("Failed to Check!", theme::danger_button, None),
-            UpdateStatus::Downloading(_) => ("Downloading Update...", theme::primary_button, None),
-            UpdateStatus::RestartPending(_) => ("Restart Pending!", theme::warning_button, None),
+            UpdateStatus::Downloading(_) => ("Downloading Update...", theme::primary_button, Some(Message::ShowUpdatePopup)),
+            UpdateStatus::RestartPending(_) => ("Restart Pending!", theme::warning_button, Some(Message::ShowUpdatePopup)),
             UpdateStatus::Idle => ("Check for Update Now", theme::primary_button, Some(Message::ManualUpdateCheck)),
         };
         system_content = system_content.push(

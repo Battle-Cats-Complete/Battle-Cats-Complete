@@ -3,7 +3,7 @@ use iced::border::Radius;
 use iced::theme::Palette;
 use iced::widget::overlay::menu;
 use iced::widget::text::Text;
-use iced::widget::{button, container, pick_list, text, text_editor, text_input, toggler, Button};
+use iced::widget::{button, container, pick_list, progress_bar, text, text_editor, text_input, toggler, Button};
 use iced::{font, Background, Border, Color, Length, Theme};
 
 pub const RADIUS_SM: f32 = 4.0;
@@ -284,6 +284,18 @@ pub fn status_badge(theme: &Theme, ok: bool) -> container::Style {
         text_color: Some(Color::WHITE),
         border: Border { radius: Radius::from(RADIUS_SM), ..Border::default() },
         ..container::Style::default()
+    }
+}
+
+const PROGRESS_TRACK_SHADE: f32 = 0.55;
+
+pub fn progress_track(theme: &Theme) -> progress_bar::Style {
+    let palette = theme.palette();
+
+    progress_bar::Style {
+        background: Background::Color(shade_color(palette.background, PROGRESS_TRACK_SHADE)),
+        bar: Background::Color(palette.primary),
+        border: Border { radius: Radius::from(RADIUS_SM), ..Border::default() },
     }
 }
 

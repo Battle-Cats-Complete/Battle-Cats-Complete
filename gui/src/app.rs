@@ -1,9 +1,8 @@
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
-use iced::alignment;
-use iced::widget::{button, column, container, markdown, operation, progress_bar, row, scrollable, stack, text};
-use iced::{task, window, Color, Element, Length, Size, Subscription, Task, Theme};
+use iced::widget::{button, column, container, markdown, operation, row, scrollable, stack};
+use iced::{task, window, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
 use self_update::update::Release;
@@ -15,7 +14,7 @@ use core::modules::settings::{Settings, UpdateMode};
 
 use crate::common::watcher::GuiWatcher;
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
-use crate::widget::{popup, slide, smooth_scroll, Slide};
+use crate::widget::{popup, slide, Slide};
 
 use state::AppState;
 
@@ -99,6 +98,7 @@ pub enum UpdaterAction {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActivePopup {
+    Updater,
     VersionNotice,
     HomeChangelog,
     CatExport,
@@ -124,6 +124,7 @@ pub enum Message {
     WindowResized(Size),
     Updater(UpdaterMsg),
     UpdaterAction(UpdaterAction),
+    UpdaterPopup(popup::Message),
     UpdaterStatusExpired,
     Notice(popup::Message),
     AcknowledgeNotice,
@@ -197,6 +198,10 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     pub updater_status_handle: Option<task::Handle>,
     #[serde(skip)]
+    updater_popup: popup::State,
+    #[serde(skip)]
+    updater_popup_open: bool,
+    #[serde(skip)]
     pub download_progress: f32,
 
     pub app_theme: AppTheme,
@@ -231,6 +236,8 @@ impl Default for BattleCatsApp {
             updater_handle: None,
             updater_status: UpdateStatus::Idle,
             updater_status_handle: None,
+            updater_popup: popup::State::default(),
+            updater_popup_open: false,
             download_progress: 0.0,
             app_theme: AppTheme::default(),
         }
@@ -251,7 +258,7 @@ impl BattleCatsApp {
             self.data_state.subscription().map(Message::Data),
         ];
 
-        if let UpdateStatus::Downloading(_) = self.updater_status {
+        if self.updater_popup_open && matches!(self.updater_status, UpdateStatus::Downloading(_)) {
             subs.push(iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::DownloadTick));
         }
 
@@ -345,6 +352,7 @@ impl BattleCatsApp {
                 match msg {
                     UpdaterMsg::UpdateFound(release) => {
                         self.updater_status = UpdateStatus::UpdateFound(release.version.clone(), release);
+                        self.set_updater_popup(true);
                     }
                     UpdaterMsg::UpToDate => {
                         self.updater_status = UpdateStatus::UpToDate;
@@ -357,15 +365,24 @@ impl BattleCatsApp {
                     UpdaterMsg::DownloadStarted(version) => {
                         self.updater_status = UpdateStatus::Downloading(version);
                         self.download_progress = 0.0;
+                        self.set_updater_popup(true);
                     }
                     UpdaterMsg::DownloadFinished(version) => {
                         self.updater_status = UpdateStatus::RestartPending(version);
+                        self.set_updater_popup(true);
                     }
                     UpdaterMsg::SilentFail => {
                         self.updater_status = UpdateStatus::Idle;
+                        self.set_updater_popup(false);
                     }
                 }
                 task
+            }
+            Message::UpdaterPopup(msg) => {
+                if updater::update_popup(&mut self.updater_popup, msg) {
+                    self.dismiss_updater_popup();
+                }
+                Task::none()
             }
             Message::UpdaterStatusExpired => {
                 if matches!(self.updater_status, UpdateStatus::UpToDate | UpdateStatus::CheckFailed) {
@@ -383,13 +400,14 @@ impl BattleCatsApp {
                 match action {
                     UpdaterAction::StartDownload(release) => self.download_and_install(release),
                     UpdaterAction::DismissUpdate => {
-                        self.updater_status = UpdateStatus::Idle;
+                        self.dismiss_updater_popup();
                         Task::none()
                     }
                     UpdaterAction::NeverUpdate => {
                         info!("User selected Never update, changing mode to Ignore");
                         self.settings.general.update_mode = UpdateMode::Ignore;
                         self.updater_status = UpdateStatus::Idle;
+                        self.set_updater_popup(false);
                         Task::none()
                     }
                     UpdaterAction::RestartApp => {
@@ -484,6 +502,10 @@ impl BattleCatsApp {
                     info!("Manual update check requested from Settings");
                     return self.check_for_updates(true);
                 }
+                if matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ShowUpdatePopup)) {
+                    self.set_updater_popup(true);
+                    return Task::none();
+                }
                 let task = self.settings_state.update(msg, &mut self.settings).map(Message::Settings);
                 self.sync_popup(ActivePopup::SettingsKeys, self.settings_state.keys_popup_open());
                 self.sync_popup(ActivePopup::SettingsExceptions, self.settings_state.exceptions_popup_open());
@@ -534,10 +556,6 @@ impl BattleCatsApp {
             }
         }
 
-        if let Some(modal) = self.build_modal() {
-            layers = layers.push(modal);
-        }
-
         layers.into()
     }
 
@@ -551,10 +569,24 @@ impl BattleCatsApp {
         }
     }
 
+    fn set_updater_popup(&mut self, open: bool) {
+        self.updater_popup_open = open;
+        self.sync_popup(ActivePopup::Updater, open);
+    }
+
+    fn dismiss_updater_popup(&mut self) {
+        if !matches!(self.updater_status, UpdateStatus::Downloading(_)) {
+            self.updater_status = UpdateStatus::Idle;
+        }
+
+        self.set_updater_popup(false);
+    }
+
     fn build_popups(&self) -> Vec<Element<'_, Message>> {
         self.active_popups
             .iter()
             .filter_map(|popup| match popup {
+                ActivePopup::Updater => updater::view(&self.updater_popup, &self.updater_status, self.window_size, self.download_progress),
                 ActivePopup::VersionNotice => Some(notice::view(&self.notice_popup, self.window_size, self.theme(), &self.notice_items)),
                 ActivePopup::HomeChangelog => {
                     if !matches!(self.current_page, Page::Home) {
@@ -679,89 +711,6 @@ impl BattleCatsApp {
             .height(Length::Fill)
             .align_right(Length::Fill)
             .into()
-    }
-
-    fn build_modal(&self) -> Option<Element<'_, Message>> {
-        let modal_content: Element<Message> = match &self.updater_status {
-            UpdateStatus::UpdateFound(tag, release) => {
-                let display_version = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
-
-                column![
-                    text("Update Available").size(24),
-                    text(format!("New Battle Cats Complete update found: {}", display_version)),
-                    text("Would you like to download the update now?"),
-                    row![
-                        button("Yes").on_press(Message::UpdaterAction(UpdaterAction::StartDownload(release.clone()))),
-                        button("No").on_press(Message::UpdaterAction(UpdaterAction::DismissUpdate)),
-                        button("Never").on_press(Message::UpdaterAction(UpdaterAction::NeverUpdate)),
-                    ].spacing(15)
-                ]
-                    .spacing(20)
-                    .align_x(alignment::Horizontal::Center)
-                    .into()
-            }
-            UpdateStatus::Downloading(tag) => {
-                let display_tag = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
-
-                column![
-                    text("Downloading Update").size(24),
-                    text(format!("Downloading {}...", display_tag)),
-                    progress_bar(0.0..=1.0, self.download_progress)
-                ]
-                    .spacing(20)
-                    .align_x(alignment::Horizontal::Center)
-                    .into()
-            }
-            UpdateStatus::RestartPending(tag) => {
-                let display_tag = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
-
-                column![
-                    text("Update Complete").size(24),
-                    text(format!("{} update complete!", display_tag)),
-                    text("Would you like to restart and apply the update now?"),
-                    row![
-                        button("Yes").on_press(Message::UpdaterAction(UpdaterAction::RestartApp)),
-                        button("No").on_press(Message::UpdaterAction(UpdaterAction::DismissUpdate)),
-                    ].spacing(15)
-                ]
-                    .spacing(20)
-                    .align_x(alignment::Horizontal::Center)
-                    .into()
-            }
-            _ => return None,
-        };
-
-        let modal_card = container(
-            smooth_scroll(
-                scrollable(modal_content)
-                    .width(Length::Fill)
-                    .height(Length::Shrink)
-            )
-        )
-            .padding(30)
-            .width(Length::Fixed(400.0))
-            .style(|theme: &Theme| {
-                let palette = theme.palette();
-                container::Style {
-                    background: Some(palette.background.into()),
-                    border: iced::border::rounded(10).color(palette.text).width(2),
-                    ..Default::default()
-                }
-            });
-
-        let overlay = container(modal_card)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .style(|_theme| {
-                container::Style {
-                    background: Some(Color::from_rgba8(0, 0, 0, 0.7).into()),
-                    ..Default::default()
-                }
-            });
-
-        Some(overlay.into())
     }
 
     fn check_auto_save(&mut self) {
