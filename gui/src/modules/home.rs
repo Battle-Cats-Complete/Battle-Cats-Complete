@@ -2,13 +2,13 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
-use iced::widget::{button, column, container, pick_list, row, scrollable, stack, text, Space};
-use iced::{Alignment, Background, Color, Element, Length, Task, Theme};
+use iced::widget::{button, column, container, markdown, pick_list, row, scrollable, text, Space};
+use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 use self_update::backends::github::ReleaseList;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
-use crate::app::Page;
-use crate::widget::smooth_scroll;
+use crate::app::{theme, Page};
+use crate::widget::{popup, smooth_scroll};
 
 const SPACE_TOP: f32 = 20.0;
 const SPACE_TITLE_SUBTITLE: f32 = 2.0;
@@ -16,6 +16,8 @@ const SPACE_SUBTITLE_SECTION: f32 = 50.0;
 const SPACE_BETWEEN_SECTIONS: f32 = 20.0;
 const BUTTON_WIDTH: f32 = 120.0;
 const BUTTON_SPACING: f32 = 10.0;
+const CHANGELOG_POPUP_SIZE: Size = Size::new(600.0, 430.0);
+const SCROLLBAR_GAP: f32 = 8.0;
 
 #[derive(Default)]
 pub struct State {
@@ -25,6 +27,8 @@ pub struct State {
     changelog_error: bool,
     releases: Vec<(String, String)>,
     selected_version: Option<String>,
+    changelog_items: Vec<markdown::Item>,
+    changelog_popup: popup::State,
 }
 
 #[derive(Debug, Clone)]
@@ -32,7 +36,8 @@ pub enum Message {
     CheckInit,
     InitChecked(bool),
     OpenChangelog,
-    CloseChangelog,
+    Popup(popup::Message),
+    OpenUrl(String),
     ChangelogsFetched(Result<Vec<(String, String)>, String>),
     SelectChangelogVersion(String),
     Navigate(Page),
@@ -64,8 +69,17 @@ impl State {
                 Task::none()
             }
 
-            Message::CloseChangelog => {
-                self.changelog_open = false;
+            Message::Popup(msg) => {
+                if self.changelog_popup.update(msg, CHANGELOG_POPUP_SIZE) {
+                    self.changelog_open = false;
+                }
+                Task::none()
+            }
+
+            Message::OpenUrl(url) => {
+                if let Err(e) = open::that(&url) {
+                    warn!("Failed to open URL {}: {}", url, e);
+                }
                 Task::none()
             }
 
@@ -84,6 +98,7 @@ impl State {
                     self.selected_version = Some("Unknown".to_string());
                 }
 
+                self.refresh_changelog_items();
                 Task::none()
             }
 
@@ -96,6 +111,7 @@ impl State {
 
             Message::SelectChangelogVersion(version) => {
                 self.selected_version = Some(version);
+                self.refresh_changelog_items();
                 Task::none()
             }
 
@@ -114,10 +130,14 @@ impl State {
             text("Battle Cats Complete")
                 .size(40.0)
                 .style(|theme: &Theme| iced::widget::text::Style {
-                    color: Some(theme.extended_palette().background.strong.color),
+                    color: Some(theme.palette().text),
                 }),
             Space::new().height(SPACE_TITLE_SUBTITLE),
-            text("All-In-One Battle Cats Toolkit").size(16.0),
+            text("All-In-One Battle Cats Toolkit")
+                .size(16.0)
+                .style(|theme: &Theme| iced::widget::text::Style {
+                    color: Some(Color { a: 0.4, ..theme.palette().text }),
+                }),
             Space::new().height(SPACE_SUBTITLE_SECTION),
             if is_empty {
                 self.view_setup_guide()
@@ -129,31 +149,54 @@ impl State {
             .width(Length::Fill);
 
         let version_tag = format!("v{}", env!("CARGO_PKG_VERSION"));
+        let release_url = format!("https://github.com/omochikaeri15/battle-cats-complete/releases/tag/{}", version_tag);
         let footer = row![
-            text(version_tag).size(13.0),
+            button(text(version_tag).size(13.0))
+                .style(button::text)
+                .padding(0.0)
+                .on_press(Message::OpenUrl(release_url)),
             text(" | ").size(13.0),
             button(text("Changelogs").size(13.0))
                 .style(button::text)
+                .padding(0.0)
                 .on_press(Message::OpenChangelog),
             Space::new().width(Length::Fill),
-            text("Discord").size(13.0),
+            button(text("Discord").size(13.0))
+                .style(button::text)
+                .padding(0.0)
+                .on_press(Message::OpenUrl("https://discord.com/invite/SNSE8HNhmP".to_string())),
             text(" | ").size(13.0),
-            text("GitHub").size(13.0),
+            button(text("GitHub").size(13.0))
+                .style(button::text)
+                .padding(0.0)
+                .on_press(Message::OpenUrl("https://github.com/omochikaeri15/battle-cats-complete".to_string())),
         ]
             .width(Length::Fill)
             .padding(10.0)
             .align_y(Alignment::Center);
 
-        let layout = column![
+        column![
             container(main_content).height(Length::Fill),
             footer
-        ];
+        ].into()
+    }
 
-        if self.changelog_open {
-            stack![layout, self.view_changelog_modal()].into()
-        } else {
-            layout.into()
-        }
+    pub fn changelog_popup_open(&self) -> bool {
+        self.changelog_open
+    }
+
+    pub fn changelog_popup_view(&self, window: Size, theme: Theme) -> Option<Element<'_, Message>> {
+        self.changelog_open.then(|| self.view_changelog_modal(window, theme))
+    }
+
+    fn refresh_changelog_items(&mut self) {
+        let body_text = self.selected_version
+            .as_ref()
+            .and_then(|sel| self.releases.iter().find(|(v, _)| v == sel))
+            .map(|(_, body)| body.as_str())
+            .unwrap_or("No notes available.");
+
+        self.changelog_items = markdown::parse(body_text).collect();
     }
 
     fn view_setup_guide(&self) -> Element<'_, Message> {
@@ -218,78 +261,53 @@ impl State {
             .into()
     }
 
-    fn view_changelog_modal(&self) -> Element<'_, Message> {
-        let mut content = column![
-            row![
-                text("Changelogs").size(24.0),
-                Space::new().width(Length::Fill),
-                button("X").on_press(Message::CloseChangelog).style(button::danger)
-            ]
-            .align_y(Alignment::Center),
-            Space::new().height(15.0),
-        ];
+    fn view_changelog_modal(&self, window: Size, theme: Theme) -> Element<'_, Message> {
+        self.changelog_popup.view("Changelogs", CHANGELOG_POPUP_SIZE, window, Message::Popup, move || self.changelog_content(&theme), None)
+    }
 
+    fn changelog_content(&self, theme: &Theme) -> Element<'_, Message> {
         if self.changelog_error {
-            content = content.push(
-                container(text("Couldn't connect to GitHub").size(18.0))
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-            );
-        } else if self.changelog_loading {
-            content = content.push(
-                container(text("Loading..."))
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-            );
-        } else {
-            let options: Vec<String> = self.releases.iter().map(|(v, _)| v.clone()).collect();
-
-            content = content.push(
-                row![
-                    text("Version:").size(16.0),
-                    Space::new().width(10.0),
-                    pick_list(
-                        options,
-                        self.selected_version.clone(),
-                        Message::SelectChangelogVersion
-                    )
-                ]
-                    .align_y(Alignment::Center)
-            );
-            content = content.push(Space::new().height(15.0));
-
-            let body_text = self.selected_version
-                .as_ref()
-                .and_then(|sel| self.releases.iter().find(|(v, _)| v == sel))
-                .map(|(_, body)| body.as_str())
-                .unwrap_or("No notes available.");
-
-            content = content.push(
-                smooth_scroll(scrollable(text(body_text).size(14.0)).height(Length::Fill))
-            );
+            return container(text("Couldn't connect to GitHub").size(18.0))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into();
         }
 
-        container(
-            container(content)
-                .width(600.0)
-                .height(400.0)
-                .style(container::bordered_box)
-                .padding(20.0)
-        )
+        if self.changelog_loading {
+            return container(text("Loading..."))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into();
+        }
+
+        let options: Vec<String> = self.releases.iter().map(|(v, _)| v.clone()).collect();
+
+        column![
+            row![
+                text("Version:").size(16.0),
+                Space::new().width(10.0),
+                pick_list(
+                    options,
+                    self.selected_version.clone(),
+                    Message::SelectChangelogVersion
+                )
+                    .style(theme::combo_box)
+                    .menu_style(theme::combo_box_menu)
+            ]
+                .align_y(Alignment::Center),
+            Space::new().height(15.0),
+            smooth_scroll(
+                scrollable(
+                    markdown::view(&self.changelog_items, markdown::Settings::with_text_size(14.0, theme))
+                        .map(Message::OpenUrl)
+                )
+                    .height(Length::Fill)
+                    .spacing(SCROLLBAR_GAP)
+            ),
+        ]
             .width(Length::Fill)
             .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .style(|theme: &Theme| {
-                let palette = theme.extended_palette();
-                container::Style {
-                    background: Some(Background::Color(Color {
-                        a: 0.8,
-                        ..palette.background.base.color
-                    })),
-                    ..Default::default()
-                }
-            })
+            .padding(20.0)
             .into()
     }
 }

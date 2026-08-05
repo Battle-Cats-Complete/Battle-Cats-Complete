@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 use iced::alignment;
-use iced::widget::{button, column, container, operation, progress_bar, row, scrollable, stack, text};
+use iced::widget::{button, column, container, markdown, operation, progress_bar, row, scrollable, stack, text};
 use iced::{task, window, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
@@ -100,6 +100,7 @@ pub enum UpdaterAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActivePopup {
     VersionNotice,
+    HomeChangelog,
     CatExport,
     CatFilter,
     EnemyExport,
@@ -125,6 +126,7 @@ pub enum Message {
     UpdaterAction(UpdaterAction),
     Notice(popup::Message),
     AcknowledgeNotice,
+    OpenUrl(String),
     Home(home::Message),
     Cat(cat::Message),
     Enemy(enemy::Message),
@@ -149,6 +151,8 @@ pub struct BattleCatsApp {
     notice_popup: popup::State,
     #[serde(skip)]
     notice_open: bool,
+    #[serde(skip)]
+    notice_items: Vec<markdown::Item>,
     #[serde(skip)]
     frames_painted: u8,
     #[serde(skip)]
@@ -204,6 +208,7 @@ impl Default for BattleCatsApp {
             active_popups: Vec::new(),
             notice_popup: popup::State::default(),
             notice_open: false,
+            notice_items: notice::parse_content(),
             frames_painted: 0,
             window_shown: false,
             home_state: home::State::default(),
@@ -379,6 +384,12 @@ impl BattleCatsApp {
                     }
                 }
             }
+            Message::OpenUrl(url) => {
+                if let Err(e) = open::that(&url) {
+                    warn!("Failed to open URL {}: {}", url, e);
+                }
+                Task::none()
+            }
             Message::Notice(msg) => {
                 if notice::update(&mut self.notice_popup, msg) {
                     self.notice_open = false;
@@ -397,7 +408,7 @@ impl BattleCatsApp {
                 Task::none()
             }
             Message::Home(msg) => {
-                match msg {
+                let task = match msg {
                     home::Message::Navigate(page) => self.navigate(page),
                     home::Message::NavigateSettingsAddOns => Task::batch([
                         self.navigate(Page::Settings),
@@ -409,7 +420,9 @@ impl BattleCatsApp {
                         self.update(Message::Settings(gui_settings::Message::OpenKeysPopup)),
                     ]),
                     _ => self.home_state.update(msg).map(Message::Home),
-                }
+                };
+                self.sync_popup(ActivePopup::HomeChangelog, self.home_state.changelog_popup_open());
+                task
             }
             Message::Cat(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
@@ -528,7 +541,14 @@ impl BattleCatsApp {
         self.active_popups
             .iter()
             .filter_map(|popup| match popup {
-                ActivePopup::VersionNotice => Some(notice::view(&self.notice_popup, self.window_size)),
+                ActivePopup::VersionNotice => Some(notice::view(&self.notice_popup, self.window_size, self.theme(), &self.notice_items)),
+                ActivePopup::HomeChangelog => {
+                    if !matches!(self.current_page, Page::Home) {
+                        return None;
+                    }
+
+                    self.home_state.changelog_popup_view(self.window_size, self.theme()).map(|view| view.map(Message::Home))
+                }
                 ActivePopup::CatExport => {
                     if !matches!(self.current_page, Page::Cats) || !self.cat_state.export_popup_visible() {
                         return None;
