@@ -149,7 +149,25 @@ impl<'a, Message> Widget<Message, Theme, iced::Renderer> for SmoothScroll<'a, Me
                     viewport,
                 );
 
-                shell.merge(synthetic_shell, std::convert::identity);
+                let redraw_request = synthetic_shell.redraw_request();
+                let layout_invalid = synthetic_shell.is_layout_invalid();
+                let widgets_invalid = synthetic_shell.are_widgets_invalid();
+                shell.request_input_method(synthetic_shell.input_method());
+                drop(synthetic_shell);
+
+                for message in synthetic_messages {
+                    shell.publish(message);
+                }
+
+                shell.request_redraw_at(redraw_request);
+
+                if layout_invalid {
+                    shell.invalidate_layout();
+                }
+
+                if widgets_invalid {
+                    shell.invalidate_widgets();
+                }
 
                 if state.remaining != Vector::ZERO {
                     shell.request_redraw();

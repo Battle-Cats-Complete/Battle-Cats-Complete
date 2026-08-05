@@ -126,9 +126,9 @@ impl<'a> shader::Program<Message> for Viewport<'a> {
                     None
                 }
             }
-            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+            Event::Mouse(mouse::Event::CursorMoved { position }) => {
                 let origin = interaction.drag_origin?;
-                let position = cursor.position_in(bounds)?;
+                let position = Point::new(position.x - bounds.x, position.y - bounds.y);
                 interaction.drag_origin = Some(position);
                 let delta = position - origin;
                 Some(shader::Action::publish(Message::Panned(delta)).and_capture())
