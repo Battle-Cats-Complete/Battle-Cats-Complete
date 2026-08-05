@@ -74,6 +74,13 @@ pub fn danger_button(theme: &Theme, status: button::Status) -> button::Style {
     solid_button(background)
 }
 
+pub fn success_button(theme: &Theme, status: button::Status) -> button::Style {
+    let palette = theme.palette();
+    let background = if status == button::Status::Hovered { Color { a: 0.8, ..palette.success } } else { palette.success };
+
+    button::Style { text_color: palette.text, ..solid_button(background) }
+}
+
 pub fn toggle_button(theme: &Theme, status: button::Status, is_active: bool) -> button::Style {
     let palette = theme.extended_palette();
 
@@ -277,6 +284,22 @@ pub fn bold_text<'a>(content: impl ToString) -> Text<'a> {
 
 pub fn centered_text<'a>(content: impl text::IntoFragment<'a>) -> Text<'a> {
     text(content).align_x(Horizontal::Center).align_y(Vertical::Center)
+}
+
+pub const CONSOLE_BORDER_WIDTH: f32 = 4.0;
+const CONSOLE_BORDER_SHADE: f32 = 0.25;
+const CONSOLE_BACKGROUND_SHADE: f32 = 0.4;
+
+pub fn mock_console_container(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    let border_color = shade_color(palette.background, CONSOLE_BORDER_SHADE);
+    let background = shade_color(palette.background, CONSOLE_BACKGROUND_SHADE);
+
+    container::Style {
+        background: Some(Background::Color(background)),
+        border: Border { color: border_color, width: CONSOLE_BORDER_WIDTH, radius: Radius::from(RADIUS_SM) },
+        ..container::Style::default()
+    }
 }
 
 pub fn rounded_input(theme: &Theme, status: text_input::Status) -> text_input::Style {

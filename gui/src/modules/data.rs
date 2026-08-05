@@ -8,14 +8,14 @@ use std::time::Duration;
 use iced::futures::channel::mpsc;
 use iced::task;
 use iced::widget::{
-    button, column, container, pick_list, progress_bar, row, scrollable, text, Space,
+    button, column, container, pick_list, progress_bar, row, rule, scrollable, text, Space,
 };
-use iced::{Alignment, Element, Font, Length, Task, Theme};
+use iced::{Alignment, Element, Length, Subscription, Task, Theme};
 use smol::Timer;
 use tracing::{info, trace, warn};
 
 use core::addons::paths::{self, Presence};
-use core::common::job::{JobEvent, JobOutcome};
+use core::common::job::{JobEvent, JobOutcome, ProgressCounter};
 use core::common::region::Region;
 use core::modules::data::{
     android, pack, raw, AdbImportType, AdbTarget, DataConfigState, ImportMode, ImportSubTab,
@@ -24,7 +24,10 @@ use core::modules::settings::Settings;
 
 use crate::app::state::AppState;
 use crate::app::theme;
-use crate::widget::smooth_scroll;
+use crate::widget::ConsoleState;
+
+const RULE_PADDING: f32 = 8.0;
+const PROGRESS_TICK: Duration = Duration::from_millis(16);
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -39,6 +42,8 @@ pub enum Message {
     AbortImportJob,
     ImportJob(JobEvent),
     ImportBannerExpired,
+    ImportProgressTick,
+    ImportConsoleScrolled(scrollable::Viewport),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -52,7 +57,9 @@ struct JobSlot {
     running: bool,
     aborting: bool,
     log: String,
-    progress: Option<(usize, usize)>,
+    displayed_progress: f32,
+    progress_counter: Arc<ProgressCounter>,
+    console: ConsoleState,
     banner: Option<Banner>,
     abort: Arc<AtomicBool>,
     job_handle: Option<task::Handle>,
@@ -64,7 +71,8 @@ impl JobSlot {
         self.running = true;
         self.aborting = false;
         self.log.clear();
-        self.progress = None;
+        self.displayed_progress = 1.0;
+        self.progress_counter.reset(0);
         self.banner = None;
         self.abort.store(false, Ordering::Relaxed);
         if let Some(handle) = self.banner_handle.take() {
@@ -77,22 +85,33 @@ impl JobSlot {
         self.abort.store(true, Ordering::Relaxed);
     }
 
+    fn target_progress(&self) -> f32 {
+        if !self.running || self.progress_counter.total() == 0 {
+            return 1.0;
+        }
+
+        self.progress_counter.fraction()
+    }
+
+    fn advance_progress(&mut self) {
+        self.displayed_progress = self.target_progress();
+    }
+
     fn apply(&mut self, event: JobEvent, label: &str, expired: Message) -> Task<Message> {
         match event {
             JobEvent::Log(line) => {
+                if !self.log.is_empty() {
+                    self.log.push('\n');
+                }
                 self.log.push_str(&line);
-                self.log.push('\n');
-                Task::none()
+                self.console.snap_to_bottom()
             }
-            JobEvent::Progress { current, total } => {
-                self.progress = Some((current, total));
-                Task::none()
-            }
+            JobEvent::Progress { .. } => Task::none(),
             JobEvent::Finished(outcome) => {
                 self.running = false;
                 self.aborting = false;
                 self.abort.store(false, Ordering::Relaxed);
-                self.progress = None;
+                self.displayed_progress = 1.0;
                 self.job_handle = None;
 
                 match outcome {
@@ -106,8 +125,11 @@ impl JobSlot {
                     }
                     JobOutcome::Failed(message) => {
                         warn!("{} job failed: {}", label, message);
-                        self.log.push_str(&format!("Error: {}\n", message));
-                        Task::none()
+                        if !self.log.is_empty() {
+                            self.log.push('\n');
+                        }
+                        self.log.push_str(&format!("Error: {}", message));
+                        self.console.snap_to_bottom()
                     }
                 }
             }
@@ -150,6 +172,14 @@ pub struct State {
 }
 
 impl State {
+    pub fn subscription(&self) -> Subscription<Message> {
+        if self.import.running {
+            iced::time::every(PROGRESS_TICK).map(|_| Message::ImportProgressTick)
+        } else {
+            Subscription::none()
+        }
+    }
+
     pub fn update(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState) -> Task<Message> {
         match message {
             Message::ImportJobSelected(job) => {
@@ -204,6 +234,12 @@ impl State {
                 self.import.banner = None;
                 self.import.banner_handle = None;
             }
+            Message::ImportProgressTick => {
+                self.import.advance_progress();
+            }
+            Message::ImportConsoleScrolled(viewport) => {
+                self.import.console.on_scroll(viewport);
+            }
         }
         Task::none()
     }
@@ -214,10 +250,12 @@ impl State {
 
         column![
             content,
-            Space::new().height(10),
+            Space::new().height(RULE_PADDING),
+            rule::horizontal(1),
+            Space::new().height(RULE_PADDING),
             progress_section
         ]
-            .spacing(10)
+            .spacing(0)
             .padding(20)
             .into()
     }
@@ -425,26 +463,26 @@ impl State {
         };
 
         let action_btn = if show_success {
-            button(text("Job Complete!").size(18))
-                .style(button::success)
+            button(theme::button_label("Job Complete!").size(18))
+                .style(theme::success_button)
                 .width(Length::Fixed(300.0))
                 .on_press_maybe(if can_run { Some(Message::TriggerImportJob) } else { None })
         } else if show_aborted {
-            button(text("Job Aborted!").size(18))
+            button(theme::button_label("Job Aborted!").size(18))
                 .style(button::danger)
                 .width(Length::Fixed(300.0))
                 .on_press_maybe(if can_run { Some(Message::TriggerImportJob) } else { None })
         } else if is_aborting {
-            button(text("Aborting Job...").size(18))
+            button(theme::button_label("Aborting Job...").size(18))
                 .style(button::danger)
                 .width(Length::Fixed(300.0))
         } else if is_running {
-            button(text("Abort Job").size(18))
+            button(theme::button_label("Abort Job").size(18))
                 .style(button::danger)
                 .width(Length::Fixed(300.0))
                 .on_press(Message::AbortImportJob)
         } else {
-            button(text(button_text).size(18))
+            button(theme::button_label(button_text).size(18))
                 .style(move |t: &Theme, status| theme::toggle_button(t, status, can_run))
                 .width(Length::Fixed(300.0))
                 .on_press_maybe(if can_run { Some(Message::TriggerImportJob) } else { None })
@@ -452,33 +490,31 @@ impl State {
 
         let action_row = container(action_btn).width(Length::Fill).center_x(Length::Fill);
 
-        column![sections_row, Space::new().height(20), action_row].into()
+        column![
+            sections_row,
+            Space::new().height(RULE_PADDING),
+            rule::horizontal(1),
+            Space::new().height(RULE_PADDING),
+            action_row
+        ]
+            .into()
     }
 
     fn view_progress_and_console(&self) -> Element<'_, Message> {
         let slot = &self.import;
 
-        let progress_fraction = if slot.running {
-            match slot.progress {
-                Some((current, total)) if total > 0 => current as f32 / total as f32,
-                _ => 1.0,
-            }
-        } else {
-            1.0
-        };
+        let progress = progress_bar(0.0..=1.0, slot.displayed_progress);
 
-        let progress = progress_bar(0.0..=1.0, progress_fraction);
+        let console_area = slot.console.view(&slot.log, Message::ImportConsoleScrolled);
 
-        let console_area = smooth_scroll(
-            scrollable(
-                container(text(&slot.log).size(12).font(Font::MONOSPACE))
-                    .width(Length::Fill)
-                    .padding(5),
-            )
-                .height(Length::Fill),
-        );
-
-        column![progress, Space::new().height(10), console_area].into()
+        column![
+            progress,
+            Space::new().height(RULE_PADDING),
+            rule::horizontal(1),
+            Space::new().height(RULE_PADDING),
+            console_area
+        ]
+            .into()
     }
 
     fn trigger_import_job(&mut self, settings: &Settings, app_state: &AppState) -> Task<Message> {
@@ -493,6 +529,7 @@ impl State {
 
         let (tx, rx) = mpsc::unbounded();
         let abort = self.import.abort.clone();
+        let progress_counter = self.import.progress_counter.clone();
         let enforce_val = settings.game_data.enforce_key_validation;
 
         match job {
@@ -520,7 +557,7 @@ impl State {
                             let _ = thread_tx.unbounded_send(event);
                         };
                         let result =
-                            android::run(mode, region, emulator_config, enforce_val, emit, &abort);
+                            android::run(mode, region, emulator_config, enforce_val, emit, &abort, &progress_counter);
                         emit(JobEvent::Finished(job_outcome(result, &abort)));
                     });
 
@@ -544,6 +581,7 @@ impl State {
                         enforce_val,
                         emit,
                         &abort,
+                        &progress_counter,
                     );
                     emit(JobEvent::Finished(job_outcome(result, &abort)));
                 });
@@ -556,7 +594,7 @@ impl State {
                     let emit = |event: JobEvent| {
                         let _ = tx.unbounded_send(event);
                     };
-                    let result = raw::run(&data_path, emit, &abort, &lang_priority);
+                    let result = raw::run(&data_path, emit, &abort, &lang_priority, &progress_counter);
                     emit(JobEvent::Finished(job_outcome(result, &abort)));
                 });
             }

@@ -245,6 +245,7 @@ impl BattleCatsApp {
             self.cat_state.subscription().map(Message::Cat),
             self.enemy_state.subscription().map(Message::Enemy),
             self.mods_state.subscription().map(Message::Mod),
+            self.data_state.subscription().map(Message::Data),
         ];
 
         if let UpdateStatus::Downloading(_) = self.updater_status {

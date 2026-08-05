@@ -25,13 +25,13 @@ use iced::{Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::cat::unit::Battle;
 use tracing::info;
 
-use core::common::assets;
 use core::common::context::GlobalContext;
 use core::common::formats::SpriteSheet as CoreSpriteSheet;
 use core::common::gfx::autocrop;
 use core::modules::cat::game::registry::{format_cat_stat, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
 use core::modules::cat::game::stats::{get_final_stats, seeded_level};
 use core::modules::cat::game::CatRenderContext;
+use core::modules::cat::paths::DIR_CATS;
 use core::modules::cat::scanner::{self, CatEntry};
 use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
@@ -125,7 +125,7 @@ pub struct State {
     custom_assets: CustomAssets,
 
     header_icon_cache: RefCell<HashMap<PathBuf, Handle>>,
-    header_icon_fallback: Handle,
+    header_icon_dummy: Handle,
 
     scan_progress: Option<(usize, usize)>,
 
@@ -141,12 +141,7 @@ pub struct State {
 
 impl Default for State {
     fn default() -> Self {
-        let header_icon_fallback = image::load_from_memory(assets::UNKNOWN)
-            .map(|img| {
-                let rgba = img.to_rgba8();
-                Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw())
-            })
-            .unwrap_or_else(|_| Handle::from_rgba(1, 1, vec![80, 80, 80, 255]));
+        let header_icon_dummy = Handle::from_rgba(1, 1, vec![80, 80, 80, 255]);
 
         Self {
             data: CatDataState::default(),
@@ -165,7 +160,7 @@ impl Default for State {
             custom_assets: CustomAssets::new(),
 
             header_icon_cache: RefCell::new(HashMap::new()),
-            header_icon_fallback,
+            header_icon_dummy,
 
             scan_progress: None,
 
@@ -700,21 +695,29 @@ impl State {
 
     fn cat_icon_handle(&self, path: Option<&PathBuf>) -> Handle {
         if let Some(path) = path
-            && path.exists()
+            && let Some(handle) = self.load_icon(path)
         {
-            if let Some(cached) = self.header_icon_cache.borrow().get(path) {
-                return cached.clone();
-            }
-
-            if let Ok(img) = image::open(path) {
-                let rgba = autocrop(img.to_rgba8());
-                let handle = Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw());
-                self.header_icon_cache.borrow_mut().insert(path.clone(), handle.clone());
-                return handle;
-            }
+            return handle;
         }
 
-        self.header_icon_fallback.clone()
+        let fallback = PathBuf::from(DIR_CATS).join("uni.png");
+        self.load_icon(&fallback).unwrap_or_else(|| self.header_icon_dummy.clone())
+    }
+
+    fn load_icon(&self, path: &PathBuf) -> Option<Handle> {
+        if let Some(cached) = self.header_icon_cache.borrow().get(path) {
+            return Some(cached.clone());
+        }
+
+        if !path.exists() {
+            return None;
+        }
+
+        let img = image::open(path).ok()?;
+        let rgba = autocrop(img.to_rgba8());
+        let handle = Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw());
+        self.header_icon_cache.borrow_mut().insert(path.clone(), handle.clone());
+        Some(handle)
     }
 
     fn view_info_box<'a>(&'a self, cat: &'a CatEntry) -> Element<'a, Message> {

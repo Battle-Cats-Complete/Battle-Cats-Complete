@@ -22,10 +22,10 @@ use iced::{Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::enemy::unit::Battle;
 use tracing::info;
 
-use core::common::assets;
 use core::common::context::GlobalContext;
 use core::common::formats::SpriteSheet as CoreSpriteSheet;
 use core::common::gfx::autocrop;
+use core::modules::cat::paths::DIR_CATS;
 use core::modules::enemy::game::registry::{format_enemy_stat, Magnification, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
 use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::scanner::{self, EnemyEntry};
@@ -115,7 +115,7 @@ pub struct EnemyState {
     custom_assets: CustomAssets,
 
     header_icon_cache: RefCell<HashMap<PathBuf, HeaderIcon>>,
-    header_icon_fallback: HeaderIcon,
+    header_icon_dummy: HeaderIcon,
 
     scan_progress: Option<(usize, usize)>,
 
@@ -128,21 +128,11 @@ pub struct EnemyState {
 
 impl Default for EnemyState {
     fn default() -> Self {
-        let header_icon_fallback = image::load_from_memory(assets::UNKNOWN)
-            .map(|img| {
-                let rgba = img.to_rgba8();
-                let (width, height) = rgba.dimensions();
-                HeaderIcon {
-                    handle: Handle::from_rgba(width, height, rgba.into_raw()),
-                    width: width as f32,
-                    height: height as f32,
-                }
-            })
-            .unwrap_or_else(|_| HeaderIcon {
-                handle: Handle::from_rgba(1, 1, vec![80, 80, 80, 255]),
-                width: 1.0,
-                height: 1.0,
-            });
+        let header_icon_dummy = HeaderIcon {
+            handle: Handle::from_rgba(1, 1, vec![80, 80, 80, 255]),
+            width: 1.0,
+            height: 1.0,
+        };
 
         Self {
             data: EnemyDataState::default(),
@@ -156,7 +146,7 @@ impl Default for EnemyState {
             custom_assets: CustomAssets::new(),
 
             header_icon_cache: RefCell::new(HashMap::new()),
-            header_icon_fallback,
+            header_icon_dummy,
 
             scan_progress: None,
 
@@ -547,29 +537,39 @@ impl EnemyState {
 
     fn enemy_icon(&self, path: Option<&PathBuf>) -> HeaderIcon {
         if let Some(path) = path
-            && path.exists()
+            && let Some(icon) = self.load_icon(path)
         {
-            if let Some(cached) = self.header_icon_cache.borrow().get(path) {
-                return cached.clone();
-            }
-
-            if let Ok(img) = image::open(path) {
-                let rgba = autocrop(img.to_rgba8());
-                let (width, height) = rgba.dimensions();
-
-                if width > 0 && height > 0 {
-                    let icon = HeaderIcon {
-                        handle: Handle::from_rgba(width, height, rgba.into_raw()),
-                        width: width as f32,
-                        height: height as f32,
-                    };
-                    self.header_icon_cache.borrow_mut().insert(path.clone(), icon.clone());
-                    return icon;
-                }
-            }
+            return icon;
         }
 
-        self.header_icon_fallback.clone()
+        let fallback = PathBuf::from(DIR_CATS).join("uni.png");
+        self.load_icon(&fallback).unwrap_or_else(|| self.header_icon_dummy.clone())
+    }
+
+    fn load_icon(&self, path: &PathBuf) -> Option<HeaderIcon> {
+        if let Some(cached) = self.header_icon_cache.borrow().get(path) {
+            return Some(cached.clone());
+        }
+
+        if !path.exists() {
+            return None;
+        }
+
+        let img = image::open(path).ok()?;
+        let rgba = autocrop(img.to_rgba8());
+        let (width, height) = rgba.dimensions();
+
+        if width == 0 || height == 0 {
+            return None;
+        }
+
+        let icon = HeaderIcon {
+            handle: Handle::from_rgba(width, height, rgba.into_raw()),
+            width: width as f32,
+            height: height as f32,
+        };
+        self.header_icon_cache.borrow_mut().insert(path.clone(), icon.clone());
+        Some(icon)
     }
 
     fn view_info_box<'a>(&'a self, enemy: &'a EnemyEntry) -> Element<'a, Message> {

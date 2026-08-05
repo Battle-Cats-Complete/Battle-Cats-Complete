@@ -19,7 +19,7 @@ use nyanko::pack::cryptology;
 use rayon::prelude::*;
 
 use crate::common::io;
-use crate::common::job::JobEvent;
+use crate::common::job::{JobEvent, ProgressCounter};
 use crate::modules::settings::RuleHandling;
 use crate::modules::settings::UserKeys;
 
@@ -78,6 +78,7 @@ pub(crate) fn run_universal_import(
     source_directories: &[PathBuf],
     emit: &(dyn Fn(JobEvent) + Sync),
     abort_flag: &AtomicBool,
+    progress: &ProgressCounter,
 ) -> Result<(), String> {
     let user_keys = UserKeys::load();
     if user_keys.is_empty() {
@@ -422,11 +423,11 @@ pub(crate) fn run_universal_import(
 
     let total = final_extraction_queue.len();
     emit(JobEvent::Progress { current: 0, total });
+    progress.reset(total);
 
     let progress_step = (total / 100).max(1);
-    let progress_counter = AtomicUsize::new(0);
     let advance_progress = || {
-        let current = progress_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let current = progress.advance();
         if current.is_multiple_of(progress_step) || current == total {
             emit(JobEvent::Progress { current, total });
         }

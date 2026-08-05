@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rayon::prelude::*;
 
-use crate::common::job::JobEvent;
+use crate::common::job::{JobEvent, ProgressCounter};
 
 use super::engine::{audit, manifest, router, sort};
 
@@ -14,6 +14,7 @@ pub fn run(
     emit: impl Fn(JobEvent) + Sync,
     abort_flag: &AtomicBool,
     language_priority: &[String],
+    progress: &ProgressCounter,
 ) -> Result<(), String> {
     let source_path = Path::new(source_path_string);
     let game_root_path = Path::new("game");
@@ -28,15 +29,15 @@ pub fn run(
             && source_canonical == raw_canonical
         {
             emit(JobEvent::Log("Organizing recognized raw data.".to_string()));
-            return sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag);
+            return sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag, progress);
         }
 
         if let Ok(game_canonical) = game_root_path.canonicalize()
             && source_canonical == game_canonical
         {
             emit(JobEvent::Log("Beginning database restructure...".to_string()));
-            flatten_to_raw(game_root_path, &raw_directory_path, &emit, abort_flag)?;
-            return sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag);
+            flatten_to_raw(game_root_path, &raw_directory_path, &emit, abort_flag, progress)?;
+            return sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag, progress);
         }
     }
 
@@ -56,8 +57,7 @@ pub fn run(
     let update_interval = (total / 100).max(10);
     let progress_step = (total / 100).max(1);
     emit(JobEvent::Progress { current: 0, total });
-
-    let count_tracker = AtomicUsize::new(0);
+    progress.reset(total);
 
     files_to_import.par_iter().for_each(|sorted_file| {
         if abort_flag.load(Ordering::Relaxed) {
@@ -67,7 +67,7 @@ pub fn run(
         let destination_path = raw_directory_path.join(&sorted_file.resolved_name);
         let _ = fs::copy(&sorted_file.original_path, destination_path);
 
-        let current_count = count_tracker.fetch_add(1, Ordering::Relaxed) + 1;
+        let current_count = progress.advance();
         if current_count.is_multiple_of(progress_step) || current_count == total {
             emit(JobEvent::Progress { current: current_count, total });
         }
@@ -77,7 +77,7 @@ pub fn run(
         }
     });
 
-    sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag)
+    sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag, progress)
 }
 
 fn sort_raw_folder(
@@ -85,6 +85,7 @@ fn sort_raw_folder(
     game_root_path: &Path,
     emit: &(dyn Fn(JobEvent) + Sync),
     abort_flag: &AtomicBool,
+    progress: &ProgressCounter,
 ) -> Result<(), String> {
     let mut all_discovered_files = Vec::new();
     collect_files_recursive(raw_directory, &mut all_discovered_files);
@@ -103,8 +104,7 @@ fn sort_raw_folder(
     let update_interval = (total / 100).max(10);
     let progress_step = (total / 100).max(1);
     emit(JobEvent::Progress { current: 0, total });
-
-    let extracted_count = AtomicUsize::new(0);
+    progress.reset(total);
 
     let updated_manifest_entries: Vec<(String, manifest::ManifestEntry)> = all_discovered_files
         .into_par_iter()
@@ -136,7 +136,7 @@ fn sort_raw_folder(
             let _ = fs::write(&target_destination_path, &clean_file_data);
             let _ = fs::remove_file(&file_path);
 
-            let current_count = extracted_count.fetch_add(1, Ordering::Relaxed) + 1;
+            let current_count = progress.advance();
             if current_count.is_multiple_of(progress_step) || current_count == total {
                 emit(JobEvent::Progress { current: current_count, total });
             }
@@ -175,6 +175,7 @@ fn flatten_to_raw(
     raw_directory: &Path,
     emit: &(dyn Fn(JobEvent) + Sync),
     abort_flag: &AtomicBool,
+    progress: &ProgressCounter,
 ) -> Result<(), String> {
     let mut all_files = Vec::new();
     let meta_directories = ["raw", "app", "meta"];
@@ -205,8 +206,7 @@ fn flatten_to_raw(
     let update_interval = (total / 100).max(10);
     let progress_step = (total / 100).max(1);
     emit(JobEvent::Progress { current: 0, total });
-
-    let count_tracker = AtomicUsize::new(0);
+    progress.reset(total);
 
     all_files.par_iter().for_each(|path| {
         if abort_flag.load(Ordering::Relaxed) {
@@ -229,7 +229,7 @@ fn flatten_to_raw(
             }
         }
 
-        let current_count = count_tracker.fetch_add(1, Ordering::Relaxed) + 1;
+        let current_count = progress.advance();
         if current_count.is_multiple_of(progress_step) || current_count == total {
             emit(JobEvent::Progress { current: current_count, total });
         }

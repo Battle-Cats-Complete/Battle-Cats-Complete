@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::addons::adb::bridge;
-use crate::common::job::JobEvent;
+use crate::common::job::{JobEvent, ProgressCounter};
 use crate::modules::settings::EmulatorConfig;
 
 use super::engine;
@@ -17,6 +17,7 @@ pub fn run(
     enforce_validation: bool,
     emit: impl Fn(JobEvent) + Sync,
     abort_flag: &AtomicBool,
+    progress: &ProgressCounter,
 ) -> Result<(), String> {
     let emit_log = |line: String| emit(JobEvent::Log(line));
 
@@ -39,7 +40,7 @@ pub fn run(
 
     emit(JobEvent::Log("Starting Processing Phase...".to_string()));
 
-    engine::run_universal_import(&pulled_directories, &emit, abort_flag)
+    engine::run_universal_import(&pulled_directories, &emit, abort_flag, progress)
         .map_err(|engine_error| format!("Universal Import Failed: {}", engine_error))?;
 
     if !emulator_config.keep_app_folder {

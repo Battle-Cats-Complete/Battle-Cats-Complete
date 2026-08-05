@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
-use crate::common::job::JobEvent;
+use crate::common::job::{JobEvent, ProgressCounter};
 
 use super::engine;
 use super::engine::keys;
@@ -14,6 +14,7 @@ pub fn run(
     enforce_validation: bool,
     emit: impl Fn(JobEvent) + Sync,
     abort_flag: &AtomicBool,
+    progress: &ProgressCounter,
 ) -> Result<(), String> {
     let emit_log = |line: String| emit(JobEvent::Log(line));
 
@@ -31,7 +32,7 @@ pub fn run(
 
     let directories_to_process = vec![source_directory.clone()];
 
-    let engine_result = engine::run_universal_import(&directories_to_process, &emit, abort_flag);
+    let engine_result = engine::run_universal_import(&directories_to_process, &emit, abort_flag, progress);
 
     if import_mode == ImportMode::Zip {
         let _ = fs::remove_dir_all(source_directory);
