@@ -3,8 +3,8 @@ use std::thread;
 
 use iced::futures::channel::mpsc;
 use iced::task;
-use iced::widget::{button, column, container, pick_list, row, scrollable, space, text, text_input};
-use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
+use iced::widget::{column, container, pick_list, row, rule, scrollable, space, text, text_input};
+use iced::{Element, Length, Padding, Size, Task, Theme};
 use tracing::{info, warn};
 
 use core::addons::adb::mods as adb_mods;
@@ -16,12 +16,16 @@ use core::modules::settings::Settings;
 
 use crate::app::theme;
 use crate::common::feedback::Slot;
-use crate::widget::{popup, smooth_scroll};
+use crate::widget::{popup, smooth_scroll, ConsoleState};
 
-use super::job_finished;
+use super::{
+    field_row, job_finished, picked_label, FIELD_ROW_SPACING, POPUP_PADDING, RULE_PADDING, RULE_THICKNESS,
+    SCROLLBAR_GAP,
+};
 
-const SPINNER_FRAMES: [&str; 4] = ["-", "\\", "|", "/"];
-const POPUP_SIZE: Size = Size::new(500.0, 428.0);
+const POPUP_SIZE: Size = Size::new(500.0, 520.0);
+const POPUP_TAB_WIDTH: f32 = 90.0;
+const PACKAGE_FIELD_WIDTH: f32 = 70.0;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -35,6 +39,7 @@ pub enum Message {
     PackErrorExpired,
     StartImport,
     Job(JobEvent),
+    ConsoleScrolled(scrollable::Viewport),
 }
 
 #[derive(Default)]
@@ -43,10 +48,9 @@ pub struct State {
     popup: popup::State,
     selected_path: Option<PathBuf>,
     pack_error: Slot<String>,
-    busy_frame: usize,
     running: bool,
-    status_message: String,
     log: String,
+    console: ConsoleState,
     job_handle: Option<task::Handle>,
 }
 
@@ -89,50 +93,50 @@ impl State {
             }
             Message::SelectSource => self.handle_select_source(data),
             Message::StartImport => self.start_import(data, settings),
-            Message::Job(event) => {
-                match event {
-                    JobEvent::Log(line) => {
-                        self.status_message = line.clone();
-                        self.log.push_str(&format!("{}\n", line));
-                    }
-                    JobEvent::Progress { .. } => {}
-                    JobEvent::Finished(outcome) => {
-                        self.running = false;
-                        self.job_handle = None;
-
-                        match outcome {
-                            JobOutcome::Completed => {
-                                info!("Import job completed.");
-                                data.refresh_mods();
-                            }
-                            JobOutcome::Aborted => info!("Import job aborted."),
-                            JobOutcome::Failed(message) => {
-                                warn!("Import failed: {}", message);
-                                self.status_message = format!("Error: {}", message);
-                                self.log.push_str(&format!("ERROR: {}\n", message));
-                            }
-                        }
-                    }
-                }
+            Message::Job(event) => self.apply_job_event(event, data),
+            Message::ConsoleScrolled(viewport) => {
+                self.console.on_scroll(viewport);
                 Task::none()
             }
         }
     }
 
-    pub(super) fn advance_spinner(&mut self) {
-        if self.running {
-            self.busy_frame = (self.busy_frame + 1) % SPINNER_FRAMES.len();
-        }
-    }
+    fn apply_job_event(&mut self, event: JobEvent, data: &mut ModDataState) -> Task<Message> {
+        match event {
+            JobEvent::Log(line) => {
+                self.log.push_str(&format!("{}\n", line));
+                self.console.snap_to_bottom()
+            }
+            JobEvent::Progress { .. } => Task::none(),
+            JobEvent::Finished(outcome) => {
+                self.running = false;
+                self.job_handle = None;
 
-    pub(super) fn is_running(&self) -> bool {
-        self.running
+                match outcome {
+                    JobOutcome::Completed => {
+                        info!("Import job completed.");
+                        data.refresh_mods();
+                        Task::none()
+                    }
+                    JobOutcome::Aborted => {
+                        info!("Import job aborted.");
+                        Task::none()
+                    }
+                    JobOutcome::Failed(message) => {
+                        warn!("Import failed: {}", message);
+                        self.log.push_str(&format!("ERROR: {}\n", message));
+                        self.console.snap_to_bottom()
+                    }
+                }
+            }
+        }
     }
 
     fn begin(&mut self, status: String) {
         self.running = true;
         self.log.clear();
-        self.status_message = status;
+        self.log.push_str(&status);
+        self.log.push('\n');
     }
 
     fn start_import(&mut self, data: &mut ModDataState, settings: &Settings) -> Task<Message> {
@@ -226,17 +230,20 @@ impl State {
 
     pub fn view<'a>(&'a self, data: &'a ModDataState, window: Size) -> Element<'a, Message> {
         self.popup.view("Import Mod", POPUP_SIZE, window, Message::Popup, move || {
-            container(smooth_scroll(scrollable(self.content_view(data))))
+            let upper = smooth_scroll(
+                scrollable(container(self.content_view(data)).width(Length::Fill).padding(POPUP_PADDING))
+                    .spacing(SCROLLBAR_GAP)
+                    .height(Length::Shrink)
+            );
+
+            column![upper, self.view_console_section()]
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .padding(20)
                 .into()
         }, None)
     }
 
     fn content_view<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
-        let is_busy = self.running;
-
         let tabs_row = row![
             tab_button("Android", data.import.tab == ModImportTab::Adb, Message::TabSelected(ModImportTab::Adb)),
             tab_button("BCM", data.import.tab == ModImportTab::Bcm, Message::TabSelected(ModImportTab::Bcm)),
@@ -249,26 +256,33 @@ impl State {
             ModImportTab::Pack => self.view_pack(data),
         };
 
-        let status = &self.status_message;
-        let is_error = status.contains("Error") || status.contains("Failed");
-        let is_success = status.contains("Success") || status.contains("Complete");
+        column![
+            tabs_row,
+            space().height(RULE_PADDING),
+            rule::horizontal(RULE_THICKNESS),
+            space().height(RULE_PADDING),
+            content
+        ]
+            .spacing(0)
+            .width(Length::Fill)
+            .into()
+    }
 
-        let status_row: Element<'a, Message> = if is_busy && !is_error && !is_success {
-            row![text(SPINNER_FRAMES[self.busy_frame]), text(status.clone())].spacing(8).into()
-        } else {
-            let color = if is_error {
-                Color::from_rgb(1.0, 0.6, 0.6)
-            } else if is_success {
-                Color::from_rgb(0.6, 1.0, 0.6)
-            } else {
-                Color::from_rgb(0.6, 0.8, 1.0)
-            };
-            text(status.clone()).color(color).into()
-        };
-
-        let log_display = smooth_scroll(scrollable(text(self.log.clone()).size(12)).height(Length::Fixed(150.0)));
-
-        column![tabs_row, space().height(10), content, space().height(10), status_row, log_display].spacing(8).into()
+    fn view_console_section(&self) -> Element<'_, Message> {
+        container(
+            column![
+                rule::horizontal(RULE_THICKNESS),
+                space().height(RULE_PADDING),
+                self.console.view(&self.log, Message::ConsoleScrolled)
+            ]
+                .spacing(0)
+                .width(Length::Fill)
+                .height(Length::Fill)
+        )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(Padding { top: 0.0, right: POPUP_PADDING, bottom: POPUP_PADDING, left: POPUP_PADDING })
+            .into()
     }
 
     fn view_adb<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
@@ -279,42 +293,41 @@ impl State {
             text("Import mod package using Android/Emulator").into()
         } else {
             text("Android Bridge is required. Download it in Settings > Add-Ons")
-                .color(Color::from_rgb(0.8, 0.6, 0.2))
+                .style(text::warning)
                 .into()
         };
 
-        let package_row = row![
-            text("Package:"),
+        let package_row = field_row(
+            "Package",
             text_input("en", &data.import.package_suffix)
                 .on_input_maybe((!is_busy && has_adb).then_some(Message::PackageSuffixChanged))
-                .width(Length::Fixed(60.0))
-        ].align_y(Alignment::Center).spacing(5);
+                .width(Length::Fixed(PACKAGE_FIELD_WIDTH))
+                .style(theme::rounded_input),
+        );
 
         let btn_text = if has_adb { "Start Import" } else { "ADB Missing" };
-        let start_btn = button(text(btn_text))
-            .on_press_maybe((!is_busy && has_adb).then_some(Message::StartImport))
-            .style(theme::primary_button);
+        let start_btn = theme::sized_button(btn_text, theme::MANAGE_BUTTON_WIDTH, theme::primary_button)
+            .on_press_maybe((!is_busy && has_adb).then_some(Message::StartImport));
 
-        column![info, package_row, start_btn].spacing(12).into()
+        column![info, package_row, start_btn].spacing(FIELD_ROW_SPACING).into()
     }
 
     fn view_bcm<'a>(&'a self, _data: &'a ModDataState) -> Element<'a, Message> {
         let is_busy = self.running;
 
-        let label = self.selected_path.as_ref()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| "No archive selected".to_string());
+        let (label, style) = pick_button_face(self.selected_path.as_deref(), "Select Archive");
+
+        let select_btn = theme::sized_button(label, theme::MANAGE_BUTTON_WIDTH, style)
+            .on_press_maybe((!is_busy).then_some(Message::SelectArchive));
+
+        let start_btn = theme::sized_button("Start Import", theme::MANAGE_BUTTON_WIDTH, theme::primary_button)
+            .on_press_maybe((!is_busy && self.selected_path.is_some()).then_some(Message::StartImport));
 
         column![
             text("Import packaged .bcm or .zip mod archives"),
-            row![
-                button("Select Archive").on_press_maybe((!is_busy).then_some(Message::SelectArchive)),
-                text(label)
-            ].align_y(Alignment::Center).spacing(8),
-            button("Start Import")
-                .on_press_maybe((!is_busy && self.selected_path.is_some()).then_some(Message::StartImport))
-                .style(theme::primary_button)
-        ].spacing(12).into()
+            select_btn,
+            start_btn
+        ].spacing(FIELD_ROW_SPACING).into()
     }
 
     fn view_pack<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
@@ -326,55 +339,51 @@ impl State {
             ModPackType::Pack => "Pack".to_string(),
         };
 
-        let format_row = row![
-            text("Format:"),
+        let format_row = field_row(
+            "Format",
             pick_list(
                 pack_types,
                 Some(selected_pack_type),
                 |s| Message::FormatSelected(if s == "APK" { ModPackType::Apk } else { ModPackType::Pack })
             )
-        ].align_y(Alignment::Center).spacing(8);
+                .style(theme::combo_box)
+                .menu_style(theme::combo_box_menu),
+        );
 
-        let select_label = if data.import.pack_type == ModPackType::Pack { "Select Pack/List" } else { "Select Source" };
+        let default_label = if data.import.pack_type == ModPackType::Pack { "Select Pack/List" } else { "Select Source" };
 
-        let selection_label: Element<'a, Message> = if let Some(message) = self.pack_error.get() {
-            text(message.clone()).color(Color::from_rgb(1.0, 0.3, 0.3)).into()
-        } else {
-            self.view_pack_selection_label(data)
+        let (label, style) = match self.pack_error.get() {
+            Some(message) => (message.clone(), theme::danger_button as theme::ButtonStyleFn),
+            None => pick_button_face(self.selected_path.as_deref(), default_label),
         };
 
-        let source_row = row![
-            button(select_label).on_press_maybe((!is_busy).then_some(Message::SelectSource)),
-            selection_label
-        ].align_y(Alignment::Center).spacing(8);
+        let source_row = field_row(
+            "Source",
+            theme::sized_button(label, theme::MANAGE_BUTTON_WIDTH, style)
+                .on_press_maybe((!is_busy).then_some(Message::SelectSource)),
+        );
+
+        let start_btn = theme::sized_button("Start Import", theme::MANAGE_BUTTON_WIDTH, theme::primary_button)
+            .on_press_maybe((!is_busy && self.selected_path.is_some()).then_some(Message::StartImport));
 
         column![
             text("Import modded files directly from game formats"),
             format_row,
             source_row,
-            button("Start Import")
-                .on_press_maybe((!is_busy && self.selected_path.is_some()).then_some(Message::StartImport))
-                .style(theme::primary_button)
-        ].spacing(12).into()
+            start_btn
+        ].spacing(FIELD_ROW_SPACING).into()
     }
 
-    fn view_pack_selection_label<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
-        let Some(path) = &self.selected_path else {
-            return text("No source selected").into();
-        };
+}
 
-        if data.import.pack_type == ModPackType::Pack {
-            let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-            text(format!("{} Found!", stem)).color(Color::from_rgb(0.4, 1.0, 0.4)).into()
-        } else {
-            text(path.to_string_lossy().to_string()).into()
-        }
-    }
+fn pick_button_face(selected: Option<&Path>, default_label: &str) -> (String, theme::ButtonStyleFn) {
+    selected.map_or_else(
+        || (default_label.to_string(), theme::neutral_button as theme::ButtonStyleFn),
+        |path| (picked_label(path), theme::success_button as theme::ButtonStyleFn),
+    )
 }
 
 fn tab_button<'a>(label: &'a str, is_active: bool, msg: Message) -> iced::widget::Button<'a, Message> {
-    button(text(label).align_x(Alignment::Center))
-        .width(Length::Fixed(80.0))
+    theme::sized_button(label, POPUP_TAB_WIDTH, move |t: &Theme, status| theme::toggle_button(t, status, is_active))
         .on_press(msg)
-        .style(move |t: &Theme, status| theme::toggle_button(t, status, is_active))
 }

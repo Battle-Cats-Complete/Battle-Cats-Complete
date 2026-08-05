@@ -3,18 +3,29 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 
+use iced::alignment::Vertical;
 use iced::futures::channel::mpsc::{unbounded, UnboundedReceiver};
 use iced::widget::image::Handle;
-use iced::widget::{button, column, image as iced_image, row, scrollable, text};
-use iced::{Alignment, Background, Border, Color, Element, Length, Task, Theme};
+use iced::widget::{container, image as iced_image, row, scrollable, space, text, Column};
+use iced::{Element, Length, Task};
 use image::imageops;
 
+use core::common::gfx;
 use core::modules::mods::ModData;
 
-use crate::widget::smooth_scroll;
+use crate::app::theme;
+use crate::widget::{list_row, smooth_scroll};
 
-const ICON_UI_HEIGHT: f32 = 46.0;
-const ICON_RENDER_SIZE: u32 = 92;
+use super::SCROLLBAR_GAP;
+
+const ICON_BOX: f32 = 32.0;
+const ICON_PADDING: f32 = 4.0;
+const ROW_HEIGHT: f32 = ICON_BOX + ICON_PADDING * 2.0;
+const ROW_SPACING: f32 = 4.0;
+const ROW_TEXT_SIZE: f32 = 12.0;
+
+const ACTIVE_MARKER_WIDTH: f32 = 4.0;
+const ICON_RENDER_SIZE: u32 = 64;
 
 #[derive(Clone)]
 pub enum Message {
@@ -138,64 +149,85 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, mods: &'a [ModData], selected: Option<&str>) -> Element<'a, Message> {
-        let mut list_col = column![].spacing(4).width(Length::Fill);
+        if self.cached_indices.is_empty() {
+            return container(theme::centered_text("No Mods Found").size(13).style(text::danger))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into();
+        }
+
+        let mut list_col = Column::with_capacity(self.cached_indices.len())
+            .spacing(ROW_SPACING)
+            .width(Length::Fill);
 
         for &index in &self.cached_indices {
             let Some(mod_data) = mods.get(index) else { continue; };
             list_col = list_col.push(self.view_row(mod_data, selected == Some(mod_data.folder_name.as_str())));
         }
 
-        smooth_scroll(scrollable(list_col).height(Length::Fill).width(Length::Fill)).into()
+        smooth_scroll(
+            scrollable(list_col)
+                .spacing(SCROLLBAR_GAP)
+                .height(Length::Fill)
+                .width(Length::Fill),
+        )
+            .into()
     }
 
     fn view_row<'a>(&'a self, mod_data: &'a ModData, is_selected: bool) -> Element<'a, Message> {
-        let is_enabled = mod_data.enabled;
         let folder_name = mod_data.folder_name.as_str();
 
-        let row_content: Element<'a, Message> = if let Some(handle) = self.texture_cache.get(folder_name) {
-            row![
-                iced_image(handle.clone()).height(Length::Fixed(ICON_UI_HEIGHT)),
-                text(folder_name).size(14)
-            ].spacing(12).align_y(Alignment::Center).into()
+        let marker: Element<'a, Message> = if mod_data.enabled {
+            container(space())
+                .width(Length::Fixed(ACTIVE_MARKER_WIDTH))
+                .height(Length::Fill)
+                .style(theme::accent_marker)
+                .into()
         } else {
-            row![text(folder_name).size(14)].align_y(Alignment::Center).into()
+            space().width(Length::Fixed(ACTIVE_MARKER_WIDTH)).into()
         };
 
-        button(row_content)
-            .width(Length::Fill)
-            .padding(8)
-            .on_press(Message::SelectMod(folder_name.to_string()))
-            .style(move |theme: &Theme, status| {
-                let palette = theme.palette();
-                let bg = if is_selected {
-                    palette.primary
-                } else if is_enabled {
-                    palette.success
-                } else if status == button::Status::Hovered {
-                    Color { a: 0.1, ..palette.text }
-                } else {
-                    Color::TRANSPARENT
-                };
+        let mut face = row![marker].align_y(Vertical::Center).height(Length::Fill);
 
-                button::Style {
-                    background: Some(Background::Color(bg)),
-                    text_color: if is_selected || is_enabled { Color::WHITE } else { palette.text },
-                    border: Border::default().rounded(4.0).width(if is_selected { 2.0 } else { 0.0 }).color(palette.primary),
-                    ..Default::default()
-                }
-            })
-            .into()
+        if let Some(handle) = self.texture_cache.get(folder_name) {
+            face = face.push(
+                container(iced_image(handle.clone()).width(ICON_BOX).height(ICON_BOX)).padding(ICON_PADDING),
+            );
+        }
+
+        face = face
+            .push(theme::centered_text(folder_name).size(ROW_TEXT_SIZE).width(Length::Fill))
+            .push(space().width(Length::Fixed(ACTIVE_MARKER_WIDTH)));
+
+        list_row(
+            container(face).width(Length::Fill).height(Length::Fixed(ROW_HEIGHT)),
+            is_selected,
+            true,
+            Length::Fill,
+            Message::SelectMod(folder_name.to_string()),
+        )
     }
 }
 
 fn process_icon(mod_path: &Path) -> Option<(u32, u32, Vec<u8>)> {
     let icon_path = mod_path.join("icons").join("icon.png");
-    if !icon_path.exists() {
+    let opened = image::open(&icon_path).ok()?;
+
+    let cropped = gfx::autocrop(opened.to_rgba8());
+    let (width, height) = cropped.dimensions();
+
+    let longest = width.max(height);
+    if longest == 0 {
         return None;
     }
 
-    let opened = image::open(&icon_path).ok()?;
-    let resized = imageops::resize(&opened.to_rgba8(), ICON_RENDER_SIZE, ICON_RENDER_SIZE, imageops::FilterType::Lanczos3);
+    let scale = ICON_RENDER_SIZE as f32 / longest as f32;
+    let target_w = ((width as f32 * scale).round() as u32).max(1);
+    let target_h = ((height as f32 * scale).round() as u32).max(1);
+
+    let resized = imageops::resize(&cropped, target_w, target_h, imageops::FilterType::Lanczos3);
 
     Some((resized.width(), resized.height(), resized.into_raw()))
 }

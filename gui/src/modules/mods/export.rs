@@ -2,8 +2,8 @@ use std::thread;
 
 use iced::futures::channel::mpsc;
 use iced::task;
-use iced::widget::{button, column, container, pick_list, row, scrollable, slider, space, text, text_input};
-use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
+use iced::widget::{column, container, pick_list, row, rule, scrollable, slider, space, text, text_input};
+use iced::{Element, Length, Padding, Size, Task, Theme};
 use tracing::{error, info};
 
 use core::common::job::{JobEvent, JobOutcome};
@@ -13,13 +13,18 @@ use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
 use crate::app::theme;
-use crate::widget::{popup, smooth_scroll};
+use crate::widget::{popup, smooth_scroll, ConsoleState};
 
-use super::job_finished;
+use super::{
+    field_row, job_finished, picked_label, FIELD_ROW_SPACING, POPUP_PADDING, RULE_PADDING, RULE_THICKNESS,
+    SCROLLBAR_GAP,
+};
 
-const SPINNER_FRAMES: [&str; 4] = ["-", "\\", "|", "/"];
 const REGIONS: [Region; 4] = [Region::En, Region::Ja, Region::Ko, Region::Tw];
-const POPUP_SIZE: Size = Size::new(400.0, 328.0);
+const POPUP_SIZE: Size = Size::new(470.0, 560.0);
+const POPUP_TAB_WIDTH: f32 = 80.0;
+const FIELD_WIDTH: f32 = 160.0;
+const PACKAGE_FIELD_WIDTH: f32 = 70.0;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -34,15 +39,16 @@ pub enum Message {
     PackNameChanged(String),
     StartExport,
     Job(JobEvent),
+    ConsoleScrolled(scrollable::Viewport),
 }
 
 pub struct State {
     pub is_open: bool,
     popup: popup::State,
     compression: f32,
-    busy_frame: usize,
     running: bool,
     log: String,
+    console: ConsoleState,
     job_handle: Option<task::Handle>,
 }
 
@@ -52,25 +58,15 @@ impl Default for State {
             is_open: false,
             popup: popup::State::default(),
             compression: bcm::BCM_COMPRESSION_DEFAULT as f32,
-            busy_frame: 0,
             running: false,
             log: String::new(),
+            console: ConsoleState::default(),
             job_handle: None,
         }
     }
 }
 
 impl State {
-    pub(super) fn advance_spinner(&mut self) {
-        if self.running {
-            self.busy_frame = (self.busy_frame + 1) % SPINNER_FRAMES.len();
-        }
-    }
-
-    pub(super) fn is_running(&self) -> bool {
-        self.running
-    }
-
     pub fn update(&mut self, message: Message, data: &mut ModDataState, settings: &Settings) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
@@ -114,27 +110,40 @@ impl State {
                 Task::none()
             }
             Message::StartExport => self.start_export(data, settings),
-            Message::Job(event) => {
-                match event {
-                    JobEvent::Log(line) => {
-                        self.log.push_str(&format!("{}\n", line));
-                    }
-                    JobEvent::Progress { .. } => {}
-                    JobEvent::Finished(outcome) => {
-                        self.running = false;
-                        self.job_handle = None;
+            Message::Job(event) => self.apply_job_event(event),
+            Message::ConsoleScrolled(viewport) => {
+                self.console.on_scroll(viewport);
+                Task::none()
+            }
+        }
+    }
 
-                        match outcome {
-                            JobOutcome::Completed => info!("Export job completed."),
-                            JobOutcome::Aborted => info!("Export job aborted."),
-                            JobOutcome::Failed(message) => {
-                                error!("Export Error: {}", message);
-                                self.log.push_str(&format!("!! ERROR: {}\n", message));
-                            }
-                        }
+    fn apply_job_event(&mut self, event: JobEvent) -> Task<Message> {
+        match event {
+            JobEvent::Log(line) => {
+                self.log.push_str(&format!("{}\n", line));
+                self.console.snap_to_bottom()
+            }
+            JobEvent::Progress { .. } => Task::none(),
+            JobEvent::Finished(outcome) => {
+                self.running = false;
+                self.job_handle = None;
+
+                match outcome {
+                    JobOutcome::Completed => {
+                        info!("Export job completed.");
+                        Task::none()
+                    }
+                    JobOutcome::Aborted => {
+                        info!("Export job aborted.");
+                        Task::none()
+                    }
+                    JobOutcome::Failed(message) => {
+                        error!("Export Error: {}", message);
+                        self.log.push_str(&format!("!! ERROR: {}\n", message));
+                        self.console.snap_to_bottom()
                     }
                 }
-                Task::none()
             }
         }
     }
@@ -211,10 +220,15 @@ impl State {
 
     pub fn view<'a>(&'a self, data: &'a ModDataState, window: Size) -> Element<'a, Message> {
         self.popup.view("Export Mod", POPUP_SIZE, window, Message::Popup, move || {
-            container(smooth_scroll(scrollable(self.content_view(data))))
+            let upper = smooth_scroll(
+                scrollable(container(self.content_view(data)).width(Length::Fill).padding(POPUP_PADDING))
+                    .spacing(SCROLLBAR_GAP)
+                    .height(Length::Shrink)
+            );
+
+            column![upper, self.view_console_section()]
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .padding(20)
                 .into()
         }, None)
     }
@@ -235,28 +249,33 @@ impl State {
             ExportType::Pack => self.view_pack(data, is_busy, is_ready),
         };
 
-        let raw_log = self.log.trim_end();
-        let display_status = raw_log.lines().last().unwrap_or("Ready").replace('\n', ", ");
+        column![
+            tabs_row,
+            space().height(RULE_PADDING),
+            rule::horizontal(RULE_THICKNESS),
+            space().height(RULE_PADDING),
+            content
+        ]
+            .spacing(0)
+            .width(Length::Fill)
+            .into()
+    }
 
-        let is_error = display_status.contains("ERROR") || display_status.contains("Error") || display_status.contains("Failed");
-        let is_success = display_status.contains("Successfully") || display_status.contains("Complete");
-
-        let status_row: Element<'a, Message> = if is_busy {
-            row![text(SPINNER_FRAMES[self.busy_frame]), text(display_status)].spacing(8).into()
-        } else {
-            let color = if is_error {
-                Color::from_rgb(1.0, 0.6, 0.6)
-            } else if is_success {
-                Color::from_rgb(0.6, 1.0, 0.6)
-            } else {
-                Color::from_rgb(0.6, 0.8, 1.0)
-            };
-            text(display_status).color(color).into()
-        };
-
-        let log_display = smooth_scroll(scrollable(text(self.log.clone()).size(12)).height(Length::Fixed(150.0)));
-
-        column![tabs_row, space().height(10), content, space().height(10), status_row, log_display].spacing(8).into()
+    fn view_console_section(&self) -> Element<'_, Message> {
+        container(
+            column![
+                rule::horizontal(RULE_THICKNESS),
+                space().height(RULE_PADDING),
+                self.console.view(&self.log, Message::ConsoleScrolled)
+            ]
+                .spacing(0)
+                .width(Length::Fill)
+                .height(Length::Fill)
+        )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(Padding { top: 0.0, right: POPUP_PADDING, bottom: POPUP_PADDING, left: POPUP_PADDING })
+            .into()
     }
 
     fn region_select<'a>(&self, current: Region) -> Element<'a, Message> {
@@ -266,99 +285,83 @@ impl State {
         pick_list(names, Some(selected), |label| {
             let region = REGIONS.iter().copied().find(|r| r.metadata().display_name == label).unwrap_or(Region::En);
             Message::RegionSelected(region)
-        }).into()
+        })
+            .style(theme::combo_box)
+            .menu_style(theme::combo_box_menu)
+            .into()
     }
 
     fn view_apk<'a>(&'a self, data: &'a ModDataState, is_busy: bool, is_ready: bool) -> Element<'a, Message> {
-        let file_label = data.export.selected_apk.as_ref()
-            .map(|p| truncate_file_name(p))
-            .unwrap_or_else(|| "No file selected".to_string());
+        let (file_label, file_style) = data.export.selected_apk.as_deref().map_or_else(
+            || ("Select App File".to_string(), theme::neutral_button as theme::ButtonStyleFn),
+            |path| (picked_label(path), theme::success_button as theme::ButtonStyleFn),
+        );
 
         column![
             text("Patch and export modded APK"),
-            row![
-                text("Title:"),
+            field_row(
+                "Title",
                 text_input("", &data.export.app_title)
                     .on_input_maybe((!is_busy).then_some(Message::TitleChanged))
-                    .width(Length::Fixed(150.0))
-            ].align_y(Alignment::Center).spacing(4),
-            row![
-                text("Package:"),
+                    .width(Length::Fixed(FIELD_WIDTH))
+                    .style(theme::rounded_input)
+            ),
+            field_row(
+                "Package",
                 text_input("", &data.export.package_suffix)
                     .on_input_maybe((!is_busy).then_some(Message::PackageChanged))
-                    .width(Length::Fixed(60.0))
-            ].align_y(Alignment::Center).spacing(4),
-            row![text("Region:"), self.region_select(data.export.target_region)].align_y(Alignment::Center).spacing(4),
-            row![
-                button("Select App File").on_press_maybe((!is_busy).then_some(Message::SelectAppFile)),
-                text(file_label)
-            ].align_y(Alignment::Center).spacing(8),
-            button("Apply Mod")
+                    .width(Length::Fixed(PACKAGE_FIELD_WIDTH))
+                    .style(theme::rounded_input)
+            ),
+            field_row("Region", self.region_select(data.export.target_region)),
+            field_row(
+                "App File",
+                theme::sized_button(file_label, theme::MANAGE_BUTTON_WIDTH, file_style)
+                    .on_press_maybe((!is_busy).then_some(Message::SelectAppFile))
+            ),
+            theme::sized_button("Apply Mod", theme::MANAGE_BUTTON_WIDTH, theme::primary_button)
                 .on_press_maybe((!is_busy && is_ready && data.export.selected_apk.is_some()).then_some(Message::StartExport))
-                .style(theme::primary_button)
-        ].spacing(12).into()
+        ].spacing(FIELD_ROW_SPACING).into()
     }
 
     fn view_bcm<'a>(&'a self, data: &'a ModDataState, is_busy: bool, is_ready: bool) -> Element<'a, Message> {
         column![
             text("Package mod into a standalone .bcm archive"),
-            row![
-                text("Title:"),
+            field_row(
+                "Title",
                 text_input("", &data.export.app_title)
                     .on_input_maybe((!is_busy).then_some(Message::TitleChanged))
-                    .width(Length::Fixed(150.0))
-            ].align_y(Alignment::Center).spacing(4),
-            row![
-                text("Compression:"),
+                    .width(Length::Fixed(FIELD_WIDTH))
+                    .style(theme::rounded_input)
+            ),
+            field_row(
+                "Compression",
                 slider(bcm::BCM_COMPRESSION_MIN as f32..=bcm::BCM_COMPRESSION_MAX as f32, self.compression, Message::CompressionChanged)
-                    .width(Length::Fixed(150.0))
-            ].align_y(Alignment::Center).spacing(4),
-            button("Create BCM Package")
+                    .width(Length::Fixed(FIELD_WIDTH))
+            ),
+            theme::sized_button("Create BCM Package", theme::MANAGE_BUTTON_WIDTH, theme::primary_button)
                 .on_press_maybe((!is_busy && is_ready).then_some(Message::StartExport))
-                .style(theme::primary_button)
-        ].spacing(12).into()
+        ].spacing(FIELD_ROW_SPACING).into()
     }
 
     fn view_pack<'a>(&'a self, data: &'a ModDataState, is_busy: bool, is_ready: bool) -> Element<'a, Message> {
         column![
             text("Compile mod files into raw .pack and .list files"),
-            row![
-                text("Name:"),
+            field_row(
+                "Name",
                 text_input("DownloadLocal", &data.export.pack_name)
                     .on_input_maybe((!is_busy).then_some(Message::PackNameChanged))
-                    .width(Length::Fixed(150.0))
-            ].align_y(Alignment::Center).spacing(4),
-            row![text("Key:"), self.region_select(data.export.target_region)].align_y(Alignment::Center).spacing(4),
-            button("Create Pack")
+                    .width(Length::Fixed(FIELD_WIDTH))
+                    .style(theme::rounded_input)
+            ),
+            field_row("Key", self.region_select(data.export.target_region)),
+            theme::sized_button("Create Pack", theme::MANAGE_BUTTON_WIDTH, theme::primary_button)
                 .on_press_maybe((!is_busy && is_ready).then_some(Message::StartExport))
-                .style(theme::primary_button)
-        ].spacing(12).into()
-    }
-}
-
-fn truncate_file_name(path: &std::path::Path) -> String {
-    let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-
-    if file_name.chars().count() <= 30 {
-        return file_name;
-    }
-
-    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    let ext = path.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    let stem_chars: Vec<char> = stem.chars().collect();
-
-    if stem_chars.len() > 15 {
-        let first: String = stem_chars[..12].iter().collect();
-        let last: String = stem_chars[stem_chars.len() - 5..].iter().collect();
-        format!("{}...{}.{}", first, last, ext)
-    } else {
-        file_name
+        ].spacing(FIELD_ROW_SPACING).into()
     }
 }
 
 fn tab_button<'a>(label: &'a str, is_active: bool, msg: Message) -> iced::widget::Button<'a, Message> {
-    button(text(label).align_x(Alignment::Center))
-        .width(Length::Fixed(80.0))
+    theme::sized_button(label, POPUP_TAB_WIDTH, move |t: &Theme, status| theme::toggle_button(t, status, is_active))
         .on_press(msg)
-        .style(move |t: &Theme, status| theme::toggle_button(t, status, is_active))
 }

@@ -138,6 +138,17 @@ impl canvas::Program<Message> for Selector {
         if self.selecting {
             frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color::from_rgba8(0, 0, 0, 50.0 / 255.0));
 
+            if let Some((start, end)) = drag.anchor {
+                let top_left = Point::new(start.x.min(end.x), start.y.min(end.y));
+                let size = Size::new((end.x - start.x).abs(), (end.y - start.y).abs());
+
+                frame.fill_rectangle(top_left, size, Color::from_rgba8(255, 255, 0, 30.0 / 255.0));
+                frame.stroke(
+                    &Path::rectangle(top_left, size),
+                    Stroke::default().with_color(yellow).with_width(2.0),
+                );
+            }
+
             let hint_size = Size::new(HINT_WIDTH, HINT_HEIGHT);
             let hint_top_left = Point::new(frame.center().x - hint_size.width / 2.0, 0.0);
             let hint_path = Path::rounded_rectangle(
@@ -165,17 +176,6 @@ impl canvas::Program<Message> for Selector {
                 align_y: alignment::Vertical::Center,
                 ..canvas::Text::default()
             });
-
-            if let Some((start, end)) = drag.anchor {
-                let top_left = Point::new(start.x.min(end.x), start.y.min(end.y));
-                let size = Size::new((end.x - start.x).abs(), (end.y - start.y).abs());
-
-                frame.fill_rectangle(top_left, size, Color::from_rgba8(255, 255, 0, 30.0 / 255.0));
-                frame.stroke(
-                    &Path::rectangle(top_left, size),
-                    Stroke::default().with_color(yellow).with_width(2.0),
-                );
-            }
         } else if let Some(region) = self.region {
             let center = frame.center();
             let to_screen = |x: f32, y: f32| Point::new(

@@ -4,12 +4,12 @@ mod list;
 
 use std::fs;
 use std::path::Path;
-use std::time::Duration;
 
+use iced::alignment::Horizontal;
 use iced::widget::{
-    button, column, container, row, scrollable, space, stack, text, text_input,
+    button, column, container, row, rule, scrollable, space, stack, text, text_editor, text_input, Container,
 };
-use iced::{Alignment, Background, Color, Element, Length, Size, Subscription, Task, Theme};
+use iced::{Alignment, Background, Color, Element, Length, Size, Task, Theme};
 use tracing::warn;
 
 use core::common::job::{JobEvent, JobOutcome};
@@ -17,7 +17,30 @@ use core::modules::mods::ModDataState;
 use core::modules::settings::Settings;
 
 use crate::app::theme;
-use crate::widget::smooth_scroll;
+use crate::widget::{section, smooth_scroll};
+
+const RULE_THICKNESS: f32 = 1.0;
+const RULE_PADDING: f32 = 8.0;
+const SECTION_GAP: f32 = 16.0;
+
+const SCROLLBAR_GAP: f32 = 2.0;
+
+const MOD_LIST_WIDTH: f32 = 200.0;
+const SIDEBAR_PADDING: f32 = 8.0;
+
+const POPUP_PADDING: f32 = 16.0;
+const PICKED_LABEL_MAX: usize = 22;
+const PICKED_LABEL_TAIL: usize = 6;
+
+const DETAILS_PADDING: f32 = 16.0;
+const FIELD_LABEL_WIDTH: f32 = 90.0;
+const FIELD_GAP: f32 = 8.0;
+const FIELD_ROW_SPACING: f32 = 8.0;
+const CONTENT_WIDTH: f32 = 515.0;
+
+const CARD_PADDING: f32 = 12.0;
+
+const MODAL_WIDTH: f32 = 500.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MetadataField {
@@ -29,7 +52,6 @@ pub enum MetadataField {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    SpinnerTick,
     List(list::Message),
     Import(import::Message),
     Export(export::Message),
@@ -40,6 +62,7 @@ pub enum Message {
     ToggleModStatus(String),
     OpenFolder(String),
     UpdateMetadata(MetadataField, String),
+    DescriptionAction(text_editor::Action),
     CommitMetadata,
     ShowDeleteConfirm,
     HideDeleteConfirm,
@@ -52,6 +75,7 @@ pub struct State {
     list: list::State,
     import: import::State,
     export: export::State,
+    description: text_editor::Content,
     delete_confirm_open: bool,
 }
 
@@ -67,6 +91,7 @@ impl State {
             list,
             import: import::State::default(),
             export: export::State::default(),
+            description: text_editor::Content::new(),
             delete_confirm_open: false,
         }
     }
@@ -79,14 +104,6 @@ impl State {
         self.data.loaded_mods.iter().find(|m| m.enabled).map(|m| m.folder_name.clone())
     }
 
-    pub fn subscription(&self) -> Subscription<Message> {
-        if self.import.is_running() || self.export.is_running() {
-            iced::time::every(Duration::from_millis(16)).map(|_| Message::SpinnerTick)
-        } else {
-            Subscription::none()
-        }
-    }
-
     pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         let task = self.update_inner(message, settings);
 
@@ -97,11 +114,6 @@ impl State {
 
     fn update_inner(&mut self, message: Message, settings: &Settings) -> Task<Message> {
         match message {
-            Message::SpinnerTick => {
-                self.import.advance_spinner();
-                self.export.advance_spinner();
-                Task::none()
-            }
             Message::List(msg) => {
                 if let list::Message::SelectMod(folder) = &msg {
                     self.select_mod(folder.clone());
@@ -137,6 +149,16 @@ impl State {
                 self.update_metadata(field, value);
                 Task::none()
             }
+            Message::DescriptionAction(action) => {
+                let is_edit = action.is_edit();
+                self.description.perform(action);
+
+                if is_edit {
+                    self.update_metadata(MetadataField::Description, self.description.text());
+                    self.commit_metadata();
+                }
+                Task::none()
+            }
             Message::CommitMetadata => {
                 self.commit_metadata();
                 Task::none()
@@ -163,6 +185,13 @@ impl State {
     fn select_mod(&mut self, folder: String) {
         self.data.selected_mod = Some(folder.clone());
         self.data.rename_buffer = folder;
+
+        let description = self.get_selected_mod_idx().map_or_else(
+            text_editor::Content::new,
+            |idx| text_editor::Content::with_text(&self.data.loaded_mods[idx].metadata.description),
+        );
+        self.description = description;
+
         self.populate_export_metadata();
     }
 
@@ -321,34 +350,45 @@ impl State {
     }
 
     fn view_sidebar(&self) -> Element<'_, Message> {
+        const SEARCH_BUTTON_GAP: f32 = 4.0;
+        const BUTTON_LIST_GAP: f32 = 8.0;
+
         let search_input = text_input("Search Mods...", &self.data.search_query)
             .on_input(Message::SearchChanged)
-            .padding(8);
-
-        let import_btn = button(text("Import Mod").align_x(Alignment::Center))
+            .padding(4)
+            .size(13)
             .width(Length::Fill)
-            .on_press(Message::Import(import::Message::Open));
+            .style(theme::rounded_input);
+
+        let import_btn = button(theme::button_label("Import Mod").size(13))
+            .on_press(Message::Import(import::Message::Open))
+            .padding([4, 8])
+            .width(Length::Fill)
+            .style(theme::primary_button);
 
         let mod_list = self.list.view(&self.data.loaded_mods, self.data.selected_mod.as_deref()).map(Message::List);
 
         container(
             column![
                 search_input,
+                space().height(SEARCH_BUTTON_GAP),
                 import_btn,
-                space().height(4),
+                space().height(BUTTON_LIST_GAP),
                 mod_list
             ]
-                .spacing(8)
+                .spacing(0)
+                .height(Length::Fill)
         )
-            .width(Length::Fixed(200.0))
+            .width(Length::Fixed(MOD_LIST_WIDTH + SIDEBAR_PADDING * 2.0))
             .height(Length::Fill)
-            .padding(8)
+            .padding(SIDEBAR_PADDING)
+            .style(theme::list_panel_container)
             .into()
     }
 
     fn view_details(&self) -> Element<'_, Message> {
         let Some(mod_idx) = self.get_selected_mod_idx() else {
-            return container(text("Please select or import a Mod").size(18))
+            return container(theme::centered_text("Please select or import a Mod").size(18))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .center_x(Length::Fill)
@@ -363,125 +403,184 @@ impl State {
         let header = text_input("Mod Title", &self.data.rename_buffer)
             .on_input(Message::RenameBufferChanged)
             .on_submit(Message::CommitRename)
-            .size(25)
-            .padding(10);
+            .size(22)
+            .padding(8)
+            .width(Length::Fixed(CONTENT_WIDTH))
+            .style(theme::rounded_input);
 
-        let toggle_btn = button(
-            text(if is_enabled { "Disable Mod" } else { "Enable Mod" }).align_x(Alignment::Center)
-        )
-            .width(Length::Fixed(135.0))
-            .on_press(Message::ToggleModStatus(mod_folder.clone()))
-            .style(move |theme: &Theme, _status| theme::solid_button(if is_enabled { theme.palette().danger } else { theme.palette().success }));
+        let toggle_style: theme::ButtonStyleFn = if is_enabled { theme::danger_button } else { theme::success_button };
 
-        let open_btn = button(text("Open Folder").align_x(Alignment::Center))
-            .width(Length::Fixed(135.0))
-            .on_press(Message::OpenFolder(mod_folder.clone()))
-            .style(theme::primary_button);
-
-        let export_btn = button(text("Export Mod").align_x(Alignment::Center))
-            .width(Length::Fixed(135.0))
-            .on_press(Message::Export(export::Message::Open))
-            .style(theme::primary_button);
-
-        let delete_btn = button(text("Delete Mod").align_x(Alignment::Center))
-            .width(Length::Fixed(135.0))
-            .on_press(Message::ShowDeleteConfirm)
-            .style(theme::danger_button);
-
-        let actions_row = row![toggle_btn, open_btn, export_btn, delete_btn]
+        let actions_row = row![
+            theme::sized_button(if is_enabled { "Disable Mod" } else { "Enable Mod" }, theme::POPUP_ACTION_BUTTON_WIDTH, toggle_style)
+                .on_press(Message::ToggleModStatus(mod_folder.clone())),
+            theme::sized_button("Open Folder", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button)
+                .on_press(Message::OpenFolder(mod_folder)),
+            theme::sized_button("Export Mod", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button)
+                .on_press(Message::Export(export::Message::Open)),
+            theme::sized_button("Delete Mod", theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
+                .on_press(Message::ShowDeleteConfirm),
+        ]
             .spacing(10)
             .align_y(Alignment::Center);
 
-        let meta_col = column![
-            text("Information").size(18),
-            row![
-                text("Author:").width(Length::Fixed(80.0)),
-                text_input("", &mod_data.metadata.author)
-                    .on_input(|s| Message::UpdateMetadata(MetadataField::Author, s))
-                    .on_submit(Message::CommitMetadata)
-                    .width(Length::Fixed(200.0))
-            ].align_y(Alignment::Center),
-            row![
-                text("Version:").width(Length::Fixed(80.0)),
-                text_input("", &mod_data.metadata.version)
-                    .on_input(|s| Message::UpdateMetadata(MetadataField::Version, s))
-                    .on_submit(Message::CommitMetadata)
-                    .width(Length::Fixed(200.0))
-            ].align_y(Alignment::Center),
-            row![
-                text("Package:").width(Length::Fixed(80.0)),
-                text_input("", &mod_data.metadata.package)
-                    .on_input(|s| Message::UpdateMetadata(MetadataField::Package, s))
-                    .on_submit(Message::CommitMetadata)
-                    .width(Length::Fixed(200.0))
-            ].align_y(Alignment::Center),
-        ].spacing(12);
+        let actions_row = container(actions_row)
+            .width(Length::Fixed(CONTENT_WIDTH))
+            .align_x(Horizontal::Center);
 
-        let desc_col = column![
-            text("Description").size(18),
-            text_input("Enter mod description here...", &mod_data.metadata.description)
-                .on_input(|s| Message::UpdateMetadata(MetadataField::Description, s))
-                .on_submit(Message::CommitMetadata)
-                .width(Length::Fill)
-        ].spacing(8);
+        let information = content_card(
+            section(
+                "Information",
+                Length::Fill,
+                column![
+                    metadata_row("Author", &mod_data.metadata.author, MetadataField::Author),
+                    metadata_row("Version", &mod_data.metadata.version, MetadataField::Version),
+                    metadata_row("Package", &mod_data.metadata.package, MetadataField::Package),
+                ].spacing(FIELD_ROW_SPACING),
+            )
+        );
+
+        let description = content_card(
+            section(
+                "Description",
+                Length::Fill,
+                text_editor(&self.description)
+                    .placeholder("Enter mod description here...")
+                    .on_action(Message::DescriptionAction)
+                    .padding(8)
+                    .size(14)
+                    .height(Length::Fill)
+                    .style(theme::rounded_editor),
+            )
+        )
+            .height(Length::Fill);
 
         container(
             column![
                 header,
-                space().height(10),
+                space().height(RULE_PADDING),
+                content_rule(),
+                space().height(RULE_PADDING),
                 actions_row,
-                space().height(20),
-                meta_col,
-                space().height(20),
-                desc_col
+                space().height(RULE_PADDING),
+                content_rule(),
+                space().height(RULE_PADDING),
+                information,
+                space().height(SECTION_GAP),
+                description
             ]
-                .spacing(8)
+                .spacing(0)
                 .width(Length::Fill)
+                .height(Length::Fill)
         )
-            .padding(16)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(DETAILS_PADDING)
             .into()
     }
 
     fn view_delete_modal(&self) -> Element<'_, Message> {
-        let title_str = format!("Are you sure you want to completely delete {}?", self.data.selected_mod.as_deref().unwrap_or("this mod"));
-        let title = text(title_str).size(16);
+        let name = self.data.selected_mod.as_deref().unwrap_or("this mod");
+        let title = theme::centered_text(format!("Are you sure you want to completely delete {}?", name))
+            .size(15)
+            .width(Length::Fill);
 
-        let yes_btn = button(text("Yes").align_x(Alignment::Center))
-            .width(Length::Fixed(80.0))
-            .on_press(Message::ConfirmDelete)
-            .style(theme::danger_button);
-
-        let no_btn = button(text("No").align_x(Alignment::Center))
-            .width(Length::Fixed(80.0))
-            .on_press(Message::HideDeleteConfirm)
-            .style(theme::primary_button);
+        let buttons = row![
+            theme::sized_button("Yes", theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
+                .on_press(Message::ConfirmDelete),
+            theme::sized_button("No", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button)
+                .on_press(Message::HideDeleteConfirm),
+        ].spacing(16);
 
         self.modal_container(
             "Confirm Deletion",
             Message::HideDeleteConfirm,
-            column![title, row![yes_btn, no_btn].spacing(16)].into()
+            column![title, container(buttons).width(Length::Fill).center_x(Length::Fill)]
+                .spacing(SECTION_GAP)
+                .width(Length::Fill)
+                .into(),
         )
     }
+
     fn modal_container<'a>(&self, title: &str, close_msg: Message, content: Element<'a, Message>) -> Element<'a, Message> {
         let header = row![
-            text(title.to_string()).size(20),
+            theme::bold_text(title).size(18),
             space().width(Length::Fill),
-            button(text("X")).on_press(close_msg).style(theme::danger_button)
+            button(theme::centered_text("✕").size(16))
+                .padding(4)
+                .on_press(close_msg)
+                .style(theme::danger_button)
         ].align_y(Alignment::Center);
+
+        let body = column![
+            header,
+            space().height(RULE_PADDING),
+            rule::horizontal(RULE_THICKNESS),
+            space().height(RULE_PADDING),
+            content
+        ]
+            .spacing(0)
+            .width(Length::Fill);
 
         container(
             smooth_scroll(
-                scrollable(
-                    column![header, space().height(16), content].spacing(8)
-                )
+                scrollable(container(body).width(Length::Fill).padding(POPUP_PADDING))
+                    .spacing(SCROLLBAR_GAP)
             )
         )
-            .width(Length::Fixed(500.0))
+            .width(Length::Fixed(MODAL_WIDTH))
             .height(Length::Shrink)
-            .padding(20)
             .style(theme::confirm_modal_container)
             .into()
     }
+}
+
+fn field_row<'a, M: 'a>(label: &'a str, control: impl Into<Element<'a, M>>) -> Element<'a, M> {
+    row![
+        text(label).size(14).width(Length::Fixed(FIELD_LABEL_WIDTH)),
+        control.into()
+    ]
+        .align_y(Alignment::Center)
+        .spacing(FIELD_GAP)
+        .width(Length::Fill)
+        .into()
+}
+
+fn picked_label(path: &Path) -> String {
+    let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().to_string());
+    let chars: Vec<char> = name.chars().collect();
+
+    if chars.len() <= PICKED_LABEL_MAX {
+        return name;
+    }
+
+    let head: String = chars[..PICKED_LABEL_MAX - PICKED_LABEL_TAIL - 3].iter().collect();
+    let tail: String = chars[chars.len() - PICKED_LABEL_TAIL..].iter().collect();
+
+    format!("{}…{}", head, tail)
+}
+
+fn content_rule<'a>() -> Element<'a, Message> {
+    container(rule::horizontal(RULE_THICKNESS)).width(Length::Fixed(CONTENT_WIDTH)).into()
+}
+
+fn content_card<'a>(content: impl Into<Element<'a, Message>>) -> Container<'a, Message> {
+    container(content.into())
+        .width(Length::Fixed(CONTENT_WIDTH))
+        .padding(CARD_PADDING)
+        .style(theme::card_container_outlined)
+}
+
+fn metadata_row<'a>(label: &'a str, value: &'a str, field: MetadataField) -> Element<'a, Message> {
+    field_row(
+        label,
+        text_input("", value)
+            .on_input(move |s| Message::UpdateMetadata(field, s))
+            .on_submit(Message::CommitMetadata)
+            .padding(6)
+            .size(14)
+            .width(Length::Fill)
+            .style(theme::rounded_input),
+    )
 }
 
 fn job_finished(result: Result<(), String>) -> JobEvent {

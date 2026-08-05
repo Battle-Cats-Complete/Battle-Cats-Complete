@@ -5,6 +5,7 @@ use crate::app::theme;
 use crate::widget::smooth_scroll;
 
 const STICK_THRESHOLD: f32 = 0.995;
+const SCROLLBAR_GAP: f32 = 2.0;
 
 pub(crate) struct ConsoleState {
     id: widget::Id,
@@ -45,12 +46,13 @@ pub(crate) fn mock_console<'a, Message: 'a>(
     on_scroll: impl Fn(scrollable::Viewport) -> Message + 'a,
 ) -> Element<'a, Message> {
     let content = scrollable(
-        container(iced::widget::text(log).size(12).font(Font::MONOSPACE))
+        container(iced::widget::text(log.trim_end()).size(12).font(Font::MONOSPACE))
             .width(Length::Fill)
             .padding(8),
     )
         .id(id)
         .on_scroll(on_scroll)
+        .spacing(SCROLLBAR_GAP)
         .height(Length::Fill);
 
     container(container(smooth_scroll(content)).padding(theme::CONSOLE_BORDER_WIDTH))

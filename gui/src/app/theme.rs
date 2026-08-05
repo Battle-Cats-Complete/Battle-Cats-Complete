@@ -3,7 +3,7 @@ use iced::border::Radius;
 use iced::theme::Palette;
 use iced::widget::overlay::menu;
 use iced::widget::text::Text;
-use iced::widget::{button, container, pick_list, text, text_input, toggler, Button};
+use iced::widget::{button, container, pick_list, text, text_editor, text_input, toggler, Button};
 use iced::{font, Background, Border, Color, Length, Theme};
 
 pub const RADIUS_SM: f32 = 4.0;
@@ -267,6 +267,14 @@ pub fn combo_box_menu(theme: &Theme) -> menu::Style {
     }
 }
 
+pub fn accent_marker(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(theme.palette().success)),
+        border: Border { radius: Radius::from(RADIUS_SM), ..Border::default() },
+        ..container::Style::default()
+    }
+}
+
 pub fn status_badge(theme: &Theme, ok: bool) -> container::Style {
     let palette = theme.palette();
     let background = if ok { palette.success } else { palette.danger };
@@ -339,6 +347,20 @@ pub fn mock_console_container(theme: &Theme) -> container::Style {
         background: Some(Background::Color(background)),
         border: Border { color: border_color, width: CONSOLE_BORDER_WIDTH, radius: Radius::from(RADIUS_SM) },
         ..container::Style::default()
+    }
+}
+
+pub fn rounded_editor(theme: &Theme, status: text_editor::Status) -> text_editor::Style {
+    let style = text_editor::default(theme, status);
+    let background = match style.background {
+        Background::Color(color) => Background::Color(shade_color(color, 0.5)),
+        other => other,
+    };
+
+    text_editor::Style {
+        background,
+        border: Border { radius: Radius::from(RADIUS_SM), ..style.border },
+        ..style
     }
 }
 
