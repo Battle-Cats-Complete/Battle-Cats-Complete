@@ -11,7 +11,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length, Size, Task, Theme};
 
-use core::modules::settings::lang;
+use core::modules::settings::{lang, nightly};
 use core::modules::settings::{
     ExportBehavior, Settings as CoreSettings, SidebarBehavior,
 };
@@ -104,7 +104,12 @@ impl State {
             Message::TabSelected(tab) => {
                 self.active_tab = tab;
                 match tab {
-                    Tab::General => lang::ensure_complete_list(&mut core_settings.general.language_priority),
+                    Tab::General => {
+                        lang::ensure_complete_list(&mut core_settings.general.language_priority);
+                        if !nightly::features_available() {
+                            core_settings.general.enable_nightly = false;
+                        }
+                    }
                     Tab::Cats => self.default_cat_level_buffer = core_settings.cat_data.default_level.to_string(),
                     Tab::Animation => {
                         self.showcase_walk_buffer = core_settings.animation.default_showcase_walk.to_string();

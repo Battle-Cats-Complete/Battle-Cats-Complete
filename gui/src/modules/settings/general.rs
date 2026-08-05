@@ -5,7 +5,7 @@ use iced::widget::{column, container, mouse_area, pick_list, row, text, toggler}
 use iced::{Alignment, Border, Color, Element, Length, Point, Task, Theme};
 use tracing::debug;
 
-use core::modules::settings::lang;
+use core::modules::settings::{lang, nightly};
 use core::modules::settings::{Settings as CoreSettings, UpdateMode};
 
 use crate::app::theme;
@@ -195,6 +195,21 @@ impl State {
             theme::sized_button(update_label, theme::STATUS_BUTTON_WIDTH, update_style).on_press_maybe(update_msg)
         );
 
+        let nightly_available = nightly::features_available();
+        let nightly_label = text("Enable Nightly Features 🌙");
+        let nightly_label: Element<'a, Message> = if nightly_available {
+            nightly_label.into()
+        } else {
+            nightly_label
+                .style(|theme: &Theme| iced::widget::text::Style { color: Some(Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }) })
+                .into()
+        };
+        let nightly_hint = if nightly_available {
+            "Enables work-in-progress and unstable features"
+        } else {
+            "No Nightly features available in this version"
+        };
+
         let behavior_content = column![
             hover_hint(
                 row![
@@ -203,10 +218,15 @@ impl State {
                 ].spacing(10).align_y(Alignment::Center),
                 "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs",
             ),
-            row![
-                toggler(core_settings.general.enable_nightly).on_toggle(Message::ToggleNightly).style(theme::ios_toggle),
-                text("Enable Nightly Features 🌙"),
-            ].spacing(10).align_y(Alignment::Center),
+            hover_hint(
+                row![
+                    toggler(core_settings.general.enable_nightly)
+                        .on_toggle_maybe(nightly_available.then_some(Message::ToggleNightly))
+                        .style(theme::ios_toggle),
+                    nightly_label,
+                ].spacing(10).align_y(Alignment::Center),
+                nightly_hint,
+            ),
             row![
                 text("Update Handling"),
                 pick_list(
