@@ -15,7 +15,7 @@ use core::modules::settings::{Settings, UpdateMode};
 
 use crate::common::watcher::GuiWatcher;
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
-use crate::widget::{popup, smooth_scroll};
+use crate::widget::{popup, slide, smooth_scroll, Slide};
 
 use state::AppState;
 
@@ -653,29 +653,26 @@ impl BattleCatsApp {
                 left: 0.0,
             });
 
-        let mut layer = row![toggle_container].height(Length::Fill);
+        let mut tabs: iced::widget::Column<'_, Message> = column![].spacing(10);
+        for page in ALL_PAGES {
+            let is_active = self.current_page == *page;
+            let btn = button(theme::button_label(page.tab_name()).size(16))
+                .width(Length::Fill)
+                .padding(10)
+                .on_press(Message::Navigate(*page))
+                .style(move |theme: &Theme, status| theme::toggle_button(theme, status, is_active));
 
-        if self.sidebar_open {
-            let mut tabs: iced::widget::Column<'_, Message> = column![].spacing(10);
-            for page in ALL_PAGES {
-                let is_active = self.current_page == *page;
-                let btn = button(theme::button_label(page.tab_name()).size(16))
-                    .width(Length::Fill)
-                    .padding(10)
-                    .on_press(Message::Navigate(*page))
-                    .style(move |theme: &Theme, status| theme::toggle_button(theme, status, is_active));
-
-                tabs = tabs.push(btn);
-            }
-
-            let sidebar_panel = container(tabs)
-                .width(Length::Fixed(180.0))
-                .height(Length::Fill)
-                .padding(15)
-                .style(theme::sidebar_container);
-
-            layer = layer.push(sidebar_panel);
+            tabs = tabs.push(btn);
         }
+
+        let sidebar_panel = container(tabs)
+            .width(Length::Fixed(180.0))
+            .height(Length::Fill)
+            .padding(15)
+            .style(theme::sidebar_container);
+
+        let layer = row![toggle_container, slide(sidebar_panel, self.sidebar_open, Slide::Right)]
+            .height(Length::Fill);
 
         container(layer)
             .width(Length::Fill)

@@ -10,25 +10,10 @@ const POPUP_SIZE: Size = Size::new(500.0, 400.0);
 const HASH_BYTES: usize = 8;
 const SCROLLBAR_GAP: f32 = 8.0;
 
-pub(super) const NOTICE_TITLE: &str = "TEST3";
+// If "NOTICE_CONTENT" is empty, no notice appears
+pub(super) const NOTICE_TITLE: &str = "v2.0.0 NOTICE";
 pub(super) const NOTICE_CONTENT: &str = r#"
-This is a test pop-up, if you are seeing this, tell @omochikeari15 she accidentally shipped a test in an stable release.
 
-Markdown Test:
-# Hashtag1
-## Hastag2
-### Hashtag3
-`Tilde1`
-```
-Tilde3
-```
-*Asterisk1*
-**Asterisk2**
-***Asterisk3***
-_Underscore1_
-__Underscore2__
-~Squiggly1~
-~~Squiggly2~~
 "#;
 
 pub(super) fn parse_content() -> Vec<markdown::Item> {

@@ -25,7 +25,7 @@ use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDa
 
 use crate::app::state::StageListState;
 use crate::app::theme;
-use crate::widget::smooth_scroll;
+use crate::widget::{slide, smooth_scroll, Slide};
 
 const SIDEBAR_PUSH_GAP: f32 = 10.0;
 const SIDEBAR_PADDING: f32 = 15.0;
@@ -211,10 +211,12 @@ impl State {
     pub fn view<'a>(&'a self, settings: &Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let mut base = self.view_main_panel(global_ctx);
 
-        if settings.stages.sidebar_behavior == SidebarBehavior::Push && self.is_sidebar_open {
-            let push_offset = self.sidebar_span() + SIDEBAR_PUSH_GAP;
-            base = container(base)
-                .padding(Padding { left: push_offset, ..Padding::ZERO })
+        if settings.stages.sidebar_behavior == SidebarBehavior::Push {
+            let push_spacer = space()
+                .width(Length::Fixed(self.sidebar_span() + SIDEBAR_PUSH_GAP))
+                .height(Length::Fill);
+
+            base = row![slide(push_spacer, self.is_sidebar_open, Slide::Left), base]
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into();
@@ -284,27 +286,23 @@ impl State {
         let toggle_container = container(toggle_btn)
             .padding(Padding { top: TOGGLE_BUTTON_GAP, left: TOGGLE_BUTTON_GAP, ..Padding::ZERO });
 
-        let mut layer = row![].height(Length::Fill).align_y(Alignment::Start);
+        let mut sidebar_content = column![].height(Length::Fill);
 
-        if self.is_sidebar_open {
-            let mut sidebar_content = column![].height(Length::Fill);
-
-            if let Some((done, total)) = self.scan_progress {
-                sidebar_content = sidebar_content.push(text(format!("Scanning stages... {}/{}", done, total)).size(12));
-            }
-
-            sidebar_content = sidebar_content.push(self.list.view(&self.data, &self.filter.filter_state).map(Message::List));
-
-            let sidebar_panel = container(sidebar_content)
-                .width(Length::Fixed(self.sidebar_span()))
-                .height(Length::Fill)
-                .padding(SIDEBAR_PADDING)
-                .style(theme::left_sidebar_container);
-
-            layer = layer.push(sidebar_panel);
+        if let Some((done, total)) = self.scan_progress {
+            sidebar_content = sidebar_content.push(text(format!("Scanning stages... {}/{}", done, total)).size(12));
         }
 
-        layer = layer.push(toggle_container);
+        sidebar_content = sidebar_content.push(self.list.view(&self.data, &self.filter.filter_state).map(Message::List));
+
+        let sidebar_panel = container(sidebar_content)
+            .width(Length::Fixed(self.sidebar_span()))
+            .height(Length::Fill)
+            .padding(SIDEBAR_PADDING)
+            .style(theme::left_sidebar_container);
+
+        let layer = row![slide(sidebar_panel, self.is_sidebar_open, Slide::Left), toggle_container]
+            .height(Length::Fill)
+            .align_y(Alignment::Start);
 
         container(layer)
             .width(Length::Fill)

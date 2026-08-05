@@ -9,6 +9,7 @@ use core::animation::{
 
 use crate::app::state::AnimState;
 use crate::app::theme;
+use crate::widget::{slide, Slide};
 
 use super::{canvas, data};
 
@@ -418,23 +419,23 @@ impl State {
         .on_press(Message::ToggleExpanded)
         .style(button::text);
 
-        let mut panel = column![toggle].spacing(ROW_GAP).width(Length::Fixed(PANEL_WIDTH));
+        let body = column![
+            rule::horizontal(1),
+            container(anim_grid(data))
+                .width(Length::Fill)
+                .padding(Padding { top: GRID_PAD, right: 0.0, bottom: GRID_PAD, left: 0.0 })
+                .align_x(alignment::Horizontal::Center),
+            rule::horizontal(1),
+            container(self.transport_row(canvas, data))
+                .padding(Padding { top: GRID_PAD, right: 0.0, bottom: 0.0, left: 0.0 }),
+        ]
+        .spacing(ROW_GAP)
+        .width(Length::Fill);
 
-        if is_expanded {
-            panel = panel
-                .push(rule::horizontal(1))
-                .push(
-                    container(anim_grid(data))
-                        .width(Length::Fill)
-                        .padding(Padding { top: GRID_PAD, right: 0.0, bottom: GRID_PAD, left: 0.0 })
-                        .align_x(alignment::Horizontal::Center),
-                )
-                .push(rule::horizontal(1))
-                .push(
-                    container(self.transport_row(canvas, data))
-                        .padding(Padding { top: GRID_PAD, right: 0.0, bottom: 0.0, left: 0.0 }),
-                );
-        }
+        let drawer = container(body)
+            .width(Length::Fill)
+            .padding(Padding { top: ROW_GAP, ..Padding::ZERO });
+        let panel = column![toggle, slide(drawer, is_expanded, Slide::Down)].width(Length::Fixed(PANEL_WIDTH));
 
         opaque(container(panel).padding(PANEL_PAD).style(panel_style))
     }

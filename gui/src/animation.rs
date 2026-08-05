@@ -274,6 +274,7 @@ impl State {
         let layers = stack![
             viewport,
             selection_overlay,
+            self.overlay.hint_view(),
             expand_button,
             controls_overlay,
             frame_border(),
