@@ -1,12 +1,19 @@
+use iced::border::Radius;
 use iced::mouse;
 use iced::widget::canvas;
 use iced::widget::canvas::{Geometry, Path, Stroke};
-use iced::{Color, Element, Length, Point, Rectangle, Renderer, Size, Theme, Vector};
+use iced::{alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Theme, Vector};
+
+use crate::app::theme;
 
 use super::canvas as viewer;
 
 const MIN_SELECTION_AREA: f32 = 25.0;
 const HINT_TEXT: &str = "Right click & drag to set camera";
+const HINT_WIDTH: f32 = 260.0;
+const HINT_HEIGHT: f32 = 28.0;
+const HINT_ALPHA: f32 = 160.0 / 255.0;
+const HINT_SHADE: f32 = 0.15;
 
 #[derive(Default)]
 pub struct State {
@@ -75,9 +82,9 @@ impl canvas::Program<Message> for Selector {
                 drag.anchor = Some((position, position));
                 Some(canvas::Action::capture())
             }
-            canvas::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+            canvas::Event::Mouse(mouse::Event::CursorMoved { position }) => {
                 let (start, _) = drag.anchor?;
-                let position = cursor.position_in(bounds)?;
+                let position = Point::new(position.x - bounds.x, position.y - bounds.y);
                 drag.anchor = Some((start, position));
                 Some(canvas::Action::capture())
             }
@@ -117,7 +124,7 @@ impl canvas::Program<Message> for Selector {
         &self,
         drag: &Drag,
         renderer: &Renderer,
-        _theme: &Theme,
+        theme: &Theme,
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
@@ -131,14 +138,31 @@ impl canvas::Program<Message> for Selector {
         if self.selecting {
             frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color::from_rgba8(0, 0, 0, 50.0 / 255.0));
 
-            let hint_size = Size::new(240.0, 25.0);
-            let hint_top_left = Point::new(frame.center().x - hint_size.width / 2.0, 30.0);
-            frame.fill_rectangle(hint_top_left, hint_size, Color::from_rgba8(0, 0, 0, 180.0 / 255.0));
+            let hint_size = Size::new(HINT_WIDTH, HINT_HEIGHT);
+            let hint_top_left = Point::new(frame.center().x - hint_size.width / 2.0, 0.0);
+            let hint_path = Path::rounded_rectangle(
+                hint_top_left,
+                hint_size,
+                Radius { top_left: 0.0, top_right: 0.0, bottom_left: theme::RADIUS_LG, bottom_right: theme::RADIUS_LG },
+            );
+
+            let palette = theme.palette();
+            let shade = |c: f32| c * HINT_SHADE;
+            frame.fill(
+                &hint_path,
+                Color { r: shade(palette.background.r), g: shade(palette.background.g), b: shade(palette.background.b), a: HINT_ALPHA },
+            );
+            frame.stroke(
+                &hint_path,
+                Stroke::default().with_color(theme.extended_palette().background.strong.color).with_width(1.0),
+            );
             frame.fill_text(canvas::Text {
                 content: HINT_TEXT.to_string(),
-                position: Point::new(hint_top_left.x + 10.0, hint_top_left.y + 5.0),
+                position: Point::new(hint_top_left.x + hint_size.width / 2.0, hint_top_left.y + hint_size.height / 2.0),
                 color: Color::WHITE,
                 size: 13.0.into(),
+                align_x: alignment::Horizontal::Center.into(),
+                align_y: alignment::Vertical::Center,
                 ..canvas::Text::default()
             });
 
