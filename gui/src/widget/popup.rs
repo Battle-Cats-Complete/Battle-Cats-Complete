@@ -10,6 +10,7 @@ const HEADER_HEIGHT: f32 = 28.0;
 const HEADER_MARGIN_X: f32 = 50.0;
 const HEADER_MARGIN_Y: f32 = 30.0;
 const DEFAULT_BODY_ALPHA: f32 = 1.0;
+const FRAME_BORDER_WIDTH: f32 = 3.0;
 
 #[derive(Default)]
 pub struct State {
@@ -110,6 +111,7 @@ impl State {
                 container(column![header, body])
                     .width(Length::Fixed(size.width))
                     .height(Length::Fixed(size.height))
+                    .padding(FRAME_BORDER_WIDTH)
                     .style(frame_style),
             );
 
@@ -264,25 +266,29 @@ fn clamp(position: Point, size: Size, window: Size) -> Point {
     Point::new(position.x.clamp(min_x, max_x), position.y.clamp(0.0, max_y))
 }
 
-fn header_style(theme: &Theme) -> container::Style {
+fn header_color(theme: &Theme) -> Color {
     let palette = theme.palette();
     let shade = |c: f32| c * 0.7;
-    let background = Color {
+
+    Color {
         r: shade(palette.background.r),
         g: shade(palette.background.g),
         b: shade(palette.background.b),
         a: palette.background.a,
-    };
+    }
+}
+
+fn inner_radius() -> f32 {
+    (theme::RADIUS_MD - FRAME_BORDER_WIDTH).max(0.0)
+}
+
+fn header_style(theme: &Theme) -> container::Style {
+    let radius = inner_radius();
 
     container::Style {
-        background: Some(background.into()),
+        background: Some(header_color(theme).into()),
         border: Border {
-            radius: Radius {
-                top_left: theme::RADIUS_MD,
-                top_right: theme::RADIUS_MD,
-                bottom_right: 0.0,
-                bottom_left: 0.0,
-            },
+            radius: Radius { top_left: radius, top_right: radius, bottom_right: 0.0, bottom_left: 0.0 },
             ..Border::default()
         },
         ..container::Style::default()
@@ -290,12 +296,10 @@ fn header_style(theme: &Theme) -> container::Style {
 }
 
 fn frame_style(theme: &Theme) -> container::Style {
-    let palette = theme.extended_palette();
-
     container::Style {
         border: Border {
-            color: palette.background.strong.color,
-            width: 1.0,
+            color: header_color(theme),
+            width: FRAME_BORDER_WIDTH,
             radius: theme::RADIUS_MD.into(),
         },
         ..container::Style::default()
@@ -305,16 +309,12 @@ fn frame_style(theme: &Theme) -> container::Style {
 fn body_style(theme: &Theme, alpha: f32) -> container::Style {
     let palette = theme.extended_palette();
     let background = Color { a: alpha, ..palette.background.base.color };
+    let radius = inner_radius();
 
     container::Style {
         background: Some(background.into()),
         border: Border {
-            radius: Radius {
-                top_left: 0.0,
-                top_right: 0.0,
-                bottom_left: theme::RADIUS_MD,
-                bottom_right: theme::RADIUS_MD,
-            },
+            radius: Radius { top_left: 0.0, top_right: 0.0, bottom_left: radius, bottom_right: radius },
             ..Border::default()
         },
         ..container::Style::default()
