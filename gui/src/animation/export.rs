@@ -6,7 +6,7 @@ use std::thread;
 use std::time::Instant;
 
 use iced::futures::channel::mpsc::unbounded;
-use iced::widget::{button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text, text_input, tooltip};
+use iced::widget::{button, column, container, pick_list, progress_bar, row, rule, scrollable, text, text_input, toggler, tooltip};
 use iced::{task, Alignment, Element, Length, Size, Task, Theme};
 use tracing::trace;
 
@@ -19,7 +19,7 @@ use core::modules::settings::Settings;
 
 use crate::app::state::AnimState;
 use crate::app::theme;
-use crate::widget::{popup, range_row_hinted, section};
+use crate::widget::{popup, section};
 
 use super::data;
 use super::offscreen::{self, Camera};
@@ -33,10 +33,13 @@ const CONTENT_PADDING: f32 = 20.0;
 const SECTION_SPACING: f32 = 14.0;
 const ROW_SPACING: f32 = 6.0;
 const FIELD_SPACING: f32 = 8.0;
-const FIELD_LABEL_WIDTH: f32 = 110.0;
-const NAME_INPUT_WIDTH: f32 = 140.0;
+const FIELD_LABEL_WIDTH: f32 = 82.0;
+const NAME_INPUT_WIDTH: f32 = 170.0;
 const SMALL_INPUT_WIDTH: f32 = 55.0;
+const AXIS_INPUT_WIDTH: f32 = 100.0;
 const AXIS_LABEL_WIDTH: f32 = 18.0;
+const COMBO_WIDTH: f32 = 130.0;
+const RULE_HEIGHT: f32 = 1.0;
 const SCROLLBAR_GAP: f32 = 2.0;
 const CONTROL_TEXT_SIZE: f32 = 13.0;
 
@@ -171,9 +174,9 @@ impl Default for ExportForm {
             file_name: String::new(),
             name_prefix: String::new(),
             format: ExportFormat::Gif,
-            quality_percent: 100,
+            quality_percent: 80,
             quality_percent_str: String::new(),
-            compression_percent: 0,
+            compression_percent: 30,
             compression_percent_str: String::new(),
             background: false,
             user_bg_preference: false,
@@ -389,9 +392,9 @@ impl State {
         self.exporter = ExportForm::with_settings(settings);
         self.exporter.export_mode = previous_mode;
         self.exporter.format = anim_state.last_export_format.clone();
-        self.exporter.quality_percent = anim_state.last_export_quality.unwrap_or(100);
+        self.exporter.quality_percent = anim_state.last_export_quality.unwrap_or(80);
         self.exporter.quality_percent_str = anim_state.last_export_quality.map_or_else(String::new, |v| v.to_string());
-        self.exporter.compression_percent = anim_state.last_export_compression.unwrap_or(0);
+        self.exporter.compression_percent = anim_state.last_export_compression.unwrap_or(30);
         self.exporter.compression_percent_str = anim_state.last_export_compression.map_or_else(String::new, |v| v.to_string());
     }
 
@@ -892,7 +895,7 @@ impl State {
                     _ => ExportMode::Manual,
                 })
             })
-                .width(Length::Fill)
+                .width(Length::Fixed(COMBO_WIDTH))
                 .style(theme::combo_box)
                 .menu_style(theme::combo_box_menu),
         );
@@ -930,7 +933,7 @@ impl State {
                     _ => ExportFormat::Gif,
                 })
             })
-                .width(Length::Fill)
+                .width(Length::Fixed(COMBO_WIDTH))
                 .style(theme::combo_box)
                 .menu_style(theme::combo_box_menu),
         );
@@ -938,14 +941,16 @@ impl State {
         let end_hint = self.exporter.max_frame.to_string();
 
         let input_section: Element<'_, Message> = match self.exporter.export_mode {
-            ExportMode::Manual => range_row_hinted(
+            ExportMode::Manual => field_row(
                 "Frames",
-                &self.exporter.frame_start_str,
-                &self.exporter.frame_end_str,
-                "0",
-                &end_hint,
-                Message::SetStartFrame,
-                Message::SetEndFrame,
+                frame_range_row(
+                    &self.exporter.frame_start_str,
+                    &self.exporter.frame_end_str,
+                    "0",
+                    &end_hint,
+                    Some(Message::SetStartFrame),
+                    Some(Message::SetEndFrame),
+                ),
             ),
             ExportMode::Loop => {
                 let find_loop_button: Element<'_, Message> = match current_loop.map(|job| &job.phase) {
@@ -961,10 +966,20 @@ impl State {
                 };
 
                 column![
+                    field_row(
+                        "Frames",
+                        frame_range_row(
+                            &self.exporter.frame_start_str,
+                            &self.exporter.frame_end_str,
+                            "0",
+                            &end_hint,
+                            Some(Message::SetStartFrame),
+                            Some(Message::SetEndFrame),
+                        ),
+                    ),
                     field_row("Tolerance %", small_input("30", &self.exporter.loop_tolerance_str, Message::SetLoopTolerance)),
                     field_row("Min Frames", small_input("15", &self.exporter.loop_min_str, Message::SetLoopMin)),
                     field_row("Max Frames", small_input("None", &self.exporter.loop_max_str, Message::SetLoopMax)),
-                    text(format!("Range: {}f ~ {}f", self.exporter.frame_start, self.exporter.frame_end)).size(CONTROL_TEXT_SIZE),
                     find_loop_button,
                 ].spacing(ROW_SPACING).into()
             }
@@ -1051,13 +1066,23 @@ impl State {
                         .style(theme::rounded_input),
                 ),
                 format_picker,
-                field_row("Quality %", small_input("100", &self.exporter.quality_percent_str, Message::SetQuality)),
-                field_row("Compression %", small_input("0", &self.exporter.compression_percent_str, Message::SetCompression)),
+                field_row("Quality %", small_input("80", &self.exporter.quality_percent_str, Message::SetQuality)),
+                field_row("Compress %", small_input("30", &self.exporter.compression_percent_str, Message::SetCompression)),
                 row![
-                    background_checkbox(&self.exporter),
+                    background_toggle(&self.exporter),
                     text("Background").size(CONTROL_TEXT_SIZE),
                 ].spacing(FIELD_SPACING).align_y(Alignment::Center),
             ].spacing(ROW_SPACING),
+        );
+
+        let addons_section = section(
+            "Add-Ons",
+            Length::Fill,
+            column![
+                text("Tools that enhance the Exporter\nManage through Settings > Add-Ons").size(CONTROL_TEXT_SIZE),
+                addon_badge("FFMPEG", !is_ffmpeg_missing),
+                addon_badge("AVIFENC", !is_avif_missing),
+            ].spacing(FIELD_SPACING),
         );
 
         let (ratio, status_label) = if let Some(job) = current_loop.filter(|job| matches!(job.phase, LoopPhase::Running | LoopPhase::Aborting)) {
@@ -1078,7 +1103,7 @@ impl State {
                 }
                 JobPhase::Aborting => (1.0, "Aborting...".to_string()),
                 JobPhase::Done { result: JobResult::Completed, .. } => (1.0, "Done".to_string()),
-                JobPhase::Done { result: JobResult::Terminated, .. } => (1.0, "Export Terminated!".to_string()),
+                JobPhase::Done { result: JobResult::Terminated, .. } => (1.0, "Ready".to_string()),
             }
         } else if let Some(LoopPhase::Done { result, .. }) = current_loop.map(|job| &job.phase) {
             let label = match result {
@@ -1090,11 +1115,6 @@ impl State {
         } else {
             (1.0, "Ready".to_string())
         };
-
-        let progress_section = column![
-            progress_bar(0.0..=1.0, ratio),
-            text(status_label).size(CONTROL_TEXT_SIZE),
-        ].spacing(ROW_SPACING);
 
         let export_button: Element<'_, Message> = match current_job.map(|job| &job.phase) {
             Some(JobPhase::Running) => action_button("Abort Export", theme::danger_button, Some(Message::AbortExport)),
@@ -1111,23 +1131,38 @@ impl State {
                     "No Camera Set"
                 };
 
-                let style = if is_terminated { theme::danger_button } else { theme::primary_button };
+                let style = match (is_terminated, is_valid) {
+                    (true, _) => theme::danger_button,
+                    (false, true) => theme::primary_button,
+                    (false, false) => theme::neutral_button,
+                };
                 let press = (is_valid && !is_locked && !loop_active).then_some(Message::BeginExport);
 
                 action_button(label, style, press)
             }
         };
 
-        let popup_content = column![
+        let scroll_content = column![
             section("Input", Length::Fill, column![mode_picker, input_section].spacing(ROW_SPACING)),
             camera_section,
             output_section,
-            progress_section,
-            export_button,
+            addons_section,
         ].spacing(SECTION_SPACING);
 
+        let bottom_bar = column![
+            export_button,
+            column![
+                theme::centered_text(status_label).size(CONTROL_TEXT_SIZE).width(Length::Fill),
+                progress_bar(0.0..=1.0, ratio),
+            ].spacing(ROW_SPACING),
+        ].spacing(FIELD_SPACING);
+
         container(
-            scrollable(popup_content).height(Length::Fill).spacing(SCROLLBAR_GAP)
+            column![
+                scrollable(scroll_content).height(Length::Fill).spacing(SCROLLBAR_GAP),
+                container(rule::horizontal(RULE_HEIGHT)).width(Length::Fill),
+                bottom_bar,
+            ].spacing(SECTION_SPACING)
         )
             .width(Length::Fill)
             .height(Length::Fill)
@@ -1159,8 +1194,30 @@ fn axis_input<'a>(label: &'a str, value: f32, on_input: impl Fn(String) -> Messa
         text(label).size(CONTROL_TEXT_SIZE).width(Length::Fixed(AXIS_LABEL_WIDTH)),
         text_input("0", &value.to_string())
             .on_input(on_input)
-            .width(Length::Fixed(SMALL_INPUT_WIDTH))
+            .width(Length::Fixed(AXIS_INPUT_WIDTH))
             .style(theme::rounded_input),
+    ]
+        .spacing(4)
+        .align_y(Alignment::Center)
+        .into()
+}
+
+fn frame_range_row<'a, FMin, FMax>(
+    min: &'a str,
+    max: &'a str,
+    min_hint: &str,
+    max_hint: &str,
+    on_min: Option<FMin>,
+    on_max: Option<FMax>,
+) -> Element<'a, Message>
+where
+    FMin: Fn(String) -> Message + 'a,
+    FMax: Fn(String) -> Message + 'a,
+{
+    row![
+        text_input(min_hint, min).on_input_maybe(on_min).width(Length::Fixed(SMALL_INPUT_WIDTH)).style(theme::rounded_input),
+        text("~").size(CONTROL_TEXT_SIZE),
+        text_input(max_hint, max).on_input_maybe(on_max).width(Length::Fixed(SMALL_INPUT_WIDTH)).style(theme::rounded_input),
     ]
         .spacing(4)
         .align_y(Alignment::Center)
@@ -1184,17 +1241,27 @@ fn is_forced_opaque(format: &ExportFormat) -> bool {
     matches!(format, ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm)
 }
 
-fn background_checkbox(exporter: &ExportForm) -> Element<'_, Message> {
+fn background_toggle(exporter: &ExportForm) -> Element<'_, Message> {
     if is_forced_opaque(&exporter.format) {
         tooltip(
-            checkbox(true),
+            toggler(true).style(theme::ios_toggle),
             container(text("This video format requires a background")).padding(6).style(container::bordered_box),
             tooltip::Position::Top,
         )
         .into()
     } else {
-        checkbox(exporter.background).on_toggle(Message::ToggleBackground).into()
+        toggler(exporter.background).on_toggle(Message::ToggleBackground).style(theme::ios_toggle).into()
     }
+}
+
+fn addon_badge(label: &str, installed: bool) -> Element<'_, Message> {
+    let status = if installed { format!("{label} Installed") } else { format!("{label} Missing") };
+
+    container(theme::centered_text(status).size(CONTROL_TEXT_SIZE))
+        .width(Length::Fill)
+        .padding(6)
+        .style(move |theme: &Theme| theme::status_badge(theme, installed))
+        .into()
 }
 
 fn derive_name_prefix(raw_id: &str, anim_index: usize) -> String {

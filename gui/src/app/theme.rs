@@ -220,6 +220,18 @@ pub fn combo_box_menu(theme: &Theme) -> menu::Style {
     }
 }
 
+pub fn status_badge(theme: &Theme, ok: bool) -> container::Style {
+    let palette = theme.palette();
+    let background = if ok { palette.success } else { palette.danger };
+
+    container::Style {
+        background: Some(Background::Color(background)),
+        text_color: Some(Color::WHITE),
+        border: Border { radius: Radius::from(RADIUS_SM), ..Border::default() },
+        ..container::Style::default()
+    }
+}
+
 pub fn ios_toggle(theme: &Theme, status: toggler::Status) -> toggler::Style {
     let base = toggler::default(theme, status);
 
