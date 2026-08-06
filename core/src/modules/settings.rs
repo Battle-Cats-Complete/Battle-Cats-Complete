@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::common::io::json;
+use crate::common::keys::sanitize;
 
 const EXPECTED_HASHES: [(&str, &str); 4] = [
     ("bac299d3cf278544782427ff7c71ef58", "6910fae125547fd957a505c67e1c72bd"),
@@ -341,19 +342,20 @@ impl UserKeys {
 
     pub(crate) fn as_tuples(&self) -> Vec<(String, String, Region)> {
         let mut key_tuples = Vec::new();
-        if self.has_key_for(Region::Ja) { key_tuples.push((self.ja.key.clone(), self.ja.iv.clone(), Region::Ja)); }
-        if self.has_key_for(Region::En) { key_tuples.push((self.en.key.clone(), self.en.iv.clone(), Region::En)); }
-        if self.has_key_for(Region::Tw) { key_tuples.push((self.tw.key.clone(), self.tw.iv.clone(), Region::Tw)); }
-        if self.has_key_for(Region::Ko) { key_tuples.push((self.ko.key.clone(), self.ko.iv.clone(), Region::Ko)); }
+        if self.has_key_for(Region::Ja) { key_tuples.push((sanitize(&self.ja.key), sanitize(&self.ja.iv), Region::Ja)); }
+        if self.has_key_for(Region::En) { key_tuples.push((sanitize(&self.en.key), sanitize(&self.en.iv), Region::En)); }
+        if self.has_key_for(Region::Tw) { key_tuples.push((sanitize(&self.tw.key), sanitize(&self.tw.iv), Region::Tw)); }
+        if self.has_key_for(Region::Ko) { key_tuples.push((sanitize(&self.ko.key), sanitize(&self.ko.iv), Region::Ko)); }
         key_tuples
     }
 
     pub fn validate(&self) -> [(bool, bool); 4] {
         let check_hash = |input_value: &str, expected_hash: &str| -> bool {
             if expected_hash.is_empty() { return true; }
-            if input_value.is_empty() { return false; }
+            let clean_value = sanitize(input_value);
+            if clean_value.is_empty() { return false; }
 
-            let hash_result = format!("{:x}", md5::compute(input_value.as_bytes()));
+            let hash_result = format!("{:x}", md5::compute(clean_value.as_bytes()));
             hash_result == expected_hash
         };
 

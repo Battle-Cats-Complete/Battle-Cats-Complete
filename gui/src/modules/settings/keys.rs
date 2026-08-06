@@ -4,6 +4,7 @@ use std::path::Path;
 use iced::widget::{column, container, row, scrollable, text_input};
 use iced::{Alignment, Element, Length, Size, Task, Theme};
 
+use core::common::keys::sanitize;
 use core::modules::settings::UserKeys;
 
 use crate::app::theme;
@@ -19,10 +20,6 @@ pub enum RegionSlot {
     En,
     Tw,
     Ko,
-}
-
-fn sanitize_key_input(value: &str) -> String {
-    value.chars().filter(char::is_ascii_alphanumeric).collect()
 }
 
 impl RegionSlot {
@@ -112,13 +109,13 @@ impl State {
                 Task::none()
             }
             Message::KeyChanged(slot, value) => {
-                self.region_mut(slot).key = sanitize_key_input(&value);
+                self.region_mut(slot).key = sanitize(&value);
                 self.validation_status = None;
                 self.keys.save();
                 Task::none()
             }
             Message::IvChanged(slot, value) => {
-                self.region_mut(slot).iv = sanitize_key_input(&value);
+                self.region_mut(slot).iv = sanitize(&value);
                 self.validation_status = None;
                 self.keys.save();
                 Task::none()
@@ -127,7 +124,11 @@ impl State {
                 if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
                     let success = fs::read_to_string(&path).ok()
                         .and_then(|data| serde_json::from_str::<UserKeys>(&data).ok())
-                        .map(|parsed| {
+                        .map(|mut parsed| {
+                            for region in [&mut parsed.ja, &mut parsed.en, &mut parsed.tw, &mut parsed.ko] {
+                                region.key = sanitize(&region.key);
+                                region.iv = sanitize(&region.iv);
+                            }
                             self.keys = parsed;
                             self.validation_status = None;
                             self.keys.save();

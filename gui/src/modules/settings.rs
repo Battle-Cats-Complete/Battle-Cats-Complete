@@ -554,10 +554,9 @@ impl State {
         ).width(Length::Fill).height(Length::Fill);
 
         column![
-            header,
-            rule::horizontal(1),
+            column![header, rule::horizontal(1)].spacing(15),
             legal_area,
-        ].spacing(15).height(Length::Fill).into()
+        ].spacing(0).height(Length::Fill).into()
     }
 }
 

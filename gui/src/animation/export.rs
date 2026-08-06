@@ -25,12 +25,12 @@ use super::data;
 use super::offscreen::{self, Camera};
 use super::overlay::Region;
 
-const POPUP_SIZE: Size = Size::new(320.0, 500.0);
 const MODE_OPTIONS: [&str; 3] = ["Manual", "Loop", "Showcase"];
 const FORMAT_OPTIONS: [&str; 8] = ["GIF", "WebP", "AVIF", "PNG", "MP4", "MKV", "WebM", "ZIP"];
 
 const CONTENT_PADDING: f32 = 20.0;
 const SECTION_SPACING: f32 = 14.0;
+const POPUP_SIZE: Size = Size::new(320.0, 500.0 - SECTION_SPACING);
 const ROW_SPACING: f32 = 6.0;
 const FIELD_SPACING: f32 = 8.0;
 const FIELD_LABEL_WIDTH: f32 = 82.0;
@@ -1161,8 +1161,10 @@ impl State {
 
         container(
             column![
-                smooth_scroll(scrollable(scroll_content).height(Length::Fill).spacing(SCROLLBAR_GAP)),
-                container(rule::horizontal(RULE_HEIGHT)).width(Length::Fill),
+                column![
+                    smooth_scroll(scrollable(scroll_content).height(Length::Fill).spacing(SCROLLBAR_GAP)),
+                    container(rule::horizontal(RULE_HEIGHT)).width(Length::Fill),
+                ].spacing(0).height(Length::Fill),
                 bottom_bar,
             ].spacing(SECTION_SPACING)
         )
