@@ -8,6 +8,7 @@ mod list;
 mod materials;
 mod treasure;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
 
@@ -99,6 +100,22 @@ impl Default for State {
 }
 
 impl State {
+    pub(crate) fn invalidate_assets(&self, items: &HashSet<u32>, enemies: &HashSet<u32>, coarse: bool) {
+        for id in items {
+            self.treasure.forget(*id);
+            self.materials.forget(*id);
+        }
+
+        for id in enemies {
+            self.battleground.forget(*id);
+        }
+
+        if coarse {
+            self.info.clear_icons();
+            self.fixedlineup.clear_icons();
+        }
+    }
+
     pub fn set_indexing(&mut self) {
         self.scan_progress = Some((0, 0));
     }

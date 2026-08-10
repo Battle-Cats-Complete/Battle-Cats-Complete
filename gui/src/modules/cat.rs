@@ -9,7 +9,7 @@ mod talents;
 mod ultra;
 
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
@@ -41,6 +41,7 @@ use core::{Vfs, Vault};
 use crate::animation;
 use crate::app::state::{AppState, CatListState};
 use crate::app::theme;
+use crate::common::watcher::forget_by_name;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
@@ -232,6 +233,18 @@ impl State {
         let stats = unitid(vfs, id as i32).map(Arc::new);
         *self.dynamic_stats.borrow_mut() = Some((id, stats.clone()));
         stats
+    }
+
+    pub(crate) fn invalidate_assets(&mut self, units: &HashSet<u32>, items: &HashSet<u32>, names: &HashSet<String>) {
+        for id in units {
+            self.list.forget(*id);
+        }
+
+        for id in items {
+            self.details.forget(*id as i32);
+        }
+
+        forget_by_name(&self.header_icon_cache, names);
     }
 
     pub fn set_indexing(&mut self) {

@@ -90,7 +90,7 @@ impl BattleCatsApp {
         (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams, store_task, reveal_fallback]))
     }
 
-    fn spawn_vault_build(&mut self) -> Task<Message> {
+    pub(super) fn spawn_vault_build(&mut self) -> Task<Message> {
         info!("Building the file index in the background");
 
         let mut vault = Vault::new(&self.settings);

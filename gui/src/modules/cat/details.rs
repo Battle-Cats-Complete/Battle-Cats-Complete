@@ -44,6 +44,11 @@ pub(super) struct State {
 }
 
 impl State {
+    pub(super) fn forget(&self, id: i32) {
+        self.boxed_icons.borrow_mut().remove(&id);
+        self.trimmed_icons.borrow_mut().remove(&id);
+    }
+
     pub(super) fn clear_icons(&self) {
         self.boxed_icons.borrow_mut().clear();
         self.trimmed_icons.borrow_mut().clear();

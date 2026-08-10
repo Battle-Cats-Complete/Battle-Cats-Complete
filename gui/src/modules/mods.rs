@@ -107,6 +107,10 @@ impl State {
         self.list.result_stream().map(Message::List)
     }
 
+    pub(crate) fn invalidate_assets(&mut self) {
+        self.list.clear_icons();
+    }
+
     pub fn active_mod(&self) -> Option<String> {
         self.data.loaded_mods.iter().find(|m| m.enabled).map(|m| m.folder_name.clone())
     }

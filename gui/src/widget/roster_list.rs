@@ -156,6 +156,12 @@ impl<R: Roster> State<R> {
         }
     }
 
+    pub(crate) fn forget(&mut self, id: u32) {
+        self.texture_cache.remove(&id);
+        self.missing_ids.remove(&id);
+        self.pending_requests.remove(&id);
+    }
+
     pub(crate) fn invalidate(&mut self) {
         self.generation += 1;
         self.texture_cache.clear();

@@ -6,7 +6,7 @@ mod list;
 mod statblock;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
@@ -36,6 +36,7 @@ use core::{Vfs, Vault};
 use crate::animation;
 use crate::app::state::{AppState, EnemyListState};
 use crate::app::theme;
+use crate::common::watcher::forget_by_name;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
@@ -197,6 +198,14 @@ impl EnemyState {
         let stats = scanner::scan_single(id, vault, show_invalid).map(|entry| entry.stats);
         *self.dynamic_stats.borrow_mut() = Some((id, stats.clone()));
         stats
+    }
+
+    pub(crate) fn invalidate_assets(&mut self, enemies: &HashSet<u32>, names: &HashSet<String>) {
+        for id in enemies {
+            self.list.forget(*id);
+        }
+
+        forget_by_name(&self.header_icon_cache, names);
     }
 
     pub fn set_indexing(&mut self) {

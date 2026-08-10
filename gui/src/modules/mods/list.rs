@@ -113,6 +113,12 @@ impl State {
         }
     }
 
+    pub fn clear_icons(&mut self) {
+        self.texture_cache.clear();
+        self.missing_ids.clear();
+        self.pending_requests.clear();
+    }
+
     pub fn refresh(&mut self, mods: &[ModData], query: &str) {
         let query_lower = query.to_lowercase();
         if query_lower == self.last_search_query && mods.len() == self.last_mod_count {

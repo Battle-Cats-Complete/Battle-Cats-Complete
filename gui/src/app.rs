@@ -1,4 +1,6 @@
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,7 +17,7 @@ use core::modules::data::architecture;
 use core::modules::settings::{Settings, UpdateMode};
 use core::{ContentStore, Vault};
 
-use crate::common::watcher::GuiWatcher;
+use crate::common::watcher::{self, Asset};
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
 use crate::widget::{popup, slide, Slide};
 
@@ -59,6 +61,8 @@ impl Page {
 pub(crate) const WINDOW_SHOW_FALLBACK: Duration = Duration::from_millis(400);
 
 const FRAMES_BEFORE_SHOW: u8 = 2;
+
+const COALESCE_THRESHOLD: usize = 256;
 
 const ALL_PAGES: &[Page] = &[
     Page::Home,
@@ -133,6 +137,7 @@ pub enum Message {
     AcknowledgeNotice,
     OpenUrl(String),
     VaultReady(Arc<Vault>),
+    FilesChanged(Vec<PathBuf>),
     Home(home::Message),
     Cat(cat::Message),
     Enemy(enemy::Message),
@@ -194,8 +199,6 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     pub localizable: Localizable,
     #[serde(skip)]
-    pub global_watcher: Option<GuiWatcher>,
-    #[serde(skip)]
     pub last_saved_hash: u64,
     #[serde(skip)]
     pub last_saved_state_hash: u64,
@@ -241,7 +244,6 @@ impl Default for BattleCatsApp {
             app_state: AppState::default(),
             param: Param::default(),
             localizable: Localizable::default(),
-            global_watcher: None,
             last_saved_hash: 0,
             last_saved_state_hash: 0,
             updater_handle: None,
@@ -267,6 +269,7 @@ impl BattleCatsApp {
             self.cat_state.subscription().map(Message::Cat),
             self.enemy_state.subscription().map(Message::Enemy),
             self.data_state.subscription().map(Message::Data),
+            Subscription::run(watcher::changes).map(Message::FilesChanged),
         ];
 
         if self.updater_popup_open && matches!(self.updater_status, UpdateStatus::Downloading(_)) {
@@ -319,6 +322,62 @@ impl BattleCatsApp {
         if self.vault_ready {
             self.home_state.set_game_empty(self.vault.vfs.count(architecture::GAME) == 0);
         }
+    }
+
+    fn apply_changes(&mut self, paths: Vec<PathBuf>) -> Task<Message> {
+        if !self.vault_ready {
+            return Task::none();
+        }
+
+        if paths.len() >= COALESCE_THRESHOLD {
+            info!(changed = paths.len(), "Bulk filesystem change, rebuilding the index");
+            return self.spawn_vault_build();
+        }
+
+        let mut units = HashSet::new();
+        let mut enemies = HashSet::new();
+        let mut items = HashSet::new();
+        let mut names = HashSet::new();
+        let mut stage_coarse = false;
+        let mut mods_coarse = false;
+
+        for path in &paths {
+            let Some(mount) = watcher::mount_of(path) else { continue; };
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue; };
+
+            if path.is_file() {
+                let _ = self.vault.vfs.create((mount.as_str(), path.as_path()));
+                self.vault.evict(name);
+            } else {
+                self.vault.vfs.destroy((mount.as_str(), path.as_path()));
+                self.vault.vds.evict(name);
+            }
+
+            names.insert(name.to_string());
+
+            let is_image = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
+            let in_mod = mount != architecture::GAME;
+
+            match watcher::asset(name) {
+                Some(Asset::Unit(id)) => { units.insert(id); }
+                Some(Asset::Enemy(id)) => { enemies.insert(id); }
+                Some(Asset::Item(id)) => { items.insert(id); }
+                None if is_image => stage_coarse = true,
+                None => {}
+            }
+
+            mods_coarse |= in_mod && is_image;
+        }
+
+        self.cat_state.invalidate_assets(&units, &items, &names);
+        self.enemy_state.invalidate_assets(&enemies, &names);
+        self.stage_state.invalidate_assets(&items, &enemies, stage_coarse);
+
+        if mods_coarse {
+            self.mods_state.invalidate_assets();
+        }
+
+        Task::none()
     }
 
     fn persist_content(&self) {
@@ -467,6 +526,7 @@ impl BattleCatsApp {
                 Task::none()
             }
             Message::VaultReady(vault) => self.adopt_vault(vault),
+            Message::FilesChanged(paths) => self.apply_changes(paths),
             Message::Home(msg) => {
                 let task = match msg {
                     home::Message::Navigate(page) => self.navigate(page),

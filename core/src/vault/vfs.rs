@@ -320,47 +320,6 @@ impl Vfs {
         true
     }
 
-    pub fn reconcile(&self) -> Vec<Box<str>> {
-        let cached: Vec<Box<str>> = {
-            let Ok(cache) = self.cache.read() else {
-                return Vec::new();
-            };
-
-            cache.keys().cloned().collect()
-        };
-
-        let mut stale = Vec::new();
-        for filename in cached {
-            if self.current(&filename) {
-                continue;
-            }
-
-            self.evict(&filename);
-            stale.push(filename);
-        }
-
-        stale
-    }
-
-    fn current(&self, filename: &str) -> bool {
-        let Some(path) = self.find(filename) else {
-            return false;
-        };
-
-        let Some(name) = path.file_name().and_then(OsStr::to_str) else {
-            return false;
-        };
-
-        let Ok(mounts) = self.mounts.read() else {
-            return false;
-        };
-
-        mounts
-            .values()
-            .filter(|mount| path.starts_with(&mount.root))
-            .find_map(|mount| mount.files.get(name))
-            .is_some_and(|entry| walk::stat(&path) == (entry.mtime, entry.len))
-    }
 }
 
 impl Mount for &Path {

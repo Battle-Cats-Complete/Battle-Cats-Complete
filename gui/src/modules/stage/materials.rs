@@ -37,6 +37,10 @@ pub struct State {
 }
 
 impl State {
+    pub fn forget(&self, id: u32) {
+        self.icon_cache.borrow_mut().remove(&id);
+    }
+
     pub fn clear_icons(&self) {
         self.icon_cache.borrow_mut().clear();
     }
