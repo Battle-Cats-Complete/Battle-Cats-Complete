@@ -21,6 +21,7 @@ use rayon::prelude::*;
 use super::architecture;
 use crate::common::io;
 use crate::common::job::{JobEvent, ProgressCounter};
+use crate::modules::settings::ImportStructure;
 use crate::modules::settings::RuleHandling;
 use crate::modules::settings::UserKeys;
 
@@ -77,6 +78,7 @@ fn cleanup_temporary_directories(directories: &[PathBuf]) {
 
 pub(crate) fn run_universal_import(
     source_directories: &[PathBuf],
+    structure: ImportStructure,
     emit: &(dyn Fn(JobEvent) + Sync),
     abort_flag: &AtomicBool,
     progress: &ProgressCounter,
@@ -102,7 +104,7 @@ pub(crate) fn run_universal_import(
     let mut global_pack_registry: HashMap<String, HashMap<String, manifest::PackRecord>> = manifest::load(&pack_manifest_path);
     let mut global_file_ledger: HashMap<String, manifest::ManifestEntry> = manifest::load(&file_manifest_path);
 
-    let asset_router_utility = router::AssetRouter::new(game_root_path).map_err(|error| error.to_string())?;
+    let asset_router_utility = router::AssetRouter::new(game_root_path, structure).map_err(|error| error.to_string())?;
     let (compiled_regex_set, compiled_exception_rules) = rules::compile();
 
     emit(JobEvent::Log("Collecting game data...".to_string()));

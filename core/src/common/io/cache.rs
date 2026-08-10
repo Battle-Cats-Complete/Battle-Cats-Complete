@@ -3,7 +3,6 @@ use std::fs::File;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::io::BufReader;
-use std::io::BufWriter;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -132,6 +131,8 @@ pub(crate) fn content_hash(config: &ScannerConfig) -> u64 {
     hasher.finish()
 }
 
+const SIZE_LIMIT: u64 = 1024 * 1024 * 100;
+
 #[derive(Serialize, Deserialize)]
 struct CachePayload<T> {
     schema_version: u32,
@@ -150,7 +151,41 @@ pub(crate) fn read<C: CacheSpec>() -> Option<(u64, C::Data)> {
 }
 
 pub(crate) fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
-    save_payload(C::FILE, C::VERSION, hash, data);
+    let Some(bytes) = encode::<C>(hash, data) else {
+        return;
+    };
+
+    store::<C>(&bytes);
+}
+
+pub(crate) fn encode<C: CacheSpec>(hash: u64, data: &C::Data) -> Option<Vec<u8>> {
+    let payload = CachePayload { schema_version: C::VERSION, hash, data };
+
+    bincode::DefaultOptions::new()
+        .with_limit(SIZE_LIMIT)
+        .serialize(&payload)
+        .inspect_err(|err| tracing::error!("Failed to serialize cache payload for {}: {}", C::FILE, err))
+        .ok()
+}
+
+pub(crate) fn store<C: CacheSpec>(bytes: &[u8]) {
+    let Some(cache_directory) = dirs::cache() else {
+        tracing::warn!("Cache directory unavailable; skipping save for {}", C::FILE);
+        return;
+    };
+
+    let target_path = cache_directory.join(C::FILE);
+    let tmp_path = target_path.with_extension("tmp");
+
+    if let Err(err) = fs::write(&tmp_path, bytes) {
+        tracing::error!("Failed to write temporary cache file at {:?}: {}", tmp_path, err);
+        return;
+    }
+
+    if let Err(err) = fs::rename(&tmp_path, &target_path) {
+        tracing::error!("Failed to promote cache file {:?}: {}", target_path, err);
+        let _ = fs::remove_file(&tmp_path);
+    }
 }
 
 #[tracing::instrument(level = "debug", skip_all, fields(file = %filename))]
@@ -167,7 +202,7 @@ fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> O
     let reader = BufReader::new(cache_file);
 
     let options = bincode::DefaultOptions::new()
-        .with_limit(1024 * 1024 * 100);
+        .with_limit(SIZE_LIMIT);
 
     match options.deserialize_from::<_, CachePayload<T>>(reader) {
         Ok(payload) => {
@@ -188,43 +223,5 @@ fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> O
             let _ = fs::remove_file(&cache_path);
             None
         }
-    }
-}
-
-#[tracing::instrument(level = "debug", skip(data))]
-fn save_payload<T: Serialize>(filename: &str, version: u32, hash: u64, data: &T) {
-    let Some(cache_directory) = dirs::cache() else {
-        tracing::warn!("Cache directory unavailable; skipping save for {}", filename);
-        return;
-    };
-
-    let target_path = cache_directory.join(filename);
-    let tmp_path = target_path.with_extension("tmp");
-
-    let Ok(cache_file) = File::create(&tmp_path) else {
-        tracing::error!("Failed to create temporary cache file at {:?}", tmp_path);
-        return;
-    };
-
-    let mut writer = BufWriter::new(cache_file);
-    let payload = CachePayload { schema_version: version, hash, data };
-    let options = bincode::DefaultOptions::new()
-        .with_limit(1024 * 1024 * 100);
-
-    if let Err(err) = options.serialize_into(&mut writer, &payload) {
-        tracing::error!("Failed to serialize cache payload: {}", err);
-        let _ = fs::remove_file(&tmp_path);
-        return;
-    }
-
-    if writer.into_inner().is_err() {
-        tracing::error!("Failed to flush cache file writer for {:?}", tmp_path);
-        return;
-    }
-
-    if let Err(err) = fs::rename(&tmp_path, &target_path) {
-        tracing::error!("Failed to commit cache file rename: {}", err);
-    } else {
-        tracing::debug!("Successfully committed cache file {} to disk", filename);
     }
 }

@@ -1,5 +1,7 @@
 use std::collections::HashSet;
+use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -15,6 +17,19 @@ use core::modules::data::architecture;
 const BATCH_BUFFER: usize = 8;
 const QUIET_WINDOW: Duration = Duration::from_millis(500);
 const MAX_WINDOW: Duration = Duration::from_secs(2);
+const BULK_THRESHOLD: usize = 512;
+
+static SUSPENDED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn suspend() {
+    debug!("File watcher suspended for a bulk job");
+    SUSPENDED.store(true, Ordering::Relaxed);
+}
+
+pub(crate) fn resume() {
+    debug!("File watcher resumed");
+    SUSPENDED.store(false, Ordering::Relaxed);
+}
 
 const SCRATCH_SUFFIXES: [&str; 6] = [".kate-swp", ".swp", ".swo", ".tmp", ".bak", "~"];
 
@@ -28,6 +43,7 @@ pub(crate) enum Asset {
 #[derive(Debug, Clone)]
 pub enum Change {
     Batch(Vec<PathBuf>),
+    Bulk,
     Unavailable,
 }
 
@@ -44,8 +60,8 @@ pub(crate) fn changes() -> impl Stream<Item = Change> {
         let (batch_tx, mut batch_rx) = async_mpsc::unbounded();
         thread::spawn(move || debounce(&raw_rx, &batch_tx));
 
-        while let Some(batch) = batch_rx.next().await {
-            if output.send(Change::Batch(batch)).await.is_err() {
+        while let Some(change) = batch_rx.next().await {
+            if output.send(change).await.is_err() {
                 break;
             }
         }
@@ -63,7 +79,12 @@ fn spawn_watcher(sender: Sender<PathBuf>) -> Option<RecommendedWatcher> {
     for root in [architecture::MODS, architecture::GAME] {
         let path = Path::new(root);
 
-        if path.exists() && !watch(&mut watcher, path, RecursiveMode::Recursive) {
+        if !path.exists() && let Err(err) = fs::create_dir_all(path) {
+            warn!(path = %path.display(), "Could not create a watch root, live reload will miss it: {}", err);
+            continue;
+        }
+
+        if !watch(&mut watcher, path, RecursiveMode::Recursive) {
             return None;
         }
     }
@@ -89,7 +110,7 @@ fn watch(watcher: &mut RecommendedWatcher, path: &Path, mode: RecursiveMode) -> 
 }
 
 fn forward(event: Event, sender: &Sender<PathBuf>) {
-    if matches!(event.kind, EventKind::Access(_)) {
+    if SUSPENDED.load(Ordering::Relaxed) || matches!(event.kind, EventKind::Access(_)) {
         return;
     }
 
@@ -143,8 +164,9 @@ fn is_relevant(path: &Path) -> bool {
         .is_none_or(|nested| !architecture::MOD_TRANSIENT.contains(&nested.as_str()))
 }
 
-fn debounce(events: &Receiver<PathBuf>, batches: &async_mpsc::UnboundedSender<Vec<PathBuf>>) {
+fn debounce(events: &Receiver<PathBuf>, batches: &async_mpsc::UnboundedSender<Change>) {
     let mut pending: HashSet<PathBuf> = HashSet::new();
+    let mut bulk = false;
     let mut quiet: Option<Instant> = None;
     let mut ceiling: Option<Instant> = None;
 
@@ -152,20 +174,27 @@ fn debounce(events: &Receiver<PathBuf>, batches: &async_mpsc::UnboundedSender<Ve
         let mut timeout = MAX_WINDOW;
 
         if let (Some(quiet_at), Some(ceiling_at)) = (quiet, ceiling) {
-            let deadline = quiet_at.min(ceiling_at);
+            let deadline = if bulk { quiet_at } else { quiet_at.min(ceiling_at) };
             let now = Instant::now();
 
             if now < deadline {
                 timeout = deadline.saturating_duration_since(now);
             } else {
-                if !pending.is_empty() {
+                if bulk {
+                    debug!("File watcher escalating a bulk change to a full re-index");
+
+                    if batches.unbounded_send(Change::Bulk).is_err() {
+                        return;
+                    }
+                } else if !pending.is_empty() {
                     debug!("File watcher flushing {} changed paths", pending.len());
 
-                    if batches.unbounded_send(pending.drain().collect()).is_err() {
+                    if batches.unbounded_send(Change::Batch(pending.drain().collect())).is_err() {
                         return;
                     }
                 }
 
+                bulk = false;
                 quiet = None;
                 ceiling = None;
             }
@@ -173,7 +202,12 @@ fn debounce(events: &Receiver<PathBuf>, batches: &async_mpsc::UnboundedSender<Ve
 
         match events.recv_timeout(timeout) {
             Ok(path) => {
-                pending.insert(path);
+                if bulk || pending.len() >= BULK_THRESHOLD {
+                    bulk = true;
+                    pending.clear();
+                } else {
+                    pending.insert(path);
+                }
 
                 let now = Instant::now();
                 quiet = Some(now + QUIET_WINDOW);

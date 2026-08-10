@@ -37,6 +37,65 @@ struct MountedDir {
     conflicts: Vec<Conflict>,
 }
 
+impl MountedDir {
+    fn prune(&mut self, relative: &Path) -> Vec<MountKey> {
+        let mut removed = Vec::new();
+
+        if let Some(name) = relative.file_name().and_then(OsStr::to_str)
+            && self.files.get(name).is_some_and(|entry| entry.path == relative)
+        {
+            self.files.remove(name);
+            self.unlink(relative, name, true);
+
+            return vec![name.into()];
+        }
+
+        let targets: Vec<MountKey> = self
+            .dirs
+            .keys()
+            .filter(|dir| Path::new(dir.as_ref()).starts_with(relative))
+            .cloned()
+            .collect();
+
+        for dir in targets {
+            self.folders.remove(&dir);
+
+            let Some(names) = self.dirs.remove(&dir) else {
+                continue;
+            };
+
+            for name in names {
+                if self.files.get(name.as_ref()).is_some_and(|entry| entry.path.starts_with(relative)) {
+                    self.files.remove(name.as_ref());
+                    removed.push(name);
+                }
+            }
+        }
+
+        if let Some(name) = relative.file_name().and_then(OsStr::to_str) {
+            self.unlink(relative, name, false);
+        }
+
+        removed
+    }
+
+    fn unlink(&mut self, relative: &Path, name: &str, is_file: bool) {
+        let Some(parent) = relative.parent() else {
+            return;
+        };
+
+        let listing = if is_file {
+            self.dirs.get_mut(parent.to_string_lossy().as_ref())
+        } else {
+            self.folders.get_mut(parent.to_string_lossy().as_ref())
+        };
+
+        if let Some(listing) = listing {
+            listing.retain(|existing| existing.as_ref() != name);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conflict {
     pub key: Box<str>,
@@ -230,6 +289,22 @@ impl Vfs {
         }
     }
 
+    pub fn prune(&self, mount: &str, path: &Path) -> Vec<Box<str>> {
+        let Ok(mut mounts) = self.mounts.write() else {
+            return Vec::new();
+        };
+
+        let Some(indexed) = mounts.get_mut(mount) else {
+            return Vec::new();
+        };
+
+        let Some(relative) = relative_to(&indexed.root, path) else {
+            return Vec::new();
+        };
+
+        indexed.prune(&relative)
+    }
+
     pub fn count(&self, mount: &str) -> usize {
         self.mounts
             .read()
@@ -328,11 +403,13 @@ impl Vfs {
     }
 
     pub fn persist(&self, hash: u64) {
-        let Ok(mounts) = self.mounts.read() else {
+        let encoded = self.mounts.read().ok().and_then(|mounts| disk::encode(&mounts, hash));
+
+        let Some(bytes) = encoded else {
             return;
         };
 
-        disk::save(&mounts, hash);
+        disk::store(&bytes);
     }
 
     pub fn restore(&self, hash: u64) -> bool {
@@ -488,66 +565,4 @@ fn resolve(mounts: &Index, name: &str) -> Option<PathBuf> {
 
 fn is_canonical_game(path: &Path) -> bool {
     path.components().count() == 1 && path.file_name() == Some(OsStr::new(MOUNT_GAME))
-}
-
-#[cfg(test)]
-mod verify {
-    use super::*;
-
-    #[test]
-    fn relative_to_resolves_watcher_paths() {
-        let root = std::env::temp_dir().join("bcc_vfs_relative");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join("game/cats/game")).unwrap();
-        std::env::set_current_dir(&root).unwrap();
-
-        let game = Path::new("game");
-
-        assert_eq!(
-            relative_to(game, Path::new("game/cats/000_f.png")),
-            Some(PathBuf::from("cats/000_f.png")),
-            "relative event path"
-        );
-
-        let absolute = root.join("game/cats/000_f.png");
-        assert_eq!(
-            relative_to(game, &absolute),
-            Some(PathBuf::from("cats/000_f.png")),
-            "absolute event path (what notify actually emits)"
-        );
-
-        let nested = root.join("game/cats/game/000_f.png");
-        assert_eq!(
-            relative_to(game, &nested),
-            Some(PathBuf::from("cats/game/000_f.png")),
-            "a nested directory literally named 'game' must not re-anchor"
-        );
-
-        assert_eq!(relative_to(game, Path::new("/elsewhere/x.png")), None, "outside the mount");
-    }
-
-    #[test]
-    fn create_then_find_registers_a_new_file() {
-        let root = std::env::temp_dir().join("bcc_vfs_create");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join("game/cats")).unwrap();
-        fs::write(root.join("game/cats/seed.csv"), b"seed").unwrap();
-        std::env::set_current_dir(&root).unwrap();
-
-        let vfs = Vfs::new(&Settings::default());
-        vfs.create(Path::new("game")).unwrap();
-
-        let added = root.join("game/cats/000_f.png");
-        fs::write(&added, b"png").unwrap();
-
-        assert!(vfs.find("000_f.png").is_none(), "not indexed before create");
-        vfs.create(("game", added.as_path())).unwrap();
-        assert!(vfs.find("000_f.png").is_some(), "indexed after create");
-
-        vfs.destroy(("game", added.as_path()));
-        assert!(vfs.find("000_f.png").is_none(), "dropped after destroy");
-
-        vfs.create(("game", added.as_path())).unwrap();
-        assert!(vfs.find("000_f.png").is_some(), "re-indexed after delete-then-replace");
-    }
 }

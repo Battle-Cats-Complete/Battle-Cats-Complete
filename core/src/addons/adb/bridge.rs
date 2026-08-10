@@ -8,9 +8,18 @@ use crate::modules::data::{AdbImportType, AdbTarget};
 
 use super::driver;
 
+const BASE_APK: &str = "base.apk";
+const MODIFIED_APP: &str = "File modification suspected, do a clean install on device.";
+
+#[derive(Clone, Copy)]
+pub(crate) struct PullOptions {
+    pub(crate) import_mode: AdbImportType,
+    pub(crate) ignore_modified_app: bool,
+}
+
 pub(crate) fn execute_pull(
     base_output_directory: &Path,
-    import_mode: AdbImportType,
+    options: PullOptions,
     target_region: AdbTarget,
     emit_log: &(dyn Fn(String) + Sync),
     abort_flag: &AtomicBool
@@ -28,7 +37,7 @@ pub(crate) fn execute_pull(
     emit_log("Device Verified.".to_string());
     if abort_flag.load(Ordering::Relaxed) { return Err("Aborted".into()); }
 
-    if import_mode == AdbImportType::All {
+    if options.import_mode == AdbImportType::All {
         ensure_root_access(&mut current_serial, emit_log, abort_flag)?;
     }
 
@@ -48,7 +57,7 @@ pub(crate) fn execute_pull(
         if abort_flag.load(Ordering::Relaxed) { return Err("Aborted".into()); }
         pull_region_data(
             current_region, &mut current_serial, &fallback_ip_address,
-            base_output_directory, &import_mode, emit_log, &mut successful_pulls
+            base_output_directory, options, emit_log, &mut successful_pulls
         );
     }
 
@@ -156,7 +165,7 @@ fn pull_region_data(
     current_serial: &mut String,
     fallback_ip_address: &Option<String>,
     base_output_directory: &Path,
-    import_mode: &AdbImportType,
+    options: PullOptions,
     emit_log: &(dyn Fn(String) + Sync),
     successful_pulls: &mut Vec<PathBuf>
 ) {
@@ -172,12 +181,12 @@ fn pull_region_data(
     emit_log(format!("Pulling {}...", package_name));
     let target_directory = base_output_directory.join(&package_name);
 
-    let Err(process_error) = process_single_region_adb(emit_log, current_serial, &package_name, &target_directory, *import_mode) else {
+    let Err(process_error) = process_single_region_adb(emit_log, current_serial, &package_name, &target_directory, options) else {
         successful_pulls.push(target_directory);
         return;
     };
 
-    let is_app_warning = process_error.contains("Root Copy Failed") || process_error.contains("APK Path not found") || process_error.contains("Warning:");
+    let is_app_warning = process_error.contains("Root Copy Failed") || process_error.contains("APK Path not found") || process_error == MODIFIED_APP;
 
     if is_app_warning {
         emit_log(format!("Skipping {}: {}", package_name, process_error));
@@ -195,28 +204,35 @@ fn pull_region_data(
     }
 
     *current_serial = rescue_ip_address.clone();
-    if process_single_region_adb(emit_log, current_serial, &package_name, &target_directory, *import_mode).is_ok() {
+    if process_single_region_adb(emit_log, current_serial, &package_name, &target_directory, options).is_ok() {
         emit_log("Rescue Successful!".to_string());
         successful_pulls.push(target_directory);
     }
 }
 
-fn process_single_region_adb(emit_log: &(dyn Fn(String) + Sync), serial_number: &str, package_name: &str, output_directory: &Path, import_mode: AdbImportType) -> Result<(), String> {
-    if import_mode == AdbImportType::All {
+fn process_single_region_adb(emit_log: &(dyn Fn(String) + Sync), serial_number: &str, package_name: &str, output_directory: &Path, options: PullOptions) -> Result<(), String> {
+    if options.import_mode == AdbImportType::All {
         pull_game_data_files(serial_number, package_name, output_directory)?;
     }
 
     let package_manager_output = driver::run_command(&["-s", serial_number, "shell", "pm", "path", package_name]).unwrap_or_default();
-    let has_base_apk = package_manager_output.contains("base.apk");
 
-    if pull_target_apk(serial_number, &package_manager_output, "split_InstallPack.apk", output_directory).is_err() {
-        if has_base_apk {
-            return Err("Warning: File modification suspected, do a clean install on device.".to_string());
-        }
-        emit_log("Warning: Update APK missing.".to_string());
+    if pull_target_apk(serial_number, &package_manager_output, "split_InstallPack.apk", output_directory).is_ok() {
+        return Ok(());
     }
 
-    Ok(())
+    if !package_manager_output.contains(BASE_APK) {
+        emit_log("Warning: Update APK missing.".to_string());
+        return Ok(());
+    }
+
+    if !options.ignore_modified_app {
+        return Err(MODIFIED_APP.to_string());
+    }
+
+    emit_log(MODIFIED_APP.to_string());
+    emit_log("Importing the base app instead.".to_string());
+    pull_target_apk(serial_number, &package_manager_output, BASE_APK, output_directory)
 }
 
 fn pull_game_data_files(serial_number: &str, package_name: &str, output_directory: &Path) -> Result<(), String> {

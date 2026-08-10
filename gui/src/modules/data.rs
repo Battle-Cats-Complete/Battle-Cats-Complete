@@ -24,6 +24,7 @@ use core::modules::settings::Settings;
 
 use crate::app::state::AppState;
 use crate::app::theme;
+use crate::common::watcher;
 use crate::widget::ConsoleState;
 
 const RULE_PADDING: f32 = 8.0;
@@ -169,9 +170,14 @@ pub struct State {
     pub import_censored: String,
     pub decrypt_censored: String,
     import: JobSlot,
+    import_succeeded: bool,
 }
 
 impl State {
+    pub(crate) fn take_import_success(&mut self) -> bool {
+        std::mem::take(&mut self.import_succeeded)
+    }
+
     pub fn subscription(&self) -> Subscription<Message> {
         if self.import.running {
             iced::time::every(PROGRESS_TICK).map(|_| Message::ImportProgressTick)
@@ -184,7 +190,7 @@ impl State {
         match message {
             Message::ImportJobSelected(job) => {
                 trace!("Selected import sub-job");
-                self.config.selected_job = Some(job);
+                app_state.data.selected_import = Some(job);
             }
             Message::AdbImportTypeChanged(idx) => {
                 app_state.data.adb_import_type_idx = idx;
@@ -228,6 +234,11 @@ impl State {
                 self.import.request_abort();
             }
             Message::ImportJob(event) => {
+                if let JobEvent::Finished(outcome) = &event {
+                    watcher::resume();
+                    self.import_succeeded |= matches!(outcome, JobOutcome::Completed);
+                }
+
                 return self.import.apply(event, "Import", Message::ImportBannerExpired);
             }
             Message::ImportBannerExpired => {
@@ -244,7 +255,7 @@ impl State {
         Task::none()
     }
 
-    pub fn view(&self, app_state: &AppState) -> Element<'_, Message> {
+    pub fn view<'a>(&'a self, app_state: &'a AppState) -> Element<'a, Message> {
         let content = self.view_import(app_state);
         let progress_section = self.view_progress_and_console();
 
@@ -260,7 +271,7 @@ impl State {
             .into()
     }
 
-    fn view_import(&self, app_state: &AppState) -> Element<'_, Message> {
+    fn view_import<'a>(&'a self, app_state: &'a AppState) -> Element<'a, Message> {
         let is_running = self.import.running;
         let adb_installed = paths::adb_status() == Presence::Installed;
 
@@ -270,7 +281,7 @@ impl State {
                 .width(Length::Fill)
                 .align_x(Alignment::Center),
         )
-            .style(move |t: &Theme, status| theme::toggle_button(t, status, self.config.selected_job == Some(ImportSubTab::Emulator)))
+            .style(move |t: &Theme, status| theme::toggle_button(t, status, app_state.data.selected_import == Some(ImportSubTab::Emulator)))
             .on_press_maybe(if !is_running && adb_installed {
                 Some(Message::ImportJobSelected(ImportSubTab::Emulator))
             } else {
@@ -327,7 +338,7 @@ impl State {
                 .width(Length::Fill)
                 .align_x(Alignment::Center),
         )
-            .style(move |t: &Theme, status| theme::toggle_button(t, status, self.config.selected_job == Some(ImportSubTab::Decrypt)))
+            .style(move |t: &Theme, status| theme::toggle_button(t, status, app_state.data.selected_import == Some(ImportSubTab::Decrypt)))
             .on_press_maybe(if !is_running {
                 Some(Message::ImportJobSelected(ImportSubTab::Decrypt))
             } else {
@@ -385,7 +396,7 @@ impl State {
                 .width(Length::Fill)
                 .align_x(Alignment::Center),
         )
-            .style(move |t: &Theme, status| theme::toggle_button(t, status, self.config.selected_job == Some(ImportSubTab::Sort)))
+            .style(move |t: &Theme, status| theme::toggle_button(t, status, app_state.data.selected_import == Some(ImportSubTab::Sort)))
             .on_press_maybe(if !is_running {
                 Some(Message::ImportJobSelected(ImportSubTab::Sort))
             } else {
@@ -437,7 +448,7 @@ impl State {
         let show_aborted = self.import.banner == Some(Banner::Aborted);
         let is_aborting = is_running && self.import.aborting;
 
-        let (button_text, can_run) = match self.config.selected_job {
+        let (button_text, can_run) = match app_state.data.selected_import {
             Some(ImportSubTab::Emulator) => {
                 let is_installed = paths::adb_status() == Presence::Installed;
                 (
@@ -521,16 +532,17 @@ impl State {
         if self.import.running {
             return Task::none();
         }
-        let Some(job) = self.config.selected_job else {
+        let Some(job) = app_state.data.selected_import else {
             return Task::none();
         };
 
+        watcher::suspend();
         self.import.begin();
 
         let (tx, rx) = mpsc::unbounded();
         let abort = self.import.abort.clone();
         let progress_counter = self.import.progress_counter.clone();
-        let enforce_val = settings.game_data.enforce_key_validation;
+        let import_config = settings.import_config();
 
         match job {
             ImportSubTab::Emulator => {
@@ -557,7 +569,7 @@ impl State {
                             let _ = thread_tx.unbounded_send(event);
                         };
                         let result =
-                            android::run(mode, region, emulator_config, enforce_val, emit, &abort, &progress_counter);
+                            android::run(mode, region, emulator_config, import_config, emit, &abort, &progress_counter);
                         emit(JobEvent::Finished(job_outcome(result, &abort)));
                     });
 
@@ -578,7 +590,7 @@ impl State {
                     let result = pack::run(
                         &folder_path,
                         ImportMode::Folder,
-                        enforce_val,
+                        import_config,
                         emit,
                         &abort,
                         &progress_counter,
@@ -594,7 +606,7 @@ impl State {
                     let emit = |event: JobEvent| {
                         let _ = tx.unbounded_send(event);
                     };
-                    let result = raw::run(&data_path, emit, &abort, &lang_priority, &progress_counter);
+                    let result = raw::run(&data_path, import_config, emit, &abort, &lang_priority, &progress_counter);
                     emit(JobEvent::Finished(job_outcome(result, &abort)));
                 });
             }

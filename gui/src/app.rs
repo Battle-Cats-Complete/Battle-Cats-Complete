@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::iter;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -141,6 +141,7 @@ pub enum Message {
     AcknowledgeInitError,
     OpenUrl(String),
     VaultReady(Arc<Vault>),
+    IndexPersisted,
     FilesChanged(Change),
     Home(home::Message),
     Cat(cat::Message),
@@ -170,6 +171,12 @@ pub struct BattleCatsApp {
     notice_items: Vec<markdown::Item>,
     #[serde(skip)]
     init_errors: errors::State,
+    #[serde(skip)]
+    rebuild_running: bool,
+    #[serde(skip)]
+    rebuild_queued: bool,
+    #[serde(skip)]
+    index_persisting: bool,
     #[serde(skip)]
     frames_painted: u8,
     #[serde(skip)]
@@ -236,6 +243,9 @@ impl Default for BattleCatsApp {
             notice_open: false,
             notice_items: notice::parse_content(),
             init_errors: errors::State::default(),
+            rebuild_running: false,
+            rebuild_queued: false,
+            index_persisting: false,
             frames_painted: 0,
             window_shown: false,
             home_state: home::State::default(),
@@ -341,6 +351,7 @@ impl BattleCatsApp {
         let mut items = HashSet::new();
         let mut stage_coarse = false;
         let mut touched_mods = HashSet::new();
+        let mut pruned = false;
 
         for path in &paths {
             let Some(mount) = watcher::mount_of(path) else { continue; };
@@ -355,9 +366,14 @@ impl BattleCatsApp {
                 }
 
                 self.vault.evict(name);
-            } else {
-                self.vault.vfs.destroy((mount.as_str(), path.as_path()));
+            } else if !path.exists() {
+                let dropped = self.vault.vfs.prune(mount.as_str(), path.as_path());
+
+                trace!(path = %path.display(), files = dropped.len(), "Dropped deleted paths from the index");
+                self.vault.purge(&dropped);
                 self.vault.vds.evict(name);
+
+                pruned |= !dropped.is_empty();
             }
 
             let is_image = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
@@ -372,9 +388,28 @@ impl BattleCatsApp {
 
         }
 
+        let game = Path::new(architecture::GAME);
+
+        let wiped = !game.exists() && self.vault.vfs.count(architecture::GAME) > 0;
+
+        if wiped {
+            let dropped = self.vault.vfs.prune(architecture::GAME, game);
+            warn!(files = dropped.len(), "The game folder is gone; dropped every indexed file");
+            self.vault.purge(&dropped);
+            pruned = true;
+        }
+
+        if pruned {
+            self.sync_home_status();
+        }
+
         if !touched_mods.is_empty() {
             self.mods_state.resync(&self.vault, &touched_mods);
             self.mods_state.invalidate_assets(&touched_mods);
+        }
+
+        if wiped {
+            return self.rebuild_content();
         }
 
         self.cat_state.invalidate_assets(&units, &items);
@@ -385,7 +420,42 @@ impl BattleCatsApp {
         self.enemy_state.reload_selected(&self.vault, self.settings.show_invalid_enemies());
         self.stage_state.reload_selected(&self.vault);
 
-        Task::none()
+        self.persist_index()
+    }
+
+    pub(crate) fn rebuild_content(&mut self) -> Task<Message> {
+        if self.rebuild_running || !self.vault_ready {
+            self.rebuild_queued = true;
+            return Task::none();
+        }
+
+        info!("Rebuilding the file index and rescanning every module");
+        self.rebuild_running = true;
+
+        self.cat_state.clear_caches();
+        self.enemy_state.clear_caches();
+        self.stage_state.clear_caches();
+
+        self.spawn_vault_build()
+    }
+
+    fn persist_index(&mut self) -> Task<Message> {
+        if self.index_persisting || self.rebuild_running {
+            return Task::none();
+        }
+
+        self.index_persisting = true;
+        let vault = Arc::clone(&self.vault);
+        let active_mod = self.mods_state.active_mod();
+
+        Task::perform(
+            smol::unblock(move || {
+                let hash = Vault::hash(active_mod.as_deref());
+                vault.vfs.persist(hash);
+                trace!(hash, "Re-persisted the file index after a live change");
+            }),
+            |()| Message::IndexPersisted,
+        )
     }
 
     fn persist_content(&self) {
@@ -555,11 +625,19 @@ impl BattleCatsApp {
             Message::VaultReady(vault) => self.adopt_vault(vault),
             Message::FilesChanged(Change::Unavailable) => {
                 warn!("File watcher could not be initialized; reporting it as an initialization error");
-                self.init_errors.report_watcher_failure();
+                self.init_errors.report_watcher_failure(self.settings.general.ignore_watcher_failure);
                 self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
                 Task::none()
             }
+            Message::FilesChanged(Change::Bulk) => {
+                info!("File watcher reported a bulk change, re-indexing everything");
+                self.rebuild_content()
+            }
             Message::FilesChanged(Change::Batch(paths)) => self.apply_changes(paths),
+            Message::IndexPersisted => {
+                self.index_persisting = false;
+                Task::none()
+            }
             Message::Home(msg) => {
                 let task = match msg {
                     home::Message::Navigate(page) => self.navigate(page),
@@ -621,7 +699,15 @@ impl BattleCatsApp {
                 }
                 task
             }
-            Message::Data(msg) => self.data_state.update(msg, &mut self.settings, &mut self.app_state).map(Message::Data),
+            Message::Data(msg) => {
+                let task = self.data_state.update(msg, &mut self.settings, &mut self.app_state).map(Message::Data);
+
+                if !self.data_state.take_import_success() {
+                    return task;
+                }
+
+                Task::batch([task, self.rebuild_content()])
+            }
             Message::Settings(msg) => {
                 if matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ManualUpdateCheck)) {
                     info!("Manual update check requested from Settings");

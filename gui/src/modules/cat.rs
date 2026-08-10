@@ -51,6 +51,8 @@ const HEADER_BUTTON_TOP_PADDING: f32 = 5.0;
 const EXPORT_BUTTON_RULE_GAP: f32 = 2.0;
 const TALENT_HISTORY_CAP: usize = 3;
 const EMPTY_CAT_ICON: &str = "uni.png";
+const ICON_BOX_WIDTH: f32 = 110.0;
+const ICON_BOX_HEIGHT: f32 = 96.0;
 
 type StatsMemo = RefCell<Option<(u32, Option<Arc<Vec<Battle>>>)>>;
 
@@ -291,13 +293,17 @@ impl State {
 
     pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning cats");
+        self.clear_caches();
+        self.start_load(settings, vault, active_mod)
+    }
+
+    pub(crate) fn clear_caches(&mut self) {
         self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
         self.img015_sheets.clear();
         self.img022_sheets.clear();
         self.details.clear_icons();
         self.header_icon_cache.borrow_mut().clear();
-        self.start_load(settings, vault, active_mod)
     }
 
     fn clamped_selection(&self, cat: &CatEntry) -> (usize, DetailTab) {
@@ -750,7 +756,10 @@ impl State {
         let path = cat.deploy_icon_paths[self.selected_form].as_ref();
         let handle = self.cat_icon_handle(path, vfs);
 
-        iced_image(handle).height(Length::Fixed(96.0)).into()
+        container(iced_image(handle).height(Length::Fixed(ICON_BOX_HEIGHT)))
+            .width(Length::Fixed(ICON_BOX_WIDTH))
+            .height(Length::Fixed(ICON_BOX_HEIGHT))
+            .into()
     }
 
     fn cat_icon_handle(&self, path: Option<&PathBuf>, vfs: &Vfs) -> Handle {

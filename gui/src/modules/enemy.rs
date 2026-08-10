@@ -252,11 +252,15 @@ impl EnemyState {
 
     pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning enemies");
+        self.clear_caches();
+        self.start_load(settings, vault, active_mod)
+    }
+
+    pub(crate) fn clear_caches(&mut self) {
         self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
         self.img015_sheets.clear();
         self.header_icon_cache.borrow_mut().clear();
-        self.start_load(settings, vault, active_mod)
     }
 
     fn check_sheets(&mut self, vfs: &Vfs) -> Task<Message> {

@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::addons::adb::bridge;
 use crate::common::job::{JobEvent, ProgressCounter};
-use crate::modules::settings::EmulatorConfig;
+use crate::modules::settings::{EmulatorConfig, ImportConfig};
 
 use super::architecture;
 use super::engine;
@@ -15,20 +15,25 @@ pub fn run(
     import_mode: AdbImportType,
     target_region: AdbTarget,
     emulator_config: EmulatorConfig,
-    enforce_validation: bool,
+    import_config: ImportConfig,
     emit: impl Fn(JobEvent) + Sync,
     abort_flag: &AtomicBool,
     progress: &ProgressCounter,
 ) -> Result<(), String> {
     let emit_log = |line: String| emit(JobEvent::Log(line));
 
-    keys::verify(enforce_validation, &emit_log)?;
+    keys::verify(import_config.enforce_validation, &emit_log)?;
 
     let app_repository = PathBuf::from(architecture::APP);
 
+    let pull_options = bridge::PullOptions {
+        import_mode,
+        ignore_modified_app: import_config.ignore_modified_app,
+    };
+
     let pulled_directories = bridge::execute_pull(
         &app_repository,
-        import_mode,
+        pull_options,
         target_region,
         &emit_log,
         abort_flag,
@@ -41,7 +46,7 @@ pub fn run(
 
     emit(JobEvent::Log("Starting Processing Phase...".to_string()));
 
-    engine::run_universal_import(&pulled_directories, &emit, abort_flag, progress)
+    engine::run_universal_import(&pulled_directories, import_config.structure, &emit, abort_flag, progress)
         .map_err(|engine_error| format!("Universal Import Failed: {}", engine_error))?;
 
     if !emulator_config.keep_app_folder {

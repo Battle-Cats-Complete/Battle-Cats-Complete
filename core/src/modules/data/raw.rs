@@ -9,9 +9,11 @@ use super::architecture;
 use crate::common::job::{JobEvent, ProgressCounter};
 
 use super::engine::{audit, manifest, router, sort};
+use crate::modules::settings::{ImportConfig, ImportStructure};
 
 pub fn run(
     source_path_string: &str,
+    import_config: ImportConfig,
     emit: impl Fn(JobEvent) + Sync,
     abort_flag: &AtomicBool,
     language_priority: &[String],
@@ -30,7 +32,7 @@ pub fn run(
             && source_canonical == raw_canonical
         {
             emit(JobEvent::Log("Organizing recognized raw data.".to_string()));
-            return sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag, progress);
+            return sort_raw_folder(&raw_directory_path, game_root_path, import_config.structure, &emit, abort_flag, progress);
         }
 
         if let Ok(game_canonical) = game_root_path.canonicalize()
@@ -38,7 +40,7 @@ pub fn run(
         {
             emit(JobEvent::Log("Beginning database restructure...".to_string()));
             flatten_to_raw(game_root_path, &raw_directory_path, &emit, abort_flag, progress)?;
-            return sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag, progress);
+            return sort_raw_folder(&raw_directory_path, game_root_path, import_config.structure, &emit, abort_flag, progress);
         }
     }
 
@@ -78,12 +80,13 @@ pub fn run(
         }
     });
 
-    sort_raw_folder(&raw_directory_path, game_root_path, &emit, abort_flag, progress)
+    sort_raw_folder(&raw_directory_path, game_root_path, import_config.structure, &emit, abort_flag, progress)
 }
 
 fn sort_raw_folder(
     raw_directory: &Path,
     game_root_path: &Path,
+    structure: ImportStructure,
     emit: &(dyn Fn(JobEvent) + Sync),
     abort_flag: &AtomicBool,
     progress: &ProgressCounter,
@@ -96,7 +99,7 @@ fn sort_raw_folder(
         return Ok(());
     }
 
-    let asset_router = router::AssetRouter::new(game_root_path).map_err(|e| e.to_string())?;
+    let asset_router = router::AssetRouter::new(game_root_path, structure).map_err(|e| e.to_string())?;
 
     let file_manifest_path = game_root_path.join("meta").join("file.json");
     let mut global_file_ledger: HashMap<String, manifest::ManifestEntry> = manifest::load(&file_manifest_path);

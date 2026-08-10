@@ -76,6 +76,8 @@ pub struct GeneralSettings {
     pub update_mode: UpdateMode,
     pub enable_nightly: bool,
     pub enable_logging: bool,
+    pub ignore_conflict_errors: bool,
+    pub ignore_watcher_failure: bool,
 }
 
 impl Default for GeneralSettings {
@@ -85,6 +87,8 @@ impl Default for GeneralSettings {
             update_mode: UpdateMode::default(),
             enable_nightly: false,
             enable_logging: true,
+            ignore_conflict_errors: false,
+            ignore_watcher_failure: false,
         }
     }
 }
@@ -119,11 +123,41 @@ pub struct EnemyDataSettings {
     pub show_invalid_enemies: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum ImportStructure {
+    #[default]
+    Bcc,
+    Flat,
+}
+
+impl ImportStructure {
+    pub const ALL: [Self; 2] = [Self::Bcc, Self::Flat];
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::Bcc => "Import into an understandable file structure where assets are easy to discover",
+            Self::Flat => "Import all files into the root of the \"game\" folder for faster routing speeds",
+        }
+    }
+}
+
+impl std::fmt::Display for ImportStructure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::Bcc => "BCC",
+            Self::Flat => "Flat",
+        };
+        write!(f, "{}", label)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct GameDataSettings {
     pub app_folder_persistence: bool,
     pub enforce_key_validation: bool,
+    pub ignore_modified_app: bool,
+    pub import_structure: ImportStructure,
 }
 
 impl Default for GameDataSettings {
@@ -131,6 +165,8 @@ impl Default for GameDataSettings {
         Self {
             app_folder_persistence: false,
             enforce_key_validation: true,
+            ignore_modified_app: false,
+            import_structure: ImportStructure::default(),
         }
     }
 }
@@ -173,6 +209,13 @@ pub struct EmulatorConfig {
     pub keep_app_folder: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct ImportConfig {
+    pub structure: ImportStructure,
+    pub enforce_validation: bool,
+    pub ignore_modified_app: bool,
+}
+
 impl Settings {
     pub fn scanner_config(&self, active_mod: Option<String>) -> ScannerConfig {
         ScannerConfig {
@@ -191,6 +234,14 @@ impl Settings {
     pub fn emulator_config(&self) -> EmulatorConfig {
         EmulatorConfig {
             keep_app_folder: self.game_data.app_folder_persistence,
+        }
+    }
+
+    pub fn import_config(&self) -> ImportConfig {
+        ImportConfig {
+            structure: self.game_data.import_structure,
+            enforce_validation: self.game_data.enforce_key_validation,
+            ignore_modified_app: self.game_data.ignore_modified_app,
         }
     }
 }

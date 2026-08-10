@@ -5,6 +5,7 @@ use regex::Regex;
 use crate::common::io as global_patterns;
 use crate::modules::cat::patterns as cat_patterns;
 use crate::modules::enemy::patterns as enemy_patterns;
+use crate::modules::settings::ImportStructure;
 use crate::modules::stage::patterns as stage_patterns;
 
 struct CatPatternsSet {
@@ -512,11 +513,14 @@ impl StagePatternsSet {
 }
 
 pub(crate) struct AssetRouter {
+    structure: ImportStructure,
+
     cat_matcher: CatPatternsSet,
     enemy_matcher: EnemyPatternsSet,
     global_matcher: GlobalPatternsSet,
     stage_matcher: StagePatternsSet,
 
+    game_dir: PathBuf,
     cats_dir: PathBuf,
     sheets_dir: PathBuf,
     ui_dir: PathBuf,
@@ -528,13 +532,16 @@ pub(crate) struct AssetRouter {
 }
 
 impl AssetRouter {
-    pub(crate) fn new(game_root: &Path) -> Result<Self, regex::Error> {
+    pub(crate) fn new(game_root: &Path, structure: ImportStructure) -> Result<Self, regex::Error> {
         Ok(Self {
+            structure,
+
             cat_matcher: CatPatternsSet::new()?,
             enemy_matcher: EnemyPatternsSet::new()?,
             global_matcher: GlobalPatternsSet::new()?,
             stage_matcher: StagePatternsSet::new()?,
 
+            game_dir: game_root.to_path_buf(),
             cats_dir: game_root.join("cats"),
             sheets_dir: game_root.join("sheets"),
             ui_dir: game_root.join("ui"),
@@ -583,6 +590,10 @@ impl AssetRouter {
     }
 
     pub(crate) fn resolve_destination(&self, original_name: &str, final_name: &str) -> PathBuf {
+        if self.structure == ImportStructure::Flat {
+            return self.game_dir.join(final_name);
+        }
+
         let path = Path::new(original_name);
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
         let ext = path.extension().unwrap_or_default().to_string_lossy();

@@ -34,16 +34,16 @@ pub(super) struct State {
 }
 
 impl State {
-    pub(super) fn report_conflicts(&mut self, conflicts: Vec<Conflict>) {
-        if conflicts.is_empty() {
+    pub(super) fn report_conflicts(&mut self, conflicts: Vec<Conflict>, ignored: bool) {
+        if ignored || conflicts.is_empty() {
             return;
         }
 
         self.conflicts = conflicts;
     }
 
-    pub(super) fn report_watcher_failure(&mut self) {
-        self.watcher_failed = true;
+    pub(super) fn report_watcher_failure(&mut self, ignored: bool) {
+        self.watcher_failed = !ignored;
     }
 
     pub(super) fn is_open(&self) -> bool {

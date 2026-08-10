@@ -112,8 +112,14 @@ impl BattleCatsApp {
     pub(super) fn adopt_vault(&mut self, vault: Arc<Vault>) -> Task<Message> {
         self.vault = vault;
         self.vault_ready = true;
+        self.rebuild_running = false;
 
-        self.init_errors.report_conflicts(self.vault.vfs.conflicts());
+        if std::mem::take(&mut self.rebuild_queued) {
+            info!("More changes landed mid-rebuild, re-indexing again");
+            return self.rebuild_content();
+        }
+
+        self.init_errors.report_conflicts(self.vault.vfs.conflicts(), self.settings.general.ignore_conflict_errors);
         self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
 
         info!("Loading core tables");

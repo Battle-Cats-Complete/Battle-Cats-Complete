@@ -46,6 +46,8 @@ enum Drag {
 pub enum Message {
     ToggleLogging(bool),
     ToggleNightly(bool),
+    ToggleIgnoreConflicts(bool),
+    ToggleIgnoreWatcherFailure(bool),
     UpdateModeSelected(UpdateMode),
     LanguageDragStart(usize),
     LanguageDragMove(Point),
@@ -78,6 +80,14 @@ impl State {
             }
             Message::ToggleNightly(enabled) => {
                 core_settings.general.enable_nightly = enabled;
+                Task::none()
+            }
+            Message::ToggleIgnoreConflicts(enabled) => {
+                core_settings.general.ignore_conflict_errors = enabled;
+                Task::none()
+            }
+            Message::ToggleIgnoreWatcherFailure(enabled) => {
+                core_settings.general.ignore_watcher_failure = enabled;
                 Task::none()
             }
             Message::UpdateModeSelected(mode) => {
@@ -238,6 +248,18 @@ impl State {
                 ].spacing(10).align_y(Alignment::Center),
                 nightly_hint,
             ),
+            row![
+                toggler(core_settings.general.ignore_conflict_errors)
+                    .on_toggle(Message::ToggleIgnoreConflicts)
+                    .style(theme::ios_toggle),
+                text("Ignore Conflict Errors"),
+            ].spacing(10).align_y(Alignment::Center),
+            row![
+                toggler(core_settings.general.ignore_watcher_failure)
+                    .on_toggle(Message::ToggleIgnoreWatcherFailure)
+                    .style(theme::ios_toggle),
+                text("Ignore Watcher Failure"),
+            ].spacing(10).align_y(Alignment::Center),
             row![
                 text("Update Handling"),
                 pick_list(

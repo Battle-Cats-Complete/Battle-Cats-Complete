@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use nyanko::chapter::Category;
 
 use core::animation::export::ExportFormat;
+use core::modules::data::ImportSubTab;
 use core::modules::stage::{GlobalMapId, GlobalStageId};
 
 #[derive(Serialize, Deserialize, Default)]
@@ -74,6 +75,7 @@ pub(crate) struct StageListState {
 pub(crate) struct GameDataState {
     pub adb_import_type_idx: usize,
     pub adb_region_idx: usize,
+    pub selected_import: Option<ImportSubTab>,
 }
 
 impl Default for GameDataState {
@@ -81,6 +83,7 @@ impl Default for GameDataState {
         Self {
             adb_import_type_idx: 0,
             adb_region_idx: 4,
+            selected_import: None,
         }
     }
 }

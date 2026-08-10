@@ -13,7 +13,7 @@ use iced::{Alignment, Element, Length, Size, Task, Theme};
 
 use core::modules::settings::{lang, nightly};
 use core::modules::settings::{
-    ExportBehavior, Settings as CoreSettings, SidebarBehavior,
+    ExportBehavior, ImportStructure, Settings as CoreSettings, SidebarBehavior,
 };
 
 use crate::app::theme;
@@ -49,7 +49,9 @@ pub enum Message {
     SidebarBehaviorSelected(SidebarBehavior),
     ExportBehaviorSelected(ExportBehavior),
     ToggleKeyValidation(bool),
+    ToggleIgnoreModifiedApp(bool),
     ToggleAppPersistence(bool),
+    ImportStructureSelected(ImportStructure),
     Keys(keys::Message),
     OpenKeysPopup,
     Exceptions(exceptions::Message),
@@ -171,8 +173,16 @@ impl State {
                 core_settings.game_data.enforce_key_validation = val;
                 Task::none()
             }
+            Message::ToggleIgnoreModifiedApp(val) => {
+                core_settings.game_data.ignore_modified_app = val;
+                Task::none()
+            }
             Message::ToggleAppPersistence(val) => {
                 core_settings.game_data.app_folder_persistence = val;
+                Task::none()
+            }
+            Message::ImportStructureSelected(structure) => {
+                core_settings.game_data.import_structure = structure;
                 Task::none()
             }
             Message::Keys(msg) => self.keys.update(msg).map(Message::Keys),
@@ -487,6 +497,14 @@ impl State {
                 ].spacing(10).align_y(Alignment::Center),
                 "Prevents decryption/encryption if the cryptographic keys don't match the known official file hashes\nTurn this off only if the game keys have changed and you haven't updated BCC yet",
             ),
+
+            hover_hint(
+                row![
+                    toggler(core_settings.game_data.ignore_modified_app).on_toggle(Message::ToggleIgnoreModifiedApp).style(theme::ios_toggle),
+                    text("Ignore Modified App"),
+                ].spacing(10).align_y(Alignment::Center),
+                "Imports modded versions of the app with Vanilla package names as if they are Vanilla intalls, bypassing the import refusal",
+            ),
         ].spacing(10);
 
         let android_content = hover_hint(
@@ -497,8 +515,23 @@ impl State {
             "Skip the deletion of the \"game/app\" directory after android import",
         );
 
+        let disk_content = column![
+            self.disk.view().map(Message::Disk),
+            hover_hint(
+                row![
+                    text("Import Structure"),
+                    pick_list(
+                        ImportStructure::ALL,
+                        Some(core_settings.game_data.import_structure),
+                        Message::ImportStructureSelected,
+                    ).style(theme::combo_box).menu_style(theme::combo_box_menu),
+                ].spacing(10).align_y(Alignment::Center),
+                core_settings.game_data.import_structure.hint(),
+            ),
+        ].spacing(10);
+
         column![
-            header_section(text("Disk").size(24), self.disk.view().map(Message::Disk)),
+            header_section(text("Disk").size(24), disk_content),
             header_section(text("Management").size(24), management_content),
             header_section(text("Android").size(24), android_content),
         ].spacing(SECTION_SPACING).into()

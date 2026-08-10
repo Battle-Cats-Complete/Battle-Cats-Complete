@@ -152,12 +152,16 @@ impl State {
 
     pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning stages");
+        self.clear_caches();
+        self.start_load(settings, vault, active_mod)
+    }
+
+    pub(crate) fn clear_caches(&mut self) {
         self.info.clear_icons();
         self.fixedlineup.clear_icons();
         self.treasure.clear_icons();
         self.materials.clear_icons();
         self.battleground.clear_icons();
-        self.start_load(settings, vault, active_mod)
     }
 
     pub(crate) fn restore_state(&mut self, state: &StageListState) {
