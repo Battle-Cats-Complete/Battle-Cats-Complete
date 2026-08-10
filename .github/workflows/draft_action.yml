@@ -29,18 +29,12 @@ jobs:
 
           COMMIT_COUNT=$(echo "$COMMITS_JSON" | jq 'length')
 
-          if [ "$COMMIT_COUNT" -eq 0 ]; then
-            echo "Only merge commits in this push, leaving it to the merge job."
+          if [ "$COMMIT_COUNT" -ne 1 ]; then
             exit 0
           fi
 
-          if [ "$COMMIT_COUNT" -eq 1 ]; then
-            MSG=$(echo "$COMMITS_JSON" | jq -r '.[0].message | split("\n")[0]')
-            SUMMARY_BODY="**${BRANCH} ::** ${MSG}"
-          else
-            FIRST_LINES=$(echo "$COMMITS_JSON" | jq -r '.[] | (.message | split("\n")[0])' | sed 's/^/- /')
-            SUMMARY_BODY="**${BRANCH} ::** ${COMMIT_COUNT} commits"$'\n\n'"${FIRST_LINES}"
-          fi
+          MSG=$(echo "$COMMITS_JSON" | jq -r '.[0].message | split("\n")[0]')
+          SUMMARY_BODY="**${BRANCH} ::** ${MSG}"
 
           PAYLOAD=$(jq -n \
             --arg username "$USERNAME" \
@@ -84,7 +78,6 @@ jobs:
           if [ "$EVENT_NAME" = "pull_request" ]; then
             SOURCE="$PR_SOURCE"
             TARGET="$PR_TARGET"
-            # Use the PR title as the merge message
             MERGE_MSG="${{ github.event.pull_request.title }}"
           else
             MERGE_LINE=$(echo "$COMMITS_JSON" | jq -r '
@@ -92,7 +85,6 @@ jobs:
             ')
 
             if [ -z "$MERGE_LINE" ]; then
-              echo "No local merge commit in this push."
               exit 0
             fi
 
@@ -105,7 +97,6 @@ jobs:
           fi
 
           if [ -z "$SOURCE" ] || [ -z "$TARGET" ]; then
-            echo "Could not resolve both sides of the merge, skipping."
             exit 0
           fi
 
