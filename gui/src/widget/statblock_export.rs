@@ -109,7 +109,7 @@ impl State {
             cuts_map.extend(sheet.core.cuts_map.clone());
         }
         let priority = request.settings.general.language_priority.clone();
-        let sheet_path = request.vfs.list("img015.png").into_iter().next();
+        let sheet_path = request.vfs.find("img015.png");
         let kind = self.kind;
 
         self.pending = Some(action);

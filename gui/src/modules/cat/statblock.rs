@@ -80,7 +80,7 @@ fn build_spirit_data(ctx: &CatRenderContext) -> Option<SpiritData> {
         return None;
     }
 
-    let conjure_stats_vec = unitid(&ctx.global.store.vfs, ctx.base_stats.conjure_unit_id)?;
+    let conjure_stats_vec = unitid(&ctx.global.vault.vfs, ctx.base_stats.conjure_unit_id)?;
     let conjure_stats = conjure_stats_vec.first()?;
 
     let conjure_final = get_final_stats(conjure_stats, ctx.level_curve, ctx.current_level, None, None);

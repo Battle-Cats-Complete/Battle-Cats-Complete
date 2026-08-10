@@ -4,7 +4,7 @@ use crate::common::formats::GatyaItemBuy;
 use crate::common::formats::GatyaItemName;
 use crate::Vfs;
 
-use super::paths;
+use super::files;
 use super::treasure::ResolvedDrop;
 
 pub(crate) const MAT_IDS: [u32; 16] = [
@@ -46,7 +46,7 @@ pub fn resolve(
         buy_data.row_index as u32
     };
 
-    let image_path = vfs.list(&paths::gatya_item_img(img_id)).into_iter().next();
+    let image_path = vfs.find(&files::gatya_item_img(img_id));
 
     ResolvedDrop {
         name,

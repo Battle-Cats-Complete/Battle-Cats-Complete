@@ -4,35 +4,26 @@ use std::path::Path;
 const LANG_TERMINATOR: &str = "--";
 const UDI_FORM_EXCLUSIONS: &[(u32, u32)] = &[];
 
-pub(super) fn candidates(filename: &str, priority: &[String]) -> Vec<String> {
-    interleaved(&[filename], priority)
+pub(super) fn interleaved<'a>(
+    filenames: &'a [&'a str],
+    priority: &'a [String],
+) -> impl Iterator<Item = String> + 'a {
+    priority
+        .iter()
+        .take_while(|code| code.as_str() != LANG_TERMINATOR)
+        .flat_map(move |code| filenames.iter().filter_map(move |filename| variant(filename, code)))
 }
 
-pub(super) fn interleaved(filenames: &[&str], priority: &[String]) -> Vec<String> {
-    let mut targets = Vec::new();
-
-    for code in priority {
-        if code == LANG_TERMINATOR {
-            break;
-        }
-
-        for filename in filenames {
-            if code.is_empty() {
-                targets.push((*filename).to_string());
-                continue;
-            }
-
-            if form_excluded(filename) {
-                continue;
-            }
-
-            if let Some(name) = suffixed(filename, code) {
-                targets.push(name);
-            }
-        }
+fn variant(filename: &str, code: &str) -> Option<String> {
+    if code.is_empty() {
+        return Some(filename.to_string());
     }
 
-    targets
+    if form_excluded(filename) {
+        return None;
+    }
+
+    suffixed(filename, code)
 }
 
 fn suffixed(filename: &str, code: &str) -> Option<String> {

@@ -9,9 +9,9 @@ use core::animation::{
     loop_frame, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT,
     IDX_SURFACE, IDX_WALK,
 };
-use core::modules::cat::paths::{self, AnimType};
+use core::modules::cat::files::{self, AnimType};
 use core::modules::cat::scanner::CatEntry;
-use core::modules::enemy::paths::{self as enemy_paths, AnimType as EnemyAnimType};
+use core::modules::enemy::files::{self as enemy_files, AnimType as EnemyAnimType};
 use core::modules::enemy::scanner::EnemyEntry;
 use core::Vfs;
 
@@ -219,20 +219,20 @@ impl State {
     fn rescan_paths(&mut self, cat: &CatEntry, form: usize, primary_id: &str, vfs: &Vfs) {
         let egg_ids = cat.egg_ids.unwrap_or((-1, -1));
 
-        let resolve = |name: String| -> Option<PathBuf> { vfs.list(&name).into_iter().next() };
+        let resolve = |name: String| -> Option<PathBuf> { vfs.find(&name) };
 
         let mut available_anims = Vec::new();
         for idx in ANIM_SLOTS {
-            let candidate = paths::maanim_file(cat.id, form, egg_ids, idx);
+            let candidate = files::maanim_file(cat.id, form, egg_ids, idx);
             if let Some(resolved) = resolve(candidate) {
                 available_anims.push((idx, resolved));
             }
         }
 
         let primary_assets = (|| {
-            let png = resolve(paths::anim_file(cat.id, form, egg_ids, AnimType::Png))?;
-            let cut = resolve(paths::anim_file(cat.id, form, egg_ids, AnimType::Imgcut))?;
-            let model = resolve(paths::anim_file(cat.id, form, egg_ids, AnimType::Mamodel))?;
+            let png = resolve(files::anim_file(cat.id, form, egg_ids, AnimType::Png))?;
+            let cut = resolve(files::anim_file(cat.id, form, egg_ids, AnimType::Imgcut))?;
+            let model = resolve(files::anim_file(cat.id, form, egg_ids, AnimType::Mamodel))?;
             Some((png, cut, model))
         })();
 
@@ -247,10 +247,10 @@ impl State {
         if conjure_id > 0 {
             let spirit_id = conjure_id as u32;
             secondary_assets = (|| {
-                let png = resolve(paths::anim_file(spirit_id, 0, (-1, -1), AnimType::Png))?;
-                let cut = resolve(paths::anim_file(spirit_id, 0, (-1, -1), AnimType::Imgcut))?;
-                let model = resolve(paths::anim_file(spirit_id, 0, (-1, -1), AnimType::Mamodel))?;
-                let atk = resolve(paths::maanim_file(spirit_id, 0, (-1, -1), IDX_ATTACK))?;
+                let png = resolve(files::anim_file(spirit_id, 0, (-1, -1), AnimType::Png))?;
+                let cut = resolve(files::anim_file(spirit_id, 0, (-1, -1), AnimType::Imgcut))?;
+                let model = resolve(files::anim_file(spirit_id, 0, (-1, -1), AnimType::Mamodel))?;
+                let atk = resolve(files::maanim_file(spirit_id, 0, (-1, -1), IDX_ATTACK))?;
                 Some((png, cut, model, atk))
             })();
 
@@ -284,31 +284,31 @@ impl State {
     fn rescan_enemy_paths(&mut self, enemy: &EnemyEntry, primary_id: &str, vfs: &Vfs) {
         let resolve = |name: String| -> Option<PathBuf> {
             let iname = format!("i{}", name);
-            vfs.list_any(&[name.as_str(), iname.as_str()]).into_iter().next()
+            vfs.find(&[name.as_str(), iname.as_str()])
         };
 
         let mut available_anims = Vec::new();
         for idx in ENEMY_ANIM_SLOTS {
-            let candidate = enemy_paths::maanim_file(enemy.id, idx);
+            let candidate = enemy_files::maanim_file(enemy.id, idx);
             if let Some(resolved) = resolve(candidate) {
                 available_anims.push((idx, resolved));
             }
         }
 
-        if let Some(p) = resolve(enemy_paths::zombie_maanim_file(enemy.id, 0)) {
+        if let Some(p) = resolve(enemy_files::zombie_maanim_file(enemy.id, 0)) {
             available_anims.push((IDX_BURROW, p));
         }
-        if let Some(p) = resolve(enemy_paths::zombie_maanim_file(enemy.id, 1)) {
+        if let Some(p) = resolve(enemy_files::zombie_maanim_file(enemy.id, 1)) {
             available_anims.push((IDX_DIG, p));
         }
-        if let Some(p) = resolve(enemy_paths::zombie_maanim_file(enemy.id, 2)) {
+        if let Some(p) = resolve(enemy_files::zombie_maanim_file(enemy.id, 2)) {
             available_anims.push((IDX_SURFACE, p));
         }
 
         let primary_assets = (|| {
-            let png = resolve(enemy_paths::anim_file(enemy.id, EnemyAnimType::Png))?;
-            let cut = resolve(enemy_paths::anim_file(enemy.id, EnemyAnimType::Imgcut))?;
-            let model = resolve(enemy_paths::anim_file(enemy.id, EnemyAnimType::Mamodel))?;
+            let png = resolve(enemy_files::anim_file(enemy.id, EnemyAnimType::Png))?;
+            let cut = resolve(enemy_files::anim_file(enemy.id, EnemyAnimType::Imgcut))?;
+            let model = resolve(enemy_files::anim_file(enemy.id, EnemyAnimType::Mamodel))?;
             Some((png, cut, model))
         })();
 

@@ -4,7 +4,7 @@ use nyanko::chapter::stage::{CertificationPreset, EvolutionForm, PresetChara};
 
 use crate::Vfs;
 
-use super::paths;
+use super::files;
 
 pub struct ResolvedSlot {
     pub unit_id: Option<u32>,
@@ -28,7 +28,7 @@ fn get_file_letter(evolution_form: &EvolutionForm) -> &'static str {
 }
 
 fn resolve_empty_slot(vfs: &Vfs) -> ResolvedSlot {
-    let resolved_fallback_path = vfs.list(&paths::empty_cat_icon()).into_iter().next();
+    let resolved_fallback_path = vfs.find(&files::empty_cat_icon());
 
     ResolvedSlot {
         unit_id: None,
@@ -45,7 +45,7 @@ fn resolve_populated_slot(
 ) -> ResolvedSlot {
     let form_letter = get_file_letter(&character_data.evolution_form);
 
-    let resolved_image_path = vfs.list(&paths::cat_form_img(unit_id, form_letter)).into_iter().next();
+    let resolved_image_path = vfs.find(&files::cat_form_img(unit_id, form_letter));
 
     if resolved_image_path.is_none() {
         warn!("Missing unit icon for unit {} form {}", unit_id, form_letter);

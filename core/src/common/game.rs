@@ -42,16 +42,14 @@ pub const TRAIT_Y: f32 = 7.0;
 pub fn localizable(vfs: &Vfs) -> Localizable {
     info!("Initializing localizable dictionary load");
 
-    let paths = vfs.list("localizable.tsv");
-
-    let Some(file_path) = paths.first() else {
+    let Some(file_path) = vfs.find("localizable.tsv") else {
         warn!("Could not find any localizable.tsv file in the given path");
         return Localizable::default();
     };
 
     debug!(path = %file_path.display(), "Located localizable file, reading raw bytes");
 
-    let Ok(data) = fs::read(file_path) else {
+    let Ok(data) = fs::read(&file_path) else {
         error!(path = %file_path.display(), "Found localizable.tsv, but failed to read byte data");
         return Localizable::default();
     };
@@ -71,7 +69,7 @@ pub fn localizable(vfs: &Vfs) -> Localizable {
 pub fn param(vfs: &Vfs) -> Option<Param> {
     info!("Initializing global parameters load");
 
-    let Some(file_path) = vfs.list("param.tsv").into_iter().next() else {
+    let Some(file_path) = vfs.find("param.tsv") else {
         warn!("Could not find param.tsv in the given path");
         return None;
     };

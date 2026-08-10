@@ -1,3 +1,4 @@
+//! Virtual File System
 mod disk;
 mod regional;
 mod walk;
@@ -55,6 +56,34 @@ pub enum VfsError {
     Unavailable,
 }
 
+pub trait Target {
+    fn resolve<R>(self, run: impl FnOnce(&[&str]) -> R) -> R;
+}
+
+impl Target for &str {
+    fn resolve<R>(self, run: impl FnOnce(&[&str]) -> R) -> R {
+        run(&[self])
+    }
+}
+
+impl Target for &String {
+    fn resolve<R>(self, run: impl FnOnce(&[&str]) -> R) -> R {
+        run(&[self.as_str()])
+    }
+}
+
+impl<S: AsRef<str>> Target for &[S] {
+    fn resolve<R>(self, run: impl FnOnce(&[&str]) -> R) -> R {
+        run(&self.iter().map(AsRef::as_ref).collect::<Vec<&str>>())
+    }
+}
+
+impl<S: AsRef<str>, const N: usize> Target for &[S; N] {
+    fn resolve<R>(self, run: impl FnOnce(&[&str]) -> R) -> R {
+        run(&self.iter().map(AsRef::as_ref).collect::<Vec<&str>>())
+    }
+}
+
 pub trait Mount {
     fn mount(self, vfs: &Vfs) -> Result<Vec<Conflict>, VfsError>;
     fn unmount(self, vfs: &Vfs);
@@ -99,30 +128,38 @@ impl Vfs {
         target.unmount(self);
     }
 
-    fn find(&self, filename: &str) -> Option<PathBuf> {
-        self.list(filename).into_iter().next()
+    pub fn find<T: Target>(&self, target: T) -> Option<PathBuf> {
+        target.resolve(|names| self.first(names))
     }
 
-    pub fn list(&self, filename: &str) -> Vec<PathBuf> {
-        self.resolve_all(&regional::candidates(filename, &self.order()))
+    pub fn list<T: Target>(&self, target: T) -> Vec<PathBuf> {
+        target.resolve(|names| self.collect(names))
     }
 
-    pub fn list_any(&self, filenames: &[&str]) -> Vec<PathBuf> {
-        self.resolve_all(&regional::interleaved(filenames, &self.order()))
+    fn first(&self, filenames: &[&str]) -> Option<PathBuf> {
+        let Ok(order) = self.priority.read() else {
+            return None;
+        };
+
+        let Ok(mounts) = self.mounts.read() else {
+            return None;
+        };
+
+        regional::interleaved(filenames, &order).find_map(|candidate| resolve(&mounts, &candidate))
     }
 
-    fn order(&self) -> Vec<String> {
-        self.priority.read().map_or_else(|_| Vec::new(), |order| order.clone())
-    }
+    fn collect(&self, filenames: &[&str]) -> Vec<PathBuf> {
+        let Ok(order) = self.priority.read() else {
+            return Vec::new();
+        };
 
-    fn resolve_all(&self, candidates: &[String]) -> Vec<PathBuf> {
         let Ok(mounts) = self.mounts.read() else {
             return Vec::new();
         };
 
         let mut paths = Vec::new();
-        for candidate in candidates {
-            if let Some(path) = resolve(&mounts, candidate) {
+        for candidate in regional::interleaved(filenames, &order) {
+            if let Some(path) = resolve(&mounts, &candidate) {
                 paths.push(path);
             }
         }
@@ -161,6 +198,37 @@ impl Vfs {
         if let Ok(mut cache) = self.cache.write() {
             cache.remove(filename);
         }
+    }
+
+    pub fn purge(&self, filenames: &[Box<str>]) {
+        if let Ok(mut cache) = self.cache.write() {
+            for filename in filenames {
+                cache.remove(filename.as_ref());
+            }
+        }
+    }
+
+    pub fn count(&self, mount: &str) -> usize {
+        self.mounts
+            .read()
+            .map_or(0, |mounts| mounts.get(mount).map_or(0, |indexed| indexed.files.len()))
+    }
+
+    pub fn glob(&self, prefix: &str) -> Vec<Box<str>> {
+        let Ok(mounts) = self.mounts.read() else {
+            return Vec::new();
+        };
+
+        let mut names: Vec<Box<str>> = mounts
+            .values()
+            .flat_map(|indexed| indexed.files.keys())
+            .filter(|name| name.starts_with(prefix))
+            .cloned()
+            .collect();
+
+        names.sort_unstable();
+        names.dedup();
+        names
     }
 
     pub fn keys(&self, mount: &str) -> Vec<Box<str>> {

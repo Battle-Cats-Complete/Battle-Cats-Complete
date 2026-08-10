@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::thread;
 
+use iced::futures::channel::mpsc;
 use iced::Task;
 use smol::Timer;
 use tracing::{debug, error, info, warn};
@@ -9,9 +11,10 @@ use tracing::{debug, error, info, warn};
 use core::common::dirs;
 use core::common::game::{localizable, param};
 use core::common::io::json;
+use core::modules::data::architecture;
 use core::modules::mods;
-use core::modules::settings::{desktop, lang, ExceptionList, Settings, UpdateMode};
-use core::{ContentStore, Store};
+use core::modules::settings::{desktop, lang, ExceptionList, UpdateMode};
+use core::{ContentStore, Vault};
 
 use crate::modules::home;
 
@@ -62,12 +65,7 @@ impl BattleCatsApp {
         debug!("Cleaning up temp update files");
         updater::cleanup_temp_files();
 
-        let active_mod = app.mods_state.active_mod();
-        app.store = Arc::new(build_store(&app.settings, active_mod.as_deref()));
-
-        info!("Loading core tables");
-        app.param = param(&app.store.vfs).unwrap_or_default();
-        app.localizable = localizable(&app.store.vfs);
+        let store_task = app.spawn_vault_build();
 
         let updater_task = if app.settings.general.update_mode != UpdateMode::Ignore {
             info!("Checking for app updates at startup");
@@ -85,48 +83,77 @@ impl BattleCatsApp {
             app.mods_state.icon_stream().map(Message::Mod),
         ]);
 
-        let boot_loads = Task::batch([
-            app.cat_state.start_load(&app.settings, &app.store, active_mod.clone()).map(Message::Cat),
-            app.enemy_state.start_load(&app.settings, &app.store, active_mod.clone()).map(Message::Enemy),
-            app.stage_state.start_load(&app.settings, &app.store, active_mod).map(Message::Stage),
-        ]);
-
         let reveal_fallback = Task::future(Timer::after(super::WINDOW_SHOW_FALLBACK)).map(|_| Message::ShowWindow);
 
         info!("Initialization sequence complete");
 
-        (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams, boot_loads, reveal_fallback]))
+        (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams, store_task, reveal_fallback]))
+    }
+
+    fn spawn_vault_build(&mut self) -> Task<Message> {
+        info!("Building the file index in the background");
+
+        let mut vault = Vault::new(&self.settings);
+        let active_mod = self.mods_state.active_mod();
+        let (tx, rx) = mpsc::unbounded();
+
+        self.cat_state.set_indexing();
+        self.enemy_state.set_indexing();
+        self.stage_state.set_indexing();
+
+        thread::spawn(move || {
+            populate_vault(&mut vault, active_mod.as_deref());
+            let _ = tx.unbounded_send(Message::VaultReady(Arc::new(vault)));
+        });
+
+        Task::stream(rx)
+    }
+
+    pub(super) fn adopt_vault(&mut self, vault: Arc<Vault>) -> Task<Message> {
+        self.vault = vault;
+        self.vault_ready = true;
+
+        info!("Loading core tables");
+        self.param = param(&self.vault.vfs).unwrap_or_default();
+        self.localizable = localizable(&self.vault.vfs);
+
+        self.sync_home_status();
+
+        let active_mod = self.mods_state.active_mod();
+
+        Task::batch([
+            self.cat_state.start_load(&self.settings, &self.vault, active_mod.clone()).map(Message::Cat),
+            self.enemy_state.start_load(&self.settings, &self.vault, active_mod.clone()).map(Message::Enemy),
+            self.stage_state.start_load(&self.settings, &self.vault, active_mod).map(Message::Stage),
+        ])
     }
 }
 
-fn build_store(settings: &Settings, active_mod: Option<&str>) -> Store {
-    let mut store = Store::new(settings);
-    let hash = Store::hash(active_mod);
+fn populate_vault(vault: &mut Vault, active_mod: Option<&str>) {
+    let hash = Vault::hash(active_mod);
 
-    if store.vfs.restore(hash) {
+    if vault.vfs.restore(hash) {
         debug!(hash, "Restored file index from vfs.bin");
     } else {
-        mount_game(&store);
+        mount_game(vault);
 
         if let Some(name) = active_mod {
-            mount_mod(&store, name);
+            mount_mod(vault, name);
         }
 
-        store.vfs.persist(hash);
+        vault.vfs.persist(hash);
     }
 
     if let Some(content) = ContentStore::load(hash) {
         debug!(hash, "Restored parsed tables from content.bin");
-        content.apply(&mut store.vds);
+        content.apply(&mut vault.vds);
     }
-
-    store
 }
 
-fn mount_game(store: &Store) {
+fn mount_game(vault: &Vault) {
     info!("Indexing game data");
 
-    match store.vfs.create(Path::new("game")) {
+    match vault.vfs.create(Path::new(architecture::GAME)) {
         Ok(conflicts) => {
             for conflict in &conflicts {
                 warn!(key = %conflict.key, "duplicate filename in game data, all copies excluded: {:?}", conflict.paths);
@@ -136,10 +163,10 @@ fn mount_game(store: &Store) {
     }
 }
 
-fn mount_mod(store: &Store, name: &str) {
+fn mount_mod(vault: &Vault, name: &str) {
     info!(mod_name = name, "Mounting active mod");
 
-    match mods::enable(store, name) {
+    match mods::enable(vault, name) {
         Ok(conflicts) => {
             for conflict in &conflicts {
                 warn!(key = %conflict.key, "duplicate filename in mod, all copies excluded: {:?}", conflict.paths);

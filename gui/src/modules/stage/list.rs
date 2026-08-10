@@ -110,16 +110,13 @@ impl State {
         self.sorted_categories = None;
     }
 
-    pub fn view<'a>(&'a self, data: &'a StageDataState, filter_state: &StageFilterState) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, data: &'a StageDataState, filter_state: &StageFilterState, busy: bool) -> Element<'a, Message> {
         let Some(sorted_categories) = self.sorted_categories.as_ref() else {
             return space().into();
         };
 
-        if sorted_categories.is_empty() {
-            return container(theme::centered_text("No Stages Found").size(16).style(text::danger))
-                .center_x(Length::Fill)
-                .center_y(Length::Fill)
-                .into();
+        if busy && sorted_categories.is_empty() {
+            return space().into();
         }
 
         let Some(compiled_filter) = self.compiled_filter.as_ref() else {
@@ -135,6 +132,7 @@ impl State {
             .style(move |theme: &Theme, status| theme::toggle_button(theme, status, is_filter_set));
 
         let mut cat_col = button_column();
+        let mut cat_count = 0;
         for category in sorted_categories {
             if filter_active && !self.matching_categories.contains(category) {
                 continue;
@@ -147,14 +145,16 @@ impl State {
                 CATEGORY_COLUMN_WIDTH,
                 Message::SelectCategory(category.clone()),
             ));
+            cat_count += 1;
         }
 
-        let mut columns = row![column_scroller(CATEGORY_COLUMN_WIDTH, cat_col)]
+        let mut columns = row![column_body(CATEGORY_COLUMN_WIDTH, cat_col, cat_count, "No Categories Found!")]
             .spacing(COLUMN_GAP)
             .height(Length::Fill);
 
         if let Some(category) = &data.selected_category {
             let mut map_col = button_column();
+            let mut map_count = 0;
 
             for map in navigate::get_maps(&data.registry, category) {
                 let map_key = GlobalMapId { category: category.clone(), map: map.map_id };
@@ -164,16 +164,18 @@ impl State {
 
                 let is_selected = data.selected_map.as_ref() == Some(&map_key);
                 map_col = map_col.push(sidebar_button(&map.name, is_selected, COLUMN_WIDTH, Message::SelectMap(map_key)));
+                map_count += 1;
             }
 
             columns = columns.push(rule::vertical(RULE_THICKNESS));
-            columns = columns.push(column_scroller(COLUMN_WIDTH, map_col));
+            columns = columns.push(column_body(COLUMN_WIDTH, map_col, map_count, "No Maps Found!"));
         }
 
         if let Some(map_id) = &data.selected_map
             && data.registry.maps.contains_key(map_id)
         {
             let mut stage_col = button_column();
+            let mut stage_count = 0;
 
             for stage in navigate::get_stages(&data.registry, map_id) {
                 let stage_key = GlobalStageId {
@@ -188,10 +190,11 @@ impl State {
 
                 let is_selected = data.selected_stage.as_ref() == Some(&stage_key);
                 stage_col = stage_col.push(sidebar_button(&stage.name, is_selected, COLUMN_WIDTH, Message::SelectStage(stage_key)));
+                stage_count += 1;
             }
 
             columns = columns.push(rule::vertical(RULE_THICKNESS));
-            columns = columns.push(column_scroller(COLUMN_WIDTH, stage_col));
+            columns = columns.push(column_body(COLUMN_WIDTH, stage_col, stage_count, "No Stages Found!"));
         }
 
         column![
@@ -227,6 +230,19 @@ fn button_column<'a>() -> Column<'a, Message> {
         .width(Length::Fill)
         .align_x(Horizontal::Center)
         .padding(Padding { top: BTN_SPACING_Y, bottom: BTN_SPACING_Y, ..Padding::ZERO })
+}
+
+fn column_body<'a>(width: f32, content: Column<'a, Message>, count: usize, empty: &'a str) -> Element<'a, Message> {
+    if count > 0 {
+        return column_scroller(width, content);
+    }
+
+    container(theme::centered_text(empty).size(BTN_TEXT_SIZE).style(text::danger))
+        .width(Length::Fixed(width))
+        .height(Length::Fill)
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Center)
+        .into()
 }
 
 fn column_scroller<'a>(width: f32, content: Column<'a, Message>) -> Element<'a, Message> {

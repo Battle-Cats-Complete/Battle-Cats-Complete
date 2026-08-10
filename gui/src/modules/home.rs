@@ -1,6 +1,4 @@
 use std::env;
-use std::fs;
-use std::path::Path;
 
 use iced::widget::{button, column, container, markdown, pick_list, row, scrollable, text, Space};
 use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
@@ -33,7 +31,6 @@ pub struct State {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    CheckInit,
     InitChecked(bool),
     OpenChangelog,
     Popup(popup::Message),
@@ -47,13 +44,15 @@ pub enum Message {
 
 impl State {
     pub fn new() -> (Self, Task<Message>) {
-        (Self::default(), Task::perform(check_initialization(), Message::InitChecked))
+        (Self::default(), Task::none())
+    }
+
+    pub fn set_game_empty(&mut self, is_empty: bool) {
+        self.is_game_empty = Some(is_empty);
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::CheckInit => Task::perform(check_initialization(), Message::InitChecked),
-
             Message::InitChecked(is_empty) => {
                 self.is_game_empty = Some(is_empty);
                 Task::none()
@@ -123,7 +122,7 @@ impl State {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let is_empty = self.is_game_empty.unwrap_or(true);
+        let is_empty = self.is_game_empty.unwrap_or(false);
 
         let main_content = column![
             Space::new().height(SPACE_TOP),
@@ -310,15 +309,6 @@ impl State {
             .padding(20.0)
             .into()
     }
-}
-
-async fn check_initialization() -> bool {
-    let game_dir = Path::new("game");
-    if !game_dir.exists() {
-        return true;
-    }
-
-    fs::read_dir(game_dir).map_or(true, |mut iter| iter.next().is_none())
 }
 
 fn fetch_changelogs() -> Result<Vec<(String, String)>, String> {

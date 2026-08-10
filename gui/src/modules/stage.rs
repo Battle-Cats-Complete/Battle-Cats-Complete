@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::thread;
 
 use iced::futures::channel::mpsc;
-use iced::widget::{button, column, container, row, scrollable, space, stack, text};
+use iced::widget::{button, column, container, row, scrollable, space, stack};
 use iced::{Alignment, Element, Length, Padding, Size, Task};
 use tracing::{debug, info, warn};
 
@@ -23,11 +23,11 @@ use core::modules::stage::filter::enemy::EnemyFilter;
 use core::modules::stage::filter::StageFilterState;
 use core::modules::stage::scanner::{self, StageBundle};
 use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
-use core::Store;
+use core::Vault;
 
 use crate::app::state::StageListState;
 use crate::app::theme;
-use crate::widget::{slide, smooth_scroll, Slide};
+use crate::widget::{slide, smooth_scroll, status, Slide};
 
 const SIDEBAR_PUSH_GAP: f32 = 10.0;
 const SIDEBAR_PADDING: f32 = 15.0;
@@ -99,14 +99,18 @@ impl Default for State {
 }
 
 impl State {
-    pub fn start_load(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
+    pub fn set_indexing(&mut self) {
+        self.scan_progress = Some((0, 0));
+    }
+
+    pub fn start_load(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Triggering initial stage load");
         let config = settings.scanner_config(active_mod);
-        let store = Arc::clone(store);
+        let vault = Arc::clone(vault);
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
-            let bundle = scanner::load(config, store, |done, total| {
+            let bundle = scanner::load(config, vault, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
             let _ = tx.unbounded_send(Message::Loaded(Box::new(bundle)));
@@ -115,9 +119,9 @@ impl State {
         Task::stream(rx)
     }
 
-    pub fn rescan(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
+    pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning stages for active-mod change");
-        self.start_load(settings, store, active_mod)
+        self.start_load(settings, vault, active_mod)
     }
 
     pub(crate) fn restore_state(&mut self, state: &StageListState) {
@@ -291,11 +295,7 @@ impl State {
 
         let mut sidebar_content = column![].height(Length::Fill);
 
-        if let Some((done, total)) = self.scan_progress {
-            sidebar_content = sidebar_content.push(text(format!("Scanning stages... {}/{}", done, total)).size(12));
-        }
-
-        sidebar_content = sidebar_content.push(self.list.view(&self.data, &self.filter.filter_state).map(Message::List));
+        sidebar_content = sidebar_content.push(self.list.view(&self.data, &self.filter.filter_state, self.scan_progress.is_some()).map(Message::List));
 
         let sidebar_panel = container(sidebar_content)
             .width(Length::Fixed(self.sidebar_span()))
@@ -314,7 +314,21 @@ impl State {
             .into()
     }
 
+    fn scan_status(&self) -> Option<Element<'_, Message>> {
+        let (done, total) = self.scan_progress?;
+
+        if total == 0 {
+            return Some(status("Indexing File System...", None));
+        }
+
+        Some(status("Scanning Stages...", Some(format!("{} / {}", done, total))))
+    }
+
     fn view_main_panel<'a>(&'a self, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+        if let Some(progress) = self.scan_status() {
+            return progress;
+        }
+
         let Some(stage_id) = &self.data.selected_stage else {
             return container(theme::centered_text("Select a stage to view details").size(16))
                 .center_x(Length::Fill)
@@ -333,7 +347,7 @@ impl State {
             return space().into();
         };
 
-        let vfs = &global_ctx.store.vfs;
+        let vfs = &global_ctx.vault.vfs;
 
         let mut content = column![]
             .spacing(CONTENT_SPACING)

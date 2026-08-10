@@ -24,6 +24,7 @@ impl Roster for CatRoster {
 
     const SCROLLABLE_ID: &'static str = "cat-banner-list";
     const LABEL: &'static str = "cats";
+    const NOUN: &'static str = "Cats";
     const COMPOSITE: Composite = composite_banner;
 
     fn id(entry: &CatEntry) -> u32 {

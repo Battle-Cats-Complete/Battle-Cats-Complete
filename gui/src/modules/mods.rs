@@ -4,8 +4,11 @@ mod list;
 
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
+use std::thread;
 
 use iced::alignment::Horizontal;
+use iced::futures::channel::mpsc;
 use iced::widget::{
     button, column, container, row, rule, scrollable, space, stack, text, text_editor, text_input, Container,
 };
@@ -15,7 +18,7 @@ use tracing::warn;
 use core::common::job::{JobEvent, JobOutcome};
 use core::modules::mods::{self, ModDataState};
 use core::modules::settings::Settings;
-use core::Store;
+use core::Vault;
 
 use crate::app::theme;
 use crate::widget::{section, smooth_scroll};
@@ -69,6 +72,7 @@ pub enum Message {
     HideDeleteConfirm,
     ConfirmDelete,
     DeleteFinished(Result<(), String>),
+    MountFinished { folder: String, enabled: bool, error: Option<String> },
 }
 
 pub struct State {
@@ -78,6 +82,7 @@ pub struct State {
     export: export::State,
     description: text_editor::Content,
     delete_confirm_open: bool,
+    mounting: bool,
 }
 
 impl State {
@@ -94,6 +99,7 @@ impl State {
             export: export::State::default(),
             description: text_editor::Content::new(),
             delete_confirm_open: false,
+            mounting: false,
         }
     }
 
@@ -105,15 +111,15 @@ impl State {
         self.data.loaded_mods.iter().find(|m| m.enabled).map(|m| m.folder_name.clone())
     }
 
-    pub fn update(&mut self, message: Message, settings: &Settings, store: &Store) -> Task<Message> {
-        let task = self.update_inner(message, settings, store);
+    pub fn update(&mut self, message: Message, settings: &Settings, vault: &Arc<Vault>) -> Task<Message> {
+        let task = self.update_inner(message, settings, vault);
 
         self.list.refresh(&self.data.loaded_mods, &self.data.search_query);
 
         task
     }
 
-    fn update_inner(&mut self, message: Message, settings: &Settings, store: &Store) -> Task<Message> {
+    fn update_inner(&mut self, message: Message, settings: &Settings, vault: &Arc<Vault>) -> Task<Message> {
         match message {
             Message::List(msg) => {
                 if let list::Message::SelectMod(folder) = &msg {
@@ -133,14 +139,8 @@ impl State {
                 self.data.rename_buffer = new_name;
                 Task::none()
             }
-            Message::CommitRename => {
-                self.commit_rename(store);
-                Task::none()
-            }
-            Message::ToggleModStatus(mod_folder) => {
-                self.toggle_mod_status(mod_folder, store);
-                Task::none()
-            }
+            Message::CommitRename => self.commit_rename(vault),
+            Message::ToggleModStatus(mod_folder) => self.toggle_mod_status(mod_folder, vault),
             Message::OpenFolder(mod_folder) => {
                 let mod_path = Path::new("mods").join(&mod_folder);
                 let _ = open::that(mod_path);
@@ -173,6 +173,24 @@ impl State {
                 Task::none()
             }
             Message::ConfirmDelete => self.confirm_delete(),
+            Message::MountFinished { folder, enabled, error } => {
+                self.mounting = false;
+
+                for entry in self.data.loaded_mods.iter_mut() {
+                    entry.enabled = false;
+                }
+
+                if let Some(err) = error {
+                    warn!(mod_name = %folder, "Mount failed, mod left disabled: {}", err);
+                    return Task::none();
+                }
+
+                if enabled && let Some(idx) = self.data.loaded_mods.iter().position(|m| m.folder_name == folder) {
+                    self.data.loaded_mods[idx].enabled = true;
+                }
+
+                Task::none()
+            }
             Message::DeleteFinished(result) => {
                 if let Err(e) = result {
                     warn!("Failed to delete mod folder: {}", e);
@@ -196,42 +214,67 @@ impl State {
         self.populate_export_metadata();
     }
 
-    fn toggle_mod_status(&mut self, mod_folder: String, store: &Store) {
-        let Some(idx) = self.data.loaded_mods.iter().position(|m| m.folder_name == mod_folder) else { return; };
-
-        if self.data.loaded_mods[idx].enabled {
-            mods::disable(store, &mod_folder);
-            self.data.loaded_mods[idx].enabled = false;
-            return;
+    fn toggle_mod_status(&mut self, mod_folder: String, vault: &Arc<Vault>) -> Task<Message> {
+        if self.mounting || !self.data.loaded_mods.iter().any(|m| m.folder_name == mod_folder) {
+            return Task::none();
         }
 
-        if let Some(active) = self.data.active_mod() {
-            mods::disable(store, &active);
-        }
+        let enabling = !self.data.loaded_mods.iter().any(|m| m.folder_name == mod_folder && m.enabled);
+        let previous = self.data.active_mod();
 
-        for entry in self.data.loaded_mods.iter_mut() {
-            entry.enabled = false;
-        }
-
-        match mods::enable(store, &mod_folder) {
-            Ok(conflicts) => {
-                for conflict in &conflicts {
-                    warn!(key = %conflict.key, "duplicate filename in mod, all copies excluded: {:?}", conflict.paths);
-                }
-                self.data.loaded_mods[idx].enabled = true;
-            }
-            Err(err) => warn!(mod_name = %mod_folder, "Failed to enable mod: {}", err),
-        }
+        self.spawn_mount(vault, previous, enabling.then(|| mod_folder.clone()), mod_folder)
     }
 
-    fn commit_rename(&mut self, store: &Store) {
-        let Some(idx) = self.get_selected_mod_idx() else { return; };
+    fn spawn_mount(
+        &mut self,
+        vault: &Arc<Vault>,
+        previous: Option<String>,
+        target: Option<String>,
+        folder: String,
+    ) -> Task<Message> {
+        self.mounting = true;
+
+        let vault = Arc::clone(vault);
+        let (tx, rx) = mpsc::unbounded();
+
+        thread::spawn(move || {
+            if let Some(name) = previous {
+                mods::disable(&vault, &name);
+            }
+
+            let mut error = None;
+            let enabled = target.is_some();
+
+            if let Some(name) = target {
+                match mods::enable(&vault, &name) {
+                    Ok(conflicts) => {
+                        for conflict in &conflicts {
+                            warn!(key = %conflict.key, "duplicate filename in mod, all copies excluded: {:?}", conflict.paths);
+                        }
+                    }
+                    Err(err) => error = Some(err.to_string()),
+                }
+            }
+
+            let _ = tx.unbounded_send(Message::MountFinished { folder, enabled, error });
+        });
+
+        Task::stream(rx)
+    }
+
+    fn commit_rename(&mut self, vault: &Arc<Vault>) -> Task<Message> {
+        let Some(idx) = self.get_selected_mod_idx() else { return Task::none(); };
         let old_name = self.data.loaded_mods[idx].folder_name.clone();
         let new_name = self.data.rename_buffer.clone();
 
+        if self.mounting {
+            self.data.rename_buffer = old_name;
+            return Task::none();
+        }
+
         if new_name.is_empty() || new_name == old_name {
             self.data.rename_buffer = old_name;
-            return;
+            return Task::none();
         }
 
         let mods_root = Path::new("mods");
@@ -243,14 +286,10 @@ impl State {
 
         if clashes || !old_path.exists() || fs::rename(&old_path, &new_path).is_err() {
             self.data.rename_buffer = old_name;
-            return;
+            return Task::none();
         }
 
         let was_enabled = self.data.loaded_mods[idx].enabled;
-
-        if was_enabled {
-            mods::disable(store, &old_name);
-        }
 
         self.data.loaded_mods[idx].folder_name = new_name.clone();
         self.data.selected_mod = Some(new_name.clone());
@@ -260,10 +299,11 @@ impl State {
             warn!("Failed to save renamed metadata: {}", e);
         }
 
-        if was_enabled && let Err(err) = mods::enable(store, &new_name) {
-            warn!(mod_name = %new_name, "Failed to remount renamed mod: {}", err);
-            self.data.loaded_mods[idx].enabled = false;
+        if !was_enabled {
+            return Task::none();
         }
+
+        self.spawn_mount(vault, Some(old_name), Some(new_name.clone()), new_name)
     }
 
     fn update_metadata(&mut self, field: MetadataField, value: String) {
@@ -443,13 +483,13 @@ impl State {
 
         let actions_row = row![
             theme::sized_button(if is_enabled { "Disable Mod" } else { "Enable Mod" }, theme::POPUP_ACTION_BUTTON_WIDTH, toggle_style)
-                .on_press(Message::ToggleModStatus(mod_folder.clone())),
+                .on_press_maybe((!self.mounting).then(|| Message::ToggleModStatus(mod_folder.clone()))),
             theme::sized_button("Open Folder", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button)
                 .on_press(Message::OpenFolder(mod_folder)),
             theme::sized_button("Export Mod", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button)
                 .on_press(Message::Export(export::Message::Open)),
             theme::sized_button("Delete Mod", theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
-                .on_press_maybe((!is_enabled).then_some(Message::ShowDeleteConfirm)),
+                .on_press_maybe((!is_enabled && !self.mounting).then_some(Message::ShowDeleteConfirm)),
         ]
             .spacing(10)
             .align_y(Alignment::Center);

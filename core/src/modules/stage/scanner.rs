@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -18,14 +16,22 @@ use crate::common::formats::{gatyaitembuy, gatyaitemname, GatyaItemBuy, GatyaIte
 use crate::common::io::cache;
 use crate::modules::cat::waiter::unitexplanation;
 use crate::modules::settings::ScannerConfig;
-use crate::{Store, Vfs};
+use crate::{Vfs, Vault};
 
-use super::paths;
+use super::files;
 use super::waiter::{
     battleground, certification_preset, drop_chara, lockskipdata, mapstagedata, scatcpusetting,
     stagename
 };
 use super::{GlobalMapId, GlobalStageId, Map, Stage, StageRegistry};
+
+const MAP_STAGE_DATA: &str = "MapStageData";
+const STAGE: &str = "stage";
+const CSV: &str = ".csv";
+const PREFIX_EC: &str = "EC";
+const STORY_PREFIXES: [&str; 4] = [PREFIX_EC, "W", "Space", "Z"];
+const EC_CHAPTERS: [u32; 3] = [0, 1, 2];
+const INVASION: &str = "Invasion";
 
 struct ScanContext<'a> {
     pub vfs: &'a Vfs,
@@ -71,6 +77,7 @@ pub struct StageBundle {
 
 struct CategoryInfo {
     prefix: String,
+    data_prefix: String,
     category: Category,
     stage_names: HashMap<u32, StageNameEntry>,
 }
@@ -78,10 +85,9 @@ struct CategoryInfo {
 struct MapJob {
     category_index: usize,
     map_id: u32,
-    map_path: PathBuf,
 }
 
-pub fn load(config: ScannerConfig, store: Arc<Store>, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
     if config.active_mod.is_none()
         && let Some((hash, bundle)) = cache::read::<StageCache>()
         && hash == cache::get_game_hash(None)
@@ -95,15 +101,15 @@ pub fn load(config: ScannerConfig, store: Arc<Store>, progress: impl Fn(usize, u
         return bundle;
     }
 
-    scan(&config, &store, progress)
+    scan(&config, &vault, progress)
 }
 
-#[instrument(level = "debug", skip(config, store))]
-fn build_dictionaries(config: &ScannerConfig, store: &Store) -> StageDictionaries {
+#[instrument(level = "debug", skip(config, vault))]
+fn build_dictionaries(config: &ScannerConfig, vault: &Vault) -> StageDictionaries {
     trace!("Loading auxiliary stage dictionaries");
-    let vfs = &store.vfs;
+    let vfs = &vault.vfs;
 
-    let enemy_name_registry = store.vds.enemies.names(vfs).as_ref().clone();
+    let enemy_name_registry = vault.vds.enemies.names(vfs).as_ref().clone();
 
     let item_buy_registry = gatyaitembuy::load(vfs, "Gatyaitembuy.csv");
     let item_name_registry = gatyaitemname::load(vfs, "GatyaitemName.csv");
@@ -112,7 +118,7 @@ fn build_dictionaries(config: &ScannerConfig, store: &Store) -> StageDictionarie
     let lock_skip_registry = lockskipdata(vfs, "LockSkipData.csv");
     let scat_cpu_setting = scatcpusetting(vfs, "ScatCPUsetting.csv");
 
-    let unit_buy_registry = store.vds.cats.unitbuy(vfs);
+    let unit_buy_registry = vault.vds.cats.unitbuy(vfs);
 
     let cat_name_registry: HashMap<u32, Vec<String>> = unit_buy_registry
         .par_iter()
@@ -140,10 +146,10 @@ fn build_dictionaries(config: &ScannerConfig, store: &Store) -> StageDictionarie
     }
 }
 
-fn scan(config: &ScannerConfig, store: &Store, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
+fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
     info!("--- STAGE SCANNER INITIATED ---");
-    let dictionaries = build_dictionaries(config, store);
-    let registry = scan_all(store, progress);
+    let dictionaries = build_dictionaries(config, vault);
+    let registry = scan_all(vault, progress);
     info!("--- STAGE SCANNER COMPLETE: Found {} maps and {} stages ---", registry.maps.len(), registry.stages.len());
 
     let bundle = StageBundle { registry, dictionaries };
@@ -162,10 +168,10 @@ fn scan(config: &ScannerConfig, store: &Store, progress: impl Fn(usize, usize) +
 }
 
 #[instrument(skip_all)]
-fn scan_all(store: &Store, progress: impl Fn(usize, usize) + Sync) -> StageRegistry {
+fn scan_all(vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> StageRegistry {
     let reg_mtx = Mutex::new(StageRegistry::default());
-    let vfs = &store.vfs;
-    let stages = &store.vds.stages;
+    let vfs = &vault.vfs;
+    let stages = &vault.vds.stages;
 
     info!("Loading global table dictionaries into ScanContext...");
     let ctx = ScanContext {
@@ -190,7 +196,7 @@ fn scan_all(store: &Store, progress: impl Fn(usize, usize) + Sync) -> StageRegis
 
     jobs.par_iter().for_each(|job| {
         if let Some(info) = categories.get(job.category_index) {
-            process_map(&reg_mtx, info, job.map_id, &job.map_path, &ctx);
+            process_map(&reg_mtx, info, job.map_id, &ctx);
         }
 
         let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
@@ -201,63 +207,153 @@ fn scan_all(store: &Store, progress: impl Fn(usize, usize) + Sync) -> StageRegis
 }
 
 fn enumerate_maps(vfs: &Vfs) -> (Vec<CategoryInfo>, Vec<MapJob>) {
-    let cat_dir = Path::new(paths::DIR_CATEGORIES);
-    info!("Targeting base categories directory: {}", cat_dir.display());
+    info!("Discovering categories and maps from the file index");
 
-    let cat_entries = vfs.folders(cat_dir);
-    info!("Found {} items in categories directory to evaluate", cat_entries.len());
+    let mut discovered: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
+
+    for name in vfs.glob(MAP_STAGE_DATA) {
+        if let Some((data_prefix, map_id)) = split_map_data(&name) {
+            discovered.entry(data_prefix).or_default().insert(map_id);
+        }
+    }
+
+    for story in STORY_PREFIXES {
+        let ids = story_map_ids(vfs, story);
+        if !ids.is_empty() {
+            discovered.entry(story.to_string()).or_default().extend(ids);
+        }
+    }
+
+    info!("Found {} categories to evaluate", discovered.len());
 
     let mut categories = Vec::new();
     let mut jobs = Vec::new();
 
-    for cat_path in cat_entries {
-        let Some(os_name) = cat_path.file_name() else { continue; };
-        let cat_prefix = os_name.to_string_lossy().to_string();
-        let category = Category::from_prefix(&cat_prefix);
+    for (data_prefix, map_ids) in discovered {
+        let category = Category::from_prefix(&data_prefix);
+        let prefix = category.map_prefix();
 
-        debug!("Scanning category folder: {}", cat_prefix);
+        debug!("Scanning category {} ({} maps)", prefix, map_ids.len());
 
         let mut stage_names = HashMap::new();
 
-        for file in paths::stage_name_targets(&cat_prefix) {
+        for file in files::stage_name_targets(&prefix) {
             stage_names = stagename(vfs, &file);
             if !stage_names.is_empty() {
                 break;
             }
         }
 
-        let mut map_entries = Vec::new();
-
-        for map_path in vfs.folders(&cat_path) {
-            let Some(os_folder) = map_path.file_name() else { continue; };
-            let Ok(map_id) = os_folder.to_string_lossy().parse::<u32>() else { continue; };
-            map_entries.push((map_id, map_path));
-        }
-
-        if cat_prefix == "EC" {
-            let base_path = cat_path.join("000");
-            if base_path.exists() {
-                if !map_entries.iter().any(|(id, _)| *id == 1) {
-                    map_entries.push((1, base_path.clone()));
-                }
-                if !map_entries.iter().any(|(id, _)| *id == 2) {
-                    map_entries.push((2, base_path.clone()));
-                }
-            }
-        }
-
         let category_index = categories.len();
-        categories.push(CategoryInfo { prefix: cat_prefix, category, stage_names });
+        categories.push(CategoryInfo { prefix, data_prefix, category, stage_names });
 
-        for (map_id, map_path) in map_entries {
-            jobs.push(MapJob { category_index, map_id, map_path });
+        for map_id in map_ids {
+            jobs.push(MapJob { category_index, map_id });
         }
     }
 
     (categories, jobs)
 }
 
-fn process_map(reg_mtx: &Mutex<StageRegistry>, info: &CategoryInfo, map_id: u32, map_path: &Path, ctx: &ScanContext) {
+fn split_map_data(name: &str) -> Option<(String, u32)> {
+    let body = name.strip_prefix(MAP_STAGE_DATA)?.strip_suffix(CSV)?;
+    let (prefix, map) = body.rsplit_once('_')?;
+
+    if prefix.is_empty() {
+        return None;
+    }
+
+    Some((prefix.to_string(), map.parse().ok()?))
+}
+
+fn split_stage(name: &str, prefix: &str, map_id: u32) -> Option<u32> {
+    let body = name.strip_prefix(STAGE)?.strip_prefix(prefix)?.strip_suffix(CSV)?;
+    let (map, stage) = body.split_once('_')?;
+
+    if map.parse::<u32>().ok()? != map_id {
+        return None;
+    }
+
+    stage.parse().ok()
+}
+
+fn split_chapter_stage(name: &str) -> Option<u32> {
+    name.strip_prefix(STAGE)?.strip_suffix(CSV)?.parse().ok()
+}
+
+fn story_map_ids(vfs: &Vfs, prefix: &str) -> BTreeSet<u32> {
+    if prefix == PREFIX_EC {
+        let present = vfs.glob(STAGE).iter().any(|name| split_chapter_stage(name).is_some());
+        return if present { EC_CHAPTERS.into_iter().collect() } else { BTreeSet::new() };
+    }
+
+    vfs.glob(&format!("{}{}", STAGE, prefix))
+        .iter()
+        .filter_map(|name| {
+            let body = name.strip_prefix(STAGE)?.strip_prefix(prefix)?.strip_suffix(CSV)?;
+            let (map, stage) = body.split_once('_')?;
+            stage.parse::<u32>().ok()?;
+            map.parse().ok()
+        })
+        .collect()
+}
+
+fn invasion_battleground(vfs: &Vfs, category: &Category, map_id: u32) -> Option<Box<str>> {
+    for prefix in category.stage_prefix() {
+        if prefix.is_empty() {
+            continue;
+        }
+
+        let found = vfs.glob(&format!("{}{}", STAGE, prefix)).into_iter().find(|name| {
+            let Some(body) = name
+                .strip_prefix(STAGE)
+                .and_then(|body| body.strip_prefix(prefix.as_str()))
+                .and_then(|body| body.strip_suffix(CSV))
+            else {
+                return false;
+            };
+
+            let Some((map, rest)) = body.split_once('_') else {
+                return false;
+            };
+
+            map.parse::<u32>().ok() == Some(map_id) && rest.starts_with(INVASION)
+        });
+
+        if found.is_some() {
+            return found;
+        }
+    }
+
+    None
+}
+
+fn battlegrounds(vfs: &Vfs, category: &Category, map_id: u32) -> Vec<(u32, Box<str>)> {
+    let mut found: Vec<(u32, Box<str>)> = Vec::new();
+
+    for prefix in category.stage_prefix() {
+        if prefix.is_empty() {
+            found.extend(
+                vfs.glob(STAGE)
+                    .into_iter()
+                    .filter_map(|name| Some((split_chapter_stage(&name)?, name))),
+            );
+            continue;
+        }
+
+        found.extend(
+            vfs.glob(&format!("{}{}", STAGE, prefix))
+                .into_iter()
+                .filter_map(|name| Some((split_stage(&name, &prefix, map_id)?, name))),
+        );
+    }
+
+    found.sort_unstable_by_key(|(stage_id, _)| *stage_id);
+    found.dedup_by_key(|(stage_id, _)| *stage_id);
+    found
+}
+
+fn process_map(reg_mtx: &Mutex<StageRegistry>, info: &CategoryInfo, map_id: u32, ctx: &ScanContext) {
     let category = &info.category;
     let cat_prefix = info.prefix.as_str();
     let mut global_map_id = category.global_map_id(map_id);
@@ -293,7 +389,7 @@ fn process_map(reg_mtx: &Mutex<StageRegistry>, info: &CategoryInfo, map_id: u32,
         if !proxy_prefix.is_empty() {
             debug!("Fetching proxy names from {} for Z map {}", proxy_prefix, map_id);
 
-            for file in paths::stage_name_targets(proxy_prefix) {
+            for file in files::stage_name_targets(proxy_prefix) {
                 let names = stagename(ctx.vfs, &file);
                 if names.is_empty() { continue; }
 
@@ -313,9 +409,8 @@ fn process_map(reg_mtx: &Mutex<StageRegistry>, info: &CategoryInfo, map_id: u32,
 
     load_map(
         reg_mtx,
-        category,
+        info,
         map_id,
-        map_path,
         &map_display_name,
         active_stage_names,
         ctx,
@@ -327,14 +422,14 @@ fn process_map(reg_mtx: &Mutex<StageRegistry>, info: &CategoryInfo, map_id: u32,
 #[instrument(skip_all)]
 fn load_map(
     reg_mtx: &Mutex<StageRegistry>,
-    category: &Category,
+    info: &CategoryInfo,
     map_id: u32,
-    map_path: &Path,
     map_display_name: &str,
     stage_names: &HashMap<u32, StageNameEntry>,
     ctx: &ScanContext,
     global_map_id: Option<u32>
 ) {
+    let category = &info.category;
     let map_opt = global_map_id
         .and_then(|id| ctx.map_options.get(&id))
         .cloned()
@@ -397,9 +492,9 @@ fn load_map(
         .unwrap_or(true);
 
     let (stage_ids, stage_structs) = if is_story {
-        load_story_stages(map_path, category, map_id, map_opt.max_crowns, stage_names, ctx, global_map_id)
+        load_story_stages(category, map_id, map_opt.max_crowns, stage_names, ctx, global_map_id)
     } else {
-        load_legend_stages(map_path, category, map_id, map_opt.max_crowns, stage_names, ctx, global_map_id)
+        load_legend_stages(info, category, map_id, map_opt.max_crowns, stage_names, ctx, global_map_id)
     };
 
     if stage_ids.is_empty() {
@@ -422,7 +517,6 @@ fn load_map(
 
 #[allow(clippy::too_many_arguments)]
 fn load_story_stages(
-    map_path: &Path,
     category: &Category,
     map_id: u32,
     max_crowns: u8,
@@ -494,7 +588,7 @@ fn load_story_stages(
                 warn!("Expected story data file missing or unreadable: {}", story_path.display());
             }
         } else {
-            warn!("Expected story data file missing: {}", map_path.join(story_file).display());
+            warn!(file = story_file, "Expected story data file missing");
         }
     }
 
@@ -519,20 +613,8 @@ fn load_story_stages(
         }
     }
 
-    let mut invasion_path = None;
-
-    for stage_path in ctx.vfs.folders(map_path) {
-        let Some(os_folder) = stage_path.file_name() else { continue; };
-        let folder_str = os_folder.to_string_lossy();
-
-        if folder_str == "Invasion" {
-            invasion_path = Some(stage_path.clone());
-            continue;
-        }
-
-        let Ok(stage_id) = folder_str.parse::<u32>() else { continue; };
-
-        let is_ec_group = category.map_prefix() == "EC" || (category.map_prefix() == "Z" && map_id <= 2);
+    for (stage_id, file_name) in battlegrounds(ctx.vfs, category, map_id) {
+        let is_ec_group = category.map_prefix() == PREFIX_EC || (category.map_prefix() == "Z" && map_id <= 2);
 
         if is_ec_group {
             if map_id == 0 && stage_id > 47 { continue; }
@@ -540,8 +622,8 @@ fn load_story_stages(
             if map_id == 2 && (stage_id == 47 || stage_id == 48 || stage_id == 49 || stage_id > 50) { continue; }
         }
 
-        let Some(raw_layout) = find_battleground(ctx.vfs, &stage_path) else {
-            warn!("Failed to find battleground CSV in story stage directory: {}", stage_path.display());
+        let Some(raw_layout) = battleground(ctx.vfs, &file_name) else {
+            warn!(stage = %file_name, "Failed to parse story battleground");
             continue;
         };
 
@@ -563,10 +645,10 @@ fn load_story_stages(
         id_list.push(stage_id);
     }
 
-    if let Some(inv_path) = invasion_path {
+    if let Some(inv_file) = invasion_battleground(ctx.vfs, category, map_id) {
         let inv_stage_id = id_list.iter().max().copied().unwrap_or(0) + 1;
 
-        if let Some(raw_layout) = find_battleground(ctx.vfs, &inv_path) {
+        if let Some(raw_layout) = battleground(ctx.vfs, &inv_file) {
             let mut stage_struct = build_base_stage(
                 category, map_id, inv_stage_id, max_crowns, &raw_layout, stage_names, ctx, global_map_id
             );
@@ -585,7 +667,7 @@ fn load_story_stages(
             stage_list.push((stage_key, stage_struct));
             id_list.push(inv_stage_id);
         } else {
-            warn!("Failed to find battleground CSV in invasion stage directory: {}", inv_path.display());
+            warn!(stage = %inv_file, "Failed to parse invasion battleground");
         }
     }
 
@@ -594,7 +676,7 @@ fn load_story_stages(
 
 #[allow(clippy::too_many_arguments)]
 fn load_legend_stages(
-    map_path: &Path,
+    info: &CategoryInfo,
     category: &Category,
     map_id: u32,
     max_crowns: u8,
@@ -606,12 +688,8 @@ fn load_legend_stages(
     let mut stage_list = Vec::new();
     let mut data_entries = Vec::new();
 
-    for path in ctx.vfs.matching(map_path, "MapStageData") {
-        if !is_csv(&path) { continue; }
-
-        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else { continue; };
-
-        data_entries = mapstagedata(ctx.vfs, file_name);
+    for prefix in [info.data_prefix.as_str(), info.prefix.as_str()] {
+        data_entries = mapstagedata(ctx.vfs, &format!("{}{}_{:03}{}", MAP_STAGE_DATA, prefix, map_id, CSV));
         if !data_entries.is_empty() { break; }
     }
 
@@ -619,12 +697,9 @@ fn load_legend_stages(
         data_entries = mapstagedata(ctx.vfs, "stage.csv");
     }
 
-    for stage_path in ctx.vfs.folders(map_path) {
-        let Some(os_folder) = stage_path.file_name() else { continue; };
-        let Ok(stage_id) = os_folder.to_string_lossy().parse::<u32>() else { continue; };
-
-        let Some(raw_layout) = find_battleground(ctx.vfs, &stage_path) else {
-            warn!("Failed to find battleground CSV in legend stage directory: {}", stage_path.display());
+    for (stage_id, file_name) in battlegrounds(ctx.vfs, category, map_id) {
+        let Some(raw_layout) = battleground(ctx.vfs, &file_name) else {
+            warn!(stage = %file_name, "Failed to parse legend battleground");
             continue;
         };
 
@@ -647,35 +722,6 @@ fn load_legend_stages(
     }
 
     (id_list, stage_list)
-}
-
-fn is_csv(path: &Path) -> bool {
-    path.extension().is_some_and(|ext| ext == OsStr::new("csv"))
-}
-
-fn find_battleground(vfs: &Vfs, stage_path: &Path) -> Option<nyanko::chapter::stage::Battleground> {
-    let listed = vfs.children(stage_path);
-    let mut shadowed = false;
-
-    for path in &listed {
-        if !is_csv(path) { continue; }
-
-        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else { continue; };
-
-        if vfs.list(file_name).is_empty() {
-            shadowed = true;
-            continue;
-        }
-
-        let parsed = battleground(vfs, file_name);
-        if parsed.is_some() { return parsed; }
-    }
-
-    if shadowed {
-        warn!(path = %stage_path.display(), "battleground candidates were excluded as conflicting filename keys");
-    }
-
-    None
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -50,7 +50,7 @@ pub(crate) fn build_enemy_statblock(ctx: &EnemyRenderContext, enemy_entry: &Enem
         id_str: enemy_entry.id_str(),
         name: enemy_entry.display_name(),
         icon_path: enemy_entry.icon_path.clone(),
-        top_label: "Magnification:".to_string(),
+        top_label: "Magnify:".to_string(),
         top_value: top_val_str,
         headers_1,
         data_1,

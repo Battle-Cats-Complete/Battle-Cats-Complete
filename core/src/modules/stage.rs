@@ -2,7 +2,7 @@ pub mod filter;
 pub mod fixedlineup;
 pub mod materials;
 pub mod navigate;
-pub mod paths;
+pub mod files;
 pub(crate) mod patterns;
 pub mod restrictions;
 pub mod scanner;

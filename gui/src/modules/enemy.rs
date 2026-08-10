@@ -26,20 +26,19 @@ use tracing::info;
 use core::common::context::GlobalContext;
 use core::common::formats::SpriteSheet as CoreSpriteSheet;
 use core::common::gfx::autocrop;
-use core::modules::cat::paths::DIR_CATS;
 use core::modules::enemy::game::registry::{format_enemy_stat, Magnification, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
 use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::EnemyDataState;
 use core::modules::settings::Settings;
-use core::{Store, Vfs};
+use core::{Vfs, Vault};
 
 use crate::animation;
 use crate::app::state::{AppState, EnemyListState};
 use crate::app::theme;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
-use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export};
+use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
@@ -50,6 +49,7 @@ const DETAIL_RULE_HEIGHT: f32 = 96.0;
 const ICON_BOX_WIDTH: f32 = 110.0;
 const ICON_BOX_HEIGHT: f32 = 96.0;
 const APPEARANCES_TEXT_SIZE: f32 = 12.0;
+const EMPTY_CAT_ICON: &str = "uni.png";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
@@ -116,6 +116,7 @@ pub struct EnemyState {
     img015_sheets: Vec<SpriteSheet>,
     custom_assets: CustomAssets,
 
+    dynamic_stats: RefCell<Option<(u32, Option<Battle>)>>,
     header_icon_cache: RefCell<HashMap<PathBuf, HeaderIcon>>,
     header_icon_dummy: HeaderIcon,
 
@@ -147,6 +148,7 @@ impl Default for EnemyState {
             img015_sheets: Vec::new(),
             custom_assets: CustomAssets::new(),
 
+            dynamic_stats: RefCell::new(None),
             header_icon_cache: RefCell::new(HashMap::new()),
             header_icon_dummy,
 
@@ -185,6 +187,22 @@ impl EnemyState {
         }
     }
 
+    fn dynamic_stats(&self, id: u32, vault: &Vault, show_invalid: bool) -> Option<Battle> {
+        if let Some((cached_id, stats)) = self.dynamic_stats.borrow().as_ref()
+            && *cached_id == id
+        {
+            return stats.clone();
+        }
+
+        let stats = scanner::scan_single(id, vault, show_invalid).map(|entry| entry.stats);
+        *self.dynamic_stats.borrow_mut() = Some((id, stats.clone()));
+        stats
+    }
+
+    pub fn set_indexing(&mut self) {
+        self.scan_progress = Some((0, 0));
+    }
+
     pub fn icon_stream(&mut self) -> Task<Message> {
         self.list.result_stream().map(Message::List)
     }
@@ -197,10 +215,10 @@ impl EnemyState {
         }
     }
 
-    pub fn start_load(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
+    pub fn start_load(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Triggering initial enemy load");
         let config = settings.scanner_config(active_mod);
-        let scan_store = Arc::clone(store);
+        let scan_store = Arc::clone(vault);
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
@@ -210,13 +228,14 @@ impl EnemyState {
             let _ = tx.unbounded_send(Message::Loaded(enemies));
         });
 
-        Task::batch([Task::stream(rx), self.check_sheets(&store.vfs)])
+        Task::batch([Task::stream(rx), self.check_sheets(&vault.vfs)])
     }
 
-    pub fn rescan(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
+    pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning enemies for active-mod change");
+        self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
-        self.start_load(settings, store, active_mod)
+        self.start_load(settings, vault, active_mod)
     }
 
     fn check_sheets(&mut self, vfs: &Vfs) -> Task<Message> {
@@ -234,7 +253,7 @@ impl EnemyState {
 
     fn update_inner(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
-            Message::SheetsCheck => self.check_sheets(&global_ctx.store.vfs),
+            Message::SheetsCheck => self.check_sheets(&global_ctx.vault.vfs),
             Message::Img015Loaded(index, sheet) => {
                 if let Some(slot) = self.img015_sheets.get_mut(index) {
                     slot.apply(sheet);
@@ -254,13 +273,13 @@ impl EnemyState {
                 self.header_icon_cache.borrow_mut().clear();
                 self.data.enemies = enemies;
                 match self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
-                    Some(enemy) => self.animation.preload_enemy(enemy, &global_ctx.store.vfs).map(Message::Animation),
+                    Some(enemy) => self.animation.preload_enemy(enemy, &global_ctx.vault.vfs).map(Message::Animation),
                     None => Task::none(),
                 }
             }
             Message::AnimationTick => {
                 if let Some(enemy) = self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
-                    self.animation.sync_enemy(enemy, &global_ctx.store.vfs, settings, &app_state.animation);
+                    self.animation.sync_enemy(enemy, &global_ctx.vault.vfs, settings, &app_state.animation);
                 }
                 self.animation.tick();
                 Task::none()
@@ -281,7 +300,7 @@ impl EnemyState {
 
                 info!("Selected enemy ID: {}", id);
                 match self.data.enemies.iter().find(|e| e.id == id) {
-                    Some(enemy) => self.animation.preload_enemy(enemy, &global_ctx.store.vfs).map(Message::Animation),
+                    Some(enemy) => self.animation.preload_enemy(enemy, &global_ctx.vault.vfs).map(Message::Animation),
                     None => Task::none(),
                 }
             }
@@ -325,7 +344,7 @@ impl EnemyState {
                     sheets: &self.img015_sheets,
                     global: global_ctx,
                     settings,
-                    store: global_ctx.store,
+                    vault: global_ctx.vault,
                 });
 
                 self.export.update(msg, || ctx.and_then(export::request)).map(Message::Export)
@@ -389,7 +408,7 @@ impl EnemyState {
             .width(Length::Fill)
             .style(move |t: &Theme, status| theme::toggle_button(t, status, self.filter.filter_state.is_active()));
 
-        let enemy_list = self.list.view(&self.data.enemies, self.selected_enemy).map(Message::List);
+        let enemy_list = self.list.view(&self.data.enemies, self.selected_enemy, self.scan_progress.is_some()).map(Message::List);
 
         let mut sidebar = column![
             search_input,
@@ -397,11 +416,6 @@ impl EnemyState {
             filter_button,
             Space::new().height(Length::Fixed(FILTER_LIST_GAP)),
         ];
-
-        if let Some((done, total)) = self.scan_progress {
-            sidebar = sidebar.push(text(format!("Scanning enemies... {}/{}", done, total)).size(12));
-            sidebar = sidebar.push(Space::new().height(Length::Fixed(FILTER_LIST_GAP)));
-        }
 
         sidebar = sidebar.push(enemy_list);
 
@@ -417,7 +431,21 @@ impl EnemyState {
             .into()
     }
 
+    fn scan_status(&self) -> Option<Element<'_, Message>> {
+        let (done, total) = self.scan_progress?;
+
+        if total == 0 {
+            return Some(status("Indexing File System...", None));
+        }
+
+        Some(status("Scanning Enemies...", Some(format!("{} / {}", done, total))))
+    }
+
     fn view_main_content<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+        if let Some(progress) = self.scan_status() {
+            return progress;
+        }
+
         let Some(selected_id) = self.selected_enemy else {
             return container(text("Select a Unit").size(24))
                 .width(Length::Fill)
@@ -436,7 +464,7 @@ impl EnemyState {
                 .into();
         };
 
-        let header = self.view_header(enemy);
+        let header = self.view_header(enemy, &global_ctx.vault.vfs);
 
         let content = match self.selected_tab {
             DetailTab::Abilities => self.view_abilities(enemy, settings, global_ctx),
@@ -457,7 +485,7 @@ impl EnemyState {
             .into()
     }
 
-    fn view_header<'a>(&'a self, enemy: &'a EnemyEntry) -> Element<'a, Message> {
+    fn view_header<'a>(&'a self, enemy: &'a EnemyEntry, vfs: &Vfs) -> Element<'a, Message> {
         let mut tab_row = row![].spacing(4);
         let tabs = [
             (DetailTab::Abilities, "Abilities"),
@@ -478,7 +506,7 @@ impl EnemyState {
         }
 
         let mut detail_row = row![
-            self.view_enemy_icon(enemy),
+            self.view_enemy_icon(enemy, vfs),
             self.view_info_box(enemy),
         ].spacing(12).align_y(Vertical::Center);
 
@@ -523,8 +551,8 @@ impl EnemyState {
             .into()
     }
 
-    fn view_enemy_icon(&self, enemy: &EnemyEntry) -> Element<'_, Message> {
-        let icon = self.enemy_icon(enemy.icon_path.as_ref());
+    fn view_enemy_icon(&self, enemy: &EnemyEntry, vfs: &Vfs) -> Element<'_, Message> {
+        let icon = self.enemy_icon(enemy.icon_path.as_ref(), vfs);
         let scale = (ICON_BOX_WIDTH / icon.width).min(ICON_BOX_HEIGHT / icon.height);
 
         container(
@@ -539,15 +567,16 @@ impl EnemyState {
             .into()
     }
 
-    fn enemy_icon(&self, path: Option<&PathBuf>) -> HeaderIcon {
+    fn enemy_icon(&self, path: Option<&PathBuf>, vfs: &Vfs) -> HeaderIcon {
         if let Some(path) = path
             && let Some(icon) = self.load_icon(path)
         {
             return icon;
         }
 
-        let fallback = PathBuf::from(DIR_CATS).join("uni.png");
-        self.load_icon(&fallback).unwrap_or_else(|| self.header_icon_dummy.clone())
+        vfs.find(EMPTY_CAT_ICON)
+            .and_then(|fallback| self.load_icon(&fallback))
+            .unwrap_or_else(|| self.header_icon_dummy.clone())
     }
 
     fn load_icon(&self, path: &PathBuf) -> Option<HeaderIcon> {
@@ -602,8 +631,8 @@ impl EnemyState {
     }
 
     fn view_abilities<'a>(&'a self, enemy: &'a EnemyEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
-        let dynamic_entry = scanner::scan_single(enemy.id, global_ctx.store, settings.show_invalid_enemies());
-        let stats = dynamic_entry.as_ref().map_or(&enemy.stats, |entry| &entry.stats);
+        let dynamic_entry = self.dynamic_stats(enemy.id, global_ctx.vault, settings.show_invalid_enemies());
+        let stats = dynamic_entry.as_ref().unwrap_or(&enemy.stats);
 
         let enemy_ctx = EnemyRenderContext {
             global: global_ctx,

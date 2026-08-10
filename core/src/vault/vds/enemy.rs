@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
-use nyanko::enemy::unit::{EnemyName, EnemyPictureBook};
+use nyanko::enemy::unit::{Battle, EnemyName, EnemyPictureBook};
 use serde::{Deserialize, Serialize};
 
 use crate::Vfs;
 
 use super::Slot;
 
+const ENEMY_STATS: &str = "t_unit.csv";
 const ENEMY_NAME: &str = "Enemyname.tsv";
 const ENEMY_PICTURE_BOOK: &str = "EnemyPictureBook.csv";
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct EnemyStore {
+    stats: Slot<Vec<Battle>>,
     names: Slot<Vec<String>>,
     descriptions: Slot<Vec<Vec<String>>>,
 }
@@ -19,6 +21,7 @@ pub struct EnemyStore {
 impl Clone for EnemyStore {
     fn clone(&self) -> Self {
         Self {
+            stats: super::snapshot(&self.stats),
             names: super::snapshot(&self.names),
             descriptions: super::snapshot(&self.descriptions),
         }
@@ -26,6 +29,12 @@ impl Clone for EnemyStore {
 }
 
 impl EnemyStore {
+    pub fn stats(&self, vfs: &Vfs) -> Arc<Vec<Battle>> {
+        super::cached(&self.stats, || {
+            super::parsed(vfs, ENEMY_STATS, Battle::parse_all).unwrap_or_default()
+        })
+    }
+
     pub fn names(&self, vfs: &Vfs) -> Arc<Vec<String>> {
         super::cached(&self.names, || {
             let mut merged: Vec<String> = Vec::new();
@@ -82,6 +91,7 @@ impl EnemyStore {
 
     pub(super) fn evict(&self, filename: &str) {
         match filename {
+            ENEMY_STATS => super::reset(&self.stats),
             ENEMY_NAME => super::reset(&self.names),
             ENEMY_PICTURE_BOOK => super::reset(&self.descriptions),
             _ => (),
@@ -89,6 +99,7 @@ impl EnemyStore {
     }
 
     pub(super) fn clear(&self) {
+        super::reset(&self.stats);
         super::reset(&self.names);
         super::reset(&self.descriptions);
     }

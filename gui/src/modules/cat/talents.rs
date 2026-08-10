@@ -344,5 +344,5 @@ fn dark_box<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message
 }
 
 fn find_skill_image_path(vfs: &Vfs, image_id: i16) -> Option<PathBuf> {
-    vfs.list(&format!("Skill_name_{:03}.png", image_id)).into_iter().next()
+    vfs.find(&format!("Skill_name_{:03}.png", image_id))
 }

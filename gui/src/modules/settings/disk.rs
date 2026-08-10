@@ -6,6 +6,8 @@ use iced::widget::{button, column, container, row, text};
 use iced::{task, Alignment, Element, Length, Task};
 use tracing::{debug, error};
 
+use core::modules::data::architecture;
+
 use crate::app::theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,9 +125,9 @@ impl State {
                 let path = match target {
                     Target::Game => {
                         self.raw.reset();
-                        PathBuf::from("game")
+                        PathBuf::from(architecture::GAME)
                     }
-                    Target::Raw => PathBuf::from("game/raw"),
+                    Target::Raw => PathBuf::from(architecture::RAW),
                     Target::Cache => {
                         let Some(cache_dir) = core::common::dirs::cache_path() else {
                             return Task::none();
@@ -202,8 +204,8 @@ impl State {
     }
 
     pub fn view<'a>(&'a self) -> Element<'a, Message> {
-        let game_exists = Path::new("game").exists();
-        let raw_exists = Path::new("game/raw").exists();
+        let game_exists = Path::new(architecture::GAME).exists();
+        let raw_exists = Path::new(architecture::RAW).exists();
         let cache_size = core::common::dirs::cache_path()
             .map(|dir| folder_size(&dir))
             .unwrap_or(0);
@@ -222,7 +224,7 @@ impl State {
             Some(Target::Game) => ("Are you sure you want to delete the \"game\" folder?\nMost app function will be lost.".to_string(), None),
             Some(Target::Raw) => (
                 "Are you sure you want to delete the \"raw\" folder?\nYou may need to import again.".to_string(),
-                Some(format_size(folder_size(Path::new("game/raw")))),
+                Some(format_size(folder_size(Path::new(architecture::RAW)))),
             ),
             Some(Target::Cache) => (
                 "Are you sure you want to clear the Cache?\nIt will automatically rebuild the next time the app loads.".to_string(),

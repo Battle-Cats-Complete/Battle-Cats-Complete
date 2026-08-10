@@ -7,7 +7,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::{Conflict, Store, VfsError};
+use crate::{Conflict, Vault, VfsError};
 
 use super::mods::export::ExportState;
 use super::mods::import::ModImportState;
@@ -30,31 +30,27 @@ pub fn taken(mods_root: &Path, candidate: &str) -> bool {
     })
 }
 
-pub fn enable(store: &Store, name: &str) -> Result<Vec<Conflict>, VfsError> {
+pub fn enable(vault: &Vault, name: &str) -> Result<Vec<Conflict>, VfsError> {
     let path = Path::new(MODS_ROOT).join(name);
-    let conflicts = store.vfs.create(path.as_path())?;
+    let conflicts = vault.vfs.create(path.as_path())?;
 
-    let keys = store.vfs.keys(name);
+    let keys = vault.vfs.keys(name);
     debug!(mod_name = name, files = keys.len(), "mod mounted, evicting shadowed game content");
 
-    for key in keys {
-        store.evict(&key);
-    }
+    vault.purge(&keys);
 
     Ok(conflicts)
 }
 
-pub fn disable(store: &Store, name: &str) {
+pub fn disable(vault: &Vault, name: &str) {
     let path = Path::new(MODS_ROOT).join(name);
-    let keys = store.vfs.keys(name);
+    let keys = vault.vfs.keys(name);
 
-    store.vfs.destroy(path.as_path());
+    vault.vfs.destroy(path.as_path());
 
     debug!(mod_name = name, files = keys.len(), "mod unmounted, evicting stale mod content");
 
-    for key in keys {
-        store.evict(&key);
-    }
+    vault.purge(&keys);
 }
 
 fn default_source() -> String {

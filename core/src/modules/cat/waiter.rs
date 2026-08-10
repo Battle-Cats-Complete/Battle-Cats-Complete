@@ -3,7 +3,7 @@ use std::fs;
 use nyanko::cat::unit::{Battle, UnitExplanation};
 use tracing::trace;
 
-use crate::modules::cat::paths;
+use crate::modules::cat::files;
 use crate::Vfs;
 
 pub fn unitexplanation(vfs: &Vfs, cat_id: u32) -> UnitExplanation {
@@ -33,9 +33,9 @@ pub fn unitexplanation(vfs: &Vfs, cat_id: u32) -> UnitExplanation {
 
 pub fn unitid(vfs: &Vfs, cat_id: i32) -> Option<Vec<Battle>> {
     trace!(cat_id = cat_id, "fetching individual unit battle layout");
-    let file_name = paths::stats_file(cat_id as u32);
+    let file_name = files::stats_file(cat_id as u32);
 
-    let resolved_path = vfs.list(&file_name).into_iter().next()?;
+    let resolved_path = vfs.find(&file_name)?;
 
     let bytes = fs::read(resolved_path).ok()?;
 

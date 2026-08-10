@@ -6,7 +6,7 @@ use nyanko::cat::unit::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::modules::cat::paths;
+use crate::modules::cat::files;
 use crate::Vfs;
 
 use super::Slot;
@@ -40,13 +40,13 @@ impl Clone for CatStore {
 impl CatStore {
     pub fn talents(&self, vfs: &Vfs) -> Arc<HashMap<u16, Talent>> {
         super::cached(&self.talents, || {
-            super::parsed(vfs, paths::SKILL_ACQUISITION, Talent::parse).unwrap_or_default()
+            super::parsed(vfs, files::SKILL_ACQUISITION, Talent::parse).unwrap_or_default()
         })
     }
 
     pub fn talent_costs(&self, vfs: &Vfs) -> Arc<HashMap<u8, TalentCost>> {
         super::cached(&self.talent_costs, || {
-            super::parsed(vfs, paths::SKILL_LEVEL, TalentCost::parse).unwrap_or_default()
+            super::parsed(vfs, files::SKILL_LEVEL, TalentCost::parse).unwrap_or_default()
         })
     }
 
@@ -60,13 +60,13 @@ impl CatStore {
 
     pub fn unitbuy(&self, vfs: &Vfs) -> Arc<HashMap<u32, UnitBuy>> {
         super::cached(&self.unitbuy, || {
-            super::parsed(vfs, paths::UNIT_BUY, UnitBuy::parse).unwrap_or_default()
+            super::parsed(vfs, files::UNIT_BUY, UnitBuy::parse).unwrap_or_default()
         })
     }
 
     pub fn curves(&self, vfs: &Vfs) -> Arc<Vec<LevelCurve>> {
         super::cached(&self.curves, || {
-            super::parsed(vfs, paths::UNIT_LEVEL, LevelCurve::parse).unwrap_or_default()
+            super::parsed(vfs, files::UNIT_LEVEL, LevelCurve::parse).unwrap_or_default()
         })
     }
 
@@ -96,11 +96,11 @@ impl CatStore {
 
     pub(super) fn evict(&self, filename: &str) {
         match filename {
-            paths::SKILL_ACQUISITION => super::reset(&self.talents),
-            paths::SKILL_LEVEL => super::reset(&self.talent_costs),
+            files::SKILL_ACQUISITION => super::reset(&self.talents),
+            files::SKILL_LEVEL => super::reset(&self.talent_costs),
             SKILL_DESCRIPTIONS => super::reset(&self.descriptions),
-            paths::UNIT_BUY => super::reset(&self.unitbuy),
-            paths::UNIT_LEVEL => super::reset(&self.curves),
+            files::UNIT_BUY => super::reset(&self.unitbuy),
+            files::UNIT_LEVEL => super::reset(&self.curves),
             UNIT_EVOLVE => super::reset(&self.evolve),
             _ => (),
         }

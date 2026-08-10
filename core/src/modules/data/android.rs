@@ -6,6 +6,7 @@ use crate::addons::adb::bridge;
 use crate::common::job::{JobEvent, ProgressCounter};
 use crate::modules::settings::EmulatorConfig;
 
+use super::architecture;
 use super::engine;
 use super::engine::keys;
 use super::{AdbImportType, AdbTarget};
@@ -23,7 +24,7 @@ pub fn run(
 
     keys::verify(enforce_validation, &emit_log)?;
 
-    let app_repository = PathBuf::from("game/app");
+    let app_repository = PathBuf::from(architecture::APP);
 
     let pulled_directories = bridge::execute_pull(
         &app_repository,

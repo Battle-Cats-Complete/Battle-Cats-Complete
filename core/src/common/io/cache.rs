@@ -5,6 +5,7 @@ use std::hash::Hasher;
 use std::io::BufReader;
 use std::io::BufWriter;
 use std::path::Path;
+use std::path::PathBuf;
 
 use bincode::Options;
 use rayon::prelude::*;
@@ -14,6 +15,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::common::dirs;
+use crate::modules::data::architecture;
 
 fn hash_directory_parallel(directory_path: &Path) -> u64 {
     if !directory_path.exists() {
@@ -54,16 +56,58 @@ fn hash_directory_parallel(directory_path: &Path) -> u64 {
     final_hasher.finish()
 }
 
+fn hash_game_data() -> u64 {
+    let root = Path::new(architecture::GAME);
+
+    let Ok(entries) = fs::read_dir(root) else {
+        tracing::trace!("Game directory {:?} does not exist, skipping hash", root);
+        return 0;
+    };
+
+    let mut targets: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_none_or(|name| !architecture::TRANSIENT.contains(&name))
+        })
+        .collect();
+
+    targets.sort_unstable();
+
+    let child_hashes: Vec<u64> = targets
+        .par_iter()
+        .map(|path| {
+            let mut hasher = FxHasher::default();
+
+            if path.is_dir() {
+                hash_directory_parallel(path).hash(&mut hasher);
+            } else if let Ok(metadata) = path.metadata()
+                && let Ok(modified) = metadata.modified() {
+                modified.hash(&mut hasher);
+            }
+
+            hasher.finish()
+        })
+        .collect();
+
+    let mut hasher = FxHasher::default();
+    for child_hash in child_hashes {
+        child_hash.hash(&mut hasher);
+    }
+
+    targets.len().hash(&mut hasher);
+    hasher.finish()
+}
+
 #[tracing::instrument(level = "debug", skip(active_mod))]
 pub(crate) fn get_game_hash(active_mod: Option<&str>) -> u64 {
     tracing::trace!("Calculating global game hash across assets and tables...");
     let mut final_game_hasher = FxHasher::default();
 
-    let target_paths = ["game/tables", "game/cats", "game/enemies", "game/stages", "mods"];
-    for path_string in target_paths {
-        let directory_hash = hash_directory_parallel(Path::new(path_string));
-        directory_hash.hash(&mut final_game_hasher);
-    }
+    hash_game_data().hash(&mut final_game_hasher);
+    hash_directory_parallel(Path::new(architecture::MODS)).hash(&mut final_game_hasher);
 
     if let Some(mod_name) = active_mod {
         tracing::trace!("Including active mod in hash: {}", mod_name);

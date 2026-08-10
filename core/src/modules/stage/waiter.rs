@@ -75,7 +75,7 @@ pub(crate) fn stagename(vfs: &Vfs, filename: &str) -> HashMap<u32, StageNameEntr
 }
 
 fn read(vfs: &Vfs, filename: &str) -> Option<Vec<u8>> {
-    let path = vfs.list(filename).into_iter().next()?;
+    let path = vfs.find(filename)?;
 
     fs::read(path).ok()
 }

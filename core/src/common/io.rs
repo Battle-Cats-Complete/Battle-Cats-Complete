@@ -39,7 +39,5 @@ pub fn gatya_item_icon(vfs: &Vfs, id: i32) -> Option<PathBuf> {
         format!("gatyaitemD_{}_f.png", id),
     ];
 
-    let references: Vec<&str> = names.iter().map(String::as_str).collect();
-
-    vfs.list_any(&references).into_iter().next()
+    vfs.find(&names)
 }

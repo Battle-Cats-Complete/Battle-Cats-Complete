@@ -26,6 +26,7 @@ impl Roster for EnemyRoster {
 
     const SCROLLABLE_ID: &'static str = "enemy-banner-list";
     const LABEL: &'static str = "enemies";
+    const NOUN: &'static str = "Enemies";
     const COMPOSITE: Composite = composite_icon;
 
     fn id(entry: &EnemyEntry) -> u32 {

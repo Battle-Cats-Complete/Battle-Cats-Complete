@@ -1,7 +1,3 @@
-pub const DIR_ENEMIES: &str = "game/enemies";
-
-pub(crate) const STATS: &str = "t_unit.csv";
-
 #[derive(Copy, Clone, PartialEq)]
 pub enum AnimType {
     Mamodel,

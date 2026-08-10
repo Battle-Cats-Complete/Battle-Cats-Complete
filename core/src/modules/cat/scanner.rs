@@ -12,10 +12,10 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
 use crate::common::io::cache;
-use crate::modules::cat::paths;
+use crate::modules::cat::files;
 use crate::modules::cat::waiter::unitexplanation;
 use crate::modules::settings::ScannerConfig;
-use crate::{Store, Vfs};
+use crate::{Vfs, Vault};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CatEntry {
@@ -67,14 +67,14 @@ impl cache::CacheSpec for CatCache {
     const VERSION: u32 = 1;
 }
 
-pub fn load(config: ScannerConfig, store: Arc<Store>, progress: impl Fn(usize, usize) + Sync) -> Vec<CatEntry> {
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Vec<CatEntry> {
     if config.active_mod.is_none()
         && let Some((hash, cached_cats)) = cache::read::<CatCache>()
         && hash == cache::get_game_hash(None) {
         debug!(hash, count = cached_cats.len(), "loaded cats from cache fast-path");
 
-        let talent_costs_arc = store.vds.cats.talent_costs(&store.vfs);
-        let skill_descriptions_arc = store.vds.cats.descriptions(&store.vfs);
+        let talent_costs_arc = vault.vds.cats.talent_costs(&vault.vfs);
+        let skill_descriptions_arc = vault.vds.cats.descriptions(&vault.vfs);
 
         return cached_cats.into_iter().map(|mut cat| {
             cat.talent_costs = Arc::clone(&talent_costs_arc);
@@ -83,38 +83,37 @@ pub fn load(config: ScannerConfig, store: Arc<Store>, progress: impl Fn(usize, u
         }).collect();
     }
 
-    scan(config, &store, progress)
+    scan(config, &vault, progress)
 }
 
-fn scan(config: ScannerConfig, store: &Store, progress: impl Fn(usize, usize) + Sync) -> Vec<CatEntry> {
+fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> Vec<CatEntry> {
     trace!("starting cat repository scan");
-    let cats_directory = Path::new(paths::DIR_CATS);
-    let vfs = &store.vfs;
+    let vfs = &vault.vfs;
 
-    if vfs.list(paths::UNIT_BUY).is_empty() || vfs.list(paths::UNIT_LEVEL).is_empty() {
+    if vfs.find(files::UNIT_BUY).is_none() || vfs.find(files::UNIT_LEVEL).is_none() {
         warn!("cat scan aborted: unitbuy/unitlevel tables unavailable");
         return Vec::new();
     }
 
     let tables = ScanTables {
-        level_curves: store.vds.cats.curves(vfs),
-        unit_buys: store.vds.cats.unitbuy(vfs),
-        talents: store.vds.cats.talents(vfs),
-        evolve_texts: store.vds.cats.evolve(vfs),
-        talent_costs: store.vds.cats.talent_costs(vfs),
-        skill_descriptions: store.vds.cats.descriptions(vfs),
+        level_curves: vault.vds.cats.curves(vfs),
+        unit_buys: vault.vds.cats.unitbuy(vfs),
+        talents: vault.vds.cats.talents(vfs),
+        evolve_texts: vault.vds.cats.evolve(vfs),
+        talent_costs: vault.vds.cats.talent_costs(vfs),
+        skill_descriptions: vault.vds.cats.descriptions(vfs),
     };
 
-    let folder_entries = vfs.folders(cats_directory);
+    let unit_ids: Vec<u32> = tables.unit_buys.keys().copied().collect();
 
-    let total_folders = folder_entries.len();
+    let total_units = unit_ids.len();
     let processed_count = AtomicUsize::new(0);
 
-    let mut parsed_cats: Vec<CatEntry> = folder_entries.par_iter().filter_map(|folder_path| {
-        let cat = process_cat_entry(folder_path, vfs, &tables, &config);
+    let mut parsed_cats: Vec<CatEntry> = unit_ids.par_iter().filter_map(|&cat_id| {
+        let cat = process_cat_entry(cat_id, vfs, &tables, &config);
 
         let done = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
-        progress(done, total_folders);
+        progress(done, total_units);
 
         cat
     }).collect();
@@ -138,18 +137,14 @@ struct ScanTables {
 }
 
 fn process_cat_entry(
-    original_folder_path: &Path,
+    cat_id: u32,
     vfs: &Vfs,
     tables: &ScanTables,
     config: &ScannerConfig
 ) -> Option<CatEntry> {
-    let folder_stem = original_folder_path.file_name()?.to_str()?;
-    let cat_id = folder_stem.parse::<u32>().ok()?;
-    let cats_root_dir = Path::new(paths::DIR_CATS);
-
     trace!(cat_id = cat_id, "processing cat entry data");
 
-    let resolved_stats = vfs.list(&paths::stats_file(cat_id)).into_iter().next();
+    let resolved_stats = vfs.find(&files::stats_file(cat_id));
 
     if !config.show_invalid_cats && resolved_stats.is_none() {
         return None;
@@ -163,22 +158,20 @@ fn process_cat_entry(
     let mut final_image_path_opt = None;
 
     for form_idx in 0..4 {
-        let dir = paths::folder(cats_root_dir, cat_id, form_idx, egg_ids);
-
-        let banner_stem = paths::image_stem(paths::AssetType::Banner, cat_id, form_idx, egg_ids);
-        let mut resolved_banner = vfs.list(&format!("{}.png", banner_stem)).into_iter().next();
+        let banner_stem = files::image_stem(files::AssetType::Banner, cat_id, form_idx, egg_ids);
+        let mut resolved_banner = vfs.find(&format!("{}.png", banner_stem));
 
         if resolved_banner.is_none() && form_idx == 1 && egg_ids.1 != -1 {
             let fallback_name = format!("udi{:03}_m00.png", egg_ids.1);
-            resolved_banner = vfs.list(&fallback_name).into_iter().next();
+            resolved_banner = vfs.find(&fallback_name);
         }
 
-        let icon_stem = paths::image_stem(paths::AssetType::Icon, cat_id, form_idx, egg_ids);
-        let mut resolved_icon = vfs.list(&format!("{}.png", icon_stem)).into_iter().next();
+        let icon_stem = files::image_stem(files::AssetType::Icon, cat_id, form_idx, egg_ids);
+        let mut resolved_icon = vfs.find(&format!("{}.png", icon_stem));
 
         if resolved_icon.is_none() && form_idx == 1 && egg_ids.1 != -1 {
             let fallback_name = format!("uni{:03}_m00.png", egg_ids.1);
-            resolved_icon = vfs.list(&fallback_name).into_iter().next();
+            resolved_icon = vfs.find(&fallback_name);
         }
 
         let mut form_valid = false;
@@ -189,7 +182,7 @@ fn process_cat_entry(
                         form_valid = true;
                     }
                 } else if config.show_invalid_cats {
-                    form_valid = dir.exists();
+                    form_valid = resolved_icon.is_some();
                 }
             }
             2 => form_valid = ub_row.true_form_id > 0,
@@ -210,12 +203,12 @@ fn process_cat_entry(
 
     for form_idx in (0..=config.preferred_form).rev() {
         if forms_existence[form_idx] {
-            let banner_stem = paths::image_stem(paths::AssetType::Banner, cat_id, form_idx, egg_ids);
-            let mut resolved_fallback = vfs.list(&format!("{}.png", banner_stem)).into_iter().next();
+            let banner_stem = files::image_stem(files::AssetType::Banner, cat_id, form_idx, egg_ids);
+            let mut resolved_fallback = vfs.find(&format!("{}.png", banner_stem));
 
             if resolved_fallback.is_none() && form_idx == 1 && egg_ids.1 != -1 {
                 let fallback_name = format!("udi{:03}_m00.png", egg_ids.1);
-                resolved_fallback = vfs.list(&fallback_name).into_iter().next();
+                resolved_fallback = vfs.find(&fallback_name);
             }
 
             if resolved_fallback.is_some() {
@@ -228,9 +221,9 @@ fn process_cat_entry(
     let mut attack_anim_frames = [0; 4];
     for i in 0..4 {
         if !forms_existence[i] { continue; }
-        let anim_name = paths::maanim_file(cat_id, i, egg_ids, 2);
+        let anim_name = files::maanim_file(cat_id, i, egg_ids, 2);
 
-        if let Some(resolved) = vfs.list(&anim_name).into_iter().next()
+        if let Some(resolved) = vfs.find(&anim_name)
             && let Ok(bytes) = fs::read(&resolved) {
             let content = String::from_utf8_lossy(&bytes);
             let duration = Animation::scan_duration(content.as_bytes());

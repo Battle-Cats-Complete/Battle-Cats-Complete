@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use rayon::prelude::*;
 
+use super::architecture;
 use crate::common::job::{JobEvent, ProgressCounter};
 
 use super::engine::{audit, manifest, router, sort};
@@ -17,7 +18,7 @@ pub fn run(
     progress: &ProgressCounter,
 ) -> Result<(), String> {
     let source_path = Path::new(source_path_string);
-    let game_root_path = Path::new("game");
+    let game_root_path = Path::new(architecture::GAME);
     let raw_directory_path = game_root_path.join("raw");
 
     if !raw_directory_path.exists() {

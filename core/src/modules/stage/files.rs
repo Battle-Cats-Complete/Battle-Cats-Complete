@@ -1,6 +1,3 @@
-pub const DIR_CATEGORIES: &str = "game/stages/categories";
-pub const DIR_CATS: &str = "game/cats";
-
 pub(crate) fn gatya_item_img(id: u32) -> String {
     format!("gatyaitemD_{:02}_f.png", id)
 }

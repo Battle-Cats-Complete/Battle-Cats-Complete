@@ -1,11 +1,11 @@
 use nyanko::common::data::Localizable;
 use nyanko::common::data::Param;
 
-use crate::Store;
+use crate::Vault;
 
 #[derive(Clone, Copy)]
 pub struct GlobalContext<'a> {
     pub param: &'a Param,
     pub localizable: &'a Localizable,
-    pub store: &'a Store,
+    pub vault: &'a Vault,
 }

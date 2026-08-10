@@ -11,10 +11,9 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
 use crate::common::io::cache;
-use crate::modules::enemy::paths;
-use crate::modules::enemy::waiter::t_unit;
+use crate::modules::enemy::files;
 use crate::modules::settings::ScannerConfig;
-use crate::{Store, Vfs};
+use crate::{Vfs, Vault};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EnemyEntry {
@@ -51,7 +50,7 @@ impl cache::CacheSpec for EnemyCache {
     const VERSION: u32 = 1;
 }
 
-pub fn load(config: ScannerConfig, store: Arc<Store>, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
     if config.active_mod.is_none()
         && let Some((hash, cached_enemies)) = cache::read::<EnemyCache>()
         && hash == cache::get_game_hash(None) {
@@ -59,30 +58,32 @@ pub fn load(config: ScannerConfig, store: Arc<Store>, progress: impl Fn(usize, u
         return cached_enemies;
     }
 
-    scan(config, &store, progress)
+    scan(config, &vault, progress)
 }
 
-fn scan(config: ScannerConfig, store: &Store, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
+fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
     trace!("starting enemy repository scan");
-    let vfs = &store.vfs;
+    let vfs = &vault.vfs;
 
-    let Some(raw_enemies) = t_unit(vfs, paths::STATS) else {
+    let raw_enemies = vault.vds.enemies.stats(vfs);
+
+    if raw_enemies.is_empty() {
         warn!("enemy scan aborted: t_unit table unavailable");
         return Vec::new();
-    };
+    }
 
-    let names = store.vds.enemies.names(vfs);
-    let descriptions = store.vds.enemies.descriptions(vfs);
+    let names = vault.vds.enemies.names(vfs);
+    let descriptions = vault.vds.enemies.descriptions(vfs);
 
     let total_enemies = raw_enemies.len();
     let processed_count = AtomicUsize::new(0);
 
-    let mut parsed_enemies: Vec<EnemyEntry> = raw_enemies.into_par_iter().enumerate().filter_map(|(id, stats)| {
+    let mut parsed_enemies: Vec<EnemyEntry> = raw_enemies.par_iter().enumerate().filter_map(|(id, stats)| {
         let id_u32 = id as u32;
         let name = names.get(id).cloned().unwrap_or_default();
         let description = descriptions.get(id).cloned().unwrap_or_default();
 
-        let enemy = process_enemy_entry(id_u32, vfs, stats, name, description, config.show_invalid_enemies);
+        let enemy = process_enemy_entry(id_u32, vfs, stats.clone(), name, description, config.show_invalid_enemies);
 
         let done = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
         progress(done, total_enemies);
@@ -100,20 +101,19 @@ fn scan(config: ScannerConfig, store: &Store, progress: impl Fn(usize, usize) + 
     parsed_enemies
 }
 
-pub fn scan_single(id: u32, store: &Store, show_invalid: bool) -> Option<EnemyEntry> {
-    let vfs = &store.vfs;
+pub fn scan_single(id: u32, vault: &Vault, show_invalid: bool) -> Option<EnemyEntry> {
+    let vfs = &vault.vfs;
 
-    let raw_enemies = t_unit(vfs, paths::STATS)?;
-    let stats = raw_enemies.get(id as usize)?.clone();
+    let stats = vault.vds.enemies.stats(vfs).get(id as usize)?.clone();
 
-    let name = store.vds.enemies.names(vfs).get(id as usize).cloned().unwrap_or_default();
-    let description = store.vds.enemies.descriptions(vfs).get(id as usize).cloned().unwrap_or_default();
+    let name = vault.vds.enemies.names(vfs).get(id as usize).cloned().unwrap_or_default();
+    let description = vault.vds.enemies.descriptions(vfs).get(id as usize).cloned().unwrap_or_default();
 
     process_enemy_entry(id, vfs, stats, name, description, show_invalid)
 }
 
 fn process_enemy_entry(id: u32, vfs: &Vfs, stats: Battle, name: String, description: Vec<String>, show_invalid: bool) -> Option<EnemyEntry> {
-    let mut resolved_icon = vfs.list(&paths::icon_file(id)).into_iter().next();
+    let mut resolved_icon = vfs.find(&files::icon_file(id));
 
     if let Some(ref p) = resolved_icon
         && is_placeholder_png(p) && !show_invalid {
@@ -125,7 +125,7 @@ fn process_enemy_entry(id: u32, vfs: &Vfs, stats: Battle, name: String, descript
     }
 
     let mut atk_anim_frames = 0;
-    if let Some(resolved_atk) = vfs.list(&paths::maanim_file(id, 2)).into_iter().next()
+    if let Some(resolved_atk) = vfs.find(&files::maanim_file(id, 2))
         && let Ok(bytes) = fs::read(&resolved_atk) {
         let content = String::from_utf8_lossy(&bytes);
         let duration = Animation::scan_duration(content.as_bytes());

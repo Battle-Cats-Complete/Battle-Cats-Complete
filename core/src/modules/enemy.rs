@@ -1,9 +1,8 @@
 pub mod filter;
 pub mod game;
-pub mod paths;
+pub mod files;
 pub(crate) mod patterns;
 pub mod scanner;
-pub mod waiter;
 
 use serde::{Deserialize, Serialize};
 

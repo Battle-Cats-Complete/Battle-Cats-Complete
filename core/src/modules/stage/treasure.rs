@@ -9,7 +9,7 @@ use crate::common::formats::GatyaItemName;
 use crate::modules::cat::waiter::unitexplanation;
 use crate::Vfs;
 
-use super::paths;
+use super::files;
 
 pub struct ResolvedDrop {
     pub name: String,
@@ -38,7 +38,7 @@ fn resolve_cat_icon(
 
     trace!(unit_id, form_index, "Attempting to resolve primary cat icon");
 
-    let primary_icon = vfs.list(&paths::cat_form_img(unit_id, form_str)).into_iter().next();
+    let primary_icon = vfs.find(&files::cat_form_img(unit_id, form_str));
 
     if primary_icon.is_some() {
         return primary_icon;
@@ -49,7 +49,7 @@ fn resolve_cat_icon(
     if target_egg != -1 {
         trace!(unit_id, target_egg, "Falling back to egg icon");
         let fallback_name = format!("uni{:03}_m00.png", target_egg);
-        return vfs.list(&fallback_name).into_iter().next();
+        return vfs.find(&fallback_name);
     }
 
     None
@@ -78,7 +78,7 @@ pub fn resolve_drop(
             item_buy.row_index as u32
         };
 
-        let image_path = vfs.list(&paths::gatya_item_img(img_id)).into_iter().next();
+        let image_path = vfs.find(&files::gatya_item_img(img_id));
 
         return ResolvedDrop {
             name,

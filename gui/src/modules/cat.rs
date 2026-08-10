@@ -32,25 +32,27 @@ use core::common::gfx::autocrop;
 use core::modules::cat::game::registry::{format_cat_stat, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
 use core::modules::cat::game::stats::{get_final_stats, seeded_level};
 use core::modules::cat::game::CatRenderContext;
-use core::modules::cat::paths::DIR_CATS;
 use core::modules::cat::scanner::{self, CatEntry};
 use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
-use core::{Store, Vfs};
+use core::{Vfs, Vault};
 
 use crate::animation;
 use crate::app::state::{AppState, CatListState};
 use crate::app::theme;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
-use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export};
+use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
 const HEADER_BUTTON_TOP_PADDING: f32 = 5.0;
 const EXPORT_BUTTON_RULE_GAP: f32 = 2.0;
 const TALENT_HISTORY_CAP: usize = 3;
+const EMPTY_CAT_ICON: &str = "uni.png";
+
+type StatsMemo = RefCell<Option<(u32, Option<Arc<Vec<Battle>>>)>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
@@ -126,6 +128,7 @@ pub struct State {
     img022_sheets: Vec<SpriteSheet>,
     custom_assets: CustomAssets,
 
+    dynamic_stats: StatsMemo,
     header_icon_cache: RefCell<HashMap<PathBuf, Handle>>,
     header_icon_dummy: Handle,
 
@@ -161,6 +164,7 @@ impl Default for State {
             img022_sheets: Vec::new(),
             custom_assets: CustomAssets::new(),
 
+            dynamic_stats: RefCell::new(None),
             header_icon_cache: RefCell::new(HashMap::new()),
             header_icon_dummy,
 
@@ -218,6 +222,22 @@ impl State {
         }
     }
 
+    fn dynamic_stats(&self, vfs: &Vfs, id: u32) -> Option<Arc<Vec<Battle>>> {
+        if let Some((cached_id, stats)) = self.dynamic_stats.borrow().as_ref()
+            && *cached_id == id
+        {
+            return stats.clone();
+        }
+
+        let stats = unitid(vfs, id as i32).map(Arc::new);
+        *self.dynamic_stats.borrow_mut() = Some((id, stats.clone()));
+        stats
+    }
+
+    pub fn set_indexing(&mut self) {
+        self.scan_progress = Some((0, 0));
+    }
+
     pub fn icon_stream(&mut self) -> Task<Message> {
         self.list.result_stream().map(Message::List)
     }
@@ -230,10 +250,10 @@ impl State {
         }
     }
 
-    pub fn start_load(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
+    pub fn start_load(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Triggering initial cat load");
         let config = settings.scanner_config(active_mod);
-        let scan_store = Arc::clone(store);
+        let scan_store = Arc::clone(vault);
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
@@ -243,13 +263,14 @@ impl State {
             let _ = tx.unbounded_send(Message::Loaded(cats));
         });
 
-        Task::batch([Task::stream(rx), self.check_sheets(&store.vfs)])
+        Task::batch([Task::stream(rx), self.check_sheets(&vault.vfs)])
     }
 
-    pub fn rescan(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
+    pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning cats for active-mod change");
+        self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
-        self.start_load(settings, store, active_mod)
+        self.start_load(settings, vault, active_mod)
     }
 
     fn clamped_selection(&self, cat: &CatEntry) -> (usize, DetailTab) {
@@ -315,7 +336,7 @@ impl State {
 
     fn update_inner(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
-            Message::SheetsCheck => self.check_sheets(&global_ctx.store.vfs),
+            Message::SheetsCheck => self.check_sheets(&global_ctx.vault.vfs),
             Message::Img015Loaded(index, sheet) => {
                 if let Some(slot) = self.img015_sheets.get_mut(index) {
                     slot.apply(sheet);
@@ -345,14 +366,14 @@ impl State {
                         let (form, tab) = self.clamped_selection(cat);
                         self.selected_form = form;
                         self.selected_tab = tab;
-                        self.animation.preload(cat, form, &global_ctx.store.vfs).map(Message::Animation)
+                        self.animation.preload(cat, form, &global_ctx.vault.vfs).map(Message::Animation)
                     }
                     None => Task::none(),
                 }
             }
             Message::AnimationTick => {
                 if let Some(cat) = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
-                    self.animation.sync(cat, self.selected_form, &global_ctx.store.vfs, settings, &app_state.animation);
+                    self.animation.sync(cat, self.selected_form, &global_ctx.vault.vfs, settings, &app_state.animation);
                 }
                 self.animation.tick();
                 Task::none()
@@ -380,7 +401,7 @@ impl State {
                         let (form, tab) = self.clamped_selection(cat);
                         self.selected_form = form;
                         self.selected_tab = tab;
-                        self.animation.preload(cat, form, &global_ctx.store.vfs).map(Message::Animation)
+                        self.animation.preload(cat, form, &global_ctx.vault.vfs).map(Message::Animation)
                     }
                     None => Task::none(),
                 }
@@ -392,7 +413,7 @@ impl State {
                     self.selected_tab = DetailTab::Abilities;
                 }
                 match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
-                    Some(cat) => self.animation.preload(cat, form_idx, &global_ctx.store.vfs).map(Message::Animation),
+                    Some(cat) => self.animation.preload(cat, form_idx, &global_ctx.vault.vfs).map(Message::Animation),
                     None => Task::none(),
                 }
             }
@@ -538,7 +559,7 @@ impl State {
             .width(Length::Fill)
             .style(move |t: &Theme, status| theme::toggle_button(t, status, self.filter.filter_state.is_active()));
 
-        let cat_list = self.list.view(&self.data.cats, self.selected_cat).map(Message::List);
+        let cat_list = self.list.view(&self.data.cats, self.selected_cat, self.scan_progress.is_some()).map(Message::List);
 
         let mut sidebar = column![
             search_input,
@@ -546,11 +567,6 @@ impl State {
             filter_button,
             Space::new().height(Length::Fixed(FILTER_LIST_GAP)),
         ];
-
-        if let Some((done, total)) = self.scan_progress {
-            sidebar = sidebar.push(text(format!("Scanning cats... {}/{}", done, total)).size(12));
-            sidebar = sidebar.push(Space::new().height(Length::Fixed(FILTER_LIST_GAP)));
-        }
 
         sidebar = sidebar.push(cat_list);
 
@@ -566,7 +582,21 @@ impl State {
             .into()
     }
 
+    fn scan_status(&self) -> Option<Element<'_, Message>> {
+        let (done, total) = self.scan_progress?;
+
+        if total == 0 {
+            return Some(status("Indexing File System...", None));
+        }
+
+        Some(status("Scanning Cats...", Some(format!("{} / {}", done, total))))
+    }
+
     fn view_main_content<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+        if let Some(progress) = self.scan_status() {
+            return progress;
+        }
+
         let Some(selected_id) = self.selected_cat else {
             return container(text("Select a Unit").size(24))
                 .width(Length::Fill)
@@ -585,7 +615,7 @@ impl State {
                 .into();
         };
 
-        let header = self.view_header(cat);
+        let header = self.view_header(cat, &global_ctx.vault.vfs);
 
         let content = match self.selected_tab {
             DetailTab::Abilities => self.view_abilities(cat, settings, global_ctx),
@@ -607,7 +637,7 @@ impl State {
             .into()
     }
 
-    fn view_header<'a>(&'a self, cat: &'a CatEntry) -> Element<'a, Message> {
+    fn view_header<'a>(&'a self, cat: &'a CatEntry, vfs: &Vfs) -> Element<'a, Message> {
         let mut form_row = row![].spacing(4);
         let form_labels = ["Normal", "Evolved", "True", "Ultra"];
 
@@ -654,7 +684,7 @@ impl State {
         }
 
         let mut detail_row = row![
-            self.view_cat_icon(cat),
+            self.view_cat_icon(cat, vfs),
             self.view_info_box(cat),
         ].spacing(12).align_y(Vertical::Center);
 
@@ -689,22 +719,23 @@ impl State {
         ].into()
     }
 
-    fn view_cat_icon(&self, cat: &CatEntry) -> Element<'_, Message> {
+    fn view_cat_icon(&self, cat: &CatEntry, vfs: &Vfs) -> Element<'_, Message> {
         let path = cat.deploy_icon_paths[self.selected_form].as_ref();
-        let handle = self.cat_icon_handle(path);
+        let handle = self.cat_icon_handle(path, vfs);
 
         iced_image(handle).height(Length::Fixed(96.0)).into()
     }
 
-    fn cat_icon_handle(&self, path: Option<&PathBuf>) -> Handle {
+    fn cat_icon_handle(&self, path: Option<&PathBuf>, vfs: &Vfs) -> Handle {
         if let Some(path) = path
             && let Some(handle) = self.load_icon(path)
         {
             return handle;
         }
 
-        let fallback = PathBuf::from(DIR_CATS).join("uni.png");
-        self.load_icon(&fallback).unwrap_or_else(|| self.header_icon_dummy.clone())
+        vfs.find(EMPTY_CAT_ICON)
+            .and_then(|fallback| self.load_icon(&fallback))
+            .unwrap_or_else(|| self.header_icon_dummy.clone())
     }
 
     fn load_icon(&self, path: &PathBuf) -> Option<Handle> {
@@ -748,7 +779,7 @@ impl State {
     }
 
     fn view_abilities<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
-        let dynamic_stats = unitid(&global_ctx.store.vfs, cat.id as i32);
+        let dynamic_stats = self.dynamic_stats(&global_ctx.vault.vfs, cat.id);
         let Some(base_stats) = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form)) else {
             return container(text("Stats data not found")).into();
         };
@@ -836,7 +867,7 @@ impl State {
             return container(text("No Talents Available")).into();
         };
 
-        let dynamic_stats = unitid(&global_ctx.store.vfs, cat.id as i32);
+        let dynamic_stats = self.dynamic_stats(&global_ctx.vault.vfs, cat.id);
         let base_stats = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form));
 
         self.talents.view(talents::ViewCtx {
@@ -852,11 +883,11 @@ impl State {
             sheets: &self.img015_sheets,
             img022_sheets: &self.img022_sheets,
             assets: &self.custom_assets,
-            vfs: &global_ctx.store.vfs,
+            vfs: &global_ctx.vault.vfs,
         }).map(Message::Talents)
     }
 
     fn view_details<'a>(&'a self, cat: &'a CatEntry, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
-        self.details.view(cat, self.selected_form, &global_ctx.store.vfs)
+        self.details.view(cat, self.selected_form, &global_ctx.vault.vfs)
     }
 }

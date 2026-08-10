@@ -134,7 +134,7 @@ fn get_story_stage_file(category: &Category, map_id: u32, stage_id: u32) -> Opti
 }
 
 fn find_texture(vfs: &Vfs, files: &[String]) -> Option<PathBuf> {
-    files.iter().find_map(|name| vfs.list(name).into_iter().next())
+    files.iter().find_map(|name| vfs.find(name))
 }
 
 #[derive(Default)]

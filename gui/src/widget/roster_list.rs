@@ -5,13 +5,14 @@ use std::sync::Arc;
 
 use iced::futures::channel::mpsc::UnboundedReceiver;
 use iced::widget::image::Handle;
-use iced::widget::{responsive, scrollable, space, Column, Id};
+use iced::widget::{container, responsive, scrollable, space, text, Column, Id};
 use iced::{Element, Length, Size, Task};
 use image::RgbaImage;
 use tracing::{info, warn};
 
 use core::common::assets;
 
+use crate::app::theme;
 use crate::common::row_window::{self, RowWindow};
 use crate::common::udi_loader::{self, Composite, Dispatcher, LoadRequest, LoadResult};
 use crate::widget::{roster_row, smooth_scroll};
@@ -26,6 +27,7 @@ pub(crate) trait Roster {
 
     const SCROLLABLE_ID: &'static str;
     const LABEL: &'static str;
+    const NOUN: &'static str;
     const COMPOSITE: Composite;
 
     fn id(entry: &Self::Entry) -> u32;
@@ -217,7 +219,16 @@ impl<R: Roster> State<R> {
         }
     }
 
-    pub(crate) fn view<'a>(&'a self, entries: &'a [R::Entry], selected_id: Option<u32>) -> Element<'a, Message> {
+    pub(crate) fn view<'a>(&'a self, entries: &'a [R::Entry], selected_id: Option<u32>, busy: bool) -> Element<'a, Message> {
+        if self.cached_indices.is_empty() && !busy {
+            return container(theme::centered_text(format!("No {} Found!", R::NOUN)).size(16).style(text::danger))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into();
+        }
+
         responsive(move |size: Size| {
             let RowWindow { range, pad_before, pad_after } =
                 row_window::compute(self.cached_indices.len(), size.height, self.scroll_offset);

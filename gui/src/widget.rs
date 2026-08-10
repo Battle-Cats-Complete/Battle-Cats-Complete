@@ -9,6 +9,7 @@ mod section;
 mod slide;
 mod smooth_scroll;
 mod stat_grid;
+mod status;
 mod superscript;
 
 pub(crate) mod popup;
@@ -26,4 +27,5 @@ pub(crate) use section::{section, subsection};
 pub(crate) use slide::{slide, Slide};
 pub(crate) use smooth_scroll::{smooth_scroll, LINE_PIXELS};
 pub(crate) use stat_grid::{grid_frames, grid_header, grid_value};
+pub(crate) use status::status;
 pub(crate) use superscript::text_with_superscript;

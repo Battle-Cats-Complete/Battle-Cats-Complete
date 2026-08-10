@@ -18,6 +18,7 @@ use nyanko::pack::chronology;
 use nyanko::pack::cryptology;
 use rayon::prelude::*;
 
+use super::architecture;
 use crate::common::io;
 use crate::common::job::{JobEvent, ProgressCounter};
 use crate::modules::settings::RuleHandling;
@@ -93,7 +94,7 @@ pub(crate) fn run_universal_import(
 
     let nyanko_keys = cryptology::Keys::parse(&reference_tuples).map_err(|error| error.to_string())?;
 
-    let game_root_path = Path::new("game");
+    let game_root_path = Path::new(architecture::GAME);
     let meta_directory_path = game_root_path.join("meta");
     let pack_manifest_path = meta_directory_path.join("pack.json");
     let file_manifest_path = meta_directory_path.join("file.json");

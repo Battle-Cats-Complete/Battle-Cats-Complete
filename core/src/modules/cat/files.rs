@@ -1,11 +1,7 @@
-use std::path::{Path, PathBuf};
-
 pub(crate) const UNIT_BUY: &str = "unitbuy.csv";
 pub(crate) const UNIT_LEVEL: &str = "unitlevel.csv";
 pub(crate) const SKILL_ACQUISITION: &str = "SkillAcquisition.csv";
 pub(crate) const SKILL_LEVEL: &str = "SkillLevel.csv";
-
-pub const DIR_CATS: &str = "game/cats";
 
 #[derive(Copy, Clone, PartialEq)]
 pub(crate) enum AssetType {
@@ -41,19 +37,6 @@ fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     } else {
         format!("{:03}_{}", id, form_char)
     }
-}
-
-pub fn folder(root: &Path, id: u32, form: usize, egg_ids: (i32, i32)) -> PathBuf {
-    let (egg_norm, egg_evol) = egg_ids;
-    let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
-
-    if form == 0 && egg_norm != -1 {
-        return root.join(format!("egg_{:03}", egg_norm)).join(form_char);
-    }
-    if form == 1 && egg_evol != -1 {
-        return root.join(format!("egg_{:03}", egg_evol)).join(form_char);
-    }
-    root.join(format!("{:03}", id)).join(form_char)
 }
 
 pub(crate) fn image_stem(asset_type: AssetType, id: u32, form: usize, egg_ids: (i32, i32)) -> String {

@@ -1,3 +1,4 @@
+//! Virtual Data Store
 mod cat;
 mod content;
 mod enemy;
@@ -29,6 +30,12 @@ impl Vds {
         self.cats.evict(filename);
         self.enemies.evict(filename);
         self.stages.evict(filename);
+    }
+
+    pub fn purge(&self, filenames: &[Box<str>]) {
+        for filename in filenames {
+            self.evict(filename);
+        }
     }
 
     pub fn clear(&self) {
