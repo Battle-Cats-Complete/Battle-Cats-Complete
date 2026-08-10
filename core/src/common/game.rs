@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::Path;
 
 use nyanko::common::data::Localizable;
 use nyanko::common::data::Param;
@@ -8,7 +7,7 @@ use tracing::error;
 use tracing::info;
 use tracing::warn;
 
-use super::resolver;
+use crate::Vfs;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 pub enum CustomIcon {
@@ -40,10 +39,10 @@ pub const ABILITY_X: f32 = 3.0;
 pub const ABILITY_Y: f32 = 5.0;
 pub const TRAIT_Y: f32 = 7.0;
 
-pub fn localizable(dir: &Path, priority: &[String]) -> Localizable {
+pub fn localizable(vfs: &Vfs) -> Localizable {
     info!("Initializing localizable dictionary load");
 
-    let paths = resolver::get(dir, ["localizable.tsv"], priority);
+    let paths = vfs.list("localizable.tsv");
 
     let Some(file_path) = paths.first() else {
         warn!("Could not find any localizable.tsv file in the given path");
@@ -69,10 +68,10 @@ pub fn localizable(dir: &Path, priority: &[String]) -> Localizable {
     parsed_data
 }
 
-pub fn param(data_directory: &Path, priority: &[String]) -> Option<Param> {
+pub fn param(vfs: &Vfs) -> Option<Param> {
     info!("Initializing global parameters load");
 
-    let Some(file_path) = resolver::get(data_directory, ["param.tsv"], priority).into_iter().next() else {
+    let Some(file_path) = vfs.list("param.tsv").into_iter().next() else {
         warn!("Could not find param.tsv in the given path");
         return None;
     };

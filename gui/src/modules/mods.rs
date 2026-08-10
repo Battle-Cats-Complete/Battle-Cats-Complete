@@ -205,9 +205,6 @@ impl State {
 
         if !is_currently_enabled {
             self.data.loaded_mods[idx].enabled = true;
-            core::common::resolver::set_active_mod(Some(mod_folder));
-        } else {
-            core::common::resolver::set_active_mod(None);
         }
 
         self.data.refresh_mods();
@@ -227,9 +224,6 @@ impl State {
         let new_path = Path::new("mods").join(&new_name);
 
         if !new_path.exists() && old_path.exists() && std::fs::rename(&old_path, &new_path).is_ok() {
-            if self.data.loaded_mods[idx].enabled {
-                core::common::resolver::set_active_mod(Some(new_name.clone()));
-            }
             self.data.loaded_mods[idx].folder_name = new_name.clone();
             self.data.selected_mod = Some(new_name.clone());
             self.data.loaded_mods[idx].metadata.title = new_name.clone();

@@ -7,6 +7,7 @@ use iced::{Background, Border, Color, Element, Length, Task, Theme};
 use tracing::error;
 
 use core::modules::settings::Settings;
+use core::Vfs;
 
 use crate::app::theme;
 use crate::common::SpriteSheet;
@@ -53,6 +54,7 @@ pub(crate) struct Request<'a> {
     pub(crate) data: StatblockData,
     pub(crate) sheets: &'a [SpriteSheet],
     pub(crate) settings: &'a Settings,
+    pub(crate) vfs: &'a Vfs,
 }
 
 pub(crate) struct State {
@@ -107,12 +109,13 @@ impl State {
             cuts_map.extend(sheet.core.cuts_map.clone());
         }
         let priority = request.settings.general.language_priority.clone();
+        let sheet_path = request.vfs.list("img015.png").into_iter().next();
         let kind = self.kind;
 
         self.pending = Some(action);
 
         Task::perform(async move {
-            let build_result = builder::build_statblock_image(&priority, data, cuts_map);
+            let build_result = builder::build_statblock_image(&priority, sheet_path.as_deref(), data, cuts_map);
 
             match action {
                 ExportAction::Copy => JobResult::Copy(build_result),

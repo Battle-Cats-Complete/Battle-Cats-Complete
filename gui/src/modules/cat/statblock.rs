@@ -4,7 +4,6 @@ use core::modules::cat::game::stats::get_final_stats;
 use core::modules::cat::game::CatRenderContext;
 use core::modules::cat::scanner::CatEntry;
 use core::modules::cat::waiter::unitid;
-use core::modules::settings::Settings;
 
 use crate::modules::statblock::builder::{SpiritData, StatCell, StatblockData};
 
@@ -14,12 +13,11 @@ pub(crate) fn build_cat_statblock(
     current_form: usize,
     level_input: String,
     is_conjure_expanded: bool,
-    settings: &Settings,
 ) -> StatblockData {
     let (traits, h1, h2, b1, b2, footer) = collect_ability_data(ctx);
 
     let spirit_data = if is_conjure_expanded {
-        build_spirit_data(ctx, settings)
+        build_spirit_data(ctx)
     } else {
         None
     };
@@ -77,12 +75,12 @@ pub(crate) fn build_cat_statblock(
     }
 }
 
-fn build_spirit_data(ctx: &CatRenderContext, settings: &Settings) -> Option<SpiritData> {
+fn build_spirit_data(ctx: &CatRenderContext) -> Option<SpiritData> {
     if ctx.base_stats.conjure_unit_id <= 0 {
         return None;
     }
 
-    let conjure_stats_vec = unitid(ctx.base_stats.conjure_unit_id, &settings.general.language_priority)?;
+    let conjure_stats_vec = unitid(&ctx.global.store.vfs, ctx.base_stats.conjure_unit_id)?;
     let conjure_stats = conjure_stats_vec.first()?;
 
     let conjure_final = get_final_stats(conjure_stats, ctx.level_curve, ctx.current_level, None, None);

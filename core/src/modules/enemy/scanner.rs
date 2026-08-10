@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use nyanko::enemy::unit::Battle;
@@ -10,10 +11,10 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
 use crate::common::io::cache;
-use crate::common::resolver;
 use crate::modules::enemy::paths;
-use crate::modules::enemy::waiter::{enemyname, enemypicturebook, t_unit};
+use crate::modules::enemy::waiter::t_unit;
 use crate::modules::settings::ScannerConfig;
+use crate::{Store, Vfs};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EnemyEntry {
@@ -50,40 +51,28 @@ impl cache::CacheSpec for EnemyCache {
     const VERSION: u32 = 1;
 }
 
-pub fn load(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
-    if !resolver::is_mod_active()
+pub fn load(config: ScannerConfig, store: Arc<Store>, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
+    if config.active_mod.is_none()
         && let Some((hash, cached_enemies)) = cache::read::<EnemyCache>()
         && hash == cache::get_game_hash(None) {
         debug!(hash, count = cached_enemies.len(), "loaded enemies from cache fast-path");
         return cached_enemies;
     }
 
-    scan(config, progress)
+    scan(config, &store, progress)
 }
 
-fn scan(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
+fn scan(config: ScannerConfig, store: &Store, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
     trace!("starting enemy repository scan");
-    let root = Path::new(paths::DIR_ENEMIES);
-    let priority = &config.language_priority;
+    let vfs = &store.vfs;
 
-    let t_unit_p = paths::stats(root);
-
-    let Some(t_unit_parent) = t_unit_p.parent() else {
-        warn!("enemy scan aborted: stats path has no parent");
-        return Vec::new();
-    };
-    let Some(t_unit_name) = t_unit_p.file_name().and_then(|n| n.to_str()) else {
-        warn!("enemy scan aborted: stats path has no file name");
-        return Vec::new();
-    };
-
-    let Some(raw_enemies) = t_unit(t_unit_parent, t_unit_name, priority) else {
+    let Some(raw_enemies) = t_unit(vfs, paths::STATS) else {
         warn!("enemy scan aborted: t_unit table unavailable");
         return Vec::new();
     };
 
-    let names = enemyname(root, priority);
-    let descriptions = enemypicturebook(root, priority);
+    let names = store.vds.enemies.names(vfs);
+    let descriptions = store.vds.enemies.descriptions(vfs);
 
     let total_enemies = raw_enemies.len();
     let processed_count = AtomicUsize::new(0);
@@ -93,7 +82,7 @@ fn scan(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<En
         let name = names.get(id).cloned().unwrap_or_default();
         let description = descriptions.get(id).cloned().unwrap_or_default();
 
-        let enemy = process_enemy_entry(id_u32, stats, name, description, &config);
+        let enemy = process_enemy_entry(id_u32, vfs, stats, name, description, config.show_invalid_enemies);
 
         let done = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
         progress(done, total_enemies);
@@ -103,7 +92,7 @@ fn scan(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<En
 
     parsed_enemies.sort_by_key(|e| e.id);
 
-    if !resolver::is_mod_active() {
+    if config.active_mod.is_none() {
         let current_hash = cache::get_game_hash(None);
         cache::write::<EnemyCache>(current_hash, &parsed_enemies);
     }
@@ -111,47 +100,32 @@ fn scan(config: ScannerConfig, progress: impl Fn(usize, usize) + Sync) -> Vec<En
     parsed_enemies
 }
 
-pub fn scan_single(id: u32, config: &ScannerConfig) -> Option<EnemyEntry> {
-    let root = Path::new(paths::DIR_ENEMIES);
-    let priority = &config.language_priority;
+pub fn scan_single(id: u32, store: &Store, show_invalid: bool) -> Option<EnemyEntry> {
+    let vfs = &store.vfs;
 
-    let t_unit_p = paths::stats(root);
-
-    let t_unit_parent = t_unit_p.parent()?;
-    let t_unit_name = t_unit_p.file_name().and_then(|n| n.to_str())?;
-
-    let raw_enemies = t_unit(t_unit_parent, t_unit_name, priority)?;
+    let raw_enemies = t_unit(vfs, paths::STATS)?;
     let stats = raw_enemies.get(id as usize)?.clone();
 
-    let name = enemyname(root, priority).get(id as usize).cloned().unwrap_or_default();
-    let description = enemypicturebook(root, priority).get(id as usize).cloned().unwrap_or_default();
+    let name = store.vds.enemies.names(vfs).get(id as usize).cloned().unwrap_or_default();
+    let description = store.vds.enemies.descriptions(vfs).get(id as usize).cloned().unwrap_or_default();
 
-    process_enemy_entry(id, stats, name, description, config)
+    process_enemy_entry(id, vfs, stats, name, description, show_invalid)
 }
 
-fn process_enemy_entry(id: u32, stats: Battle, name: String, description: Vec<String>, config: &ScannerConfig) -> Option<EnemyEntry> {
-    let root = Path::new(paths::DIR_ENEMIES);
-    let priority = &config.language_priority;
-
-    let icon_p = paths::icon(root, id);
-    let mut resolved_icon = None;
-    if let (Some(parent), Some(icon_name)) = (icon_p.parent(), icon_p.file_name().and_then(|n| n.to_str())) {
-        resolved_icon = resolver::get(parent, [icon_name], priority).into_iter().next();
-    }
+fn process_enemy_entry(id: u32, vfs: &Vfs, stats: Battle, name: String, description: Vec<String>, show_invalid: bool) -> Option<EnemyEntry> {
+    let mut resolved_icon = vfs.list(&paths::icon_file(id)).into_iter().next();
 
     if let Some(ref p) = resolved_icon
-        && is_placeholder_png(p) && !config.show_invalid_enemies {
+        && is_placeholder_png(p) && !show_invalid {
         resolved_icon = None;
     }
 
-    if resolved_icon.is_none() && !config.show_invalid_enemies {
+    if resolved_icon.is_none() && !show_invalid {
         return None;
     }
 
     let mut atk_anim_frames = 0;
-    let atk_p = paths::maanim(root, id, 2);
-    if let (Some(parent), Some(anim_name)) = (atk_p.parent(), atk_p.file_name().and_then(|n| n.to_str()))
-        && let Some(resolved_atk) = resolver::get(parent, [anim_name], priority).into_iter().next()
+    if let Some(resolved_atk) = vfs.list(&paths::maanim_file(id, 2)).into_iter().next()
         && let Ok(bytes) = fs::read(&resolved_atk) {
         let content = String::from_utf8_lossy(&bytes);
         let duration = Animation::scan_duration(content.as_bytes());

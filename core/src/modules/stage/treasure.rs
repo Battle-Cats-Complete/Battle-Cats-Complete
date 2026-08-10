@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use nyanko::cat::unit::UnitBuy;
 use tracing::{debug, trace};
@@ -7,6 +7,7 @@ use tracing::{debug, trace};
 use crate::common::formats::GatyaItemBuy;
 use crate::common::formats::GatyaItemName;
 use crate::modules::cat::waiter::unitexplanation;
+use crate::Vfs;
 
 use super::paths;
 
@@ -17,10 +18,10 @@ pub struct ResolvedDrop {
 }
 
 fn resolve_cat_icon(
+    vfs: &Vfs,
     unit_id: u32,
     form_index: usize,
-    unit_buy_registry: &HashMap<u32, UnitBuy>,
-    langs: &[String]
+    unit_buy_registry: &HashMap<u32, UnitBuy>
 ) -> Option<PathBuf> {
     let default_egg = (-1, -1);
     let egg_ids = unit_buy_registry.get(&unit_id)
@@ -35,16 +36,9 @@ fn resolve_cat_icon(
         _ => "f",
     };
 
-    let img_dir = paths::cat_form_folder(unit_id, form_str);
-    let img_file = paths::cat_form_img(unit_id, form_str);
-
     trace!(unit_id, form_index, "Attempting to resolve primary cat icon");
 
-    let primary_icon = crate::common::resolver::get(
-        &img_dir,
-        [&img_file],
-        langs
-    ).into_iter().next();
+    let primary_icon = vfs.list(&paths::cat_form_img(unit_id, form_str)).into_iter().next();
 
     if primary_icon.is_some() {
         return primary_icon;
@@ -55,24 +49,20 @@ fn resolve_cat_icon(
     if target_egg != -1 {
         trace!(unit_id, target_egg, "Falling back to egg icon");
         let fallback_name = format!("uni{:03}_m00.png", target_egg);
-        return crate::common::resolver::get(
-            &img_dir,
-            [&fallback_name],
-            langs
-        ).into_iter().next();
+        return vfs.list(&fallback_name).into_iter().next();
     }
 
     None
 }
 
 pub fn resolve_drop(
+    vfs: &Vfs,
     target_item_id: u32,
     raw_amount: u32,
     item_buy_registry: &HashMap<u32, GatyaItemBuy>,
     item_name_registry: &HashMap<usize, GatyaItemName>,
     drop_chara_registry: &HashMap<u32, u32>,
-    unit_buy_registry: &HashMap<u32, UnitBuy>,
-    langs: &[String]
+    unit_buy_registry: &HashMap<u32, UnitBuy>
 ) -> ResolvedDrop {
 
     if let Some(item_buy) = item_buy_registry.get(&target_item_id) {
@@ -88,10 +78,7 @@ pub fn resolve_drop(
             item_buy.row_index as u32
         };
 
-        let gatya_dir = Path::new(paths::DIR_GATYA_ITEM);
-        let gatya_img = paths::gatya_item_img(img_id);
-
-        let image_path = crate::common::resolver::get(gatya_dir, [&gatya_img], langs).into_iter().next();
+        let image_path = vfs.list(&paths::gatya_item_img(img_id)).into_iter().next();
 
         return ResolvedDrop {
             name,
@@ -102,15 +89,14 @@ pub fn resolve_drop(
 
     if let Some(&chara_id) = drop_chara_registry.get(&target_item_id) {
         debug!(chara_id, target_item_id, "Resolving base cat drop");
-        let cat_folder = paths::cat_folder(chara_id);
-        let explanation = unitexplanation(chara_id, &cat_folder, langs);
+        let explanation = unitexplanation(vfs, chara_id);
 
         let mut name = format!("{}-1", chara_id);
         if let Some(first_form) = &explanation.names[0] {
             name = first_form.clone();
         }
 
-        let image_path = resolve_cat_icon(chara_id, 0, unit_buy_registry, langs);
+        let image_path = resolve_cat_icon(vfs, chara_id, 0, unit_buy_registry);
 
         return ResolvedDrop {
             name,
@@ -121,15 +107,14 @@ pub fn resolve_drop(
 
     if let Some((&unit_id, _)) = unit_buy_registry.iter().find(|(_, row)| row.true_form_id == target_item_id as i32) {
         debug!(unit_id, target_item_id, "Resolving true form cat drop");
-        let cat_folder = paths::cat_folder(unit_id);
-        let explanation = unitexplanation(unit_id, &cat_folder, langs);
+        let explanation = unitexplanation(vfs, unit_id);
 
         let mut name = format!("{}-3", unit_id);
         if let Some(true_form) = &explanation.names[2] {
             name = true_form.clone();
         }
 
-        let image_path = resolve_cat_icon(unit_id, 2, unit_buy_registry, langs);
+        let image_path = resolve_cat_icon(vfs, unit_id, 2, unit_buy_registry);
 
         return ResolvedDrop {
             name,

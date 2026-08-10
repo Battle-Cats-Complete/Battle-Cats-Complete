@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, row, scrollable, slider, text, text_input, Space};
@@ -12,8 +12,7 @@ use nyanko::common::data::img022;
 use core::common::gfx::autocrop;
 use core::modules::cat::game::registry::{get_display_def, AbilityIcon};
 use core::modules::cat::game::talents as talent_logic;
-use core::modules::cat::paths;
-use core::modules::settings::Settings;
+use core::Vfs;
 
 use crate::app::theme;
 use crate::common::ability_icon;
@@ -81,7 +80,7 @@ pub struct ViewCtx<'a, 'b> {
     pub sheets: &'a [SpriteSheet],
     pub img022_sheets: &'a [SpriteSheet],
     pub assets: &'a CustomAssets,
-    pub settings: &'a Settings,
+    pub vfs: &'a Vfs,
 }
 
 pub struct State {
@@ -214,7 +213,7 @@ impl State {
     fn group_header<'a>(&'a self, ctx: &ViewCtx<'a, '_>, index: u8, group: &'a TalentGroup, expanded: bool) -> Element<'a, Message> {
         let icon = self.talent_icon(group, ctx.sheets, ctx.assets);
 
-        let name_el: Element<Message> = match self.skill_name_handle(group, ctx.settings) {
+        let name_el: Element<Message> = match self.skill_name_handle(group, ctx.vfs) {
             Some(handle) => iced_image(handle).into(),
             None => {
                 let fallback_text = get_talent(group.ability_id)
@@ -313,11 +312,11 @@ impl State {
     }
 
 
-    fn skill_name_handle(&self, group: &TalentGroup, settings: &Settings) -> Option<Handle> {
+    fn skill_name_handle(&self, group: &TalentGroup, vfs: &Vfs) -> Option<Handle> {
         let image_id = if group.name_id > 0 { group.name_id } else { group.ability_id as i16 };
         if image_id <= 0 { return None; }
 
-        let path = find_skill_image_path(image_id, settings)?;
+        let path = find_skill_image_path(vfs, image_id)?;
         let file_name = path.file_name()?.to_string_lossy().to_string();
 
         if let Some(cached) = self.skill_name_cache.borrow().get(&file_name) {
@@ -344,8 +343,6 @@ fn dark_box<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message
         .into()
 }
 
-fn find_skill_image_path(image_id: i16, settings: &Settings) -> Option<PathBuf> {
-    let dir = Path::new(paths::DIR_SKILL_NAME);
-    let base_filename = format!("Skill_name_{:03}.png", image_id);
-    core::common::get(dir, [base_filename.as_str()], &settings.general.language_priority).into_iter().next()
+fn find_skill_image_path(vfs: &Vfs, image_id: i16) -> Option<PathBuf> {
+    vfs.list(&format!("Skill_name_{:03}.png", image_id)).into_iter().next()
 }

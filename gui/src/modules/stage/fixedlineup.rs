@@ -8,7 +8,7 @@ use nyanko::chapter::stage::{AbilityType, CannonType, CertificationPreset, Evolu
 
 use core::modules::cat::waiter::unitexplanation;
 use core::modules::stage::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
-use core::modules::stage::paths;
+use core::Vfs;
 
 use crate::app::theme;
 use crate::common::item_icon;
@@ -46,15 +46,15 @@ impl State {
         Some(handle)
     }
 
-    pub fn view<'a>(&'a self, resolved_lineup: &ResolvedFixedLineup, preset: &'a CertificationPreset, langs: &'a [String]) -> Element<'a, super::Message> {
+    pub fn view<'a>(&'a self, resolved_lineup: &ResolvedFixedLineup, preset: &'a CertificationPreset, vfs: &'a Vfs) -> Element<'a, super::Message> {
         let mut top_row = row![].spacing(ICON_SPACING);
         for slot in resolved_lineup.slots.iter().take(5) {
-            top_row = top_row.push(self.slot_view(slot, preset, langs));
+            top_row = top_row.push(self.slot_view(slot, preset, vfs));
         }
 
         let mut bottom_row = row![].spacing(ICON_SPACING);
         for slot in resolved_lineup.slots.iter().skip(5).take(5) {
-            bottom_row = bottom_row.push(self.slot_view(slot, preset, langs));
+            bottom_row = bottom_row.push(self.slot_view(slot, preset, vfs));
         }
 
         let slots_col = column![top_row, bottom_row].spacing(ICON_SPACING);
@@ -80,7 +80,7 @@ impl State {
         section("Fixed Lineup", Length::Fixed(super::CONTENT_WIDTH), body)
     }
 
-    fn slot_view<'a>(&'a self, slot: &ResolvedSlot, preset: &'a CertificationPreset, langs: &'a [String]) -> Element<'a, super::Message> {
+    fn slot_view<'a>(&'a self, slot: &ResolvedSlot, preset: &'a CertificationPreset, vfs: &'a Vfs) -> Element<'a, super::Message> {
         let Some(image_path) = &slot.image_path else {
             return empty_slot();
         };
@@ -96,8 +96,7 @@ impl State {
         };
 
         let padded_id = format!("{:03}", unit_id);
-        let cat_folder = paths::cat_folder(unit_id);
-        let explanation = unitexplanation(unit_id, &cat_folder, langs);
+        let explanation = unitexplanation(vfs, unit_id);
 
         let form_index = preset.characters.get(&unit_id).map_or(0, |chara| match chara.evolution_form {
             EvolutionForm::Normal => 0,

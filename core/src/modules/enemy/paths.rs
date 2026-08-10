@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
-
 pub const DIR_ENEMIES: &str = "game/enemies";
+
+pub(crate) const STATS: &str = "t_unit.csv";
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum AnimType {
@@ -19,38 +19,22 @@ impl AnimType {
     }
 }
 
-pub fn stats(root: &Path) -> PathBuf {
-    root.join("t_unit.csv")
-}
-
-pub fn icon(root: &Path, id: u32) -> PathBuf {
-    root.join(format!("{:03}", id))
-        .join(format!("enemy_icon_{:03}.png", id))
-}
-
-pub(crate) fn anim_folder(root: &Path, id: u32) -> PathBuf {
-    root.join(format!("{:03}", id)).join("anim")
-}
-
-pub(crate) fn anim_base_filename(id: u32) -> String {
+fn anim_base_filename(id: u32) -> String {
     format!("{:03}_e", id)
 }
 
-pub fn anim(root: &Path, id: u32, file_type: AnimType) -> PathBuf {
-    let folder = anim_folder(root, id);
-    let filename = anim_base_filename(id);
-    let ext = file_type.ext();
-    folder.join(format!("{}.{}", filename, ext))
+pub(crate) fn icon_file(id: u32) -> String {
+    format!("enemy_icon_{:03}.png", id)
 }
 
-pub fn maanim(root: &Path, id: u32, index: usize) -> PathBuf {
-    let folder = anim_folder(root, id);
-    let filename = anim_base_filename(id);
-    folder.join(format!("{}{:02}.maanim", filename, index))
+pub fn anim_file(id: u32, file_type: AnimType) -> String {
+    format!("{}.{}", anim_base_filename(id), file_type.ext())
 }
 
-pub fn zombie_maanim(root: &Path, id: u32, index: usize) -> PathBuf {
-    let folder = anim_folder(root, id);
-    let filename = anim_base_filename(id);
-    folder.join(format!("{}_zombie{:02}.maanim", filename, index))
+pub fn maanim_file(id: u32, index: usize) -> String {
+    format!("{}{:02}.maanim", anim_base_filename(id), index)
+}
+
+pub fn zombie_maanim_file(id: u32, index: usize) -> String {
+    format!("{}_zombie{:02}.maanim", anim_base_filename(id), index)
 }

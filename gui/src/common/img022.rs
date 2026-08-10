@@ -1,20 +1,14 @@
-use std::path::Path;
-
 use iced::Task;
 use tracing::{debug, trace};
 
 use core::common::formats::SpriteSheet as CoreSpriteSheet;
-use core::common::io;
-use core::common::resolver;
-use core::modules::settings::Settings;
+use core::Vfs;
 
 use super::SpriteSheet;
 
-pub fn ensure_loaded(sheets: &mut Vec<SpriteSheet>, settings: &Settings) -> Task<(usize, Option<CoreSpriteSheet>)> {
-    let base_dir = io::img022_folder(Path::new(""));
-
-    let png_paths = resolver::get(&base_dir, ["img022.png"], &settings.general.language_priority);
-    let cut_paths = resolver::get(&base_dir, ["img022.imgcut"], &settings.general.language_priority);
+pub fn ensure_loaded(sheets: &mut Vec<SpriteSheet>, vfs: &Vfs) -> Task<(usize, Option<CoreSpriteSheet>)> {
+    let png_paths = vfs.list("img022.png");
+    let cut_paths = vfs.list("img022.imgcut");
 
     if sheets.len() != png_paths.len() {
         debug!("Resizing img022 sheets matrix to match resolved paths ({})", png_paths.len());

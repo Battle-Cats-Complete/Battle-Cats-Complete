@@ -8,6 +8,7 @@ mod statblock;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -31,6 +32,7 @@ use core::modules::enemy::game::EnemyRenderContext;
 use core::modules::enemy::scanner::{self, EnemyEntry};
 use core::modules::enemy::EnemyDataState;
 use core::modules::settings::Settings;
+use core::{Store, Vfs};
 
 use crate::animation;
 use crate::app::state::{AppState, EnemyListState};
@@ -195,29 +197,30 @@ impl EnemyState {
         }
     }
 
-    pub fn start_load(&mut self, settings: &Settings) -> Task<Message> {
+    pub fn start_load(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
         info!("Triggering initial enemy load");
-        let config = settings.scanner_config();
+        let config = settings.scanner_config(active_mod);
+        let scan_store = Arc::clone(store);
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
-            let enemies = scanner::load(config, |done, total| {
+            let enemies = scanner::load(config, scan_store, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
             let _ = tx.unbounded_send(Message::Loaded(enemies));
         });
 
-        Task::batch([Task::stream(rx), self.check_sheets(settings)])
+        Task::batch([Task::stream(rx), self.check_sheets(&store.vfs)])
     }
 
-    pub fn rescan(&mut self, settings: &Settings) -> Task<Message> {
+    pub fn rescan(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning enemies for active-mod change");
         self.animation.invalidate_paths();
-        self.start_load(settings)
+        self.start_load(settings, store, active_mod)
     }
 
-    fn check_sheets(&mut self, settings: &Settings) -> Task<Message> {
-        crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings)
+    fn check_sheets(&mut self, vfs: &Vfs) -> Task<Message> {
+        crate::common::img015::ensure_loaded(&mut self.img015_sheets, vfs)
             .map(|(index, sheet)| Message::Img015Loaded(index, sheet))
     }
 
@@ -231,7 +234,7 @@ impl EnemyState {
 
     fn update_inner(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
-            Message::SheetsCheck => self.check_sheets(settings),
+            Message::SheetsCheck => self.check_sheets(&global_ctx.store.vfs),
             Message::Img015Loaded(index, sheet) => {
                 if let Some(slot) = self.img015_sheets.get_mut(index) {
                     slot.apply(sheet);
@@ -251,13 +254,13 @@ impl EnemyState {
                 self.header_icon_cache.borrow_mut().clear();
                 self.data.enemies = enemies;
                 match self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
-                    Some(enemy) => self.animation.preload_enemy(enemy, settings).map(Message::Animation),
+                    Some(enemy) => self.animation.preload_enemy(enemy, &global_ctx.store.vfs).map(Message::Animation),
                     None => Task::none(),
                 }
             }
             Message::AnimationTick => {
                 if let Some(enemy) = self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
-                    self.animation.sync_enemy(enemy, settings, &app_state.animation);
+                    self.animation.sync_enemy(enemy, &global_ctx.store.vfs, settings, &app_state.animation);
                 }
                 self.animation.tick();
                 Task::none()
@@ -278,7 +281,7 @@ impl EnemyState {
 
                 info!("Selected enemy ID: {}", id);
                 match self.data.enemies.iter().find(|e| e.id == id) {
-                    Some(enemy) => self.animation.preload_enemy(enemy, settings).map(Message::Animation),
+                    Some(enemy) => self.animation.preload_enemy(enemy, &global_ctx.store.vfs).map(Message::Animation),
                     None => Task::none(),
                 }
             }
@@ -322,6 +325,7 @@ impl EnemyState {
                     sheets: &self.img015_sheets,
                     global: global_ctx,
                     settings,
+                    store: global_ctx.store,
                 });
 
                 self.export.update(msg, || ctx.and_then(export::request)).map(Message::Export)
@@ -598,7 +602,7 @@ impl EnemyState {
     }
 
     fn view_abilities<'a>(&'a self, enemy: &'a EnemyEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
-        let dynamic_entry = scanner::scan_single(enemy.id, &settings.scanner_config());
+        let dynamic_entry = scanner::scan_single(enemy.id, global_ctx.store, settings.show_invalid_enemies());
         let stats = dynamic_entry.as_ref().map_or(&enemy.stats, |entry| &entry.stats);
 
         let enemy_ctx = EnemyRenderContext {

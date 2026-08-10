@@ -26,7 +26,7 @@ pub(super) struct Ctx<'a> {
 
 pub(super) fn request(ctx: Ctx<'_>) -> Option<Request<'_>> {
     let cat = ctx.cat;
-    let dynamic_stats = unitid(cat.id as i32, &ctx.settings.general.language_priority);
+    let dynamic_stats = unitid(&ctx.global.store.vfs, cat.id as i32);
     let base_stats = dynamic_stats.as_ref().and_then(|forms| forms.get(ctx.form))?;
 
     let form_allows_talents = ctx.form >= 2;
@@ -45,7 +45,7 @@ pub(super) fn request(ctx: Ctx<'_>) -> Option<Request<'_>> {
         is_conjure_unit: false,
     };
 
-    let data = build_cat_statblock(&cat_ctx, cat, ctx.form, ctx.level_input.to_string(), ctx.is_conjure_expanded, ctx.settings);
+    let data = build_cat_statblock(&cat_ctx, cat, ctx.form, ctx.level_input.to_string(), ctx.is_conjure_expanded);
 
-    Some(Request { data, sheets: ctx.sheets, settings: ctx.settings })
+    Some(Request { data, sheets: ctx.sheets, settings: ctx.settings, vfs: &ctx.global.store.vfs })
 }

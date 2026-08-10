@@ -10,6 +10,7 @@ use iced::{Color, Element, Length, Theme};
 use core::common::formats::{GatyaItemBuy, GatyaItemName};
 use core::modules::stage::materials;
 use core::modules::stage::{Map, Stage};
+use core::Vfs;
 
 use crate::app::theme;
 use crate::common::item_icon;
@@ -57,7 +58,7 @@ impl State {
         selected_crown: u8,
         item_buys: &'a HashMap<u32, GatyaItemBuy>,
         item_names: &'a HashMap<usize, GatyaItemName>,
-        langs: &'a [String],
+        vfs: &'a Vfs,
     ) -> Element<'a, super::Message> {
         if !has_drops(stage, map) {
             return space().into();
@@ -78,10 +79,10 @@ impl State {
         let mut grid_col = column![].spacing(CHUNK_SPACING);
 
         if base_mats.iter().any(|&count| count > 0) {
-            grid_col = self.push_chunks(grid_col, base_mats, 0, item_buys, item_names, langs);
+            grid_col = self.push_chunks(grid_col, base_mats, 0, item_buys, item_names, vfs);
         }
         if z_mats.iter().any(|&count| count > 0) {
-            grid_col = self.push_chunks(grid_col, z_mats, 8, item_buys, item_names, langs);
+            grid_col = self.push_chunks(grid_col, z_mats, 8, item_buys, item_names, vfs);
         }
 
         container(section(format!("Materials | Amount: {} ({}×{:.2})", final_amount, base_amount, multiplier), Length::Fill, grid_col))
@@ -96,7 +97,7 @@ impl State {
         offset: usize,
         item_buys: &'a HashMap<u32, GatyaItemBuy>,
         item_names: &'a HashMap<usize, GatyaItemName>,
-        langs: &'a [String],
+        vfs: &'a Vfs,
     ) -> Column<'a, super::Message> {
         let column_width = (MAT_TABLE_WIDTH - (CELL_PADDING_X as f32 * 2.0) - (COL_SPACING * 3.0)) / 4.0;
 
@@ -104,7 +105,7 @@ impl State {
             let chunk_offset = offset + (chunk_idx * 4);
 
             let resolved: Vec<_> = chunk.iter().enumerate()
-                .map(|(i, &chance)| (materials::resolve(chunk_offset + i, chance, item_buys, item_names, langs), chance))
+                .map(|(i, &chance)| (materials::resolve(vfs, chunk_offset + i, chance, item_buys, item_names), chance))
                 .collect();
 
             let mut name_row = row![].spacing(COL_SPACING);

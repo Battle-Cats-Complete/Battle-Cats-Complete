@@ -1,221 +1,56 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
 
-use nyanko::chapter::map::{
-    DropItem, DropItemEntry, ExOption, LockSkipData, LockSkipDataEntry, MapName,
-    MapOption, MapOptionEntry, ScoreBonusMap, ScoreBonusMapEntry, SpecialRulesMap,
-    SpecialRulesMapEntry, SpecialRulesMapOption, SpecialRulesMapOptionEntry
-};
+use nyanko::chapter::map::{LockSkipData, LockSkipDataEntry};
 use nyanko::chapter::stage::{
-    Battleground, CertificationPreset, CharaGroup, CharaGroupEntry, DifficultyLevel,
-    DropChara, FixedFormation, FixedFormationEntry, MapStageData, MapStageDataEntry,
-    ScatCpuSetting, StageOption, StageOptionEntry, StageName, StageNameEntry
+    Battleground, CertificationPreset, DropChara, MapStageData, MapStageDataEntry, ScatCpuSetting,
+    StageName, StageNameEntry,
 };
 
-use crate::common::resolver;
+use crate::Vfs;
 
-pub fn battleground(dir_path: &Path, filename: &str, priority: &[String]) -> Option<Battleground> {
-    let resolved_path = resolver::get(dir_path, [filename], priority).into_iter().next()?;
-
-    let bytes = fs::read(&resolved_path).ok()?;
+pub fn battleground(vfs: &Vfs, filename: &str) -> Option<Battleground> {
+    let bytes = read(vfs, filename)?;
 
     Battleground::parse(&bytes).ok()
 }
 
-pub(crate) fn certification_preset(dir: &Path, filename: &str, priority: &[String]) -> Option<CertificationPreset> {
-    let resolved_path = resolver::get(dir, [filename], priority).into_iter().next()?;
-
-    let bytes = fs::read(&resolved_path).ok()?;
+pub(crate) fn certification_preset(vfs: &Vfs, filename: &str) -> Option<CertificationPreset> {
+    let bytes = read(vfs, filename)?;
 
     CertificationPreset::parse(&bytes).ok()
 }
 
-pub(crate) fn charagroup(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, CharaGroupEntry> {
-    let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    CharaGroup::parse(&bytes).map(|parsed| parsed.groups).unwrap_or_default()
+pub(crate) fn drop_chara(vfs: &Vfs, filename: &str) -> HashMap<u32, u32> {
+    read(vfs, filename)
+        .and_then(|bytes| DropChara::parse(&bytes).ok())
+        .map(|parsed| parsed.character_drops)
+        .unwrap_or_default()
 }
 
-pub fn difficulty_level(dir_path: &Path, filename: &str, priority: &[String]) -> HashMap<u32, Vec<u16>> {
-    let Some(resolved_path) = resolver::get(dir_path, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    DifficultyLevel::parse(&bytes).map(|parsed| parsed.map_difficulties).unwrap_or_default()
+pub(crate) fn lockskipdata(vfs: &Vfs, filename: &str) -> HashMap<u32, LockSkipDataEntry> {
+    read(vfs, filename)
+        .and_then(|bytes| LockSkipData::parse(&bytes).ok())
+        .map(|parsed| parsed.entries)
+        .unwrap_or_default()
 }
 
-pub(crate) fn drop_chara(dir_path: &Path, filename: &str, priority: &[String]) -> HashMap<u32, u32> {
-    let Some(resolved_path) = resolver::get(dir_path, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    DropChara::parse(&bytes).map(|parsed| parsed.character_drops).unwrap_or_default()
+pub(crate) fn mapstagedata(vfs: &Vfs, filename: &str) -> Vec<MapStageDataEntry> {
+    read(vfs, filename)
+        .and_then(|bytes| MapStageData::parse(&bytes).ok())
+        .map(|parsed| parsed.entries)
+        .unwrap_or_default()
 }
 
-pub(crate) fn dropitem(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, DropItemEntry> {
-    let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    DropItem::parse(&bytes).map(|parsed| parsed.map_drops).unwrap_or_default()
+pub(crate) fn scatcpusetting(vfs: &Vfs, filename: &str) -> ScatCpuSetting {
+    read(vfs, filename)
+        .and_then(|bytes| ScatCpuSetting::parse(&bytes).ok())
+        .unwrap_or_default()
 }
 
-pub(crate) fn ex_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, u32> {
-    let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    ExOption::parse(&bytes).map(|parsed| parsed.map_to_ex_map).unwrap_or_default()
-}
-
-pub(crate) fn fixed_formation(dir: &Path, filename: &str, priority: &[String]) -> HashMap<(u32, u8, u32), FixedFormationEntry> {
-    let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    FixedFormation::parse(&bytes).map(|parsed| parsed.formations).unwrap_or_default()
-}
-
-pub(crate) fn lockskipdata(dir_path: &Path, filename: &str, priority: &[String]) -> HashMap<u32, LockSkipDataEntry> {
-    let Some(resolved_path) = resolver::get(dir_path, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    LockSkipData::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
-}
-
-pub fn map_name(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, String> {
-    let mut final_map = HashMap::new();
-    let paths = resolver::get(dir, [filename], priority);
-
-    for path in paths.iter().rev() {
-        let Ok(bytes) = fs::read(path) else { continue; };
-        let Ok(parsed) = MapName::parse(&bytes) else { continue; };
-
-        final_map.extend(parsed.names);
-    }
-
-    final_map
-}
-
-pub(crate) fn map_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, MapOptionEntry> {
-    let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    MapOption::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
-}
-
-pub(crate) fn mapstagedata(dir: &Path, filename: &str, priority: &[String]) -> Vec<MapStageDataEntry> {
-    let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
-        return Vec::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return Vec::new();
-    };
-
-    MapStageData::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
-}
-
-pub(crate) fn scatcpusetting(dir_path: &Path, filename: &str, priority: &[String]) -> ScatCpuSetting {
-    let Some(resolved_path) = resolver::get(dir_path, [filename], priority).into_iter().next() else {
-        return ScatCpuSetting::default();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return ScatCpuSetting::default();
-    };
-
-    ScatCpuSetting::parse(&bytes).unwrap_or_default()
-}
-
-pub(crate) fn scorebonusmap(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, ScoreBonusMapEntry> {
-    let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    ScoreBonusMap::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
-}
-
-pub(crate) fn specialrulesmap(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, SpecialRulesMapEntry> {
-    let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    SpecialRulesMap::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
-}
-
-pub(crate) fn specialrulesmapoption(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u8, SpecialRulesMapOptionEntry> {
-    let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    SpecialRulesMapOption::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
-}
-
-pub(crate) fn stage_option(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, Vec<StageOptionEntry>> {
-    let Some(resolved_path) = resolver::get(dir, [filename], priority).into_iter().next() else {
-        return HashMap::new();
-    };
-
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return HashMap::new();
-    };
-
-    StageOption::parse(&bytes).map(|parsed| parsed.entries).unwrap_or_default()
-}
-
-pub(crate) fn stagename(dir: &Path, filename: &str, priority: &[String]) -> HashMap<u32, StageNameEntry> {
+pub(crate) fn stagename(vfs: &Vfs, filename: &str) -> HashMap<u32, StageNameEntry> {
     let mut final_map: HashMap<u32, StageNameEntry> = HashMap::new();
-    let paths = resolver::get(dir, [filename], priority);
+    let paths = vfs.list(filename);
 
     for path in paths.iter().rev() {
         let Ok(bytes) = fs::read(path) else { continue; };
@@ -237,4 +72,10 @@ pub(crate) fn stagename(dir: &Path, filename: &str, priority: &[String]) -> Hash
     }
 
     final_map
+}
+
+fn read(vfs: &Vfs, filename: &str) -> Option<Vec<u8>> {
+    let path = vfs.list(filename).into_iter().next()?;
+
+    fs::read(path).ok()
 }

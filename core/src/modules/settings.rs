@@ -162,6 +162,7 @@ impl Default for AnimSettings {
 #[derive(Clone, Debug)]
 pub struct ScannerConfig {
     pub language_priority: Vec<String>,
+    pub active_mod: Option<String>,
     pub preferred_form: usize,
     pub show_invalid_cats: bool,
     pub show_invalid_enemies: bool,
@@ -173,13 +174,18 @@ pub struct EmulatorConfig {
 }
 
 impl Settings {
-    pub fn scanner_config(&self) -> ScannerConfig {
+    pub fn scanner_config(&self, active_mod: Option<String>) -> ScannerConfig {
         ScannerConfig {
             language_priority: self.general.language_priority.clone(),
+            active_mod,
             preferred_form: self.cat_data.preferred_banner_form,
             show_invalid_cats: self.cat_data.show_invalid_cats,
             show_invalid_enemies: self.enemy_data.show_invalid_enemies,
         }
+    }
+
+    pub fn show_invalid_enemies(&self) -> bool {
+        self.enemy_data.show_invalid_enemies
     }
 
     pub fn emulator_config(&self) -> EmulatorConfig {

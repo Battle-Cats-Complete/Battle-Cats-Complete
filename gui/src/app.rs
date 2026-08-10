@@ -1,4 +1,5 @@
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::time::Duration;
 
 use iced::widget::{button, column, container, markdown, operation, row, scrollable, stack};
@@ -11,6 +12,7 @@ use tracing::{info, trace, warn};
 use core::common::context::GlobalContext;
 use core::common::io::json;
 use core::modules::settings::{Settings, UpdateMode};
+use core::Store;
 
 use crate::common::watcher::GuiWatcher;
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
@@ -178,6 +180,9 @@ pub struct BattleCatsApp {
     pub settings: Settings,
 
     #[serde(skip)]
+    pub store: Arc<Store>,
+
+    #[serde(skip)]
     pub app_state: AppState,
 
     #[serde(skip)]
@@ -227,6 +232,7 @@ impl Default for BattleCatsApp {
             data_state: data::State::default(),
             settings_state: gui_settings::State::default(),
             settings: Settings::default(),
+            store: Arc::new(Store::new(&Settings::default())),
             app_state: AppState::default(),
             param: Param::default(),
             localizable: Localizable::default(),
@@ -280,7 +286,7 @@ impl BattleCatsApp {
         match page {
             Page::Home => self.home_state.update(home::Message::CheckInit).map(Message::Home),
             Page::Cats => {
-                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
+                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, store: &self.store };
                 let sheets_task = self.cat_state.update(cat::Message::SheetsCheck, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
                 let scroll_task = operation::scroll_to(
                     cat::State::list_scrollable_id(),
@@ -289,7 +295,7 @@ impl BattleCatsApp {
                 Task::batch([sheets_task, scroll_task])
             }
             Page::Enemies => {
-                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
+                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, store: &self.store };
                 let sheets_task = self.enemy_state.update(enemy::Message::SheetsCheck, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Enemy);
                 let scroll_task = operation::scroll_to(
                     enemy::EnemyState::list_scrollable_id(),
@@ -302,10 +308,12 @@ impl BattleCatsApp {
     }
 
     fn rescan_units(&mut self) -> Task<Message> {
+        let active_mod = self.mods_state.active_mod();
+
         Task::batch([
-            self.cat_state.rescan(&self.settings).map(Message::Cat),
-            self.enemy_state.rescan(&self.settings).map(Message::Enemy),
-            self.stage_state.rescan(&self.settings).map(Message::Stage),
+            self.cat_state.rescan(&self.settings, &self.store, active_mod.clone()).map(Message::Cat),
+            self.enemy_state.rescan(&self.settings, &self.store, active_mod.clone()).map(Message::Enemy),
+            self.stage_state.rescan(&self.settings, &self.store, active_mod).map(Message::Stage),
         ])
     }
 
@@ -457,7 +465,7 @@ impl BattleCatsApp {
                 task
             }
             Message::Cat(msg) => {
-                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
+                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, store: &self.store };
                 let task = self.cat_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
                 self.cat_state.sync_state(&mut self.app_state.cat);
                 self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open(&self.app_state));
@@ -469,7 +477,7 @@ impl BattleCatsApp {
                 self.update(Message::Stage(stage::Message::ShowEnemyAppearances(id))),
             ]),
             Message::Enemy(msg) => {
-                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable };
+                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, store: &self.store };
                 let enemies_loaded = matches!(msg, enemy::Message::Loaded(_));
                 let task = self.enemy_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Enemy);
                 if enemies_loaded {
@@ -518,9 +526,9 @@ impl BattleCatsApp {
     pub fn view(&self) -> Element<'_, Message> {
         let content = match self.current_page {
             Page::Home => self.home_state.view().map(Message::Home),
-            Page::Cats => self.cat_state.view(&self.settings, &self.app_state, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Cat),
-            Page::Enemies => self.enemy_state.view(&self.settings, &self.app_state, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Enemy),
-            Page::Stages => self.stage_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable }).map(Message::Stage),
+            Page::Cats => self.cat_state.view(&self.settings, &self.app_state, GlobalContext { param: &self.param, localizable: &self.localizable, store: &self.store }).map(Message::Cat),
+            Page::Enemies => self.enemy_state.view(&self.settings, &self.app_state, GlobalContext { param: &self.param, localizable: &self.localizable, store: &self.store }).map(Message::Enemy),
+            Page::Stages => self.stage_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable, store: &self.store }).map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Data => self.data_state.view(&self.app_state).map(Message::Data),
             Page::Settings => self.settings_state.view(&self.settings, &self.updater_status).map(Message::Settings),

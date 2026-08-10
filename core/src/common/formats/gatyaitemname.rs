@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
 
 use nyanko::common::tools::file;
 
-use super::super::resolver;
+use crate::Vfs;
+
 use super::GatyaItemName;
 
-pub(crate) fn load(dir_path: &Path, filename: &str, lang_priority: &[String]) -> HashMap<usize, GatyaItemName> {
+pub(crate) fn load(vfs: &Vfs, filename: &str) -> HashMap<usize, GatyaItemName> {
     let mut item_name_map = HashMap::new();
-    let file_paths = resolver::get(dir_path, [filename], lang_priority);
+    let file_paths = vfs.list(filename);
 
     let Some(first_path) = file_paths.first() else {
         return item_name_map;

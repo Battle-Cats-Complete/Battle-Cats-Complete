@@ -6,8 +6,6 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::resolver;
-
 use super::mods::export::ExportState;
 use super::mods::import::ModImportState;
 
@@ -106,7 +104,9 @@ impl ModDataState {
         }
 
         self.loaded_mods.retain(|m| current_folders.contains(&m.folder_name));
-        let active = self.loaded_mods.iter().find(|m| m.enabled).map(|m| m.folder_name.clone());
-        resolver::set_active_mod(active);
+    }
+
+    pub fn active_mod(&self) -> Option<String> {
+        self.loaded_mods.iter().find(|m| m.enabled).map(|m| m.folder_name.clone())
     }
 }

@@ -9,7 +9,8 @@ use nyanko::chapter::map::LockSkipDataEntry;
 use nyanko::chapter::stage::ScatCpuSetting;
 use nyanko::chapter::Category;
 
-use core::modules::stage::{paths, Map, Stage};
+use core::modules::stage::{Map, Stage};
+use core::Vfs;
 
 use crate::app::theme;
 use crate::common::item_icon;
@@ -109,15 +110,15 @@ fn get_stage_file(map_id: u32, stage_id: u32, image_prefix: &str) -> String {
     format!("mapsn{:03}_{:02}{}.png", map_id, stage_id, prefix_string)
 }
 
-fn get_story_stage_info(category: &Category, map_id: u32, stage_id: u32) -> Option<(PathBuf, String)> {
-    let (folder_name, file_code) = match category {
-        Category::EmpireOfCats => ("EC", "ec"),
-        Category::IntoTheFuture => ("W", "wc"),
-        Category::CatsOfTheCosmos => ("Space", "sc"),
+fn get_story_stage_file(category: &Category, map_id: u32, stage_id: u32) -> Option<String> {
+    let file_code = match category {
+        Category::EmpireOfCats => "ec",
+        Category::IntoTheFuture => "wc",
+        Category::CatsOfTheCosmos => "sc",
         Category::ZombieOutbreaks => match map_id {
-            0..=2 => ("EC", "ec"),
-            4..=6 => ("W", "wc"),
-            7..=9 => ("Space", "sc"),
+            0..=2 => "ec",
+            4..=6 => "wc",
+            7..=9 => "sc",
             _ => return None,
         },
         _ => return None,
@@ -129,24 +130,11 @@ fn get_story_stage_info(category: &Category, map_id: u32, stage_id: u32) -> Opti
         id => id,
     };
 
-    let directory = Path::new(paths::DIR_CATEGORIES)
-        .join(folder_name)
-        .join("image")
-        .join(format!("{:02}", image_index));
-
-    let file_name = format!("{}0{:02}_n.png", file_code, image_index);
-
-    Some((directory, file_name))
+    Some(format!("{}0{:02}_n.png", file_code, image_index))
 }
 
-fn find_texture(directories: &[PathBuf], files: &[String], languages: &[String]) -> Option<PathBuf> {
-    let file_references: Vec<&str> = files.iter().map(|string_val| string_val.as_str()).collect();
-    for directory in directories {
-        if let Some(resolved_path) = core::common::resolver::get(directory, &file_references, languages).into_iter().next() {
-            return Some(resolved_path);
-        }
-    }
-    None
+fn find_texture(vfs: &Vfs, files: &[String]) -> Option<PathBuf> {
+    files.iter().find_map(|name| vfs.list(name).into_iter().next())
 }
 
 #[derive(Default)]
@@ -173,7 +161,7 @@ impl State {
         &'a self,
         stage: &'a Stage,
         map: &'a Map,
-        langs: &[String],
+        vfs: &Vfs,
         lock_registry: &HashMap<u32, LockSkipDataEntry>,
         cpu_setting: &ScatCpuSetting,
         selected_crown: u8,
@@ -183,20 +171,13 @@ impl State {
         let map_key = format!("map_img_{:?}_{}", stage.category, stage.map_id);
         let stage_key = format!("stage_img_{:?}_{}_{}", stage.category, stage.map_id, stage.stage_id);
 
-        let base_directory = Path::new(paths::DIR_CATEGORIES);
-        let map_directory = paths::map_folder(base_directory, &stage.category, stage.map_id);
-
-        let map_texture = find_texture(&[map_directory], &[get_map_file(stage.map_id, &image_prefix)], langs)
+        let map_texture = find_texture(vfs, &[get_map_file(stage.map_id, &image_prefix)])
             .and_then(|path| self.texture(&map_key, &path));
 
-        let (story_dirs, story_files) = if let Some((story_dir, story_file)) = get_story_stage_info(&stage.category, stage.map_id, stage.stage_id) {
-            (vec![story_dir], vec![story_file])
-        } else {
-            let stage_directory = paths::stage_folder(base_directory, &stage.category, stage.map_id, stage.stage_id);
-            (vec![stage_directory], vec![get_stage_file(stage.map_id, stage.stage_id, &image_prefix)])
-        };
+        let story_files = get_story_stage_file(&stage.category, stage.map_id, stage.stage_id)
+            .map_or_else(|| vec![get_stage_file(stage.map_id, stage.stage_id, &image_prefix)], |file| vec![file]);
 
-        let stage_texture = find_texture(&story_dirs, &story_files, langs)
+        let stage_texture = find_texture(vfs, &story_files)
             .and_then(|path| self.texture(&stage_key, &path));
 
         let banner_row = row![

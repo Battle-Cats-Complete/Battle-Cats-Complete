@@ -11,6 +11,7 @@ mod ultra;
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -36,6 +37,7 @@ use core::modules::cat::scanner::{self, CatEntry};
 use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
 use core::modules::settings::Settings;
+use core::{Store, Vfs};
 
 use crate::animation;
 use crate::app::state::{AppState, CatListState};
@@ -228,25 +230,26 @@ impl State {
         }
     }
 
-    pub fn start_load(&mut self, settings: &Settings) -> Task<Message> {
+    pub fn start_load(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
         info!("Triggering initial cat load");
-        let config = settings.scanner_config();
+        let config = settings.scanner_config(active_mod);
+        let scan_store = Arc::clone(store);
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
-            let cats = scanner::load(config, |done, total| {
+            let cats = scanner::load(config, scan_store, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
             let _ = tx.unbounded_send(Message::Loaded(cats));
         });
 
-        Task::batch([Task::stream(rx), self.check_sheets(settings)])
+        Task::batch([Task::stream(rx), self.check_sheets(&store.vfs)])
     }
 
-    pub fn rescan(&mut self, settings: &Settings) -> Task<Message> {
+    pub fn rescan(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning cats for active-mod change");
         self.animation.invalidate_paths();
-        self.start_load(settings)
+        self.start_load(settings, store, active_mod)
     }
 
     fn clamped_selection(&self, cat: &CatEntry) -> (usize, DetailTab) {
@@ -280,10 +283,10 @@ impl State {
         }
     }
 
-    fn check_sheets(&mut self, settings: &Settings) -> Task<Message> {
-        let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, settings)
+    fn check_sheets(&mut self, vfs: &Vfs) -> Task<Message> {
+        let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, vfs)
             .map(|(index, sheet)| Message::Img015Loaded(index, sheet));
-        let img022_task = crate::common::img022::ensure_loaded(&mut self.img022_sheets, settings)
+        let img022_task = crate::common::img022::ensure_loaded(&mut self.img022_sheets, vfs)
             .map(|(index, sheet)| Message::Img022Loaded(index, sheet));
 
         Task::batch([img015_task, img022_task])
@@ -312,7 +315,7 @@ impl State {
 
     fn update_inner(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
-            Message::SheetsCheck => self.check_sheets(settings),
+            Message::SheetsCheck => self.check_sheets(&global_ctx.store.vfs),
             Message::Img015Loaded(index, sheet) => {
                 if let Some(slot) = self.img015_sheets.get_mut(index) {
                     slot.apply(sheet);
@@ -342,14 +345,14 @@ impl State {
                         let (form, tab) = self.clamped_selection(cat);
                         self.selected_form = form;
                         self.selected_tab = tab;
-                        self.animation.preload(cat, form, settings).map(Message::Animation)
+                        self.animation.preload(cat, form, &global_ctx.store.vfs).map(Message::Animation)
                     }
                     None => Task::none(),
                 }
             }
             Message::AnimationTick => {
                 if let Some(cat) = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
-                    self.animation.sync(cat, self.selected_form, settings, &app_state.animation);
+                    self.animation.sync(cat, self.selected_form, &global_ctx.store.vfs, settings, &app_state.animation);
                 }
                 self.animation.tick();
                 Task::none()
@@ -377,7 +380,7 @@ impl State {
                         let (form, tab) = self.clamped_selection(cat);
                         self.selected_form = form;
                         self.selected_tab = tab;
-                        self.animation.preload(cat, form, settings).map(Message::Animation)
+                        self.animation.preload(cat, form, &global_ctx.store.vfs).map(Message::Animation)
                     }
                     None => Task::none(),
                 }
@@ -389,7 +392,7 @@ impl State {
                     self.selected_tab = DetailTab::Abilities;
                 }
                 match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
-                    Some(cat) => self.animation.preload(cat, form_idx, settings).map(Message::Animation),
+                    Some(cat) => self.animation.preload(cat, form_idx, &global_ctx.store.vfs).map(Message::Animation),
                     None => Task::none(),
                 }
             }
@@ -586,8 +589,8 @@ impl State {
 
         let content = match self.selected_tab {
             DetailTab::Abilities => self.view_abilities(cat, settings, global_ctx),
-            DetailTab::Talents => self.view_talents(cat, settings),
-            DetailTab::Details => self.view_details(cat, settings),
+            DetailTab::Talents => self.view_talents(cat, global_ctx),
+            DetailTab::Details => self.view_details(cat, global_ctx),
             DetailTab::Animation => self.animation.view(settings, &app_state.animation).map(Message::Animation),
         };
 
@@ -745,7 +748,7 @@ impl State {
     }
 
     fn view_abilities<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
-        let dynamic_stats = unitid(cat.id as i32, &settings.general.language_priority);
+        let dynamic_stats = unitid(&global_ctx.store.vfs, cat.id as i32);
         let Some(base_stats) = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form)) else {
             return container(text("Stats data not found")).into();
         };
@@ -828,12 +831,12 @@ impl State {
         column![header_row, value_row, header_row2, value_row2].spacing(4).into()
     }
 
-    fn view_talents<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings) -> Element<'a, Message> {
+    fn view_talents<'a>(&'a self, cat: &'a CatEntry, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let Some(talent_data) = &cat.talent_data else {
             return container(text("No Talents Available")).into();
         };
 
-        let dynamic_stats = unitid(cat.id as i32, &settings.general.language_priority);
+        let dynamic_stats = unitid(&global_ctx.store.vfs, cat.id as i32);
         let base_stats = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form));
 
         self.talents.view(talents::ViewCtx {
@@ -849,11 +852,11 @@ impl State {
             sheets: &self.img015_sheets,
             img022_sheets: &self.img022_sheets,
             assets: &self.custom_assets,
-            settings,
+            vfs: &global_ctx.store.vfs,
         }).map(Message::Talents)
     }
 
-    fn view_details<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings) -> Element<'a, Message> {
-        self.details.view(cat, self.selected_form, &settings.general.language_priority)
+    fn view_details<'a>(&'a self, cat: &'a CatEntry, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+        self.details.view(cat, self.selected_form, &global_ctx.store.vfs)
     }
 }

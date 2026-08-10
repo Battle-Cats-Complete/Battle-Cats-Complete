@@ -8,6 +8,7 @@ use iced::{font, Border, Color, Element, Font, Length, Padding, Theme};
 
 use core::common::io;
 use core::modules::cat::scanner::CatEntry;
+use core::Vfs;
 
 use crate::common::item_icon;
 use crate::widget::smooth_scroll;
@@ -48,29 +49,29 @@ impl State {
         self.trimmed_icons.borrow_mut().clear();
     }
 
-    fn boxed_icon(&self, id: i32, langs: &[String]) -> Option<Handle> {
+    fn boxed_icon(&self, id: i32, vfs: &Vfs) -> Option<Handle> {
         if let Some(cached) = self.boxed_icons.borrow().get(&id) {
             return cached.clone();
         }
 
-        let handle = io::gatya_item_icon(id, langs).and_then(|path| item_icon::load_boxed(&path, MATERIAL_CANVAS));
+        let handle = io::gatya_item_icon(vfs, id).and_then(|path| item_icon::load_boxed(&path, MATERIAL_CANVAS));
         self.boxed_icons.borrow_mut().insert(id, handle.clone());
         handle
     }
 
-    fn trimmed_icon(&self, id: i32, langs: &[String]) -> Option<TrimmedIcon> {
+    fn trimmed_icon(&self, id: i32, vfs: &Vfs) -> Option<TrimmedIcon> {
         if let Some(cached) = self.trimmed_icons.borrow().get(&id) {
             return cached.clone();
         }
 
-        let loaded = io::gatya_item_icon(id, langs)
+        let loaded = io::gatya_item_icon(vfs, id)
             .and_then(|path| item_icon::load_cropped(&path))
             .map(|(handle, width, height)| TrimmedIcon { handle, width, height });
         self.trimmed_icons.borrow_mut().insert(id, loaded.clone());
         loaded
     }
 
-    pub(super) fn view<'a>(&'a self, cat: &'a CatEntry, form: usize, langs: &'a [String]) -> Element<'a, Message> {
+    pub(super) fn view<'a>(&'a self, cat: &'a CatEntry, form: usize, vfs: &'a Vfs) -> Element<'a, Message> {
         let description = cat.description.get(form)
             .and_then(|d| d.as_ref())
             .map(|lines| lines.join("\n"))
@@ -88,14 +89,14 @@ impl State {
             .spacing(SECTION_SPACING)
             .width(Length::Fill);
 
-        if let Some(evolve) = self.view_evolve(cat, form, langs) {
+        if let Some(evolve) = self.view_evolve(cat, form, vfs) {
             content = content.push(evolve);
         }
 
         smooth_scroll(scrollable(content)).into()
     }
 
-    fn view_evolve<'a>(&'a self, cat: &'a CatEntry, form: usize, langs: &'a [String]) -> Option<Element<'a, Message>> {
+    fn view_evolve<'a>(&'a self, cat: &'a CatEntry, form: usize, vfs: &'a Vfs) -> Option<Element<'a, Message>> {
         let (materials, xp_cost) = match form {
             2 => (&cat.unitbuy.true_form_materials, cat.unitbuy.true_form_xp_cost),
             3 => (&cat.unitbuy.ultra_form_materials, cat.unitbuy.ultra_form_xp_cost),
@@ -130,21 +131,21 @@ impl State {
         if !materials.is_empty() {
             let mut icon_row = row![].spacing(MATERIAL_SPACING);
             for (item_id, amount) in materials {
-                icon_row = icon_row.push(self.view_material(*item_id, *amount, langs));
+                icon_row = icon_row.push(self.view_material(*item_id, *amount, vfs));
             }
             section = section.push(icon_row);
             section = section.push(Space::new().height(Length::Fixed(EVOLVE_ITEM_SPACING)));
         }
 
         if xp_cost > 0 {
-            section = section.push(self.view_xp_cost(xp_cost, langs));
+            section = section.push(self.view_xp_cost(xp_cost, vfs));
         }
 
         Some(section.into())
     }
 
-    fn view_material<'a>(&'a self, item_id: i32, amount: i32, langs: &[String]) -> Element<'a, Message> {
-        let icon: Element<'a, Message> = self.boxed_icon(item_id, langs).map_or_else(
+    fn view_material<'a>(&'a self, item_id: i32, amount: i32, vfs: &Vfs) -> Element<'a, Message> {
+        let icon: Element<'a, Message> = self.boxed_icon(item_id, vfs).map_or_else(
             || container(text(format!("ID {}", item_id)).size(AMOUNT_TEXT_SIZE + 1.0))
                 .width(Length::Fixed(MATERIAL_SIZE))
                 .height(Length::Fixed(MATERIAL_SIZE))
@@ -175,8 +176,8 @@ impl State {
             .into()
     }
 
-    fn view_xp_cost<'a>(&'a self, xp_cost: i32, langs: &[String]) -> Element<'a, Message> {
-        let icon: Element<'a, Message> = self.trimmed_icon(XP_ICON_ID, langs).map_or_else(
+    fn view_xp_cost<'a>(&'a self, xp_cost: i32, vfs: &Vfs) -> Element<'a, Message> {
+        let icon: Element<'a, Message> = self.trimmed_icon(XP_ICON_ID, vfs).map_or_else(
             || container(text("XP").size(AMOUNT_TEXT_SIZE))
                 .width(Length::Fixed(XP_ICON_HEIGHT))
                 .height(Length::Fixed(XP_ICON_HEIGHT))

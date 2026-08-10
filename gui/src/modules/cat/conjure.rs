@@ -57,7 +57,7 @@ impl State {
         per_row: usize,
     ) -> Element<'_, Message> {
         let spirit = SpiritContext { cat_id: 0, ..spirit };
-        let Some(conjure_stats_vec) = unitid(spirit.conjure_unit_id, &settings.general.language_priority) else {
+        let Some(conjure_stats_vec) = unitid(&spirit.global.store.vfs, spirit.conjure_unit_id) else {
             return container(text("Spirit data not found")).padding(8).into();
         };
 

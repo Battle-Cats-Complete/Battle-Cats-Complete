@@ -12,6 +12,7 @@ use nyanko::chapter::stage::RewardStructure;
 use core::common::formats::{GatyaItemBuy, GatyaItemName};
 use core::modules::stage::treasure;
 use core::modules::stage::Stage;
+use core::Vfs;
 
 use crate::app::theme;
 use crate::common::item_icon;
@@ -101,7 +102,7 @@ impl State {
         item_names: &'a HashMap<usize, GatyaItemName>,
         drop_charas: &'a HashMap<u32, u32>,
         unit_buys: &'a HashMap<u32, UnitBuy>,
-        langs: &'a [String],
+        vfs: &'a Vfs,
     ) -> Element<'a, super::Message> {
         match &stage.rewards {
             RewardStructure::Treasure { drop_rule, drops } => {
@@ -113,7 +114,7 @@ impl State {
                 let mut grid = column![header_row("Chance")];
 
                 for (index, drop) in valid_drops.into_iter().enumerate() {
-                    let resolved = treasure::resolve_drop(drop.item_id, drop.amount, item_buys, item_names, drop_charas, unit_buys, langs);
+                    let resolved = treasure::resolve_drop(vfs, drop.item_id, drop.amount, item_buys, item_names, drop_charas, unit_buys);
                     grid = grid.push(self.item_row(
                         index,
                         drop.item_id,
@@ -134,7 +135,7 @@ impl State {
                 let mut grid = column![header_row("Score")];
 
                 for (index, score) in timed_scores.iter().enumerate() {
-                    let resolved = treasure::resolve_drop(score.item_id, score.amount, item_buys, item_names, drop_charas, unit_buys, langs);
+                    let resolved = treasure::resolve_drop(vfs, score.item_id, score.amount, item_buys, item_names, drop_charas, unit_buys);
                     grid = grid.push(self.item_row(
                         index,
                         score.item_id,

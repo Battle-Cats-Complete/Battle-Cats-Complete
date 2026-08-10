@@ -8,6 +8,3 @@ pub mod io;
 pub mod job;
 pub mod keys;
 pub mod region;
-pub mod resolver;
-
-pub use resolver::get;

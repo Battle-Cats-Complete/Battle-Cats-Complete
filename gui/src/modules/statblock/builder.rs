@@ -83,6 +83,7 @@ const SPIRIT_PADDING_X: f32 = 8.0;
 
 pub(crate) fn build_statblock_image(
     priority: &[String],
+    sheet_path: Option<&Path>,
     data: StatblockData,
     cuts_map: HashMap<usize, SpriteCut>,
 ) -> Result<RgbaImage, String> {
@@ -210,10 +211,9 @@ pub(crate) fn build_statblock_image(
     let header_bg = Rgba([20, 20, 20, 255]);
     let data_bg = Rgba([60, 60, 60, 255]);
 
-    let img015_folder = core::common::io::img015_folder(Path::new(""));
     let mut img015_base = RgbaImage::new(1024, 1024);
-    if let Some(resolved_path) = core::common::get(&img015_folder, ["img015.png"], priority).into_iter().next()
-        && let Ok(loaded) = image::open(&resolved_path) { img015_base = loaded.to_rgba8(); }
+    if let Some(resolved_path) = sheet_path
+        && let Ok(loaded) = image::open(resolved_path) { img015_base = loaded.to_rgba8(); }
 
     let mut custom_assets = HashMap::new();
     for (variant, bytes) in assets::CUSTOM_ICON_DATA {

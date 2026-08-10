@@ -13,6 +13,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size,
 use core::modules::cat::scanner::CatEntry;
 use core::modules::enemy::scanner::EnemyEntry;
 use core::modules::settings::Settings;
+use core::Vfs;
 
 use crate::app::state::AnimState;
 use crate::app::theme;
@@ -68,14 +69,14 @@ pub enum Message {
 }
 
 impl State {
-    pub fn sync(&mut self, cat: &CatEntry, form: usize, settings: &Settings, anim_state: &AnimState) {
-        self.data.sync(cat, form, settings);
+    pub fn sync(&mut self, cat: &CatEntry, form: usize, vfs: &Vfs, settings: &Settings, anim_state: &AnimState) {
+        self.data.sync(cat, form, vfs);
         self.export.sync(&self.data, settings, anim_state);
         self.sync_playhead();
     }
 
-    pub fn sync_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings, anim_state: &AnimState) {
-        self.data.sync_enemy(enemy, settings);
+    pub fn sync_enemy(&mut self, enemy: &EnemyEntry, vfs: &Vfs, settings: &Settings, anim_state: &AnimState) {
+        self.data.sync_enemy(enemy, vfs);
         self.export.sync(&self.data, settings, anim_state);
         self.sync_playhead();
     }
@@ -99,12 +100,12 @@ impl State {
         controls::clamp_frame(&mut self.canvas, &self.data);
     }
 
-    pub fn preload(&mut self, cat: &CatEntry, form: usize, settings: &Settings) -> Task<Message> {
-        Self::preload_task(self.data.preload_request(cat, form, settings))
+    pub fn preload(&mut self, cat: &CatEntry, form: usize, vfs: &Vfs) -> Task<Message> {
+        Self::preload_task(self.data.preload_request(cat, form, vfs))
     }
 
-    pub fn preload_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) -> Task<Message> {
-        Self::preload_task(self.data.preload_enemy_request(enemy, settings))
+    pub fn preload_enemy(&mut self, enemy: &EnemyEntry, vfs: &Vfs) -> Task<Message> {
+        Self::preload_task(self.data.preload_enemy_request(enemy, vfs))
     }
 
     fn preload_task(request: Option<data::PreloadRequest>) -> Task<Message> {

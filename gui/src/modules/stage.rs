@@ -8,6 +8,7 @@ mod list;
 mod materials;
 mod treasure;
 
+use std::sync::Arc;
 use std::thread;
 
 use iced::futures::channel::mpsc;
@@ -22,6 +23,7 @@ use core::modules::stage::filter::enemy::EnemyFilter;
 use core::modules::stage::filter::StageFilterState;
 use core::modules::stage::scanner::{self, StageBundle};
 use core::modules::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
+use core::Store;
 
 use crate::app::state::StageListState;
 use crate::app::theme;
@@ -97,13 +99,14 @@ impl Default for State {
 }
 
 impl State {
-    pub fn start_load(&mut self, settings: &Settings) -> Task<Message> {
+    pub fn start_load(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
         info!("Triggering initial stage load");
-        let config = settings.scanner_config();
+        let config = settings.scanner_config(active_mod);
+        let store = Arc::clone(store);
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
-            let bundle = scanner::load(config, |done, total| {
+            let bundle = scanner::load(config, store, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
             let _ = tx.unbounded_send(Message::Loaded(Box::new(bundle)));
@@ -112,9 +115,9 @@ impl State {
         Task::stream(rx)
     }
 
-    pub fn rescan(&mut self, settings: &Settings) -> Task<Message> {
+    pub fn rescan(&mut self, settings: &Settings, store: &Arc<Store>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning stages for active-mod change");
-        self.start_load(settings)
+        self.start_load(settings, store, active_mod)
     }
 
     pub(crate) fn restore_state(&mut self, state: &StageListState) {
@@ -330,7 +333,7 @@ impl State {
             return space().into();
         };
 
-        let langs = &self.data.active_language_priority;
+        let vfs = &global_ctx.store.vfs;
 
         let mut content = column![]
             .spacing(CONTENT_SPACING)
@@ -341,24 +344,24 @@ impl State {
                 left: CONTENT_PADDING,
             });
 
-        content = content.push(self.info.view(stage, map, langs, &self.data.lock_skip_registry, &self.data.scat_cpu_setting, self.selected_crown));
+        content = content.push(self.info.view(stage, map, vfs, &self.data.lock_skip_registry, &self.data.scat_cpu_setting, self.selected_crown));
 
         if materials::has_drops(stage, map) {
             content = content.push(
                 row![
-                    self.materials.view(stage, map, self.selected_crown, &self.data.item_buy_registry, &self.data.item_name_registry, langs),
-                    self.treasure.view(stage, &self.data.item_buy_registry, &self.data.item_name_registry, &self.data.drop_chara_registry, &self.data.unit_buy_registry, langs),
+                    self.materials.view(stage, map, self.selected_crown, &self.data.item_buy_registry, &self.data.item_name_registry, vfs),
+                    self.treasure.view(stage, &self.data.item_buy_registry, &self.data.item_name_registry, &self.data.drop_chara_registry, &self.data.unit_buy_registry, vfs),
                 ]
                     .spacing(DROP_TABLE_GAP)
                     .align_y(Alignment::Start)
             );
         } else {
-            content = content.push(self.treasure.view(stage, &self.data.item_buy_registry, &self.data.item_name_registry, &self.data.drop_chara_registry, &self.data.unit_buy_registry, langs));
+            content = content.push(self.treasure.view(stage, &self.data.item_buy_registry, &self.data.item_name_registry, &self.data.drop_chara_registry, &self.data.unit_buy_registry, vfs));
         }
 
         if let Some(preset) = stage.fixed_lineups.get(&self.selected_crown) {
-            let resolved = core_fixedlineup::resolve_lineup(preset, langs);
-            content = content.push(self.fixedlineup.view(&resolved, preset, langs));
+            let resolved = core_fixedlineup::resolve_lineup(vfs, preset);
+            content = content.push(self.fixedlineup.view(&resolved, preset, vfs));
         }
 
         content = content.push(self.battleground.view(stage, map, self.selected_crown, &self.data.enemy_registry, &self.data.enemy_name_registry, global_ctx));

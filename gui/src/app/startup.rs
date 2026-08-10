@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::Path;
 
 use iced::Task;
 use smol::Timer;
@@ -60,12 +59,8 @@ impl BattleCatsApp {
         updater::cleanup_temp_files();
 
         info!("Loading core tables");
-        let tables_dir = Path::new("game/tables");
-        let loc_dir = Path::new("game/tables/localizable");
-        let priority = &app.settings.general.language_priority;
-
-        app.param = param(tables_dir, priority).unwrap_or_default();
-        app.localizable = localizable(loc_dir, priority);
+        app.param = param(&app.store.vfs).unwrap_or_default();
+        app.localizable = localizable(&app.store.vfs);
 
         let updater_task = if app.settings.general.update_mode != UpdateMode::Ignore {
             info!("Checking for app updates at startup");
@@ -83,10 +78,12 @@ impl BattleCatsApp {
             app.mods_state.icon_stream().map(Message::Mod),
         ]);
 
+        let active_mod = app.mods_state.active_mod();
+
         let boot_loads = Task::batch([
-            app.cat_state.start_load(&app.settings).map(Message::Cat),
-            app.enemy_state.start_load(&app.settings).map(Message::Enemy),
-            app.stage_state.start_load(&app.settings).map(Message::Stage),
+            app.cat_state.start_load(&app.settings, &app.store, active_mod.clone()).map(Message::Cat),
+            app.enemy_state.start_load(&app.settings, &app.store, active_mod.clone()).map(Message::Enemy),
+            app.stage_state.start_load(&app.settings, &app.store, active_mod).map(Message::Stage),
         ]);
 
         let reveal_fallback = Task::future(Timer::after(super::WINDOW_SHOW_FALLBACK)).map(|_| Message::ShowWindow);

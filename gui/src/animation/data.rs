@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tracing::warn;
@@ -13,7 +13,7 @@ use core::modules::cat::paths::{self, AnimType};
 use core::modules::cat::scanner::CatEntry;
 use core::modules::enemy::paths::{self as enemy_paths, AnimType as EnemyAnimType};
 use core::modules::enemy::scanner::EnemyEntry;
-use core::modules::settings::Settings;
+use core::Vfs;
 
 const ANIM_SLOTS: [usize; 6] = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
 const FALLBACK_PRIORITY: [usize; 6] = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
@@ -112,18 +112,18 @@ impl State {
         self.secondary_assets.is_some()
     }
 
-    pub fn sync(&mut self, cat: &CatEntry, form: usize, settings: &Settings) {
-        self.prepare(cat, form, settings);
+    pub fn sync(&mut self, cat: &CatEntry, form: usize, vfs: &Vfs) {
+        self.prepare(cat, form, vfs);
         self.load_active();
     }
 
-    pub fn preload_request(&mut self, cat: &CatEntry, form: usize, settings: &Settings) -> Option<PreloadRequest> {
-        self.prepare(cat, form, settings);
+    pub fn preload_request(&mut self, cat: &CatEntry, form: usize, vfs: &Vfs) -> Option<PreloadRequest> {
+        self.prepare(cat, form, vfs);
         self.build_request()
     }
 
-    pub fn preload_enemy_request(&mut self, enemy: &EnemyEntry, settings: &Settings) -> Option<PreloadRequest> {
-        self.prepare_enemy(enemy, settings);
+    pub fn preload_enemy_request(&mut self, enemy: &EnemyEntry, vfs: &Vfs) -> Option<PreloadRequest> {
+        self.prepare_enemy(enemy, vfs);
         self.build_request()
     }
 
@@ -160,7 +160,7 @@ impl State {
         }
     }
 
-    fn prepare(&mut self, cat: &CatEntry, form: usize, settings: &Settings) {
+    fn prepare(&mut self, cat: &CatEntry, form: usize, vfs: &Vfs) {
         let form_char = match form {
             0 => 'f',
             1 => 'c',
@@ -170,7 +170,7 @@ impl State {
         let primary_id = format!("{:03}_{}", cat.id, form_char);
 
         if self.primary_id != primary_id {
-            self.rescan_paths(cat, form, &primary_id, settings);
+            self.rescan_paths(cat, form, &primary_id, vfs);
         }
 
         self.select_valid_index();
@@ -216,29 +216,23 @@ impl State {
         true
     }
 
-    fn rescan_paths(&mut self, cat: &CatEntry, form: usize, primary_id: &str, settings: &Settings) {
-        let root = Path::new(paths::DIR_CATS);
+    fn rescan_paths(&mut self, cat: &CatEntry, form: usize, primary_id: &str, vfs: &Vfs) {
         let egg_ids = cat.egg_ids.unwrap_or((-1, -1));
-        let priority = &settings.general.language_priority;
 
-        let resolve = |path: PathBuf| -> Option<PathBuf> {
-            let parent = path.parent()?;
-            let name = path.file_name()?.to_str()?;
-            core::common::get(parent, [name], priority).into_iter().next()
-        };
+        let resolve = |name: String| -> Option<PathBuf> { vfs.list(&name).into_iter().next() };
 
         let mut available_anims = Vec::new();
         for idx in ANIM_SLOTS {
-            let candidate = paths::maanim(root, cat.id, form, egg_ids, idx);
+            let candidate = paths::maanim_file(cat.id, form, egg_ids, idx);
             if let Some(resolved) = resolve(candidate) {
                 available_anims.push((idx, resolved));
             }
         }
 
         let primary_assets = (|| {
-            let png = resolve(paths::anim(root, cat.id, form, egg_ids, AnimType::Png))?;
-            let cut = resolve(paths::anim(root, cat.id, form, egg_ids, AnimType::Imgcut))?;
-            let model = resolve(paths::anim(root, cat.id, form, egg_ids, AnimType::Mamodel))?;
+            let png = resolve(paths::anim_file(cat.id, form, egg_ids, AnimType::Png))?;
+            let cut = resolve(paths::anim_file(cat.id, form, egg_ids, AnimType::Imgcut))?;
+            let model = resolve(paths::anim_file(cat.id, form, egg_ids, AnimType::Mamodel))?;
             Some((png, cut, model))
         })();
 
@@ -253,10 +247,10 @@ impl State {
         if conjure_id > 0 {
             let spirit_id = conjure_id as u32;
             secondary_assets = (|| {
-                let png = resolve(paths::anim(root, spirit_id, 0, (-1, -1), AnimType::Png))?;
-                let cut = resolve(paths::anim(root, spirit_id, 0, (-1, -1), AnimType::Imgcut))?;
-                let model = resolve(paths::anim(root, spirit_id, 0, (-1, -1), AnimType::Mamodel))?;
-                let atk = resolve(paths::maanim(root, spirit_id, 0, (-1, -1), IDX_ATTACK))?;
+                let png = resolve(paths::anim_file(spirit_id, 0, (-1, -1), AnimType::Png))?;
+                let cut = resolve(paths::anim_file(spirit_id, 0, (-1, -1), AnimType::Imgcut))?;
+                let model = resolve(paths::anim_file(spirit_id, 0, (-1, -1), AnimType::Mamodel))?;
+                let atk = resolve(paths::maanim_file(spirit_id, 0, (-1, -1), IDX_ATTACK))?;
                 Some((png, cut, model, atk))
             })();
 
@@ -272,54 +266,49 @@ impl State {
         self.secondary_assets = secondary_assets;
     }
 
-    pub fn sync_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) {
-        self.prepare_enemy(enemy, settings);
+    pub fn sync_enemy(&mut self, enemy: &EnemyEntry, vfs: &Vfs) {
+        self.prepare_enemy(enemy, vfs);
         self.load_active();
     }
 
-    fn prepare_enemy(&mut self, enemy: &EnemyEntry, settings: &Settings) {
+    fn prepare_enemy(&mut self, enemy: &EnemyEntry, vfs: &Vfs) {
         let primary_id = enemy.id_str();
 
         if self.primary_id != primary_id {
-            self.rescan_enemy_paths(enemy, &primary_id, settings);
+            self.rescan_enemy_paths(enemy, &primary_id, vfs);
         }
 
         self.select_valid_index();
     }
 
-    fn rescan_enemy_paths(&mut self, enemy: &EnemyEntry, primary_id: &str, settings: &Settings) {
-        let root = Path::new(enemy_paths::DIR_ENEMIES);
-        let priority = &settings.general.language_priority;
-
-        let resolve = |path: PathBuf| -> Option<PathBuf> {
-            let parent = path.parent()?;
-            let name = path.file_name()?.to_str()?;
+    fn rescan_enemy_paths(&mut self, enemy: &EnemyEntry, primary_id: &str, vfs: &Vfs) {
+        let resolve = |name: String| -> Option<PathBuf> {
             let iname = format!("i{}", name);
-            core::common::get(parent, [name, &iname], priority).into_iter().next()
+            vfs.list_any(&[name.as_str(), iname.as_str()]).into_iter().next()
         };
 
         let mut available_anims = Vec::new();
         for idx in ENEMY_ANIM_SLOTS {
-            let candidate = enemy_paths::maanim(root, enemy.id, idx);
+            let candidate = enemy_paths::maanim_file(enemy.id, idx);
             if let Some(resolved) = resolve(candidate) {
                 available_anims.push((idx, resolved));
             }
         }
 
-        if let Some(p) = resolve(enemy_paths::zombie_maanim(root, enemy.id, 0)) {
+        if let Some(p) = resolve(enemy_paths::zombie_maanim_file(enemy.id, 0)) {
             available_anims.push((IDX_BURROW, p));
         }
-        if let Some(p) = resolve(enemy_paths::zombie_maanim(root, enemy.id, 1)) {
+        if let Some(p) = resolve(enemy_paths::zombie_maanim_file(enemy.id, 1)) {
             available_anims.push((IDX_DIG, p));
         }
-        if let Some(p) = resolve(enemy_paths::zombie_maanim(root, enemy.id, 2)) {
+        if let Some(p) = resolve(enemy_paths::zombie_maanim_file(enemy.id, 2)) {
             available_anims.push((IDX_SURFACE, p));
         }
 
         let primary_assets = (|| {
-            let png = resolve(enemy_paths::anim(root, enemy.id, EnemyAnimType::Png))?;
-            let cut = resolve(enemy_paths::anim(root, enemy.id, EnemyAnimType::Imgcut))?;
-            let model = resolve(enemy_paths::anim(root, enemy.id, EnemyAnimType::Mamodel))?;
+            let png = resolve(enemy_paths::anim_file(enemy.id, EnemyAnimType::Png))?;
+            let cut = resolve(enemy_paths::anim_file(enemy.id, EnemyAnimType::Imgcut))?;
+            let model = resolve(enemy_paths::anim_file(enemy.id, EnemyAnimType::Mamodel))?;
             Some((png, cut, model))
         })();
 
