@@ -11,6 +11,7 @@ use iced::window;
 use iced::Size;
 
 use core::common::assets;
+#[cfg(target_os = "linux")]
 use core::common::dirs::APP_DIR;
 
 pub fn main() -> iced::Result {

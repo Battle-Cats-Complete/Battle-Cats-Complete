@@ -336,7 +336,7 @@ impl State {
     }
 
     fn icon_image<'a>(&'a self, icon: AbilityIcon, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, is_active: bool) -> Element<'a, Message> {
-        let opacity = if is_active { 1.0 } else { 0.4 };
+        let opacity: f32 = if is_active { 1.0 } else { 0.4 };
 
         match icon {
             AbilityIcon::Custom(custom_icon) => {

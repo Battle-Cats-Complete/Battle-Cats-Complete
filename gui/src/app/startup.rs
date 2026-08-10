@@ -12,7 +12,9 @@ use core::common::dirs;
 use core::common::io::json;
 use core::modules::data::{self, architecture};
 use core::modules::mods;
-use core::modules::settings::{desktop, lang, ExceptionList, ScannerConfig, UpdateMode};
+use core::modules::settings::{lang, ExceptionList, ScannerConfig, UpdateMode};
+#[cfg(target_os = "linux")]
+use core::modules::settings::desktop;
 use core::{ContentStore, Vault};
 
 use crate::modules::home;
