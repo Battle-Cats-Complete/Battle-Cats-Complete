@@ -159,7 +159,7 @@ impl Default for AnimSettings {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct ScannerConfig {
     pub language_priority: Vec<String>,
     pub active_mod: Option<String>,

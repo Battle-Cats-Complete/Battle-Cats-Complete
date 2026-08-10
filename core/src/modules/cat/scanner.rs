@@ -70,7 +70,7 @@ impl cache::CacheSpec for CatCache {
 pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Vec<CatEntry> {
     if config.active_mod.is_none()
         && let Some((hash, cached_cats)) = cache::read::<CatCache>()
-        && hash == cache::get_game_hash(None) {
+        && hash == cache::content_hash(&config) {
         debug!(hash, count = cached_cats.len(), "loaded cats from cache fast-path");
 
         let talent_costs_arc = vault.vds.cats.talent_costs(&vault.vfs);
@@ -136,8 +136,7 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
     parsed_cats.sort_by_key(|cat| cat.id);
 
     if config.active_mod.is_none() {
-        let current_hash = cache::get_game_hash(None);
-        cache::write::<CatCache>(current_hash, &parsed_cats);
+        cache::write::<CatCache>(cache::content_hash(&config), &parsed_cats);
     }
 
     parsed_cats

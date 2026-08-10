@@ -14,6 +14,8 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::modules::settings::ScannerConfig;
+
 use crate::common::dirs;
 use crate::modules::data::architecture;
 
@@ -119,6 +121,15 @@ pub(crate) fn get_game_hash(active_mod: Option<&str>) -> u64 {
     let hash_result = final_game_hasher.finish();
     tracing::debug!("Generated game hash: {}", hash_result);
     hash_result
+}
+
+pub(crate) fn content_hash(config: &ScannerConfig) -> u64 {
+    let mut hasher = FxHasher::default();
+
+    get_game_hash(config.active_mod.as_deref()).hash(&mut hasher);
+    config.hash(&mut hasher);
+
+    hasher.finish()
 }
 
 #[derive(Serialize, Deserialize)]

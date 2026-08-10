@@ -290,9 +290,13 @@ impl State {
     }
 
     pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
-        info!("Rescanning cats for active-mod change");
+        info!("Rescanning cats");
         self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
+        self.img015_sheets.clear();
+        self.img022_sheets.clear();
+        self.details.clear_icons();
+        self.header_icon_cache.borrow_mut().clear();
         self.start_load(settings, vault, active_mod)
     }
 

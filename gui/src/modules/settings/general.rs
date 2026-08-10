@@ -62,6 +62,8 @@ pub enum Message {
 #[derive(Default)]
 pub struct State {
     drag: Drag,
+    baseline: Vec<String>,
+    settled: bool,
 
     #[cfg(target_os = "linux")]
     desktop_feedback: Slot<DesktopFeedback>,
@@ -84,6 +86,7 @@ impl State {
             }
             Message::LanguageDragStart(index) => {
                 self.drag = Drag::Pressed { index };
+                self.baseline = core_settings.general.language_priority.clone();
                 Task::none()
             }
             Message::LanguageDragMove(point) => {
@@ -121,10 +124,14 @@ impl State {
             }
             Message::LanguageDragEnd => {
                 self.drag = Drag::Idle;
+                self.settled |= self.baseline != core_settings.general.language_priority;
+                self.baseline.clear();
                 Task::none()
             }
             Message::LanguageSetDefault => {
-                core_settings.general.language_priority = lang::default_priority();
+                let restored = lang::default_priority();
+                self.settled |= core_settings.general.language_priority != restored;
+                core_settings.general.language_priority = restored;
                 Task::none()
             }
             #[cfg(target_os = "linux")]
@@ -156,6 +163,10 @@ impl State {
 
     pub fn is_dragging(&self) -> bool {
         !matches!(self.drag, Drag::Idle)
+    }
+
+    pub(super) fn take_language_change(&mut self) -> bool {
+        std::mem::take(&mut self.settled)
     }
 
     pub fn view<'a>(&'a self, core_settings: &'a CoreSettings, updater_status: &'a UpdateStatus) -> Element<'a, Message> {

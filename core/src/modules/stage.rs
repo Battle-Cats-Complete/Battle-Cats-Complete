@@ -60,7 +60,6 @@ pub struct StageDataState {
     #[serde(skip)] pub cat_name_registry: HashMap<u32, Vec<String>>,
     #[serde(skip)] pub lock_skip_registry: HashMap<u32, LockSkipDataEntry>,
     #[serde(skip)] pub scat_cpu_setting: ScatCpuSetting,
-    #[serde(skip)] pub active_language_priority: Vec<String>,
 }
 
 impl StageDataState {

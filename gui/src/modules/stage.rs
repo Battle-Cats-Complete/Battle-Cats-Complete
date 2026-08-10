@@ -151,7 +151,12 @@ impl State {
     }
 
     pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
-        info!("Rescanning stages for active-mod change");
+        info!("Rescanning stages");
+        self.info.clear_icons();
+        self.fixedlineup.clear_icons();
+        self.treasure.clear_icons();
+        self.materials.clear_icons();
+        self.battleground.clear_icons();
         self.start_load(settings, vault, active_mod)
     }
 
@@ -208,7 +213,6 @@ impl State {
                 self.data.cat_name_registry = dictionaries.cat_name_registry;
                 self.data.lock_skip_registry = dictionaries.lock_skip_registry;
                 self.data.scat_cpu_setting = dictionaries.scat_cpu_setting;
-                self.data.active_language_priority = dictionaries.active_language_priority;
                 self.prune_selection();
                 self.clamp_crown();
                 Task::none()

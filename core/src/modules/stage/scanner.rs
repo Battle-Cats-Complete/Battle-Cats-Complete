@@ -66,7 +66,6 @@ pub struct StageDictionaries {
     pub cat_name_registry: HashMap<u32, Vec<String>>,
     pub lock_skip_registry: HashMap<u32, LockSkipDataEntry>,
     pub scat_cpu_setting: ScatCpuSetting,
-    pub active_language_priority: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -90,8 +89,7 @@ struct MapJob {
 pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
     if config.active_mod.is_none()
         && let Some((hash, bundle)) = cache::read::<StageCache>()
-        && hash == cache::get_game_hash(None)
-        && bundle.dictionaries.active_language_priority == config.language_priority {
+        && hash == cache::content_hash(&config) {
         debug!(
             hash,
             maps = bundle.registry.maps.len(),
@@ -104,8 +102,8 @@ pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, u
     scan(&config, &vault, progress)
 }
 
-#[instrument(level = "debug", skip(config, vault))]
-fn build_dictionaries(config: &ScannerConfig, vault: &Vault) -> StageDictionaries {
+#[instrument(level = "debug", skip(vault))]
+fn build_dictionaries(vault: &Vault) -> StageDictionaries {
     trace!("Loading auxiliary stage dictionaries");
     let vfs = &vault.vfs;
 
@@ -142,13 +140,12 @@ fn build_dictionaries(config: &ScannerConfig, vault: &Vault) -> StageDictionarie
         cat_name_registry,
         lock_skip_registry,
         scat_cpu_setting,
-        active_language_priority: config.language_priority.clone(),
     }
 }
 
 fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
     info!("--- STAGE SCANNER INITIATED ---");
-    let dictionaries = build_dictionaries(config, vault);
+    let dictionaries = build_dictionaries(vault);
     let registry = scan_all(vault, progress);
     info!("--- STAGE SCANNER COMPLETE: Found {} maps and {} stages ---", registry.maps.len(), registry.stages.len());
 
@@ -160,8 +157,7 @@ fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) +
             return bundle;
         }
 
-        let hash = cache::get_game_hash(None);
-        cache::write::<StageCache>(hash, &bundle);
+        cache::write::<StageCache>(cache::content_hash(config), &bundle);
     }
 
     bundle

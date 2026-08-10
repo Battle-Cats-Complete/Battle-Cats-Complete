@@ -53,7 +53,7 @@ impl cache::CacheSpec for EnemyCache {
 pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
     if config.active_mod.is_none()
         && let Some((hash, cached_enemies)) = cache::read::<EnemyCache>()
-        && hash == cache::get_game_hash(None) {
+        && hash == cache::content_hash(&config) {
         debug!(hash, count = cached_enemies.len(), "loaded enemies from cache fast-path");
         return cached_enemies;
     }
@@ -94,8 +94,7 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
     parsed_enemies.sort_by_key(|e| e.id);
 
     if config.active_mod.is_none() {
-        let current_hash = cache::get_game_hash(None);
-        cache::write::<EnemyCache>(current_hash, &parsed_enemies);
+        cache::write::<EnemyCache>(cache::content_hash(&config), &parsed_enemies);
     }
 
     parsed_enemies

@@ -4,7 +4,7 @@ mod vfs;
 use std::fmt;
 
 use crate::common::io::cache;
-use crate::modules::settings::Settings;
+use crate::modules::settings::{ScannerConfig, Settings};
 
 pub use vds::{CatStore, ContentStore, EnemyStore, StageStore, Vds};
 pub use vfs::{Conflict, Mount, Target, Vfs, VfsError};
@@ -30,6 +30,10 @@ impl Vault {
 
     pub fn hash(active_mod: Option<&str>) -> u64 {
         cache::get_game_hash(active_mod)
+    }
+
+    pub fn key(config: &ScannerConfig) -> u64 {
+        cache::content_hash(config)
     }
 
     pub fn evict(&self, key: &str) {

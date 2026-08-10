@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+use std::iter;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +13,7 @@ use self_update::update::Release;
 use tracing::{info, trace, warn};
 
 use core::common::context::GlobalContext;
+use core::common::game::{localizable, param};
 use core::common::io::json;
 use core::modules::data::architecture;
 use core::modules::settings::{Settings, UpdateMode};
@@ -384,11 +386,20 @@ impl BattleCatsApp {
     }
 
     fn persist_content(&self) {
-        let hash = Vault::hash(self.mods_state.active_mod().as_deref());
-        ContentStore::capture(&self.vault.vds).save(hash);
+        let config = self.settings.scanner_config(self.mods_state.active_mod());
+        ContentStore::capture(&self.vault.vds).save(Vault::key(&config));
+    }
+
+    fn relocalize(&mut self) -> Task<Message> {
+        info!(priority = ?self.settings.general.language_priority, "Language priority settled, dropping every resolved file");
+        self.vault.priority(&self.settings.general.language_priority);
+        self.rescan_units()
     }
 
     fn rescan_units(&mut self) -> Task<Message> {
+        self.param = param(&self.vault.vfs).unwrap_or_default();
+        self.localizable = localizable(&self.vault.vfs);
+
         let active_mod = self.mods_state.active_mod();
 
         Task::batch([
@@ -617,16 +628,13 @@ impl BattleCatsApp {
                     self.set_updater_popup(true);
                     return Task::none();
                 }
-                let priority_before = self.settings.general.language_priority.clone();
                 let task = self.settings_state.update(msg, &mut self.settings).map(Message::Settings);
-                if self.settings.general.language_priority != priority_before {
-                    info!("Language priority changed, clearing resolved data");
-                    self.vault.priority(&self.settings.general.language_priority);
-                }
+                let relocalize = self.settings_state.take_language_change().then(|| self.relocalize());
                 self.sync_popup(ActivePopup::SettingsKeys, self.settings_state.keys_popup_open());
                 self.sync_popup(ActivePopup::SettingsExceptions, self.settings_state.exceptions_popup_open());
                 self.sync_popup(ActivePopup::SettingsPem, self.settings_state.pem_popup_open());
-                task
+
+                Task::batch(iter::once(task).chain(relocalize))
             }
         }
     }

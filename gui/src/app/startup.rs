@@ -13,7 +13,7 @@ use core::common::game::{localizable, param};
 use core::common::io::json;
 use core::modules::data::architecture;
 use core::modules::mods;
-use core::modules::settings::{desktop, lang, ExceptionList, UpdateMode};
+use core::modules::settings::{desktop, lang, ExceptionList, ScannerConfig, UpdateMode};
 use core::{ContentStore, Vault};
 
 use crate::modules::home;
@@ -94,7 +94,7 @@ impl BattleCatsApp {
         info!("Building the file index in the background");
 
         let mut vault = Vault::new(&self.settings);
-        let active_mod = self.mods_state.active_mod();
+        let config = self.settings.scanner_config(self.mods_state.active_mod());
         let (tx, rx) = mpsc::unbounded();
 
         self.cat_state.set_indexing();
@@ -102,7 +102,7 @@ impl BattleCatsApp {
         self.stage_state.set_indexing();
 
         thread::spawn(move || {
-            populate_vault(&mut vault, active_mod.as_deref());
+            populate_vault(&mut vault, &config);
             let _ = tx.unbounded_send(Message::VaultReady(Arc::new(vault)));
         });
 
@@ -132,11 +132,12 @@ impl BattleCatsApp {
     }
 }
 
-fn populate_vault(vault: &mut Vault, active_mod: Option<&str>) {
-    let hash = Vault::hash(active_mod);
+fn populate_vault(vault: &mut Vault, config: &ScannerConfig) {
+    let active_mod = config.active_mod.as_deref();
+    let index = Vault::hash(active_mod);
 
-    if vault.vfs.restore(hash) {
-        debug!(hash, "Restored file index from the virtual file system cache");
+    if vault.vfs.restore(index) {
+        debug!(index, "Restored file index from the virtual file system cache");
     } else {
         mount_game(vault);
 
@@ -144,11 +145,13 @@ fn populate_vault(vault: &mut Vault, active_mod: Option<&str>) {
             mount_mod(vault, name);
         }
 
-        vault.vfs.persist(hash);
+        vault.vfs.persist(index);
     }
 
-    if let Some(content) = ContentStore::load(hash) {
-        debug!(hash, "Restored parsed tables from the virtual data store cache");
+    let key = Vault::key(config);
+
+    if let Some(content) = ContentStore::load(key) {
+        debug!(key, "Restored parsed tables from the virtual data store cache");
         content.apply(&mut vault.vds);
     }
 }

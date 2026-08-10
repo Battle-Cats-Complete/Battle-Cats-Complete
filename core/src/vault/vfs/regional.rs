@@ -1,8 +1,11 @@
 use std::ffi::OsStr;
+use std::ops::RangeInclusive;
 use std::path::Path;
 
 const LANG_TERMINATOR: &str = "--";
-const UDI_FORM_EXCLUSIONS: &[(u32, u32)] = &[];
+
+const UDI_BASE_ONLY_FORM: &str = "s";
+const UDI_BASE_ONLY_IDS: RangeInclusive<u32> = 0..=9;
 
 pub(super) fn interleaved<'a>(
     filenames: &'a [&'a str],
@@ -51,13 +54,9 @@ fn form_excluded(filename: &str) -> bool {
         return false;
     };
 
-    if form != "f" && form != "c" {
+    if form != UDI_BASE_ONLY_FORM {
         return false;
     }
 
-    let Ok(id) = digits.parse::<u32>() else {
-        return false;
-    };
-
-    UDI_FORM_EXCLUSIONS.iter().any(|&(first, last)| id >= first && id <= last)
+    digits.parse::<u32>().is_ok_and(|id| UDI_BASE_ONLY_IDS.contains(&id))
 }

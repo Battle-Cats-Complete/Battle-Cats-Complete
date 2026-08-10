@@ -218,6 +218,10 @@ impl State {
         }
     }
 
+    pub fn take_language_change(&mut self) -> bool {
+        self.general.take_language_change()
+    }
+
     pub fn keys_popup_open(&self) -> bool {
         self.keys.is_open
     }
