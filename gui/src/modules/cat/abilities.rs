@@ -1,161 +1,238 @@
-use eframe::egui;
+use std::collections::HashMap;
+
+use iced::widget::{column, container, image as iced_image, responsive, row, scrollable, stack, tooltip};
+use iced::{Alignment, Element, Length, Size};
+use nyanko::cat::unit::LevelCurve;
 use nyanko::common::data::img015;
 
-use core::modules::cat::game::abilities;
+use core::common::context::GlobalContext;
+use core::common::game::{AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y};
+use core::modules::cat::game::abilities::collect_ability_data;
+use core::modules::cat::game::registry::{get_fallback_by_icon, AbilityIcon};
 use core::modules::cat::game::CatRenderContext;
 use core::modules::cat::scanner::CatEntry;
-use core::modules::cat::game::registry::AbilityIcon;
-use core::common::game::{
-    AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y,
-};
+use core::modules::settings::Settings;
 
-use crate::common::CustomAssets;
-use crate::common::shared::{render_fallback_icon, text_with_superscript, ICON_SIZE};
-use crate::common::SpriteSheet;
+use crate::common::ability_icon;
+use crate::common::{CustomAssets, SpriteSheet};
+use crate::widget::text_with_superscript;
+use crate::widget::{ability_spacer, fallback_icon, icons_per_row, smooth_scroll, ICON_SIZE};
 
-pub(crate) fn render(
-    ui: &mut egui::Ui, 
-    ctx: &CatRenderContext,
-    cat: &CatEntry, 
-    sheets: &[SpriteSheet],
-    assets: &CustomAssets,
-    settings: &core::modules::settings::Settings
-) {
-    ui.spacing_mut().item_spacing.y = 0.0;
-    
-    let (grp_trait, grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = abilities::collect_ability_data(ctx);
-    
-    let mut previous_content = false;
-    let mut last_was_trait = false;
-    let main_border = egui::Color32::BLACK;
+pub(super) const DESCRIPTION_TEXT_SIZE: f32 = 13.0;
 
-    if !grp_trait.is_empty() {
-        render_icon_row(ui, &grp_trait, sheets, main_border, assets);
-        previous_content = true;
-        last_was_trait = true;
-    }
-
-    if !grp_hl1.is_empty() { 
-        if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
-        render_icon_row(ui, &grp_hl1, sheets, main_border, assets);
-        previous_content = true;
-    }
-    
-    if !grp_hl2.is_empty() { 
-        if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
-        render_icon_row(ui, &grp_hl2, sheets, main_border, assets);
-        previous_content = true;
-    }
-
-    let has_body = !grp_b1.is_empty() || !grp_b2.is_empty();
-    if has_body {
-       if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); last_was_trait = false; }
-       
-       render_list_view(ui, &grp_b1, sheets, cat.id, ctx, main_border, assets, settings);
-       
-       if !grp_b1.is_empty() && !grp_b2.is_empty() { ui.add_space(ABILITY_Y); }
-
-       render_list_view(ui, &grp_b2, sheets, cat.id, ctx, main_border, assets, settings);
-       previous_content = true;
-    }
-
-    if !grp_footer.is_empty() {
-        if previous_content { ui.add_space(if last_was_trait { TRAIT_Y } else { ABILITY_Y }); }
-        render_icon_row(ui, &grp_footer, sheets, main_border, assets);
-    }
+#[derive(Debug, Clone)]
+pub enum Message {
+    ToggleConjureExpand(u32),
 }
 
-pub(crate) fn render_icon_row(
-    ui: &mut egui::Ui,
-    items: &Vec<AbilityItem>,
-    sheets: &[SpriteSheet],
-    border_color: egui::Color32,
-    assets: &crate::common::CustomAssets,
-) {
-    ui.scope(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(ABILITY_X, ABILITY_Y);
-        ui.horizontal_wrapped(|ui| {
-            for item in items {
-                let r = render_single_icon(ui, item, sheets, border_color, assets);
-                r.on_hover_ui(|ui| text_with_superscript(ui, &item.text));
+#[derive(Clone, Copy)]
+pub(super) struct ListLayout {
+    pub(super) per_row: usize,
+    pub(super) fill: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct SpiritContext<'a> {
+    pub(super) cat_id: u32,
+    pub(super) global: GlobalContext<'a>,
+    pub(super) level_curve: Option<&'a LevelCurve>,
+    pub(super) current_level: i32,
+    pub(super) conjure_unit_id: i32,
+}
+
+#[derive(Default)]
+pub struct State {
+    icons: ability_icon::Cache,
+    conjure_overrides: HashMap<u32, bool>,
+}
+
+
+impl State {
+    pub fn update(&mut self, message: Message) {
+        match message {
+            Message::ToggleConjureExpand(cat_id) => {
+                let current = self.conjure_overrides.get(&cat_id).copied();
+                self.conjure_overrides.insert(cat_id, !current.unwrap_or(false));
             }
-        });
-    });
-}
-
-fn render_single_icon(
-    ui: &mut egui::Ui,
-    item: &AbilityItem,
-    sheets: &[SpriteSheet],
-    border: egui::Color32,
-    assets: &crate::common::CustomAssets,
-) -> egui::Response {
-    let size = egui::vec2(ICON_SIZE, ICON_SIZE);
-
-    if let Some(tex) = assets.get_icon_texture(item.custom_icon) {
-        return ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)));
+        }
     }
 
-    if let Some(icon_id) = item.icon_id {
-        for sheet in sheets {
-            if let Some(cut) = sheet.core.cuts_map.get(&icon_id) {
-                if let Some(tex) = &sheet.texture_handle {
-                     let response = ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(egui::Rect::from_min_max(egui::pos2(cut.uv_coordinates.min.x, cut.uv_coordinates.min.y), egui::pos2(cut.uv_coordinates.max.x, cut.uv_coordinates.max.y))));
-                     if let Some(border_id) = item.border_id
-                         && let Some(b_cut) = sheet.core.cuts_map.get(&border_id) {
-                             ui.put(response.rect, egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(egui::Rect::from_min_max(egui::pos2(b_cut.uv_coordinates.min.x, b_cut.uv_coordinates.min.y), egui::pos2(b_cut.uv_coordinates.max.x, b_cut.uv_coordinates.max.y))));
-                         }
-                     return response;
-                } else if sheet.core.is_loading_active {
-                     return ui.allocate_response(size, egui::Sense::hover());
+    pub fn view<'a>(
+        &'a self,
+        ctx: &CatRenderContext,
+        cat: &'a CatEntry,
+        global_ctx: GlobalContext<'a>,
+        sheets: &'a [SpriteSheet],
+        assets: &'a CustomAssets,
+        settings: &'a Settings,
+    ) -> Element<'a, Message> {
+        let (grp_trait, grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = collect_ability_data(ctx);
+        let spirit = SpiritContext {
+            cat_id: cat.id,
+            global: global_ctx,
+            level_curve: cat.curve.as_ref(),
+            current_level: ctx.current_level,
+            conjure_unit_id: ctx.base_stats.conjure_unit_id,
+        };
+
+        responsive(move |size: Size| {
+            let per_row = icons_per_row(size.width);
+
+            let mut col = column![].spacing(0).width(Length::Fill);
+            let mut previous_content = false;
+            let mut last_was_trait = false;
+
+            if !grp_trait.is_empty() {
+                col = col.push(self.icon_row(&grp_trait, sheets, assets, per_row));
+                previous_content = true;
+                last_was_trait = true;
+            }
+
+            if !grp_hl1.is_empty() {
+                if previous_content {
+                    col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+                    last_was_trait = false;
                 }
+                col = col.push(self.icon_row(&grp_hl1, sheets, assets, per_row));
+                previous_content = true;
             }
-        }
+
+            if !grp_hl2.is_empty() {
+                if previous_content {
+                    col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+                    last_was_trait = false;
+                }
+                col = col.push(self.icon_row(&grp_hl2, sheets, assets, per_row));
+                previous_content = true;
+            }
+
+            let has_body = !grp_b1.is_empty() || !grp_b2.is_empty();
+            if has_body {
+                if previous_content {
+                    col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+                    last_was_trait = false;
+                }
+
+                let layout = ListLayout { per_row, fill: true };
+                col = col.push(self.ability_list(&grp_b1, spirit, sheets, assets, settings, layout));
+
+                if !grp_b1.is_empty() && !grp_b2.is_empty() {
+                    col = col.push(ability_spacer(ABILITY_Y));
+                }
+
+                col = col.push(self.ability_list(&grp_b2, spirit, sheets, assets, settings, layout));
+                previous_content = true;
+            }
+
+            if !grp_footer.is_empty() {
+                if previous_content {
+                    col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
+                }
+                col = col.push(self.icon_row(&grp_footer, sheets, assets, per_row));
+            }
+
+            smooth_scroll(scrollable(col).height(Length::Fill).width(Length::Fill)).into()
+        }).into()
     }
 
-    let icon_enum = if item.custom_icon != CustomIcon::None {
-        AbilityIcon::Custom(item.custom_icon)
-    } else {
-        AbilityIcon::Standard(item.icon_id.unwrap_or(9999)) 
-    };
+    pub(super) fn icon_row(&self, items: &[AbilityItem], sheets: &[SpriteSheet], assets: &CustomAssets, per_row: usize) -> Element<'_, Message> {
+        let mut col = column![].spacing(ABILITY_Y);
+        for chunk in items.chunks(per_row) {
+            let mut wrapped_row = row![].spacing(ABILITY_X).align_y(Alignment::Center);
+            for item in chunk {
+                let icon = self.icon_element(item, sheets, assets);
+                wrapped_row = wrapped_row.push(tooltip(
+                    icon,
+                    container(text_with_superscript(&item.text, DESCRIPTION_TEXT_SIZE)).padding(6).style(container::bordered_box),
+                    tooltip::Position::Top,
+                ));
+            }
+            col = col.push(wrapped_row);
+        }
 
-    let alt = core::modules::cat::game::registry::get_fallback_by_icon(icon_enum);
-    render_fallback_icon(ui, alt, border)
-}
+        col.into()
+    }
 
-pub(crate) fn render_list_view(
-    ui: &mut egui::Ui,
-    items: &Vec<AbilityItem>,
-    sheets: &[SpriteSheet],
-    cat_id: u32,
-    ctx: &CatRenderContext,
-    border_color: egui::Color32,
-    assets: &crate::common::CustomAssets,
-    settings: &core::modules::settings::Settings
-) {
-    for (i, item) in items.iter().enumerate() {
-        let is_conjure = item.icon_id == Some(img015::ICON_CONJURE) && item.custom_icon == CustomIcon::None;
-        let id = egui::Id::new(format!("conjure_expand_{}", cat_id));
-        
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0; 
-            render_single_icon(ui, item, sheets, border_color, assets);
+    pub(super) fn ability_list(
+        &self,
+        items: &[AbilityItem],
+        spirit: SpiritContext,
+        sheets: &[SpriteSheet],
+        assets: &CustomAssets,
+        settings: &Settings,
+        layout: ListLayout,
+    ) -> Element<'_, Message> {
+        let width = if layout.fill { Length::Fill } else { Length::Shrink };
+        let mut col = column![].spacing(0).width(width);
+        let count = items.len();
 
-            if !is_conjure {
-                text_with_superscript(ui, &item.text);
+        for (i, item) in items.iter().enumerate() {
+            let is_conjure = item.icon_id == Some(img015::ICON_CONJURE) && item.custom_icon == CustomIcon::None;
+
+            let item_row: Element<Message> = if !is_conjure {
+                let icon = self.icon_element(item, sheets, assets);
+                let description = container(text_with_superscript(&item.text, DESCRIPTION_TEXT_SIZE)).width(width);
+                row![icon, description].spacing(8).align_y(Alignment::Center).width(width).into()
             } else {
-                crate::modules::cat::conjure::render_conjure_toggle(ui, &item.text, id, settings);
-            }
-        }); 
+                self.conjure_row(item, spirit, sheets, assets, settings)
+            };
 
-        let expanded = ui.data(|d| d.get_temp::<bool>(id).unwrap_or(settings.cat_data.expand_spirit_details));
-        if is_conjure && expanded {
-            ui.add_space(ABILITY_Y);
-            crate::modules::cat::conjure::render_conjure_details(ui, ctx, sheets, assets, settings);
+            col = col.push(item_row);
+
+            if is_conjure && self.conjure_expanded(spirit.cat_id, settings) {
+                col = col.push(ability_spacer(ABILITY_Y));
+                col = col.push(self.conjure_details(spirit, sheets, assets, settings, layout.per_row));
+            }
+
+            if i < count - 1 {
+                col = col.push(ability_spacer(ABILITY_Y));
+            }
         }
-        
-        if i < items.len() - 1 {
-            ui.add_space(ABILITY_Y);
-        }
+
+        col.into()
     }
+
+    pub(super) fn conjure_expanded(&self, cat_id: u32, settings: &Settings) -> bool {
+        self.conjure_overrides.get(&cat_id).copied().unwrap_or(settings.cat_data.expand_spirit_details)
+    }
+
+    pub(crate) fn is_conjure_expanded(&self, cat_id: u32, settings: &Settings) -> bool {
+        self.conjure_expanded(cat_id, settings)
+    }
+
+    pub(super) fn icon_element(&self, item: &AbilityItem, sheets: &[SpriteSheet], assets: &CustomAssets) -> Element<'_, Message> {
+        if item.custom_icon != CustomIcon::None
+            && let Some(handle) = assets.get_icon_texture(item.custom_icon) {
+            return iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
+        }
+
+        if let Some(icon_id) = item.icon_id
+            && let Some(handle) = self.icons.handle(icon_id, sheets) {
+            let icon_widget = iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
+
+            if let Some(border_id) = item.border_id
+                && let Some(border_handle) = self.icons.handle(border_id, sheets) {
+                    let border_widget = iced_image(border_handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
+                    return stack![icon_widget, border_widget].width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
+                }
+
+            return icon_widget.into();
+        }
+
+        let icon_enum = if item.custom_icon != CustomIcon::None {
+            AbilityIcon::Custom(item.custom_icon)
+        } else {
+            AbilityIcon::Standard(item.icon_id.unwrap_or(9999))
+        };
+
+        fallback_icon(get_fallback_by_icon(icon_enum))
+    }
+
+    pub(super) fn raw_icon(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Element<'_, Message> {
+        self.icons.handle(icon_id, sheets).map_or_else(
+            || fallback_icon(get_fallback_by_icon(AbilityIcon::Standard(icon_id))),
+            |handle| iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into(),
+        )
+    }
+
 }

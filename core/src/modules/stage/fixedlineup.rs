@@ -1,10 +1,10 @@
-use std::path::Path;
 use tracing::warn;
 
-use crate::common::resolver;
 use nyanko::chapter::stage::{CertificationPreset, EvolutionForm, PresetChara};
 
-use super::paths;
+use crate::Vfs;
+
+use super::files;
 
 pub struct ResolvedSlot {
     pub unit_id: Option<u32>,
@@ -27,15 +27,8 @@ fn get_file_letter(evolution_form: &EvolutionForm) -> &'static str {
     }
 }
 
-fn resolve_empty_slot(langs: &[String]) -> ResolvedSlot {
-    let fallback_dir = Path::new(paths::DIR_CATS);
-    let fallback_file = paths::empty_cat_icon();
-
-    let resolved_fallback_path = resolver::get(
-        fallback_dir,
-        [&fallback_file],
-        langs
-    ).into_iter().next();
+fn resolve_empty_slot(vfs: &Vfs) -> ResolvedSlot {
+    let resolved_fallback_path = vfs.find(&files::empty_cat_icon());
 
     ResolvedSlot {
         unit_id: None,
@@ -46,20 +39,13 @@ fn resolve_empty_slot(langs: &[String]) -> ResolvedSlot {
 }
 
 fn resolve_populated_slot(
+    vfs: &Vfs,
     unit_id: u32,
     character_data: &PresetChara,
-    langs: &[String],
 ) -> ResolvedSlot {
     let form_letter = get_file_letter(&character_data.evolution_form);
 
-    let img_dir = paths::cat_form_folder(unit_id, form_letter);
-    let img_file = paths::cat_form_img(unit_id, form_letter);
-
-    let resolved_image_path = resolver::get(
-        &img_dir,
-        [&img_file],
-        langs
-    ).into_iter().next();
+    let resolved_image_path = vfs.find(&files::cat_form_img(unit_id, form_letter));
 
     if resolved_image_path.is_none() {
         warn!("Missing unit icon for unit {} form {}", unit_id, form_letter);
@@ -74,26 +60,26 @@ fn resolve_populated_slot(
 }
 
 pub fn resolve_lineup(
+    vfs: &Vfs,
     preset_lineup_data: &CertificationPreset,
-    langs: &[String],
 ) -> ResolvedFixedLineup {
     let mut resolved_slots_array = Vec::with_capacity(10);
 
     for slot_index in 0..10 {
         let Some(&target_unit_id) = preset_lineup_data.slot_units.get(slot_index) else {
-            resolved_slots_array.push(resolve_empty_slot(langs));
+            resolved_slots_array.push(resolve_empty_slot(vfs));
             continue;
         };
 
         let Some(target_character_data) = preset_lineup_data.characters.get(&target_unit_id) else {
-            resolved_slots_array.push(resolve_empty_slot(langs));
+            resolved_slots_array.push(resolve_empty_slot(vfs));
             continue;
         };
 
         let populated_slot = resolve_populated_slot(
+            vfs,
             target_unit_id,
-            target_character_data,
-            langs
+            target_character_data
         );
 
         resolved_slots_array.push(populated_slot);

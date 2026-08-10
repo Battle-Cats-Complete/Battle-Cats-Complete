@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use tracing::trace;
 
-use crate::modules::cat::filter::icons::evaluate_icon_requirements;
+use crate::modules::cat::filter::icons::{evaluate_icon_requirements, TalentBuilds};
 use crate::modules::cat::filter::stats::evaluate_stat_ranges;
-use crate::modules::cat::filter::{CatFilterState, MatchMode, TalentFilterMode};
+use crate::modules::cat::filter::{CatFilterState, FilterCounts, MatchMode, TalentFilterMode};
 use crate::modules::cat::game::stats::apply_level;
 use crate::modules::cat::game::talents::apply_talent_stats;
 use crate::modules::cat::scanner::CatEntry;
@@ -83,61 +83,59 @@ fn evaluate_single_form(
 
     let has_talent_data = form_index >= 2 && cat.talent_data.is_some();
 
-    if has_talent_data {
-        if let Some(talent_data) = cat.talent_data.as_ref() {
-            let mut min_levels = HashMap::new();
-            let mut max_levels = HashMap::new();
-            let mut normal_map = HashMap::new();
-            let mut ultra_map = HashMap::new();
+    if has_talent_data
+        && let Some(talent_data) = cat.talent_data.as_ref() {
+        let mut min_levels = HashMap::new();
+        let mut max_levels = HashMap::new();
+        let mut normal_map = HashMap::new();
+        let mut ultra_map = HashMap::new();
 
-            for (talent_index, talent_group) in talent_data.groups.iter().enumerate() {
-                let is_ultra_talent = talent_group.limit == 1;
-                let current_mode = if is_ultra_talent { filter.ultra_talent_mode } else { filter.talent_mode };
-                let talent_id_key = talent_index as u8;
+        for (talent_index, talent_group) in talent_data.groups.iter().enumerate() {
+            let is_ultra_talent = talent_group.limit == 1;
+            let current_mode = if is_ultra_talent { filter.ultra_talent_mode } else { filter.talent_mode };
+            let talent_id_key = talent_index as u8;
 
-                if current_mode == TalentFilterMode::Only {
-                    min_levels.insert(talent_id_key, talent_group.max_level);
-                    max_levels.insert(talent_id_key, talent_group.max_level);
-                } else if current_mode == TalentFilterMode::Consider {
-                    max_levels.insert(talent_id_key, talent_group.max_level);
-                }
-
-                if is_ultra_talent {
-                    ultra_map.insert(talent_id_key, talent_group.max_level);
-                } else {
-                    normal_map.insert(talent_id_key, talent_group.max_level);
-                    ultra_map.insert(talent_id_key, talent_group.max_level);
-                }
+            if current_mode == TalentFilterMode::Only {
+                min_levels.insert(talent_id_key, talent_group.max_level);
+                max_levels.insert(talent_id_key, talent_group.max_level);
+            } else if current_mode == TalentFilterMode::Consider {
+                max_levels.insert(talent_id_key, talent_group.max_level);
             }
 
-            state_normal = apply_talent_stats(&base_leveled, talent_data, &normal_map);
-            state_ultra = apply_talent_stats(&base_leveled, talent_data, &ultra_map);
-            stats_min = apply_talent_stats(&base_leveled, talent_data, &min_levels);
-            stats_max = apply_talent_stats(&base_leveled, talent_data, &max_levels);
+            if is_ultra_talent {
+                ultra_map.insert(talent_id_key, talent_group.max_level);
+            } else {
+                normal_map.insert(talent_id_key, talent_group.max_level);
+                ultra_map.insert(talent_id_key, talent_group.max_level);
+            }
         }
+
+        state_normal = apply_talent_stats(&base_leveled, talent_data, &normal_map);
+        state_ultra = apply_talent_stats(&base_leveled, talent_data, &ultra_map);
+        stats_min = apply_talent_stats(&base_leveled, talent_data, &min_levels);
+        stats_max = apply_talent_stats(&base_leveled, talent_data, &max_levels);
     }
 
-    let mut active_conditions = 0;
-    let mut passed_conditions = 0;
-    let mut failed_conditions = 0;
+    let mut counts = FilterCounts::default();
 
     if has_stat_filters {
-        evaluate_stat_ranges(cat, form_index, filter, &stats_min, &stats_max, &mut active_conditions, &mut passed_conditions, &mut failed_conditions);
+        evaluate_stat_ranges(cat, form_index, filter, &stats_min, &stats_max, &mut counts);
     }
 
     if has_icon_filters {
-        evaluate_icon_requirements(cat, form_index, filter, &base_leveled, &state_normal, &state_ultra, &mut active_conditions, &mut passed_conditions, &mut failed_conditions);
+        let builds = TalentBuilds { base: &base_leveled, normal: &state_normal, ultra: &state_ultra };
+        evaluate_icon_requirements(cat, form_index, filter, &builds, &mut counts);
     }
 
-    if active_conditions == 0 {
+    if counts.active == 0 {
         return true;
     }
 
     if filter.match_mode == MatchMode::And {
-        return failed_conditions == 0;
+        return counts.failed == 0;
     }
 
-    passed_conditions > 0
+    counts.passed > 0
 }
 
 fn check_talent_presence_only(cat: &CatEntry, form_index: usize, require_normal: bool, require_ultra: bool) -> bool {

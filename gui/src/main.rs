@@ -1,55 +1,62 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![warn(unreachable_pub)]
-mod app;
-mod modules;
-mod common;
+pub(crate) mod animation;
+pub mod app;
+pub mod common;
+pub mod modules;
+pub mod widget;
 
-use std::panic;
 use std::fs;
+use std::panic;
 
-use eframe::egui;
+use iced::window;
+use iced::Size;
 
-fn main() -> eframe::Result<()> {
+use core::common::assets;
+use core::common::dirs::APP_DIR;
+
+pub fn main() -> iced::Result {
     panic::set_hook(Box::new(|panic_info| {
         let msg = format!("Battle Cats Complete crashed!\n{}\n", panic_info);
         let _ = fs::write("crash.txt", msg);
     }));
 
-    let icon = load_icon();
-
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([800.0, 600.0])
-            .with_min_inner_size([800.0, 600.0])
-            .with_title("Battle Cats Complete")
-            .with_drag_and_drop(true)
-            .with_icon(icon)
-            .with_app_id("battle_cats_complete"),
-        multisampling: 0,
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "Battle Cats Complete",
-        options,
-        Box::new(|cc| Ok(Box::new(app::BattleCatsApp::new(cc)))),
+    iced::application(
+        app::BattleCatsApp::new,
+        app::BattleCatsApp::update,
+        app::BattleCatsApp::view,
     )
+        .title("Battle Cats Complete")
+        .theme(app::BattleCatsApp::theme)
+        .font(assets::FONT_JP)
+        .font(assets::FONT_KR)
+        .font(assets::FONT_TC)
+        .font(assets::FONT_TH)
+        .window(window::Settings {
+            size: Size::new(800.0, 600.0),
+            min_size: Some(Size::new(800.0, 600.0)),
+            visible: false,
+            icon: load_icon(),
+            platform_specific: platform_specific_settings(),
+            ..Default::default()
+        })
+        .subscription(app::BattleCatsApp::subscription)
+        .run()
 }
 
-fn load_icon() -> egui::IconData {
-    let (icon_rgba, icon_width, icon_height) = {
-        let image = image::load_from_memory(core::common::assets::ICON)
-            .expect("Failed to open icon path")
-            .into_rgba8();
+#[cfg(target_os = "linux")]
+fn platform_specific_settings() -> window::settings::PlatformSpecific {
+    window::settings::PlatformSpecific { application_id: APP_DIR.to_string(), ..Default::default() }
+}
 
-        let (width, height) = image.dimensions();
-        let rgba = image.into_raw();
-        (rgba, width, height)
-    };
+#[cfg(not(target_os = "linux"))]
+fn platform_specific_settings() -> window::settings::PlatformSpecific {
+    window::settings::PlatformSpecific::default()
+}
 
-    egui::IconData {
-        rgba: icon_rgba,
-        width: icon_width,
-        height: icon_height,
-    }
+fn load_icon() -> Option<window::icon::Icon> {
+    image::load_from_memory(assets::ICON).ok().and_then(|image| {
+        let rgba = image.into_rgba8();
+        let (width, height) = rgba.dimensions();
+        let raw_pixels = rgba.into_raw();
+        window::icon::from_rgba(raw_pixels, width, height).ok()
+    })
 }

@@ -1,373 +1,348 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use eframe::egui;
+use iced::widget::image::Handle;
+use iced::widget::{button, column, container, image as iced_image, row, scrollable, slider, text, text_input, Space};
+use iced::{font, Alignment, Color, Element, Length, Theme};
 use nyanko::cat::abilities::get_talent;
 use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
 use nyanko::common::data::img022;
 
-use core::modules::cat::game::talents;
-use core::modules::cat::paths;
 use core::common::gfx::autocrop;
-use core::modules::settings::Settings;
+use core::modules::cat::game::registry::{get_display_def, AbilityIcon};
+use core::modules::cat::game::talents as talent_logic;
+use core::Vfs;
 
-use crate::common::CustomAssets;
-use crate::common::shared::render_fallback_icon;
-use crate::common::SpriteSheet;
+use crate::app::theme;
+use crate::common::ability_icon;
+use crate::common::{CustomAssets, SpriteSheet};
+use crate::widget::{fallback_icon, smooth_scroll};
 
-pub(crate) const TALENT_NP_ICON_SIZE: f32 = 20.0;
-pub(crate) const TALENT_NP_TEXT_SIZE: f32 = 18.0;
+const GROUP_ICON_SIZE: f32 = 40.0;
+const NP_ICON_SIZE: f32 = 20.0;
+const HEADER_NP_ICON_SIZE: f32 = 24.0;
+const HEADER_NP_TEXT_SIZE: f32 = 20.0;
+const TALENT_BTN_WIDTH: f32 = 100.0;
+const TALENT_BTN_HEIGHT: f32 = 23.0;
+const SECTION_SPACING: f32 = 2.0;
 
-pub(crate) const TALENT_SECTION_SPACING: f32 = 2.0;
-
-pub(crate) fn render(
-    ui: &mut egui::Ui,
-    talent_data: &Talent,
-    sheets: &[SpriteSheet],
-    img022_sheets: &[SpriteSheet],
-    name_cache: &mut HashMap<String, egui::TextureHandle>,
-    descriptions: Option<&Vec<String>>,
-    settings: &Settings,
-    current_stats: Option<&Battle>,
-    curve: Option<&LevelCurve>,
-    unit_level: i32,
-    talent_levels: &mut HashMap<u8, u8>,
-    cat_id: u32,
-    talent_costs: &HashMap<u8, TalentCost>,
-    assets: &CustomAssets,
-) {
-    ui.add_space(5.0);
-
-    let sidebar_pad = ui.ctx().data(|d| d.get_temp::<f32>(egui::Id::new("sidebar_visible_width"))).unwrap_or(0.0);
-
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0);
-
-                for (index, group) in talent_data.groups.iter().enumerate() {
-                    render_talent_group(
-                        ui,
-                        cat_id,
-                        index,
-                        group,
-                        sheets,
-                        img022_sheets,
-                        name_cache,
-                        descriptions,
-                        settings,
-                        current_stats,
-                        curve,
-                        unit_level,
-                        talent_levels,
-                        sidebar_pad,
-                        talent_costs,
-                        assets
-                    );
-                }
-            });
-        });
+fn bold_text<'a>(content: impl ToString, size: f32) -> iced::widget::Text<'a> {
+    text(content.to_string())
+        .size(size)
+        .font(font::Font { weight: font::Weight::Bold, ..Default::default() })
+        .color(Color::WHITE)
 }
 
-fn render_talent_group(
-    ui: &mut egui::Ui,
-    cat_id: u32,
-    index: usize,
-    group: &TalentGroup,
-    sheets: &[SpriteSheet],
-    img022_sheets: &[SpriteSheet],
-    name_cache: &mut HashMap<String, egui::TextureHandle>,
-    descriptions: Option<&Vec<String>>,
-    settings: &Settings,
-    current_stats: Option<&Battle>,
-    curve: Option<&LevelCurve>,
-    unit_level: i32,
-    talent_levels: &mut HashMap<u8, u8>,
-    sidebar_pad: f32,
-    talent_costs: &HashMap<u8, TalentCost>,
-    assets: &CustomAssets,
-) {
-    let bg_color = if group.limit == 1 {
-        egui::Color32::from_rgb(120, 20, 20)
-    } else {
-        egui::Color32::from_rgb(180, 140, 20)
-    };
-
-    let id = ui.make_persistent_id(format!("cat_{}_talent_group_{}", cat_id, index));
-    let mut expanded = ui.data(|d| d.get_temp(id).unwrap_or(false));
-
-    egui::Frame::none()
-        .fill(bg_color)
-        .rounding(5.0)
-        .inner_margin(6.0)
-        .show(ui, |ui| {
-            let scrollbar_padding = 12.0;
-
-            let target_width = ui.available_width() - sidebar_pad - scrollbar_padding;
-            ui.set_width(target_width.max(10.0));
-
-            ui.vertical(|ui| {
-                if render_header(ui, group, sheets, name_cache, settings, expanded, assets) {
-                    expanded = !expanded;
-                    ui.data_mut(|d| d.insert_temp(id, expanded));
-                }
-
-                if expanded {
-                    render_body(
-                        ui,
-                        index,
-                        group,
-                        descriptions,
-                        talent_levels,
-                        current_stats,
-                        curve,
-                        unit_level,
-                        talent_costs,
-                        img022_sheets,
-                        settings
-                    );
-                }
-            });
-        });
+#[derive(Debug, Clone)]
+pub enum Message {
+    ToggleGroup(u32, u8),
+    LevelChanged(u8, u8),
+    LevelInputChanged(u8, String),
+    ToggleNormal,
+    ToggleUltra,
 }
 
-fn render_header(
-    ui: &mut egui::Ui,
-    group: &TalentGroup,
-    sheets: &[SpriteSheet],
-    name_cache: &mut HashMap<String, egui::TextureHandle>,
-    settings: &Settings,
-    expanded: bool,
-    assets: &CustomAssets,
-) -> bool {
-    let mut toggle_clicked = false;
+pub struct ToggleAvailability {
+    pub has_normal_enabled: bool,
+    pub has_ultra_enabled: bool,
+    pub has_ultra_talents: bool,
+}
 
-    let header_res = ui.horizontal(|ui| {
-        ui.set_width(ui.available_width());
+pub fn toggle_availability(talent_data: &Talent, talent_levels: Option<&HashMap<u8, u8>>) -> ToggleAvailability {
+    let mut has_normal_enabled = false;
+    let mut has_ultra_enabled = false;
+    let mut has_ultra_talents = false;
 
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-
-            let def_opt = get_talent(group.ability_id);
-
-            if let Some(def) = &def_opt {
-                let display_def = core::modules::cat::game::registry::get_display_def(def.identity);
-                let size = egui::vec2(40.0, 40.0);
-
-                let mut drawn = false;
-
-                match display_def.icon {
-                    core::modules::cat::game::registry::AbilityIcon::Custom(custom) => {
-                        if let Some(tex) = assets.get_icon_texture(custom) {
-                            ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)));
-                            drawn = true;
-                        }
-                    },
-                    core::modules::cat::game::registry::AbilityIcon::Standard(icon_id) => {
-                        for sheet in sheets {
-                            if let Some(cut) = sheet.core.cuts_map.get(&icon_id)
-                                && let Some(tex) = &sheet.texture_handle {
-                                    ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(egui::Rect::from_min_max(egui::pos2(cut.uv_coordinates.min.x, cut.uv_coordinates.min.y), egui::pos2(cut.uv_coordinates.max.x, cut.uv_coordinates.max.y))));
-                                    drawn = true;
-                                    break;
-                                }
-                        }
-                    },
-                    core::modules::cat::game::registry::AbilityIcon::None => {}
-                }
-
-                if !drawn {
-                    render_fallback_icon(ui, display_def.fallback, egui::Color32::BLACK);
-                }
-            } else {
-                ui.label(egui::RichText::new("?").weak().size(24.0));
-            }
-
-            if let Some(texture) = get_or_load_skill_name(ui, group, settings, name_cache) {
-                ui.image((texture.id(), texture.size_vec2()));
-            } else {
-                let fallback_text = match &def_opt {
-                    Some(def) => core::modules::cat::game::registry::get_display_def(def.identity).name.to_string(),
-                    None => format!("Unknown Skill (ID: {})", group.ability_id),
-                };
-                ui.label(
-                    egui::RichText::new(fallback_text)
-                        .strong()
-                        .size(18.0)
-                        .color(egui::Color32::WHITE)
-                );
-            }
-        });
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let arrow = if expanded { "▲" } else { "▼" };
-            let btn = egui::Button::new(egui::RichText::new(arrow).size(20.0).strong())
-                .fill(egui::Color32::from_black_alpha(100));
-
-            if ui.add_sized([40.0, 40.0], btn).clicked() {
-                toggle_clicked = true;
-            }
-        });
-    });
-
-    if header_res.response.interact(egui::Sense::click()).clicked() {
-        toggle_clicked = true;
+    for (index, group) in talent_data.groups.iter().enumerate() {
+        let level = talent_levels.and_then(|levels| levels.get(&(index as u8))).copied().unwrap_or(0);
+        if group.limit == 1 {
+            has_ultra_talents = true;
+            if level > 0 { has_ultra_enabled = true; }
+        } else if level > 0 {
+            has_normal_enabled = true;
+        }
     }
 
-    toggle_clicked
+    ToggleAvailability { has_normal_enabled, has_ultra_enabled, has_ultra_talents }
 }
 
-fn render_body(
-    ui: &mut egui::Ui,
-    index: usize,
-    group: &TalentGroup,
-    descriptions: Option<&Vec<String>>,
-    talent_levels: &mut HashMap<u8, u8>,
-    current_stats: Option<&Battle>,
-    curve: Option<&LevelCurve>,
-    unit_level: i32,
-    talent_costs: &HashMap<u8, TalentCost>,
-    img022_sheets: &[SpriteSheet],
-    _settings: &Settings,
-) {
-    ui.add_space(6.0);
-
-    let mut text_to_display = if let Some(desc_list) = descriptions {
-        let tid = group.text_id as usize;
-        desc_list.get(tid).cloned().unwrap_or_else(|| "No skill description found".to_string())
-    } else {
-        "No skill description found".to_string()
-    };
-    if !text_to_display.contains('\n') { text_to_display.push('\n'); }
-
-    egui::Frame::none()
-        .fill(egui::Color32::from_black_alpha(100))
-        .rounding(4.0)
-        .inner_margin(4.0)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(egui::RichText::new(text_to_display).color(egui::Color32::WHITE).size(13.0));
-        });
-
-    ui.add_space(TALENT_SECTION_SPACING);
-
-    let current_lvl_val = *talent_levels.get(&(index as u8)).unwrap_or(&0);
-    let np_cost = talents::get_talent_np_cost(group.cost_id, current_lvl_val, talent_costs);
-
-    egui::Frame::none()
-        .fill(egui::Color32::from_black_alpha(100))
-        .rounding(4.0)
-        .inner_margin(4.0)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-
-                let mut drawn = false;
-                for sheet in img022_sheets {
-                    if let Some(cut) = sheet.core.cuts_map.get(&img022::ICON_NP_COST)
-                        && let Some(tex) = &sheet.texture_handle {
-                            let aspect = cut.original_size.x / cut.original_size.y;
-                            let size = egui::vec2(TALENT_NP_ICON_SIZE * aspect, TALENT_NP_ICON_SIZE);
-                            ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).uv(egui::Rect::from_min_max(egui::pos2(cut.uv_coordinates.min.x, cut.uv_coordinates.min.y), egui::pos2(cut.uv_coordinates.max.x, cut.uv_coordinates.max.y))));
-                            drawn = true;
-                            break;
-                        }
-                }
-
-                if !drawn {
-                    ui.label(egui::RichText::new("NP Cost").size(TALENT_NP_TEXT_SIZE).strong().color(egui::Color32::WHITE));
-                }
-
-                ui.label(egui::RichText::new(format!("{}", np_cost)).size(TALENT_NP_TEXT_SIZE).strong().color(egui::Color32::WHITE));
-            });
-        });
-
-    ui.add_space(TALENT_SECTION_SPACING);
-
-    egui::Frame::none()
-        .fill(egui::Color32::from_black_alpha(100))
-        .rounding(4.0)
-        .inner_margin(4.0)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-
-            ui.vertical(|ui| {
-                let effective_max = if group.max_level == 0 { 1 } else { group.max_level };
-                let current_level_mut = talent_levels.entry(index as u8).or_insert(0);
-
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 5.0;
-                    ui.label(egui::RichText::new("Level:").strong());
-
-                    ui.scope(|ui| {
-                        let vis = ui.visuals_mut();
-                        vis.widgets.inactive.bg_fill = egui::Color32::from_gray(180);
-                        vis.widgets.active.bg_fill = egui::Color32::WHITE;
-                        vis.widgets.hovered.bg_fill = egui::Color32::from_gray(220);
-                        vis.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(50));
-                        vis.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(50));
-                        vis.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(50));
-
-                        ui.add(egui::Slider::new(current_level_mut, 0..=effective_max)
-                            .step_by(1.0)
-                            .show_value(false)
-                        );
-                    });
-
-                    ui.add(egui::DragValue::new(current_level_mut)
-                        .speed(0.1)
-                        .range(0..=effective_max)
-                    );
-                });
-
-                if let Some(stats) = current_stats
-                    && let Some(display_text) = talents::calculate_talent_display(group, stats, *current_level_mut, curve, unit_level) {
-                        ui.add_space(4.0);
-                        ui.label(
-                            egui::RichText::new(display_text)
-                                .color(egui::Color32::WHITE)
-                                .size(15.0)
-                                .strong()
-                        );
-                    }
-            });
-        });
+pub struct ViewCtx<'a, 'b> {
+    pub cat_id: u32,
+    pub talent_data: &'a Talent,
+    pub talent_levels: Option<&'a HashMap<u8, u8>>,
+    pub level_inputs: &'a HashMap<u8, String>,
+    pub talent_costs: &'a HashMap<u8, TalentCost>,
+    pub descriptions: &'a [String],
+    pub current_stats: Option<&'b Battle>,
+    pub curve: Option<&'a LevelCurve>,
+    pub unit_level: i32,
+    pub sheets: &'a [SpriteSheet],
+    pub img022_sheets: &'a [SpriteSheet],
+    pub assets: &'a CustomAssets,
+    pub vfs: &'a Vfs,
 }
 
-fn get_or_load_skill_name(
-    ui: &mut egui::Ui,
-    group: &TalentGroup,
-    settings: &Settings,
-    name_cache: &mut HashMap<String, egui::TextureHandle>
-) -> Option<egui::TextureHandle> {
-    let image_id = if group.name_id > 0 { group.name_id } else { group.ability_id as i16 };
-    if image_id <= 0 { return None; }
+pub struct State {
+    icons: ability_icon::Cache,
+    skill_name_cache: RefCell<HashMap<String, Handle>>,
+    expanded: HashMap<(u32, u8), bool>,
+}
 
-    let path = find_skill_image_path(image_id, settings)?;
-    let file_name = path.file_name()?.to_string_lossy().to_string();
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            icons: ability_icon::Cache::default(),
+            skill_name_cache: RefCell::new(HashMap::new()),
+            expanded: HashMap::new(),
+        }
+    }
+}
 
-    if !name_cache.contains_key(&file_name)
-        && let Ok(img) = image::open(&path) {
-            let rgba = autocrop(img.to_rgba8());
-            let texture = ui.ctx().load_texture(
-                &file_name,
-                egui::ColorImage::from_rgba_unmultiplied(
-                    [rgba.width() as usize, rgba.height() as usize],
-                    rgba.as_flat_samples().as_slice()
-                ),
-                egui::TextureOptions::LINEAR
-            );
-            name_cache.insert(file_name.clone(), texture);
+impl State {
+    pub fn update(&mut self, message: Message) {
+        if let Message::ToggleGroup(cat_id, index) = message {
+            let key = (cat_id, index);
+            let current = self.expanded.get(&key).copied().unwrap_or(false);
+            self.expanded.insert(key, !current);
+        }
+    }
+
+    pub fn set_level(&self, index: u8, level: u8, levels: &mut HashMap<u8, u8>, inputs: &mut HashMap<u8, String>) {
+        levels.insert(index, level);
+        inputs.remove(&index);
+    }
+
+    pub fn set_level_input(
+        &self,
+        index: u8,
+        input: String,
+        levels: Option<&mut HashMap<u8, u8>>,
+        inputs: &mut HashMap<u8, String>,
+        talent_data: Option<&Talent>,
+    ) {
+        let max_level = talent_data
+            .and_then(|data| data.groups.get(index as usize))
+            .map_or(u8::MAX, |group| group.max_level.max(1));
+
+        if let Some(levels) = levels {
+            if let Ok(parsed) = input.trim().parse::<u8>() {
+                levels.insert(index, parsed.min(max_level));
+            } else if input.trim().is_empty() {
+                levels.insert(index, 0);
+            }
         }
 
-    name_cache.get(&file_name).cloned()
+        inputs.insert(index, input);
+    }
+
+    pub fn toggle(&self, is_ultra: bool, talent_data: &Talent, levels: &mut HashMap<u8, u8>, inputs: &mut HashMap<u8, String>) {
+        let availability = toggle_availability(talent_data, Some(levels));
+        let has_enabled = if is_ultra { availability.has_ultra_enabled } else { availability.has_normal_enabled };
+
+        for (index, group) in talent_data.groups.iter().enumerate() {
+            let target_group = if is_ultra { group.limit == 1 } else { group.limit != 1 };
+            if target_group {
+                let new_level = if has_enabled { 0 } else { group.max_level.max(1) };
+                levels.insert(index as u8, new_level);
+                inputs.remove(&(index as u8));
+            }
+        }
+    }
+
+    pub fn header_view<'a>(
+        &'a self,
+        talent_data: &'a Talent,
+        talent_levels: Option<&'a HashMap<u8, u8>>,
+        talent_costs: &'a HashMap<u8, TalentCost>,
+        img022_sheets: &'a [SpriteSheet],
+    ) -> Element<'a, Message> {
+        let total_np = talent_levels.map_or(0, |levels| talent_logic::get_total_np_cost(talent_data, levels, talent_costs));
+        let availability = toggle_availability(talent_data, talent_levels);
+
+        let np_row = row![self.np_icon(img022_sheets, HEADER_NP_ICON_SIZE), bold_text(total_np, HEADER_NP_TEXT_SIZE)]
+            .spacing(6)
+            .align_y(Alignment::Center);
+
+        let normal_label = if availability.has_normal_enabled { "No Talents" } else { "All Talents" };
+        let normal_btn = button(theme::centered_text(normal_label).size(12))
+            .width(Length::Fixed(TALENT_BTN_WIDTH))
+            .height(Length::Fixed(TALENT_BTN_HEIGHT))
+            .on_press(Message::ToggleNormal);
+
+        let ultra_label = if availability.has_ultra_enabled { "No Ultra" } else { "All Ultra" };
+        let ultra_btn = button(theme::centered_text(ultra_label).size(12))
+            .width(Length::Fixed(TALENT_BTN_WIDTH))
+            .height(Length::Fixed(TALENT_BTN_HEIGHT))
+            .on_press_maybe(availability.has_ultra_talents.then_some(Message::ToggleUltra));
+
+        column![np_row, normal_btn, ultra_btn].spacing(5).into()
+    }
+
+    pub fn view<'a>(&'a self, ctx: ViewCtx<'a, '_>) -> Element<'a, Message> {
+        let mut col = column![].spacing(8).width(Length::Fill);
+
+        for (index, group) in ctx.talent_data.groups.iter().enumerate() {
+            col = col.push(self.group_view(&ctx, index as u8, group));
+        }
+
+        smooth_scroll(scrollable(col).height(Length::Fill).width(Length::Fill)).into()
+    }
+
+    fn group_view<'a>(&'a self, ctx: &ViewCtx<'a, '_>, index: u8, group: &'a TalentGroup) -> Element<'a, Message> {
+        let expanded = self.expanded.get(&(ctx.cat_id, index)).copied().unwrap_or(false);
+        let bg_color = if group.limit == 1 { Color::from_rgb8(120, 20, 20) } else { Color::from_rgb8(180, 140, 20) };
+
+        let mut inner = column![self.group_header(ctx, index, group, expanded)].spacing(0);
+
+        if expanded {
+            inner = inner.push(self.group_body(ctx, index, group));
+        }
+
+        container(inner)
+            .padding(6)
+            .width(Length::Fill)
+            .style(move |_theme: &Theme| container::Style {
+                background: Some(bg_color.into()),
+                border: iced::border::rounded(5),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    fn group_header<'a>(&'a self, ctx: &ViewCtx<'a, '_>, index: u8, group: &'a TalentGroup, expanded: bool) -> Element<'a, Message> {
+        let icon = self.talent_icon(group, ctx.sheets, ctx.assets);
+
+        let name_el: Element<Message> = match self.skill_name_handle(group, ctx.vfs) {
+            Some(handle) => iced_image(handle).into(),
+            None => {
+                let fallback_text = get_talent(group.ability_id)
+                    .map_or_else(|| format!("Unknown Skill (ID: {})", group.ability_id), |def| get_display_def(def.identity).name.to_string());
+                bold_text(fallback_text, 18.0).into()
+            }
+        };
+
+        let arrow = if expanded { "\u{25B2}" } else { "\u{25BC}" };
+
+        let content = row![
+            row![icon, name_el].spacing(8).align_y(Alignment::Center).width(Length::Fill),
+            text(arrow).size(20)
+        ]
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .width(Length::Fill);
+
+        button(content)
+            .on_press(Message::ToggleGroup(ctx.cat_id, index))
+            .style(button::text)
+            .width(Length::Fill)
+            .into()
+    }
+
+    fn group_body<'a>(&'a self, ctx: &ViewCtx<'a, '_>, index: u8, group: &'a TalentGroup) -> Element<'a, Message> {
+        let description_text = ctx.descriptions
+            .get(group.text_id as usize)
+            .cloned()
+            .unwrap_or_else(|| "No skill description found".to_string());
+
+        let description_box = dark_box(text(description_text).size(13).color(Color::WHITE).width(Length::Fill));
+
+        let current_level = ctx.talent_levels.and_then(|levels| levels.get(&index)).copied().unwrap_or(0);
+        let np_cost = talent_logic::get_talent_np_cost(group.cost_id, current_level, ctx.talent_costs);
+
+        let np_row = row![self.np_icon(ctx.img022_sheets, NP_ICON_SIZE), bold_text(np_cost, 18.0)]
+            .spacing(4)
+            .align_y(Alignment::Center);
+        let np_box = dark_box(np_row);
+
+        let max_level = group.max_level.max(1);
+        let input_text = ctx.level_inputs.get(&index).cloned().unwrap_or_else(|| current_level.to_string());
+
+        let level_row = row![
+            bold_text("Level:", 14.0),
+            slider(0..=max_level, current_level, move |value| Message::LevelChanged(index, value)).width(Length::Fixed(160.0)),
+            text_input("0", &input_text)
+                .on_input(move |value| Message::LevelInputChanged(index, value))
+                .width(Length::Fixed(50.0)),
+        ]
+            .spacing(8)
+            .align_y(Alignment::Center);
+
+        let mut level_col = column![level_row].spacing(4);
+
+        if let Some(stats) = ctx.current_stats
+            && let Some(display_text) = talent_logic::calculate_talent_display(group, stats, current_level, ctx.curve, ctx.unit_level) {
+            level_col = level_col.push(text(display_text).size(15).color(Color::WHITE).font(font::Font { weight: font::Weight::Bold, ..Default::default() }));
+        }
+
+        let level_box = dark_box(level_col);
+
+        column![description_box, Space::new().height(Length::Fixed(SECTION_SPACING)), np_box, Space::new().height(Length::Fixed(SECTION_SPACING)), level_box]
+            .padding([6, 0])
+            .width(Length::Fill)
+            .into()
+    }
+
+    fn talent_icon<'a>(&'a self, group: &TalentGroup, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
+        let Some(def) = get_talent(group.ability_id) else {
+            return text("?").size(24).into();
+        };
+        let display_def = get_display_def(def.identity);
+
+        match display_def.icon {
+            AbilityIcon::Custom(custom) => {
+                if let Some(handle) = assets.get_icon_texture(custom) {
+                    return iced_image(handle).width(Length::Fixed(GROUP_ICON_SIZE)).height(Length::Fixed(GROUP_ICON_SIZE)).into();
+                }
+            }
+            AbilityIcon::Standard(icon_id) => {
+                if let Some(handle) = self.icons.handle(icon_id, sheets) {
+                    return iced_image(handle).width(Length::Fixed(GROUP_ICON_SIZE)).height(Length::Fixed(GROUP_ICON_SIZE)).into();
+                }
+            }
+            AbilityIcon::None => {}
+        }
+
+        fallback_icon(display_def.fallback)
+    }
+
+    fn np_icon<'a>(&'a self, img022_sheets: &'a [SpriteSheet], size: f32) -> Element<'a, Message> {
+        self.icons.handle(img022::ICON_NP_COST, img022_sheets)
+            .map_or_else(|| bold_text("NP Cost", 18.0).into(), |handle| iced_image(handle).height(Length::Fixed(size)).into())
+    }
+
+
+    fn skill_name_handle(&self, group: &TalentGroup, vfs: &Vfs) -> Option<Handle> {
+        let image_id = if group.name_id > 0 { group.name_id } else { group.ability_id as i16 };
+        if image_id <= 0 { return None; }
+
+        let path = find_skill_image_path(vfs, image_id)?;
+        let file_name = path.file_name()?.to_string_lossy().to_string();
+
+        if let Some(cached) = self.skill_name_cache.borrow().get(&file_name) {
+            return Some(cached.clone());
+        }
+
+        let img = image::open(&path).ok()?;
+        let rgba = autocrop(img.to_rgba8());
+        let handle = Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw());
+        self.skill_name_cache.borrow_mut().insert(file_name, handle.clone());
+        Some(handle)
+    }
 }
 
-fn find_skill_image_path(image_id: i16, settings: &Settings) -> Option<PathBuf> {
-    let dir = Path::new(paths::DIR_SKILL_NAME);
-    let base_filename = format!("Skill_name_{:03}.png", image_id);
-    core::common::get(dir, [base_filename.as_str()], &settings.general.language_priority).into_iter().next()
+fn dark_box<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(content)
+        .padding(4)
+        .width(Length::Fill)
+        .style(|_theme: &Theme| container::Style {
+            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.4).into()),
+            border: iced::border::rounded(4),
+            ..Default::default()
+        })
+        .into()
+}
+
+fn find_skill_image_path(vfs: &Vfs, image_id: i16) -> Option<PathBuf> {
+    vfs.find(&format!("Skill_name_{:03}.png", image_id))
 }

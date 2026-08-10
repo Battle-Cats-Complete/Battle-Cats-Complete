@@ -1,343 +1,98 @@
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
-use eframe::egui;
-use image::imageops;
+use iced::Element;
+use image::{imageops, RgbaImage};
 
-use core::modules::cat::filter::{evaluation::entity_passes_filter, CatFilterState};
+use core::common::gfx;
+use core::modules::cat::filter::{evaluation, CatFilterState};
 use core::modules::cat::scanner::CatEntry;
 
-struct LoadedImage {
-    id: u32,
-    img: Option<egui::ColorImage>,
-}
+use crate::common::udi_loader::Composite;
+use crate::widget::roster_list::{self, Roster};
 
-struct LoadRequest {
-    id: u32,
-    path: PathBuf,
-    high_banner_quality: bool,
-    ctx: egui::Context,
-}
+pub(super) type State = roster_list::State<CatRoster>;
+pub(super) type Message = roster_list::Message;
 
-pub(crate) struct CatList {
-    texture_cache: HashMap<u32, egui::TextureHandle>,
-    placeholder_texture: Option<egui::TextureHandle>,
-    tx_request: Sender<LoadRequest>,
-    rx_result: Receiver<LoadedImage>,
-    pending_requests: HashSet<u32>,
-    invalidated_ids: HashSet<u32>,
-    missing_ids: HashSet<u32>,
-    hovered_id: Option<egui::Id>,
-    hover_start_time: f64,
-    hover_lost_time: Option<f64>,
-    scroll_to_top_needed: bool,
-    last_search_query: String,
-    last_unit_count: usize,
-    cached_indices: Vec<usize>,
-    last_filter_state: CatFilterState,
-}
+const FORM_LABELS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
 
-impl Default for CatList {
-    fn default() -> Self {
-        let (tx_request, rx_request) = mpsc::channel::<LoadRequest>();
-        let (tx_result, rx_result) = mpsc::channel::<LoadedImage>();
+pub(super) struct CatRoster;
 
-        thread::spawn(move || {
-            let bg_cache = image::load_from_memory(core::common::assets::UDI_F).ok().map(|img| img.to_rgba8());
-            let bg_cache = std::sync::Arc::new(bg_cache);
+impl Roster for CatRoster {
+    type Entry = CatEntry;
+    type Filter = CatFilterState;
 
-            while let Ok(req) = rx_request.recv() {
-                let tx = tx_result.clone();
-                let bg = bg_cache.clone();
-                let ctx = req.ctx.clone();
+    const SCROLLABLE_ID: &'static str = "cat-banner-list";
+    const LABEL: &'static str = "cats";
+    const NOUN: &'static str = "Cats";
+    const COMPOSITE: Composite = composite_banner;
 
-                rayon::spawn(move || {
-                    let result = process_image_robust(req.id, &req.path, &bg, req.high_banner_quality);
-                    let _ = tx.send(LoadedImage { id: req.id, img: result });
-                    ctx.request_repaint();
-                });
+    fn id(entry: &CatEntry) -> u32 {
+        entry.id
+    }
+
+    fn image_path(entry: &CatEntry) -> Option<PathBuf> {
+        entry.image_path.clone()
+    }
+
+    fn passes_filter(entry: &CatEntry, filter: &CatFilterState) -> bool {
+        evaluation::entity_passes_filter(entry, filter)
+    }
+
+    fn matches_query(entry: &CatEntry, query: &str) -> bool {
+        entry.base_id_str().contains(query)
+            || entry.names.iter().flatten().any(|name| name.to_lowercase().contains(query))
+    }
+
+    fn tooltip<'a>(entry: &CatEntry) -> Element<'a, Message> {
+        let mut rows = vec![("ID", entry.base_id_str())];
+
+        for (index, label) in FORM_LABELS.iter().enumerate() {
+            if entry.forms[index] {
+                rows.push((*label, entry.display_name(index)));
             }
-        });
-
-        Self {
-            texture_cache: HashMap::new(),
-            placeholder_texture: None,
-            tx_request,
-            rx_result,
-            pending_requests: HashSet::new(),
-            invalidated_ids: HashSet::new(),
-            missing_ids: HashSet::new(),
-            hovered_id: None,
-            hover_start_time: 0.0,
-            hover_lost_time: None,
-            scroll_to_top_needed: false,
-            last_search_query: String::new(),
-            last_unit_count: 0,
-            cached_indices: Vec::new(),
-            last_filter_state: CatFilterState::default(),
         }
+
+        roster_list::tooltip_table(rows)
     }
 }
 
-impl CatList {
-    pub(crate) fn flush_icon(&mut self, id: u32) {
-        self.invalidated_ids.insert(id);
-        self.missing_ids.remove(&id);
-        self.pending_requests.remove(&id);
-    }
-
-    pub(crate) fn force_search_rebuild(&mut self) {
-        self.last_unit_count = usize::MAX;
-    }
-
-    pub(crate) fn show(
-        &mut self,
-        ctx: &egui::Context,
-        ui: &mut egui::Ui,
-        units: &[CatEntry],
-        selected_id: &mut Option<u32>,
-        search_query: &str,
-        filter_state: &CatFilterState,
-        high_banner_quality: bool
-    ) {
-        if self.placeholder_texture.is_none()
-            && let Ok(img) = image::load_from_memory(core::common::assets::UDI_F) {
-            let rgba = img.to_rgba8();
-            let size = [rgba.width() as usize, rgba.height() as usize];
-            let pixels = rgba.as_flat_samples();
-            self.placeholder_texture = Some(ctx.load_texture(
-                "list_placeholder",
-                egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()),
-                egui::TextureOptions::LINEAR
-            ));
-        }
-
-        while let Ok(loaded) = self.rx_result.try_recv() {
-            if let Some(img) = loaded.img {
-                let texture = ctx.load_texture(format!("unit_{}", loaded.id), img, egui::TextureOptions::LINEAR);
-                self.texture_cache.insert(loaded.id, texture);
-                self.missing_ids.remove(&loaded.id);
-            } else {
-                self.texture_cache.remove(&loaded.id);
-                self.missing_ids.insert(loaded.id);
-            }
-            self.pending_requests.remove(&loaded.id);
-            self.invalidated_ids.remove(&loaded.id);
-        }
-
-        if search_query != self.last_search_query || units.len() != self.last_unit_count || filter_state != &self.last_filter_state {
-            self.update_search_cache(units, search_query, filter_state);
-        }
-
-        self.render_scroll_area(ctx, ui, units, selected_id, high_banner_quality);
-    }
-
-    fn render_scroll_area(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, units: &[CatEntry], selected_id: &mut Option<u32>, hq: bool) {
-        let row_height = 55.0;
-        let total_rows = self.cached_indices.len();
-        let now = ui.input(|i| i.time);
-
-        let mut scroll_area = egui::ScrollArea::vertical().auto_shrink([false, false]);
-        if self.scroll_to_top_needed {
-            scroll_area = scroll_area.vertical_scroll_offset(0.0);
-            self.scroll_to_top_needed = false;
-        }
-
-        let scroll_output = scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-            let mut hovered_this_frame = None;
-
-            for index in row_range {
-                if let Some(&real_index) = self.cached_indices.get(index)
-                    && let Some(hovered) = self.render_list_row(ui, units, real_index, selected_id, hq, now) {
-                    hovered_this_frame = Some(hovered);
-                }
-            }
-            hovered_this_frame
-        });
-
-        if scroll_output.inner.is_some() {
-            self.hover_lost_time = None;
-            return;
-        }
-
-        if self.hover_lost_time.is_none() {
-            self.hover_lost_time = Some(now);
-        }
-
-        if let Some(lost_start) = self.hover_lost_time
-            && now - lost_start > 0.1 {
-            self.hovered_id = None;
-        }
-    }
-
-    fn render_list_row(&mut self, ui: &mut egui::Ui, units: &[CatEntry], real_index: usize, selected_id: &mut Option<u32>, hq: bool, now: f64) -> Option<egui::Id> {
-        if real_index == usize::MAX {
-            ui.add_space(8.0);
+fn composite_banner(path: &PathBuf, background: &RgbaImage) -> Option<(u32, u32, Vec<u8>)> {
+    for _ in 0..3 {
+        if !path.exists() {
             return None;
         }
 
-        let unit = &units[real_index];
-        let is_cached = self.texture_cache.contains_key(&unit.id);
-        let is_missing = self.missing_ids.contains(&unit.id);
-        let is_invalidated = self.invalidated_ids.contains(&unit.id);
-
-        let needs_load = (!is_cached && !is_missing) || is_invalidated;
-
-        if needs_load && !self.pending_requests.contains(&unit.id) {
-            if let Some(path) = &unit.image_path {
-                self.pending_requests.insert(unit.id);
-                let _ = self.tx_request.send(LoadRequest {
-                    id: unit.id,
-                    path: path.clone(),
-                    high_banner_quality: hq,
-                    ctx: ui.ctx().clone(),
-                });
-            } else {
-                self.missing_ids.insert(unit.id);
-            }
-        }
-
-        let texture = self.texture_cache.get(&unit.id);
-        let tex_to_draw = texture.or(self.placeholder_texture.as_ref());
-        let is_selected = Some(unit.id) == *selected_id;
-
-        let response = if let Some(tex) = tex_to_draw {
-            let size = tex.size_vec2();
-            let scale = 50.0 / size.y;
-            let btn_size = size * scale;
-            ui.add(egui::ImageButton::new(egui::load::SizedTexture::new(tex.id(), btn_size)).selected(is_selected))
-        } else {
-            let r = ui.allocate_response(egui::vec2(100.0, 50.0), egui::Sense::click());
-            ui.painter().rect_filled(r.rect, 4.0, egui::Color32::from_gray(30));
-            r
+        let Ok(opened) = image::open(path) else {
+            thread::sleep(Duration::from_millis(50));
+            continue;
         };
 
-        if response.clicked() { *selected_id = Some(unit.id); }
+        let mut unit_img = opened.to_rgba8();
+        let mut final_image = background.clone();
+        let bg_w = final_image.width() as i64;
+        let bg_h = final_image.height() as i64;
+        let (w, h) = unit_img.dimensions();
+        let is_transparent_unit = w > 311 && h > 2 && unit_img.get_pixel(311, 2)[3] == 0;
 
-        if !ui.rect_contains_pointer(response.rect) {
-            return None;
-        }
-
-        let response_id = response.id;
-
-        if self.hovered_id != Some(response_id) {
-            self.hovered_id = Some(response_id);
-            self.hover_start_time = now;
-        }
-
-        if now - self.hover_start_time < 0.5 {
-            ui.ctx().request_repaint();
+        let (x, y) = if is_transparent_unit {
+            (-3, 9)
         } else {
-            response.on_hover_ui(|ui| render_tooltip(ui, unit));
-        }
+            unit_img = gfx::autocrop(unit_img);
+            let unit_w = unit_img.width() as i64;
+            let unit_h = unit_img.height() as i64;
+            ((bg_w - unit_w) / 2, (bg_h - unit_h) / 2)
+        };
 
-        Some(response_id)
-    }
+        imageops::overlay(&mut final_image, &unit_img, x, y);
 
-    fn update_search_cache(&mut self, units: &[CatEntry], query: &str, filter_state: &CatFilterState) {
-        self.last_search_query = query.to_string();
-        self.last_unit_count = units.len();
-        self.last_filter_state = filter_state.clone();
-        self.cached_indices.clear();
+        const TARGET_H: u32 = 100;
+        let ratio = TARGET_H as f32 / final_image.height() as f32;
+        let target_w = (final_image.width() as f32 * ratio) as u32;
+        let resized = imageops::resize(&final_image, target_w, TARGET_H, imageops::FilterType::Lanczos3);
 
-        let query_lower = query.to_lowercase();
-        let is_empty = query.is_empty();
-
-        for (i, unit) in units.iter().enumerate() {
-            if !entity_passes_filter(unit, filter_state) {
-                continue;
-            }
-
-            if is_empty {
-                self.cached_indices.push(i);
-                continue;
-            }
-            if unit.base_id_str().contains(&query_lower) {
-                self.cached_indices.push(i);
-                continue;
-            }
-            if unit.names.iter().flatten().any(|name| name.to_lowercase().contains(&query_lower)) {
-                self.cached_indices.push(i);
-            }
-        }
-
-        if !self.cached_indices.is_empty() {
-            self.cached_indices.push(usize::MAX);
-        }
-    }
-}
-
-fn render_tooltip(ui: &mut egui::Ui, unit: &CatEntry) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("[ID]").weak());
-        ui.label(unit.base_id_str());
-    });
-    let labels = ["Normal", "Evolved", "True", "Ultra"];
-    for i in 0..4 {
-        if !unit.forms[i] { continue; }
-        let display_name = unit.display_name(i);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(format!("[{}]", labels[i])).weak());
-            ui.label(display_name);
-        });
-    }
-}
-
-fn process_image_robust(_id: u32, path: &PathBuf, bg_cache: &Option<image::RgbaImage>, high_banner_quality: bool) -> Option<egui::ColorImage> {
-    for _ in 0..3 {
-        if !path.exists() { return None; }
-        match image::open(path) {
-            Ok(image_buffer) => {
-                let mut unit_img = image_buffer.to_rgba8();
-                if let Some(bg) = bg_cache.as_ref() {
-                    let mut final_image = bg.clone();
-                    let bg_w = final_image.width() as i64;
-                    let bg_h = final_image.height() as i64;
-                    let (w, h) = unit_img.dimensions();
-                    let is_transparent_unit = w > 311 && h > 2 && unit_img.get_pixel(311, 2)[3] == 0;
-                    let (x, y) = if is_transparent_unit {
-                        (-3, 9)
-                    } else {
-                        unit_img = autocrop(unit_img);
-                        let unit_w = unit_img.width() as i64;
-                        let unit_h = unit_img.height() as i64;
-                        ((bg_w - unit_w) / 2, (bg_h - unit_h) / 2)
-                    };
-                    imageops::overlay(&mut final_image, &unit_img, x, y);
-                    let (target_h, filter) = if high_banner_quality {
-                        (100, imageops::FilterType::Lanczos3)
-                    } else {
-                        (50, imageops::FilterType::Nearest)
-                    };
-                    let ratio = target_h as f32 / final_image.height() as f32;
-                    let target_w = (final_image.width() as f32 * ratio) as u32;
-                    let final_image = imageops::resize(&final_image, target_w, target_h, filter);
-                    let size = [final_image.width() as usize, final_image.height() as usize];
-                    let pixels = final_image.as_flat_samples();
-                    return Some(egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()));
-                }
-                return None;
-            },
-            Err(_) => { thread::sleep(Duration::from_millis(50)); }
-        }
+        return Some((resized.width(), resized.height(), resized.into_raw()));
     }
     None
-}
-
-fn autocrop(img: image::RgbaImage) -> image::RgbaImage {
-    let (width, height) = img.dimensions();
-    let (mut min_x, mut min_y, mut max_x, mut max_y) = (width, height, 0, 0);
-    let mut found = false;
-    for (x, y, pixel) in img.enumerate_pixels() {
-        if pixel[3] > 0 {
-            min_x = min_x.min(x); min_y = min_y.min(y);
-            max_x = max_x.max(x); max_y = max_y.max(y);
-            found = true;
-        }
-    }
-    if !found { return img; }
-    imageops::crop_imm(&img, min_x, min_y, max_x - min_x + 1, max_y - min_y + 1).to_image()
 }

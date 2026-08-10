@@ -1,105 +1,77 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::thread;
 
 use tracing::{debug, error, info, info_span, trace, warn};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-use super::{spawn_log_adapter, ExportEvent, EVENT_RECEIVER};
-use super::super::ModDataState;
+use crate::common::job::JobEvent;
 
 pub const BCM_COMPRESSION_MIN: i64 = 0;
 pub const BCM_COMPRESSION_MAX: i64 = 9;
 pub const BCM_COMPRESSION_DEFAULT: i64 = 6;
 
-pub fn start_bcm_export(state: &mut ModDataState, compression: i64) {
-    if state.export.is_busy {
-        warn!("BCM export requested, but an export is already busy. Ignoring.");
-        return;
-    }
-
-    let Some(mod_folder) = state.selected_mod.clone() else {
-        error!("No mod selected for BCM export.");
-        return;
-    };
+pub fn run(mod_folder: String, app_title: String, compression: i64, emit: impl Fn(JobEvent) + Sync) -> Result<(), String> {
+    let _span = info_span!("bcm_export_worker", mod_id = %mod_folder).entered();
 
     info!("Initializing BCM Export for mod: {}", mod_folder);
-    state.export.log_content.clear();
-    state.export.is_busy = true;
 
-    let app_title = state.export.app_title.clone();
     let export_name = if app_title.trim().is_empty() {
         mod_folder.clone()
     } else {
         app_title.trim().to_string()
     };
 
-    let (transmitter, receiver) = mpsc::channel();
-    if let Ok(mut guard) = EVENT_RECEIVER.lock() {
-        *guard = Some(receiver);
+    let log_callback = |message: String| emit(JobEvent::Log(message));
+
+    log_callback("Preparing files...".to_string());
+
+    let current_dir_res = std::env::current_dir();
+    if let Err(error) = &current_dir_res {
+        error!("Failed to determine current directory: {}", error);
+        return Err("Filesystem anchor lost".to_string());
+    }
+    let base_dir = current_dir_res.unwrap_or_else(|_| PathBuf::from("../../../../.."));
+
+    let mod_dir = base_dir.join("mods").join(&mod_folder);
+    let export_dir = base_dir.join("exports");
+
+    if !mod_dir.exists() {
+        error!("Target mod directory does not exist: {}", mod_dir.display());
+        return Err("Mod directory missing".to_string());
     }
 
-    thread::spawn(move || {
-        let _thread_span = info_span!("bcm_export_worker", mod_id = %mod_folder).entered();
+    if let Err(error) = fs::create_dir_all(&export_dir) {
+        error!("Failed to ensure exports directory exists: {}", error);
+        return Err(format!("Export dir error: {}", error));
+    }
 
-        let _ = spawn_log_adapter(transmitter.clone());
-        let log_callback = |message: String| {
-            let _ = transmitter.send(ExportEvent::Log(message));
-        };
+    let mut bcm_filename = format!("{}.bcm", export_name);
+    let mut bcm_path = export_dir.join(&bcm_filename);
+    let mut counter = 1;
 
-        log_callback("Preparing files...".to_string());
+    while bcm_path.exists() {
+        bcm_filename = format!("{}{}.bcm", export_name, counter);
+        bcm_path = export_dir.join(&bcm_filename);
+        counter += 1;
+    }
 
-        let current_dir_res = std::env::current_dir();
-        if let Err(error) = &current_dir_res {
-            error!("Failed to determine current directory: {}", error);
-            let _ = transmitter.send(ExportEvent::Error("Filesystem anchor lost".to_string()));
-            return;
+    debug!("Target BCM package path: {}", bcm_path.display());
+    log_callback("Packaging mod...".to_string());
+
+    match build_bcm_archive(&mod_dir, &bcm_path, compression, &log_callback) {
+        Ok(_) => {
+            let success_message = format!("\nSuccessfully Created {}!", bcm_filename);
+            info!("{}", success_message);
+            log_callback(success_message);
+            Ok(())
+        },
+        Err(error) => {
+            error!("BCM Packaging failed: {}", error);
+            Err(format!("Packaging Error: {}", error))
         }
-        let base_dir = current_dir_res.unwrap_or_else(|_| PathBuf::from("../../../../.."));
-
-        let mod_dir = base_dir.join("mods").join(&mod_folder);
-        let export_dir = base_dir.join("exports");
-
-        if !mod_dir.exists() {
-            error!("Target mod directory does not exist: {}", mod_dir.display());
-            let _ = transmitter.send(ExportEvent::Error("Mod directory missing".to_string()));
-            return;
-        }
-
-        if let Err(error) = fs::create_dir_all(&export_dir) {
-            error!("Failed to ensure exports directory exists: {}", error);
-            let _ = transmitter.send(ExportEvent::Error(format!("Export dir error: {}", error)));
-            return;
-        }
-
-        let mut bcm_filename = format!("{}.bcm", export_name);
-        let mut bcm_path = export_dir.join(&bcm_filename);
-        let mut counter = 1;
-
-        while bcm_path.exists() {
-            bcm_filename = format!("{}{}.bcm", export_name, counter);
-            bcm_path = export_dir.join(&bcm_filename);
-            counter += 1;
-        }
-
-        debug!("Target BCM package path: {}", bcm_path.display());
-        log_callback("Packaging mod...".to_string());
-
-        match build_bcm_archive(&mod_dir, &bcm_path, compression, &log_callback) {
-            Ok(_) => {
-                let success_message = format!("\nSuccessfully Created {}!", bcm_filename);
-                info!("{}", success_message);
-                let _ = transmitter.send(ExportEvent::Success(success_message));
-            },
-            Err(error) => {
-                error!("BCM Packaging failed: {}", error);
-                let _ = transmitter.send(ExportEvent::Error(format!("Packaging Error: {}", error)));
-            }
-        }
-    });
+    }
 }
 
 fn count_target_files(source_dir: &Path, target_directories: &[&str]) -> usize {

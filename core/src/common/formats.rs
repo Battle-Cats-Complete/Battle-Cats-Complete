@@ -1,19 +1,17 @@
-pub mod gatyaitembuy;
-pub mod gatyaitemname;
+pub(crate) mod gatyaitembuy;
+pub(crate) mod gatyaitemname;
 pub mod imgcut;
-pub mod mamodel;
+pub(crate) mod mamodel;
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 use image::RgbaImage;
 use nyanko::graphics::rig::SpriteCut;
-use nyanko::graphics::rig::SpriteSheet as NyankoSpriteSheet;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatyaItemBuy {
     pub rarity: i32,
     pub reflect_or_storage: i32,
@@ -31,46 +29,17 @@ pub struct GatyaItemBuy {
     pub row_index: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatyaItemName {
     pub name: String,
     pub description: Vec<String>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct SpriteSheet {
     pub image_data: Option<Arc<RgbaImage>>,
     pub cuts_map: HashMap<usize, SpriteCut>,
-    pub is_loading_active: bool,
-    pub data_receiver: Option<Mutex<Receiver<(String, NyankoSpriteSheet)>>>,
     pub sheet_name: String,
-}
-
-impl Clone for SpriteSheet {
-    fn clone(&self) -> Self {
-        Self {
-            image_data: self.image_data.clone(),
-            cuts_map: self.cuts_map.clone(),
-            is_loading_active: self.is_loading_active,
-            data_receiver: None,
-            sheet_name: self.sheet_name.clone(),
-        }
-    }
-}
-
-impl SpriteSheet {
-    #[allow(dead_code)]
-    pub fn is_ready(&self) -> bool {
-        self.image_data.is_some()
-    }
-
-    pub fn load(&mut self, png_path: &Path, imgcut_path: &Path, id_str: String) {
-        imgcut::load_sheet(self, png_path, imgcut_path, id_str);
-    }
-
-    pub fn update(&mut self) {
-        imgcut::update_sheet(self);
-    }
 }
 
 #[derive(Clone, Debug)]

@@ -1,286 +1,346 @@
-use std::sync::atomic::Ordering;
+use iced::alignment::Vertical;
+use iced::border::Radius;
+use iced::mouse::Interaction;
+use iced::widget::{column, container, mouse_area, pick_list, row, text, toggler};
+use iced::{Alignment, Border, Color, Element, Length, Point, Task, Theme};
+use tracing::debug;
 
-use eframe::egui;
+use core::modules::settings::{lang, nightly};
+use core::modules::settings::{Settings as CoreSettings, UpdateMode};
 
-use core::modules::settings::{GeneralSettings, RuntimeState};
-use core::modules::settings::{lang, nightly, UpdateMode};
+use crate::app::theme;
+use crate::app::UpdateStatus;
 #[cfg(target_os = "linux")]
-use core::modules::settings::desktop;
+use crate::common::feedback::Slot;
 
-use super::tabs::toggle_ui;
+use super::{header_section, hover_hint, SECTION_SPACING};
+
+const ROW_HEIGHT: f32 = 32.0;
+const ROW_WIDTH: f32 = 140.0;
+const DRAG_HIGHLIGHT_ALPHA: f32 = 0.25;
+const WEAK_TEXT_ALPHA: f32 = 0.4;
 
 #[cfg(target_os = "linux")]
-#[derive(Clone, Copy, PartialEq)]
-#[derive(Default)]
-enum DesktopActionState {
-    #[default]
-    None,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DesktopFeedback {
     Created,
     Deleted,
     Failed,
 }
 
-pub(crate) fn show(ui_container: &mut egui::Ui, settings: &mut GeneralSettings, runtime: &mut RuntimeState) -> bool {
-    let mut refresh_needed = false;
-    let context = ui_container.ctx().clone();
-
-    lang::ensure_complete_list(&mut settings.language_priority);
-
-    egui::ScrollArea::vertical()
-        .id_salt("general_scroll")
-        .auto_shrink([false, true])
-        .show(ui_container, |scroll_ui| {
-
-            scroll_ui.heading("System");
-            scroll_ui.add_space(5.0);
-
-            #[cfg(target_os = "linux")]
-            {
-                let is_installed = desktop::is_desktop_data_present();
-                let current_time = scroll_ui.input(|input_state| input_state.time);
-
-                let action_time = context.data(|data_map| data_map.get_temp::<f64>(egui::Id::new("desktop_action_time"))).unwrap_or(-10.0);
-                let action_state = context.data(|data_map| data_map.get_temp::<DesktopActionState>(egui::Id::new("desktop_action_state"))).unwrap_or_default();
-
-                let show_status = (current_time - action_time) < 2.0;
-
-                let (button_text, button_color, is_delete_action) = if show_status {
-                    scroll_ui.ctx().request_repaint();
-                    match action_state {
-                        DesktopActionState::Created => ("Desktop Data Created!", egui::Color32::from_rgb(40, 160, 40), true),
-                        DesktopActionState::Deleted => ("Desktop Data Deleted!", egui::Color32::from_rgb(40, 160, 40), false),
-                        DesktopActionState::Failed => ("Failed to Create Data!", egui::Color32::from_rgb(180, 50, 50), false),
-                        DesktopActionState::None => if is_installed {
-                            ("Delete Desktop Data", egui::Color32::from_rgb(180, 50, 50), true)
-                        } else {
-                            ("Create Desktop Data", egui::Color32::from_rgb(40, 90, 160), false)
-                        }
-                    }
-                } else {
-                    if is_installed {
-                        ("Delete Desktop Data", egui::Color32::from_rgb(180, 50, 50), true)
-                    } else {
-                        ("Create Desktop Data", egui::Color32::from_rgb(40, 90, 160), false)
-                    }
-                };
-
-                let desktop_button = egui::Button::new(button_text).fill(button_color);
-
-                if scroll_ui.add_sized([180.0, 30.0], desktop_button).clicked() {
-                    if is_delete_action {
-                        let success = desktop::delete_desktop_data().is_ok();
-                        context.data_mut(|data_map| {
-                            data_map.insert_temp(egui::Id::new("desktop_action_time"), current_time);
-                            data_map.insert_temp(egui::Id::new("desktop_action_state"), if success { DesktopActionState::Deleted } else { DesktopActionState::Failed });
-                        });
-                    } else {
-                        let success = desktop::create_desktop_data().is_ok();
-                        context.data_mut(|data_map| {
-                            data_map.insert_temp(egui::Id::new("desktop_action_time"), current_time);
-                            data_map.insert_temp(egui::Id::new("desktop_action_state"), if success { DesktopActionState::Created } else { DesktopActionState::Failed });
-                        });
-                    }
-                }
-
-                scroll_ui.add_space(5.0);
-            }
-
-            let updater_status = context.data(|data_map| data_map.get_temp::<&'static str>(egui::Id::new("updater_status")).unwrap_or("Idle"));
-
-            match updater_status {
-                "Checking" => {
-                    let button_widget = egui::Button::new("Checking for Updates...").fill(egui::Color32::from_rgb(200, 180, 50));
-                    scroll_ui.add_sized([180.0, 30.0], button_widget);
-                },
-                "UpToDate" => {
-                    let button_widget = egui::Button::new("Up to Date!").fill(egui::Color32::from_rgb(40, 160, 40));
-                    scroll_ui.add_sized([180.0, 30.0], button_widget);
-                },
-                "UpdateFound" => {
-                    let button_widget = egui::Button::new("Update Found!").fill(egui::Color32::from_rgb(40, 160, 40));
-                    scroll_ui.add_sized([180.0, 30.0], button_widget);
-                },
-                "CheckFailed" => {
-                    let button_widget = egui::Button::new("Failed to Check!").fill(egui::Color32::from_rgb(180, 50, 50));
-                    scroll_ui.add_sized([180.0, 30.0], button_widget);
-                },
-                "Downloading" => {
-                    let button_widget = egui::Button::new("Downloading Update...").fill(egui::Color32::from_rgb(40, 90, 160));
-                    scroll_ui.add_sized([180.0, 30.0], button_widget);
-                },
-                "RestartPending" => {
-                    let button_widget = egui::Button::new("Restart Pending!").fill(egui::Color32::from_rgb(200, 180, 50));
-                    scroll_ui.add_sized([180.0, 30.0], button_widget);
-                },
-                _ => {
-                    if scroll_ui.add_sized([180.0, 30.0], egui::Button::new("Check for Update Now")).clicked() {
-                        runtime.manual_check_requested = true;
-                    }
-                }
-            }
-
-            scroll_ui.add_space(20.0);
-            scroll_ui.heading("Behavior");
-            scroll_ui.add_space(5.0);
-            
-            scroll_ui.horizontal(|horizontal_ui| {
-                let toggle_resp = toggle_ui(horizontal_ui, &mut settings.enable_logging);
-                let label_resp = horizontal_ui.label("Enable Logging");
-
-                if toggle_resp.changed() {
-                    refresh_needed = true;
-                }
-
-                let hint = "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs";
-                toggle_resp.on_hover_text(hint);
-                label_resp.on_hover_text(hint);
-            });
-
-            scroll_ui.add_space(5.0);
-
-            let features_available = nightly::NIGHTLY_FEATURES_ACTIVE.load(Ordering::Relaxed);
-
-            if !features_available {
-                settings.enable_nightly = false;
-            }
-
-            let nightly_row = scroll_ui.horizontal(|horizontal_ui| {
-                horizontal_ui.add_enabled_ui(features_available, |enabled_ui| {
-
-                    let toggle_resp = toggle_ui(enabled_ui, &mut settings.enable_nightly);
-                    let label_resp = enabled_ui.label("Enable Nightly Features 🌙");
-
-                    if toggle_resp.changed() {
-                        refresh_needed = true;
-                    }
-
-                    if features_available {
-                        // START | Nightly
-                        let hint = "Enables work in progress \"Nightly\" features\n\
-                            Nightly features are signified using a crescent moon \"🌙\"\n\
-                            Expect bugs and poor performance when using Nightly features";
-
-                        toggle_resp.on_hover_text(hint);
-                        label_resp.on_hover_text(hint);
-                        //  END  | Nightly
-                    }
-                });
-            }).response;
-
-            if !features_available {
-                nightly_row.on_hover_text(
-                    egui::RichText::new("This app version contains no Nightly features")
-                        .color(egui::Color32::from_rgb(230, 130, 10))
-                );
-            }
-
-            scroll_ui.add_space(8.0);
-            scroll_ui.horizontal(|horizontal_ui| {
-                horizontal_ui.label("Update Handling:");
-
-                egui::ComboBox::from_id_salt("update_mode_selector")
-                    .selected_text(settings.update_mode.label())
-                    .show_ui(horizontal_ui, |combo_ui| {
-                        combo_ui.selectable_value(&mut settings.update_mode, UpdateMode::AutoReset, "Auto-Reset")
-                            .on_hover_text("Automatically downloads updates and restarts the app on startup");
-                        combo_ui.selectable_value(&mut settings.update_mode, UpdateMode::AutoLoad, "Auto-Load")
-                            .on_hover_text("Automatically downloads updates but waits until the next run to apply them");
-                        combo_ui.selectable_value(&mut settings.update_mode, UpdateMode::Prompt, "Prompt")
-                            .on_hover_text("Ask permission before downloading updates or restarting");
-                        combo_ui.selectable_value(&mut settings.update_mode, UpdateMode::Ignore, "Ignore")
-                            .on_hover_text("Never check for updates on startup");
-                    });
-            });
-
-            scroll_ui.add_space(20.0);
-            scroll_ui.heading("Language");
-            scroll_ui.add_space(5.0);
-
-            scroll_ui.label("Drag to reorder. The app prioritizes assets from the top down.");
-            scroll_ui.small("Languages below 'None' will never be loaded.");
-            scroll_ui.add_space(5.0);
-
-            if render_drag_list(scroll_ui, &mut settings.language_priority) {
-                refresh_needed = true;
-            }
-
-            scroll_ui.add_space(10.0);
-            if scroll_ui.button("Restore Defaults").clicked() {
-                settings.language_priority = lang::default_priority();
-                refresh_needed = true;
-            }
-        });
-
-    refresh_needed
+#[derive(Default, Clone, Copy)]
+enum Drag {
+    #[default]
+    Idle,
+    Pressed {
+        index: usize,
+    },
+    Moving {
+        index: usize,
+        last: Point,
+        carry: f32,
+    },
 }
 
-fn render_drag_list(ui_container: &mut egui::Ui, priority: &mut Vec<String>) -> bool {
-    let id_source = egui::Id::new("language_priority_drag_list");
+#[derive(Debug, Clone)]
+pub enum Message {
+    ToggleLogging(bool),
+    ToggleNightly(bool),
+    ToggleIgnoreConflicts(bool),
+    ToggleIgnoreWatcherFailure(bool),
+    UpdateModeSelected(UpdateMode),
+    LanguageDragStart(usize),
+    LanguageDragMove(Point),
+    LanguageDragEnd,
+    LanguageSetDefault,
+    #[cfg(target_os = "linux")]
+    ToggleDesktopData,
+    #[cfg(target_os = "linux")]
+    DesktopFeedbackExpired,
+    ManualUpdateCheck,
+    ShowUpdatePopup,
+}
 
-    let was_dragging = ui_container.ctx().data(|data_map| data_map.get_temp::<bool>(id_source)).unwrap_or(false);
-    let is_dragging = ui_container.ctx().dragged_id().is_some();
-    ui_container.ctx().data_mut(|data_map| data_map.insert_temp(id_source, is_dragging));
+#[derive(Default)]
+pub struct State {
+    drag: Drag,
+    baseline: Vec<String>,
+    settled: bool,
 
-    let just_dropped = was_dragging && !is_dragging;
+    #[cfg(target_os = "linux")]
+    desktop_feedback: Slot<DesktopFeedback>,
+}
 
-    let mut source_index = None;
-    let mut target_index = None;
-    let mut is_disabled_section = false;
-
-    egui::Frame::group(ui_container.style()).show(ui_container, |frame_ui| {
-        frame_ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.0);
-
-        for (index, language_code) in priority.clone().iter().enumerate() {
-            let is_none = *language_code == "--";
-            if is_none { is_disabled_section = true; }
-
-            let item_id = id_source.with(language_code);
-            let is_dragged = frame_ui.ctx().is_being_dragged(item_id);
-
-            let mut inner_frame = egui::Frame::none().inner_margin(egui::vec2(5.0, 2.0));
-            if is_dragged {
-                inner_frame.fill = frame_ui.visuals().widgets.active.bg_fill;
-                inner_frame.rounding = frame_ui.visuals().widgets.active.rounding;
+impl State {
+    pub fn update(&mut self, message: Message, core_settings: &mut CoreSettings) -> Task<Message> {
+        match message {
+            Message::ToggleLogging(enabled) => {
+                core_settings.general.enable_logging = enabled;
+                Task::none()
             }
+            Message::ToggleNightly(enabled) => {
+                core_settings.general.enable_nightly = enabled;
+                Task::none()
+            }
+            Message::ToggleIgnoreConflicts(enabled) => {
+                core_settings.general.ignore_conflict_errors = enabled;
+                Task::none()
+            }
+            Message::ToggleIgnoreWatcherFailure(enabled) => {
+                core_settings.general.ignore_watcher_failure = enabled;
+                Task::none()
+            }
+            Message::UpdateModeSelected(mode) => {
+                core_settings.general.update_mode = mode;
+                Task::none()
+            }
+            Message::LanguageDragStart(index) => {
+                self.drag = Drag::Pressed { index };
+                self.baseline = core_settings.general.language_priority.clone();
+                Task::none()
+            }
+            Message::LanguageDragMove(point) => {
+                match self.drag {
+                    Drag::Idle => {}
+                    Drag::Pressed { index } => {
+                        self.drag = Drag::Moving { index, last: point, carry: 0.0 };
+                    }
+                    Drag::Moving { index, last, carry } => {
+                        let priority = &mut core_settings.general.language_priority;
+                        let max_index = priority.len().saturating_sub(1);
 
-            let row_response = frame_ui.scope(|scope_ui| {
-                if is_disabled_section && !is_none {
-                    scope_ui.visuals_mut().override_text_color = Some(egui::Color32::from_gray(100));
+                        let mut new_index = index;
+                        let mut new_carry = carry + (point.y - last.y);
+
+                        while new_carry >= ROW_HEIGHT && new_index < max_index {
+                            priority.swap(new_index, new_index + 1);
+                            new_index += 1;
+                            new_carry -= ROW_HEIGHT;
+                        }
+                        while new_carry <= -ROW_HEIGHT && new_index > 0 {
+                            priority.swap(new_index, new_index - 1);
+                            new_index -= 1;
+                            new_carry += ROW_HEIGHT;
+                        }
+
+                        if (new_index == max_index && new_carry > 0.0) || (new_index == 0 && new_carry < 0.0) {
+                            new_carry = 0.0;
+                        }
+
+                        self.drag = Drag::Moving { index: new_index, last: point, carry: new_carry };
+                    }
                 }
-
-                inner_frame.show(scope_ui, |row_ui| {
-                    row_ui.horizontal(|horizontal_ui| {
-                        let label_response = horizontal_ui.label("☰");
-                        let handle = horizontal_ui.interact(label_response.rect.expand(2.0), item_id, egui::Sense::drag());
-
-                        if handle.hovered() { horizontal_ui.ctx().set_cursor_icon(egui::CursorIcon::Grab); }
-                        if handle.dragged() {
-                            horizontal_ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                            source_index = Some(index);
-                        }
-
-                        horizontal_ui.add_space(5.0);
-
-                        if is_none {
-                            horizontal_ui.strong(lang::get_label_for_code(language_code));
-                        } else {
-                            horizontal_ui.label(lang::get_label_for_code(language_code));
-                        }
-                    });
-                }).response
-            }).response;
-
-            let drop_rect = row_response.rect.expand2(egui::vec2(100.0, 0.0));
-            if let Some(mouse_position) = frame_ui.ctx().pointer_interact_pos()
-                && drop_rect.contains(mouse_position) { target_index = Some(index); }
+                Task::none()
+            }
+            Message::LanguageDragEnd => {
+                self.drag = Drag::Idle;
+                self.settled |= self.baseline != core_settings.general.language_priority;
+                self.baseline.clear();
+                Task::none()
+            }
+            Message::LanguageSetDefault => {
+                let restored = lang::default_priority();
+                self.settled |= core_settings.general.language_priority != restored;
+                core_settings.general.language_priority = restored;
+                Task::none()
+            }
+            #[cfg(target_os = "linux")]
+            Message::ToggleDesktopData => {
+                let is_installed = core::modules::settings::desktop::is_desktop_data_present();
+                let (feedback, success) = if is_installed {
+                    (DesktopFeedback::Deleted, core::modules::settings::desktop::delete_desktop_data().is_ok())
+                } else {
+                    (DesktopFeedback::Created, core::modules::settings::desktop::create_desktop_data().is_ok())
+                };
+                let kind = if success { feedback } else { DesktopFeedback::Failed };
+                self.desktop_feedback.set(kind, Message::DesktopFeedbackExpired)
+            }
+            #[cfg(target_os = "linux")]
+            Message::DesktopFeedbackExpired => {
+                self.desktop_feedback.expire();
+                Task::none()
+            }
+            Message::ManualUpdateCheck => {
+                debug!("Manual update check requested, deferring to root app");
+                Task::none()
+            }
+            Message::ShowUpdatePopup => {
+                debug!("Updater popup re-open requested, deferring to root app");
+                Task::none()
+            }
         }
-    });
-
-    if let (Some(source), Some(target)) = (source_index, target_index)
-        && source != target {
-        let item = priority.remove(source);
-        priority.insert(target, item);
     }
 
-    just_dropped
+    pub fn is_dragging(&self) -> bool {
+        !matches!(self.drag, Drag::Idle)
+    }
+
+    pub(super) fn take_language_change(&mut self) -> bool {
+        std::mem::take(&mut self.settled)
+    }
+
+    pub fn view<'a>(&'a self, core_settings: &'a CoreSettings, updater_status: &'a UpdateStatus) -> Element<'a, Message> {
+        let update_modes = vec!["Prompt", "Ignore"];
+        let current_update_mode = match core_settings.general.update_mode {
+            UpdateMode::Prompt => "Prompt",
+            UpdateMode::Ignore => "Ignore",
+        };
+
+        let mut system_content = column![].spacing(10);
+
+        #[cfg(target_os = "linux")]
+        {
+            let is_installed = core::modules::settings::desktop::is_desktop_data_present();
+            let (label, style): (&str, theme::ButtonStyleFn) = match self.desktop_feedback.get() {
+                Some(DesktopFeedback::Created) => ("Desktop Data Created!", theme::success_button),
+                Some(DesktopFeedback::Deleted) => ("Desktop Data Deleted!", theme::success_button),
+                Some(DesktopFeedback::Failed) => ("Failed!", theme::danger_button),
+                None if is_installed => ("Delete Desktop Data", theme::danger_button),
+                None => ("Create Desktop Data", theme::primary_button),
+            };
+            system_content = system_content.push(
+                theme::sized_button(label, theme::STATUS_BUTTON_WIDTH, style).on_press(Message::ToggleDesktopData)
+            );
+        }
+
+        let (update_label, update_style, update_msg): (&str, theme::ButtonStyleFn, Option<Message>) = match updater_status {
+            UpdateStatus::Checking => ("Checking for Updates...", theme::warning_button, None),
+            UpdateStatus::UpToDate => ("Up to Date!", theme::success_button, None),
+            UpdateStatus::UpdateFound(..) => ("Update Found!", theme::success_button, Some(Message::ShowUpdatePopup)),
+            UpdateStatus::CheckFailed => ("Failed to Check!", theme::danger_button, None),
+            UpdateStatus::Downloading(_) => ("Downloading Update...", theme::primary_button, Some(Message::ShowUpdatePopup)),
+            UpdateStatus::RestartPending(_) => ("Restart Pending!", theme::warning_button, Some(Message::ShowUpdatePopup)),
+            UpdateStatus::Idle => ("Check for Update Now", theme::primary_button, Some(Message::ManualUpdateCheck)),
+        };
+        system_content = system_content.push(
+            theme::sized_button(update_label, theme::STATUS_BUTTON_WIDTH, update_style).on_press_maybe(update_msg)
+        );
+
+        let nightly_available = nightly::features_available();
+        let nightly_label = text("Enable Nightly Features 🌙");
+        let nightly_label: Element<'a, Message> = if nightly_available {
+            nightly_label.into()
+        } else {
+            nightly_label
+                .style(|theme: &Theme| iced::widget::text::Style { color: Some(Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }) })
+                .into()
+        };
+        let nightly_hint = if nightly_available {
+            "Enables work-in-progress and unstable features"
+        } else {
+            "No Nightly features available in this version"
+        };
+
+        let behavior_content = column![
+            hover_hint(
+                row![
+                    toggler(core_settings.general.enable_logging).on_toggle(Message::ToggleLogging).style(theme::ios_toggle),
+                    text("Enable Logging"),
+                ].spacing(10).align_y(Alignment::Center),
+                "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs",
+            ),
+            hover_hint(
+                row![
+                    toggler(core_settings.general.enable_nightly)
+                        .on_toggle_maybe(nightly_available.then_some(Message::ToggleNightly))
+                        .style(theme::ios_toggle),
+                    nightly_label,
+                ].spacing(10).align_y(Alignment::Center),
+                nightly_hint,
+            ),
+            row![
+                toggler(core_settings.general.ignore_conflict_errors)
+                    .on_toggle(Message::ToggleIgnoreConflicts)
+                    .style(theme::ios_toggle),
+                text("Ignore Conflict Errors"),
+            ].spacing(10).align_y(Alignment::Center),
+            row![
+                toggler(core_settings.general.ignore_watcher_failure)
+                    .on_toggle(Message::ToggleIgnoreWatcherFailure)
+                    .style(theme::ios_toggle),
+                text("Ignore Watcher Failure"),
+            ].spacing(10).align_y(Alignment::Center),
+            row![
+                text("Update Handling"),
+                pick_list(
+                    update_modes,
+                    Some(current_update_mode),
+                    |val| {
+                        let mode = match val {
+                            "Prompt" => UpdateMode::Prompt,
+                            _ => UpdateMode::Ignore,
+                        };
+                        Message::UpdateModeSelected(mode)
+                    }
+                ).style(theme::combo_box).menu_style(theme::combo_box_menu),
+            ].spacing(10).align_y(Alignment::Center),
+        ].spacing(10);
+
+        let language_content = column![
+            theme::sized_button("Set to Default", theme::MANAGE_BUTTON_WIDTH, theme::danger_button)
+                .on_press(Message::LanguageSetDefault),
+            self.language_list(core_settings),
+        ].spacing(10);
+
+        column![
+            header_section(text("System").size(24), system_content),
+            header_section(text("Behavior").size(24), behavior_content),
+            header_section(text("Language Priority").size(24), language_content),
+        ].spacing(SECTION_SPACING).into()
+    }
+
+    fn language_list<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
+        let priority = &core_settings.general.language_priority;
+        let none_index = priority.iter().position(|code| code == "--");
+
+        let mut list_col = column![].spacing(0);
+        for (index, code) in priority.iter().enumerate() {
+            let is_none = Some(index) == none_index;
+            let is_weak = none_index.is_some_and(|none_index| index > none_index);
+            let is_dragging =
+                matches!(self.drag, Drag::Pressed { index: dragged } | Drag::Moving { index: dragged, .. } if dragged == index);
+
+            list_col = list_col.push(language_row(index, code, is_none, is_weak, is_dragging));
+        }
+
+        container(list_col)
+            .width(Length::Fixed(ROW_WIDTH))
+            .padding(12)
+            .style(theme::card_container_outlined)
+            .into()
+    }
+}
+
+fn language_row<'a>(index: usize, code: &'a str, is_none: bool, is_weak: bool, is_dragging: bool) -> Element<'a, Message> {
+    let handle = mouse_area(text("☰").size(14))
+        .interaction(Interaction::Grab)
+        .on_press(Message::LanguageDragStart(index));
+
+    let label = if is_none { theme::bold_text(lang::get_label_for_code(code)) } else { text(lang::get_label_for_code(code)) };
+
+    let label: Element<'_, Message> = if is_weak {
+        label.style(|theme: &Theme| iced::widget::text::Style { color: Some(Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }) }).into()
+    } else {
+        label.into()
+    };
+
+    let content = row![handle, label].spacing(8).align_y(Alignment::Center);
+
+    container(content)
+        .width(Length::Fixed(ROW_WIDTH))
+        .height(Length::Fixed(ROW_HEIGHT))
+        .align_y(Vertical::Center)
+        .padding([0, 6])
+        .style(move |theme: &Theme| {
+            if is_dragging {
+                container::Style {
+                    background: Some(Color { a: DRAG_HIGHLIGHT_ALPHA, ..theme.palette().primary }.into()),
+                    border: Border { radius: Radius::from(theme::RADIUS_SM), ..Border::default() },
+                    ..container::Style::default()
+                }
+            } else {
+                container::Style::default()
+            }
+        })
+        .into()
 }

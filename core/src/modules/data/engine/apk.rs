@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use zip::ZipArchive;
 
-pub fn find_files(
+pub(crate) fn find_files(
     search_directory: &Path,
     list_paths: &mut Vec<PathBuf>,
     apk_paths: &mut Vec<PathBuf>,
@@ -49,7 +49,7 @@ pub fn find_files(
     Ok(())
 }
 
-pub fn extract_all(apk_paths: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+pub(crate) fn extract_all(apk_paths: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     if apk_paths.is_empty() {
         return (Vec::new(), Vec::new(), Vec::new());
     }
@@ -79,9 +79,8 @@ pub fn extract_all(apk_paths: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<Pa
             };
 
             for index in 0..archive_reader.len() {
-                let mut current_file = match archive_reader.by_index(index) {
-                    Ok(file) => file,
-                    Err(_) => continue,
+                let Ok(mut current_file) = archive_reader.by_index(index) else {
+                    continue;
                 };
 
                 if current_file.is_dir() {

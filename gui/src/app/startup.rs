@@ -1,31 +1,55 @@
+use std::fs;
 use std::path::Path;
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 use std::thread;
 
-use eframe::egui;
-use tracing::{debug, info};
+use iced::futures::channel::mpsc;
+use iced::Task;
+use smol::Timer;
+use tracing::{debug, error, info, warn};
 
-use core::common::assets;
-use core::common::game::{localizable, param};
-use core::common::io::{cache, json};
-use core::common::resolver;
-use core::modules::cat::paths as cat_paths;
-use core::modules::cat::scanner::CatEntry;
-use core::modules::cat::waiter::{skilldescriptions, skilllevel};
-use core::modules::enemy::scanner::EnemyEntry;
-use core::modules::settings::{desktop, lang, ExceptionList, UpdateMode};
-use core::modules::stage::StageRegistry;
+use core::common::dirs;
+use core::common::io::json;
+use core::modules::data::{self, architecture};
+use core::modules::mods;
+use core::modules::settings::{desktop, lang, ExceptionList, ScannerConfig, UpdateMode};
+use core::{ContentStore, Vault};
 
-use super::logging;
-use super::updater;
-use super::BattleCatsApp;
+use crate::modules::home;
+
+use super::{logging, migrate, notice, updater, ActivePopup, BattleCatsApp, Message};
 
 impl BattleCatsApp {
-    pub(crate) fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
-        let mut app: Self = json::load("settings.json").unwrap_or_default();
+    pub fn new() -> (Self, Task<Message>) {
+        let migration_notes = migrate::run();
 
-        logging::init(app.settings.general.enable_logging);
+        let mut app: Self = json::load("settings.json").unwrap_or_default();
+        app.app_state = json::load_state("state.json").unwrap_or_default();
+
+        logging::init_logging(app.settings.general.enable_logging);
+
+        for note in migration_notes {
+            match note {
+                migrate::Note::Info(message) => info!("{}", message),
+                migrate::Note::Warn(message) => warn!("{}", message),
+            }
+        }
+
         info!("Starting initialization sequence...");
+
+        app.cat_state.restore_state(&app.app_state.cat);
+        app.enemy_state.restore_state(&app.app_state.enemy);
+        app.stage_state.restore_state(&app.app_state.stage);
+
+        if notice::should_show(&app.app_state.notice.acknowledged) {
+            info!("Notice {} not yet acknowledged, showing at startup", notice::hash());
+            app.notice_open = true;
+            app.sync_popup(ActivePopup::VersionNotice, true);
+        }
+
+        if let Some(state_dir) = dirs::state() {
+            let _ = fs::remove_file(state_dir.join("meta.json"));
+        }
 
         ExceptionList::sync_on_boot();
 
@@ -37,116 +61,140 @@ impl BattleCatsApp {
 
         lang::ensure_complete_list(&mut app.settings.general.language_priority);
 
-        debug!("Setting up custom fonts");
-        setup_custom_fonts(&creation_context.egui_ctx);
-
-        debug!("Refreshing mod state and cleaning up temp update files");
-        app.mod_state.data.refresh_mods();
+        debug!("Cleaning up temp update files");
         updater::cleanup_temp_files();
 
-        info!("Loading core tables");
-        let tables_dir = Path::new("game/tables");
-        let loc_dir = Path::new("game/tables/localizable");
-        let priority = &app.settings.general.language_priority;
+        let store_task = app.spawn_vault_build(true);
 
-        app.param = param(tables_dir, priority).unwrap_or_default();
-        app.localizable = localizable(loc_dir, priority);
-
-        let mut expected_hash = 0;
-        let mut needs_validation = false;
-
-        if let Some((hash, cached_cats)) = cache::load_with_hash::<Vec<CatEntry>>("cats_cache.bin") {
-            info!("Found cats_cache.bin (Hash: {})", hash);
-            expected_hash = hash;
-            needs_validation = true;
-
-            let cats_dir = Path::new(cat_paths::DIR_CATS);
-            let costs_arc = Arc::new(skilllevel(cats_dir, priority));
-            let descriptions_arc = Arc::new(skilldescriptions(cats_dir, priority));
-
-            app.cat_list_state.data.cats = cached_cats.into_iter().map(|mut cat| {
-                cat.talent_costs = Arc::clone(&costs_arc);
-                cat.skill_descriptions = Arc::clone(&descriptions_arc);
-                cat
-            }).collect();
-
-            app.cat_list_state.data.initialized = true;
-        } else {
-            info!("No cats_cache.bin found, triggering full cat scan");
-            app.cat_list_state.data.restart_scan(app.settings.scanner_config());
-        }
-
-        if let Some((hash, cached_enemies)) = cache::load_with_hash::<Vec<EnemyEntry>>("enemies_cache.bin") {
-            info!("Found enemies_cache.bin (Hash: {})", hash);
-            expected_hash = hash;
-            needs_validation = true;
-            app.enemy_list_state.data.enemies = cached_enemies;
-            app.enemy_list_state.data.initialized = true;
-        } else {
-            info!("No enemies_cache.bin found, triggering full enemy scan");
-            app.enemy_list_state.data.restart_scan(app.settings.scanner_config());
-        }
-
-        if let Some((hash, cached_registry)) = cache::load_with_hash::<StageRegistry>("stages_cache.bin") {
-            info!("Found stages_cache.bin (Hash: {})", hash);
-            expected_hash = hash;
-            needs_validation = true;
-
-            app.stage_list_state.data.registry = cached_registry;
-
-            let config = app.settings.scanner_config();
-            app.stage_list_state.data.load_dictionaries(&config);
-
-            let enemies_ref = app.enemy_list_state.data.enemies.clone();
-            app.stage_list_state.data.sync_enemies(&enemies_ref);
-
-            app.stage_list_state.data.initialized = true;
-
-            info!("Triggering silent background validation scan for stages...");
-            app.stage_list_state.data.restart_scan(app.settings.scanner_config());
-        } else {
-            info!("No stages_cache.bin found, triggering full stage scan");
-            app.stage_list_state.data.restart_scan(app.settings.scanner_config());
-        }
-
-        if needs_validation {
-            debug!("Spawning hash validation thread");
-            let (tx, rx) = mpsc::channel();
-            app.hash_rx = Some(rx);
-            let active_mod = resolver::get_active_mod();
-
-            thread::spawn(move || {
-                let current_hash = cache::get_game_hash(active_mod.as_deref());
-                let is_valid = current_hash == expected_hash && active_mod.is_none();
-                let _ = tx.send(is_valid);
-            });
-        }
-
-        if app.settings.general.update_mode != UpdateMode::Ignore {
+        let updater_task = if app.settings.general.update_mode != UpdateMode::Ignore {
             info!("Checking for app updates at startup");
-            app.updater.check_for_updates(creation_context.egui_ctx.clone(), false);
-        }
+            app.check_for_updates(false)
+        } else {
+            Task::none()
+        };
+
+        let (home_state, home_task) = home::State::new();
+        app.home_state = home_state;
+
+        let icon_streams = Task::batch([
+            app.cat_state.icon_stream().map(Message::Cat),
+            app.enemy_state.icon_stream().map(Message::Enemy),
+            app.mods_state.icon_stream().map(Message::Mod),
+        ]);
+
+        let reveal_fallback = Task::future(Timer::after(super::WINDOW_SHOW_FALLBACK)).map(|_| Message::ShowWindow);
 
         info!("Initialization sequence complete");
-        app
+
+        (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams, store_task, reveal_fallback]))
+    }
+
+    pub(super) fn spawn_vault_build(&mut self, hydrate: bool) -> Task<Message> {
+        let config = self.settings.scanner_config(self.mods_state.active_mod());
+        let (tx, rx) = mpsc::unbounded();
+
+        self.cat_state.set_indexing();
+        self.enemy_state.set_indexing();
+        self.stage_state.set_indexing();
+
+        thread::spawn(move || {
+            let stored = hydrate.then(|| {
+                let mut cached = Vault::with_priority(&config.language_priority);
+                let stored = hydrate_vault(&mut cached);
+                let _ = tx.unbounded_send(Message::VaultHydrated(Arc::new(cached)));
+                stored
+            });
+
+            let index = Vault::hash(config.active_mod.as_deref());
+            let key = config.active_mod.is_none().then(|| Vault::key_for(index, &config));
+
+            if stored == Some(Some(index)) {
+                debug!(index, "File index still matches disk, keeping the hydrated caches");
+                let _ = tx.unbounded_send(Message::VaultValidated { vault: None, key });
+                return;
+            }
+
+            info!(index, "Building the file index in the background");
+            let mut rebuilt = Vault::with_priority(&config.language_priority);
+            rebuild_vault(&mut rebuilt, &config, index);
+            let _ = tx.unbounded_send(Message::VaultValidated { vault: Some(Arc::new(rebuilt)), key });
+        });
+
+        Task::stream(rx)
+    }
+
+    pub(super) fn adopt_vault(&mut self, vault: Arc<Vault>, cached: bool) -> Task<Message> {
+        self.vault = vault;
+        self.vault_ready = true;
+
+        self.init_errors.report_conflicts(self.vault.vfs.conflicts(), self.settings.general.ignore_conflict_errors);
+        self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
+
+        self.sync_home_status();
+
+        let active_mod = self.mods_state.active_mod();
+
+        Task::batch([
+            self.load_tables(),
+            self.cat_state.start_load(&self.settings, &self.vault, active_mod.clone(), cached).map(Message::Cat),
+            self.enemy_state.start_load(&self.settings, &self.vault, active_mod.clone(), cached).map(Message::Enemy),
+            self.stage_state.start_load(&self.settings, &self.vault, active_mod, cached).map(Message::Stage),
+        ])
     }
 }
 
-fn setup_custom_fonts(context: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert("jp_font".to_owned(), egui::FontData::from_static(assets::FONT_JP));
-    fonts.font_data.insert("kr_font".to_owned(), egui::FontData::from_static(assets::FONT_KR));
-    fonts.font_data.insert("tc_font".to_owned(), egui::FontData::from_static(assets::FONT_TC));
-    fonts.font_data.insert("thai_font".to_owned(), egui::FontData::from_static(assets::FONT_TH));
+fn hydrate_vault(vault: &mut Vault) -> Option<u64> {
+    let stored = vault.vfs.hydrate();
 
-    let families = [egui::FontFamily::Proportional, egui::FontFamily::Monospace];
-    for family in families {
-        let Some(list_ref) = fonts.families.get_mut(&family) else { continue; };
-
-        list_ref.push("jp_font".to_owned());
-        list_ref.push("kr_font".to_owned());
-        list_ref.push("tc_font".to_owned());
-        list_ref.push("thai_font".to_owned());
+    if let Some(index) = stored {
+        debug!(index, "Hydrated the file index from the virtual file system cache");
     }
-    context.set_fonts(fonts);
+
+    if let Some(content) = ContentStore::hydrate() {
+        debug!("Hydrated parsed tables from the virtual data store cache");
+        content.apply(&mut vault.vds);
+    }
+
+    stored
+}
+
+fn rebuild_vault(vault: &mut Vault, config: &ScannerConfig, index: u64) {
+    mount_game(vault);
+
+    if let Some(name) = config.active_mod.as_deref() {
+        mount_mod(vault, name);
+    }
+
+    if vault.vfs.count(architecture::GAME) == 0 {
+        warn!("No game data left on disk, purging every derived cache");
+        data::purge_derived_caches();
+    }
+
+    vault.vfs.persist(index);
+}
+
+fn mount_game(vault: &Vault) {
+    info!("Indexing game data");
+
+    match vault.vfs.create(Path::new(architecture::GAME)) {
+        Ok(conflicts) => {
+            for conflict in &conflicts {
+                warn!(key = %conflict.key, "duplicate filename in game data, all copies excluded: {:?}", conflict.paths);
+            }
+        }
+        Err(err) => error!("Failed to index game data: {}", err),
+    }
+}
+
+fn mount_mod(vault: &Vault, name: &str) {
+    info!(mod_name = name, "Mounting active mod");
+
+    match mods::enable(vault, name) {
+        Ok(conflicts) => {
+            for conflict in &conflicts {
+                warn!(key = %conflict.key, "duplicate filename in mod, all copies excluded: {:?}", conflict.paths);
+            }
+        }
+        Err(err) => error!(mod_name = name, "Failed to mount active mod: {}", err),
+    }
 }

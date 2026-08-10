@@ -42,14 +42,18 @@ impl Region {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn from_str(input_string: &str) -> Option<Self> {
+}
+
+impl std::str::FromStr for Region {
+    type Err = ();
+
+    fn from_str(input_string: &str) -> Result<Self, Self::Err> {
         match input_string.to_lowercase().as_str() {
-            "ja" | "jp" | "battlecats" => Some(Region::Ja),
-            "en" => Some(Region::En),
-            "tw" => Some(Region::Tw),
-            "ko" | "kr" => Some(Region::Ko),
-            _ => None,
+            "ja" | "jp" | "battlecats" => Ok(Region::Ja),
+            "en" => Ok(Region::En),
+            "tw" => Ok(Region::Tw),
+            "ko" | "kr" => Ok(Region::Ko),
+            _ => Err(()),
         }
     }
 }

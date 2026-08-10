@@ -1,23 +1,23 @@
 use std::collections::HashMap;
-use std::path::Path;
 
 use crate::common::formats::GatyaItemBuy;
 use crate::common::formats::GatyaItemName;
+use crate::Vfs;
 
-use super::paths;
+use super::files;
 use super::treasure::ResolvedDrop;
 
-pub const MAT_IDS: [u32; 16] = [
+pub(crate) const MAT_IDS: [u32; 16] = [
     85, 86, 87, 88, 89, 90, 91, 140,
     187, 188, 189, 190, 191, 192, 193, 194,
 ];
 
 pub fn resolve(
+    vfs: &Vfs,
     idx: usize,
     amt: u32,
     buy: &HashMap<u32, GatyaItemBuy>,
-    names: &HashMap<usize, GatyaItemName>,
-    langs: &[String]
+    names: &HashMap<usize, GatyaItemName>
 ) -> ResolvedDrop {
     let Some(&item_id) = MAT_IDS.get(idx) else {
         return ResolvedDrop {
@@ -46,9 +46,7 @@ pub fn resolve(
         buy_data.row_index as u32
     };
 
-    let dir = Path::new(paths::DIR_GATYA_ITEM);
-    let file = paths::gatya_item_img(img_id);
-    let image_path = crate::common::resolver::get(dir, [&file], langs).into_iter().next();
+    let image_path = vfs.find(&files::gatya_item_img(img_id));
 
     ResolvedDrop {
         name,

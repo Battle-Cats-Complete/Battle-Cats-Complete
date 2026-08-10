@@ -2,25 +2,20 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Instant;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, UnitBuy, UnitEvolve};
 use nyanko::graphics::rig::Animation;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::common::io::cache;
-use crate::common::resolver;
-use crate::modules::cat::{paths, CatDataState};
+use crate::modules::cat::files;
+use crate::modules::cat::waiter::unitexplanation;
 use crate::modules::settings::ScannerConfig;
-
-use crate::modules::cat::waiter::{
-    skillacquisition, skilldescriptions, skilllevel, unitbuy, unitevolve, unitexplanation, unitlevel,
-};
+use crate::{Vfs, Vault};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CatEntry {
@@ -64,122 +59,123 @@ fn is_valid_png(path: &Path) -> bool {
     buffer[24] >= 8
 }
 
-pub fn start_scan(config: ScannerConfig) -> Receiver<CatEntry> {
+struct CatCache;
+
+impl cache::CacheSpec for CatCache {
+    type Data = Vec<CatEntry>;
+    const FILE: &'static str = "cats_cache.bin";
+    const VERSION: u32 = 1;
+}
+
+pub fn purge() {
+    cache::purge::<CatCache>();
+}
+
+pub fn hydrate(config: &ScannerConfig, vault: &Vault) -> Option<(u64, Vec<CatEntry>)> {
+    if config.active_mod.is_some() {
+        return None;
+    }
+
+    let (hash, cached_cats) = cache::read::<CatCache>()?;
+    debug!(hash, count = cached_cats.len(), "hydrated cats from cache");
+
+    let talent_costs_arc = vault.vds.cats.talent_costs(&vault.vfs);
+    let skill_descriptions_arc = vault.vds.cats.descriptions(&vault.vfs);
+
+    let cats = cached_cats.into_iter().map(|mut cat| {
+        cat.talent_costs = Arc::clone(&talent_costs_arc);
+        cat.skill_descriptions = Arc::clone(&skill_descriptions_arc);
+        cat
+    }).collect();
+
+    Some((hash, cats))
+}
+
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> (Vec<CatEntry>, Option<u64>) {
+    scan(config, &vault, progress)
+}
+
+pub fn scan_single(id: u32, vault: &Vault, config: &ScannerConfig) -> Option<CatEntry> {
+    let vfs = &vault.vfs;
+
+    let tables = ScanTables {
+        level_curves: vault.vds.cats.curves(vfs),
+        unit_buys: vault.vds.cats.unitbuy(vfs),
+        talents: vault.vds.cats.talents(vfs),
+        evolve_texts: vault.vds.cats.evolve(vfs),
+        talent_costs: vault.vds.cats.talent_costs(vfs),
+        skill_descriptions: vault.vds.cats.descriptions(vfs),
+    };
+
+    process_cat_entry(id, vfs, &tables, config)
+}
+
+fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> (Vec<CatEntry>, Option<u64>) {
     trace!("starting cat repository scan");
-    let (cat_sender, cat_receiver) = mpsc::channel();
+    let vfs = &vault.vfs;
 
-    thread::spawn(move || {
-        let cats_directory = Path::new(paths::DIR_CATS);
-        let priority = &config.language_priority;
+    if vfs.find(files::UNIT_BUY).is_none() || vfs.find(files::UNIT_LEVEL).is_none() {
+        warn!("cat scan aborted: unitbuy/unitlevel tables unavailable");
+        return (Vec::new(), None);
+    }
 
-        let unitbuy_resolved = resolver::get(cats_directory, [paths::UNIT_BUY], priority).into_iter().next();
-        let unitlevel_resolved = resolver::get(cats_directory, [paths::UNIT_LEVEL], priority).into_iter().next();
+    let tables = ScanTables {
+        level_curves: vault.vds.cats.curves(vfs),
+        unit_buys: vault.vds.cats.unitbuy(vfs),
+        talents: vault.vds.cats.talents(vfs),
+        evolve_texts: vault.vds.cats.evolve(vfs),
+        talent_costs: vault.vds.cats.talent_costs(vfs),
+        skill_descriptions: vault.vds.cats.descriptions(vfs),
+    };
 
-        if unitbuy_resolved.is_none() || unitlevel_resolved.is_none() {
-            return;
-        }
+    let unit_ids: Vec<u32> = tables.unit_buys.keys().copied().collect();
 
-        let level_curves_arc = Arc::new(unitlevel(cats_directory, priority));
-        let unit_buy_map_arc = Arc::new(unitbuy(cats_directory, priority));
-        let talent_map_arc = Arc::new(skillacquisition(cats_directory, priority));
-        let evolve_text_map_arc = Arc::new(unitevolve(cats_directory, priority));
-        let talent_costs_arc = Arc::new(skilllevel(cats_directory, priority));
-        let skill_descriptions_arc = Arc::new(skilldescriptions(cats_directory, priority));
+    let total_units = unit_ids.len();
+    let processed_count = AtomicUsize::new(0);
 
-        let folder_entries: Vec<PathBuf> = match fs::read_dir(cats_directory) {
-            Ok(read_dir_iter) => read_dir_iter
-                .filter_map(|entry_result| entry_result.ok())
-                .map(|entry| entry.path())
-                .filter(|path| path.is_dir())
-                .collect(),
-            Err(_) => Vec::new(),
-        };
+    let mut parsed_cats: Vec<CatEntry> = unit_ids.par_iter().filter_map(|&cat_id| {
+        let cat = process_cat_entry(cat_id, vfs, &tables, &config);
 
-        let stream_sender = Arc::new(Mutex::new(cat_sender));
+        let done = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
+        progress(done, total_units);
 
-        let mut parsed_cats: Vec<CatEntry> = folder_entries.par_iter().filter_map(|folder_path| {
-            let cat = process_cat_entry(
-                folder_path,
-                &level_curves_arc,
-                &unit_buy_map_arc,
-                &talent_map_arc,
-                &evolve_text_map_arc,
-                &talent_costs_arc,
-                &skill_descriptions_arc,
-                &config
-            );
+        cat
+    }).collect();
 
-            if let Some(cat_item) = &cat
-                && let Ok(sender) = stream_sender.lock() {
-                let _ = sender.send(cat_item.clone());
-            }
+    parsed_cats.sort_by_key(|cat| cat.id);
 
-            cat
-        }).collect();
-
-        parsed_cats.sort_by_key(|cat| cat.id);
-
-        if !resolver::is_mod_active() {
-            let current_hash = cache::get_game_hash(None);
-            cache::save("cats_cache.bin", current_hash, &parsed_cats);
-        }
+    let key = config.active_mod.is_none().then(|| {
+        let key = cache::content_hash(&config);
+        cache::write::<CatCache>(key, &parsed_cats);
+        key
     });
 
-    cat_receiver
+    (parsed_cats, key)
+}
+struct ScanTables {
+    level_curves: Arc<Vec<LevelCurve>>,
+    unit_buys: Arc<HashMap<u32, UnitBuy>>,
+    talents: Arc<HashMap<u16, Talent>>,
+    evolve_texts: Arc<HashMap<u32, UnitEvolve>>,
+    talent_costs: Arc<HashMap<u8, TalentCost>>,
+    skill_descriptions: Arc<Vec<String>>,
 }
 
-pub fn scan_single(id: u32, config: &ScannerConfig) -> Option<CatEntry> {
-    trace!(cat_id = id, "scanning single cat");
-    let cats_directory = Path::new(paths::DIR_CATS);
-    let priority = &config.language_priority;
-
-    let unitbuy_resolved = resolver::get(cats_directory, [paths::UNIT_BUY], priority).into_iter().next();
-    let unitlevel_resolved = resolver::get(cats_directory, [paths::UNIT_LEVEL], priority).into_iter().next();
-    if unitbuy_resolved.is_none() || unitlevel_resolved.is_none() { return None; }
-
-    let curves = unitlevel(cats_directory, priority);
-    let buys = unitbuy(cats_directory, priority);
-    let talents = skillacquisition(cats_directory, priority);
-    let evolve = unitevolve(cats_directory, priority);
-    let costs = Arc::new(skilllevel(cats_directory, priority));
-    let descs = Arc::new(skilldescriptions(cats_directory, priority));
-
-    let folder_path = cats_directory.join(format!("{:03}", id));
-
-    if !folder_path.exists() { return None; }
-
-    process_cat_entry(&folder_path, &curves, &buys, &talents, &evolve, &costs, &descs, config)
-}
-
-pub fn process_cat_entry(
-    original_folder_path: &Path,
-    level_curves: &[LevelCurve],
-    unit_buys: &HashMap<u32, UnitBuy>,
-    talents_map: &HashMap<u16, Talent>,
-    evolve_text_map: &HashMap<u32, UnitEvolve>,
-    talent_costs: &Arc<HashMap<u8, TalentCost>>,
-    skill_descriptions: &Arc<Vec<String>>,
+fn process_cat_entry(
+    cat_id: u32,
+    vfs: &Vfs,
+    tables: &ScanTables,
     config: &ScannerConfig
 ) -> Option<CatEntry> {
-    let folder_stem = original_folder_path.file_name()?.to_str()?;
-    let cat_id = folder_stem.parse::<u32>().ok()?;
-    let cats_root_dir = Path::new(paths::DIR_CATS);
-    let priority = &config.language_priority;
-
     trace!(cat_id = cat_id, "processing cat entry data");
 
-    let stats_path = paths::stats(cats_root_dir, cat_id);
-
-    let Some(stats_parent) = stats_path.parent() else { return None; };
-    let Some(stats_file_name) = stats_path.file_name().and_then(|name_str| name_str.to_str()) else { return None; };
-
-    let resolved_stats = resolver::get(stats_parent, [stats_file_name], priority).into_iter().next();
+    let resolved_stats = vfs.find(&files::stats_file(cat_id));
 
     if !config.show_invalid_cats && resolved_stats.is_none() {
         return None;
     }
 
-    let ub_row = unit_buys.get(&cat_id)?;
+    let ub_row = tables.unit_buys.get(&cat_id)?;
     let egg_ids = (ub_row.egg_id_normal, ub_row.egg_id_evolved);
 
     let mut forms_existence = [false; 4];
@@ -187,26 +183,20 @@ pub fn process_cat_entry(
     let mut final_image_path_opt = None;
 
     for form_idx in 0..4 {
-        let dir = paths::folder(cats_root_dir, cat_id, form_idx, egg_ids);
-
-        let banner_stem = paths::image_stem(paths::AssetType::Banner, cat_id, form_idx, egg_ids);
-        let banner_name = format!("{}.png", banner_stem);
-        let mut resolved_banner = resolver::get(&dir, [banner_name.as_str()], priority).into_iter().next();
+        let banner_stem = files::image_stem(files::AssetType::Banner, cat_id, form_idx, egg_ids);
+        let mut resolved_banner = vfs.find(&format!("{}.png", banner_stem));
 
         if resolved_banner.is_none() && form_idx == 1 && egg_ids.1 != -1 {
-            let fallback_stem = format!("udi{:03}_m00", egg_ids.1);
-            let fallback_name = format!("{}.png", fallback_stem);
-            resolved_banner = resolver::get(&dir, [fallback_name.as_str()], priority).into_iter().next();
+            let fallback_name = format!("udi{:03}_m00.png", egg_ids.1);
+            resolved_banner = vfs.find(&fallback_name);
         }
 
-        let icon_stem = paths::image_stem(paths::AssetType::Icon, cat_id, form_idx, egg_ids);
-        let icon_name = format!("{}.png", icon_stem);
-        let mut resolved_icon = resolver::get(&dir, [icon_name.as_str()], priority).into_iter().next();
+        let icon_stem = files::image_stem(files::AssetType::Icon, cat_id, form_idx, egg_ids);
+        let mut resolved_icon = vfs.find(&format!("{}.png", icon_stem));
 
         if resolved_icon.is_none() && form_idx == 1 && egg_ids.1 != -1 {
-            let fallback_stem = format!("uni{:03}_m00", egg_ids.1);
-            let fallback_name = format!("{}.png", fallback_stem);
-            resolved_icon = resolver::get(&dir, [fallback_name.as_str()], priority).into_iter().next();
+            let fallback_name = format!("uni{:03}_m00.png", egg_ids.1);
+            resolved_icon = vfs.find(&fallback_name);
         }
 
         let mut form_valid = false;
@@ -217,7 +207,7 @@ pub fn process_cat_entry(
                         form_valid = true;
                     }
                 } else if config.show_invalid_cats {
-                    form_valid = dir.exists();
+                    form_valid = resolved_icon.is_some();
                 }
             }
             2 => form_valid = ub_row.true_form_id > 0,
@@ -238,15 +228,12 @@ pub fn process_cat_entry(
 
     for form_idx in (0..=config.preferred_form).rev() {
         if forms_existence[form_idx] {
-            let dir = paths::folder(cats_root_dir, cat_id, form_idx, egg_ids);
-            let banner_stem = paths::image_stem(paths::AssetType::Banner, cat_id, form_idx, egg_ids);
-            let banner_name = format!("{}.png", banner_stem);
-            let mut resolved_fallback = resolver::get(&dir, [banner_name.as_str()], priority).into_iter().next();
+            let banner_stem = files::image_stem(files::AssetType::Banner, cat_id, form_idx, egg_ids);
+            let mut resolved_fallback = vfs.find(&format!("{}.png", banner_stem));
 
             if resolved_fallback.is_none() && form_idx == 1 && egg_ids.1 != -1 {
-                let fallback_stem = format!("udi{:03}_m00", egg_ids.1);
-                let fallback_name = format!("{}.png", fallback_stem);
-                resolved_fallback = resolver::get(&dir, [fallback_name.as_str()], priority).into_iter().next();
+                let fallback_name = format!("udi{:03}_m00.png", egg_ids.1);
+                resolved_fallback = vfs.find(&fallback_name);
             }
 
             if resolved_fallback.is_some() {
@@ -259,10 +246,9 @@ pub fn process_cat_entry(
     let mut attack_anim_frames = [0; 4];
     for i in 0..4 {
         if !forms_existence[i] { continue; }
-        let anim_path = paths::maanim(cats_root_dir, cat_id, i, egg_ids, 2);
+        let anim_name = files::maanim_file(cat_id, i, egg_ids, 2);
 
-        if let (Some(parent_dir), Some(anim_file_name)) = (anim_path.parent(), anim_path.file_name().and_then(|name_str| name_str.to_str()))
-            && let Some(resolved) = resolver::get(parent_dir, [anim_file_name], priority).into_iter().next()
+        if let Some(resolved) = vfs.find(&anim_name)
             && let Ok(bytes) = fs::read(&resolved) {
             let content = String::from_utf8_lossy(&bytes);
             let duration = Animation::scan_duration(content.as_bytes());
@@ -282,7 +268,7 @@ pub fn process_cat_entry(
         }
     }
 
-    let explanation = unitexplanation(cat_id, original_folder_path, priority);
+    let explanation = unitexplanation(vfs, cat_id);
 
     let egg_ids_opt = if egg_ids.0 != -1 || egg_ids.1 != -1 {
         Some(egg_ids)
@@ -298,106 +284,13 @@ pub fn process_cat_entry(
         description: explanation.descriptions,
         forms: forms_existence,
         stats: cat_stats,
-        curve: level_curves.get(cat_id as usize).cloned(),
+        curve: tables.level_curves.get(cat_id as usize).cloned(),
         atk_anim_frames: attack_anim_frames,
         egg_ids: egg_ids_opt,
-        talent_data: talents_map.get(&(cat_id as u16)).cloned(),
+        talent_data: tables.talents.get(&(cat_id as u16)).cloned(),
         unitbuy: ub_row.clone(),
-        evolve_text: evolve_text_map.get(&{ cat_id }).cloned().unwrap_or_default(),
-        talent_costs: Arc::clone(talent_costs),
-        skill_descriptions: Arc::clone(skill_descriptions),
+        evolve_text: tables.evolve_texts.get(&{ cat_id }).cloned().unwrap_or_default(),
+        talent_costs: Arc::clone(&tables.talent_costs),
+        skill_descriptions: Arc::clone(&tables.skill_descriptions),
     })
-}
-
-pub fn refresh_cat(state: &mut CatDataState, id: u32, config: ScannerConfig) {
-    debug!(cat_id = id, "refreshing single cat cache");
-    match scan_single(id, &config) {
-        Some(entry) => {
-            match state.cats.binary_search_by_key(&id, |c| c.id) {
-                Ok(pos) => state.cats[pos] = entry,
-                Err(pos) => state.cats.insert(pos, entry),
-            }
-        },
-        None => {
-            if let Ok(pos) = state.cats.binary_search_by_key(&id, |c| c.id) {
-                state.cats.remove(pos);
-                if state.selected_cat == Some(id) {
-                    state.selected_cat = None;
-                }
-            }
-        }
-    }
-}
-
-pub fn update_data(state: &mut CatDataState) {
-    let Some(rx) = &state.scan_receiver else { return };
-
-    let mut received_any = false;
-    let mut is_done = false;
-
-    loop {
-        match rx.try_recv() {
-            Ok(cat_entry) => {
-                let id = cat_entry.id;
-
-                state.active_scan_ids.insert(id);
-
-                match state.cats.binary_search_by_key(&id, |c| c.id) {
-                    Ok(pos) => state.cats[pos] = cat_entry,
-                    Err(pos) => state.cats.insert(pos, cat_entry),
-                }
-
-                received_any = true;
-            },
-            Err(TryRecvError::Empty) => break,
-            Err(TryRecvError::Disconnected) => {
-                is_done = true;
-                break;
-            }
-        }
-    }
-
-    if received_any {
-        let now = Instant::now();
-        state.last_update_time = Some(now);
-
-        if state.selected_cat.is_none() && !state.cats.is_empty() {
-            state.selected_cat = Some(state.cats[0].id);
-        }
-    }
-
-    if is_done {
-        state.cats.retain(|c| state.active_scan_ids.contains(&c.id));
-
-        if let Some(sel) = state.selected_cat
-            && !state.active_scan_ids.contains(&sel) {
-            state.selected_cat = None;
-        }
-
-        state.scan_receiver = None;
-    }
-}
-
-pub fn resync_scan(state: &mut CatDataState, config: ScannerConfig) {
-    state.active_scan_ids.clear();
-    state.scan_receiver = Some(start_scan(config));
-}
-
-pub fn restart_scan(state: &mut CatDataState, config: ScannerConfig) {
-    let current_selection_id = state.selected_cat;
-    let current_form = state.selected_form;
-    let current_tab = state.selected_detail_tab;
-
-    state.is_cold_scan = true;
-    state.last_update_time = None;
-    state.incoming_cats.clear();
-    state.active_scan_ids.clear();
-
-    state.cats.clear();
-
-    state.selected_cat = current_selection_id;
-    state.selected_form = current_form;
-    state.selected_detail_tab = current_tab;
-
-    state.scan_receiver = Some(start_scan(config));
 }

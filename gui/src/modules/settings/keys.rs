@@ -1,233 +1,280 @@
 use std::fs;
 use std::path::Path;
 
-use eframe::egui;
+use iced::widget::{column, container, row, scrollable, text_input};
+use iced::{Alignment, Element, Length, Size, Task, Theme};
 
+use core::common::keys::sanitize;
 use core::modules::settings::UserKeys;
 
-use crate::common::DragGuard;
+use crate::app::theme;
+use crate::common::feedback::Slot;
+use crate::widget::{popup, smooth_scroll};
 
-const COLUMN_REGION_WIDTH: f32 = 40.0;
-const COLUMN_INPUT_WIDTH: f32 = 250.0;
+const POPUP_SIZE: Size = Size::new(650.0, 335.0);
+const REGION_COLUMN_WIDTH: f32 = 60.0;
 
-#[derive(Clone)]
-struct ManageKeysState {
-    is_open: bool,
-    reset_position: bool,
-    keys: UserKeys,
-    validation_status: Option<[(bool, bool); 4]>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegionSlot {
+    Ja,
+    En,
+    Tw,
+    Ko,
 }
 
-impl Default for ManageKeysState {
-    fn default() -> Self {
-        Self {
-            is_open: false,
-            reset_position: false,
-            keys: UserKeys::load(),
-            validation_status: None,
+impl RegionSlot {
+    const ALL: [Self; 4] = [Self::Ja, Self::En, Self::Tw, Self::Ko];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Ja => "Japan",
+            Self::En => "Global",
+            Self::Tw => "Taiwan",
+            Self::Ko => "Korea",
         }
     }
 }
 
-pub(crate) fn open(context: &egui::Context) {
-    let state_id = egui::Id::new("manage_keys_state");
-    let mut state = context.data(|data_map| data_map.get_temp::<ManageKeysState>(state_id)).unwrap_or_default();
-    state.is_open = true;
-    state.reset_position = true;
-    context.data_mut(|data_map| data_map.insert_temp(state_id, state));
+#[derive(Debug, Clone)]
+pub enum Message {
+    Popup(popup::Message),
+    Open,
+    KeyChanged(RegionSlot, String),
+    IvChanged(RegionSlot, String),
+    Import,
+    ImportExpired,
+    Export,
+    ExportExpired,
+    Validate,
+    DeleteRequested,
+    ConfirmExpired,
 }
 
-pub(crate) fn show(context: &egui::Context, drag_guard: &mut DragGuard) {
-    let state_id = egui::Id::new("manage_keys_state");
-    let mut state = context.data(|data_map| data_map.get_temp::<ManageKeysState>(state_id)).unwrap_or_default();
+pub struct State {
+    pub is_open: bool,
+    popup: popup::State,
+    keys: UserKeys,
+    validation_status: Option<[(bool, bool); 4]>,
+    import_feedback: Slot<bool>,
+    export_feedback: Slot<bool>,
+    confirm_delete: Slot<()>,
+}
 
-    if !state.is_open {
-        state.validation_status = None;
-        context.data_mut(|data_map| data_map.insert_temp(state_id, state));
-        return;
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            is_open: false,
+            popup: popup::State::default(),
+            keys: UserKeys::load(),
+            validation_status: None,
+            import_feedback: Slot::default(),
+            export_feedback: Slot::default(),
+            confirm_delete: Slot::default(),
+        }
+    }
+}
+
+impl State {
+    fn region_mut(&mut self, slot: RegionSlot) -> &mut core::modules::settings::RegionKey {
+        match slot {
+            RegionSlot::Ja => &mut self.keys.ja,
+            RegionSlot::En => &mut self.keys.en,
+            RegionSlot::Tw => &mut self.keys.tw,
+            RegionSlot::Ko => &mut self.keys.ko,
+        }
     }
 
-    let window_id = egui::Id::new("manage_keys_window");
-    let (allow_drag, fixed_position) = drag_guard.assign_bounds(context, window_id);
-    let original_keys = state.keys.clone();
-    let mut is_open = state.is_open;
-
-    let mut window = egui::Window::new("Manage Decryption Keys")
-        .id(window_id)
-        .open(&mut is_open)
-        .collapsible(false)
-        .resizable(false)
-        .constrain(false)
-        .movable(allow_drag)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(context.screen_rect().center());
-
-    if state.reset_position {
-        window = window.current_pos(context.screen_rect().center());
-        state.reset_position = false;
-    } else if let Some(position) = fixed_position {
-        window = window.current_pos(position);
+    fn region_ref(&self, slot: RegionSlot) -> &core::modules::settings::RegionKey {
+        match slot {
+            RegionSlot::Ja => &self.keys.ja,
+            RegionSlot::En => &self.keys.en,
+            RegionSlot::Tw => &self.keys.tw,
+            RegionSlot::Ko => &self.keys.ko,
+        }
     }
 
-    window.show(context, |ui_container| {
-        ui_container.add_space(10.0);
-
-        let button_height = 24.0;
-        let button_width = 110.0;
-        let default_color = egui::Color32::from_rgb(31, 106, 165);
-        let success_color = egui::Color32::from_rgb(40, 160, 60);
-        let fail_color = egui::Color32::from_rgb(200, 40, 40);
-        let danger_color = egui::Color32::from_rgb(180, 50, 50);
-        let current_time = ui_container.input(|input_state| input_state.time);
-
-        ui_container.vertical_centered(|centered_ui| {
-            centered_ui.horizontal(|ui_row| {
-                let table_width = COLUMN_REGION_WIDTH + (COLUMN_INPUT_WIDTH * 2.0) + (15.0 * 2.0);
-                let spacing = ui_row.spacing().item_spacing.x;
-                let total_button_width = (button_width * 4.0) + (spacing * 3.0);
-
-                let x_offset = (table_width - total_button_width) / 2.0;
-                ui_row.add_space(x_offset.max(0.0));
-                
-                let import_time = context.data(|data_map| data_map.get_temp::<f64>(egui::Id::new("keys_import_time"))).unwrap_or(-10.0);
-                let import_result = context.data(|data_map| data_map.get_temp::<bool>(egui::Id::new("keys_import_result"))).unwrap_or(false);
-
-                let (import_text, import_color) = if (current_time - import_time) < 2.0 {
-                    ui_row.ctx().request_repaint();
-                    if import_result { ("Loaded!", success_color) } else { ("Failed!", fail_color) }
-                } else { ("Load Keys", default_color) };
-
-                if ui_row.add_sized([button_width, button_height], egui::Button::new(egui::RichText::new(import_text).size(12.0).strong().color(egui::Color32::WHITE)).fill(import_color).rounding(4.0)).clicked()
-                    && let Some(file_path) = rfd::FileDialog::new().pick_file() {
-                        let success = match fs::read_to_string(&file_path) {
-                            Ok(file_data) => {
-                                if let Ok(parsed_keys) = serde_json::from_str::<UserKeys>(&file_data) {
-                                    state.keys = parsed_keys;
-                                    state.keys.save();
-                                    state.validation_status = None;
-                                    true
-                                } else { false }
-                            },
-                            Err(_) => false,
-                        };
-                        context.data_mut(|data_map| {
-                            data_map.insert_temp(egui::Id::new("keys_import_time"), current_time);
-                            data_map.insert_temp(egui::Id::new("keys_import_result"), success);
-                        });
-                    }
-
-                let export_time = context.data(|data_map| data_map.get_temp::<f64>(egui::Id::new("keys_export_time"))).unwrap_or(-10.0);
-                let export_result = context.data(|data_map| data_map.get_temp::<bool>(egui::Id::new("keys_export_result"))).unwrap_or(false);
-
-                let (export_text, export_color) = if (current_time - export_time) < 2.0 {
-                    ui_row.ctx().request_repaint();
-                    if export_result { ("Exported!", success_color) } else { ("Failed!", fail_color) }
-                } else { ("Export Keys", default_color) };
-
-                if ui_row.add_sized([button_width, button_height], egui::Button::new(egui::RichText::new(export_text).size(12.0).strong().color(egui::Color32::WHITE)).fill(export_color).rounding(4.0)).clicked() {
-                    let export_directory = Path::new("exports");
-                    let _ = fs::create_dir_all(export_directory);
-
-                    let export_path = export_directory.join("keys");
-                    let json_data = serde_json::to_string_pretty(&state.keys).unwrap_or_default();
-                    let success = fs::write(&export_path, json_data).is_ok();
-
-                    context.data_mut(|data_map| {
-                        data_map.insert_temp(egui::Id::new("keys_export_time"), current_time);
-                        data_map.insert_temp(egui::Id::new("keys_export_result"), success);
-                    });
-                }
-                
-                if ui_row.add_sized([button_width, button_height], egui::Button::new(egui::RichText::new("Validate Keys").size(12.0).strong().color(egui::Color32::WHITE)).fill(default_color).rounding(4.0)).clicked() {
-                    state.validation_status = Some(state.keys.validate());
-                }
-                
-                let delete_time = context.data(|data_map| data_map.get_temp::<f64>(egui::Id::new("keys_delete_time"))).unwrap_or(-10.0);
-                let mut is_confirming_delete = context.data(|data_map| data_map.get_temp::<bool>(egui::Id::new("keys_confirm_delete"))).unwrap_or(false);
-
-                if is_confirming_delete {
-                    if current_time - delete_time > 2.0 {
-                        is_confirming_delete = false;
-                        context.data_mut(|data_map| data_map.insert_temp(egui::Id::new("keys_confirm_delete"), false));
-                    } else {
-                        ui_row.ctx().request_repaint();
-                    }
-                }
-
-                let delete_text = if is_confirming_delete { "Are You Sure?" } else { "Delete Keys" };
-
-                if ui_row.add_sized([button_width, button_height], egui::Button::new(egui::RichText::new(delete_text).size(12.0).strong().color(egui::Color32::WHITE)).fill(danger_color).rounding(4.0)).clicked() {
-                    if !is_confirming_delete {
-                        context.data_mut(|data_map| {
-                            data_map.insert_temp(egui::Id::new("keys_confirm_delete"), true);
-                            data_map.insert_temp(egui::Id::new("keys_delete_time"), current_time);
-                        });
-                    } else {
-                        state.keys = UserKeys::default();
-                        state.validation_status = None;
-                        state.keys.save();
-                        context.data_mut(|data_map| data_map.insert_temp(egui::Id::new("keys_confirm_delete"), false));
-                    }
-                }
-            });
-        });
-
-        ui_container.add_space(15.0);
-        ui_container.separator();
-        ui_container.add_space(5.0);
-
-        egui::Grid::new("keys_grid").striped(true).spacing(egui::vec2(15.0, 10.0)).show(ui_container, |grid_ui| {
-            grid_ui.vertical_centered(|column_ui| { column_ui.set_min_width(COLUMN_REGION_WIDTH); column_ui.label(egui::RichText::new("Region").strong()); });
-            grid_ui.vertical_centered(|column_ui| { column_ui.set_min_width(COLUMN_INPUT_WIDTH); column_ui.label(egui::RichText::new("Decryption Key").strong()); });
-            grid_ui.vertical_centered(|column_ui| { column_ui.set_min_width(COLUMN_INPUT_WIDTH); column_ui.label(egui::RichText::new("Initialization Vector").strong()); });
-            grid_ui.end_row();
-
-            let mut regions = [
-                ("Japan", &mut state.keys.ja),
-                ("Global", &mut state.keys.en),
-                ("Taiwan", &mut state.keys.tw),
-                ("Korea", &mut state.keys.ko),
-            ];
-
-            let default_validations = [(true, true); 4];
-            let current_validations = state.validation_status.unwrap_or(default_validations);
-
-            for (index, (region_name, region_data)) in regions.iter_mut().enumerate() {
-                grid_ui.centered_and_justified(|column_ui| { column_ui.label(egui::RichText::new(*region_name).strong()); });
-
-                let (key_valid, iv_valid) = current_validations[index];
-
-                grid_ui.scope(|scope_ui| {
-                    if state.validation_status.is_some() {
-                        let color = if key_valid { egui::Color32::from_rgb(30, 80, 40) } else { egui::Color32::from_rgb(120, 30, 30) };
-                        scope_ui.visuals_mut().extreme_bg_color = color;
-                    }
-                    if scope_ui.add(egui::TextEdit::singleline(&mut region_data.key).desired_width(COLUMN_INPUT_WIDTH)).changed() {
-                        state.validation_status = None;
-                    }
-                });
-
-                grid_ui.scope(|scope_ui| {
-                    if state.validation_status.is_some() {
-                        let color = if iv_valid { egui::Color32::from_rgb(30, 80, 40) } else { egui::Color32::from_rgb(120, 30, 30) };
-                        scope_ui.visuals_mut().extreme_bg_color = color;
-                    }
-                    if scope_ui.add(egui::TextEdit::singleline(&mut region_data.iv).desired_width(COLUMN_INPUT_WIDTH)).changed() {
-                        state.validation_status = None;
-                    }
-                });
-
-                grid_ui.end_row();
+    pub fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::Open => {
+                self.keys = UserKeys::load();
+                self.validation_status = None;
+                self.is_open = true;
+                Task::none()
             }
-        })
-    });
-
-    if state.keys != original_keys || (state.is_open && !is_open) {
-        state.keys.save();
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    self.is_open = false;
+                    self.validation_status = None;
+                }
+                Task::none()
+            }
+            Message::KeyChanged(slot, value) => {
+                self.region_mut(slot).key = sanitize(&value);
+                self.validation_status = None;
+                self.keys.save();
+                Task::none()
+            }
+            Message::IvChanged(slot, value) => {
+                self.region_mut(slot).iv = sanitize(&value);
+                self.validation_status = None;
+                self.keys.save();
+                Task::none()
+            }
+            Message::Import => {
+                if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
+                    let success = fs::read_to_string(&path).ok()
+                        .and_then(|data| serde_json::from_str::<UserKeys>(&data).ok())
+                        .map(|mut parsed| {
+                            for region in [&mut parsed.ja, &mut parsed.en, &mut parsed.tw, &mut parsed.ko] {
+                                region.key = sanitize(&region.key);
+                                region.iv = sanitize(&region.iv);
+                            }
+                            self.keys = parsed;
+                            self.validation_status = None;
+                            self.keys.save();
+                        })
+                        .is_some();
+                    return self.import_feedback.set(success, Message::ImportExpired);
+                }
+                Task::none()
+            }
+            Message::ImportExpired => {
+                self.import_feedback.expire();
+                Task::none()
+            }
+            Message::Export => {
+                let export_dir = Path::new("exports");
+                let _ = fs::create_dir_all(export_dir);
+                let success = serde_json::to_string_pretty(&self.keys).ok()
+                    .is_some_and(|json| fs::write(export_dir.join("keys.json"), json).is_ok());
+                self.export_feedback.set(success, Message::ExportExpired)
+            }
+            Message::ExportExpired => {
+                self.export_feedback.expire();
+                Task::none()
+            }
+            Message::Validate => {
+                self.validation_status = Some(self.keys.validate());
+                Task::none()
+            }
+            Message::DeleteRequested => {
+                if self.confirm_delete.is_set() {
+                    self.keys = UserKeys::default();
+                    self.validation_status = None;
+                    self.keys.save();
+                    self.confirm_delete.clear();
+                    Task::none()
+                } else {
+                    self.confirm_delete.set((), Message::ConfirmExpired)
+                }
+            }
+            Message::ConfirmExpired => {
+                self.confirm_delete.expire();
+                Task::none()
+            }
+        }
     }
 
-    if !is_open { state.validation_status = None; }
+    pub fn view<'a>(&'a self, window: Size) -> Element<'a, Message> {
+        self.popup.view("Manage Decryption Keys", POPUP_SIZE, window, Message::Popup, move || self.content_view(), None)
+    }
 
-    state.is_open = is_open;
-    context.data_mut(|data_map| data_map.insert_temp(state_id, state));
+    fn content_view<'a>(&'a self) -> Element<'a, Message> {
+        let import_label = match self.import_feedback.get().copied() {
+            Some(true) => "Loaded!",
+            Some(false) => "Failed!",
+            None => "Load Keys",
+        };
+
+        let export_label = match self.export_feedback.get().copied() {
+            Some(true) => "Exported!",
+            Some(false) => "Failed!",
+            None => "Export Keys",
+        };
+
+        let delete_label = if self.confirm_delete.is_set() { "Are You Sure?" } else { "Delete Keys" };
+
+        let actions = row![
+            theme::sized_button(import_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::feedback_button_style(self.import_feedback.get().copied())).on_press(Message::Import),
+            theme::sized_button(export_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::feedback_button_style(self.export_feedback.get().copied())).on_press(Message::Export),
+            theme::sized_button("Validate Keys", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button).on_press(Message::Validate),
+            theme::sized_button(delete_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button).on_press(Message::DeleteRequested),
+        ].spacing(10);
+
+        let default_validation = [(true, true); 4];
+        let validations = self.validation_status.unwrap_or(default_validation);
+
+        let header = container(
+            row![
+                theme::table_cell_text("Region", Length::Fixed(REGION_COLUMN_WIDTH)).size(13),
+                theme::table_cell_text("Decryption Key", Length::FillPortion(1)).size(13),
+                theme::table_cell_text("Initialization Vector", Length::FillPortion(1)).size(13),
+            ].spacing(15).width(Length::Fill)
+        )
+        .style(theme::zebra_table_header)
+        .padding([6, 10])
+        .width(Length::Fill);
+
+        let mut grid = column![header].spacing(0).width(Length::Fill);
+
+        for (index, slot) in RegionSlot::ALL.into_iter().enumerate() {
+            let region = self.region_ref(slot);
+            let (key_valid, iv_valid) = validations[index];
+
+            let key_input = text_input("Key", &region.key)
+                .on_input(move |value| Message::KeyChanged(slot, value))
+                .size(12)
+                .width(Length::FillPortion(1))
+                .style(move |theme: &Theme, status| {
+                    let mut style = theme::rounded_input(theme, status);
+                    if self.validation_status.is_some() {
+                        style.background = if key_valid {
+                            iced::Color::from_rgb8(30, 80, 40).into()
+                        } else {
+                            iced::Color::from_rgb8(120, 30, 30).into()
+                        };
+                    }
+                    style
+                });
+
+            let iv_input = text_input("IV", &region.iv)
+                .on_input(move |value| Message::IvChanged(slot, value))
+                .size(12)
+                .width(Length::FillPortion(1))
+                .style(move |theme: &Theme, status| {
+                    let mut style = theme::rounded_input(theme, status);
+                    if self.validation_status.is_some() {
+                        style.background = if iv_valid {
+                            iced::Color::from_rgb8(30, 80, 40).into()
+                        } else {
+                            iced::Color::from_rgb8(120, 30, 30).into()
+                        };
+                    }
+                    style
+                });
+
+            grid = grid.push(
+                container(
+                    row![
+                        theme::table_cell_text(slot.label(), Length::Fixed(REGION_COLUMN_WIDTH)),
+                        key_input,
+                        iv_input,
+                    ].spacing(15).align_y(Alignment::Center).width(Length::Fill)
+                )
+                .style(move |theme: &Theme| theme::zebra_table_row(theme, index))
+                .padding([6, 10])
+                .width(Length::Fill)
+            );
+        }
+
+        let content = column![
+            actions,
+            smooth_scroll(scrollable(grid).height(Length::Shrink).width(Length::Fill)),
+        ].spacing(15).padding(20).width(Length::Fill).align_x(Alignment::Center);
+
+        container(smooth_scroll(scrollable(content)))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
 }

@@ -1,263 +1,266 @@
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
-use eframe::egui;
-use nyanko::chapter::{Category, Map};
+use iced::alignment::{Horizontal, Vertical};
+use iced::widget::{button, column, container, row, rule, scrollable, space, text, Column, Container};
+use iced::{Element, Length, Padding, Theme};
+use nyanko::chapter::Category;
 
-use core::modules::stage::filter::CompiledStageFilter;
-use core::modules::stage::navigate;
-use core::modules::stage::{GlobalMapId, GlobalStageId};
+use core::modules::stage::filter::{CompiledStageFilter, StageFilterState, StageLookupContext};
+use core::modules::stage::{navigate, GlobalMapId, GlobalStageId, StageDataState};
+
+use crate::app::theme;
+use crate::widget::{list_row, smooth_scroll};
 
 use super::category::CategoryExt;
-use super::state::StageListState;
 
-pub(crate) const BTN_SPACING_X: f32 = 14.0;
-pub(crate) const BTN_SPACING_Y: f32 = 6.0;
-pub(crate) const FILTER_BTN_PAD: f32 = 5.0;
+const BTN_SPACING_Y: f32 = 4.0;
+const BTN_TEXT_SIZE: f32 = 12.0;
+const BTN_PADDING: Padding = Padding { top: 5.0, right: 8.0, bottom: 5.0, left: 8.0 };
 
-pub(crate) fn draw(ui: &mut egui::Ui, state: &mut StageListState) {
-    let categories = navigate::get_categories(&state.data.registry);
+const RULE_THICKNESS: f32 = 1.0;
+const COLUMN_GAP: f32 = 7.0;
+const COLUMN_SEPARATOR_WIDTH: f32 = RULE_THICKNESS + COLUMN_GAP * 2.0;
+const CATEGORY_COLUMN_WIDTH: f32 = 180.0;
+const COLUMN_WIDTH: f32 = 200.0;
 
-    if categories.is_empty() {
-        ui.vertical_centered(|ui| {
-            ui.add_space(20.0);
-            ui.label(egui::RichText::new("No Stages Found").strong().color(egui::Color32::LIGHT_RED));
-        });
-        return;
-    }
+const SCROLLBAR_WIDTH: f32 = 10.0;
+const SCROLLBAR_GAP: f32 = 2.0;
+const SCROLLBAR_RESERVE: f32 = SCROLLBAR_WIDTH + SCROLLBAR_GAP;
 
-    let mut hasher = DefaultHasher::new();
-    state.filter_state.hash(&mut hasher);
-    let current_hash = hasher.finish();
+const FILTER_RULE_GAP: f32 = 8.0;
 
-    if state.compiled_filter.as_ref().is_none_or(|cf| cf.source_hash != current_hash) {
-        let mut new_compiled = state.filter_state.compile();
-        new_compiled.source_hash = current_hash;
-        state.compiled_filter = Some(new_compiled);
-    }
-
-    let Some(compiled_filter) = state.compiled_filter.take() else { return; };
-
-    ui.vertical(|ui| {
-        ui.add_space(FILTER_BTN_PAD);
-
-        ui.horizontal(|ui| {
-            ui.add_space(FILTER_BTN_PAD);
-            let btn_w = ui.available_width() - (FILTER_BTN_PAD * 2.0);
-
-            let mut filter_btn = egui::Button::new("Filter Stages");
-            if state.filter_state.is_active() {
-                filter_btn = filter_btn.fill(egui::Color32::from_rgb(31, 106, 165));
-            }
-
-            if ui.add_sized([btn_w, 28.0], filter_btn).clicked() {
-                state.filter_state.is_open = !state.filter_state.is_open;
-            }
-        });
-
-        ui.add_space(FILTER_BTN_PAD);
-        ui.separator();
-
-        let available_height = ui.available_height();
-
-        ui.horizontal(|ui| {
-            ui.set_min_height(available_height);
-            ui.set_max_height(available_height);
-            ui.spacing_mut().item_spacing.x = 0.0;
-
-            draw_categories(ui, state, &compiled_filter, &categories);
-
-            if state.data.selected_category.is_some() {
-                ui.add(egui::Separator::default().vertical().spacing(BTN_SPACING_X));
-                draw_maps(ui, state, &compiled_filter);
-
-                if state.data.selected_map.is_some() {
-                    ui.add(egui::Separator::default().vertical().spacing(BTN_SPACING_X));
-                    draw_stages(ui, state, &compiled_filter);
-                }
-            }
-        });
-    });
-
-    state.compiled_filter = Some(compiled_filter);
+#[derive(Debug, Clone)]
+pub enum Message {
+    ToggleFilter,
+    SelectCategory(Category),
+    SelectMap(GlobalMapId),
+    SelectStage(GlobalStageId),
 }
 
-fn has_matching_stage_in_map(state: &StageListState, compiled_filter: &CompiledStageFilter, cat: &Category, map_key: &GlobalMapId, map: &Map) -> bool {
-    if !compiled_filter.is_active() { return true; }
+#[derive(Default)]
+pub struct State {
+    compiled_filter: Option<CompiledStageFilter>,
+    matching_stages: HashSet<GlobalStageId>,
+    matching_maps: HashSet<GlobalMapId>,
+    matching_categories: HashSet<Category>,
+    sorted_categories: Option<Vec<Category>>,
+}
 
-    let stages = navigate::get_stages(&state.data.registry, map_key);
-    let cat_name = cat.display_name();
-
-    for stage in stages {
-        if compiled_filter.matches(
-            cat_name,
-            map,
-            &stage,
-            &state.data.enemy_name_registry,
-            &state.data.lock_skip_registry,
-            &state.data.scat_cpu_setting,
-            &state.data.item_buy_registry,
-            &state.data.item_name_registry,
-            &state.data.drop_chara_registry,
-            &state.data.unit_buy_registry,
-            &state.data.cat_name_registry,
-        ) {
-            return true;
+impl State {
+    pub fn update(&mut self, message: Message, data: &mut StageDataState) {
+        match message {
+            Message::ToggleFilter => {}
+            Message::SelectCategory(category) => {
+                data.selected_category = Some(category);
+                data.selected_map = None;
+                data.selected_stage = None;
+            }
+            Message::SelectMap(map_id) => {
+                data.selected_map = Some(map_id);
+                data.selected_stage = None;
+            }
+            Message::SelectStage(stage_id) => {
+                data.selected_stage = Some(stage_id);
+            }
         }
     }
 
-    false
-}
+    pub fn refresh(&mut self, filter_state: &StageFilterState, data: &StageDataState) {
+        if self.sorted_categories.is_none() {
+            let mut categories = navigate::get_categories(&data.registry);
+            categories.sort_by_key(|category| category.sort_order());
+            self.sorted_categories = Some(categories);
+        }
 
-fn has_matching_stage_in_category(state: &StageListState, compiled_filter: &CompiledStageFilter, cat: &Category) -> bool {
-    if !compiled_filter.is_active() { return true; }
+        let mut hasher = DefaultHasher::new();
+        filter_state.hash(&mut hasher);
+        let current_hash = hasher.finish();
 
-    let maps = navigate::get_maps(&state.data.registry, cat);
-    for map in maps {
-        let map_key = GlobalMapId { category: cat.clone(), map: map.map_id };
-        if has_matching_stage_in_map(state, compiled_filter, cat, &map_key, &map) {
-            return true;
+        if self.compiled_filter.as_ref().is_none_or(|cf| cf.source_hash != current_hash) {
+            let mut compiled = filter_state.compile();
+            compiled.source_hash = current_hash;
+
+            self.matching_stages.clear();
+            self.matching_maps.clear();
+            self.matching_categories.clear();
+
+            if compiled.is_active() {
+                let ctx = StageLookupContext::from_data(data);
+
+                for (stage_key, stage) in &data.registry.stages {
+                    let map_key = GlobalMapId { category: stage_key.category.clone(), map: stage_key.map };
+                    let Some(map) = data.registry.maps.get(&map_key) else { continue };
+
+                    if compiled.matches(stage_key.category.display_name(), map, stage, &ctx) {
+                        self.matching_stages.insert(stage_key.clone());
+                        self.matching_maps.insert(map_key);
+                        self.matching_categories.insert(stage_key.category.clone());
+                    }
+                }
+            }
+
+            self.compiled_filter = Some(compiled);
         }
     }
 
-    false
-}
+    pub fn invalidate(&mut self) {
+        self.compiled_filter = None;
+        self.sorted_categories = None;
+    }
 
-fn draw_sidebar_btn(ui: &mut egui::Ui, text: &str, is_selected: bool) -> bool {
-    let bg_color = if is_selected {
-        egui::Color32::from_rgb(31, 106, 165)
-    } else {
-        egui::Color32::from_rgb(50, 50, 50)
-    };
+    pub fn view<'a>(&'a self, data: &'a StageDataState, filter_state: &StageFilterState, busy: bool) -> Element<'a, Message> {
+        let Some(sorted_categories) = self.sorted_categories.as_ref() else {
+            return space().into();
+        };
 
-    let btn_text = egui::RichText::new(text).size(13.0);
-    let btn = egui::Button::new(btn_text).fill(bg_color).wrap();
+        if busy && sorted_categories.is_empty() {
+            return space().into();
+        }
 
-    ui.add_sized([ui.available_width(), 30.0], btn).clicked()
-}
+        let Some(compiled_filter) = self.compiled_filter.as_ref() else {
+            return space().into();
+        };
 
-fn draw_categories(ui: &mut egui::Ui, state: &mut StageListState, compiled_filter: &CompiledStageFilter, categories: &[Category]) {
-    ui.vertical(|ui| {
-        ui.set_min_width(180.0);
-        ui.set_max_width(180.0);
-        ui.set_min_height(ui.available_height());
+        let filter_active = compiled_filter.is_active();
+        let is_filter_set = filter_state.is_active();
+        let filter_btn = button(button_face("Filter"))
+            .width(Length::Fill)
+            .padding(0)
+            .on_press(Message::ToggleFilter)
+            .style(move |theme: &Theme, status| theme::toggle_button(theme, status, is_filter_set));
 
-        egui::ScrollArea::vertical()
-            .id_salt("cat_scroll")
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = BTN_SPACING_Y;
-                ui.add_space(BTN_SPACING_Y);
+        let mut cat_col = button_column();
+        let mut cat_count = 0;
+        for category in sorted_categories {
+            if filter_active && !self.matching_categories.contains(category) {
+                continue;
+            }
 
-                let mut sorted_categories = categories.to_vec();
-                sorted_categories.sort_by_key(|cat| cat.sort_order());
+            let is_selected = data.selected_category.as_ref() == Some(category);
+            cat_col = cat_col.push(sidebar_button(
+                category.display_name(),
+                is_selected,
+                CATEGORY_COLUMN_WIDTH,
+                Message::SelectCategory(category.clone()),
+            ));
+            cat_count += 1;
+        }
 
-                for cat in &sorted_categories {
-                    if !has_matching_stage_in_category(state, compiled_filter, cat) {
-                        continue;
-                    }
+        let mut columns = row![column_body(CATEGORY_COLUMN_WIDTH, cat_col, cat_count, "No Categories Found!")]
+            .spacing(COLUMN_GAP)
+            .height(Length::Fill);
 
-                    let is_selected = state.data.selected_category.as_ref() == Some(cat);
+        if let Some(category) = &data.selected_category {
+            let mut map_col = button_column();
+            let mut map_count = 0;
 
-                    if draw_sidebar_btn(ui, cat.display_name(), is_selected) {
-                        state.data.selected_category = Some(cat.clone());
-                        state.data.selected_map = None;
-                        state.data.selected_stage = None;
-                    }
+            for map in navigate::get_maps(&data.registry, category) {
+                let map_key = GlobalMapId { category: category.clone(), map: map.map_id };
+                if filter_active && !self.matching_maps.contains(&map_key) {
+                    continue;
                 }
 
-                ui.add_space(BTN_SPACING_Y);
-            });
-    });
-}
+                let is_selected = data.selected_map.as_ref() == Some(&map_key);
+                map_col = map_col.push(sidebar_button(&map.name, is_selected, COLUMN_WIDTH, Message::SelectMap(map_key)));
+                map_count += 1;
+            }
 
-fn draw_maps(ui: &mut egui::Ui, state: &mut StageListState, compiled_filter: &CompiledStageFilter) {
-    let Some(cat) = state.data.selected_category.clone() else { return; };
+            columns = columns.push(rule::vertical(RULE_THICKNESS));
+            columns = columns.push(column_body(COLUMN_WIDTH, map_col, map_count, "No Maps Found!"));
+        }
 
-    ui.vertical(|ui| {
-        ui.set_min_width(200.0);
-        ui.set_max_width(200.0);
-        ui.set_min_height(ui.available_height());
+        if let Some(map_id) = &data.selected_map
+            && data.registry.maps.contains_key(map_id)
+        {
+            let mut stage_col = button_column();
+            let mut stage_count = 0;
 
-        egui::ScrollArea::vertical()
-            .id_salt("map_scroll")
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = BTN_SPACING_Y;
-                ui.add_space(BTN_SPACING_Y);
+            for stage in navigate::get_stages(&data.registry, map_id) {
+                let stage_key = GlobalStageId {
+                    category: map_id.category.clone(),
+                    map: map_id.map,
+                    stage: stage.stage_id,
+                };
 
-                let maps = navigate::get_maps(&state.data.registry, &cat);
-                for map in maps {
-                    let map_key = GlobalMapId { category: cat.clone(), map: map.map_id };
-
-                    if !has_matching_stage_in_map(state, compiled_filter, &cat, &map_key, &map) {
-                        continue;
-                    }
-
-                    let is_selected = state.data.selected_map.as_ref() == Some(&map_key);
-
-                    if draw_sidebar_btn(ui, &map.name, is_selected) {
-                        state.data.selected_map = Some(map_key);
-                        state.data.selected_stage = None;
-                    }
+                if filter_active && !self.matching_stages.contains(&stage_key) {
+                    continue;
                 }
 
-                ui.add_space(BTN_SPACING_Y);
-            });
-    });
+                let is_selected = data.selected_stage.as_ref() == Some(&stage_key);
+                stage_col = stage_col.push(sidebar_button(&stage.name, is_selected, COLUMN_WIDTH, Message::SelectStage(stage_key)));
+                stage_count += 1;
+            }
+
+            columns = columns.push(rule::vertical(RULE_THICKNESS));
+            columns = columns.push(column_body(COLUMN_WIDTH, stage_col, stage_count, "No Stages Found!"));
+        }
+
+        column![
+            filter_btn,
+            rule::horizontal(RULE_THICKNESS),
+            smooth_scroll(
+                scrollable(columns)
+                    .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default()))
+                    .height(Length::Fill)
+            ),
+        ]
+            .spacing(FILTER_RULE_GAP)
+            .width(Length::Fixed(sidebar_width(data)))
+            .height(Length::Fill)
+            .into()
+    }
 }
 
-fn draw_stages(ui: &mut egui::Ui, state: &mut StageListState, compiled_filter: &CompiledStageFilter) {
-    let Some(map_id) = state.data.selected_map.clone() else { return; };
+pub fn sidebar_width(data: &StageDataState) -> f32 {
+    let mut width = CATEGORY_COLUMN_WIDTH;
+    if data.selected_category.is_some() {
+        width += COLUMN_SEPARATOR_WIDTH + COLUMN_WIDTH;
+    }
+    if data.selected_map.as_ref().is_some_and(|map_id| data.registry.maps.contains_key(map_id)) {
+        width += COLUMN_SEPARATOR_WIDTH + COLUMN_WIDTH;
+    }
+    width
+}
 
-    ui.vertical(|ui| {
-        ui.set_min_width(200.0);
-        ui.set_max_width(200.0);
-        ui.set_min_height(ui.available_height());
+fn button_column<'a>() -> Column<'a, Message> {
+    column![]
+        .spacing(BTN_SPACING_Y)
+        .width(Length::Fill)
+        .align_x(Horizontal::Center)
+        .padding(Padding { top: BTN_SPACING_Y, bottom: BTN_SPACING_Y, ..Padding::ZERO })
+}
 
-        egui::ScrollArea::vertical()
-            .id_salt("stage_scroll")
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = BTN_SPACING_Y;
-                ui.add_space(BTN_SPACING_Y);
+fn column_body<'a>(width: f32, content: Column<'a, Message>, count: usize, empty: &'a str) -> Element<'a, Message> {
+    if count > 0 {
+        return column_scroller(width, content);
+    }
 
-                let maps = navigate::get_maps(&state.data.registry, &map_id.category);
-                let Some(map) = maps.into_iter().find(|m| m.map_id == map_id.map) else { return; };
-                let cat_name = map_id.category.display_name();
+    container(theme::centered_text(empty).size(BTN_TEXT_SIZE).style(text::danger))
+        .width(Length::Fixed(width))
+        .height(Length::Fill)
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Center)
+        .into()
+}
 
-                let stages = navigate::get_stages(&state.data.registry, &map_id);
-                for stage in stages {
-                    if !compiled_filter.matches(
-                        cat_name,
-                        &map,
-                        &stage,
-                        &state.data.enemy_name_registry,
-                        &state.data.lock_skip_registry,
-                        &state.data.scat_cpu_setting,
-                        &state.data.item_buy_registry,
-                        &state.data.item_name_registry,
-                        &state.data.drop_chara_registry,
-                        &state.data.unit_buy_registry,
-                        &state.data.cat_name_registry,
-                    ) {
-                        continue;
-                    }
+fn column_scroller<'a>(width: f32, content: Column<'a, Message>) -> Element<'a, Message> {
+    smooth_scroll(
+        scrollable(content)
+            .spacing(SCROLLBAR_GAP)
+            .width(Length::Fixed(width))
+            .height(Length::Fill)
+    ).into()
+}
 
-                    let stage_key = GlobalStageId {
-                        category: map_id.category.clone(),
-                        map: map_id.map,
-                        stage: stage.stage_id,
-                    };
+fn button_face(label: &str) -> Container<'_, Message> {
+    container(theme::button_label(label).size(BTN_TEXT_SIZE))
+        .width(Length::Fill)
+        .align_y(Vertical::Center)
+        .padding(BTN_PADDING)
+}
 
-                    let is_selected = state.data.selected_stage.as_ref() == Some(&stage_key);
-
-                    if draw_sidebar_btn(ui, &stage.name, is_selected) {
-                        state.data.selected_stage = Some(stage_key);
-                    }
-                }
-
-                ui.add_space(BTN_SPACING_Y);
-            });
-    });
+fn sidebar_button(label: &str, is_selected: bool, width: f32, msg: Message) -> Element<'_, Message> {
+    list_row(button_face(label), is_selected, true, Length::Fixed(width - SCROLLBAR_RESERVE), msg)
 }

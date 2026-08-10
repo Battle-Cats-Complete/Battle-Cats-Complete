@@ -1,4 +1,3 @@
-pub mod delete;
 pub mod desktop;
 pub mod lang;
 pub mod nightly;
@@ -11,11 +10,12 @@ use indexmap::IndexMap;
 use md5;
 use nyanko::common::tools::variant::Region;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::common::io::json;
+use crate::common::keys::sanitize;
 
-pub const EXPECTED_HASHES: [(&str, &str); 4] = [
+const EXPECTED_HASHES: [(&str, &str); 4] = [
     ("bac299d3cf278544782427ff7c71ef58", "6910fae125547fd957a505c67e1c72bd"),
     ("b9e48b02312e5b3dd60194a03157d70c", "45cad482726268e341f5759230ce8cff"),
     ("264a0ffd5f69d257284b93ae881ce2b6", "213cecb58af008964303ecb2cf0f5373"),
@@ -24,22 +24,9 @@ pub const EXPECTED_HASHES: [(&str, &str); 4] = [
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum UpdateMode {
-    AutoReset,
-    AutoLoad,
     #[default]
     Prompt,
     Ignore,
-}
-
-impl UpdateMode {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::AutoReset => "Auto-Reset",
-            Self::AutoLoad => "Auto-Load",
-            Self::Prompt => "Prompt",
-            Self::Ignore => "Ignore",
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default, Debug)]
@@ -73,9 +60,6 @@ pub struct Settings {
     pub animation: AnimSettings,
     pub mods: ModsSettings,
     pub stages: StageDataSettings,
-
-    #[serde(skip)]
-    pub runtime: RuntimeState,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -92,6 +76,8 @@ pub struct GeneralSettings {
     pub update_mode: UpdateMode,
     pub enable_nightly: bool,
     pub enable_logging: bool,
+    pub ignore_conflict_errors: bool,
+    pub ignore_watcher_failure: bool,
 }
 
 impl Default for GeneralSettings {
@@ -101,6 +87,8 @@ impl Default for GeneralSettings {
             update_mode: UpdateMode::default(),
             enable_nightly: false,
             enable_logging: true,
+            ignore_conflict_errors: false,
+            ignore_watcher_failure: false,
         }
     }
 }
@@ -109,7 +97,6 @@ impl Default for GeneralSettings {
 #[serde(default)]
 pub struct CatDataSettings {
     pub preferred_banner_form: usize,
-    pub high_banner_quality: bool,
     pub show_invalid_cats: bool,
     pub expand_spirit_details: bool,
     pub default_level: i32,
@@ -121,7 +108,6 @@ impl Default for CatDataSettings {
     fn default() -> Self {
         Self {
             preferred_banner_form: 3,
-            high_banner_quality: true,
             show_invalid_cats: false,
             expand_spirit_details: false,
             default_level: 50,
@@ -137,28 +123,50 @@ pub struct EnemyDataSettings {
     pub show_invalid_enemies: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum ImportStructure {
+    #[default]
+    Bcc,
+    Flat,
+}
+
+impl ImportStructure {
+    pub const ALL: [Self; 2] = [Self::Bcc, Self::Flat];
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::Bcc => "Import into an understandable file structure where assets are easy to discover",
+            Self::Flat => "Import all files into the root of the \"game\" folder for faster routing speeds",
+        }
+    }
+}
+
+impl std::fmt::Display for ImportStructure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::Bcc => "BCC",
+            Self::Flat => "Flat",
+        };
+        write!(f, "{}", label)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct GameDataSettings {
-    pub manual_ip: String,
     pub app_folder_persistence: bool,
-    pub enable_ultra_compression: bool,
-    pub last_compression_level: i32,
-    pub adb_import_type_idx: usize,
-    pub adb_region_idx: usize,
     pub enforce_key_validation: bool,
+    pub ignore_modified_app: bool,
+    pub import_structure: ImportStructure,
 }
 
 impl Default for GameDataSettings {
     fn default() -> Self {
         Self {
-            manual_ip: String::new(),
             app_folder_persistence: false,
-            enable_ultra_compression: false,
-            last_compression_level: 9,
-            adb_import_type_idx: 0,
-            adb_region_idx: 4,
             enforce_key_validation: true,
+            ignore_modified_app: false,
+            import_structure: ImportStructure::default(),
         }
     }
 }
@@ -166,62 +174,31 @@ impl Default for GameDataSettings {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct AnimSettings {
-    pub centering_behavior: usize,
-    pub interpolation: bool,
-    pub native_fps: f32,
     pub debug_view: bool,
     pub use_tight_bounds: bool,
     pub auto_set_camera_region: bool,
     pub default_showcase_walk: i32,
     pub default_showcase_idle: i32,
     pub default_showcase_kb: i32,
-    pub last_export_format: i32,
-    pub last_export_quality: Option<i32>,
-    pub last_export_compression: Option<i32>,
-    pub controls_expanded: bool,
-    pub export_popup_open: bool,
 }
 
 impl Default for AnimSettings {
     fn default() -> Self {
         Self {
-            centering_behavior: 2,
-            interpolation: false,
-            native_fps: 30.0,
             debug_view: false,
             use_tight_bounds: true,
             auto_set_camera_region: false,
             default_showcase_walk: 90,
             default_showcase_idle: 90,
             default_showcase_kb: 60,
-            last_export_format: 0,
-            last_export_quality: None,
-            last_export_compression: None,
-            controls_expanded: true,
-            export_popup_open: false,
         }
     }
 }
 
-pub struct RuntimeState {
-    pub manual_check_requested: bool,
-    pub active_tab: String,
-    pub show_ip_field: bool,
-}
-
-impl Default for RuntimeState {
-    fn default() -> Self {
-        Self {
-            manual_check_requested: false,
-            active_tab: "General".to_string(),
-            show_ip_field: false,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct ScannerConfig {
     pub language_priority: Vec<String>,
+    pub active_mod: Option<String>,
     pub preferred_form: usize,
     pub show_invalid_cats: bool,
     pub show_invalid_enemies: bool,
@@ -230,23 +207,41 @@ pub struct ScannerConfig {
 #[derive(Clone, Debug)]
 pub struct EmulatorConfig {
     pub keep_app_folder: bool,
-    pub manual_ip: String,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ImportConfig {
+    pub structure: ImportStructure,
+    pub enforce_validation: bool,
+    pub ignore_modified_app: bool,
 }
 
 impl Settings {
-    pub fn scanner_config(&self) -> ScannerConfig {
+    pub fn scanner_config(&self, active_mod: Option<String>) -> ScannerConfig {
         ScannerConfig {
             language_priority: self.general.language_priority.clone(),
+            active_mod,
             preferred_form: self.cat_data.preferred_banner_form,
             show_invalid_cats: self.cat_data.show_invalid_cats,
             show_invalid_enemies: self.enemy_data.show_invalid_enemies,
         }
     }
 
+    pub fn show_invalid_enemies(&self) -> bool {
+        self.enemy_data.show_invalid_enemies
+    }
+
     pub fn emulator_config(&self) -> EmulatorConfig {
         EmulatorConfig {
             keep_app_folder: self.game_data.app_folder_persistence,
-            manual_ip: self.game_data.manual_ip.clone(),
+        }
+    }
+
+    pub fn import_config(&self) -> ImportConfig {
+        ImportConfig {
+            structure: self.game_data.import_structure,
+            enforce_validation: self.game_data.enforce_key_validation,
+            ignore_modified_app: self.game_data.ignore_modified_app,
         }
     }
 }
@@ -263,12 +258,16 @@ impl RuleHandling {
         [Self::Include, Self::Only, Self::Ignore]
     }
 
-    pub fn to_string(&self) -> String {
-        match self {
-            Self::Include => "Include".to_string(),
-            Self::Only => "Only".to_string(),
-            Self::Ignore => "Ignore".to_string(),
-        }
+}
+
+impl std::fmt::Display for RuleHandling {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::Include => "Include",
+            Self::Only => "Only",
+            Self::Ignore => "Ignore",
+        };
+        write!(f, "{}", label)
     }
 }
 
@@ -323,7 +322,9 @@ impl Default for ExceptionList {
 impl ExceptionList {
     pub fn save(&mut self) {
         self.source = RuleSource::Custom;
-        json::save("exceptions.json", self);
+        if let Err(err) = json::save("exceptions.json", self) {
+            warn!("Failed to save exceptions.json: {}", err);
+        }
     }
 
     pub fn load_or_default() -> Self {
@@ -344,15 +345,14 @@ impl ExceptionList {
     pub fn sync_on_boot() {
         let disk_list = json::load::<ExceptionList>("exceptions.json");
 
-        let needs_overwrite = match disk_list {
-            Some(list) => list.source == RuleSource::Default,
-            None => true,
-        };
+        let needs_overwrite = disk_list.is_none_or(|list| list.source == RuleSource::Default);
 
         if needs_overwrite {
             info!("Syncing default exceptions.json to disk...");
             let default_list = Self::default();
-            json::save("exceptions.json", &default_list);
+            if let Err(err) = json::save("exceptions.json", &default_list) {
+                warn!("Failed to save exceptions.json: {}", err);
+            }
         }
     }
 }
@@ -365,11 +365,9 @@ pub struct RegionKey {
 
 #[derive(Clone, Serialize, Deserialize, Default, PartialEq, Debug)]
 pub struct UserKeys {
-    #[serde(alias = "jp")]
     pub ja: RegionKey,
     pub en: RegionKey,
     pub tw: RegionKey,
-    #[serde(alias = "kr")]
     pub ko: RegionKey,
 }
 
@@ -379,7 +377,9 @@ impl UserKeys {
     }
 
     pub fn save(&self) {
-        json::save("keys.json", self);
+        if let Err(err) = json::save("keys.json", self) {
+            warn!("Failed to save keys.json: {}", err);
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -388,7 +388,7 @@ impl UserKeys {
             .any(|&region| self.has_key_for(region))
     }
 
-    pub fn has_key_for(&self, region: Region) -> bool {
+    fn has_key_for(&self, region: Region) -> bool {
         match region {
             Region::Ja => !self.ja.key.is_empty() && !self.ja.iv.is_empty(),
             Region::En => !self.en.key.is_empty() && !self.en.iv.is_empty(),
@@ -397,19 +397,19 @@ impl UserKeys {
         }
     }
 
-    pub fn as_tuples(&self) -> Vec<(String, String, Region)> {
+    pub(crate) fn as_tuples(&self) -> Vec<(String, String, Region)> {
         let mut key_tuples = Vec::new();
-        if self.has_key_for(Region::Ja) { key_tuples.push((self.ja.key.clone(), self.ja.iv.clone(), Region::Ja)); }
-        if self.has_key_for(Region::En) { key_tuples.push((self.en.key.clone(), self.en.iv.clone(), Region::En)); }
-        if self.has_key_for(Region::Tw) { key_tuples.push((self.tw.key.clone(), self.tw.iv.clone(), Region::Tw)); }
-        if self.has_key_for(Region::Ko) { key_tuples.push((self.ko.key.clone(), self.ko.iv.clone(), Region::Ko)); }
+        if self.has_key_for(Region::Ja) { key_tuples.push((sanitize(&self.ja.key), sanitize(&self.ja.iv), Region::Ja)); }
+        if self.has_key_for(Region::En) { key_tuples.push((sanitize(&self.en.key), sanitize(&self.en.iv), Region::En)); }
+        if self.has_key_for(Region::Tw) { key_tuples.push((sanitize(&self.tw.key), sanitize(&self.tw.iv), Region::Tw)); }
+        if self.has_key_for(Region::Ko) { key_tuples.push((sanitize(&self.ko.key), sanitize(&self.ko.iv), Region::Ko)); }
         key_tuples
     }
 
     pub fn validate(&self) -> [(bool, bool); 4] {
         let check_hash = |input_value: &str, expected_hash: &str| -> bool {
             if expected_hash.is_empty() { return true; }
-            let clean_value = input_value.trim();
+            let clean_value = sanitize(input_value);
             if clean_value.is_empty() { return false; }
 
             let hash_result = format!("{:x}", md5::compute(clean_value.as_bytes()));

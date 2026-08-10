@@ -1,9 +1,9 @@
 pub mod apk;
-pub mod audit;
-pub mod hardcoded;
+pub(crate) mod audit;
+pub(crate) mod hardcoded;
 pub mod keys;
-pub mod manifest;
-pub mod router;
+pub(crate) mod manifest;
+pub(crate) mod router;
 pub mod rules;
 pub mod sort;
 
@@ -12,20 +12,21 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::sync::mpsc::Sender;
 
 use nyanko::common::tools::variant::Region;
 use nyanko::pack::chronology;
 use nyanko::pack::cryptology;
 use rayon::prelude::*;
 
+use super::architecture;
 use crate::common::io;
+use crate::common::job::{JobEvent, ProgressCounter};
+use crate::modules::settings::ImportStructure;
 use crate::modules::settings::RuleHandling;
 use crate::modules::settings::UserKeys;
 
 #[derive(Clone)]
-pub struct UniversalTask {
+struct UniversalTask {
     pub pack_path: PathBuf,
     pub original_name: String,
     pub final_name: String,
@@ -36,7 +37,7 @@ pub struct UniversalTask {
     pub is_loose: bool,
 }
 
-pub struct DecryptedCandidate {
+struct DecryptedCandidate {
     pub task: UniversalTask,
     pub clean_data: Vec<u8>,
     pub true_weight: usize,
@@ -75,12 +76,12 @@ fn cleanup_temporary_directories(directories: &[PathBuf]) {
     }
 }
 
-pub fn run_universal_import(
+pub(crate) fn run_universal_import(
     source_directories: &[PathBuf],
-    status_sender: &Sender<String>,
-    abort_flag: &Arc<AtomicBool>,
-    progress_current: &Arc<AtomicUsize>,
-    progress_maximum: &Arc<AtomicUsize>,
+    structure: ImportStructure,
+    emit: &(dyn Fn(JobEvent) + Sync),
+    abort_flag: &AtomicBool,
+    progress: &ProgressCounter,
 ) -> Result<(), String> {
     let user_keys = UserKeys::load();
     if user_keys.is_empty() {
@@ -95,7 +96,7 @@ pub fn run_universal_import(
 
     let nyanko_keys = cryptology::Keys::parse(&reference_tuples).map_err(|error| error.to_string())?;
 
-    let game_root_path = Path::new("game");
+    let game_root_path = Path::new(architecture::GAME);
     let meta_directory_path = game_root_path.join("meta");
     let pack_manifest_path = meta_directory_path.join("pack.json");
     let file_manifest_path = meta_directory_path.join("file.json");
@@ -103,10 +104,10 @@ pub fn run_universal_import(
     let mut global_pack_registry: HashMap<String, HashMap<String, manifest::PackRecord>> = manifest::load(&pack_manifest_path);
     let mut global_file_ledger: HashMap<String, manifest::ManifestEntry> = manifest::load(&file_manifest_path);
 
-    let asset_router_utility = router::AssetRouter::new(game_root_path).map_err(|error| error.to_string())?;
+    let asset_router_utility = router::AssetRouter::new(game_root_path, structure).map_err(|error| error.to_string())?;
     let (compiled_regex_set, compiled_exception_rules) = rules::compile();
 
-    let _ = status_sender.send("Collecting game data...".to_string());
+    emit(JobEvent::Log("Collecting game data...".to_string()));
 
     let mut universal_task_map: HashMap<String, Vec<UniversalTask>> = HashMap::new();
     let mut global_temporary_directories: Vec<PathBuf> = Vec::new();
@@ -121,10 +122,9 @@ pub fn run_universal_import(
         }
 
         let mut folder_region_name = source_directory.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-        if folder_region_name == "files" {
-            if let Some(parent_directory) = source_directory.parent() {
-                folder_region_name = parent_directory.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-            }
+        if folder_region_name == "files"
+            && let Some(parent_directory) = source_directory.parent() {
+            folder_region_name = parent_directory.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
         }
 
         let current_region_code = match folder_region_name.as_str() {
@@ -147,7 +147,7 @@ pub fn run_universal_import(
         );
 
         if !discovered_apk_files.is_empty() && !has_notified_extraction {
-            let _ = status_sender.send("Extracting update data...".to_string());
+            emit(JobEvent::Log("Extracting update data...".to_string()));
             has_notified_extraction = true;
         }
 
@@ -168,53 +168,50 @@ pub fn run_universal_import(
                 .next()
                 .map(|index| &compiled_exception_rules[index]);
 
-            if let Some(rule) = matched_user_rule {
-                if rule.handling == RuleHandling::Ignore {
-                    continue;
-                }
+            if matched_user_rule.is_some_and(|rule| rule.handling == RuleHandling::Ignore) {
+                continue;
             }
 
             let mut final_resolved_filename = filename.clone();
 
-            if let Some(rule) = matched_user_rule {
-                if rule.languages.values().any(|&is_active| is_active) {
-                    let asset_path_object = Path::new(&filename);
+            if let Some(rule) = matched_user_rule
+                && rule.languages.values().any(|&is_active| is_active) {
+                let asset_path_object = Path::new(&filename);
 
-                    if let Some(asset_stem) = asset_path_object.file_stem() {
-                        let asset_stem_string = asset_stem.to_string_lossy();
-                        let asset_extension_string = asset_path_object.extension().unwrap_or_default().to_string_lossy();
+                if let Some(asset_stem) = asset_path_object.file_stem() {
+                    let asset_stem_string = asset_stem.to_string_lossy();
+                    let asset_extension_string = asset_path_object.extension().unwrap_or_default().to_string_lossy();
 
-                        let mut cleaned_stem = asset_stem_string.to_string();
-                        for &(code, _) in io::APP_LANGUAGES {
-                            let suffix = format!("_{}", code);
-                            if cleaned_stem.ends_with(&suffix) {
-                                cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string();
-                                break;
-                            }
+                    let mut cleaned_stem = asset_stem_string.to_string();
+                    for &(code, _) in io::APP_LANGUAGES {
+                        let suffix = format!("_{}", code);
+                        if cleaned_stem.ends_with(&suffix) {
+                            cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string();
+                            break;
                         }
+                    }
 
-                        let is_region_enabled = rule.languages.get(current_region_code).copied().unwrap_or(false);
-                        if rule.handling == RuleHandling::Only && !is_region_enabled {
-                            continue;
-                        }
+                    let is_region_enabled = rule.languages.get(current_region_code).copied().unwrap_or(false);
+                    if rule.handling == RuleHandling::Only && !is_region_enabled {
+                        continue;
+                    }
 
-                        let is_single = rule.handling == RuleHandling::Only
-                            && rule.languages.values().filter(|&&is_active| is_active).count() == 1;
+                    let is_single = rule.handling == RuleHandling::Only
+                        && rule.languages.values().filter(|&&is_active| is_active).count() == 1;
 
-                        if is_region_enabled {
-                            if is_single {
-                                final_resolved_filename = if asset_extension_string.is_empty() {
-                                    cleaned_stem
-                                } else {
-                                    format!("{}.{}", cleaned_stem, asset_extension_string)
-                                };
-                            } else if !current_region_code.is_empty() {
-                                final_resolved_filename = if asset_extension_string.is_empty() {
-                                    format!("{}_{}", cleaned_stem, current_region_code)
-                                } else {
-                                    format!("{}_{}.{}", cleaned_stem, current_region_code, asset_extension_string)
-                                };
-                            }
+                    if is_region_enabled {
+                        if is_single {
+                            final_resolved_filename = if asset_extension_string.is_empty() {
+                                cleaned_stem
+                            } else {
+                                format!("{}.{}", cleaned_stem, asset_extension_string)
+                            };
+                        } else if !current_region_code.is_empty() {
+                            final_resolved_filename = if asset_extension_string.is_empty() {
+                                format!("{}_{}", cleaned_stem, current_region_code)
+                            } else {
+                                format!("{}_{}.{}", cleaned_stem, current_region_code, asset_extension_string)
+                            };
                         }
                     }
                 }
@@ -245,10 +242,9 @@ pub fn run_universal_import(
             let file_chrono_score = chronology::calculate_weight(&corresponding_pack_path, &global_temporary_directories);
             let region_pack_map = current_pack_hashes.entry(final_region_code.clone()).or_default();
 
-            if !region_pack_map.contains_key(&pack_filename) {
-                if let Ok(pack_hash_value) = manifest::hash_file(&corresponding_pack_path) {
-                    region_pack_map.insert(pack_filename.clone(), manifest::PackRecord { checksum: pack_hash_value });
-                }
+            if !region_pack_map.contains_key(&pack_filename)
+                && let Ok(pack_hash_value) = manifest::hash_file(&corresponding_pack_path) {
+                region_pack_map.insert(pack_filename.clone(), manifest::PackRecord { checksum: pack_hash_value });
             }
 
             let Ok(list_file_data) = fs::read(&item_path) else {
@@ -275,53 +271,50 @@ pub fn run_universal_import(
                     .next()
                     .map(|index| &compiled_exception_rules[index]);
 
-                if let Some(rule) = matched_user_rule {
-                    if rule.handling == RuleHandling::Ignore {
-                        continue;
-                    }
+                if matched_user_rule.is_some_and(|rule| rule.handling == RuleHandling::Ignore) {
+                    continue;
                 }
 
                 let mut final_resolved_filename = raw_asset_name.to_string();
 
-                if let Some(rule) = matched_user_rule {
-                    if rule.languages.values().any(|&is_active| is_active) {
-                        let asset_path_object = Path::new(raw_asset_name);
+                if let Some(rule) = matched_user_rule
+                    && rule.languages.values().any(|&is_active| is_active) {
+                    let asset_path_object = Path::new(raw_asset_name);
 
-                        if let Some(asset_stem) = asset_path_object.file_stem() {
-                            let asset_stem_string = asset_stem.to_string_lossy();
-                            let asset_extension_string = asset_path_object.extension().unwrap_or_default().to_string_lossy();
+                    if let Some(asset_stem) = asset_path_object.file_stem() {
+                        let asset_stem_string = asset_stem.to_string_lossy();
+                        let asset_extension_string = asset_path_object.extension().unwrap_or_default().to_string_lossy();
 
-                            let mut cleaned_stem = asset_stem_string.to_string();
-                            for &(code, _) in io::APP_LANGUAGES {
-                                let suffix = format!("_{}", code);
-                                if cleaned_stem.ends_with(&suffix) {
-                                    cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string();
-                                    break;
-                                }
+                        let mut cleaned_stem = asset_stem_string.to_string();
+                        for &(code, _) in io::APP_LANGUAGES {
+                            let suffix = format!("_{}", code);
+                            if cleaned_stem.ends_with(&suffix) {
+                                cleaned_stem = cleaned_stem.trim_end_matches(&suffix).to_string();
+                                break;
                             }
+                        }
 
-                            let is_region_enabled = rule.languages.get(final_region_code.as_str()).copied().unwrap_or(false);
-                            if rule.handling == RuleHandling::Only && !is_region_enabled {
-                                continue;
-                            }
+                        let is_region_enabled = rule.languages.get(final_region_code.as_str()).copied().unwrap_or(false);
+                        if rule.handling == RuleHandling::Only && !is_region_enabled {
+                            continue;
+                        }
 
-                            let is_single = rule.handling == RuleHandling::Only
-                                && rule.languages.values().filter(|&&is_active| is_active).count() == 1;
+                        let is_single = rule.handling == RuleHandling::Only
+                            && rule.languages.values().filter(|&&is_active| is_active).count() == 1;
 
-                            if is_region_enabled {
-                                if is_single {
-                                    final_resolved_filename = if asset_extension_string.is_empty() {
-                                        cleaned_stem
-                                    } else {
-                                        format!("{}.{}", cleaned_stem, asset_extension_string)
-                                    };
-                                } else if !final_region_code.is_empty() {
-                                    final_resolved_filename = if asset_extension_string.is_empty() {
-                                        format!("{}_{}", cleaned_stem, final_region_code)
-                                    } else {
-                                        format!("{}_{}.{}", cleaned_stem, final_region_code, asset_extension_string)
-                                    };
-                                }
+                        if is_region_enabled {
+                            if is_single {
+                                final_resolved_filename = if asset_extension_string.is_empty() {
+                                    cleaned_stem
+                                } else {
+                                    format!("{}.{}", cleaned_stem, asset_extension_string)
+                                };
+                            } else if !final_region_code.is_empty() {
+                                final_resolved_filename = if asset_extension_string.is_empty() {
+                                    format!("{}_{}", cleaned_stem, final_region_code)
+                                } else {
+                                    format!("{}_{}.{}", cleaned_stem, final_region_code, asset_extension_string)
+                                };
                             }
                         }
                     }
@@ -419,8 +412,7 @@ pub fn run_universal_import(
     }
 
     if final_extraction_queue.is_empty() {
-        let _ = status_sender.send("Workspace is completely up to date.".to_string());
-        progress_maximum.store(0, Ordering::Relaxed);
+        emit(JobEvent::Log("Workspace is completely up to date.".to_string()));
 
         for (region_key, pack_map) in current_pack_hashes {
             let region_entry = global_pack_registry.entry(region_key).or_default();
@@ -432,14 +424,23 @@ pub fn run_universal_import(
         return Ok(());
     }
 
-    progress_maximum.store(final_extraction_queue.len(), Ordering::Relaxed);
-    progress_current.store(0, Ordering::Relaxed);
+    let total = final_extraction_queue.len();
+    emit(JobEvent::Progress { current: 0, total });
+    progress.reset(total);
+
+    let progress_step = (total / 100).max(1);
+    let advance_progress = || {
+        let current = progress.advance();
+        if current.is_multiple_of(progress_step) || current == total {
+            emit(JobEvent::Progress { current, total });
+        }
+    };
 
     let successfully_extracted_count = AtomicI32::new(0);
     let failed_decryption_count = AtomicUsize::new(0);
-    let console_update_interval = (final_extraction_queue.len() / 100).max(10);
+    let console_update_interval = (total / 100).max(10);
 
-    let _ = status_sender.send(format!("Comparing and organizing {} game files...", final_extraction_queue.len()));
+    emit(JobEvent::Log(format!("Comparing and organizing {} game files...", final_extraction_queue.len())));
 
     let updated_manifest_entries: Vec<(String, manifest::ManifestEntry)> = final_extraction_queue
         .into_par_iter()
@@ -497,7 +498,7 @@ pub fn run_universal_import(
             }
 
             if decrypted_candidates.is_empty() {
-                progress_current.fetch_add(1, Ordering::Relaxed);
+                advance_progress();
                 return None;
             }
 
@@ -511,7 +512,7 @@ pub fn run_universal_import(
             });
 
             let Some(winning_candidate) = decrypted_candidates.pop() else {
-                progress_current.fetch_add(1, Ordering::Relaxed);
+                advance_progress();
                 return None;
             };
 
@@ -540,10 +541,10 @@ pub fn run_universal_import(
 
                 let current_extracted_total = successfully_extracted_count.fetch_add(1, Ordering::Relaxed) + 1;
                 if (current_extracted_total as usize).is_multiple_of(console_update_interval) {
-                    let _ = status_sender.send(format!("Processed {} files | Routing: {}", current_extracted_total, resolved_filename));
+                    emit(JobEvent::Log(format!("Processed {} files | Routing: {}", current_extracted_total, resolved_filename)));
                 }
 
-                progress_current.fetch_add(1, Ordering::Relaxed);
+                advance_progress();
 
                 return Some((
                     resolved_filename.clone(),
@@ -557,7 +558,7 @@ pub fn run_universal_import(
                 ));
             }
 
-            progress_current.fetch_add(1, Ordering::Relaxed);
+            advance_progress();
             None
         })
         .collect();
@@ -569,7 +570,7 @@ pub fn run_universal_import(
 
     let final_errors = failed_decryption_count.load(Ordering::Relaxed);
     if final_errors > 0 {
-        let _ = status_sender.send(format!("Encountered {} errors decrypting pack chunks.", final_errors));
+        emit(JobEvent::Log(format!("Encountered {} errors decrypting pack chunks.", final_errors)));
     }
 
     for (filename_key, entry_data) in updated_manifest_entries {
@@ -586,6 +587,6 @@ pub fn run_universal_import(
 
     cleanup_temporary_directories(&global_temporary_directories);
 
-    let _ = status_sender.send("Files successfully organized and updated.".to_string());
+    emit(JobEvent::Log("Files successfully organized and updated.".to_string()));
     Ok(())
 }

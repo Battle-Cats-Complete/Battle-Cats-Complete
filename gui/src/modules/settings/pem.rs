@@ -1,272 +1,199 @@
 use std::fs;
-use std::sync::{mpsc, Arc, Mutex};
+use std::path::Path;
 
-use eframe::egui;
+use iced::widget::{column, container, row, scrollable, text};
+use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 
 use core::modules::settings::pem;
 
-use crate::common::DragGuard;
+use crate::app::theme;
+use crate::common::feedback::Slot;
+use crate::widget::{popup, smooth_scroll};
 
-#[derive(Clone)]
-struct ManagePemState {
-    is_open: bool,
-    reset_position: bool,
-    active_pem: String,
-    is_custom: bool,
+const POPUP_SIZE: Size = Size::new(650.0, 480.0);
 
-    generate_click_time: f64,
-    confirm_generate: bool,
-    is_generating: bool,
-
-    delete_click_time: f64,
-    confirm_delete: bool,
-
-    export_time: f64,
-    export_result: bool,
-
-    receiver: Option<Arc<Mutex<mpsc::Receiver<Option<String>>>>>,
+#[derive(Debug, Clone)]
+pub enum Message {
+    Popup(popup::Message),
+    Open,
+    Import,
+    Export,
+    ExportExpired,
+    GenerateRequested,
+    GenerateExpired,
+    Generated(Option<String>),
+    DeleteRequested,
+    DeleteExpired,
 }
 
-impl Default for ManagePemState {
+pub struct State {
+    pub is_open: bool,
+    popup: popup::State,
+    active_pem: String,
+    is_custom: bool,
+    is_generating: bool,
+    confirm_generate: Slot<()>,
+    confirm_delete: Slot<()>,
+    export_feedback: Slot<bool>,
+}
+
+impl Default for State {
     fn default() -> Self {
         let (active_pem, is_custom) = pem::get_active_pem();
         Self {
             is_open: false,
-            reset_position: false,
+            popup: popup::State::default(),
             active_pem,
             is_custom,
-            generate_click_time: -10.0,
-            confirm_generate: false,
             is_generating: false,
-            delete_click_time: -10.0,
-            confirm_delete: false,
-            export_time: -10.0,
-            export_result: false,
-            receiver: None,
+            confirm_generate: Slot::default(),
+            confirm_delete: Slot::default(),
+            export_feedback: Slot::default(),
         }
     }
 }
 
-pub(crate) fn open(context: &egui::Context) {
-    let state_id = egui::Id::new("manage_pem_state_v3");
-    let mut state = context.data(|data_map| data_map.get_temp::<ManagePemState>(state_id)).unwrap_or_default();
-    state.is_open = true;
-    state.reset_position = true;
-    context.data_mut(|data_map| data_map.insert_temp(state_id, state));
-}
-
-pub(crate) fn show(context: &egui::Context, drag_guard: &mut DragGuard) {
-    let state_id = egui::Id::new("manage_pem_state_v3");
-    let mut state = context.data(|data_map| data_map.get_temp::<ManagePemState>(state_id)).unwrap_or_default();
-
-    if !state.is_open {
-        state.confirm_generate = false;
-        state.confirm_delete = false;
-        context.data_mut(|data_map| data_map.insert_temp(state_id, state));
-        return;
-    }
-
-    let window_id = egui::Id::new("manage_pem_window_v3");
-    let (allow_drag, fixed_position) = drag_guard.assign_bounds(context, window_id);
-    let mut is_open = state.is_open;
-
-    let mut thread_finished = false;
-    let mut generated_pem_result = None;
-
-    if let Some(receiver_arc) = &state.receiver
-        && let Ok(receiver_guard) = receiver_arc.try_lock()
-            && let Ok(received_data) = receiver_guard.try_recv() {
-                generated_pem_result = received_data;
-                thread_finished = true;
+impl State {
+    pub fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::Open => {
+                let (active_pem, is_custom) = pem::get_active_pem();
+                self.active_pem = active_pem;
+                self.is_custom = is_custom;
+                self.is_open = true;
+                Task::none()
             }
-
-    if thread_finished {
-        if let Some(new_pem) = generated_pem_result {
-            let _ = pem::save_pem(&new_pem);
-            state.active_pem = new_pem;
-            state.is_custom = true;
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    self.is_open = false;
+                    self.confirm_generate.clear();
+                    self.confirm_delete.clear();
+                }
+                Task::none()
+            }
+            Message::Import => {
+                if let Some(path) = rfd::FileDialog::new().add_filter("PEM", &["pem", "txt"]).pick_file()
+                    && let Ok(content) = fs::read_to_string(&path)
+                    && content.contains("-----BEGIN PRIVATE KEY-----")
+                    && content.contains("-----BEGIN CERTIFICATE-----") {
+                    let _ = pem::save_pem(&content);
+                    self.active_pem = content;
+                    self.is_custom = true;
+                    self.confirm_generate.clear();
+                    self.confirm_delete.clear();
+                }
+                Task::none()
+            }
+            Message::Export => {
+                let export_dir = Path::new("exports");
+                let _ = fs::create_dir_all(export_dir);
+                let filename = if self.is_custom { "identity.pem" } else { "bcc.pem" };
+                let success = fs::write(export_dir.join(filename), &self.active_pem).is_ok();
+                self.export_feedback.set(success, Message::ExportExpired)
+            }
+            Message::ExportExpired => {
+                self.export_feedback.expire();
+                Task::none()
+            }
+            Message::GenerateRequested => {
+                if self.is_custom && !self.confirm_generate.is_set() {
+                    self.confirm_delete.clear();
+                    self.confirm_generate.set((), Message::GenerateExpired)
+                } else {
+                    self.confirm_generate.clear();
+                    self.is_generating = true;
+                    Task::perform(async { pem::generate_pem().ok() }, Message::Generated)
+                }
+            }
+            Message::GenerateExpired => {
+                self.confirm_generate.expire();
+                Task::none()
+            }
+            Message::Generated(result) => {
+                if let Some(new_pem) = result {
+                    let _ = pem::save_pem(&new_pem);
+                    self.active_pem = new_pem;
+                    self.is_custom = true;
+                }
+                self.is_generating = false;
+                Task::none()
+            }
+            Message::DeleteRequested => {
+                if !self.confirm_delete.is_set() {
+                    self.confirm_generate.clear();
+                    self.confirm_delete.set((), Message::DeleteExpired)
+                } else {
+                    pem::delete_pem();
+                    let (default_pem, _) = pem::get_active_pem();
+                    self.active_pem = default_pem;
+                    self.is_custom = false;
+                    self.confirm_delete.clear();
+                    Task::none()
+                }
+            }
+            Message::DeleteExpired => {
+                self.confirm_delete.expire();
+                Task::none()
+            }
         }
-        state.is_generating = false;
-        state.receiver = None;
     }
 
-    let mut window = egui::Window::new("Manage PEM")
-        .id(window_id)
-        .open(&mut is_open)
-        .collapsible(false)
-        .resizable(false)
-        .constrain(false)
-        .movable(allow_drag)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(context.screen_rect().center());
-
-    if state.reset_position {
-        window = window.current_pos(context.screen_rect().center());
-        state.reset_position = false;
-    } else if let Some(position) = fixed_position {
-        window = window.current_pos(position);
+    pub fn view<'a>(&'a self, window: Size) -> Element<'a, Message> {
+        self.popup.view("Manage PEM", POPUP_SIZE, window, Message::Popup, move || self.content_view(), None)
     }
 
-    window.show(context, |ui_container| {
-        ui_container.set_min_width(550.0);
-        ui_container.add_space(10.0);
-
-        let button_height = 24.0;
-        let button_width = 110.0;
-        let default_blue = egui::Color32::from_rgb(31, 106, 165);
-        let success_green = egui::Color32::from_rgb(40, 160, 60);
-        let warning_yellow = egui::Color32::from_rgb(200, 180, 50);
-        let danger_red = egui::Color32::from_rgb(180, 50, 50);
-        let current_time = ui_container.input(|input_state| input_state.time);
-
-        ui_container.vertical_centered(|centered_ui| {
-            centered_ui.horizontal(|ui_row| {
-                let spacing = 10.0;
-                ui_row.spacing_mut().item_spacing.x = spacing;
-
-                let total_buttons_width = (button_width * 4.0) + (spacing * 3.0);
-                let x_offset = (ui_row.available_width() - total_buttons_width) / 2.0;
-                ui_row.add_space(x_offset.max(0.0));
-                
-                let import_button = egui::Button::new(
-                    egui::RichText::new("Import PEM").size(12.0).strong().color(egui::Color32::WHITE)
-                ).fill(default_blue).rounding(4.0);
-
-                ui_row.add_enabled_ui(!state.is_generating, |enabled_ui| {
-                    if enabled_ui.add_sized([button_width, button_height], import_button).clicked()
-                        && let Some(file_path) = rfd::FileDialog::new().add_filter("PEM", &["pem", "txt"]).pick_file()
-                            && let Ok(content) = fs::read_to_string(&file_path)
-                                && content.contains("-----BEGIN PRIVATE KEY-----") && content.contains("-----BEGIN CERTIFICATE-----") {
-                                    let _ = pem::save_pem(&content);
-                                    state.active_pem = content;
-                                    state.is_custom = true;
-                                    state.confirm_generate = false;
-                                    state.confirm_delete = false;
-                                }
-                });
-                
-                let (export_text, export_color) = if (current_time - state.export_time) < 2.0 {
-                    ui_row.ctx().request_repaint();
-                    if state.export_result { ("Exported!", success_green) } else { ("Failed!", danger_red) }
-                } else {
-                    ("Export PEM", default_blue)
-                };
-
-                let export_button = egui::Button::new(
-                    egui::RichText::new(export_text).size(12.0).strong().color(egui::Color32::WHITE)
-                ).fill(export_color).rounding(4.0);
-
-                ui_row.add_enabled_ui(!state.is_generating, |enabled_ui| {
-                    if enabled_ui.add_sized([button_width, button_height], export_button).clicked() {
-                        let export_directory = std::path::Path::new("exports");
-                        let _ = fs::create_dir_all(export_directory);
-
-                        let filename = if state.is_custom { "identity.pem" } else { "bcc.pem" };
-                        let export_path = export_directory.join(filename);
-
-                        let success = fs::write(export_path, &state.active_pem).is_ok();
-                        state.export_time = current_time;
-                        state.export_result = success;
-                    }
-                });
-                
-                if state.confirm_generate {
-                    if current_time - state.generate_click_time > 2.0 {
-                        state.confirm_generate = false;
-                    } else {
-                        ui_row.ctx().request_repaint();
-                    }
-                }
-
-                let generate_text = if state.is_generating {
-                    "Generating..."
-                } else if state.confirm_generate {
-                    "Are You Sure?"
-                } else {
-                    "Generate PEM"
-                };
-
-                let generate_button = egui::Button::new(
-                    egui::RichText::new(generate_text).size(12.0).strong().color(egui::Color32::WHITE)
-                ).fill(warning_yellow).rounding(4.0);
-
-                ui_row.add_enabled_ui(!state.is_generating, |enabled_ui| {
-                    if enabled_ui.add_sized([button_width, button_height], generate_button).clicked() {
-                        if state.is_custom && !state.confirm_generate {
-                            state.confirm_generate = true;
-                            state.generate_click_time = current_time;
-                            state.confirm_delete = false;
-                        } else {
-                            state.confirm_generate = false;
-                            state.is_generating = true;
-
-                            let (transmitter, receiver) = mpsc::channel();
-                            state.receiver = Some(Arc::new(Mutex::new(receiver)));
-                            let context_clone = context.clone();
-
-                            std::thread::spawn(move || {
-                                let result = pem::generate_pem().ok();
-                                let _ = transmitter.send(result);
-                                context_clone.request_repaint();
-                            });
-                        }
-                    }
-                });
-                
-                if state.confirm_delete {
-                    if current_time - state.delete_click_time > 2.0 {
-                        state.confirm_delete = false;
-                    } else {
-                        ui_row.ctx().request_repaint();
-                    }
-                }
-
-                let delete_text = if state.confirm_delete { "Are You Sure?" } else { "Delete PEM" };
-                let delete_button = egui::Button::new(
-                    egui::RichText::new(delete_text).size(12.0).strong().color(egui::Color32::WHITE)
-                ).fill(danger_red).rounding(4.0);
-
-                ui_row.add_enabled_ui(state.is_custom && !state.is_generating, |enabled_ui| {
-                    if enabled_ui.add_sized([button_width, button_height], delete_button).clicked() {
-                        if !state.confirm_delete {
-                            state.confirm_delete = true;
-                            state.delete_click_time = current_time;
-                            state.confirm_generate = false;
-                        } else {
-                            pem::delete_pem();
-                            let (default_pem, _) = pem::get_active_pem();
-                            state.active_pem = default_pem;
-                            state.is_custom = false;
-                            state.confirm_delete = false;
-                        }
-                    }
-                });
-            });
-        });
-
-        ui_container.add_space(15.0);
-        ui_container.separator();
-        ui_container.add_space(5.0);
-
-        let text_color = if state.is_custom {
-            ui_container.visuals().text_color()
-        } else {
-            egui::Color32::from_gray(100)
+    fn content_view<'a>(&'a self) -> Element<'a, Message> {
+        let export_label = match self.export_feedback.get().copied() {
+            Some(true) => "Exported!",
+            Some(false) => "Failed!",
+            None => "Export PEM",
         };
 
-        egui::ScrollArea::vertical().max_height(350.0).show(ui_container, |scroll_ui| {
-            let mut read_only_text = state.active_pem.as_str();
+        let generate_label = if self.is_generating {
+            "Generating..."
+        } else if self.confirm_generate.is_set() {
+            "Are You Sure?"
+        } else {
+            "Generate PEM"
+        };
 
-            scroll_ui.add(
-                egui::TextEdit::multiline(&mut read_only_text)
-                    .font(egui::TextStyle::Monospace)
-                    .text_color(text_color)
-                    .desired_width(f32::INFINITY)
-                    .interactive(false)
-            );
-        });
-    });
+        let delete_label = if self.confirm_delete.is_set() { "Are You Sure?" } else { "Delete PEM" };
 
-    state.is_open = is_open;
-    context.data_mut(|data_map| data_map.insert_temp(state_id, state));
+        let import_msg = if self.is_generating { None } else { Some(Message::Import) };
+        let export_msg = if self.is_generating { None } else { Some(Message::Export) };
+        let generate_msg = if self.is_generating { None } else { Some(Message::GenerateRequested) };
+        let delete_msg = if self.is_generating || !self.is_custom { None } else { Some(Message::DeleteRequested) };
+
+        let actions = row![
+            theme::sized_button("Import PEM", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button).on_press_maybe(import_msg),
+            theme::sized_button(export_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::feedback_button_style(self.export_feedback.get().copied())).on_press_maybe(export_msg),
+            theme::sized_button(generate_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::warning_button).on_press_maybe(generate_msg),
+            theme::sized_button(delete_label, theme::POPUP_ACTION_BUTTON_WIDTH, if self.is_custom { theme::danger_button } else { theme::neutral_button }).on_press_maybe(delete_msg),
+        ].spacing(10);
+
+        let is_custom = self.is_custom;
+        let pem_text_style = move |theme: &Theme| {
+            let palette = theme.palette();
+            let color = if is_custom { palette.text } else { Color { a: 0.5, ..palette.text } };
+            text::Style { color: Some(color) }
+        };
+
+        let content = column![
+            actions,
+            container(
+                smooth_scroll(
+                    scrollable(
+                        container(text(self.active_pem.clone()).size(12).font(iced::Font::MONOSPACE).style(pem_text_style))
+                            .padding(10)
+                            .width(Length::Fill)
+                    ).height(Length::Fixed(320.0)),
+                )
+            ).style(theme::card_container),
+        ].spacing(15).padding(20).align_x(Alignment::Center);
+
+        container(smooth_scroll(scrollable(content)))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
 }

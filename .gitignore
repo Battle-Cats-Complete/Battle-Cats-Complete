@@ -14,17 +14,27 @@ crash*
 
 # Quality of Life
 .cargo/
+.cl*/
+.st*/
+.re*/
+*.py
+CL*.md
+ST*.md
+RE*.ms
 
 # Extracted Game Data
 /game/
 /exports/
 /mods/
+.csv
+.tsv
 
 # Update Leftovers
 tmp_update.zip
 tmp_new_version.exe
 tmp_new_version
 CHANGELOG.md
+*legacy
 
 # IDE Settings
 .vscode/

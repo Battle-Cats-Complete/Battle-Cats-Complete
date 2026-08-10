@@ -1,350 +1,234 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::Path;
 
-use eframe::egui;
-use image::GenericImageView;
-use nyanko::cat::unit::UnitBuy;
+use iced::alignment::{Horizontal, Vertical};
+use iced::widget::image::Handle;
+use iced::widget::{column, container, image as iced_image, row, scrollable, stack, text, Space};
+use iced::{font, Border, Color, Element, Font, Length, Padding, Theme};
 
 use core::common::io;
+use core::modules::cat::scanner::CatEntry;
+use core::Vfs;
 
-pub(crate) fn render(ui: &mut egui::Ui, description: &[String]) {
-    ui.add_space(10.0);
-    ui.vertical_centered(|ui| {
-        ui.heading(egui::RichText::new("Description").size(20.0).strong());
-    });
-    ui.add_space(8.0);
+use crate::common::item_icon;
+use crate::widget::smooth_scroll;
 
-    ui.vertical_centered(|ui| {
-        if description.is_empty() {
-            ui.label(egui::RichText::new("No description available").weak().italics());
-            return;
-        }
+use super::Message;
 
-        for line in description {
-            if line.trim().is_empty() {
-                ui.label(" "); 
-            } else {
-                ui.add(egui::Label::new(egui::RichText::new(line).size(15.0)).wrap());
-            }
-        }
-    });
+const HEADING_SIZE: f32 = 20.0;
+const SECTION_SPACING: f32 = 16.0;
+const SECTION_GAP: f32 = 11.0;
+const HEADING_BODY_GAP: f32 = 8.0;
+const EVOLVE_ITEM_SPACING: f32 = 6.0;
+const MATERIAL_CANVAS: u32 = 128;
+const MATERIAL_SIZE: f32 = 64.0;
+const MATERIAL_SPACING: f32 = 5.0;
+const AMOUNT_TEXT_SIZE: f32 = 13.0;
+const XP_ICON_ID: i32 = 6;
+const XP_ICON_HEIGHT: f32 = 32.0;
+const XP_TEXT_SIZE: f32 = 18.0;
+const XP_SPACING: f32 = 5.0;
+const EVOLVE_TEXT_LINES: usize = 3;
+
+#[derive(Clone)]
+struct TrimmedIcon {
+    handle: Handle,
+    width: u32,
+    height: u32,
 }
 
-pub(crate) fn render_evolve(
-    ui: &mut egui::Ui, 
-    ctx: &egui::Context,
-    unit_buy: &UnitBuy, 
-    evolution_text: &[String],
-    current_form: usize,
-    texture_cache: &mut HashMap<i32, Option<egui::TextureHandle>>,
-    cache_version: u64,
-    priority: &[String], 
-) {
-    ui.add_space(15.0);
-    ui.separator(); 
-    ui.add_space(10.0);
+#[derive(Default)]
+pub(super) struct State {
+    boxed_icons: RefCell<HashMap<i32, Option<Handle>>>,
+    trimmed_icons: RefCell<HashMap<i32, Option<TrimmedIcon>>>,
+}
 
-    let (materials, xp_cost) = match current_form {
-        2 => (&unit_buy.true_form_materials, unit_buy.true_form_xp_cost),
-        3 => (&unit_buy.ultra_form_materials, unit_buy.ultra_form_xp_cost),
-        _ => return, 
-    };
-
-    let has_text = evolution_text.iter().any(|s| !s.trim().is_empty());
-    let has_mats = !materials.is_empty();
-    let has_xp = xp_cost > 0;
-
-    if !has_mats && !has_text && !has_xp { return; }
-
-    ui.vertical_centered(|ui| {
-        ui.heading(egui::RichText::new("Evolve").size(20.0).strong());
-    });
-    ui.add_space(8.0);
-
-    if has_text {
-        ui.vertical_centered(|ui| {
-            for line in evolution_text {
-                if line.trim().is_empty() {
-                    ui.label(" "); 
-                } else {
-                    ui.add(egui::Label::new(egui::RichText::new(line).size(15.0)).wrap());
-                }
-            }
-        });
-        ui.add_space(2.0);
+impl State {
+    pub(super) fn forget(&self, id: i32) {
+        self.boxed_icons.borrow_mut().remove(&id);
+        self.trimmed_icons.borrow_mut().remove(&id);
     }
 
-    if has_mats {
-        let icon_size = 64.0;
-        let spacing = 5.0;
-        let count = materials.len() as f32;
-        
-        let total_width = (count * icon_size) + ((count - 1.0).max(0.0) * spacing);
-        let available_width = ui.available_width();
-        let left_padding = (available_width - total_width) / 2.0;
-
-        ui.horizontal(|ui| {
-            if left_padding > 0.0 {
-                ui.add_space(left_padding);
-            }
-
-            ui.spacing_mut().item_spacing = egui::vec2(spacing, spacing);
-            
-            for (item_id, amount) in materials {
-                let texture_handle_opt = texture_cache.entry(*item_id).or_insert_with(|| {
-                    load_material_icon_legacy(ctx, *item_id, cache_version, priority)
-                });
-
-                let rect_size = egui::vec2(icon_size, icon_size);
-                let (rect, _) = ui.allocate_exact_size(rect_size, egui::Sense::hover());
-
-                if let Some(texture) = texture_handle_opt {
-                    let mut mesh = egui::Mesh::with_texture(texture.id());
-                    mesh.add_rect_with_uv(rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-                    ui.painter().add(mesh);
-                } else {
-                    ui.painter().rect_filled(rect, egui::Rounding::same(4.0), egui::Color32::from_gray(50));
-                    ui.painter().text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        format!("ID {}", item_id),
-                        egui::FontId::proportional(14.0),
-                        egui::Color32::WHITE,
-                    );
-                }
-
-                let text = format!("×{}", amount);
-                let font_id = egui::FontId::proportional(13.0);
-                let text_color = egui::Color32::WHITE;
-                
-                let galley = ui.painter().layout_no_wrap(text, font_id, text_color);
-                let padding = egui::vec2(4.0, 1.0); 
-                let bg_size = galley.size() + padding * 2.0;
-                
-                let bg_rect = egui::Rect::from_min_size(
-                    rect.max - bg_size, 
-                    bg_size
-                );
-
-                ui.painter().rect_filled(
-                    bg_rect, 
-                    egui::Rounding::same(4.0), 
-                    egui::Color32::from_black_alpha(160)
-                );
-
-                ui.painter().galley(bg_rect.min + padding, galley, egui::Color32::WHITE);
-            }
-        });
+    pub(super) fn clear_icons(&self) {
+        self.boxed_icons.borrow_mut().clear();
+        self.trimmed_icons.borrow_mut().clear();
     }
 
-    if has_xp {
-        ui.add_space(2.0); 
+    fn boxed_icon(&self, id: i32, vfs: &Vfs) -> Option<Handle> {
+        if let Some(cached) = self.boxed_icons.borrow().get(&id) {
+            return cached.clone();
+        }
 
-        let xp_horizontal_padding = 5.0;
-        let xp_icon_height = 32.0;
+        let handle = io::gatya_item_icon(vfs, id).and_then(|path| item_icon::load_boxed(&path, MATERIAL_CANVAS));
+        self.boxed_icons.borrow_mut().insert(id, handle.clone());
+        handle
+    }
 
-        let xp_str = format!("{}", xp_cost);
-        let font_id = egui::FontId::proportional(18.0);
-        let text_galley = ctx.fonts(|f| {
-            f.layout_no_wrap(xp_str.clone(), font_id.clone(), egui::Color32::WHITE)
-        });
-        let text_width = text_galley.size().x;
-        let text_height = text_galley.size().y;
+    fn trimmed_icon(&self, id: i32, vfs: &Vfs) -> Option<TrimmedIcon> {
+        if let Some(cached) = self.trimmed_icons.borrow().get(&id) {
+            return cached.clone();
+        }
 
-        let xp_icon_id = 6;
-        let texture_handle_opt = texture_cache.entry(xp_icon_id).or_insert_with(|| {
-            load_xp_icon_trimmed(ctx, xp_icon_id, cache_version, priority)
-        });
+        let loaded = io::gatya_item_icon(vfs, id)
+            .and_then(|path| item_icon::load_cropped(&path))
+            .map(|(handle, width, height)| TrimmedIcon { handle, width, height });
+        self.trimmed_icons.borrow_mut().insert(id, loaded.clone());
+        loaded
+    }
 
-        let display_width = if let Some(tex) = texture_handle_opt {
-             let tex_size = tex.size_vec2();
-             let aspect = tex_size.x / tex_size.y;
-             xp_icon_height * aspect
-        } else {
-             xp_icon_height 
+    pub(super) fn view<'a>(&'a self, cat: &'a CatEntry, form: usize, vfs: &'a Vfs) -> Element<'a, Message> {
+        let description = cat.description.get(form)
+            .and_then(|d| d.as_ref())
+            .map(|lines| lines.join("\n"))
+            .filter(|text| !text.trim().is_empty())
+            .unwrap_or_else(|| "No description available".to_string());
+
+        let description_section = column![
+            text("Description").size(HEADING_SIZE),
+            text(description),
+        ]
+            .spacing(HEADING_BODY_GAP)
+            .width(Length::Fill);
+
+        let mut content = column![description_section]
+            .spacing(SECTION_SPACING)
+            .width(Length::Fill);
+
+        if let Some(evolve) = self.view_evolve(cat, form, vfs) {
+            content = content.push(evolve);
+        }
+
+        smooth_scroll(scrollable(content)).into()
+    }
+
+    fn view_evolve<'a>(&'a self, cat: &'a CatEntry, form: usize, vfs: &'a Vfs) -> Option<Element<'a, Message>> {
+        let (materials, xp_cost) = match form {
+            2 => (&cat.unitbuy.true_form_materials, cat.unitbuy.true_form_xp_cost),
+            3 => (&cat.unitbuy.ultra_form_materials, cat.unitbuy.ultra_form_xp_cost),
+            _ => return None,
         };
-        
-        let display_size = egui::vec2(display_width, xp_icon_height);
 
-        let total_width = display_width + xp_horizontal_padding + text_width;
-        let available_width = ui.available_width();
-        let left_padding = (available_width - total_width) / 2.0;
+        let evolve_text = cat.evolve_text.texts.get(form)
+            .and_then(|t| t.as_ref())
+            .filter(|lines| !lines.is_empty())
+            .map(|lines| {
+                let mut padded = lines.clone();
+                padded.resize(EVOLVE_TEXT_LINES, String::new());
+                padded.join("\n")
+            });
 
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = xp_horizontal_padding;
-            
-            if left_padding > 0.0 {
-                ui.add_space(left_padding);
-            }
+        if materials.is_empty() && evolve_text.is_none() && xp_cost <= 0 {
+            return None;
+        }
 
-            if let Some(texture) = texture_handle_opt {
-                ui.image((texture.id(), display_size));
-            } else {
-                let (rect, _) = ui.allocate_exact_size(display_size, egui::Sense::hover());
-                ui.painter().rect_filled(rect, egui::Rounding::same(2.0), egui::Color32::from_gray(50));
-                 ui.painter().text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "XP",
-                    egui::FontId::proportional(12.0),
-                    egui::Color32::WHITE,
-                );
+        let mut section = column![
+            Space::new().height(Length::Fixed(SECTION_GAP)),
+            text("Evolve").size(HEADING_SIZE),
+            Space::new().height(Length::Fixed(HEADING_BODY_GAP)),
+        ]
+            .width(Length::Fill);
+
+        if let Some(evolve_text) = evolve_text {
+            section = section.push(text(evolve_text));
+            section = section.push(Space::new().height(Length::Fixed(EVOLVE_ITEM_SPACING)));
+        }
+
+        if !materials.is_empty() {
+            let mut icon_row = row![].spacing(MATERIAL_SPACING);
+            for (item_id, amount) in materials {
+                icon_row = icon_row.push(self.view_material(*item_id, *amount, vfs));
             }
-            
-            let vertical_offset = (xp_icon_height - text_height) / 2.0;
-            if vertical_offset > 0.0 {
-                ui.vertical(|ui| {
-                    ui.add_space(vertical_offset);
-                    ui.label(egui::RichText::new(xp_str).strong().size(18.0));
-                });
-            } else {
-                ui.label(egui::RichText::new(xp_str).strong().size(18.0));
-            }
-        });
+            section = section.push(icon_row);
+            section = section.push(Space::new().height(Length::Fixed(EVOLVE_ITEM_SPACING)));
+        }
+
+        if xp_cost > 0 {
+            section = section.push(self.view_xp_cost(xp_cost, vfs));
+        }
+
+        Some(section.into())
     }
-}
 
-fn load_material_icon_legacy(ctx: &egui::Context, id: i32, version: u64, priority: &[String]) -> Option<egui::TextureHandle> {
-    let expected_path = io::gatya_item_icon(Path::new(""), id)?;
-    
-    let file_name = expected_path.file_name()?.to_string_lossy().to_string();
-    let parent_dir = expected_path.parent().unwrap_or(Path::new(""));
+    fn view_material<'a>(&'a self, item_id: i32, amount: i32, vfs: &Vfs) -> Element<'a, Message> {
+        let icon: Element<'a, Message> = self.boxed_icon(item_id, vfs).map_or_else(
+            || container(text(format!("ID {}", item_id)).size(AMOUNT_TEXT_SIZE + 1.0))
+                .width(Length::Fixed(MATERIAL_SIZE))
+                .height(Length::Fixed(MATERIAL_SIZE))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .style(placeholder_style)
+                .into(),
+            |handle| iced_image(handle)
+                .width(Length::Fixed(MATERIAL_SIZE))
+                .height(Length::Fixed(MATERIAL_SIZE))
+                .into(),
+        );
 
-    let paths = core::common::get(parent_dir, [file_name.as_str()], priority);
+        let badge = container(text(format!("×{}", amount)).size(AMOUNT_TEXT_SIZE))
+            .padding(Padding { top: 1.0, right: 4.0, bottom: 1.0, left: 4.0 })
+            .style(badge_style);
 
-    let mut final_image = egui::ColorImage::new([128, 128], egui::Color32::TRANSPARENT);
-    let mut loaded = false;
+        stack![
+            icon,
+            container(badge)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Horizontal::Right)
+                .align_y(Vertical::Bottom),
+        ]
+            .width(Length::Fixed(MATERIAL_SIZE))
+            .height(Length::Fixed(MATERIAL_SIZE))
+            .into()
+    }
 
-    for path in paths {
-        if let Ok(mut img) = image::open(&path) {
-            let (w, h) = img.dimensions();
-            
-            let mut min_x = w;
-            let mut min_y = h;
-            let mut max_x = 0;
-            let mut max_y = 0;
-            let mut has_pixels = false;
-            
-            let rgba = img.to_rgba8();
-            for (x, y, pixel) in rgba.enumerate_pixels() {
-                if pixel[3] > 0 { 
-                    if x < min_x { min_x = x; }
-                    if x > max_x { max_x = x; }
-                    if y < min_y { min_y = y; }
-                    if y > max_y { max_y = y; }
-                    has_pixels = true;
-                }
-            }
-
-            if has_pixels {
-                let crop_w = max_x - min_x + 1;
-                let crop_h = max_y - min_y + 1;
-                
-                if crop_w > 128 || crop_h > 128 {
-                    let sub_img = img.crop(min_x, min_y, crop_w, crop_h);
-                    let resized = sub_img.resize(128, 128, image::imageops::FilterType::Lanczos3);
-                    let (r_w, r_h) = resized.dimensions();
-                    
-                    let target_x = (128 - r_w) / 2;
-                    let target_y = (128 - r_h) / 2;
-                    
-                    let r_rgba = resized.to_rgba8();
-                    for y in 0..r_h {
-                        for x in 0..r_w {
-                            let src_pixel = r_rgba.get_pixel(x, y);
-                            let color = egui::Color32::from_rgba_unmultiplied(
-                                src_pixel[0], src_pixel[1], src_pixel[2], src_pixel[3]
-                            );
-                            final_image[( (target_x + x) as usize, (target_y + y) as usize )] = color;
-                        }
-                    }
+    fn view_xp_cost<'a>(&'a self, xp_cost: i32, vfs: &Vfs) -> Element<'a, Message> {
+        let icon: Element<'a, Message> = self.trimmed_icon(XP_ICON_ID, vfs).map_or_else(
+            || container(text("XP").size(AMOUNT_TEXT_SIZE))
+                .width(Length::Fixed(XP_ICON_HEIGHT))
+                .height(Length::Fixed(XP_ICON_HEIGHT))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .style(placeholder_style)
+                .into(),
+            |icon| {
+                let display_width = if icon.height > 0 {
+                    XP_ICON_HEIGHT * (icon.width as f32 / icon.height as f32)
                 } else {
-                    let target_x = (128 - crop_w) / 2;
-                    let target_y = (128 - crop_h) / 2;
+                    XP_ICON_HEIGHT
+                };
 
-                    for y in 0..crop_h {
-                        for x in 0..crop_w {
-                            let src_pixel = rgba.get_pixel(min_x + x, min_y + y);
-                            let color = egui::Color32::from_rgba_unmultiplied(
-                                src_pixel[0], src_pixel[1], src_pixel[2], src_pixel[3]
-                            );
-                            if target_x + x < 128 && target_y + y < 128 {
-                                final_image[( (target_x + x) as usize, (target_y + y) as usize )] = color;
-                            }
-                        }
-                    }
-                }
-                loaded = true;
-                break;
-            }
-        }
-    }
-    
-    if loaded {
-        Some(ctx.load_texture(format!("gatya_item_legacy_{}_{}", id, version), final_image, egui::TextureOptions::LINEAR))
-    } else {
-        None
+                iced_image(icon.handle)
+                    .width(Length::Fixed(display_width))
+                    .height(Length::Fixed(XP_ICON_HEIGHT))
+                    .into()
+            },
+        );
+
+        row![
+            icon,
+            text(xp_cost.to_string()).size(XP_TEXT_SIZE).font(Font { weight: font::Weight::Bold, ..Font::DEFAULT }),
+        ]
+            .spacing(XP_SPACING)
+            .align_y(Vertical::Center)
+            .into()
     }
 }
 
-fn load_xp_icon_trimmed(ctx: &egui::Context, id: i32, version: u64, priority: &[String]) -> Option<egui::TextureHandle> {
-    let expected_path = io::gatya_item_icon(Path::new(""), id)?;
-    let file_name = expected_path.file_name()?.to_string_lossy().to_string();
-    let parent_dir = expected_path.parent().unwrap_or(Path::new(""));
+fn placeholder_style(theme: &Theme) -> container::Style {
+    let palette = theme.extended_palette();
 
-    let paths = core::common::get(parent_dir, [file_name.as_str()], priority);
-
-    let mut final_image = egui::ColorImage::new([1, 1], egui::Color32::TRANSPARENT);
-    let mut loaded = false;
-
-    for path in paths {
-         if let Ok(img) = image::open(&path) {
-            let (w, h) = img.dimensions();
-            let rgba = img.to_rgba8();
-            
-            let mut min_x = w;
-            let mut min_y = h;
-            let mut max_x = 0;
-            let mut max_y = 0;
-            let mut has_pixels = false;
-
-            for (x, y, pixel) in rgba.enumerate_pixels() {
-                if pixel[3] > 0 { 
-                    if x < min_x { min_x = x; }
-                    if x > max_x { max_x = x; }
-                    if y < min_y { min_y = y; }
-                    if y > max_y { max_y = y; }
-                    has_pixels = true;
-                }
-            }
-
-            if has_pixels {
-                let crop_w = max_x - min_x + 1;
-                let crop_h = max_y - min_y + 1;
-                
-                final_image = egui::ColorImage::new(
-                    [crop_w as usize, crop_h as usize], 
-                    egui::Color32::TRANSPARENT
-                );
-
-                for y in 0..crop_h {
-                    for x in 0..crop_w {
-                        let src_pixel = rgba.get_pixel(min_x + x, min_y + y);
-                        let color = egui::Color32::from_rgba_unmultiplied(
-                            src_pixel[0], src_pixel[1], src_pixel[2], src_pixel[3]
-                        );
-                        final_image[(x as usize, y as usize)] = color;
-                    }
-                }
-                loaded = true;
-                break;
-            }
-        }
+    container::Style {
+        background: Some(palette.background.weak.color.into()),
+        border: Border { radius: 4.0.into(), ..Border::default() },
+        ..container::Style::default()
     }
-    
-    if loaded {
-        Some(ctx.load_texture(format!("gatya_item_trimmed_{}_{}", id, version), final_image, egui::TextureOptions::LINEAR))
-    } else {
-        None
+}
+
+fn badge_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color { a: 0.63, ..Color::BLACK }.into()),
+        text_color: Some(Color::WHITE),
+        border: Border { radius: 4.0.into(), ..Border::default() },
+        ..container::Style::default()
     }
 }

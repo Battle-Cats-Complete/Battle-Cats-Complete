@@ -1,20 +1,42 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::Path;
 
-use eframe::egui::{self, RichText};
-use nyanko::chapter::stage::{EnemyAmount, BossType};
+use iced::alignment::Horizontal;
+use iced::widget::image::Handle;
+use iced::widget::{column, container, image as iced_image, row, text, tooltip};
+use iced::{Alignment, Element, Length, Theme};
+use nyanko::chapter::map::{BonusType, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry};
+use nyanko::chapter::stage::{BossType, EnemyAmount};
 use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
-use nyanko::chapter::map::{BonusType, ScoreBonusMapEntry, SpecialRulesMapEntry, RuleType};
-use tracing::{debug, instrument, warn};
+use tracing::warn;
 
-use core::modules::enemy::scanner::EnemyEntry;
 use core::common::context::GlobalContext;
-use core::common::gfx::autocrop;
-use core::modules::stage::{Map, Stage};
+use core::modules::enemy::scanner::EnemyEntry;
+use core::modules::stage::{restrictions, Map, Stage};
 
-use super::treasure::center_header;
+use crate::app::theme;
+use crate::common::item_icon;
+use crate::widget::{section, subsection};
 
-const SUBHEADER_SIZE: f32 = 14.0;
+const MAX_ICON_SIZE: f32 = 32.0;
+const HEADER_TEXT_SIZE: f32 = 12.0;
+const CELL_TEXT_SIZE: f32 = 12.0;
+const CELL_PADDING: [u16; 2] = [4, 6];
+const COLUMN_SPACING: f32 = 6.0;
+const BODY_SPACING: f32 = 10.0;
+const LINE_SPACING: f32 = 2.0;
+
+const ENEMY_COLUMN: u16 = 4;
+const COUNT_COLUMN: u16 = 5;
+const MAG_COLUMN: u16 = 9;
+const MAG_SPLIT_COLUMN: u16 = 9;
+const BASE_COLUMN: u16 = 6;
+const SPAWN_COLUMN: u16 = 6;
+const RESPAWN_COLUMN: u16 = 9;
+const LAYER_COLUMN: u16 = 6;
+const BOSS_COLUMN: u16 = 8;
+const SCORE_COLUMN: u16 = 5;
+const KILLS_COLUMN: u16 = 5;
 
 fn format_enemy_amount(spawn_amount: &EnemyAmount) -> String {
     match spawn_amount {
@@ -24,8 +46,7 @@ fn format_enemy_amount(spawn_amount: &EnemyAmount) -> String {
 }
 
 fn format_enemy_respawn(spawn_amount: &EnemyAmount, respawn_min_frames: u32, respawn_max_frames: u32) -> String {
-    let is_singular_spawn = spawn_amount == &EnemyAmount::Limit(1);
-    if is_singular_spawn {
+    if spawn_amount == &EnemyAmount::Limit(1) {
         return "-".to_string();
     }
 
@@ -53,36 +74,28 @@ fn format_boss_type(boss_type: &BossType) -> String {
 }
 
 fn format_kill_count(kill_count: u32) -> String {
-    if kill_count == 0 {
-        return "-".to_string();
-    }
-    kill_count.to_string()
+    if kill_count == 0 { "-".to_string() } else { kill_count.to_string() }
 }
 
 fn format_score(score: u32) -> String {
-    if score == 0 {
-        return "-".to_string();
-    }
-    score.to_string()
+    if score == 0 { "-".to_string() } else { score.to_string() }
 }
 
 fn format_base_hp_percentage(base_hp_perc: u32, is_dojo_mechanic: bool) -> String {
     if is_dojo_mechanic {
         return base_hp_perc.to_string();
     }
-
     if base_hp_perc == 100 {
         return "-".to_string();
     }
     format!("{}%", base_hp_perc)
 }
 
-#[instrument(skip(rule, global_ctx))]
 fn format_special_rule(rule: &SpecialRulesMapEntry, global_ctx: &GlobalContext) -> String {
     let explanation_key = if !rule.explanation_label.is_empty() {
         rule.explanation_label.clone()
-    } else if !rule.name_label.is_empty() {
-        rule.name_label.trim().replace("Name", "Explanation")
+    } else if let Some(prefix) = rule.name_label.trim().strip_suffix("Name") {
+        format!("{prefix}Explanation")
     } else {
         String::new()
     };
@@ -96,6 +109,8 @@ fn format_special_rule(rule: &SpecialRulesMapEntry, global_ctx: &GlobalContext) 
     let mut description = strip_html_tags(raw_description, BreakHandling::Space);
 
     if description.is_empty() {
+        warn!(key = %explanation_key, name_label = %rule.name_label, "missing localization for special rule explanation, falling back to raw enum parsing");
+
         let mut fallback = String::new();
         for target_rule in &rule.rules {
             let formatted_rule = match target_rule {
@@ -140,7 +155,6 @@ fn format_special_rule(rule: &SpecialRulesMapEntry, global_ctx: &GlobalContext) 
     description
 }
 
-#[instrument(skip(score_bonus, global_ctx))]
 fn format_score_bonus(score_bonus: &ScoreBonusMapEntry, global_ctx: &GlobalContext) -> String {
     let lookup_key = if !score_bonus.explanation_label.is_empty() {
         &score_bonus.explanation_label
@@ -176,202 +190,170 @@ fn format_score_bonus(score_bonus: &ScoreBonusMapEntry, global_ctx: &GlobalConte
     description
 }
 
-#[instrument(skip(icon_file_path), fields(path = %icon_file_path.display()))]
-fn process_enemy_icon_texture(icon_file_path: &Path) -> Option<egui::ColorImage> {
-    debug!("Loading raw image file for icon processing");
-    let loaded_raw_image_data = match image::open(icon_file_path) {
-        Ok(data) => data,
-        Err(err) => {
-            warn!(error = %err, "Failed to open enemy icon texture file");
-            return None;
-        }
-    };
-
-    let autocropped_rgba_image = autocrop(loaded_raw_image_data.to_rgba8());
-    let image_dimensions = [autocropped_rgba_image.width() as usize, autocropped_rgba_image.height() as usize];
-
-    debug!(width = image_dimensions[0], height = image_dimensions[1], "Icon image autocropped successfully");
-    Some(egui::ColorImage::from_rgba_unmultiplied(image_dimensions, autocropped_rgba_image.as_flat_samples().as_slice()))
+fn header_cell<'a>(label: &'a str, portion: u16) -> Element<'a, super::Message> {
+    theme::table_cell_text(label, Length::FillPortion(portion)).size(HEADER_TEXT_SIZE).into()
 }
 
-fn center_enemy_text(ui: &mut egui::Ui, display_text: impl Into<String>) {
-    ui.centered_and_justified(|ui| {
-        ui.add(egui::Label::new(display_text.into()).wrap_mode(egui::TextWrapMode::Extend));
-    });
+fn value_cell<'a>(label: impl ToString, portion: u16) -> Element<'a, super::Message> {
+    container(theme::centered_text(label.to_string()).size(CELL_TEXT_SIZE))
+        .width(Length::FillPortion(portion))
+        .align_x(Horizontal::Center)
+        .into()
 }
 
-#[instrument(skip_all, fields(stage_id = %stage_data.stage_id))]
-pub(crate) fn draw(
-    egui_context: &egui::Context,
-    ui: &mut egui::Ui,
-    stage_data: &Stage,
-    map_data: &Map,
-    selected_crown: u8,
-    enemy_registry: &HashMap<u32, EnemyEntry>,
-    enemy_name_registry: &[String],
-    texture_cache: &mut HashMap<u32, egui::TextureHandle>,
-    global_ctx: GlobalContext
-) {
-    ui.label(RichText::new("Battleground").strong().heading());
-    ui.separator();
+#[derive(Default)]
+pub struct State {
+    icon_cache: RefCell<HashMap<u32, Handle>>,
+}
 
-    let restrictions = core::modules::stage::restrictions::parse_restrictions(stage_data, selected_crown as i8, global_ctx);
+impl State {
+    pub fn forget(&self, id: u32) {
+        self.icon_cache.borrow_mut().remove(&id);
+    }
 
-    if !restrictions.is_empty() {
-        ui.add_space(4.0);
-        ui.label(RichText::new("Restrictions").strong().size(SUBHEADER_SIZE));
+    pub fn clear_icons(&self) {
+        self.icon_cache.borrow_mut().clear();
+    }
 
-        for restriction in &restrictions {
-            ui.label(restriction);
+    fn icon(&self, id: u32, path: &std::path::Path) -> Option<Handle> {
+        if let Some(cached) = self.icon_cache.borrow().get(&id) {
+            return Some(cached.clone());
         }
+
+        let handle = item_icon::load_scaled(path, MAX_ICON_SIZE as u32)?;
+        self.icon_cache.borrow_mut().insert(id, handle.clone());
+        Some(handle)
     }
 
-    if let Some(rule) = &map_data.special_rules {
-        ui.add_space(8.0);
-        ui.label(RichText::new("Rules").strong().size(SUBHEADER_SIZE));
+    pub fn view<'a>(
+        &'a self,
+        stage: &'a Stage,
+        map: &'a Map,
+        selected_crown: u8,
+        enemy_registry: &'a HashMap<u32, EnemyEntry>,
+        enemy_name_registry: &'a [String],
+        global_ctx: GlobalContext<'a>,
+    ) -> Element<'a, super::Message> {
+        let mut content = column![].spacing(BODY_SPACING);
 
-        let rule_description = format_special_rule(rule, &global_ctx);
-        ui.label(rule_description);
+        let restriction_lines = restrictions::parse_restrictions(stage, selected_crown as i8, global_ctx);
 
-        if !map_data.invalid_combos.is_empty() {
-            ui.label(format!("Disabled Combos: {} total", map_data.invalid_combos.len()));
+        if !restriction_lines.is_empty() {
+            let mut restriction_col = column![].spacing(LINE_SPACING);
+            for line in &restriction_lines {
+                restriction_col = restriction_col.push(text(line.clone()));
+            }
+            content = content.push(subsection("Restrictions", restriction_col));
         }
-    }
 
-    if let Some(score_bonus) = &map_data.score_bonuses {
-        ui.add_space(8.0);
-        ui.label(RichText::new("Score Bonus").strong().size(SUBHEADER_SIZE));
-
-        let desc = format_score_bonus(score_bonus, &global_ctx);
-        ui.label(desc);
-    }
-
-    if restrictions.is_empty() && map_data.special_rules.is_none() && map_data.score_bonuses.is_none() {
-        debug!("No restrictions, special rules, or score bonuses found for current crown to display");
-    } else {
-        ui.add_space(8.0);
-    }
-
-    if stage_data.enemies.is_empty() {
-        ui.label("No enemies defined for this stage.");
-        return;
-    }
-
-    let crown_mag = match selected_crown {
-        1 => map_data.crown_2_mag.unwrap_or(100),
-        2 => map_data.crown_3_mag.unwrap_or(100),
-        3 => map_data.crown_4_mag.unwrap_or(100),
-        _ => map_data.crown_1_mag.unwrap_or(100),
-    };
-
-    let show_score_column = stage_data.enemies.iter().any(|enemy| enemy.score > 0);
-    let is_dojo_mechanic = stage_data.enemies.iter().any(|enemy| enemy.base_hp_perc > 100);
-
-    let has_split_magnification = stage_data.enemies.iter().any(|enemy| {
-        let final_hp_mag = (enemy.magnification * crown_mag) / 100;
-        let final_atk_mag = (enemy.atk_magnification * crown_mag) / 100;
-        final_hp_mag != final_atk_mag
-    });
-
-    egui::Grid::new("enemy_grid")
-        .striped(true)
-        .spacing([15.0, 4.0])
-        .min_row_height(32.0)
-        .show(ui, |grid| {
-            center_header(grid, "Enemy");
-            center_header(grid, "Count");
-
-            if has_split_magnification {
-                center_header(grid, "Magnification %\n(HP% / ATK%)");
-            } else {
-                center_header(grid, "Magnification %");
+        if let Some(rule) = &map.special_rules {
+            let mut rules_col = column![text(format_special_rule(rule, &global_ctx))].spacing(LINE_SPACING);
+            if !map.invalid_combos.is_empty() {
+                rules_col = rules_col.push(text(format!("Disabled Combos: {} total", map.invalid_combos.len())));
             }
+            content = content.push(subsection("Rules", rules_col));
+        }
 
-            center_header(grid, if is_dojo_mechanic { "Dmg #" } else { "Base %" });
-            center_header(grid, "Spawn");
-            center_header(grid, "Respawn");
-            center_header(grid, "Layer");
-            center_header(grid, "Boss");
-            if show_score_column {
-                center_header(grid, "Score");
-            }
-            center_header(grid, "Kills");
-            grid.end_row();
+        if let Some(score_bonus) = &map.score_bonuses {
+            content = content.push(subsection("Score Bonus", text(format_score_bonus(score_bonus, &global_ctx))));
+        }
 
-            for spawn in &stage_data.enemies {
-                let resolved_enemy_name = enemy_name_registry
-                    .get(spawn.enemy_id as usize)
-                    .filter(|string_val| !string_val.is_empty())
-                    .cloned()
-                    .unwrap_or_else(|| format!("{:03}-E", spawn.enemy_id));
+        if stage.enemies.is_empty() {
+            return section("Battleground", Length::Fixed(super::CONTENT_WIDTH), content.push(text("No enemies defined for this stage.")));
+        }
 
-                grid.with_layout(egui::Layout::bottom_up(egui::Align::Center), |icon_layout| {
-                    let has_rendered_icon = 'icon: {
-                        let Some(located_enemy_entry) = enemy_registry.get(&spawn.enemy_id) else {
-                            break 'icon false;
-                        };
-                        let Some(enemy_icon_path) = &located_enemy_entry.icon_path else {
-                            break 'icon false;
-                        };
+        let crown_mag = match selected_crown {
+            1 => map.crown_2_mag.unwrap_or(100),
+            2 => map.crown_3_mag.unwrap_or(100),
+            3 => map.crown_4_mag.unwrap_or(100),
+            _ => map.crown_1_mag.unwrap_or(100),
+        };
 
-                        if let std::collections::hash_map::Entry::Vacant(cache_entry) = texture_cache.entry(spawn.enemy_id) {
-                            debug!(id = spawn.enemy_id, "Texture cache miss, attempting processing");
-                            let Some(processed_color_image) = process_enemy_icon_texture(enemy_icon_path) else {
-                                break 'icon false;
-                            };
-                            let generated_texture_handle = egui_context.load_texture(
-                                format!("stage_enemy_icon_{}", spawn.enemy_id),
-                                processed_color_image,
-                                egui::TextureOptions::LINEAR
-                            );
-                            cache_entry.insert(generated_texture_handle);
-                        }
-
-                        let Some(cached_texture_handle) = texture_cache.get(&spawn.enemy_id) else {
-                            break 'icon false;
-                        };
-                        let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
-                        image_response.on_hover_text(resolved_enemy_name.clone());
-                        true
-                    };
-
-                    if !has_rendered_icon {
-                        icon_layout.add_space(6.0);
-                        let label_response = icon_layout.add(egui::Label::new(format!("{:03}", spawn.enemy_id)).wrap_mode(egui::TextWrapMode::Extend));
-                        label_response.on_hover_text(resolved_enemy_name);
-                    }
-                });
-
-                let final_hp_mag = (spawn.magnification * crown_mag) / 100;
-                let final_atk_mag = (spawn.atk_magnification * crown_mag) / 100;
-
-                let formatted_mag = if final_hp_mag == final_atk_mag {
-                    format!("{}%", final_hp_mag)
-                } else {
-                    format!("{}% / {}%", final_hp_mag, final_atk_mag)
-                };
-
-                let formatted_amount = format_enemy_amount(&spawn.amount);
-                let formatted_base_hp = format_base_hp_percentage(spawn.base_hp_perc, is_dojo_mechanic);
-                let formatted_respawn = format_enemy_respawn(&spawn.amount, spawn.respawn_min, spawn.respawn_max);
-                let formatted_layer = format_layer(spawn.layer_min, spawn.layer_max);
-                let formatted_boss_type = format_boss_type(&spawn.boss_type);
-                let formatted_score = format_score(spawn.score);
-                let formatted_kill_count = format_kill_count(spawn.kill_count);
-
-                center_enemy_text(grid, formatted_amount);
-                center_enemy_text(grid, formatted_mag);
-                center_enemy_text(grid, formatted_base_hp);
-                center_enemy_text(grid, format!("{}f", spawn.start_frame));
-                center_enemy_text(grid, formatted_respawn);
-                center_enemy_text(grid, formatted_layer);
-                center_enemy_text(grid, formatted_boss_type);
-                if show_score_column {
-                    center_enemy_text(grid, formatted_score);
-                }
-                center_enemy_text(grid, formatted_kill_count);
-
-                grid.end_row();
-            }
+        let show_score_column = stage.enemies.iter().any(|enemy| enemy.score > 0);
+        let is_dojo_mechanic = stage.enemies.iter().any(|enemy| enemy.base_hp_perc > 100);
+        let has_split_magnification = stage.enemies.iter().any(|enemy| {
+            let final_hp_mag = (enemy.magnification * crown_mag) / 100;
+            let final_atk_mag = (enemy.atk_magnification * crown_mag) / 100;
+            final_hp_mag != final_atk_mag
         });
+
+        let mag_column = if has_split_magnification { MAG_SPLIT_COLUMN } else { MAG_COLUMN };
+        let mag_header = if has_split_magnification { "Magnification %\n(HP% / ATK%)" } else { "Magnification %" };
+        let base_header = if is_dojo_mechanic { "Dmg #" } else { "Base %" };
+
+        let mut header_row = row![
+            header_cell("Enemy", ENEMY_COLUMN),
+            header_cell("Count", COUNT_COLUMN),
+            header_cell(mag_header, mag_column),
+            header_cell(base_header, BASE_COLUMN),
+            header_cell("Spawn", SPAWN_COLUMN),
+            header_cell("Respawn", RESPAWN_COLUMN),
+            header_cell("Layer", LAYER_COLUMN),
+            header_cell("Boss", BOSS_COLUMN),
+        ].spacing(COLUMN_SPACING).align_y(Alignment::Center);
+
+        if show_score_column {
+            header_row = header_row.push(header_cell("Score", SCORE_COLUMN));
+        }
+        header_row = header_row.push(header_cell("Kills", KILLS_COLUMN));
+
+        let mut grid = column![
+            container(header_row).style(theme::zebra_table_header).padding(CELL_PADDING).width(Length::Fill)
+        ].width(Length::Fixed(super::CONTENT_WIDTH));
+
+        for (index, spawn) in stage.enemies.iter().enumerate() {
+            let resolved_name = enemy_name_registry
+                .get(spawn.enemy_id as usize)
+                .filter(|name| !name.is_empty())
+                .cloned()
+                .unwrap_or_else(|| format!("{:03}-E", spawn.enemy_id));
+
+            let icon_element: Element<'a, super::Message> = enemy_registry.get(&spawn.enemy_id)
+                .and_then(|entry| entry.icon_path.as_ref())
+                .and_then(|path| self.icon(spawn.enemy_id, path))
+                .map(|handle| tooltip(
+                    iced_image(handle).width(Length::Fixed(MAX_ICON_SIZE)).height(Length::Fixed(MAX_ICON_SIZE)),
+                    container(text(resolved_name.clone())).padding(6).style(container::bordered_box),
+                    tooltip::Position::Top,
+                ).into())
+                .unwrap_or_else(|| tooltip(
+                    text(format!("{:03}", spawn.enemy_id)).size(11),
+                    container(text(resolved_name.clone())).padding(6).style(container::bordered_box),
+                    tooltip::Position::Top,
+                ).into());
+
+            let final_hp_mag = (spawn.magnification * crown_mag) / 100;
+            let final_atk_mag = (spawn.atk_magnification * crown_mag) / 100;
+            let formatted_mag = if final_hp_mag == final_atk_mag {
+                format!("{}%", final_hp_mag)
+            } else {
+                format!("{}% / {}%", final_hp_mag, final_atk_mag)
+            };
+
+            let mut value_row = row![
+                container(icon_element).width(Length::FillPortion(ENEMY_COLUMN)).align_x(Horizontal::Center).align_y(Alignment::Center),
+                value_cell(format_enemy_amount(&spawn.amount), COUNT_COLUMN),
+                value_cell(formatted_mag, mag_column),
+                value_cell(format_base_hp_percentage(spawn.base_hp_perc, is_dojo_mechanic), BASE_COLUMN),
+                value_cell(format!("{}f", spawn.start_frame), SPAWN_COLUMN),
+                value_cell(format_enemy_respawn(&spawn.amount, spawn.respawn_min, spawn.respawn_max), RESPAWN_COLUMN),
+                value_cell(format_layer(spawn.layer_min, spawn.layer_max), LAYER_COLUMN),
+                value_cell(format_boss_type(&spawn.boss_type), BOSS_COLUMN),
+            ].spacing(COLUMN_SPACING).align_y(Alignment::Center);
+
+            if show_score_column {
+                value_row = value_row.push(value_cell(format_score(spawn.score), SCORE_COLUMN));
+            }
+            value_row = value_row.push(value_cell(format_kill_count(spawn.kill_count), KILLS_COLUMN));
+
+            grid = grid.push(
+                container(value_row)
+                    .style(move |theme: &Theme| theme::zebra_table_row(theme, index))
+                    .padding(CELL_PADDING)
+                    .width(Length::Fill),
+            );
+        }
+
+        section("Battleground", Length::Fixed(super::CONTENT_WIDTH), content.push(grid))
+    }
 }

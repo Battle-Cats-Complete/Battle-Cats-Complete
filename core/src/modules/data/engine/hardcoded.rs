@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum HardcodedType {
+pub(crate) enum HardcodedType {
     Oldest,
 }
 
-pub const CATS: [[&str; 5]; 1] = [
+const CATS: [[&str; 5]; 1] = [
     ["155", "f", "c", "", ""],
 ];
 
-pub const LANGUAGES: [&str; 9] = ["de", "en", "es", "fr", "it", "ja", "ko", "th", "tw"];
+const LANGUAGES: [&str; 9] = ["de", "en", "es", "fr", "it", "ja", "ko", "th", "tw"];
 
-pub fn generate_rules() -> HashMap<String, HardcodedType> {
+pub(crate) fn generate_rules() -> HashMap<String, HardcodedType> {
     let mut files = HashMap::new();
 
     for cat in CATS {

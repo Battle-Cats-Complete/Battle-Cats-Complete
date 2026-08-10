@@ -17,7 +17,7 @@ pub const ATTACK_TYPE_ICONS: &[AbilityIcon] = &[
     AbilityIcon::Custom(CustomIcon::Multihit),
 ];
 
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum TalentFilterMode {
     #[default]
     Ignore,
@@ -35,7 +35,7 @@ impl TalentFilterMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum MatchMode {
     #[default]
     And,
@@ -46,6 +46,13 @@ pub enum MatchMode {
 pub struct RangeInput {
     pub min: String,
     pub max: String,
+}
+
+#[derive(Default)]
+pub(crate) struct FilterCounts {
+    pub(crate) active: i32,
+    pub(crate) passed: i32,
+    pub(crate) failed: i32,
 }
 
 #[derive(Clone, PartialEq)]

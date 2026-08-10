@@ -23,7 +23,7 @@ impl TreasureFilter {
             || self.chance.is_active()
     }
 
-    pub fn compile(&self) -> CompiledTreasureFilter {
+    pub(crate) fn compile(&self) -> CompiledTreasureFilter {
         let name_or_id = self.name_or_id.trim().to_lowercase();
         let parsed_id = name_or_id.parse::<u32>().ok();
 
@@ -37,7 +37,7 @@ impl TreasureFilter {
     }
 }
 
-pub struct CompiledTreasureFilter {
+pub(crate) struct CompiledTreasureFilter {
     pub is_exclude: bool,
     pub name_or_id: String,
     pub parsed_id: Option<u32>,
@@ -47,7 +47,7 @@ pub struct CompiledTreasureFilter {
 
 impl CompiledTreasureFilter {
     #[allow(clippy::too_many_arguments)]
-    pub fn matches_drop(
+    pub(crate) fn matches_drop(
         &self,
         target_id: u32,
         drop_amt: u32,

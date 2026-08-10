@@ -1,28 +1,245 @@
+use std::env;
 use std::fs;
+#[cfg(unix)]
+use std::path::Path;
 use std::process::Command;
 use std::thread;
+use std::time::Duration;
 
-use eframe::egui;
+use iced::futures::channel::mpsc;
+use iced::widget::{column, container, progress_bar, row, text, Space};
+use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
+use self_update::{cargo_crate_version, version};
 use self_update::backends::github::{ReleaseList, Update as GithubUpdate};
-use self_update::cargo_crate_version;
 use self_update::update::Release;
-use self_update::version;
 use tracing::{error, info};
 
-use core::modules::settings::{Settings, UpdateMode};
+use crate::widget::popup;
 
-use crate::common::DragGuard;
-
-use super::{UpdateStatus, Updater, UpdaterMsg};
+use super::{theme, BattleCatsApp, Message, UpdateStatus, UpdaterAction, UpdaterMsg};
 
 const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "battle-cats-complete";
 const BIN_NAME: &str = "Battle Cats Complete";
+const STATUS_EXPIRY: Duration = Duration::from_secs(2);
+const RESTART_DELAY_SECS: u8 = 1;
+const MAX_RELEASE_LOOKBACK: usize = 8;
 
-const PROMPT_BUTTON_SIZE: [f32; 2] = [80.0, 40.0];
-const RESTART_BUTTON_SIZE: [f32; 2] = [80.0, 40.0];
+const POPUP_SIZE: Size = Size::new(440.0, 250.0);
+const POPUP_PADDING: f32 = 20.0;
+const CONTENT_SPACING: f32 = 14.0;
+const BUTTON_SPACING: f32 = 12.0;
+const PROGRESS_WIDTH: f32 = 300.0;
+const PROGRESS_HEIGHT: f32 = 12.0;
+const TITLE_SIZE: f32 = 18.0;
+const BODY_SIZE: f32 = 14.0;
+const SUBTLE_ALPHA: f32 = 0.6;
 
-pub(super) fn cleanup_temp_files() {
+impl BattleCatsApp {
+    pub(crate) fn schedule_updater_status_expiry(&mut self) -> Task<Message> {
+        if let Some(handle) = self.updater_status_handle.take() {
+            handle.abort();
+        }
+
+        let (task, handle) = Task::perform(
+            async { smol::Timer::after(STATUS_EXPIRY).await; },
+            |_| Message::UpdaterStatusExpired,
+        )
+        .abortable();
+        self.updater_status_handle = Some(handle);
+        task
+    }
+
+    pub(crate) fn check_for_updates(&mut self, is_manual: bool) -> Task<Message> {
+        let is_valid_state = matches!(self.updater_status, UpdateStatus::Idle | UpdateStatus::UpToDate | UpdateStatus::CheckFailed);
+        if !is_valid_state { return Task::none(); }
+
+        info!("Checking Github for releases...");
+        self.updater_status = UpdateStatus::Checking;
+
+        let (tx, rx) = mpsc::unbounded();
+
+        thread::spawn(move || {
+            match check_remote() {
+                Ok(Some(release)) => {
+                    info!("Found new release: {}", release.version);
+                    let _ = tx.unbounded_send(UpdaterMsg::UpdateFound(release));
+                },
+                Ok(None) if is_manual => {
+                    info!("Software is up to date");
+                    let _ = tx.unbounded_send(UpdaterMsg::UpToDate);
+                },
+                Ok(None) => { let _ = tx.unbounded_send(UpdaterMsg::SilentFail); },
+                Err(err) if is_manual => {
+                    error!("Update check failed: {}", err);
+                    let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
+                }
+                Err(_) => { let _ = tx.unbounded_send(UpdaterMsg::SilentFail); }
+            }
+        });
+
+        let (task, handle) = Task::stream(rx).abortable();
+        self.updater_handle = Some(handle);
+        task.map(Message::Updater)
+    }
+
+    pub(crate) fn download_and_install(&mut self, release: Release) -> Task<Message> {
+        let target_version = release.version.clone();
+        self.updater_status = UpdateStatus::Downloading(target_version.clone());
+        self.download_progress = 0.0;
+        self.set_updater_popup(true);
+
+        info!("Initializing download process for version: {}", target_version);
+
+        let (tx, rx) = mpsc::unbounded();
+
+        thread::spawn(move || {
+            cleanup_temp_files();
+            let _ = tx.unbounded_send(UpdaterMsg::DownloadStarted(target_version.clone()));
+
+            let Some((target_tag, target_asset_name)) = resolve_download(&release) else {
+                cleanup_temp_files();
+                error!("No release within the last {} carries a usable asset for this platform", MAX_RELEASE_LOOKBACK);
+                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
+                return;
+            };
+
+            info!("Installing asset {} from {}", target_asset_name, target_tag);
+
+            let Ok(update_box) = GithubUpdate::configure()
+                .repo_owner(REPO_OWNER)
+                .repo_name(REPO_NAME)
+                .bin_name(BIN_NAME)
+                .show_download_progress(false)
+                .show_output(false)
+                .no_confirm(true)
+                .current_version(cargo_crate_version!())
+                .target_version_tag(&target_tag)
+                .target(&target_asset_name)
+                .build() else {
+                cleanup_temp_files();
+                error!("Failed to build download configurator");
+                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
+                return;
+            };
+
+            if update_box.update().is_err() {
+                cleanup_temp_files();
+                error!("Failed during update installation sequence");
+                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
+                return;
+            }
+
+            info!("Download and extraction finished");
+            cleanup_temp_files();
+            let _ = tx.unbounded_send(UpdaterMsg::DownloadFinished(target_version));
+        });
+
+        let (task, handle) = Task::stream(rx).abortable();
+        self.updater_handle = Some(handle);
+        task.map(Message::Updater)
+    }
+}
+
+pub(super) fn update_popup(state: &mut popup::State, message: popup::Message) -> bool {
+    state.update(message, POPUP_SIZE)
+}
+
+pub(super) fn view<'a>(state: &'a popup::State, status: &'a UpdateStatus, window: Size, progress: f32) -> Option<Element<'a, Message>> {
+    let title = match status {
+        UpdateStatus::UpdateFound(..) => "Update Available",
+        UpdateStatus::Downloading(_) => "Downloading Update",
+        UpdateStatus::RestartPending(_) => "Update Complete",
+        _ => return None,
+    };
+
+    Some(state.view(title, POPUP_SIZE, window, Message::UpdaterPopup, move || {
+        let body = match status {
+            UpdateStatus::UpdateFound(tag, release) => view_update_found(tag, release),
+            UpdateStatus::Downloading(tag) => view_downloading(tag, progress),
+            UpdateStatus::RestartPending(tag) => view_restart_pending(tag),
+            _ => Space::new().into(),
+        };
+
+        container(body)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(POPUP_PADDING)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .into()
+    }, None))
+}
+
+fn display_version(tag: &str) -> String {
+    if tag.starts_with('v') { tag.to_string() } else { format!("v{}", tag) }
+}
+
+fn subtle_text<'a>(content: impl ToString) -> Element<'a, Message> {
+    text(content.to_string())
+        .size(BODY_SIZE)
+        .style(|theme: &Theme| text::Style { color: Some(Color { a: SUBTLE_ALPHA, ..theme.palette().text }) })
+        .into()
+}
+
+fn view_update_found<'a>(tag: &str, release: &Release) -> Element<'a, Message> {
+    let actions = row![
+        theme::sized_button("Yes", theme::POPUP_ACTION_BUTTON_WIDTH, theme::success_button)
+            .on_press(Message::UpdaterAction(UpdaterAction::StartDownload(release.clone()))),
+        theme::sized_button("No", theme::POPUP_ACTION_BUTTON_WIDTH, theme::neutral_button)
+            .on_press(Message::UpdaterAction(UpdaterAction::DismissUpdate)),
+        theme::sized_button("Never", theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
+            .on_press(Message::UpdaterAction(UpdaterAction::NeverUpdate)),
+    ]
+    .spacing(BUTTON_SPACING);
+
+    column![
+        theme::bold_text(format!("Battle Cats Complete {}", display_version(&release.version))).size(TITLE_SIZE),
+        subtle_text(format!("You are running v{} · found {}", cargo_crate_version!(), display_version(tag))),
+        text("Would you like to download the update now?").size(BODY_SIZE),
+        actions,
+        subtle_text("\"Never\" stops all future update checks."),
+    ]
+    .spacing(CONTENT_SPACING)
+    .align_x(Alignment::Center)
+    .into()
+}
+
+fn view_downloading<'a>(tag: &str, progress: f32) -> Element<'a, Message> {
+    column![
+        theme::bold_text(format!("Downloading {}", display_version(tag))).size(TITLE_SIZE),
+        progress_bar(0.0..=1.0, progress)
+            .length(Length::Fixed(PROGRESS_WIDTH))
+            .girth(Length::Fixed(PROGRESS_HEIGHT))
+            .style(theme::progress_track),
+        subtle_text("You will be prompted once it is ready to install."),
+    ]
+    .spacing(CONTENT_SPACING)
+    .align_x(Alignment::Center)
+    .into()
+}
+
+fn view_restart_pending<'a>(tag: &str) -> Element<'a, Message> {
+    let actions = row![
+        theme::sized_button("Yes", theme::POPUP_ACTION_BUTTON_WIDTH, theme::success_button)
+            .on_press(Message::UpdaterAction(UpdaterAction::RestartApp)),
+        theme::sized_button("No", theme::POPUP_ACTION_BUTTON_WIDTH, theme::neutral_button)
+            .on_press(Message::UpdaterAction(UpdaterAction::DismissUpdate)),
+    ]
+    .spacing(BUTTON_SPACING);
+
+    column![
+        theme::bold_text(format!("{} is installed", display_version(tag))).size(TITLE_SIZE),
+        text("Would you like to restart and apply the update now?").size(BODY_SIZE),
+        actions,
+        subtle_text("Declining keeps the update until the next launch."),
+    ]
+    .spacing(CONTENT_SPACING)
+    .align_x(Alignment::Center)
+    .into()
+}
+
+pub(crate) fn cleanup_temp_files() {
     let temp_files = [
         "tmp_update.zip",
         "tmp_new_version.exe",
@@ -35,321 +252,96 @@ pub(super) fn cleanup_temp_files() {
 }
 
 #[cfg(unix)]
-fn restart_app() {
-    info!("Executing unix restart sequence");
-    let Ok(exe) = std::env::current_exe() else { return; };
+pub(crate) fn restart_app() {
+    let Ok(exe) = env::current_exe() else {
+        error!("Restart aborted: the running executable path could not be resolved");
+        return;
+    };
+
     let path = exe.to_string_lossy();
     let clean_path = path.trim_end_matches(" (deleted)");
-    let _ = Command::new("sh")
-        .arg("-c")
-        .arg(format!("sleep 1 && \"{}\" &", clean_path))
-        .spawn();
+
+    if !Path::new(clean_path).exists() {
+        error!("Restart aborted: {} no longer exists on disk", clean_path);
+        return;
+    }
+
+    info!("Executing unix restart sequence for {}", clean_path);
+
+    let script = format!("sleep {}; exec \"$0\"", RESTART_DELAY_SECS);
+
+    if let Err(err) = Command::new("sh").arg("-c").arg(script).arg(clean_path).spawn() {
+        error!("Restart aborted: could not spawn the relaunch helper: {}", err);
+        return;
+    }
 
     std::process::exit(0);
 }
 
 #[cfg(not(unix))]
-fn restart_app() {
-    info!("Executing non-unix restart sequence");
-    let Ok(exe) = std::env::current_exe() else { return; };
-    let _ = Command::new(exe).spawn();
+pub(crate) fn restart_app() {
+    let Ok(exe) = env::current_exe() else {
+        error!("Restart aborted: the running executable path could not be resolved");
+        return;
+    };
+
+    info!("Executing non-unix restart sequence for {}", exe.display());
+
+    if let Err(err) = Command::new(&exe).spawn() {
+        error!("Restart aborted: could not spawn {}: {}", exe.display(), err);
+        return;
+    }
+
     std::process::exit(0);
 }
 
-impl Updater {
-    pub(crate) fn check_for_updates(&mut self, ctx: egui::Context, is_manual: bool) {
-        let is_valid_state = matches!(self.status, UpdateStatus::Idle | UpdateStatus::UpToDate | UpdateStatus::CheckFailed);
-        if !is_valid_state { return; }
+fn platform() -> &'static str {
+    match () {
+        _ if cfg!(target_os = "windows") => "windows",
+        _ if cfg!(target_os = "macos") => "mac",
+        _ => "linux",
+    }
+}
 
-        info!("Checking Github for releases...");
+fn asset_candidates() -> [String; 2] {
+    [
+        format!("bcc_{}.zip", platform()),
+        format!("bcc_gui_{}={}_{}.zip", cargo_crate_version!(), core::VERSION, platform()),
+    ]
+}
 
-        let tx = self.tx.clone();
-        self.status = UpdateStatus::Checking;
+fn matching_asset(release: &Release) -> Option<String> {
+    asset_candidates()
+        .into_iter()
+        .find(|candidate| release.assets.iter().any(|asset| asset.name == *candidate))
+}
 
-        thread::spawn(move || {
-            match check_remote() {
-                Ok(Some(release)) => {
-                    info!("Found new release: {}", release.version);
-                    let _ = tx.send(UpdaterMsg::UpdateFound(release));
-                },
-                Ok(None) if is_manual => {
-                    info!("Software is up to date");
-                    let _ = tx.send(UpdaterMsg::UpToDate);
-                },
-                Ok(None) => { let _ = tx.send(UpdaterMsg::SilentFail); },
-                Err(err) if is_manual => {
-                    error!("Update check failed: {}", err);
-                    let _ = tx.send(UpdaterMsg::CheckFailed);
-                }
-                Err(_) => { let _ = tx.send(UpdaterMsg::SilentFail); }
-            }
+fn release_tag(version: &str) -> String {
+    if version.starts_with('v') { version.to_string() } else { format!("v{}", version) }
+}
 
-            ctx.request_repaint();
-        });
+fn resolve_download(selected: &Release) -> Option<(String, String)> {
+    if let Some(target) = matching_asset(selected) {
+        return Some((release_tag(&selected.version), target));
     }
 
-    pub(crate) fn download_and_install(&mut self, release: Release) {
-        let tx = self.tx.clone();
-        let target_version = release.version.clone();
-        self.status = UpdateStatus::Downloading(target_version.clone());
+    info!("Release {} carries no asset this build understands; walking back through older releases", selected.version);
 
-        info!("Initializing download process for version: {}", target_version);
+    let releases = ReleaseList::configure()
+        .repo_owner(REPO_OWNER)
+        .repo_name(REPO_NAME)
+        .build()
+        .and_then(|list| list.fetch())
+        .inspect_err(|err| error!("Failed to list releases while resolving a download target: {}", err))
+        .ok()?;
 
-        thread::spawn(move || {
-            cleanup_temp_files();
-            let _ = tx.send(UpdaterMsg::DownloadStarted(target_version.clone()));
+    let start = releases.iter().position(|entry| entry.version == selected.version).unwrap_or(0);
 
-            let target_tag = if target_version.starts_with('v') { target_version.clone() } else { format!("v{}", target_version) };
-
-            let target_asset_name = match () {
-                _ if cfg!(target_os = "windows") => "bcc_windows.zip",
-                _ if cfg!(target_os = "macos") => "bcc_mac.zip",
-                _ => "bcc_linux.zip",
-            };
-
-            let Ok(update_box) = GithubUpdate::configure()
-                .repo_owner(REPO_OWNER)
-                .repo_name(REPO_NAME)
-                .bin_name(BIN_NAME)
-                .show_download_progress(false)
-                .show_output(false)
-                .no_confirm(true)
-                .current_version(cargo_crate_version!())
-                .target_version_tag(&target_tag)
-                .target(target_asset_name)
-                .build() else {
-                cleanup_temp_files();
-                error!("Failed to build download configurator");
-                let _ = tx.send(UpdaterMsg::CheckFailed);
-                return;
-            };
-
-            if update_box.update().is_err() {
-                cleanup_temp_files();
-                error!("Failed during update installation sequence");
-                let _ = tx.send(UpdaterMsg::CheckFailed);
-                return;
-            }
-
-            info!("Download and extraction finished");
-            cleanup_temp_files();
-            let _ = tx.send(UpdaterMsg::DownloadFinished(target_version));
-        });
-    }
-
-    pub(crate) fn update_state(&mut self, ctx: &egui::Context) {
-        while let Ok(msg) = self.rx.try_recv() {
-            match msg {
-                UpdaterMsg::UpdateFound(release) => {
-                    self.status = UpdateStatus::UpdateFound(release.version.clone(), release);
-                },
-                UpdaterMsg::UpToDate => {
-                    self.status = UpdateStatus::UpToDate;
-                    self.clear_time = Some(ctx.input(|i| i.time) + 2.0);
-                },
-                UpdaterMsg::CheckFailed => {
-                    self.status = UpdateStatus::CheckFailed;
-                    self.clear_time = Some(ctx.input(|i| i.time) + 2.0);
-                },
-                UpdaterMsg::DownloadStarted(version) => {
-                    self.status = UpdateStatus::Downloading(version);
-                },
-                UpdaterMsg::DownloadFinished(version) => {
-                    self.status = UpdateStatus::RestartPending(version);
-                },
-                UpdaterMsg::SilentFail => {
-                    self.status = UpdateStatus::Idle;
-                }
-            }
-        }
-
-        let Some(clear_time) = self.clear_time else { return; };
-
-        if ctx.input(|i| i.time) >= clear_time {
-            self.status = UpdateStatus::Idle;
-            self.clear_time = None;
-        }
-
-        ctx.request_repaint();
-    }
-
-    pub(crate) fn show_ui(&mut self, ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard) {
-        let status = self.status.clone();
-        match status {
-            UpdateStatus::UpdateFound(tag, release) => {
-                self.show_update_found_window(ctx, settings, drag_guard, tag, release);
-            }
-            UpdateStatus::Downloading(tag) => {
-                self.show_downloading_window(ctx, drag_guard, tag);
-            }
-            UpdateStatus::RestartPending(tag) => {
-                self.show_restart_pending_window(ctx, settings, drag_guard, tag);
-            }
-            _ => {}
-        }
-    }
-
-    fn show_update_found_window(&mut self, ctx: &egui::Context, settings: &mut Settings, drag_guard: &mut DragGuard, tag: String, release: Release) {
-        if matches!(settings.general.update_mode, UpdateMode::AutoReset | UpdateMode::AutoLoad) {
-            self.download_and_install(release);
-            return;
-        }
-
-        ctx.request_repaint();
-        let mut start_download = false;
-        let mut close_modal = false;
-        let mut disable_future = false;
-        let display_version = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
-        let screen_rect = ctx.screen_rect();
-
-        let window_id = egui::Id::new(format!("Update_Available_{}", tag));
-        let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
-
-        let mut window = egui::Window::new("Update Available")
-            .id(window_id)
-            .collapsible(false).resizable(false).order(egui::Order::Tooltip)
-            .constrain(false).movable(allow_drag)
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(screen_rect.center());
-
-        if let Some(pos) = fixed_pos { window = window.current_pos(pos); }
-
-        window.show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.label(format!("New Battle Cats Complete update found: {}", display_version));
-                ui.add_space(10.0);
-                ui.label("Would you like to download the update now?");
-            });
-            ui.add_space(20.0);
-
-            let mut style: egui::Style = (**ui.style()).clone();
-            style.visuals.widgets.inactive.rounding = egui::Rounding::same(4.0);
-            style.visuals.widgets.active.rounding = egui::Rounding::same(4.0);
-            style.visuals.widgets.hovered.rounding = egui::Rounding::same(4.0);
-            ui.set_style(style);
-
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
-
-                let button_width = PROMPT_BUTTON_SIZE[0];
-                let button_count = 3.0;
-                let spacing = 10.0;
-                let total_width = (button_width * button_count) + (spacing * (button_count - 1.0));
-
-                let available_width = ui.available_width();
-                let margin_left = (available_width - total_width) / 2.0;
-
-                ui.add_space(margin_left.max(0.0));
-
-                if ui.add_sized(PROMPT_BUTTON_SIZE, egui::Button::new("Yes")).clicked() { start_download = true; }
-                if ui.add_sized(PROMPT_BUTTON_SIZE, egui::Button::new("No")).clicked() { close_modal = true; }
-                if ui.add_sized(PROMPT_BUTTON_SIZE, egui::Button::new("Never")).clicked() {
-                    close_modal = true;
-                    disable_future = true;
-                }
-            });
-        });
-
-        if start_download { self.download_and_install(release); }
-        if disable_future {
-            info!("User selected Never update, changing mode to Ignore");
-            settings.general.update_mode = UpdateMode::Ignore;
-            close_modal = true;
-        }
-        if close_modal { self.status = UpdateStatus::Idle; }
-    }
-
-    fn show_downloading_window(&self, ctx: &egui::Context, drag_guard: &mut DragGuard, tag: String) {
-        ctx.request_repaint();
-        let screen_rect = ctx.screen_rect();
-
-        let window_id = egui::Id::new(format!("Downloading_Update_{}", tag));
-        let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
-
-        let mut window = egui::Window::new("Downloading Update")
-            .id(window_id)
-            .collapsible(false).resizable(false).title_bar(false)
-            .order(egui::Order::Tooltip).constrain(false).movable(allow_drag)
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(screen_rect.center());
-
-        if let Some(pos) = fixed_pos { window = window.current_pos(pos); }
-
-        window.show(ctx, |ui| {
-            ui.add_space(10.0);
-            ui.vertical_centered(|ui| {
-                let display_tag = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
-                ui.label(format!("Downloading {}...", display_tag));
-                ui.add_space(10.0);
-                let progress = (ctx.input(|i| i.time) % 1.0) as f32;
-                ui.add(egui::ProgressBar::new(progress).animate(false));
-            });
-        });
-    }
-
-    fn show_restart_pending_window(&mut self, ctx: &egui::Context, settings: &Settings, drag_guard: &mut DragGuard, tag: String) {
-        if matches!(settings.general.update_mode, UpdateMode::AutoReset) {
-            restart_app();
-            return;
-        }
-        if matches!(settings.general.update_mode, UpdateMode::AutoLoad) {
-            self.status = UpdateStatus::Idle;
-            return;
-        }
-
-        ctx.request_repaint();
-        let mut should_restart = false;
-        let mut close_modal = false;
-        let display_tag = if tag.starts_with('v') { tag.clone() } else { format!("v{}", tag) };
-        let screen_rect = ctx.screen_rect();
-
-        let window_id = egui::Id::new(format!("Update_Complete_{}", tag));
-        let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
-
-        let mut window = egui::Window::new("Update Complete")
-            .id(window_id)
-            .collapsible(false).resizable(false).order(egui::Order::Tooltip)
-            .constrain(false).movable(allow_drag)
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(screen_rect.center());
-
-        if let Some(pos) = fixed_pos { window = window.current_pos(pos); }
-
-        window.show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.label(format!("{} update complete!", display_tag));
-                ui.add_space(5.0);
-                ui.label("Would you like to restart and apply the update now?");
-            });
-            ui.add_space(20.0);
-
-            let mut style: egui::Style = (**ui.style()).clone();
-            style.visuals.widgets.inactive.rounding = egui::Rounding::same(4.0);
-            style.visuals.widgets.active.rounding = egui::Rounding::same(4.0);
-            style.visuals.widgets.hovered.rounding = egui::Rounding::same(4.0);
-            ui.set_style(style);
-
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
-
-                let button_width = RESTART_BUTTON_SIZE[0];
-                let button_count = 2.0;
-                let spacing = 10.0;
-                let total_width = (button_width * button_count) + (spacing * (button_count - 1.0));
-
-                let available_width = ui.available_width();
-                let margin_left = (available_width - total_width) / 2.0;
-
-                ui.add_space(margin_left.max(0.0));
-
-                if ui.add_sized(RESTART_BUTTON_SIZE, egui::Button::new("Yes")).clicked() { should_restart = true; }
-                if ui.add_sized(RESTART_BUTTON_SIZE, egui::Button::new("No")).clicked() { close_modal = true; }
-            });
-        });
-
-        if should_restart { restart_app(); }
-        if close_modal { self.status = UpdateStatus::Idle; }
-    }
+    releases
+        .iter()
+        .skip(start)
+        .take(MAX_RELEASE_LOOKBACK)
+        .find_map(|entry| matching_asset(entry).map(|target| (release_tag(&entry.version), target)))
 }
 
 fn check_remote() -> Result<Option<Release>, Box<dyn std::error::Error>> {

@@ -2,14 +2,12 @@ use nyanko::cat::abilities::{get_talent, AttrUnit, Identity, REGISTRY};
 use nyanko::common::data::img015;
 use tracing::trace;
 
-use crate::common::game::{AbilityItem, CustomIcon};
+use crate::common::game::{AbilityGroups, AbilityItem, CustomIcon};
 use crate::modules::cat::game::registry::{self, AbilityIcon, DisplayGroup};
 use crate::modules::cat::game::talents;
 use crate::modules::cat::game::CatRenderContext;
 
-pub fn collect_ability_data(
-    ctx: &CatRenderContext
-) -> (Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>) {
+pub fn collect_ability_data(ctx: &CatRenderContext) -> AbilityGroups {
     trace!("collecting ability rendering data");
 
     let mut group_trait = Vec::new();

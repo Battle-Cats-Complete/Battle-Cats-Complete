@@ -1,566 +1,808 @@
-use eframe::egui;
+use iced::alignment::{Horizontal, Vertical};
+use iced::widget::{button, column, container, pick_list, row, scrollable, stack, text, text_input, Space};
+use iced::{Element, Length, Size, Theme};
 
-use core::modules::stage::filter::{enemy::EnemyFilter, lineup::LineupFilter, material::MaterialFilter, range::StatRange, treasure::TreasureFilter};
+use core::modules::stage::filter::enemy::EnemyFilter;
+use core::modules::stage::filter::lineup::LineupFilter;
+use core::modules::stage::filter::material::MaterialFilter;
+use core::modules::stage::filter::range::StatRange;
+use core::modules::stage::filter::treasure::TreasureFilter;
 use core::modules::stage::filter::StageFilterState;
 
-use crate::common::DragGuard;
+use crate::app::theme;
+use crate::widget::{popup, range_row, section, smooth_scroll};
 
-pub(crate) const WINDOW_WIDTH: f32 = 400.0;
-pub(crate) const WINDOW_HEIGHT: f32 = 500.0;
-pub(crate) const TILDE_SPACING: f32 = 5.0;
 
-pub(crate) fn show_popup(
-    ctx: &egui::Context,
-    state: &mut StageFilterState,
-    drag_guard: &mut DragGuard,
-) {
-    if !state.is_open {
-        return;
+const POPUP_SIZE: Size = Size::new(720.0, 528.0);
+const CLEAR_BTN_CLEARANCE: f32 = 56.0;
+const CONTENT_PADDING: f32 = 20.0;
+const SCROLLBAR_GAP: f32 = 2.0;
+const SECTION_SPACING: f32 = 12.0;
+const CARD_SPACING: f32 = 8.0;
+const FIELD_SPACING: f32 = 8.0;
+const PAIR_SPACING: f32 = 16.0;
+const CONTROL_TEXT_SIZE: f32 = 13.0;
+const TRISTATE_WIDTH: f32 = 60.0;
+const FLAG_LABEL_WIDTH: f32 = 130.0;
+const FLAG_COLUMNS: usize = 3;
+const REMOVE_BTN_WIDTH: f32 = 28.0;
+const LABEL_WIDTH: f32 = 90.0;
+const NAME_LABEL_WIDTH: f32 = 70.0;
+const NAME_INPUT_WIDTH: f32 = 320.0;
+const VALUE_INPUT_WIDTH: f32 = 260.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flag {
+    Continues,
+    BossGuard,
+    UseSuperCpu,
+    RuleTrustFund,
+    RuleCooldownEquality,
+    RuleRarityLimit,
+    RuleCheapLabor,
+    RuleCatCost,
+    RuleCatProduction,
+    RuleTotalDeployLimit,
+    RuleMoreThanOne,
+    RuleMegaCatCannon,
+    RuleUniformMotion,
+    InvalidCombos,
+    BonusWeaken,
+    BonusFreeze,
+    BonusSlow,
+    BonusKnockback,
+    BonusStrongAttack,
+    BonusMassiveDamage,
+    BonusStrongDefense,
+    BonusResist,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Range {
+    Width,
+    BaseHp,
+    MaxEnemies,
+    TimeLimit,
+    Energy,
+    Xp,
+    MinSpawn,
+    MaxSpawn,
+    Difficulty,
+    MaxCrowns,
+    TargetCrowns,
+    MinCost,
+    MaxCost,
+    DeployLimit,
+    AllowedRows,
+    BaseId,
+    AnimBaseId,
+    BackgroundId,
+    InitTrack,
+    BossTrack,
+    BgmChangePercent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnemyRange {
+    Amount,
+    StartFrame,
+    RespawnMin,
+    RespawnMax,
+    BaseHpPerc,
+    LayerMin,
+    LayerMax,
+    Magnification,
+    AtkMagnification,
+    Score,
+    TimeFlag,
+    KillCount,
+}
+
+fn flag_mut(state: &mut StageFilterState, flag: Flag) -> &mut Option<bool> {
+    match flag {
+        Flag::Continues => &mut state.continues,
+        Flag::BossGuard => &mut state.boss_guard,
+        Flag::UseSuperCpu => &mut state.use_super_cpu,
+        Flag::RuleTrustFund => &mut state.rule_trust_fund,
+        Flag::RuleCooldownEquality => &mut state.rule_cooldown_equality,
+        Flag::RuleRarityLimit => &mut state.rule_rarity_limit,
+        Flag::RuleCheapLabor => &mut state.rule_cheap_labor,
+        Flag::RuleCatCost => &mut state.rule_cat_cost,
+        Flag::RuleCatProduction => &mut state.rule_cat_production,
+        Flag::RuleTotalDeployLimit => &mut state.rule_total_deploy_limit,
+        Flag::RuleMoreThanOne => &mut state.rule_more_than_one,
+        Flag::RuleMegaCatCannon => &mut state.rule_mega_cat_cannon,
+        Flag::RuleUniformMotion => &mut state.rule_uniform_motion,
+        Flag::InvalidCombos => &mut state.invalid_combos,
+        Flag::BonusWeaken => &mut state.bonus_weaken,
+        Flag::BonusFreeze => &mut state.bonus_freeze,
+        Flag::BonusSlow => &mut state.bonus_slow,
+        Flag::BonusKnockback => &mut state.bonus_knockback,
+        Flag::BonusStrongAttack => &mut state.bonus_strong_attack,
+        Flag::BonusMassiveDamage => &mut state.bonus_massive_damage,
+        Flag::BonusStrongDefense => &mut state.bonus_strong_defense,
+        Flag::BonusResist => &mut state.bonus_resist,
     }
+}
 
-    let window_id = egui::Id::new("Stage Filter");
-    let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
-
-    let mut clear_filters = false;
-    let mut is_open_local = state.is_open;
-
-    let mut window = egui::Window::new("Advanced Stage Filter")
-        .id(window_id)
-        .open(&mut is_open_local)
-        .collapsible(false)
-        .resizable(true)
-        .constrain(false)
-        .movable(allow_drag)
-        .default_pos(ctx.screen_rect().center() - egui::vec2(WINDOW_WIDTH / 2.0, WINDOW_HEIGHT / 2.0))
-        .default_size([WINDOW_WIDTH, WINDOW_HEIGHT])
-        .min_width(400.0)
-        .min_height(500.0);
-
-    if let Some(pos) = fixed_pos {
-        window = window.current_pos(pos);
+fn flag_label(flag: Flag) -> &'static str {
+    match flag {
+        Flag::Continues => "Continues",
+        Flag::BossGuard => "Boss Guard",
+        Flag::UseSuperCpu => "Use Super CPU",
+        Flag::RuleTrustFund => "Trust Fund",
+        Flag::RuleCooldownEquality => "Cooldown Equality",
+        Flag::RuleRarityLimit => "Rarity Limit",
+        Flag::RuleCheapLabor => "Cheap Labor",
+        Flag::RuleCatCost => "Cat Cost",
+        Flag::RuleCatProduction => "Cat Production",
+        Flag::RuleTotalDeployLimit => "Total Deploy Limit",
+        Flag::RuleMoreThanOne => "More Than One",
+        Flag::RuleMegaCatCannon => "Mega Cat Cannon",
+        Flag::RuleUniformMotion => "Uniform Motion",
+        Flag::InvalidCombos => "Invalid Combos",
+        Flag::BonusWeaken => "Weaken",
+        Flag::BonusFreeze => "Freeze",
+        Flag::BonusSlow => "Slow",
+        Flag::BonusKnockback => "Knockback",
+        Flag::BonusStrongAttack => "Strong Attack",
+        Flag::BonusMassiveDamage => "Massive Damage",
+        Flag::BonusStrongDefense => "Strong Defense",
+        Flag::BonusResist => "Resist",
     }
+}
 
-    window.show(ctx, |ui| {
-        let max_rect = ui.max_rect();
+fn flag_ref(state: &StageFilterState, flag: Flag) -> Option<bool> {
+    match flag {
+        Flag::Continues => state.continues,
+        Flag::BossGuard => state.boss_guard,
+        Flag::UseSuperCpu => state.use_super_cpu,
+        Flag::RuleTrustFund => state.rule_trust_fund,
+        Flag::RuleCooldownEquality => state.rule_cooldown_equality,
+        Flag::RuleRarityLimit => state.rule_rarity_limit,
+        Flag::RuleCheapLabor => state.rule_cheap_labor,
+        Flag::RuleCatCost => state.rule_cat_cost,
+        Flag::RuleCatProduction => state.rule_cat_production,
+        Flag::RuleTotalDeployLimit => state.rule_total_deploy_limit,
+        Flag::RuleMoreThanOne => state.rule_more_than_one,
+        Flag::RuleMegaCatCannon => state.rule_mega_cat_cannon,
+        Flag::RuleUniformMotion => state.rule_uniform_motion,
+        Flag::InvalidCombos => state.invalid_combos,
+        Flag::BonusWeaken => state.bonus_weaken,
+        Flag::BonusFreeze => state.bonus_freeze,
+        Flag::BonusSlow => state.bonus_slow,
+        Flag::BonusKnockback => state.bonus_knockback,
+        Flag::BonusStrongAttack => state.bonus_strong_attack,
+        Flag::BonusMassiveDamage => state.bonus_massive_damage,
+        Flag::BonusStrongDefense => state.bonus_strong_defense,
+        Flag::BonusResist => state.bonus_resist,
+    }
+}
 
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.heading("Name");
-                ui.add_space(5.0);
+fn range_mut(state: &mut StageFilterState, range: Range) -> &mut StatRange {
+    match range {
+        Range::Width => &mut state.width,
+        Range::BaseHp => &mut state.base_hp,
+        Range::MaxEnemies => &mut state.max_enemies,
+        Range::TimeLimit => &mut state.time_limit,
+        Range::Energy => &mut state.energy,
+        Range::Xp => &mut state.xp,
+        Range::MinSpawn => &mut state.min_spawn,
+        Range::MaxSpawn => &mut state.max_spawn,
+        Range::Difficulty => &mut state.difficulty,
+        Range::MaxCrowns => &mut state.max_crowns,
+        Range::TargetCrowns => &mut state.target_crowns,
+        Range::MinCost => &mut state.min_cost,
+        Range::MaxCost => &mut state.max_cost,
+        Range::DeployLimit => &mut state.deploy_limit,
+        Range::AllowedRows => &mut state.allowed_rows,
+        Range::BaseId => &mut state.base_id,
+        Range::AnimBaseId => &mut state.anim_base_id,
+        Range::BackgroundId => &mut state.background_id,
+        Range::InitTrack => &mut state.init_track,
+        Range::BossTrack => &mut state.boss_track,
+        Range::BgmChangePercent => &mut state.bgm_change_percent,
+    }
+}
 
-                egui::Grid::new("stage_name_filter_grid")
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("Category:").strong());
-                        ui.add_sized(
-                            egui::vec2(150.0, 20.0),
-                            egui::TextEdit::singleline(&mut state.category_name).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
-                        );
-                        ui.end_row();
+fn range_label(range: Range) -> &'static str {
+    match range {
+        Range::Width => "Width",
+        Range::BaseHp => "Base HP",
+        Range::MaxEnemies => "Max Enemies",
+        Range::TimeLimit => "Time Limit (f)",
+        Range::Energy => "Energy Cost",
+        Range::Xp => "XP Reward",
+        Range::MinSpawn => "Min Spawn",
+        Range::MaxSpawn => "Max Spawn",
+        Range::Difficulty => "Difficulty",
+        Range::MaxCrowns => "Max Crowns",
+        Range::TargetCrowns => "Target Crowns",
+        Range::MinCost => "Min Cost",
+        Range::MaxCost => "Max Cost",
+        Range::DeployLimit => "Deploy Limit",
+        Range::AllowedRows => "Allowed Rows",
+        Range::BaseId => "Base ID",
+        Range::AnimBaseId => "Anim Base ID",
+        Range::BackgroundId => "Background ID",
+        Range::InitTrack => "Init Track",
+        Range::BossTrack => "Boss Track",
+        Range::BgmChangePercent => "BGM Change (%)",
+    }
+}
 
-                        ui.label(egui::RichText::new("Map:").strong());
-                        ui.add_sized(
-                            egui::vec2(150.0, 20.0),
-                            egui::TextEdit::singleline(&mut state.map_name).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
-                        );
-                        ui.end_row();
+fn enemy_range_mut(filter: &mut EnemyFilter, range: EnemyRange) -> &mut StatRange {
+    match range {
+        EnemyRange::Amount => &mut filter.amount,
+        EnemyRange::StartFrame => &mut filter.start_frame,
+        EnemyRange::RespawnMin => &mut filter.respawn_min,
+        EnemyRange::RespawnMax => &mut filter.respawn_max,
+        EnemyRange::BaseHpPerc => &mut filter.base_hp_perc,
+        EnemyRange::LayerMin => &mut filter.layer_min,
+        EnemyRange::LayerMax => &mut filter.layer_max,
+        EnemyRange::Magnification => &mut filter.magnification,
+        EnemyRange::AtkMagnification => &mut filter.atk_magnification,
+        EnemyRange::Score => &mut filter.score,
+        EnemyRange::TimeFlag => &mut filter.time_flag,
+        EnemyRange::KillCount => &mut filter.kill_count,
+    }
+}
 
-                        ui.label(egui::RichText::new("Stage:").strong());
-                        ui.add_sized(
-                            egui::vec2(150.0, 20.0),
-                            egui::TextEdit::singleline(&mut state.stage_name).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
-                        );
-                        ui.end_row();
-                    });
+fn enemy_range_label(range: EnemyRange) -> &'static str {
+    match range {
+        EnemyRange::Amount => "Amount",
+        EnemyRange::StartFrame => "Start Frame",
+        EnemyRange::RespawnMin => "Respawn Min",
+        EnemyRange::RespawnMax => "Respawn Max",
+        EnemyRange::BaseHpPerc => "Base HP (%)",
+        EnemyRange::LayerMin => "Layer Min",
+        EnemyRange::LayerMax => "Layer Max",
+        EnemyRange::Magnification => "Magnification",
+        EnemyRange::AtkMagnification => "Atk Mag",
+        EnemyRange::Score => "Score",
+        EnemyRange::TimeFlag => "Time Flag",
+        EnemyRange::KillCount => "Kill Count",
+    }
+}
 
-                ui.add_space(15.0);
-                ui.heading("General Rules");
-                ui.add_space(5.0);
+const ENEMY_RANGES: [EnemyRange; 12] = [
+    EnemyRange::Amount, EnemyRange::StartFrame, EnemyRange::RespawnMin, EnemyRange::RespawnMax,
+    EnemyRange::BaseHpPerc, EnemyRange::LayerMin, EnemyRange::LayerMax, EnemyRange::Magnification,
+    EnemyRange::AtkMagnification, EnemyRange::Score, EnemyRange::TimeFlag, EnemyRange::KillCount,
+];
 
-                egui::Grid::new("general_rules_grid")
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("Continues:").strong());
-                        tristate_btn(ui, &mut state.continues);
+fn cycle_tristate(value: Option<bool>) -> Option<bool> {
+    match value {
+        None => Some(true),
+        Some(true) => Some(false),
+        Some(false) => None,
+    }
+}
 
-                        ui.label(egui::RichText::new("Boss Guard:").strong());
-                        tristate_btn(ui, &mut state.boss_guard);
-                        ui.end_row();
+#[derive(Debug, Clone)]
+pub enum Message {
+    Popup(popup::Message),
+    Toggle,
+    Clear,
 
-                        ui.label(egui::RichText::new("Use Super CPU:").strong());
-                        tristate_btn(ui, &mut state.use_super_cpu);
-                        ui.end_row();
-                    });
+    CategoryChanged(String),
+    MapChanged(String),
+    StageChanged(String),
 
-                ui.add_space(15.0);
-                ui.heading("Special Map Rules");
-                ui.add_space(5.0);
+    FlagToggled(Flag),
+    RangeMinChanged(Range, String),
+    RangeMaxChanged(Range, String),
 
-                let map_rules = [
-                    ("Trust Fund", &mut state.rule_trust_fund),
-                    ("Cooldown Equality", &mut state.rule_cooldown_equality),
-                    ("Rarity Limit", &mut state.rule_rarity_limit),
-                    ("Cheap Labor", &mut state.rule_cheap_labor),
-                    ("Cat Cost", &mut state.rule_cat_cost),
-                    ("Cat Production", &mut state.rule_cat_production),
-                    ("Total Deploy Limit", &mut state.rule_total_deploy_limit),
-                    ("More Than One", &mut state.rule_more_than_one),
-                    ("Mega Cat Cannon", &mut state.rule_mega_cat_cannon),
-                    ("Uniform Motion", &mut state.rule_uniform_motion),
-                    ("Invalid Combos", &mut state.invalid_combos),
-                ];
+    AddEnemy,
+    RemoveEnemy(usize),
+    EnemyModeChanged(usize, bool),
+    EnemyNameChanged(usize, String),
+    EnemyBossTypeChanged(usize, Option<u32>),
+    EnemyIsBaseToggled(usize),
+    EnemyRangeMinChanged(usize, EnemyRange, String),
+    EnemyRangeMaxChanged(usize, EnemyRange, String),
 
-                egui::Grid::new("special_rules_grid")
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        for (i, (label, val_ref)) in map_rules.into_iter().enumerate() {
-                            ui.label(egui::RichText::new(label).strong());
-                            tristate_btn(ui, val_ref);
-                            if (i + 1) % 2 == 0 {
-                                ui.end_row();
-                            }
-                        }
-                    });
+    AddLineup,
+    RemoveLineup(usize),
+    LineupModeChanged(usize, bool),
+    LineupNameChanged(usize, String),
+    LineupLevelMinChanged(usize, String),
+    LineupLevelMaxChanged(usize, String),
 
-                ui.add_space(15.0);
-                ui.heading("Score Bonuses");
-                ui.add_space(5.0);
+    AddTreasure,
+    RemoveTreasure(usize),
+    TreasureModeChanged(usize, bool),
+    TreasureNameChanged(usize, String),
+    TreasureAmountMinChanged(usize, String),
+    TreasureAmountMaxChanged(usize, String),
+    TreasureChanceMinChanged(usize, String),
+    TreasureChanceMaxChanged(usize, String),
 
-                let bonus_rules = [
-                    ("Weaken", &mut state.bonus_weaken),
-                    ("Freeze", &mut state.bonus_freeze),
-                    ("Slow", &mut state.bonus_slow),
-                    ("Knockback", &mut state.bonus_knockback),
-                    ("Strong Attack", &mut state.bonus_strong_attack),
-                    ("Massive Damage", &mut state.bonus_massive_damage),
-                    ("Strong Defense", &mut state.bonus_strong_defense),
-                    ("Resist", &mut state.bonus_resist),
-                ];
+    AddMaterial,
+    RemoveMaterial(usize),
+    MaterialModeChanged(usize, bool),
+    MaterialNameChanged(usize, String),
+    MaterialAmountMinChanged(usize, String),
+    MaterialAmountMaxChanged(usize, String),
+}
 
-                egui::Grid::new("score_bonus_grid")
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        for (i, (label, val_ref)) in bonus_rules.into_iter().enumerate() {
-                            ui.label(egui::RichText::new(label).strong());
-                            tristate_btn(ui, val_ref);
-                            if (i + 1) % 2 == 0 {
-                                ui.end_row();
-                            }
-                        }
-                    });
+#[derive(Default)]
+pub struct State {
+    pub filter_state: StageFilterState,
+    popup: popup::State,
+}
 
-                ui.add_space(15.0);
-                ui.heading("Stats");
-                ui.add_space(5.0);
+impl State {
+    pub fn update(&mut self, message: Message) {
+        let state = &mut self.filter_state;
 
-                let stat_rows = [
-                    ("Base HP", &mut state.base_hp),
-                    ("Width", &mut state.width),
-                    ("Time Limit (f)", &mut state.time_limit),
-                    ("Max Enemies", &mut state.max_enemies),
-                    ("Energy Cost", &mut state.energy),
-                    ("XP Reward", &mut state.xp),
-                    ("Difficulty", &mut state.difficulty),
-                    ("Max Crowns", &mut state.max_crowns),
-                    ("Target Crowns", &mut state.target_crowns),
-                    ("Min Spawn", &mut state.min_spawn),
-                    ("Max Spawn", &mut state.max_spawn),
-                ];
-
-                egui::Grid::new("stage_stat_filter_grid")
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        for (i, (label, range)) in stat_rows.into_iter().enumerate() {
-                            draw_stat_range(ui, label, range);
-                            if (i + 1) % 2 == 0 {
-                                ui.end_row();
-                            }
-                        }
-                    });
-
-                ui.add_space(15.0);
-                ui.heading("Restrictions");
-                ui.add_space(5.0);
-
-                let restriction_rows = [
-                    ("Deploy Limit", &mut state.deploy_limit),
-                    ("Allowed Rows", &mut state.allowed_rows),
-                    ("Min Cost", &mut state.min_cost),
-                    ("Max Cost", &mut state.max_cost),
-                ];
-
-                egui::Grid::new("stage_restriction_filter_grid")
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        for (i, (label, range)) in restriction_rows.into_iter().enumerate() {
-                            draw_stat_range(ui, label, range);
-                            if (i + 1) % 2 == 0 {
-                                ui.end_row();
-                            }
-                        }
-                    });
-
-                ui.add_space(15.0);
-                ui.heading("IDs & Audio");
-                ui.add_space(5.0);
-
-                let id_rows = [
-                    ("Base ID", &mut state.base_id),
-                    ("Anim Base ID", &mut state.anim_base_id),
-                    ("Background ID", &mut state.background_id),
-                    ("Init Track", &mut state.init_track),
-                    ("Boss Track", &mut state.boss_track),
-                    ("BGM Change (%)", &mut state.bgm_change_percent),
-                ];
-
-                egui::Grid::new("stage_id_filter_grid")
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        for (i, (label, range)) in id_rows.into_iter().enumerate() {
-                            draw_stat_range(ui, label, range);
-                            if (i + 1) % 2 == 0 {
-                                ui.end_row();
-                            }
-                        }
-                    });
-
-                ui.add_space(15.0);
-                ui.heading("Battleground");
-                ui.add_space(5.0);
-
-                let mut to_remove_e = None;
-                for (idx, enemy) in state.enemies.iter_mut().enumerate() {
-                    ui.add_space(8.0);
-
-                    egui::Frame::none()
-                        .fill(egui::Color32::from_black_alpha(150))
-                        .rounding(6.0)
-                        .inner_margin(8.0)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                let mode_label = if enemy.is_exclude { "Exclude" } else { "Include" };
-                                egui::ComboBox::from_id_salt(format!("emode_{}", idx))
-                                    .selected_text(mode_label)
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut enemy.is_exclude, false, "Include");
-                                        ui.selectable_value(&mut enemy.is_exclude, true, "Exclude");
-                                    });
-
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let close_btn = egui::Button::new(
-                                        egui::RichText::new(" X ").color(egui::Color32::WHITE).strong()
-                                    )
-                                        .fill(egui::Color32::from_rgb(210, 50, 50))
-                                        .rounding(4.0)
-                                        .min_size(egui::vec2(24.0, 24.0));
-
-                                    if ui.add(close_btn).clicked() {
-                                        to_remove_e = Some(idx);
-                                    }
-                                });
-                            });
-
-                            ui.add_space(8.0);
-
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Boss Type:").strong());
-                                boss_type_combo(ui, format!("boss_type_{}", idx), &mut enemy.boss_type);
-
-                                ui.add_space(10.0);
-                                ui.label(egui::RichText::new("Is Base:").strong());
-                                tristate_btn(ui, &mut enemy.is_base);
-                            });
-
-                            ui.add_space(8.0);
-
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Name or ID:").strong());
-                                ui.add_sized(
-                                    egui::vec2(150.0, 20.0),
-                                    egui::TextEdit::singleline(&mut enemy.name_or_id).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
-                                );
-                            });
-
-                            ui.add_space(6.0);
-
-                            let enemy_rows = [
-                                ("Amount", &mut enemy.amount),
-                                ("Start Frame", &mut enemy.start_frame),
-                                ("Respawn Min", &mut enemy.respawn_min),
-                                ("Respawn Max", &mut enemy.respawn_max),
-                                ("Base HP (%)", &mut enemy.base_hp_perc),
-                                ("Layer Min", &mut enemy.layer_min),
-                                ("Layer Max", &mut enemy.layer_max),
-                                ("Magnification", &mut enemy.magnification),
-                                ("Atk Mag", &mut enemy.atk_magnification),
-                                ("Score", &mut enemy.score),
-                                ("Time Flag", &mut enemy.time_flag),
-                                ("Kill Count", &mut enemy.kill_count),
-                            ];
-
-                            egui::Grid::new(format!("enemy_grid_{}", idx))
-                                .spacing([16.0, 6.0])
-                                .show(ui, |ui| {
-                                    for (i, (label, range)) in enemy_rows.into_iter().enumerate() {
-                                        draw_stat_range(ui, label, range);
-                                        if (i + 1) % 2 == 0 {
-                                            ui.end_row();
-                                        }
-                                    }
-                                });
-                        });
+        match message {
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    state.is_open = false;
                 }
+            }
+            Message::Toggle => state.is_open = !state.is_open,
+            Message::Clear => *state = StageFilterState { is_open: state.is_open, ..Default::default() },
 
-                if let Some(idx) = to_remove_e {
-                    state.enemies.remove(idx);
-                }
+            Message::CategoryChanged(value) => state.category_name = value,
+            Message::MapChanged(value) => state.map_name = value,
+            Message::StageChanged(value) => state.stage_name = value,
 
-                ui.add_space(8.0);
-                if ui.button("+ Add New Enemy").clicked() {
-                    state.enemies.push(EnemyFilter::default());
-                }
+            Message::FlagToggled(flag) => {
+                let target = flag_mut(state, flag);
+                *target = cycle_tristate(*target);
+            }
+            Message::RangeMinChanged(range, value) => range_mut(state, range).min = value,
+            Message::RangeMaxChanged(range, value) => range_mut(state, range).max = value,
 
-                ui.add_space(15.0);
-                ui.heading("Fixed Lineup Cats");
-                ui.add_space(5.0);
+            Message::AddEnemy => state.enemies.push(EnemyFilter::default()),
+            Message::RemoveEnemy(idx) => { if idx < state.enemies.len() { state.enemies.remove(idx); } }
+            Message::EnemyModeChanged(idx, is_exclude) => {
+                if let Some(enemy) = state.enemies.get_mut(idx) { enemy.is_exclude = is_exclude; }
+            }
+            Message::EnemyNameChanged(idx, value) => {
+                if let Some(enemy) = state.enemies.get_mut(idx) { enemy.name_or_id = value; }
+            }
+            Message::EnemyBossTypeChanged(idx, value) => {
+                if let Some(enemy) = state.enemies.get_mut(idx) { enemy.boss_type = value; }
+            }
+            Message::EnemyIsBaseToggled(idx) => {
+                if let Some(enemy) = state.enemies.get_mut(idx) { enemy.is_base = cycle_tristate(enemy.is_base); }
+            }
+            Message::EnemyRangeMinChanged(idx, range, value) => {
+                if let Some(enemy) = state.enemies.get_mut(idx) { enemy_range_mut(enemy, range).min = value; }
+            }
+            Message::EnemyRangeMaxChanged(idx, range, value) => {
+                if let Some(enemy) = state.enemies.get_mut(idx) { enemy_range_mut(enemy, range).max = value; }
+            }
 
-                let mut to_remove_l = None;
-                for (idx, cat) in state.lineup_cats.iter_mut().enumerate() {
-                    ui.add_space(8.0);
-                    egui::Frame::none()
-                        .fill(egui::Color32::from_black_alpha(150))
-                        .rounding(6.0)
-                        .inner_margin(8.0)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                let mode_label = if cat.is_exclude { "Exclude" } else { "Include" };
-                                egui::ComboBox::from_id_salt(format!("lmode_{}", idx))
-                                    .selected_text(mode_label)
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut cat.is_exclude, false, "Include");
-                                        ui.selectable_value(&mut cat.is_exclude, true, "Exclude");
-                                    });
+            Message::AddLineup => state.lineup_cats.push(LineupFilter::default()),
+            Message::RemoveLineup(idx) => { if idx < state.lineup_cats.len() { state.lineup_cats.remove(idx); } }
+            Message::LineupModeChanged(idx, is_exclude) => {
+                if let Some(cat) = state.lineup_cats.get_mut(idx) { cat.is_exclude = is_exclude; }
+            }
+            Message::LineupNameChanged(idx, value) => {
+                if let Some(cat) = state.lineup_cats.get_mut(idx) { cat.name_or_id = value; }
+            }
+            Message::LineupLevelMinChanged(idx, value) => {
+                if let Some(cat) = state.lineup_cats.get_mut(idx) { cat.level.min = value; }
+            }
+            Message::LineupLevelMaxChanged(idx, value) => {
+                if let Some(cat) = state.lineup_cats.get_mut(idx) { cat.level.max = value; }
+            }
 
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let close_btn = egui::Button::new(
-                                        egui::RichText::new(" X ").color(egui::Color32::WHITE).strong()
-                                    )
-                                        .fill(egui::Color32::from_rgb(210, 50, 50))
-                                        .rounding(4.0)
-                                        .min_size(egui::vec2(24.0, 24.0));
-                                    if ui.add(close_btn).clicked() { to_remove_l = Some(idx); }
-                                });
-                            });
+            Message::AddTreasure => state.treasures.push(TreasureFilter::default()),
+            Message::RemoveTreasure(idx) => { if idx < state.treasures.len() { state.treasures.remove(idx); } }
+            Message::TreasureModeChanged(idx, is_exclude) => {
+                if let Some(treasure) = state.treasures.get_mut(idx) { treasure.is_exclude = is_exclude; }
+            }
+            Message::TreasureNameChanged(idx, value) => {
+                if let Some(treasure) = state.treasures.get_mut(idx) { treasure.name_or_id = value; }
+            }
+            Message::TreasureAmountMinChanged(idx, value) => {
+                if let Some(treasure) = state.treasures.get_mut(idx) { treasure.amount.min = value; }
+            }
+            Message::TreasureAmountMaxChanged(idx, value) => {
+                if let Some(treasure) = state.treasures.get_mut(idx) { treasure.amount.max = value; }
+            }
+            Message::TreasureChanceMinChanged(idx, value) => {
+                if let Some(treasure) = state.treasures.get_mut(idx) { treasure.chance.min = value; }
+            }
+            Message::TreasureChanceMaxChanged(idx, value) => {
+                if let Some(treasure) = state.treasures.get_mut(idx) { treasure.chance.max = value; }
+            }
 
-                            ui.add_space(8.0);
-
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Name or ID:").strong());
-                                ui.add_sized(
-                                    egui::vec2(150.0, 20.0),
-                                    egui::TextEdit::singleline(&mut cat.name_or_id).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
-                                );
-                            });
-
-                            ui.add_space(6.0);
-
-                            egui::Grid::new(format!("lineup_grid_{}", idx))
-                                .spacing([16.0, 6.0])
-                                .show(ui, |ui| {
-                                    draw_stat_range(ui, "Total Level", &mut cat.level);
-                                });
-                        });
-                }
-
-                if let Some(idx) = to_remove_l { state.lineup_cats.remove(idx); }
-
-                ui.add_space(8.0);
-                if ui.button("+ Add Lineup Cat").clicked() {
-                    state.lineup_cats.push(LineupFilter::default());
-                }
-
-                ui.add_space(15.0);
-                ui.heading("Treasures");
-                ui.add_space(5.0);
-
-                let mut to_remove_t = None;
-                for (idx, treasure) in state.treasures.iter_mut().enumerate() {
-                    ui.add_space(8.0);
-                    egui::Frame::none()
-                        .fill(egui::Color32::from_black_alpha(150))
-                        .rounding(6.0)
-                        .inner_margin(8.0)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                let mode_label = if treasure.is_exclude { "Exclude" } else { "Include" };
-                                egui::ComboBox::from_id_salt(format!("tmode_{}", idx))
-                                    .selected_text(mode_label)
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut treasure.is_exclude, false, "Include");
-                                        ui.selectable_value(&mut treasure.is_exclude, true, "Exclude");
-                                    });
-
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let close_btn = egui::Button::new(
-                                        egui::RichText::new(" X ").color(egui::Color32::WHITE).strong()
-                                    )
-                                        .fill(egui::Color32::from_rgb(210, 50, 50))
-                                        .rounding(4.0)
-                                        .min_size(egui::vec2(24.0, 24.0));
-                                    if ui.add(close_btn).clicked() { to_remove_t = Some(idx); }
-                                });
-                            });
-
-                            ui.add_space(8.0);
-
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Name or ID:").strong());
-                                ui.add_sized(
-                                    egui::vec2(150.0, 20.0),
-                                    egui::TextEdit::singleline(&mut treasure.name_or_id).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
-                                );
-                            });
-
-                            ui.add_space(6.0);
-
-                            egui::Grid::new(format!("treasure_grid_{}", idx))
-                                .spacing([16.0, 6.0])
-                                .show(ui, |ui| {
-                                    draw_stat_range(ui, "Amount", &mut treasure.amount);
-                                    draw_stat_range(ui, "Chance (%)", &mut treasure.chance);
-                                });
-                        });
-                }
-
-                if let Some(idx) = to_remove_t { state.treasures.remove(idx); }
-
-                ui.add_space(8.0);
-                if ui.button("+ Add New Treasure").clicked() {
-                    state.treasures.push(TreasureFilter::default());
-                }
-
-                ui.add_space(15.0);
-                ui.heading("Materials");
-                ui.add_space(5.0);
-
-                let mut to_remove_m = None;
-                for (idx, material) in state.materials.iter_mut().enumerate() {
-                    ui.add_space(8.0);
-                    egui::Frame::none()
-                        .fill(egui::Color32::from_black_alpha(150))
-                        .rounding(6.0)
-                        .inner_margin(8.0)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                let mode_label = if material.is_exclude { "Exclude" } else { "Include" };
-                                egui::ComboBox::from_id_salt(format!("mmode_{}", idx))
-                                    .selected_text(mode_label)
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut material.is_exclude, false, "Include");
-                                        ui.selectable_value(&mut material.is_exclude, true, "Exclude");
-                                    });
-
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let close_btn = egui::Button::new(
-                                        egui::RichText::new(" X ").color(egui::Color32::WHITE).strong()
-                                    )
-                                        .fill(egui::Color32::from_rgb(210, 50, 50))
-                                        .rounding(4.0)
-                                        .min_size(egui::vec2(24.0, 24.0));
-                                    if ui.add(close_btn).clicked() { to_remove_m = Some(idx); }
-                                });
-                            });
-
-                            ui.add_space(8.0);
-
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Name or ID:").strong());
-                                ui.add_sized(
-                                    egui::vec2(150.0, 20.0),
-                                    egui::TextEdit::singleline(&mut material.name_or_id).hint_text(egui::RichText::new("Any").color(egui::Color32::from_gray(100)))
-                                );
-                            });
-
-                            ui.add_space(6.0);
-
-                            egui::Grid::new(format!("material_grid_{}", idx))
-                                .spacing([16.0, 6.0])
-                                .show(ui, |ui| {
-                                    draw_stat_range(ui, "Amount", &mut material.amount);
-                                });
-                        });
-                }
-
-                if let Some(idx) = to_remove_m { state.materials.remove(idx); }
-
-                ui.add_space(8.0);
-                if ui.button("+ Add New Material").clicked() {
-                    state.materials.push(MaterialFilter::default());
-                }
-
-                ui.add_space(60.0);
-            });
-
-        let btn_size = egui::vec2(160.0, 34.0);
-        let btn_rect = egui::Rect::from_center_size(
-            max_rect.center_bottom() - egui::vec2(0.0, btn_size.y / 2.0 + 12.0),
-            btn_size
-        );
-
-        let clear_btn = egui::Button::new(
-            egui::RichText::new("Clear Filter").color(egui::Color32::WHITE).strong().size(15.0)
-        )
-            .fill(egui::Color32::from_rgb(210, 50, 50))
-            .rounding(6.0);
-
-        if ui.put(btn_rect, clear_btn).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-            clear_filters = true;
+            Message::AddMaterial => state.materials.push(MaterialFilter::default()),
+            Message::RemoveMaterial(idx) => { if idx < state.materials.len() { state.materials.remove(idx); } }
+            Message::MaterialModeChanged(idx, is_exclude) => {
+                if let Some(material) = state.materials.get_mut(idx) { material.is_exclude = is_exclude; }
+            }
+            Message::MaterialNameChanged(idx, value) => {
+                if let Some(material) = state.materials.get_mut(idx) { material.name_or_id = value; }
+            }
+            Message::MaterialAmountMinChanged(idx, value) => {
+                if let Some(material) = state.materials.get_mut(idx) { material.amount.min = value; }
+            }
+            Message::MaterialAmountMaxChanged(idx, value) => {
+                if let Some(material) = state.materials.get_mut(idx) { material.amount.max = value; }
+            }
         }
-    });
+    }
 
-    state.is_open = is_open_local;
+    pub fn view(&self, window: Size) -> Element<'_, Message> {
+        self.popup.view("Advanced Stage Filter", POPUP_SIZE, window, Message::Popup, move || self.content_view(), None)
+    }
 
-    if clear_filters {
-        *state = StageFilterState { is_open: state.is_open, ..Default::default() };
+    fn content_view(&self) -> Element<'_, Message> {
+        let name_grid = column![
+            name_field("Category:", &self.filter_state.category_name, Message::CategoryChanged),
+            name_field("Map:", &self.filter_state.map_name, Message::MapChanged),
+            name_field("Stage:", &self.filter_state.stage_name, Message::StageChanged),
+        ].spacing(6);
+
+        let general_rules = wrap_pairs([Flag::Continues, Flag::BossGuard, Flag::UseSuperCpu], &self.filter_state);
+
+        let special_rules = wrap_pairs([
+            Flag::RuleTrustFund, Flag::RuleCooldownEquality, Flag::RuleRarityLimit, Flag::RuleCheapLabor,
+            Flag::RuleCatCost, Flag::RuleCatProduction, Flag::RuleTotalDeployLimit, Flag::RuleMoreThanOne,
+            Flag::RuleMegaCatCannon, Flag::RuleUniformMotion, Flag::InvalidCombos,
+        ], &self.filter_state);
+
+        let score_bonuses = wrap_pairs([
+            Flag::BonusWeaken, Flag::BonusFreeze, Flag::BonusSlow, Flag::BonusKnockback,
+            Flag::BonusStrongAttack, Flag::BonusMassiveDamage, Flag::BonusStrongDefense, Flag::BonusResist,
+        ], &self.filter_state);
+
+        let stats = range_pairs([
+            Range::BaseHp, Range::Width, Range::TimeLimit, Range::MaxEnemies, Range::Energy, Range::Xp,
+            Range::Difficulty, Range::MaxCrowns, Range::TargetCrowns, Range::MinSpawn, Range::MaxSpawn,
+        ], &self.filter_state);
+
+        let restrictions = range_pairs([
+            Range::DeployLimit, Range::AllowedRows, Range::MinCost, Range::MaxCost,
+        ], &self.filter_state);
+
+        let ids_audio = range_pairs([
+            Range::BaseId, Range::AnimBaseId, Range::BackgroundId, Range::InitTrack, Range::BossTrack, Range::BgmChangePercent,
+        ], &self.filter_state);
+
+        let mut enemies_col = column![].spacing(8);
+        for (idx, enemy) in self.filter_state.enemies.iter().enumerate() {
+            enemies_col = enemies_col.push(enemy_card(idx, enemy));
+        }
+        enemies_col = enemies_col.push(add_button("+ Add New Enemy", Message::AddEnemy));
+
+        let mut lineup_col = column![].spacing(CARD_SPACING);
+        for (idx, cat) in self.filter_state.lineup_cats.iter().enumerate() {
+            lineup_col = lineup_col.push(lineup_card(idx, cat));
+        }
+        lineup_col = lineup_col.push(add_button("+ Add Lineup Cat", Message::AddLineup));
+
+        let mut treasure_col = column![].spacing(CARD_SPACING);
+        for (idx, treasure) in self.filter_state.treasures.iter().enumerate() {
+            treasure_col = treasure_col.push(treasure_card(idx, treasure));
+        }
+        treasure_col = treasure_col.push(add_button("+ Add New Treasure", Message::AddTreasure));
+
+        let mut material_col = column![].spacing(CARD_SPACING);
+        for (idx, material) in self.filter_state.materials.iter().enumerate() {
+            material_col = material_col.push(material_card(idx, material));
+        }
+        material_col = material_col.push(add_button("+ Add New Material", Message::AddMaterial));
+
+        let content = column![
+            section("Name", Length::Fill, name_grid),
+            section("General Rules", Length::Fill, general_rules),
+            section("Special Map Rules", Length::Fill, special_rules),
+            section("Score Bonuses", Length::Fill, score_bonuses),
+            section("Stats", Length::Fill, stats),
+            section("Restrictions", Length::Fill, restrictions),
+            section("IDs & Audio", Length::Fill, ids_audio),
+            section("Battleground", Length::Fill, enemies_col),
+            section("Fixed Lineup Cats", Length::Fill, lineup_col),
+            section("Treasures", Length::Fill, treasure_col),
+            section("Materials", Length::Fill, material_col),
+            Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
+        ].spacing(SECTION_SPACING).padding(CONTENT_PADDING);
+
+        let scroll_layer = smooth_scroll(scrollable(content).width(Length::Fill).height(Length::Fill).spacing(SCROLLBAR_GAP));
+
+        let clear_btn_layer = container(
+            button(text("Clear Filter")).on_press(Message::Clear).padding([8, 16]).style(button::danger)
+        )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Bottom)
+            .padding(16);
+
+        stack![scroll_layer, clear_btn_layer]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 }
 
-fn draw_stat_range(ui: &mut egui::Ui, label: &str, range: &mut StatRange) {
-    ui.label(format!("{}:", label));
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = TILDE_SPACING;
-        let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
-        ui.add_sized(
-            egui::vec2(55.0, 20.0),
-            egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
-        );
-        ui.label("~");
-        ui.add_sized(
-            egui::vec2(55.0, 20.0),
-            egui::TextEdit::singleline(&mut range.max).hint_text(hint)
-        );
-    });
+fn name_field<'a>(label: &'a str, value: &'a str, on_input: impl Fn(String) -> Message + 'a) -> Element<'a, Message> {
+    row![
+        text(label).width(Length::Fixed(NAME_LABEL_WIDTH)),
+        text_input("Any", value).on_input(on_input).width(Length::Fixed(NAME_INPUT_WIDTH)).style(theme::rounded_input),
+    ].spacing(FIELD_SPACING).align_y(Vertical::Center).into()
 }
 
-fn tristate_btn(ui: &mut egui::Ui, val: &mut Option<bool>) {
-    let label = val.map(|v| if v { "Yes" } else { "No" }).unwrap_or("Any");
-    let bg_color = val.map(|v| if v { egui::Color32::from_rgb(31, 106, 165) } else { egui::Color32::from_rgb(210, 50, 50) }).unwrap_or_else(|| ui.visuals().widgets.inactive.bg_fill);
+fn add_button<'a>(label: &'a str, on_press: Message) -> Element<'a, Message> {
+    button(text(label).size(CONTROL_TEXT_SIZE))
+        .on_press(on_press)
+        .padding([6, 12])
+        .style(theme::primary_button)
+        .into()
+}
 
-    let btn = egui::Button::new(label).fill(bg_color).min_size(egui::vec2(50.0, 20.0));
+fn tristate_button<'a>(value: Option<bool>, on_press: Message) -> Element<'a, Message> {
+    let label = match value {
+        Some(true) => "Yes",
+        Some(false) => "No",
+        None => "Any",
+    };
 
-    if ui.add(btn).clicked() {
-        *val = val.map(|v| if v { Some(false) } else { None }).unwrap_or(Some(true));
+    button(theme::button_label(label).size(CONTROL_TEXT_SIZE))
+        .width(Length::Fixed(TRISTATE_WIDTH))
+        .on_press(on_press)
+        .style(move |theme: &Theme, status| match value {
+            Some(true) => theme::primary_button(theme, status),
+            Some(false) => theme::danger_button(theme, status),
+            None => theme::neutral_button(theme, status),
+        })
+        .into()
+}
+
+fn wrap_pairs<'a>(flags: impl IntoIterator<Item = Flag>, filter_state: &'a StageFilterState) -> Element<'a, Message> {
+    let mut col = column![].spacing(6);
+    let mut current = row![].spacing(PAIR_SPACING).align_y(Vertical::Center);
+    let mut count = 0;
+
+    for flag in flags {
+        let value = flag_ref(filter_state, flag);
+        current = current.push(
+            row![
+                text(format!("{}:", flag_label(flag))).size(CONTROL_TEXT_SIZE).width(Length::Fixed(FLAG_LABEL_WIDTH)),
+                tristate_button(value, Message::FlagToggled(flag)),
+            ]
+                .spacing(FIELD_SPACING)
+                .align_y(Vertical::Center)
+        );
+        count += 1;
+
+        if count % FLAG_COLUMNS == 0 {
+            col = col.push(current);
+            current = row![].spacing(PAIR_SPACING).align_y(Vertical::Center);
+        }
+    }
+
+    if !count.is_multiple_of(FLAG_COLUMNS) {
+        col = col.push(current);
+    }
+
+    col.into()
+}
+
+fn range_field<'a>(range: Range, value: &'a StatRange) -> Element<'a, Message> {
+    range_row(
+        range_label(range),
+        &value.min,
+        &value.max,
+        move |v| Message::RangeMinChanged(range, v),
+        move |v| Message::RangeMaxChanged(range, v),
+    )
+}
+
+fn range_pairs<'a>(ranges: impl IntoIterator<Item = Range>, filter_state: &'a StageFilterState) -> Element<'a, Message> {
+    let mut col = column![].spacing(6);
+    let mut current = row![].spacing(PAIR_SPACING);
+    let mut count = 0;
+
+    for range in ranges {
+        current = current.push(range_field(range, range_ref(filter_state, range)));
+        count += 1;
+
+        if count % 2 == 0 {
+            col = col.push(current);
+            current = row![].spacing(PAIR_SPACING);
+        }
+    }
+
+    if count % 2 != 0 {
+        col = col.push(current);
+    }
+
+    col.into()
+}
+
+fn range_ref(filter_state: &StageFilterState, range: Range) -> &StatRange {
+    match range {
+        Range::Width => &filter_state.width,
+        Range::BaseHp => &filter_state.base_hp,
+        Range::MaxEnemies => &filter_state.max_enemies,
+        Range::TimeLimit => &filter_state.time_limit,
+        Range::Energy => &filter_state.energy,
+        Range::Xp => &filter_state.xp,
+        Range::MinSpawn => &filter_state.min_spawn,
+        Range::MaxSpawn => &filter_state.max_spawn,
+        Range::Difficulty => &filter_state.difficulty,
+        Range::MaxCrowns => &filter_state.max_crowns,
+        Range::TargetCrowns => &filter_state.target_crowns,
+        Range::MinCost => &filter_state.min_cost,
+        Range::MaxCost => &filter_state.max_cost,
+        Range::DeployLimit => &filter_state.deploy_limit,
+        Range::AllowedRows => &filter_state.allowed_rows,
+        Range::BaseId => &filter_state.base_id,
+        Range::AnimBaseId => &filter_state.anim_base_id,
+        Range::BackgroundId => &filter_state.background_id,
+        Range::InitTrack => &filter_state.init_track,
+        Range::BossTrack => &filter_state.boss_track,
+        Range::BgmChangePercent => &filter_state.bgm_change_percent,
     }
 }
 
-fn boss_type_combo(ui: &mut egui::Ui, id_source: impl std::hash::Hash, val: &mut Option<u32>) {
-    let label = val.map(|v| ["None", "Boss", "Screen Shake"].get(v as usize).copied().unwrap_or("Unknown")).unwrap_or("Any");
+fn card_frame<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(content.into())
+        .padding(8)
+        .style(theme::card_container)
+        .into()
+}
 
-    egui::ComboBox::from_id_salt(id_source).selected_text(label).show_ui(ui, |ui| {
-        ui.selectable_value(val, None, "Any");
-        ui.selectable_value(val, Some(0), "None");
-        ui.selectable_value(val, Some(1), "Boss");
-        ui.selectable_value(val, Some(2), "Screen Shake");
-    });
+fn mode_pick_list<'a>(is_exclude: bool, on_change: impl Fn(bool) -> Message + 'a) -> Element<'a, Message> {
+    let label = if is_exclude { "Exclude" } else { "Include" };
+
+    pick_list(vec!["Include", "Exclude"], Some(label), move |s| on_change(s == "Exclude"))
+        .style(theme::combo_box)
+        .menu_style(theme::combo_box_menu)
+        .into()
+}
+
+fn close_row<'a>(mode: Element<'a, Message>, on_remove: Message) -> Element<'a, Message> {
+    row![
+        mode,
+        Space::new().width(Length::Fill),
+        button(theme::button_label("X").size(CONTROL_TEXT_SIZE))
+            .width(Length::Fixed(REMOVE_BTN_WIDTH))
+            .on_press(on_remove)
+            .style(theme::danger_button),
+    ].align_y(Vertical::Center).into()
+}
+
+fn name_or_id_row<'a>(value: &'a str, on_input: impl Fn(String) -> Message + 'a) -> Element<'a, Message> {
+    row![
+        text("Name or ID:").width(Length::Fixed(LABEL_WIDTH)),
+        text_input("Any", value).on_input(on_input).width(Length::Fixed(VALUE_INPUT_WIDTH)).style(theme::rounded_input),
+    ].spacing(FIELD_SPACING).align_y(Vertical::Center).into()
+}
+
+fn enemy_card<'a>(idx: usize, enemy: &'a EnemyFilter) -> Element<'a, Message> {
+    let mode = mode_pick_list(enemy.is_exclude, move |is_exclude| Message::EnemyModeChanged(idx, is_exclude));
+
+    let mut ranges_col = column![].spacing(4);
+    let mut current = row![].spacing(PAIR_SPACING);
+    for (i, &range) in ENEMY_RANGES.iter().enumerate() {
+        let value = enemy_range_ref(enemy, range);
+        current = current.push(range_row(
+            enemy_range_label(range),
+            &value.min,
+            &value.max,
+            move |v| Message::EnemyRangeMinChanged(idx, range, v),
+            move |v| Message::EnemyRangeMaxChanged(idx, range, v),
+        ));
+        if (i + 1) % 2 == 0 {
+            ranges_col = ranges_col.push(current);
+            current = row![].spacing(PAIR_SPACING);
+        }
+    }
+    if !ENEMY_RANGES.len().is_multiple_of(2) {
+        ranges_col = ranges_col.push(current);
+    }
+
+    let boss_type_label = match enemy.boss_type {
+        None => "Any",
+        Some(0) => "None",
+        Some(1) => "Boss",
+        Some(2) => "Screen Shake",
+        Some(_) => "Unknown",
+    };
+
+    let body = column![
+        close_row(mode, Message::RemoveEnemy(idx)),
+        row![
+            text("Boss Type:"),
+            pick_list(vec!["Any", "None", "Boss", "Screen Shake"], Some(boss_type_label), move |s| {
+                Message::EnemyBossTypeChanged(idx, match s { "None" => Some(0), "Boss" => Some(1), "Screen Shake" => Some(2), _ => None })
+            })
+                .style(theme::combo_box)
+                .menu_style(theme::combo_box_menu),
+            text("Is Base:"),
+            tristate_button(enemy.is_base, Message::EnemyIsBaseToggled(idx)),
+        ].spacing(10).align_y(Vertical::Center),
+        name_or_id_row(&enemy.name_or_id, move |v| Message::EnemyNameChanged(idx, v)),
+        ranges_col,
+    ].spacing(CARD_SPACING);
+
+    card_frame(body)
+}
+
+fn enemy_range_ref(enemy: &EnemyFilter, range: EnemyRange) -> &StatRange {
+    match range {
+        EnemyRange::Amount => &enemy.amount,
+        EnemyRange::StartFrame => &enemy.start_frame,
+        EnemyRange::RespawnMin => &enemy.respawn_min,
+        EnemyRange::RespawnMax => &enemy.respawn_max,
+        EnemyRange::BaseHpPerc => &enemy.base_hp_perc,
+        EnemyRange::LayerMin => &enemy.layer_min,
+        EnemyRange::LayerMax => &enemy.layer_max,
+        EnemyRange::Magnification => &enemy.magnification,
+        EnemyRange::AtkMagnification => &enemy.atk_magnification,
+        EnemyRange::Score => &enemy.score,
+        EnemyRange::TimeFlag => &enemy.time_flag,
+        EnemyRange::KillCount => &enemy.kill_count,
+    }
+}
+
+fn lineup_card<'a>(idx: usize, cat: &'a LineupFilter) -> Element<'a, Message> {
+    let mode = mode_pick_list(cat.is_exclude, move |is_exclude| Message::LineupModeChanged(idx, is_exclude));
+
+    let body = column![
+        close_row(mode, Message::RemoveLineup(idx)),
+        name_or_id_row(&cat.name_or_id, move |v| Message::LineupNameChanged(idx, v)),
+        range_row(
+            "Total Level",
+            &cat.level.min,
+            &cat.level.max,
+            move |v| Message::LineupLevelMinChanged(idx, v),
+            move |v| Message::LineupLevelMaxChanged(idx, v),
+        ),
+    ].spacing(CARD_SPACING);
+
+    card_frame(body)
+}
+
+fn treasure_card<'a>(idx: usize, treasure: &'a TreasureFilter) -> Element<'a, Message> {
+    let mode = mode_pick_list(treasure.is_exclude, move |is_exclude| Message::TreasureModeChanged(idx, is_exclude));
+
+    let body = column![
+        close_row(mode, Message::RemoveTreasure(idx)),
+        name_or_id_row(&treasure.name_or_id, move |v| Message::TreasureNameChanged(idx, v)),
+        range_row(
+            "Amount",
+            &treasure.amount.min,
+            &treasure.amount.max,
+            move |v| Message::TreasureAmountMinChanged(idx, v),
+            move |v| Message::TreasureAmountMaxChanged(idx, v),
+        ),
+        range_row(
+            "Chance (%)",
+            &treasure.chance.min,
+            &treasure.chance.max,
+            move |v| Message::TreasureChanceMinChanged(idx, v),
+            move |v| Message::TreasureChanceMaxChanged(idx, v),
+        ),
+    ].spacing(CARD_SPACING);
+
+    card_frame(body)
+}
+
+fn material_card<'a>(idx: usize, material: &'a MaterialFilter) -> Element<'a, Message> {
+    let mode = mode_pick_list(material.is_exclude, move |is_exclude| Message::MaterialModeChanged(idx, is_exclude));
+
+    let body = column![
+        close_row(mode, Message::RemoveMaterial(idx)),
+        name_or_id_row(&material.name_or_id, move |v| Message::MaterialNameChanged(idx, v)),
+        range_row(
+            "Amount",
+            &material.amount.min,
+            &material.amount.max,
+            move |v| Message::MaterialAmountMinChanged(idx, v),
+            move |v| Message::MaterialAmountMaxChanged(idx, v),
+        ),
+    ].spacing(CARD_SPACING);
+
+    card_frame(body)
 }

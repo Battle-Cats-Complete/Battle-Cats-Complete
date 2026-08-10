@@ -20,13 +20,13 @@ const APK_SIGNING_BLOCK_V2_ID: u32 = 0x7109871a;
 const RSA_PKCS1V15_SHA2_256: u32 = 0x0103;
 const MAX_CHUNK_SIZE: usize = 1024 * 1024;
 
-pub struct ZipInfo {
+struct ZipInfo {
     pub central_directory_start: u64,
     pub eocd_start: u64,
 }
 
 impl ZipInfo {
-    pub fn new<R: Read + Seek>(reader: &mut R) -> Result<Self> {
+    pub(crate) fn new<R: Read + Seek>(reader: &mut R) -> Result<Self> {
         trace!("Scanning for ZIP End of Central Directory (EOCD)...");
         let mut eocd_magic = [0u8; 4];
         let file_length = reader.seek(SeekFrom::End(0))?;
@@ -58,14 +58,14 @@ impl ZipInfo {
     }
 }
 
-pub struct Signer {
+pub(crate) struct Signer {
     private_key: RsaPrivateKey,
     public_key: RsaPublicKey,
     certificate_der: Certificate,
 }
 
 impl Signer {
-    pub fn new(pem_string: &str) -> Result<Self> {
+    pub(crate) fn new(pem_string: &str) -> Result<Self> {
         debug!("Parsing PEM string for Signer initialization.");
         let cert_start_tag = "-----BEGIN CERTIFICATE-----";
         let cert_end_tag = "-----END CERTIFICATE-----";
@@ -98,15 +98,15 @@ impl Signer {
         })
     }
 
-    pub fn cert(&self) -> &Certificate {
+    pub(crate) fn cert(&self) -> &Certificate {
         &self.certificate_der
     }
 
-    pub fn pubkey(&self) -> &RsaPublicKey {
+    fn pubkey(&self) -> &RsaPublicKey {
         &self.public_key
     }
 
-    pub fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
+    pub(crate) fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         trace!("Signing payload of length: {}", data.len());
         let digest = Sha256::digest(data);
         let padding = Pkcs1v15Sign::new::<Sha256>();
@@ -114,7 +114,7 @@ impl Signer {
     }
 }
 
-pub fn sign(apk_path: &Path, custom_signer: Option<Signer>) -> Result<()> {
+pub(crate) fn sign(apk_path: &Path, custom_signer: Option<Signer>) -> Result<()> {
     info!("Starting APK signature process for: {:?}", apk_path);
     let identity = custom_signer.map(Ok).unwrap_or_else(|| {
         trace!("No custom signer provided, retrieving active PEM.");

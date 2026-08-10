@@ -1,48 +1,34 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 
-use eframe::egui::{self,  RichText};
+use iced::alignment::Horizontal;
+use iced::widget::image::Handle;
+use iced::widget::{column, container, image as iced_image, row, space, text, tooltip, Column};
+use iced::{Alignment, Element, Length, Theme};
 use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::stage::RewardStructure;
 
-use core::common::formats::GatyaItemBuy;
-use core::common::formats::GatyaItemName;
-use core::common::gfx::autocrop;
+use core::common::formats::{GatyaItemBuy, GatyaItemName};
 use core::modules::stage::treasure;
 use core::modules::stage::Stage;
+use core::Vfs;
 
-pub(crate) const TREASURE_TABLE_WIDTH: f32 = 345.0;
+use crate::app::theme;
+use crate::common::item_icon;
+use crate::widget::section;
+
+const TREASURE_TABLE_WIDTH: f32 = 345.0;
+const MAX_ICON_SIZE: f32 = 32.0;
+const HEADER_TEXT_SIZE: f32 = 13.0;
+const CELL_PADDING: [u16; 2] = [4, 8];
+const COLUMN_SPACING: f32 = 8.0;
 
 fn format_drop_chance(raw_chance: u32, drop_rule: i32) -> String {
     if drop_rule == -3 || drop_rule == -4 {
         return "100%".to_string();
     }
     format!("{}%", raw_chance)
-}
-
-fn process_item_icon_texture(icon_file_path: &Path) -> Option<egui::ColorImage> {
-    let Ok(loaded_raw_image_data) = image::open(icon_file_path) else {
-        return None;
-    };
-
-    let autocropped_rgba_image = autocrop(loaded_raw_image_data.to_rgba8());
-    let (crop_width, crop_height) = autocropped_rgba_image.dimensions();
-    let max_dimension = crop_width.max(crop_height) as f32;
-    let scale_factor = 32.0 / max_dimension;
-
-    let target_width = (crop_width as f32 * scale_factor).round() as u32;
-    let target_height = (crop_height as f32 * scale_factor).round() as u32;
-
-    let resized_rgba_image = image::imageops::resize(
-        &autocropped_rgba_image,
-        target_width.max(1),
-        target_height.max(1),
-        image::imageops::FilterType::Triangle
-    );
-
-    let image_dimensions = [resized_rgba_image.width() as usize, resized_rgba_image.height() as usize];
-
-    Some(egui::ColorImage::from_rgba_unmultiplied(image_dimensions, resized_rgba_image.as_flat_samples().as_slice()))
 }
 
 fn format_treasure_rule(drop_rule: i32) -> &'static str {
@@ -56,164 +42,138 @@ fn format_treasure_rule(drop_rule: i32) -> &'static str {
     }
 }
 
-pub(crate) fn center_header(ui: &mut egui::Ui, display_text: &str) {
-    ui.centered_and_justified(|ui| {
-        ui.add(egui::Label::new(RichText::new(display_text).strong()).wrap_mode(egui::TextWrapMode::Extend));
-    });
+#[derive(Default)]
+pub struct State {
+    icon_cache: RefCell<HashMap<u32, Handle>>,
 }
 
-pub(crate) fn center_text(ui: &mut egui::Ui, display_text: impl Into<String>) {
-    ui.centered_and_justified(|ui| {
-        ui.add(egui::Label::new(display_text.into()).wrap_mode(egui::TextWrapMode::Extend));
-    });
-}
+impl State {
+    pub fn forget(&self, id: u32) {
+        self.icon_cache.borrow_mut().remove(&id);
+    }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn draw(
-    egui_context: &egui::Context,
-    ui: &mut egui::Ui,
-    stage_data: &Stage,
-    item_buy_registry: &HashMap<u32, GatyaItemBuy>,
-    item_name_registry: &HashMap<usize, GatyaItemName>,
-    drop_chara_registry: &HashMap<u32, u32>,
-    unit_buy_registry: &HashMap<u32, UnitBuy>,
-    item_texture_cache: &mut HashMap<u32, egui::TextureHandle>,
-    active_language_priority_array: &[String]
-) {
-    match &stage_data.rewards {
-        RewardStructure::Treasure { drop_rule, drops } => {
-            let valid_drops_array: Vec<_> = drops.iter().filter(|drop_data| drop_data.chance > 0).collect();
+    pub fn clear_icons(&self) {
+        self.icon_cache.borrow_mut().clear();
+    }
 
-            if valid_drops_array.is_empty() {
-                return;
-            }
-
-            ui.set_max_width(TREASURE_TABLE_WIDTH);
-
-            let rule_description = format_treasure_rule(*drop_rule);
-            ui.label(RichText::new(format!("Treasure | {}", rule_description)).strong().heading());
-            ui.separator();
-
-            egui::Grid::new("reward_treasure_grid")
-                .striped(true)
-                .spacing([15.0, 4.0])
-                .min_row_height(32.0)
-                .show(ui, |grid| {
-                    center_header(grid, "Chance");
-                    center_header(grid, "Item");
-                    center_header(grid, "Amount");
-                    grid.end_row();
-
-                    for drop_data in valid_drops_array {
-                        let drop_info = treasure::resolve_drop(
-                            drop_data.item_id,
-                            drop_data.amount,
-                            item_buy_registry,
-                            item_name_registry,
-                            drop_chara_registry,
-                            unit_buy_registry,
-                            active_language_priority_array
-                        );
-
-                        let chance_display = format_drop_chance(drop_data.chance, *drop_rule);
-                        center_text(grid, chance_display);
-
-                        grid.centered_and_justified(|icon_layout| {
-                            let mut has_rendered_icon = false;
-
-                            if let Some(resolved_image_path) = drop_info.image_path {
-                                if !item_texture_cache.contains_key(&drop_data.item_id)
-                                    && let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
-                                        let generated_texture_handle = egui_context.load_texture(
-                                            format!("treasure_item_icon_{}", drop_data.item_id),
-                                            processed_color_image,
-                                            egui::TextureOptions::LINEAR
-                                        );
-                                        item_texture_cache.insert(drop_data.item_id, generated_texture_handle);
-                                    }
-
-                                if let Some(cached_texture_handle) = item_texture_cache.get(&drop_data.item_id) {
-                                    let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
-                                    image_response.on_hover_text(drop_info.name.clone());
-                                    has_rendered_icon = true;
-                                }
-                            }
-
-                            if !has_rendered_icon {
-                                icon_layout.add(egui::Label::new(&drop_info.name).wrap_mode(egui::TextWrapMode::Extend));
-                            }
-                        });
-
-                        center_text(grid, drop_info.amount_display);
-                        grid.end_row();
-                    }
-                });
+    fn icon(&self, id: u32, path: &Path) -> Option<Handle> {
+        if let Some(cached) = self.icon_cache.borrow().get(&id) {
+            return Some(cached.clone());
         }
-        RewardStructure::Timed(timed_scores) => {
-            if timed_scores.is_empty() {
-                return;
+
+        let handle = item_icon::load_scaled(path, MAX_ICON_SIZE as u32)?;
+        self.icon_cache.borrow_mut().insert(id, handle.clone());
+        Some(handle)
+    }
+
+    fn item_row<'a>(
+        &'a self,
+        index: usize,
+        item_id: u32,
+        left_label: String,
+        amount_label: String,
+        image_path: Option<&Path>,
+        drop_name: String,
+    ) -> Element<'a, super::Message> {
+        let icon_element: Element<'a, super::Message> = match image_path.and_then(|path| self.icon(item_id, path)) {
+            Some(handle) => tooltip(
+                iced_image(handle).width(Length::Fixed(MAX_ICON_SIZE)).height(Length::Fixed(MAX_ICON_SIZE)),
+                container(text(drop_name.clone())).padding(6).style(container::bordered_box),
+                tooltip::Position::Top,
+            ).into(),
+            None => theme::centered_text(drop_name).into(),
+        };
+
+        container(
+            row![
+                theme::table_cell_text(left_label, Length::FillPortion(1)),
+                container(icon_element).width(Length::FillPortion(1)).align_x(Horizontal::Center),
+                theme::table_cell_text(amount_label, Length::FillPortion(1)),
+            ]
+                .spacing(COLUMN_SPACING)
+                .align_y(Alignment::Center)
+        )
+            .style(move |theme: &Theme| theme::zebra_table_row(theme, index))
+            .padding(CELL_PADDING)
+            .width(Length::Fill)
+            .into()
+    }
+
+    pub fn view<'a>(
+        &'a self,
+        stage: &'a Stage,
+        item_buys: &'a HashMap<u32, GatyaItemBuy>,
+        item_names: &'a HashMap<usize, GatyaItemName>,
+        drop_charas: &'a HashMap<u32, u32>,
+        unit_buys: &'a HashMap<u32, UnitBuy>,
+        vfs: &'a Vfs,
+    ) -> Element<'a, super::Message> {
+        match &stage.rewards {
+            RewardStructure::Treasure { drop_rule, drops } => {
+                let valid_drops: Vec<_> = drops.iter().filter(|drop| drop.chance > 0).collect();
+                if valid_drops.is_empty() {
+                    return space().into();
+                }
+
+                let mut grid = column![header_row("Chance")];
+
+                for (index, drop) in valid_drops.into_iter().enumerate() {
+                    let resolved = treasure::resolve_drop(vfs, drop.item_id, drop.amount, item_buys, item_names, drop_charas, unit_buys);
+                    grid = grid.push(self.item_row(
+                        index,
+                        drop.item_id,
+                        format_drop_chance(drop.chance, *drop_rule),
+                        resolved.amount_display.clone(),
+                        resolved.image_path.as_deref(),
+                        resolved.name.clone(),
+                    ));
+                }
+
+                table(format!("Treasure | {}", format_treasure_rule(*drop_rule)), grid)
             }
+            RewardStructure::Timed(timed_scores) => {
+                if timed_scores.is_empty() {
+                    return space().into();
+                }
 
-            ui.set_max_width(TREASURE_TABLE_WIDTH);
+                let mut grid = column![header_row("Score")];
 
-            ui.strong("Timed Score Rewards");
-            ui.separator();
+                for (index, score) in timed_scores.iter().enumerate() {
+                    let resolved = treasure::resolve_drop(vfs, score.item_id, score.amount, item_buys, item_names, drop_charas, unit_buys);
+                    grid = grid.push(self.item_row(
+                        index,
+                        score.item_id,
+                        score.score.to_string(),
+                        resolved.amount_display.clone(),
+                        resolved.image_path.as_deref(),
+                        resolved.name.clone(),
+                    ));
+                }
 
-            egui::Grid::new("reward_timed_grid")
-                .striped(true)
-                .spacing([15.0, 4.0])
-                .min_row_height(32.0)
-                .show(ui, |grid| {
-                    center_header(grid, "Score");
-                    center_header(grid, "Item");
-                    center_header(grid, "Amount");
-                    grid.end_row();
-
-                    for score_data in timed_scores {
-                        let drop_info = treasure::resolve_drop(
-                            score_data.item_id,
-                            score_data.amount,
-                            item_buy_registry,
-                            item_name_registry,
-                            drop_chara_registry,
-                            unit_buy_registry,
-                            active_language_priority_array
-                        );
-
-                        center_text(grid, score_data.score.to_string());
-
-                        grid.centered_and_justified(|icon_layout| {
-                            let mut has_rendered_icon = false;
-
-                            if let Some(resolved_image_path) = drop_info.image_path {
-                                if !item_texture_cache.contains_key(&score_data.item_id)
-                                    && let Some(processed_color_image) = process_item_icon_texture(&resolved_image_path) {
-                                        let generated_texture_handle = egui_context.load_texture(
-                                            format!("treasure_item_icon_{}", score_data.item_id),
-                                            processed_color_image,
-                                            egui::TextureOptions::LINEAR
-                                        );
-                                        item_texture_cache.insert(score_data.item_id, generated_texture_handle);
-                                    }
-
-                                if let Some(cached_texture_handle) = item_texture_cache.get(&score_data.item_id) {
-                                    let image_response = icon_layout.add(egui::Image::new(cached_texture_handle).max_size(egui::vec2(32.0, 32.0)));
-                                    image_response.on_hover_text(drop_info.name.clone());
-                                    has_rendered_icon = true;
-                                }
-                            }
-
-                            if !has_rendered_icon {
-                                icon_layout.add(egui::Label::new(&drop_info.name).wrap_mode(egui::TextWrapMode::Extend));
-                            }
-                        });
-
-                        center_text(grid, drop_info.amount_display);
-                        grid.end_row();
-                    }
-                });
-        }
-        RewardStructure::None => {
+                table("Timed Score Rewards", grid)
+            }
+            RewardStructure::None => space().into(),
         }
     }
+}
+
+fn header_row<'a>(first_column: &'a str) -> Element<'a, super::Message> {
+    container(
+        row![
+            theme::table_cell_text(first_column, Length::FillPortion(1)).size(HEADER_TEXT_SIZE),
+            theme::table_cell_text("Item", Length::FillPortion(1)).size(HEADER_TEXT_SIZE),
+            theme::table_cell_text("Amount", Length::FillPortion(1)).size(HEADER_TEXT_SIZE),
+        ]
+            .spacing(COLUMN_SPACING)
+    )
+        .style(theme::zebra_table_header)
+        .padding(CELL_PADDING)
+        .width(Length::Fill)
+        .into()
+}
+
+fn table<'a>(title: impl ToString, grid: Column<'a, super::Message>) -> Element<'a, super::Message> {
+    container(section(title, Length::Fill, grid.width(Length::Fill)))
+        .width(Length::Fixed(TREASURE_TABLE_WIDTH))
+        .into()
 }

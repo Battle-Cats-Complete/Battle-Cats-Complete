@@ -16,6 +16,8 @@ use tracing::trace;
 use crate::common::formats::GatyaItemBuy;
 use crate::common::formats::GatyaItemName;
 
+use super::StageDataState;
+
 use self::enemy::{CompiledEnemyFilter, EnemyFilter};
 use self::lineup::{CompiledLineupFilter, LineupFilter};
 use self::material::{CompiledMaterialFilter, MaterialFilter};
@@ -262,6 +264,32 @@ impl StageFilterState {
     }
 }
 
+pub struct StageLookupContext<'a> {
+    pub enemy_name_registry: &'a [String],
+    pub lock_registry: &'a HashMap<u32, LockSkipDataEntry>,
+    pub cpu_setting: &'a ScatCpuSetting,
+    pub item_buy_registry: &'a HashMap<u32, GatyaItemBuy>,
+    pub item_name_registry: &'a HashMap<usize, GatyaItemName>,
+    pub drop_chara_registry: &'a HashMap<u32, u32>,
+    pub unit_buy_registry: &'a HashMap<u32, UnitBuy>,
+    pub cat_name_registry: &'a HashMap<u32, Vec<String>>,
+}
+
+impl<'a> StageLookupContext<'a> {
+    pub fn from_data(data: &'a StageDataState) -> Self {
+        Self {
+            enemy_name_registry: &data.enemy_name_registry,
+            lock_registry: &data.lock_skip_registry,
+            cpu_setting: &data.scat_cpu_setting,
+            item_buy_registry: &data.item_buy_registry,
+            item_name_registry: &data.item_name_registry,
+            drop_chara_registry: &data.drop_chara_registry,
+            unit_buy_registry: &data.unit_buy_registry,
+            cat_name_registry: &data.cat_name_registry,
+        }
+    }
+}
+
 impl CompiledStageFilter {
     pub fn is_active(&self) -> bool {
         !self.category_name.is_empty()
@@ -316,30 +344,16 @@ impl CompiledStageFilter {
             || !self.lineup_cats.is_empty()
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn matches(
-        &self,
-        cat_name: &str,
-        map: &Map,
-        stage: &Stage,
-        enemy_name_registry: &[String],
-        lock_registry: &HashMap<u32, LockSkipDataEntry>,
-        cpu_setting: &ScatCpuSetting,
-        item_buy_registry: &HashMap<u32, GatyaItemBuy>,
-        item_name_registry: &HashMap<usize, GatyaItemName>,
-        drop_chara_registry: &HashMap<u32, u32>,
-        unit_buy_registry: &HashMap<u32, UnitBuy>,
-        cat_name_registry: &HashMap<u32, Vec<String>>,
-    ) -> bool {
+    pub fn matches(&self, cat_name: &str, map: &Map, stage: &Stage, ctx: &StageLookupContext) -> bool {
         if !self.is_active() { return true; }
 
         if let Some(has_continues) = self.continues && stage.is_no_continues == has_continues { return false; }
         if let Some(has_boss_guard) = self.boss_guard && stage.is_base_indestructible != has_boss_guard { return false; }
 
         if let Some(use_super_cpu) = self.use_super_cpu {
-            let mut cpu_allowed = cpu_setting.super_cpu_consume_amount > 0;
+            let mut cpu_allowed = ctx.cpu_setting.super_cpu_consume_amount > 0;
             if let Some(global_id) = stage.category.global_map_id(stage.map_id)
-                && let Some(entry) = lock_registry.get(&global_id)
+                && let Some(entry) = ctx.lock_registry.get(&global_id)
                 && entry.excluded_map_id == global_id { cpu_allowed = false; }
             if cpu_allowed != use_super_cpu { return false; }
         }
@@ -441,7 +455,7 @@ impl CompiledStageFilter {
 
         if !self.enemies.is_empty() {
             for enemy_filter in &self.enemies {
-                let found = stage.enemies.iter().any(|enemy| enemy_filter.matches(enemy, enemy_name_registry));
+                let found = stage.enemies.iter().any(|enemy| enemy_filter.matches(enemy, ctx.enemy_name_registry));
                 if enemy_filter.is_exclude { if found { return false; } } else if !found { return false; }
             }
         }
@@ -450,10 +464,10 @@ impl CompiledStageFilter {
             for treasure_filter in &self.treasures {
                 let found = match &stage.rewards {
                     RewardStructure::Treasure { drops, .. } => {
-                        drops.iter().any(|drop| treasure_filter.matches_drop(drop.item_id, drop.amount, drop.chance, item_buy_registry, item_name_registry, drop_chara_registry, unit_buy_registry, cat_name_registry))
+                        drops.iter().any(|drop| treasure_filter.matches_drop(drop.item_id, drop.amount, drop.chance, ctx.item_buy_registry, ctx.item_name_registry, ctx.drop_chara_registry, ctx.unit_buy_registry, ctx.cat_name_registry))
                     }
                     RewardStructure::Timed(scores) => {
-                        scores.iter().any(|score| treasure_filter.matches_drop(score.item_id, score.amount, 100, item_buy_registry, item_name_registry, drop_chara_registry, unit_buy_registry, cat_name_registry))
+                        scores.iter().any(|score| treasure_filter.matches_drop(score.item_id, score.amount, 100, ctx.item_buy_registry, ctx.item_name_registry, ctx.drop_chara_registry, ctx.unit_buy_registry, ctx.cat_name_registry))
                     }
                     _ => false,
                 };
@@ -466,7 +480,7 @@ impl CompiledStageFilter {
             for material_filter in &self.materials {
                 let found = drop_items_opt.is_some_and(|drop_items| {
                     drop_items.material_drops.iter().enumerate().any(|(index, &amount)| {
-                        amount > 0 && material_filter.matches_material(index, amount, item_buy_registry, item_name_registry)
+                        amount > 0 && material_filter.matches_material(index, amount, ctx.item_buy_registry, ctx.item_name_registry)
                     })
                 });
                 if material_filter.is_exclude { if found { return false; } } else if !found { return false; }
@@ -475,7 +489,7 @@ impl CompiledStageFilter {
 
         if !self.lineup_cats.is_empty() {
             for lineup_filter in &self.lineup_cats {
-                if !lineup_filter.matches_lineup(stage, cat_name_registry) { return false; }
+                if !lineup_filter.matches_lineup(stage, ctx.cat_name_registry) { return false; }
             }
         }
 

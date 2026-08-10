@@ -1,228 +1,235 @@
-use std::sync::Mutex;
+use std::thread;
 
-use eframe::egui;
+use iced::futures::channel::mpsc;
+use iced::widget::{button, column, container, row, text};
+use iced::{Alignment, Element, Task, Theme};
+use tracing::error;
 
-use core::modules::addons::adb::AdbManager;
-use core::modules::addons::apkeditor::ApkeditorManager;
-use core::modules::addons::avifenc::AvifManager;
-use core::modules::addons::ffmpeg::FfmpegManager;
+use core::addons::adb::AdbManager;
+use core::addons::apkeditor::ApkeditorManager;
+use core::addons::avifenc::AvifManager;
+use core::addons::ffmpeg::FfmpegManager;
 #[cfg(target_os = "windows")]
-use core::modules::addons::oem::{OemDriver, OemManager};
-use core::modules::addons::paths::AddonStatus;
+use core::addons::oem::{OemDriver, OemManager};
+use core::addons::{manager, AddonStatus};
 
-use crate::common::DragGuard;
+use crate::app::theme;
 
-#[derive(Default, Clone)]
-pub(crate) struct AddonDeleteState {
-    pub is_open: bool,
-    pub target_name: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Addon {
+    Adb,
+    Apkeditor,
+    Ffmpeg,
+    Avif,
 }
 
-static ADB_MANAGER: Mutex<Option<AdbManager>> = Mutex::new(None);
-static APKTOOL_MANAGER: Mutex<Option<ApkeditorManager>> = Mutex::new(None);
-static AVIF_MANAGER: Mutex<Option<AvifManager>> = Mutex::new(None);
-static FFMPEG_MANAGER: Mutex<Option<FfmpegManager>> = Mutex::new(None);
+impl Addon {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Adb => "Android Bridge",
+            Self::Apkeditor => "APKEditor",
+            Self::Ffmpeg => "FFMPEG",
+            Self::Avif => "AVIFENC",
+        }
+    }
+}
 
-#[cfg(target_os = "windows")]
-static OEM_MANAGER: Mutex<Option<OemManager>> = Mutex::new(None);
+#[derive(Debug, Clone)]
+pub enum Message {
+    Install(Addon),
+    Download(Addon, AddonStatus),
+    RequestDelete(Addon),
+    ConfirmDelete,
+    CancelDelete,
+    #[cfg(target_os = "windows")]
+    OemDriverSelected(OemDriver),
+    #[cfg(target_os = "windows")]
+    OemAction,
+}
 
-pub(crate) fn show(ui: &mut egui::Ui, drag_guard: &mut DragGuard) -> bool {
-    {
-        let mut adb_lock = ADB_MANAGER.lock().unwrap();
-        let adb_manager = adb_lock.get_or_insert_with(AdbManager::default);
-        adb_manager.update();
+#[derive(Default)]
+pub struct State {
+    adb: AdbManager,
+    apkeditor: ApkeditorManager,
+    avif: AvifManager,
+    ffmpeg: FfmpegManager,
+    #[cfg(target_os = "windows")]
+    oem: OemManager,
+    pending_delete: Option<Addon>,
+}
 
-        #[cfg(target_os = "windows")]
-        let mut oem_lock = OEM_MANAGER.lock().unwrap();
-        #[cfg(target_os = "windows")]
-        let oem_manager = oem_lock.get_or_insert_with(OemManager::default);
+impl State {
+    pub fn is_modal_open(&self) -> bool {
+        self.pending_delete.is_some()
+    }
 
-        let mut apkeditor_lock = APKTOOL_MANAGER.lock().unwrap();
-        let apkeditor_manager = apkeditor_lock.get_or_insert_with(ApkeditorManager::default);
-        apkeditor_manager.poll();
+    pub fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::Install(addon) => {
+                let config = match addon {
+                    Addon::Adb => self.adb.install(),
+                    Addon::Apkeditor => self.apkeditor.install(),
+                    Addon::Ffmpeg => self.ffmpeg.install(),
+                    Addon::Avif => self.avif.install(),
+                };
 
-        let mut avif_lock = AVIF_MANAGER.lock().unwrap();
-        let avif_manager = avif_lock.get_or_insert_with(AvifManager::default);
-        avif_manager.update();
+                let (tx, rx) = mpsc::unbounded();
 
-        let mut ffmpeg_lock = FFMPEG_MANAGER.lock().unwrap();
-        let ffmpeg_manager = ffmpeg_lock.get_or_insert_with(FfmpegManager::default);
-        ffmpeg_manager.update();
-
-        egui::ScrollArea::vertical()
-            .id_salt("addons_scroll")
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                ui.heading("Android Bridge");
-                ui.add_space(5.0);
-                ui.label("Enables \"Android\" option for Game Data Import allowing Android Device & Emulator imports\nMake sure you have \"USB Debugging\" or \"Wireless Debugging\" Enabled on your Android Device");
-                ui.add_space(8.0);
-
-                let adb_status = adb_manager.status.clone();
-                render_addon_controls(ui, &adb_status, "ADB", || adb_manager.install(), "adb_delete");
-
-                #[cfg(target_os = "windows")]
-                {
-                    ui.add_space(20.0);
-                    ui.heading(egui::RichText::new("ADB OEM Drivers").strong());
-                    ui.label("Allows Windows devices to connect to a real Android device for game files during \"Android\" export method\nWindows only, requires Android Bridge Add-On, and manual set-up");
-
-                    ui.horizontal(|ui| {
-                        egui::ComboBox::from_id_salt("oem_combo")
-                            .selected_text(OemManager::label(oem_manager.selected))
-                            .width(150.0)
-                            .show_ui(ui, |ui| {
-                                for driver in OemManager::all_drivers() {
-                                    ui.selectable_value(
-                                        &mut oem_manager.selected,
-                                        driver,
-                                        OemManager::label(driver)
-                                    );
-                                }
-                            });
-
-                        let btn_text = if oem_manager.selected == OemDriver::Universal {
-                            "Download Installer"
-                        } else {
-                            "Open Download Page"
-                        };
-
-                        if ui.button(btn_text).clicked() {
-                            oem_manager.execute_action();
-                        }
+                thread::spawn(move || {
+                    let result = manager::download(config, |status| {
+                        let _ = tx.unbounded_send(status);
                     });
-                }
 
-                ui.add_space(20.0);
-                ui.heading("APKEditor");
-                ui.add_space(5.0);
-                ui.label("Allows mod export to convert XAPK/APKM/APKS files into an APK\nDownloads a portable JRE for you, falling back to system JRE upon failure");
-                ui.add_space(8.0);
-                let apkeditor_status = apkeditor_manager.status.clone();
-                render_addon_controls(ui, &apkeditor_status, "APKEditor", || apkeditor_manager.install(), "apkeditor_delete");
-
-                ui.add_space(20.0);
-                ui.heading("FFMPEG");
-                ui.add_space(5.0);
-                ui.label("Optimizes encoding speed for most file formats\nEnables most export formats");
-                ui.add_space(8.0);
-                let ffmpeg_status = ffmpeg_manager.status.clone();
-                render_addon_controls(ui, &ffmpeg_status, "FFMPEG", || ffmpeg_manager.install(), "ffmpeg_delete");
-
-                ui.add_space(20.0);
-                ui.heading("AVIFENC");
-                ui.add_space(5.0);
-                ui.label("Optimizes encoding for the AVIF format specifically\nEnables AVIF export format");
-                ui.add_space(8.0);
-                let avif_status = avif_manager.status.clone();
-                render_addon_controls(ui, &avif_status, "AVIFENC", || avif_manager.install(), "avif_delete");
-            });
-    }
-
-    handle_modals(ui.ctx(), drag_guard);
-
-    false
-}
-
-fn handle_modals(ctx: &egui::Context, drag_guard: &mut DragGuard) {
-    let mut adb_lock = ADB_MANAGER.lock().unwrap();
-    let adb_manager = adb_lock.get_or_insert_with(AdbManager::default);
-
-    let mut apkeditor_lock = APKTOOL_MANAGER.lock().unwrap();
-    let apkeditor_manager = apkeditor_lock.get_or_insert_with(ApkeditorManager::default);
-
-    let mut avif_lock = AVIF_MANAGER.lock().unwrap();
-    let avif_manager = avif_lock.get_or_insert_with(AvifManager::default);
-
-    let mut ffmpeg_lock = FFMPEG_MANAGER.lock().unwrap();
-    let ffmpeg_manager = ffmpeg_lock.get_or_insert_with(FfmpegManager::default);
-
-    handle_delete_modal(ctx, drag_guard, "adb_delete", || adb_manager.uninstall());
-    handle_delete_modal(ctx, drag_guard, "apkeditor_delete", || apkeditor_manager.uninstall());
-    handle_delete_modal(ctx, drag_guard, "avif_delete", || avif_manager.uninstall());
-    handle_delete_modal(ctx, drag_guard, "ffmpeg_delete", || ffmpeg_manager.uninstall());
-}
-
-fn render_addon_controls(ui: &mut egui::Ui, status: &AddonStatus, name: &str, on_download: impl FnOnce(), confirm_id: &str) {
-    match status {
-        AddonStatus::Installed => {
-            let btn = egui::Button::new(format!("Delete {}", name)).fill(egui::Color32::from_rgb(180, 50, 50));
-            if ui.add_sized([140.0, 30.0], btn).clicked() {
-                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(confirm_id), AddonDeleteState {
-                    is_open: true,
-                    target_name: name.to_string()
-                }));
-            }
-        },
-        AddonStatus::Downloading(_, _) => {
-            let btn = egui::Button::new(format!("Downloading {}", name))
-                .fill(egui::Color32::from_rgb(200, 180, 50));
-            ui.add_sized([140.0, 30.0], btn);
-            ui.ctx().request_repaint();
-        },
-        AddonStatus::NotInstalled | AddonStatus::Error(_) => {
-            let btn = egui::Button::new(format!("Download {}", name)).fill(egui::Color32::from_rgb(40, 160, 40));
-            if ui.add_sized([140.0, 30.0], btn).clicked() {
-                on_download();
-            }
-            if let AddonStatus::Error(e) = status {
-                ui.add_space(5.0);
-                ui.label(egui::RichText::new(format!("Error: {}", e)).color(egui::Color32::RED));
-            }
-        },
-    }
-}
-
-fn handle_delete_modal(ctx: &egui::Context, drag_guard: &mut DragGuard, id: &str, on_yes: impl FnOnce()) {
-    let state_id = egui::Id::new(id);
-    let mut state = ctx.data(|d| d.get_temp::<AddonDeleteState>(state_id)).unwrap_or_default();
-
-    if state.is_open {
-        let window_id = egui::Id::new(format!("{}_window", id));
-        let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
-        let mut should_close = false;
-
-        let mut window = egui::Window::new("Confirm Deletion")
-            .id(window_id)
-            .collapsible(false)
-            .resizable(false)
-            .constrain(false)
-            .movable(allow_drag)
-            .default_pos(ctx.screen_rect().center() - egui::vec2(110.0, 50.0));
-
-        if let Some(pos) = fixed_pos { window = window.current_pos(pos); }
-
-        window.show(ctx, |ui| {
-            ui.set_min_width(220.0);
-            ui.vertical_centered(|ui| {
-                ui.add_space(5.0);
-                ui.label(format!("Are you sure you want to delete {}?", state.target_name));
-                ui.add_space(15.0);
-
-                ui.horizontal(|ui| {
-                    let total_width = 130.0;
-                    let x_offset = (ui.available_width() - total_width) / 2.0;
-                    ui.add_space(x_offset);
-
-                    if ui.add_sized([60.0, 30.0], egui::Button::new("Yes")).clicked() {
-                        on_yes();
-                        should_close = true;
-                    }
-
-                    ui.add_space(10.0);
-
-                    if ui.add_sized([60.0, 30.0], egui::Button::new("No")).clicked() {
-                        should_close = true;
-                    }
+                    let terminal = result.map_or_else(
+                        |err| {
+                            error!("Addon download failed: {}", err);
+                            AddonStatus::Error(err)
+                        },
+                        |()| AddonStatus::Installed,
+                    );
+                    let _ = tx.unbounded_send(terminal);
                 });
-                ui.add_space(5.0);
-            });
-        });
 
-        if should_close {
-            state.is_open = false;
+                Task::stream(rx).map(move |status| Message::Download(addon, status))
+            }
+            Message::Download(addon, status) => {
+                let slot = match addon {
+                    Addon::Adb => &mut self.adb.status,
+                    Addon::Apkeditor => &mut self.apkeditor.status,
+                    Addon::Ffmpeg => &mut self.ffmpeg.status,
+                    Addon::Avif => &mut self.avif.status,
+                };
+                *slot = status;
+                Task::none()
+            }
+            Message::RequestDelete(addon) => {
+                self.pending_delete = Some(addon);
+                Task::none()
+            }
+            Message::CancelDelete => {
+                self.pending_delete = None;
+                Task::none()
+            }
+            Message::ConfirmDelete => {
+                if let Some(addon) = self.pending_delete.take() {
+                    match addon {
+                        Addon::Adb => self.adb.uninstall(),
+                        Addon::Apkeditor => self.apkeditor.uninstall(),
+                        Addon::Ffmpeg => self.ffmpeg.uninstall(),
+                        Addon::Avif => self.avif.uninstall(),
+                    }
+                }
+                Task::none()
+            }
+            #[cfg(target_os = "windows")]
+            Message::OemDriverSelected(driver) => {
+                self.oem.selected = driver;
+                Task::none()
+            }
+            #[cfg(target_os = "windows")]
+            Message::OemAction => {
+                self.oem.execute_action();
+                Task::none()
+            }
+        }
+    }
+
+    fn addon_section<'a>(&'a self, addon: Addon, status: &'a AddonStatus, description: &'a str) -> Element<'a, Message> {
+        let controls: Element<'a, Message> = match status {
+            AddonStatus::Installed => {
+                theme::sized_button(format!("Delete {}", addon.label()), theme::ACTION_BUTTON_WIDTH, theme::danger_button)
+                    .on_press(Message::RequestDelete(addon))
+                    .into()
+            }
+            AddonStatus::Downloading(progress, stage) => {
+                column![
+                    theme::sized_button(format!("Downloading {}...", addon.label()), theme::ACTION_BUTTON_WIDTH, theme::neutral_button),
+                    text(format!("{} ({:.0}%)", stage, progress * 100.0)).size(12),
+                ].spacing(4).into()
+            }
+            AddonStatus::NotInstalled | AddonStatus::Error(_) => {
+                let mut col = column![
+                    theme::sized_button(format!("Download {}", addon.label()), theme::ACTION_BUTTON_WIDTH, theme::success_button)
+                        .on_press(Message::Install(addon))
+                ].spacing(4);
+                if let AddonStatus::Error(err) = status {
+                    col = col.push(text(format!("Error: {}", err)).size(12).style(|theme: &Theme| {
+                        text::Style { color: Some(theme.palette().danger) }
+                    }));
+                }
+                col.into()
+            }
+        };
+
+        column![
+            text(addon.label()).size(20),
+            text(description).size(13),
+            controls,
+        ].spacing(6).into()
+    }
+
+    pub fn view<'a>(&'a self) -> Element<'a, Message> {
+        let mut content = column![
+            self.addon_section(
+                Addon::Adb, &self.adb.status,
+                "Enables \"Android\" option for Game Data Import allowing Android Device & Emulator imports.\nMake sure you have \"USB Debugging\" or \"Wireless Debugging\" enabled on your Android device."
+            ),
+        ].spacing(20);
+
+        #[cfg(target_os = "windows")]
+        {
+            let drivers = OemManager::all_drivers();
+            let btn_text = if self.oem.selected == OemDriver::Universal { "Download Installer" } else { "Open Download Page" };
+            content = content.push(
+                column![
+                    text("ADB OEM Drivers").size(20),
+                    text("Allows Windows devices to connect to a real Android device for game files during \"Android\" export method.\nWindows only, requires Android Bridge Add-On, and manual set-up.").size(13),
+                    row![
+                        iced::widget::pick_list(
+                            drivers.iter().map(|d| OemManager::label(*d)).collect::<Vec<_>>(),
+                            Some(OemManager::label(self.oem.selected)),
+                            |label| {
+                                let driver = OemManager::all_drivers().into_iter()
+                                    .find(|d| OemManager::label(*d) == label)
+                                    .unwrap_or_default();
+                                Message::OemDriverSelected(driver)
+                            }
+                        ).style(theme::combo_box).menu_style(theme::combo_box_menu),
+                        button(text(btn_text)).on_press(Message::OemAction),
+                    ].spacing(10).align_y(Alignment::Center),
+                ].spacing(6)
+            );
         }
 
-        ctx.data_mut(|d| d.insert_temp(state_id, state));
+        content = content.push(self.addon_section(
+            Addon::Apkeditor, &self.apkeditor.status,
+            "Allows mod export to convert XAPK/APKM/APKS files into an APK.\nDownloads a portable JRE for you, falling back to system JRE upon failure."
+        ));
+        content = content.push(self.addon_section(
+            Addon::Ffmpeg, &self.ffmpeg.status,
+            "Optimizes encoding speed for most file formats.\nEnables most export formats."
+        ));
+        content = content.push(self.addon_section(
+            Addon::Avif, &self.avif.status,
+            "Optimizes encoding for the AVIF format specifically.\nEnables AVIF export format."
+        ));
+
+        content.into()
+    }
+
+    pub fn view_modal<'a>(&'a self) -> Element<'a, Message> {
+        let name = self.pending_delete.map(Addon::label).unwrap_or_default();
+
+        container(
+            column![
+                text(format!("Are you sure you want to delete {}?", name)).size(16),
+                row![
+                    button("Yes").on_press(Message::ConfirmDelete).style(button::danger),
+                    button("No").on_press(Message::CancelDelete),
+                ].spacing(10)
+            ].spacing(20).padding(25).align_x(Alignment::Center)
+        )
+            .style(theme::confirm_modal_container)
+            .into()
     }
 }

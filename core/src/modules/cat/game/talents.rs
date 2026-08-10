@@ -6,7 +6,7 @@ use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
 use crate::modules::cat::game::registry::{get_display_def, CAT_STATS_REGISTRY};
 use crate::modules::cat::game::stats;
 
-pub fn calculate_talent_value(minimum: u16, maximum: u16, level: u8, max_level: u8) -> i32 {
+pub(crate) fn calculate_talent_value(minimum: u16, maximum: u16, level: u8, max_level: u8) -> i32 {
     if level == 0 { return 0; }
     if max_level <= 1 { return minimum as i32; }
     if level == 1 { return minimum as i32; }
@@ -125,15 +125,22 @@ fn process_generic_attributes(
         handled_attribute_keys.insert("Active");
     }
 
+    let snapshots = AttrSnapshots {
+        old: &old_attributes,
+        new: &new_attributes,
+        min: &min_attributes,
+        max: maximum_attributes,
+    };
+
     for &(attribute_key, attribute_unit) in pure_definition.schema {
         if handled_attribute_keys.contains(attribute_key) { continue; }
 
         if attribute_key.starts_with("Min ") {
-            process_range_attribute(attribute_key, pure_definition, &old_attributes, &new_attributes, &min_attributes, maximum_attributes, &mut handled_attribute_keys, &mut strings_changed, &mut strings_unchanged);
+            process_range_attribute(attribute_key, pure_definition, &snapshots, &mut handled_attribute_keys, &mut strings_changed, &mut strings_unchanged);
             continue;
         }
 
-        process_single_attribute(attribute_key, attribute_unit, &old_attributes, &new_attributes, &min_attributes, maximum_attributes, &mut handled_attribute_keys, &mut strings_changed, &mut strings_unchanged);
+        process_single_attribute(attribute_key, attribute_unit, &snapshots, &mut handled_attribute_keys, &mut strings_changed, &mut strings_unchanged);
     }
 
     let mut final_display_strings = strings_changed;
@@ -146,13 +153,17 @@ fn process_generic_attributes(
     Some(final_display_strings.join("\n"))
 }
 
+struct AttrSnapshots<'a> {
+    old: &'a [(&'static str, i32, AttrUnit)],
+    new: &'a [(&'static str, i32, AttrUnit)],
+    min: &'a [(&'static str, i32, AttrUnit)],
+    max: &'a [(&'static str, i32, AttrUnit)],
+}
+
 fn process_range_attribute(
     attribute_key: &'static str,
     pure_definition: &nyanko::cat::abilities::Ability,
-    old_attributes: &[(&'static str, i32, AttrUnit)],
-    new_attributes: &[(&'static str, i32, AttrUnit)],
-    min_attributes: &[(&'static str, i32, AttrUnit)],
-    max_attributes: &[(&'static str, i32, AttrUnit)],
+    snapshots: &AttrSnapshots<'_>,
     handled_attribute_keys: &mut std::collections::HashSet<&'static str>,
     strings_changed: &mut Vec<String>,
     strings_unchanged: &mut Vec<String>
@@ -171,15 +182,15 @@ fn process_range_attribute(
     handled_attribute_keys.insert(attribute_key);
     handled_attribute_keys.insert(maximum_key);
 
-    let old_minimum = extract_value(attribute_key, old_attributes);
-    let new_minimum = extract_value(attribute_key, new_attributes);
-    let absolute_min_minimum = extract_value(attribute_key, min_attributes);
-    let absolute_max_minimum = extract_value(attribute_key, max_attributes);
+    let old_minimum = extract_value(attribute_key, snapshots.old);
+    let new_minimum = extract_value(attribute_key, snapshots.new);
+    let absolute_min_minimum = extract_value(attribute_key, snapshots.min);
+    let absolute_max_minimum = extract_value(attribute_key, snapshots.max);
 
-    let old_maximum = extract_value(maximum_key, old_attributes);
-    let new_maximum = extract_value(maximum_key, new_attributes);
-    let absolute_min_maximum = extract_value(maximum_key, min_attributes);
-    let absolute_max_maximum = extract_value(maximum_key, max_attributes);
+    let old_maximum = extract_value(maximum_key, snapshots.old);
+    let new_maximum = extract_value(maximum_key, snapshots.new);
+    let absolute_min_maximum = extract_value(maximum_key, snapshots.min);
+    let absolute_max_maximum = extract_value(maximum_key, snapshots.max);
 
     let is_scalable = absolute_min_minimum != absolute_max_minimum || absolute_min_maximum != absolute_max_maximum;
 
@@ -210,10 +221,7 @@ fn process_range_attribute(
 fn process_single_attribute(
     attribute_key: &'static str,
     attribute_unit: AttrUnit,
-    old_attributes: &[(&'static str, i32, AttrUnit)],
-    new_attributes: &[(&'static str, i32, AttrUnit)],
-    min_attributes: &[(&'static str, i32, AttrUnit)],
-    max_attributes: &[(&'static str, i32, AttrUnit)],
+    snapshots: &AttrSnapshots<'_>,
     handled_attribute_keys: &mut std::collections::HashSet<&'static str>,
     strings_changed: &mut Vec<String>,
     strings_unchanged: &mut Vec<String>
@@ -222,10 +230,10 @@ fn process_single_attribute(
         attributes_list.iter().find(|(key, _, _)| *key == target_key).map(|(_, value, _)| *value).unwrap_or(0)
     };
 
-    let old_value = extract_value(attribute_key, old_attributes);
-    let new_value = extract_value(attribute_key, new_attributes);
-    let absolute_minimum_value = extract_value(attribute_key, min_attributes);
-    let absolute_maximum_value = extract_value(attribute_key, max_attributes);
+    let old_value = extract_value(attribute_key, snapshots.old);
+    let new_value = extract_value(attribute_key, snapshots.new);
+    let absolute_minimum_value = extract_value(attribute_key, snapshots.min);
+    let absolute_maximum_value = extract_value(attribute_key, snapshots.max);
 
     let is_scalable = absolute_minimum_value != absolute_maximum_value;
 
@@ -286,7 +294,7 @@ fn apply_target_traits(battle_stats: &mut Battle, target_name_id: i16, bitmask_t
     }
 }
 
-pub fn apply_talent_stats(base_stats: &Battle, talent_data: &Talent, talent_levels: &HashMap<u8, u8>) -> Battle {
+pub(crate) fn apply_talent_stats(base_stats: &Battle, talent_data: &Talent, talent_levels: &HashMap<u8, u8>) -> Battle {
     let mut mutated_stats = base_stats.clone();
 
     for (talent_index, talent_group) in talent_data.groups.iter().enumerate() {
@@ -326,17 +334,11 @@ pub fn get_talent_np_cost(cost_id: u8, current_level: u8, costs_map: &HashMap<u8
     total_cost
 }
 
-pub fn get_total_np_cost(
-    talent_data: &Talent,
-    talent_levels: &HashMap<u8, u8>,
-    costs_map: &HashMap<u8, TalentCost>
-) -> i32 {
-    let mut total_accumulated_cost = 0;
-
-    for (talent_index, talent_group) in talent_data.groups.iter().enumerate() {
-        let current_level = *talent_levels.get(&(talent_index as u8)).unwrap_or(&0);
-        total_accumulated_cost += get_talent_np_cost(talent_group.cost_id, current_level, costs_map);
-    }
-
-    total_accumulated_cost
+pub fn get_total_np_cost(talent_data: &Talent, talent_levels: &HashMap<u8, u8>, costs_map: &HashMap<u8, TalentCost>) -> i32 {
+    talent_data.groups.iter().enumerate()
+        .map(|(index, group)| {
+            let current_level = talent_levels.get(&(index as u8)).copied().unwrap_or(0);
+            get_talent_np_cost(group.cost_id, current_level, costs_map)
+        })
+        .sum()
 }

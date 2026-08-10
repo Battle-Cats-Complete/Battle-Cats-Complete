@@ -42,7 +42,7 @@ impl EnemyFilter {
             || self.is_base.is_some()
     }
 
-    pub fn compile(&self) -> CompiledEnemyFilter {
+    pub(crate) fn compile(&self) -> CompiledEnemyFilter {
         let name_or_id = self.name_or_id.trim().to_lowercase();
         let parsed_id = name_or_id.parse::<u32>().ok();
 
@@ -68,7 +68,7 @@ impl EnemyFilter {
     }
 }
 
-pub struct CompiledEnemyFilter {
+pub(crate) struct CompiledEnemyFilter {
     pub is_exclude: bool,
     pub name_or_id: String,
     pub parsed_id: Option<u32>,
@@ -89,7 +89,7 @@ pub struct CompiledEnemyFilter {
 }
 
 impl CompiledEnemyFilter {
-    pub fn matches(&self, enemy: &BattlegroundEntry, enemy_name_registry: &[String]) -> bool {
+    pub(crate) fn matches(&self, enemy: &BattlegroundEntry, enemy_name_registry: &[String]) -> bool {
         let internal_amount = if let EnemyAmount::Limit(val) = enemy.amount { val as i64 } else { 0 };
 
         let internal_boss_type = match enemy.boss_type {

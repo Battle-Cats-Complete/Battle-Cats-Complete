@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::Path;
-use std::sync::mpsc::Sender;
 
 use tracing::{error, info, trace};
 use zip::ZipArchive;
@@ -25,8 +24,8 @@ fn format_log_name(name: &str, path: &Path) -> String {
     }
 }
 
-pub fn run_archive(archive_path: &Path, workspace_dir: &Path, tx: Sender<String>, user_keys: &UserKeys) -> Result<(), String> {
-    let _ = tx.send("Opening archive...".to_string());
+pub(crate) fn run_archive(archive_path: &Path, workspace_dir: &Path, emit_log: &(dyn Fn(String) + Sync), user_keys: &UserKeys) -> Result<(), String> {
+    emit_log("Opening archive...".to_string());
     info!("Opening archive for extraction: {:?}", archive_path);
 
     let file = fs::File::open(archive_path).map_err(|e| {
@@ -99,18 +98,18 @@ pub fn run_archive(archive_path: &Path, workspace_dir: &Path, tx: Sender<String>
                 if extracted_count % log_interval == 0 || i == total_entries - 1 {
                     let display_name = format_log_name(&safe_name_str, path);
                     trace!("Extracted file: {}", display_name);
-                    let _ = tx.send(format!("Extracted {} Files | Streaming: {}", extracted_count, display_name));
+                    emit_log(format!("Extracted {} Files | Streaming: {}", extracted_count, display_name));
                 }
             }
         }
     }
 
     if has_pack_data && workspace_dir.join("DownloadLocal.list").exists() && workspace_dir.join("DownloadLocal.pack").exists() {
-        let _ = tx.send("Decrypting embedded pack data...".to_string());
+        emit_log("Decrypting embedded pack data...".to_string());
         info!("Found embedded pack data, delegating to decrypt module.");
 
         let pack_file = workspace_dir.join("DownloadLocal.pack");
-        decrypt::run(&pack_file, workspace_dir, tx.clone(), user_keys)?;
+        decrypt::run(&pack_file, workspace_dir, emit_log, user_keys)?;
 
         let _ = fs::remove_file(workspace_dir.join("DownloadLocal.list"));
         let _ = fs::remove_file(workspace_dir.join("DownloadLocal.pack"));

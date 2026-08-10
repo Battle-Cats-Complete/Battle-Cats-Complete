@@ -1,271 +1,477 @@
-use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::path::Path;
-use std::sync::mpsc::{self, Receiver};
-use std::sync::Mutex;
-use std::thread;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
+use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::Category;
-use nyanko::chapter::map::{DropItemEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
-use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
+use nyanko::chapter::map::{DropItemEntry, LockSkipDataEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
+use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, ScatCpuSetting, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
 use nyanko::common::tools::file;
 use rayon::prelude::*;
-use tracing::{debug, info, instrument, warn};
+use serde::{Deserialize, Serialize};
+use tracing::{debug, info, instrument, trace, warn};
 
+use crate::common::formats::{gatyaitembuy, gatyaitemname, GatyaItemBuy, GatyaItemName};
+use crate::common::io::cache;
+use crate::modules::cat::waiter::unitexplanation;
 use crate::modules::settings::ScannerConfig;
+use crate::{Vfs, Vault};
 
-use super::paths;
+use super::files;
 use super::waiter::{
-    battleground, certification_preset, charagroup, difficulty_level, dropitem,
-    ex_option, fixed_formation, map_name, map_option, mapstagedata, scorebonusmap,
-    specialrulesmap, specialrulesmapoption, stage_option, stagename
+    battleground, certification_preset, drop_chara, lockskipdata, mapstagedata, scatcpusetting,
+    stagename
 };
-use super::{GlobalMapId, GlobalStageId, Map, Stage, StageDataState, StageRegistry};
+use super::{GlobalMapId, GlobalStageId, Map, Stage, StageRegistry};
 
-pub struct ScanContext<'a> {
-    pub lang_priority: &'a [String],
-    pub map_names: HashMap<u32, String>,
-    pub map_options: HashMap<u32, MapOptionEntry>,
-    pub stage_options: HashMap<u32, Vec<StageOptionEntry>>,
-    pub charagroups: HashMap<u32, CharaGroupEntry>,
-    pub drop_items: HashMap<u32, DropItemEntry>,
-    pub score_bonuses: HashMap<u32, ScoreBonusMapEntry>,
-    pub special_rules: HashMap<u32, SpecialRulesMapEntry>,
-    pub special_rule_options: HashMap<u8, SpecialRulesMapOptionEntry>,
-    pub ex_options: HashMap<u32, u32>,
-    pub difficulties: HashMap<u32, Vec<u16>>,
-    pub fixed_formations: HashMap<(u32, u8, u32), FixedFormationEntry>,
+const MAP_STAGE_DATA: &str = "MapStageData";
+const STAGE: &str = "stage";
+const CSV: &str = ".csv";
+const PREFIX_EC: &str = "EC";
+const STORY_PREFIXES: [&str; 4] = [PREFIX_EC, "W", "Space", "Z"];
+const EC_CHAPTERS: [u32; 3] = [0, 1, 2];
+const INVASION: &str = "Invasion";
+
+struct ScanContext<'a> {
+    pub vfs: &'a Vfs,
+    pub map_names: Arc<HashMap<u32, String>>,
+    pub map_options: Arc<HashMap<u32, MapOptionEntry>>,
+    pub stage_options: Arc<HashMap<u32, Vec<StageOptionEntry>>>,
+    pub charagroups: Arc<HashMap<u32, CharaGroupEntry>>,
+    pub drop_items: Arc<HashMap<u32, DropItemEntry>>,
+    pub score_bonuses: Arc<HashMap<u32, ScoreBonusMapEntry>>,
+    pub special_rules: Arc<HashMap<u32, SpecialRulesMapEntry>>,
+    pub special_rule_options: Arc<HashMap<u8, SpecialRulesMapOptionEntry>>,
+    pub ex_options: Arc<HashMap<u32, u32>>,
+    pub difficulties: Arc<HashMap<u32, Vec<u16>>>,
+    pub fixed_formations: Arc<HashMap<(u32, u8, u32), FixedFormationEntry>>,
 }
 
-#[tracing::instrument(level = "debug", skip(state, config))]
-pub fn restart_scan(state: &mut StageDataState, config: ScannerConfig) {
-    info!("Initializing stage data scan sequence");
+struct StageCache;
 
-    state.initialized = false;
-    state.load_dictionaries(&config);
-
-    debug!("Clearing stage cache and starting background scan");
-    state.registry.clear_cache();
-    state.scan_receiver = Some(start_scan(&config));
+impl cache::CacheSpec for StageCache {
+    type Data = StageBundle;
+    const FILE: &'static str = "stages_cache.bin";
+    const VERSION: u32 = 2;
 }
 
-pub fn update_data(state: &mut StageDataState) {
-    let Some(rx) = &state.scan_receiver else { return; };
-
-    let Ok(new_reg) = rx.try_recv() else { return; };
-
-    info!("Stage scan complete. Updating memory registry.");
-    state.registry = new_reg;
-    state.scan_receiver = None;
-    state.initialized = true;
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StageDictionaries {
+    pub enemy_name_registry: Vec<String>,
+    pub item_buy_registry: HashMap<u32, GatyaItemBuy>,
+    pub item_name_registry: HashMap<usize, GatyaItemName>,
+    pub drop_chara_registry: HashMap<u32, u32>,
+    pub unit_buy_registry: HashMap<u32, UnitBuy>,
+    pub cat_name_registry: HashMap<u32, Vec<String>>,
+    pub lock_skip_registry: HashMap<u32, LockSkipDataEntry>,
+    pub scat_cpu_setting: ScatCpuSetting,
 }
 
-#[instrument(skip(config))]
-pub fn start_scan(config: &ScannerConfig) -> Receiver<StageRegistry> {
-    let (tx_channel, rx_channel) = mpsc::channel();
-    let langs = config.language_priority.clone();
-
-    thread::spawn(move || {
-        info!("--- STAGE SCANNER INITIATED ---");
-        let registry = scan_all(&langs);
-
-        let map_count = registry.maps.len();
-        let stage_count = registry.stages.len();
-        info!("--- STAGE SCANNER COMPLETE: Found {} maps and {} stages ---", map_count, stage_count);
-
-        if !crate::common::resolver::is_mod_active() {
-            if map_count == 0 {
-                warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
-                let _ = tx_channel.send(registry);
-                return;
-            }
-
-            let mut is_different = true;
-            if let Some((_, cached_registry)) = crate::common::io::cache::load_with_hash::<StageRegistry>("stages_cache.bin")
-                && let (Ok(new_bytes), Ok(old_bytes)) = (serde_json::to_vec(&registry), serde_json::to_vec(&cached_registry))
-                && !new_bytes.is_empty() && new_bytes == old_bytes {
-                is_different = false;
-                info!("Scanned stages perfectly match existing cache. Discarding scan and doing nothing.");
-            }
-
-            if is_different {
-                debug!("Scanned stages differ from cache (or cache is stale/missing). Overwriting stages_cache.bin");
-                let hash = crate::common::io::cache::get_game_hash(None);
-                crate::common::io::cache::save("stages_cache.bin", hash, &registry);
-            }
-        }
-
-        let _ = tx_channel.send(registry);
-    });
-
-    rx_channel
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StageBundle {
+    pub registry: StageRegistry,
+    pub dictionaries: StageDictionaries,
 }
 
-#[instrument(skip(langs))]
-fn scan_all(langs: &[String]) -> StageRegistry {
-    let reg_mtx = Mutex::new(StageRegistry::default());
-    let root = Path::new(paths::DIR_STAGES);
-
-    info!("Loading global table dictionaries into ScanContext...");
-    let ctx = ScanContext {
-        lang_priority: langs,
-        map_names: map_name(&paths::stage_sub("Map_Name"), "Map_Name.csv", langs),
-        map_options: map_option(root, "Map_option.csv", langs),
-        stage_options: stage_option(root, "Stage_option.csv", langs),
-        charagroups: charagroup(root, "Charagroup.csv", langs),
-        drop_items: dropitem(root, "DropItem.csv", langs),
-        score_bonuses: scorebonusmap(&paths::stage_sub("R"), "ScoreBonusMap.json", langs),
-        special_rules: specialrulesmap(&paths::stage_sub("SR"), "SpecialRulesMap.json", langs),
-        special_rule_options: specialrulesmapoption(&paths::stage_sub("SR"), "SpecialRulesMapOption.json", langs),
-        ex_options: ex_option(root, "EX_option.csv", langs),
-        difficulties: difficulty_level(root, "difficulty_level.tsv", langs),
-        fixed_formations: fixed_formation(&paths::stage_sub("fixedlineup"), "fixed_formation.csv", langs),
-    };
-
-    let cat_dir = Path::new(paths::DIR_CATEGORIES);
-    info!("Targeting base categories directory: {}", cat_dir.display());
-
-    let Ok(categories_dir) = fs::read_dir(cat_dir) else {
-        warn!("Failed to read categories directory! Make sure it exists.");
-        return reg_mtx.into_inner().unwrap_or_default();
-    };
-
-    let cat_entries: Vec<_> = categories_dir.flatten().collect();
-    info!("Found {} items in categories directory to evaluate", cat_entries.len());
-
-    cat_entries.par_iter().for_each(|cat_entry| {
-        let cat_path = cat_entry.path();
-        if !cat_path.is_dir() { return; }
-
-        scan_category(&reg_mtx, &cat_path, &ctx);
-    });
-
-    reg_mtx.into_inner().unwrap_or_default()
+struct CategoryInfo {
+    prefix: String,
+    data_prefix: String,
+    category: Category,
+    stage_names: HashMap<u32, StageNameEntry>,
 }
 
-#[instrument(skip(reg_mtx, ctx))]
-fn scan_category(reg_mtx: &Mutex<StageRegistry>, cat_path: &Path, ctx: &ScanContext) {
-    let Some(os_name) = cat_path.file_name() else { return; };
-    let cat_prefix = os_name.to_string_lossy().to_string();
-    let category = Category::from_prefix(&cat_prefix);
+struct MapJob {
+    category_index: usize,
+    map_id: u32,
+}
 
-    debug!("Scanning category folder: {}", cat_prefix);
+pub fn purge() {
+    cache::purge::<StageCache>();
+}
+
+pub fn hydrate(config: &ScannerConfig) -> Option<(u64, StageBundle)> {
+    if config.active_mod.is_some() {
+        return None;
+    }
+
+    let (hash, bundle) = cache::read::<StageCache>()?;
+    debug!(
+        hash,
+        maps = bundle.registry.maps.len(),
+        stages = bundle.registry.stages.len(),
+        "hydrated stages from cache"
+    );
+
+    Some((hash, bundle))
+}
+
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> (StageBundle, Option<u64>) {
+    scan(&config, &vault, progress)
+}
+
+#[instrument(level = "debug", skip(vault))]
+fn build_dictionaries(vault: &Vault) -> StageDictionaries {
+    trace!("Loading auxiliary stage dictionaries");
+    let vfs = &vault.vfs;
+
+    let enemy_name_registry = vault.vds.enemies.names(vfs).as_ref().clone();
+
+    let item_buy_registry = gatyaitembuy::load(vfs, "Gatyaitembuy.csv");
+    let item_name_registry = gatyaitemname::load(vfs, "GatyaitemName.csv");
+
+    let drop_chara_registry = drop_chara(vfs, "drop_chara.csv");
+    let lock_skip_registry = lockskipdata(vfs, "LockSkipData.csv");
+    let scat_cpu_setting = scatcpusetting(vfs, "ScatCPUsetting.csv");
+
+    let unit_buy_registry = vault.vds.cats.unitbuy(vfs);
+
+    let cat_name_registry: HashMap<u32, Vec<String>> = unit_buy_registry
+        .par_iter()
+        .map(|(&unit_id, _)| {
+            let names = unitexplanation(vfs, unit_id)
+                .names
+                .into_iter()
+                .flatten()
+                .map(|name| name.to_lowercase())
+                .collect();
+            (unit_id, names)
+        })
+        .collect();
+
+    StageDictionaries {
+        enemy_name_registry,
+        item_buy_registry,
+        item_name_registry,
+        drop_chara_registry,
+        unit_buy_registry: unit_buy_registry.as_ref().clone(),
+        cat_name_registry,
+        lock_skip_registry,
+        scat_cpu_setting,
+    }
+}
+
+fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> (StageBundle, Option<u64>) {
+    info!("--- STAGE SCANNER INITIATED ---");
+    let dictionaries = build_dictionaries(vault);
+    let registry = scan_all(vault, progress);
+    info!("--- STAGE SCANNER COMPLETE: Found {} maps and {} stages ---", registry.maps.len(), registry.stages.len());
+
+    let bundle = StageBundle { registry, dictionaries };
+
+    if config.active_mod.is_some() {
+        return (bundle, None);
+    }
+
+    if bundle.registry.maps.is_empty() {
+        warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
+        return (bundle, None);
+    }
+
+    let key = cache::content_hash(config);
+    cache::write::<StageCache>(key, &bundle);
+
+    (bundle, Some(key))
+}
+
+#[instrument(skip_all)]
+pub fn scan_single(vault: &Vault, category: &Category, map_id: u32) -> StageRegistry {
+    let vfs = &vault.vfs;
+    let ctx = context(vault);
+    let prefix = category.map_prefix();
+
+    let data_prefix = vfs
+        .glob(MAP_STAGE_DATA)
+        .iter()
+        .filter_map(|name| split_map_data(name).map(|(prefix, _)| prefix))
+        .find(|found| Category::from_prefix(found) == *category)
+        .unwrap_or_else(|| prefix.clone());
 
     let mut stage_names = HashMap::new();
 
-    for (dir, file) in paths::stage_name_targets(cat_path, &cat_prefix) {
-        stage_names = stagename(&dir, &file, ctx.lang_priority);
+    for file in files::stage_name_targets(&prefix) {
+        stage_names = stagename(vfs, &file);
+
         if !stage_names.is_empty() {
             break;
         }
     }
 
-    let mut map_entries = Vec::new();
-    let Ok(maps_dir) = fs::read_dir(cat_path) else {
-        warn!("Failed to read contents of category directory: {}", cat_path.display());
-        return;
-    };
+    let info = CategoryInfo { prefix, data_prefix, category: category.clone(), stage_names };
+    let registry = Mutex::new(StageRegistry::default());
 
-    for map_entry in maps_dir.flatten() {
-        let map_path = map_entry.path();
-        if !map_path.is_dir() { continue; }
+    process_map(&registry, &info, map_id, &ctx);
 
-        let Some(os_folder) = map_path.file_name() else { continue; };
-        let Ok(map_id) = os_folder.to_string_lossy().parse::<u32>() else { continue; };
-        map_entries.push((map_id, map_path));
+    registry.into_inner().unwrap_or_default()
+}
+
+fn context(vault: &Vault) -> ScanContext<'_> {
+    let vfs = &vault.vfs;
+    let stages = &vault.vds.stages;
+
+    ScanContext {
+        vfs,
+        map_names: stages.map_names(vfs),
+        map_options: stages.map_options(vfs),
+        stage_options: stages.stage_options(vfs),
+        charagroups: stages.charagroups(vfs),
+        drop_items: stages.drop_items(vfs),
+        score_bonuses: stages.score_bonuses(vfs),
+        special_rules: stages.special_rules(vfs),
+        special_rule_options: stages.special_rule_options(vfs),
+        ex_options: stages.ex_options(vfs),
+        difficulties: stages.difficulties(vfs),
+        fixed_formations: stages.fixed_formations(vfs),
     }
+}
 
-    if cat_prefix == "EC" {
-        let base_path = cat_path.join("000");
-        if base_path.exists() {
-            if !map_entries.iter().any(|(id, _)| *id == 1) {
-                map_entries.push((1, base_path.clone()));
-            }
-            if !map_entries.iter().any(|(id, _)| *id == 2) {
-                map_entries.push((2, base_path.clone()));
-            }
-        }
-    }
+fn scan_all(vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> StageRegistry {
+    let reg_mtx = Mutex::new(StageRegistry::default());
 
-    map_entries.into_par_iter().for_each(|(map_id, map_path)| {
-        let mut global_map_id = category.global_map_id(map_id);
+    info!("Loading global table dictionaries into ScanContext...");
+    let ctx = context(vault);
 
-        if global_map_id.is_none() || global_map_id == Some(map_id) {
-            let routed_id = match (cat_prefix.as_str(), map_id) {
-                ("EC", 0) | ("Z", 0) => Some(3000),
-                ("EC", 1) | ("Z", 1) => Some(3001),
-                ("EC", 2) | ("Z", 2) => Some(3002),
-                ("W", 4)  | ("Z", 4) => Some(3003),
-                ("W", 5)  | ("Z", 5) => Some(3004),
-                ("W", 6)  | ("Z", 6) => Some(3005),
-                ("Space", 7) | ("Z", 7) => Some(3006),
-                ("Space", 8) | ("Z", 8) => Some(3007),
-                ("Space", 9) | ("Z", 9) => Some(3008),
-                _ => global_map_id,
-            };
-            if routed_id.is_some() && routed_id != global_map_id {
-                global_map_id = routed_id;
-            }
+    let (categories, jobs) = enumerate_maps(&vault.vfs);
+
+    let total = jobs.len();
+    let done = AtomicUsize::new(0);
+
+    jobs.par_iter().for_each(|job| {
+        if let Some(info) = categories.get(job.category_index) {
+            process_map(&reg_mtx, info, job.map_id, &ctx);
         }
 
-        let mut active_stage_names = stage_names.clone();
-
-        if cat_prefix == "Z" {
-            let proxy_prefix = match map_id {
-                0..=2 => "EC",
-                4..=6 => "W",
-                7..=9 => "Space",
-                _ => "",
-            };
-
-            if !proxy_prefix.is_empty() {
-                let parent_dir = cat_path.parent().unwrap_or(cat_path);
-                let proxy_path = parent_dir.join(proxy_prefix);
-
-                debug!("Fetching proxy names from {} for Z map {}", proxy_prefix, map_id);
-
-                for (dir, file) in paths::stage_name_targets(&proxy_path, proxy_prefix) {
-                    let names = stagename(&dir, &file, ctx.lang_priority);
-                    if names.is_empty() { continue; }
-
-                    active_stage_names = names;
-                    break;
-                }
-            }
-        }
-
-        let map_display_name = global_map_id
-            .and_then(|id| ctx.map_names.get(&id))
-            .filter(|name| !name.is_empty())
-            .cloned()
-            .unwrap_or_else(|| format!("{:03}", map_id));
-
-        load_map(
-            reg_mtx,
-            &category,
-            map_id,
-            &map_path,
-            &map_display_name,
-            &active_stage_names,
-            ctx,
-            global_map_id
-        );
+        let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
+        progress(finished, total);
     });
+
+    reg_mtx.into_inner().unwrap_or_default()
+}
+
+fn enumerate_maps(vfs: &Vfs) -> (Vec<CategoryInfo>, Vec<MapJob>) {
+    info!("Discovering categories and maps from the file index");
+
+    let mut discovered: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
+
+    for name in vfs.glob(MAP_STAGE_DATA) {
+        if let Some((data_prefix, map_id)) = split_map_data(&name) {
+            discovered.entry(data_prefix).or_default().insert(map_id);
+        }
+    }
+
+    for story in STORY_PREFIXES {
+        let ids = story_map_ids(vfs, story);
+        if !ids.is_empty() {
+            discovered.entry(story.to_string()).or_default().extend(ids);
+        }
+    }
+
+    info!("Found {} categories to evaluate", discovered.len());
+
+    let mut categories = Vec::new();
+    let mut jobs = Vec::new();
+
+    for (data_prefix, map_ids) in discovered {
+        let category = Category::from_prefix(&data_prefix);
+        let prefix = category.map_prefix();
+
+        debug!("Scanning category {} ({} maps)", prefix, map_ids.len());
+
+        let mut stage_names = HashMap::new();
+
+        for file in files::stage_name_targets(&prefix) {
+            stage_names = stagename(vfs, &file);
+            if !stage_names.is_empty() {
+                break;
+            }
+        }
+
+        let category_index = categories.len();
+        categories.push(CategoryInfo { prefix, data_prefix, category, stage_names });
+
+        for map_id in map_ids {
+            jobs.push(MapJob { category_index, map_id });
+        }
+    }
+
+    (categories, jobs)
+}
+
+fn split_map_data(name: &str) -> Option<(String, u32)> {
+    let body = name.strip_prefix(MAP_STAGE_DATA)?.strip_suffix(CSV)?;
+    let (prefix, map) = body.rsplit_once('_')?;
+
+    if prefix.is_empty() {
+        return None;
+    }
+
+    Some((prefix.to_string(), map.parse().ok()?))
+}
+
+fn split_stage(name: &str, prefix: &str, map_id: u32) -> Option<u32> {
+    let body = name.strip_prefix(STAGE)?.strip_prefix(prefix)?.strip_suffix(CSV)?;
+    let (map, stage) = body.split_once('_')?;
+
+    if map.parse::<u32>().ok()? != map_id {
+        return None;
+    }
+
+    stage.parse().ok()
+}
+
+fn split_chapter_stage(name: &str) -> Option<u32> {
+    name.strip_prefix(STAGE)?.strip_suffix(CSV)?.parse().ok()
+}
+
+fn story_map_ids(vfs: &Vfs, prefix: &str) -> BTreeSet<u32> {
+    if prefix == PREFIX_EC {
+        let present = vfs.glob(STAGE).iter().any(|name| split_chapter_stage(name).is_some());
+        return if present { EC_CHAPTERS.into_iter().collect() } else { BTreeSet::new() };
+    }
+
+    vfs.glob(&format!("{}{}", STAGE, prefix))
+        .iter()
+        .filter_map(|name| {
+            let body = name.strip_prefix(STAGE)?.strip_prefix(prefix)?.strip_suffix(CSV)?;
+            let (map, stage) = body.split_once('_')?;
+            stage.parse::<u32>().ok()?;
+            map.parse().ok()
+        })
+        .collect()
+}
+
+fn invasion_battleground(vfs: &Vfs, category: &Category, map_id: u32) -> Option<Box<str>> {
+    for prefix in category.stage_prefix() {
+        if prefix.is_empty() {
+            continue;
+        }
+
+        let found = vfs.glob(&format!("{}{}", STAGE, prefix)).into_iter().find(|name| {
+            let Some(body) = name
+                .strip_prefix(STAGE)
+                .and_then(|body| body.strip_prefix(prefix.as_str()))
+                .and_then(|body| body.strip_suffix(CSV))
+            else {
+                return false;
+            };
+
+            let Some((map, rest)) = body.split_once('_') else {
+                return false;
+            };
+
+            map.parse::<u32>().ok() == Some(map_id) && rest.starts_with(INVASION)
+        });
+
+        if found.is_some() {
+            return found;
+        }
+    }
+
+    None
+}
+
+fn battlegrounds(vfs: &Vfs, category: &Category, map_id: u32) -> Vec<(u32, Box<str>)> {
+    let mut found: Vec<(u32, Box<str>)> = Vec::new();
+
+    for prefix in category.stage_prefix() {
+        if prefix.is_empty() {
+            found.extend(
+                vfs.glob(STAGE)
+                    .into_iter()
+                    .filter_map(|name| Some((split_chapter_stage(&name)?, name))),
+            );
+            continue;
+        }
+
+        found.extend(
+            vfs.glob(&format!("{}{}", STAGE, prefix))
+                .into_iter()
+                .filter_map(|name| Some((split_stage(&name, &prefix, map_id)?, name))),
+        );
+    }
+
+    found.sort_unstable_by_key(|(stage_id, _)| *stage_id);
+    found.dedup_by_key(|(stage_id, _)| *stage_id);
+    found
+}
+
+fn process_map(reg_mtx: &Mutex<StageRegistry>, info: &CategoryInfo, map_id: u32, ctx: &ScanContext) {
+    let category = &info.category;
+    let cat_prefix = info.prefix.as_str();
+    let mut global_map_id = category.global_map_id(map_id);
+
+    if global_map_id.is_none() || global_map_id == Some(map_id) {
+        let routed_id = match (cat_prefix, map_id) {
+            ("EC", 0) | ("Z", 0) => Some(3000),
+            ("EC", 1) | ("Z", 1) => Some(3001),
+            ("EC", 2) | ("Z", 2) => Some(3002),
+            ("W", 4)  | ("Z", 4) => Some(3003),
+            ("W", 5)  | ("Z", 5) => Some(3004),
+            ("W", 6)  | ("Z", 6) => Some(3005),
+            ("Space", 7) | ("Z", 7) => Some(3006),
+            ("Space", 8) | ("Z", 8) => Some(3007),
+            ("Space", 9) | ("Z", 9) => Some(3008),
+            _ => global_map_id,
+        };
+        if routed_id.is_some() && routed_id != global_map_id {
+            global_map_id = routed_id;
+        }
+    }
+
+    let mut proxy_stage_names = None;
+
+    if cat_prefix == "Z" {
+        let proxy_prefix = match map_id {
+            0..=2 => "EC",
+            4..=6 => "W",
+            7..=9 => "Space",
+            _ => "",
+        };
+
+        if !proxy_prefix.is_empty() {
+            debug!("Fetching proxy names from {} for Z map {}", proxy_prefix, map_id);
+
+            for file in files::stage_name_targets(proxy_prefix) {
+                let names = stagename(ctx.vfs, &file);
+                if names.is_empty() { continue; }
+
+                proxy_stage_names = Some(names);
+                break;
+            }
+        }
+    }
+
+    let active_stage_names = proxy_stage_names.as_ref().unwrap_or(&info.stage_names);
+
+    let map_display_name = global_map_id
+        .and_then(|id| ctx.map_names.get(&id))
+        .filter(|name| !name.is_empty())
+        .cloned()
+        .unwrap_or_else(|| format!("{:03}", map_id));
+
+    load_map(
+        reg_mtx,
+        info,
+        map_id,
+        &map_display_name,
+        active_stage_names,
+        ctx,
+        global_map_id
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip_all)]
 fn load_map(
     reg_mtx: &Mutex<StageRegistry>,
-    category: &Category,
+    info: &CategoryInfo,
     map_id: u32,
-    map_path: &Path,
     map_display_name: &str,
     stage_names: &HashMap<u32, StageNameEntry>,
     ctx: &ScanContext,
     global_map_id: Option<u32>
 ) {
+    let category = &info.category;
     let map_opt = global_map_id
         .and_then(|id| ctx.map_options.get(&id))
         .cloned()
@@ -328,9 +534,9 @@ fn load_map(
         .unwrap_or(true);
 
     let (stage_ids, stage_structs) = if is_story {
-        load_story_stages(map_path, category, map_id, map_opt.max_crowns, stage_names, ctx, global_map_id)
+        load_story_stages(category, map_id, map_opt.max_crowns, stage_names, ctx, global_map_id)
     } else {
-        load_legend_stages(map_path, category, map_id, map_opt.max_crowns, stage_names, ctx, global_map_id)
+        load_legend_stages(info, category, map_id, map_opt.max_crowns, stage_names, ctx, global_map_id)
     };
 
     if stage_ids.is_empty() {
@@ -353,7 +559,6 @@ fn load_map(
 
 #[allow(clippy::too_many_arguments)]
 fn load_story_stages(
-    map_path: &Path,
     category: &Category,
     map_id: u32,
     max_crowns: u8,
@@ -405,7 +610,7 @@ fn load_story_stages(
     };
 
     if !story_file.is_empty() {
-        let resolved_paths = crate::common::resolver::get(map_path, [story_file], ctx.lang_priority);
+        let resolved_paths = ctx.vfs.list(story_file);
         if let Some(story_path) = resolved_paths.first() {
             if let Ok(content) = fs::read_to_string(story_path) {
                 let sep = file::detect_separator(&content);
@@ -425,12 +630,12 @@ fn load_story_stages(
                 warn!("Expected story data file missing or unreadable: {}", story_path.display());
             }
         } else {
-            warn!("Expected story data file missing: {}", map_path.join(story_file).display());
+            warn!(file = story_file, "Expected story data file missing");
         }
     }
 
     if !inv_story_file.is_empty() {
-        let resolved_paths = crate::common::resolver::get(map_path, [inv_story_file], ctx.lang_priority);
+        let resolved_paths = ctx.vfs.list(inv_story_file);
         if let Some(inv_story_path) = resolved_paths.first()
             && let Ok(content) = fs::read_to_string(inv_story_path) {
             let sep = file::detect_separator(&content);
@@ -450,24 +655,8 @@ fn load_story_stages(
         }
     }
 
-    let Ok(stages_dir) = fs::read_dir(map_path) else { return (id_list, stage_list); };
-    let mut invasion_path = None;
-
-    for stage_entry in stages_dir.flatten() {
-        let stage_path = stage_entry.path();
-        if !stage_path.is_dir() { continue; }
-
-        let Some(os_folder) = stage_path.file_name() else { continue; };
-        let folder_str = os_folder.to_string_lossy();
-
-        if folder_str == "Invasion" {
-            invasion_path = Some(stage_path);
-            continue;
-        }
-
-        let Ok(stage_id) = folder_str.parse::<u32>() else { continue; };
-
-        let is_ec_group = category.map_prefix() == "EC" || (category.map_prefix() == "Z" && map_id <= 2);
+    for (stage_id, file_name) in battlegrounds(ctx.vfs, category, map_id) {
+        let is_ec_group = category.map_prefix() == PREFIX_EC || (category.map_prefix() == "Z" && map_id <= 2);
 
         if is_ec_group {
             if map_id == 0 && stage_id > 47 { continue; }
@@ -475,8 +664,8 @@ fn load_story_stages(
             if map_id == 2 && (stage_id == 47 || stage_id == 48 || stage_id == 49 || stage_id > 50) { continue; }
         }
 
-        let Some(raw_layout) = find_battleground(&stage_path, ctx.lang_priority) else {
-            warn!("Failed to find battleground CSV in story stage directory: {}", stage_path.display());
+        let Some(raw_layout) = battleground(ctx.vfs, &file_name) else {
+            warn!(stage = %file_name, "Failed to parse story battleground");
             continue;
         };
 
@@ -498,10 +687,10 @@ fn load_story_stages(
         id_list.push(stage_id);
     }
 
-    if let Some(inv_path) = invasion_path {
+    if let Some(inv_file) = invasion_battleground(ctx.vfs, category, map_id) {
         let inv_stage_id = id_list.iter().max().copied().unwrap_or(0) + 1;
 
-        if let Some(raw_layout) = find_battleground(&inv_path, ctx.lang_priority) {
+        if let Some(raw_layout) = battleground(ctx.vfs, &inv_file) {
             let mut stage_struct = build_base_stage(
                 category, map_id, inv_stage_id, max_crowns, &raw_layout, stage_names, ctx, global_map_id
             );
@@ -520,7 +709,7 @@ fn load_story_stages(
             stage_list.push((stage_key, stage_struct));
             id_list.push(inv_stage_id);
         } else {
-            warn!("Failed to find battleground CSV in invasion stage directory: {}", inv_path.display());
+            warn!(stage = %inv_file, "Failed to parse invasion battleground");
         }
     }
 
@@ -529,7 +718,7 @@ fn load_story_stages(
 
 #[allow(clippy::too_many_arguments)]
 fn load_legend_stages(
-    map_path: &Path,
+    info: &CategoryInfo,
     category: &Category,
     map_id: u32,
     max_crowns: u8,
@@ -541,36 +730,18 @@ fn load_legend_stages(
     let mut stage_list = Vec::new();
     let mut data_entries = Vec::new();
 
-    if let Ok(files_dir) = fs::read_dir(map_path) {
-        for file_entry in files_dir.flatten() {
-            let path = file_entry.path();
-
-            let is_csv = path.extension().is_some_and(|ext| ext == OsStr::new("csv"));
-            if !is_csv { continue; }
-
-            let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else { continue; };
-            if !file_name.starts_with("MapStageData") { continue; }
-
-            data_entries = mapstagedata(map_path, file_name, ctx.lang_priority);
-            if !data_entries.is_empty() { break; }
-        }
+    for prefix in [info.data_prefix.as_str(), info.prefix.as_str()] {
+        data_entries = mapstagedata(ctx.vfs, &format!("{}{}_{:03}{}", MAP_STAGE_DATA, prefix, map_id, CSV));
+        if !data_entries.is_empty() { break; }
     }
 
     if data_entries.is_empty() {
-        data_entries = mapstagedata(map_path, "stage.csv", ctx.lang_priority);
+        data_entries = mapstagedata(ctx.vfs, "stage.csv");
     }
 
-    let Ok(stages_dir) = fs::read_dir(map_path) else { return (id_list, stage_list); };
-
-    for stage_entry in stages_dir.flatten() {
-        let stage_path = stage_entry.path();
-        if !stage_path.is_dir() { continue; }
-
-        let Some(os_folder) = stage_path.file_name() else { continue; };
-        let Ok(stage_id) = os_folder.to_string_lossy().parse::<u32>() else { continue; };
-
-        let Some(raw_layout) = find_battleground(&stage_path, ctx.lang_priority) else {
-            warn!("Failed to find battleground CSV in legend stage directory: {}", stage_path.display());
+    for (stage_id, file_name) in battlegrounds(ctx.vfs, category, map_id) {
+        let Some(raw_layout) = battleground(ctx.vfs, &file_name) else {
+            warn!(stage = %file_name, "Failed to parse legend battleground");
             continue;
         };
 
@@ -593,24 +764,6 @@ fn load_legend_stages(
     }
 
     (id_list, stage_list)
-}
-
-fn find_battleground(stage_path: &Path, lang_priority: &[String]) -> Option<nyanko::chapter::stage::Battleground> {
-    let Ok(files_dir) = fs::read_dir(stage_path) else { return None; };
-
-    for file_entry in files_dir.flatten() {
-        let path = file_entry.path();
-
-        let is_csv = path.extension().is_some_and(|ext| ext == OsStr::new("csv"));
-        if !is_csv { continue; }
-
-        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else { continue; };
-
-        let parsed = battleground(stage_path, file_name, lang_priority);
-        if parsed.is_some() { return parsed; }
-    }
-
-    None
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -649,13 +802,11 @@ fn build_base_stage(
             .unwrap_or_else(|| format!("{:02}", stage_id))
     };
 
-    let stage_opts = global_map_id
+    let stage_opts: &[StageOptionEntry] = global_map_id
         .and_then(|id| ctx.stage_options.get(&id))
-        .cloned()
-        .unwrap_or_default();
+        .map_or(&[], Vec::as_slice);
 
-    let mut final_opt = StageOptionEntry::default();
-    final_opt.target_crowns = -1;
+    let mut final_opt = StageOptionEntry { target_crowns: -1, ..Default::default() };
 
     let valid_options = stage_opts.iter().filter(|o|
         (o.target_stage == -1 || o.target_stage == stage_id as i32) &&
@@ -681,15 +832,13 @@ fn build_base_stage(
     let current_charagroup = ctx.charagroups.get(&final_opt.charagroup_id).cloned();
 
     let mut loaded_fixed_lineups = HashMap::new();
-    let fixed_lineup_directory = paths::stage_sub("fixedlineup");
 
     for crown_index in 0..max_crowns {
         let Some(map_id_val) = global_map_id else { continue; };
         let Some(formation_data) = ctx.fixed_formations.get(&(map_id_val, crown_index, stage_id)) else { continue; };
         let Some(preset_lineup_json) = certification_preset(
-            &fixed_lineup_directory,
-            &formation_data.preset_file_name,
-            ctx.lang_priority
+            ctx.vfs,
+            &formation_data.preset_file_name
         ) else { continue; };
 
         loaded_fixed_lineups.insert(crown_index, preset_lineup_json);

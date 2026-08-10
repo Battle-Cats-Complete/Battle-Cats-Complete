@@ -5,6 +5,7 @@ use regex::Regex;
 use crate::common::io as global_patterns;
 use crate::modules::cat::patterns as cat_patterns;
 use crate::modules::enemy::patterns as enemy_patterns;
+use crate::modules::settings::ImportStructure;
 use crate::modules::stage::patterns as stage_patterns;
 
 struct CatPatternsSet {
@@ -66,12 +67,10 @@ impl CatPatternsSet {
             return Some(cats_dir.join("unitevolve"));
         }
 
-        if let Some(caps) = self.stats.captures(name) {
-            if let Ok(id) = caps[1].parse::<u32>() {
-                if id > 0 {
-                    return Some(cats_dir.join(format!("{:03}", id - 1)));
-                }
-            }
+        if let Some(caps) = self.stats.captures(name)
+            && let Ok(id) = caps[1].parse::<u32>()
+            && id > 0 {
+            return Some(cats_dir.join(format!("{:03}", id - 1)));
         }
         if let Some(caps) = self.icon.captures(name) {
             return Some(cats_dir.join(&caps[1]).join(&caps[2]));
@@ -88,12 +87,10 @@ impl CatPatternsSet {
         if let Some(caps) = self.maanim.captures(name) {
             return Some(cats_dir.join(&caps[1]).join(&caps[2]).join("anim"));
         }
-        if let Some(caps) = self.explain.captures(name) {
-            if let Ok(id) = caps[1].parse::<u32>() {
-                if id > 0 {
-                    return Some(cats_dir.join(format!("{:03}", id - 1)).join("lang"));
-                }
-            }
+        if let Some(caps) = self.explain.captures(name)
+            && let Ok(id) = caps[1].parse::<u32>()
+            && id > 0 {
+            return Some(cats_dir.join(format!("{:03}", id - 1)).join("lang"));
         }
 
         if let Some(caps) = self.egg_icon.captures(name) {
@@ -452,10 +449,9 @@ impl StagePatternsSet {
 
                 if is_invasion {
                     path = path.join("Invasion");
-                } else if let Some(stage_cap) = caps.get(3) {
-                    if let Ok(parsed_stage) = stage_cap.as_str().parse::<u32>() {
-                        path = path.join(format!("{:02}", parsed_stage));
-                    }
+                } else if let Some(stage_cap) = caps.get(3)
+                    && let Ok(parsed_stage) = stage_cap.as_str().parse::<u32>() {
+                    path = path.join(format!("{:02}", parsed_stage));
                 }
 
                 return Some(path);
@@ -470,24 +466,20 @@ impl StagePatternsSet {
             }
         }
 
-        if let Some(caps) = self.map_data.captures(target_file) {
-            if let Ok(parsed_map) = caps[2].parse::<u32>() {
-                return Some(cat_dir.join(Self::format_prefix(&caps[1])).join(format!("{:03}", parsed_map)));
-            }
+        if let Some(caps) = self.map_data.captures(target_file)
+            && let Ok(parsed_map) = caps[2].parse::<u32>() {
+            return Some(cat_dir.join(Self::format_prefix(&caps[1])).join(format!("{:03}", parsed_map)));
         }
 
-        if let Some(caps) = self.map_name.captures(target_file) {
-            if let Ok(parsed_map) = caps[1].parse::<u32>() {
-                return Some(cat_dir.join(Self::format_prefix(&caps[2])).join(format!("{:03}", parsed_map)));
-            }
+        if let Some(caps) = self.map_name.captures(target_file)
+            && let Ok(parsed_map) = caps[1].parse::<u32>() {
+            return Some(cat_dir.join(Self::format_prefix(&caps[2])).join(format!("{:03}", parsed_map)));
         }
 
-        if let Some(caps) = self.map_sn.captures(target_file) {
-            if let Ok(parsed_map) = caps[1].parse::<u32>() {
-                if let Ok(parsed_stage) = caps[2].parse::<u32>() {
-                    return Some(cat_dir.join(Self::format_prefix(&caps[3])).join(format!("{:03}", parsed_map)).join(format!("{:02}", parsed_stage)));
-                }
-            }
+        if let Some(caps) = self.map_sn.captures(target_file)
+            && let Ok(parsed_map) = caps[1].parse::<u32>()
+            && let Ok(parsed_stage) = caps[2].parse::<u32>() {
+            return Some(cat_dir.join(Self::format_prefix(&caps[3])).join(format!("{:03}", parsed_map)).join(format!("{:02}", parsed_stage)));
         }
 
         if let Some(caps) = self.castle.captures(target_file) {
@@ -497,22 +489,19 @@ impl StagePatternsSet {
             return Some(base_dir.join("castles").join(&caps[1]));
         }
 
-        if let Some(caps) = self.bg_map.captures(target_file) {
-            if let Ok(parsed_id) = caps[1].parse::<u32>() {
-                return Some(base_dir.join("backgrounds").join("maps").join(format!("{:03}", parsed_id)));
-            }
+        if let Some(caps) = self.bg_map.captures(target_file)
+            && let Ok(parsed_id) = caps[1].parse::<u32>() {
+            return Some(base_dir.join("backgrounds").join("maps").join(format!("{:03}", parsed_id)));
         }
 
-        if let Some(caps) = self.bg_battle.captures(target_file) {
-            if let Ok(parsed_id) = caps[1].parse::<u32>() {
-                return Some(base_dir.join("backgrounds").join("battle").join(format!("{:03}", parsed_id)));
-            }
+        if let Some(caps) = self.bg_battle.captures(target_file)
+            && let Ok(parsed_id) = caps[1].parse::<u32>() {
+            return Some(base_dir.join("backgrounds").join("battle").join(format!("{:03}", parsed_id)));
         }
 
-        if let Some(caps) = self.bg_effect.captures(target_file) {
-            if let Ok(parsed_id) = caps[1].parse::<u32>() {
-                return Some(base_dir.join("backgrounds").join("effects").join(format!("{:03}", parsed_id)));
-            }
+        if let Some(caps) = self.bg_effect.captures(target_file)
+            && let Ok(parsed_id) = caps[1].parse::<u32>() {
+            return Some(base_dir.join("backgrounds").join("effects").join(format!("{:03}", parsed_id)));
         }
 
         if self.bg_data.is_match(target_file) {
@@ -523,12 +512,15 @@ impl StagePatternsSet {
     }
 }
 
-pub struct AssetRouter {
+pub(crate) struct AssetRouter {
+    structure: ImportStructure,
+
     cat_matcher: CatPatternsSet,
     enemy_matcher: EnemyPatternsSet,
     global_matcher: GlobalPatternsSet,
     stage_matcher: StagePatternsSet,
 
+    game_dir: PathBuf,
     cats_dir: PathBuf,
     sheets_dir: PathBuf,
     ui_dir: PathBuf,
@@ -540,13 +532,16 @@ pub struct AssetRouter {
 }
 
 impl AssetRouter {
-    pub fn new(game_root: &Path) -> Result<Self, regex::Error> {
+    pub(crate) fn new(game_root: &Path, structure: ImportStructure) -> Result<Self, regex::Error> {
         Ok(Self {
+            structure,
+
             cat_matcher: CatPatternsSet::new()?,
             enemy_matcher: EnemyPatternsSet::new()?,
             global_matcher: GlobalPatternsSet::new()?,
             stage_matcher: StagePatternsSet::new()?,
 
+            game_dir: game_root.to_path_buf(),
             cats_dir: game_root.join("cats"),
             sheets_dir: game_root.join("sheets"),
             ui_dir: game_root.join("ui"),
@@ -594,7 +589,11 @@ impl AssetRouter {
         name != clean_name
     }
 
-    pub fn resolve_destination(&self, original_name: &str, final_name: &str) -> PathBuf {
+    pub(crate) fn resolve_destination(&self, original_name: &str, final_name: &str) -> PathBuf {
+        if self.structure == ImportStructure::Flat {
+            return self.game_dir.join(final_name);
+        }
+
         let path = Path::new(original_name);
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
         let ext = path.extension().unwrap_or_default().to_string_lossy();
@@ -614,10 +613,6 @@ impl AssetRouter {
             .or_else(|| self.enemy_matcher.get_dest(&base_name, &self.enemy_dir))
             .or_else(|| self.stage_matcher.get_dest(&base_name, &self.stages_dir));
 
-        if let Some(folder) = routed_folder {
-            folder.join(final_name)
-        } else {
-            self.raw_dir.join(final_name)
-        }
+        routed_folder.map_or_else(|| self.raw_dir.join(final_name), |folder| folder.join(final_name))
     }
 }

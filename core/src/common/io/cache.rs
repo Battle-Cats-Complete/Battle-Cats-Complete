@@ -3,36 +3,20 @@ use std::fs::File;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::io::BufReader;
-use std::io::BufWriter;
 use std::path::Path;
 use std::path::PathBuf;
 
 use bincode::Options;
-use directories::BaseDirs;
 use rayon::prelude::*;
 use rustc_hash::FxHasher;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
-pub fn get_cache_dir() -> Option<PathBuf> {
-    let Some(base_dirs) = BaseDirs::new() else {
-        tracing::error!("Failed to retrieve BaseDirs. Caching system is disabled.");
-        return None;
-    };
+use crate::modules::settings::ScannerConfig;
 
-    let cache_directory = base_dirs.data_local_dir().join("battle_cats_complete").join("cache");
-
-    if !cache_directory.exists() {
-        tracing::debug!("Creating missing cache directory at {:?}", cache_directory);
-        if let Err(err) = fs::create_dir_all(&cache_directory) {
-            tracing::error!("Failed to create cache directory: {}", err);
-            return None;
-        }
-    }
-
-    Some(cache_directory)
-}
+use crate::common::dirs;
+use crate::modules::data::architecture;
 
 fn hash_directory_parallel(directory_path: &Path) -> u64 {
     if !directory_path.exists() {
@@ -73,16 +57,58 @@ fn hash_directory_parallel(directory_path: &Path) -> u64 {
     final_hasher.finish()
 }
 
+fn hash_game_data() -> u64 {
+    let root = Path::new(architecture::GAME);
+
+    let Ok(entries) = fs::read_dir(root) else {
+        tracing::trace!("Game directory {:?} does not exist, skipping hash", root);
+        return 0;
+    };
+
+    let mut targets: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_none_or(|name| !architecture::TRANSIENT.contains(&name))
+        })
+        .collect();
+
+    targets.sort_unstable();
+
+    let child_hashes: Vec<u64> = targets
+        .par_iter()
+        .map(|path| {
+            let mut hasher = FxHasher::default();
+
+            if path.is_dir() {
+                hash_directory_parallel(path).hash(&mut hasher);
+            } else if let Ok(metadata) = path.metadata()
+                && let Ok(modified) = metadata.modified() {
+                modified.hash(&mut hasher);
+            }
+
+            hasher.finish()
+        })
+        .collect();
+
+    let mut hasher = FxHasher::default();
+    for child_hash in child_hashes {
+        child_hash.hash(&mut hasher);
+    }
+
+    targets.len().hash(&mut hasher);
+    hasher.finish()
+}
+
 #[tracing::instrument(level = "debug", skip(active_mod))]
-pub fn get_game_hash(active_mod: Option<&str>) -> u64 {
+pub(crate) fn get_game_hash(active_mod: Option<&str>) -> u64 {
     tracing::trace!("Calculating global game hash across assets and tables...");
     let mut final_game_hasher = FxHasher::default();
 
-    let target_paths = ["game/tables", "game/cats", "game/enemies", "game/stages", "mods"];
-    for path_string in target_paths {
-        let directory_hash = hash_directory_parallel(Path::new(path_string));
-        directory_hash.hash(&mut final_game_hasher);
-    }
+    hash_game_data().hash(&mut final_game_hasher);
+    hash_directory_parallel(Path::new(architecture::MODS)).hash(&mut final_game_hasher);
 
     if let Some(mod_name) = active_mod {
         tracing::trace!("Including active mod in hash: {}", mod_name);
@@ -96,17 +122,91 @@ pub fn get_game_hash(active_mod: Option<&str>) -> u64 {
     hash_result
 }
 
+pub(crate) fn content_hash(config: &ScannerConfig) -> u64 {
+    content_key(get_game_hash(config.active_mod.as_deref()), config)
+}
+
+pub(crate) fn content_key(index: u64, config: &ScannerConfig) -> u64 {
+    let mut hasher = FxHasher::default();
+
+    index.hash(&mut hasher);
+    config.hash(&mut hasher);
+
+    hasher.finish()
+}
+
+const SIZE_LIMIT: u64 = 1024 * 1024 * 100;
+
 #[derive(Serialize, Deserialize)]
 struct CachePayload<T> {
+    schema_version: u32,
     hash: u64,
     data: T,
 }
 
-#[tracing::instrument(level = "debug", skip_all, fields(file = %filename))]
-pub fn load_with_hash<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
-    let Some(cache_directory) = get_cache_dir() else {
-        return None;
+pub(crate) trait CacheSpec {
+    type Data: Serialize + DeserializeOwned;
+    const FILE: &'static str;
+    const VERSION: u32;
+}
+
+pub(crate) fn read<C: CacheSpec>() -> Option<(u64, C::Data)> {
+    load_payload(C::FILE, C::VERSION)
+}
+
+pub(crate) fn purge<C: CacheSpec>() {
+    let Some(cache_directory) = dirs::cache_path() else {
+        return;
     };
+
+    let target_path = cache_directory.join(C::FILE);
+
+    if target_path.exists() && fs::remove_file(&target_path).is_err() {
+        tracing::warn!("Failed to purge stale cache file {}", C::FILE);
+    }
+}
+
+pub(crate) fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
+    let Some(bytes) = encode::<C>(hash, data) else {
+        return;
+    };
+
+    store::<C>(&bytes);
+}
+
+pub(crate) fn encode<C: CacheSpec>(hash: u64, data: &C::Data) -> Option<Vec<u8>> {
+    let payload = CachePayload { schema_version: C::VERSION, hash, data };
+
+    bincode::DefaultOptions::new()
+        .with_limit(SIZE_LIMIT)
+        .serialize(&payload)
+        .inspect_err(|err| tracing::error!("Failed to serialize cache payload for {}: {}", C::FILE, err))
+        .ok()
+}
+
+pub(crate) fn store<C: CacheSpec>(bytes: &[u8]) {
+    let Some(cache_directory) = dirs::cache() else {
+        tracing::warn!("Cache directory unavailable; skipping save for {}", C::FILE);
+        return;
+    };
+
+    let target_path = cache_directory.join(C::FILE);
+    let tmp_path = target_path.with_extension("tmp");
+
+    if let Err(err) = fs::write(&tmp_path, bytes) {
+        tracing::error!("Failed to write temporary cache file at {:?}: {}", tmp_path, err);
+        return;
+    }
+
+    if let Err(err) = fs::rename(&tmp_path, &target_path) {
+        tracing::error!("Failed to promote cache file {:?}: {}", target_path, err);
+        let _ = fs::remove_file(&tmp_path);
+    }
+}
+
+#[tracing::instrument(level = "debug", skip_all, fields(file = %filename))]
+fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> Option<(u64, T)> {
+    let cache_directory = dirs::cache_path()?;
 
     let cache_path = cache_directory.join(filename);
 
@@ -118,10 +218,19 @@ pub fn load_with_hash<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
     let reader = BufReader::new(cache_file);
 
     let options = bincode::DefaultOptions::new()
-        .with_limit(1024 * 1024 * 100);
+        .with_limit(SIZE_LIMIT);
 
     match options.deserialize_from::<_, CachePayload<T>>(reader) {
         Ok(payload) => {
+            if payload.schema_version != expected_version {
+                tracing::warn!(
+                    "Cache schema mismatch for {} (found v{}, expected v{}). Purging stale cache file.",
+                    filename, payload.schema_version, expected_version
+                );
+                let _ = fs::remove_file(&cache_path);
+                return None;
+            }
+
             tracing::debug!("Successfully loaded cache payload for {}", filename);
             Some((payload.hash, payload.data))
         },
@@ -130,43 +239,5 @@ pub fn load_with_hash<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
             let _ = fs::remove_file(&cache_path);
             None
         }
-    }
-}
-
-#[tracing::instrument(level = "debug", skip(data))]
-pub fn save<T: Serialize>(filename: &str, hash: u64, data: &T) {
-    let Some(cache_directory) = get_cache_dir() else {
-        tracing::warn!("Cache directory unavailable; skipping save for {}", filename);
-        return;
-    };
-
-    let target_path = cache_directory.join(filename);
-    let tmp_path = target_path.with_extension("tmp");
-
-    let Ok(cache_file) = File::create(&tmp_path) else {
-        tracing::error!("Failed to create temporary cache file at {:?}", tmp_path);
-        return;
-    };
-
-    let mut writer = BufWriter::new(cache_file);
-    let payload = CachePayload { hash, data };
-    let options = bincode::DefaultOptions::new()
-        .with_limit(1024 * 1024 * 100);
-
-    if let Err(err) = options.serialize_into(&mut writer, &payload) {
-        tracing::error!("Failed to serialize cache payload: {}", err);
-        let _ = fs::remove_file(&tmp_path);
-        return;
-    }
-
-    if writer.into_inner().is_err() {
-        tracing::error!("Failed to flush cache file writer for {:?}", tmp_path);
-        return;
-    }
-
-    if let Err(err) = fs::rename(&tmp_path, &target_path) {
-        tracing::error!("Failed to commit cache file rename: {}", err);
-    } else {
-        tracing::debug!("Successfully committed cache file {} to disk", filename);
     }
 }

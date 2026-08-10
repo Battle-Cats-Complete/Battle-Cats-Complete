@@ -10,8 +10,12 @@ use resand::xmltree::{XMLTree, XMLTreeNode};
 use tracing::{debug, error, info, instrument, trace, warn};
 use zip::{ZipArchive, ZipWriter};
 
+const ICON: &str = "icon.png";
+const ICON_FOREGROUND: &str = "icon_foreground.png";
+const PUSH_ICON: &str = "push_icon.png";
+
 #[derive(Debug, thiserror::Error)]
-pub enum ResError {
+pub(crate) enum ResError {
     #[error("File operation failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("Manifest parse error: {0}")]
@@ -20,14 +24,14 @@ pub enum ResError {
     MissingElement(&'static str),
 }
 
-pub struct ApkEditor {
+pub(crate) struct ApkEditor {
     pub manifest: XMLTree,
     pub res_table: Option<ResTable>,
 }
 
 impl ApkEditor {
     #[instrument(skip_all, fields(manifest = %manifest_path.display()))]
-    pub fn from_paths(manifest_path: &Path, table_path: Option<&Path>) -> Result<Self, ResError> {
+    pub(crate) fn from_paths(manifest_path: &Path, table_path: Option<&Path>) -> Result<Self, ResError> {
         debug!("Parsing Manifest from paths");
 
         let mut manifest_file = fs::File::open(manifest_path)?;
@@ -56,7 +60,7 @@ impl ApkEditor {
     }
 
     #[instrument(skip_all)]
-    pub fn get_version_info(&self) -> Option<(u32, String)> {
+    pub(crate) fn get_version_info(&self) -> Option<(u32, String)> {
         trace!("Extracting version information from XML tree");
         let root_element = self.manifest.root.get_element(&["manifest"], &self.manifest.string_pool)?;
 
@@ -86,7 +90,7 @@ impl ApkEditor {
     }
 
     #[instrument(skip_all)]
-    pub fn save_to_paths(self, manifest_path: &Path, table_path: Option<&Path>) -> Result<(), ResError> {
+    pub(crate) fn save_to_paths(self, manifest_path: &Path, table_path: Option<&Path>) -> Result<(), ResError> {
         debug!("Saving patched Manifest to {:?}", manifest_path);
         let mut manifest_out = fs::File::create(manifest_path)?;
 
@@ -109,7 +113,7 @@ impl ApkEditor {
     }
 
     #[instrument(skip_all, fields(suffix = %suffix, title = %app_title))]
-    pub fn apply_patches(&mut self, suffix: &str, app_title: &str) -> Result<String, ResError> {
+    pub(crate) fn apply_patches(&mut self, suffix: &str, app_title: &str) -> Result<String, ResError> {
         info!("Applying Manifest patches");
 
         let root = self.manifest.root.get_element_mut(&["manifest"], &self.manifest.string_pool)
@@ -338,13 +342,38 @@ fn collect_directory_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(files)
 }
 
+#[derive(Default)]
+pub(crate) struct ModIcons {
+    pub(crate) icon: Option<PathBuf>,
+    pub(crate) foreground: Option<PathBuf>,
+    pub(crate) push: Option<PathBuf>,
+}
+
+impl ModIcons {
+    pub(crate) fn resolve(mut find: impl FnMut(&str) -> Option<PathBuf>) -> Self {
+        Self {
+            icon: find(ICON),
+            foreground: find(ICON_FOREGROUND),
+            push: find(PUSH_ICON),
+        }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.icon.is_none() && self.foreground.is_none() && self.push.is_none()
+    }
+
+    fn fallback_foreground(&self) -> bool {
+        self.icon.is_some() && self.foreground.is_none()
+    }
+}
+
 #[instrument(skip_all)]
-pub fn inject_and_build_apk(
+pub(crate) fn inject_and_build_apk(
     source_apk: &Path,
     output_apk: &Path,
     assets_dir: &Path,
-    icons_dir: &Path,
-    loose_dir: &Path,
+    icons: &ModIcons,
+    loose: &[(String, PathBuf)],
     patched_manifest: Option<&Path>,
     patched_arsc: Option<&Path>,
 ) -> Result<usize, String> {
@@ -378,18 +407,16 @@ pub fn inject_and_build_apk(
         files_to_inject.insert(format!("assets/{}", name));
     }
 
-    let loose_files = collect_directory_files(loose_dir)?;
-    for path in &loose_files {
-        let name = path.file_name().unwrap_or_default().to_string_lossy();
+    for (name, _) in loose {
         files_to_inject.insert(format!("assets/{}", name));
     }
 
     debug!("Identified {} files to inject or replace.", files_to_inject.len());
 
-    let has_custom_icon = icons_dir.join("icon.png").exists();
-    let has_custom_foreground = icons_dir.join("icon_foreground.png").exists();
-    let has_custom_push = icons_dir.join("push_icon.png").exists();
-    let fallback_foreground = has_custom_icon && !has_custom_foreground;
+    let has_custom_icon = icons.icon.is_some();
+    let has_custom_foreground = icons.foreground.is_some();
+    let has_custom_push = icons.push.is_some();
+    let fallback_foreground = icons.fallback_foreground();
 
     let mut existing_res_folders = HashSet::new();
 
@@ -420,15 +447,15 @@ pub fn inject_and_build_apk(
         let short_name = Path::new(&file_name).file_name().unwrap_or_default().to_string_lossy();
 
         if file_name.starts_with("res/") {
-            if short_name == "icon.png" && has_custom_icon {
+            if short_name == ICON && has_custom_icon {
                 trace!("Intercepted original icon.png");
                 continue;
             }
-            if short_name == "icon_foreground.png" && (has_custom_foreground || fallback_foreground) {
+            if short_name == ICON_FOREGROUND && (has_custom_foreground || fallback_foreground) {
                 trace!("Intercepted and dropped original icon_foreground.png");
                 continue;
             }
-            if short_name == "push_icon.png" && has_custom_push {
+            if short_name == PUSH_ICON && has_custom_push {
                 trace!("Intercepted original push_icon.png");
                 continue;
             }
@@ -465,21 +492,12 @@ pub fn inject_and_build_apk(
         inject_file(&path, &format!("assets/{}", name), store)?;
     }
 
-    for path in loose_files {
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-        inject_file(&path, &format!("assets/{}", name), true)?;
+    for (name, path) in loose {
+        inject_file(path, &format!("assets/{}", name), true)?;
     }
 
-    if icons_dir.exists() {
-        injected_count += inject_scaled_icons(
-            &mut zip_writer,
-            icons_dir,
-            &existing_res_folders,
-            has_custom_icon,
-            has_custom_foreground,
-            has_custom_push,
-            fallback_foreground
-        )?;
+    if !icons.is_empty() {
+        injected_count += inject_scaled_icons(&mut zip_writer, icons, &existing_res_folders)?;
     }
 
     zip_writer.finish().map_err(|error| {
@@ -493,21 +511,18 @@ pub fn inject_and_build_apk(
 
 fn inject_scaled_icons<W: Write + std::io::Seek>(
     zip_writer: &mut ZipWriter<W>,
-    icons_dir: &Path,
+    icons: &ModIcons,
     existing_res_folders: &HashSet<String>,
-    has_custom_icon: bool,
-    has_custom_foreground: bool,
-    has_custom_push: bool,
-    fallback_foreground: bool,
 ) -> Result<usize, String> {
     info!("Scaling and injecting custom icons...");
     let mut injected = 0;
-    let foreground_source = if fallback_foreground { "icon.png" } else { "icon_foreground.png" };
+    let fallback_foreground = icons.fallback_foreground();
+    let foreground_source = if fallback_foreground { icons.icon.as_deref() } else { icons.foreground.as_deref() };
 
     let icon_blueprints = [
-        ("icon.png", "icon.png", 192, 144, 96, has_custom_icon, false),
-        ("icon_foreground.png", foreground_source, 432, 324, 216, has_custom_foreground || fallback_foreground, fallback_foreground),
-        ("push_icon.png", "push_icon.png", 96, 72, 48, has_custom_push, false),
+        (ICON, icons.icon.as_deref(), 192, 144, 96, false),
+        (ICON_FOREGROUND, foreground_source, 432, 324, 216, fallback_foreground),
+        (PUSH_ICON, icons.push.as_deref(), 96, 72, 48, false),
     ];
 
     let target_resolutions = [
@@ -517,12 +532,11 @@ fn inject_scaled_icons<W: Write + std::io::Seek>(
         ("mipmap-xxxhdpi-v4", 0), ("mipmap-xxhdpi-v4", 1), ("mipmap-xhdpi-v4", 2),
     ];
 
-    for (dest_name, source_name, xxxhdpi, xxhdpi, xhdpi, exists, is_fallback) in icon_blueprints {
-        if !exists { continue; }
+    for (dest_name, source_path, xxxhdpi, xxhdpi, xhdpi, is_fallback) in icon_blueprints {
+        let Some(source_path) = source_path else { continue; };
 
-        let source_path = icons_dir.join(source_name);
-        let Ok(source_image) = image::open(&source_path) else {
-            warn!("Failed to open or decode custom icon: {}", source_name);
+        let Ok(source_image) = image::open(source_path) else {
+            warn!(path = %source_path.display(), "Failed to open or decode custom icon");
             continue;
         };
 
@@ -566,7 +580,7 @@ fn inject_scaled_icons<W: Write + std::io::Seek>(
 }
 
 #[instrument(skip_all)]
-pub fn normalize_apk(input_apk: &Path, output_apk: &Path, original_apk: &Path) -> Result<(), String> {
+pub(crate) fn normalize_apk(input_apk: &Path, output_apk: &Path, original_apk: &Path) -> Result<(), String> {
     info!("Normalizing APK binaries for signature verification...");
     let mut stored_files_map = HashSet::new();
 

@@ -1,200 +1,303 @@
 use std::collections::HashSet;
 
-use eframe::egui;
-use nyanko::enemy::abilities::{Identity, REGISTRY};
+use iced::alignment::{Horizontal, Vertical};
+use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, stack, text, text_input, tooltip, Space};
+use iced::{Element, Length, Size};
+use nyanko::enemy::abilities::{AttrUnit, Identity, REGISTRY};
 
-use core::modules::enemy::filter::{evaluation::get_identity_name, ATTACK_TYPE_IDENTITIES, EnemyFilterState, MatchMode};
+use core::modules::enemy::filter::evaluation::get_identity_name;
+use core::modules::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
 use core::modules::enemy::game::registry::{get_display_def, AbilityIcon, DisplayGroup};
-use core::modules::settings::Settings;
 
-use crate::common::CustomAssets;
-use crate::common::DragGuard;
-use crate::common::SpriteSheet;
+use crate::app::theme;
+use crate::common::ability_icon;
+use crate::common::{CustomAssets, SpriteSheet};
+use crate::widget::popup;
+use crate::widget::range_row;
+use crate::widget::{fallback_icon, smooth_scroll, ICON_SIZE};
 
-pub(crate) const WINDOW_WIDTH: f32 = 420.0;
-pub(crate) const WINDOW_HEIGHT: f32 = 400.0;
-pub(crate) const TILDE_SPACING: f32 = 5.0;
+const STAT_KEYS: [&str; 8] = [
+    "Attack", "Dps", "Range", "Atk Cycle (f)", "Hitpoints", "Knockbacks", "Speed", "Cash Drop",
+];
 
-pub(crate) fn show_popup(
-    ctx: &egui::Context,
-    state: &mut EnemyFilterState,
-    sheets: &mut Vec<SpriteSheet>,
-    assets: &CustomAssets,
-    settings: &Settings,
-    drag_guard: &mut DragGuard,
-) {
-    if !state.is_open { return; }
+const ICONS_PER_ROW: usize = 11;
+const POPUP_SIZE: Size = Size::new(600.0, 528.0);
+const CLEAR_BTN_CLEARANCE: f32 = 56.0;
 
-    crate::common::img015::ensure_loaded(ctx, sheets, settings);
-
-    let window_id = egui::Id::new("Enemy Filter");
-    let (allow_drag, fixed_pos) = drag_guard.assign_bounds(ctx, window_id);
-
-    let mut clear_filters = false;
-    let mut is_open_local = state.is_open;
-
-    let mut window = egui::Window::new("Advanced Enemy Filter")
-        .id(window_id)
-        .open(&mut is_open_local)
-        .collapsible(false)
-        .resizable(true)
-        .constrain(false)
-        .movable(allow_drag)
-        .default_pos(ctx.screen_rect().center() - egui::vec2(WINDOW_WIDTH / 2.0, WINDOW_HEIGHT / 2.0))
-        .default_size([WINDOW_WIDTH, WINDOW_HEIGHT])
-        .min_width(380.0)
-        .min_height(400.0);
-
-    if let Some(pos) = fixed_pos { window = window.current_pos(pos); }
-
-    window.show(ctx, |ui| {
-        let max_rect = ui.max_rect();
-
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-
-                ui.heading("Attributes");
-                ui.add_space(5.0);
-
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    ui.label(egui::RichText::new("Mode:").strong());
-
-                    egui::ComboBox::from_id_salt("cb_match_mode")
-                        .selected_text(if state.match_mode == MatchMode::And { "And" } else { "Or" })
-                        .width(55.0)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut state.match_mode, MatchMode::And, "And");
-                            ui.selectable_value(&mut state.match_mode, MatchMode::Or, "Or");
-                        });
-                });
-                ui.add_space(15.0);
-
-                ui.heading("Stats");
-                ui.add_space(5.0);
-
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    ui.label(egui::RichText::new("Target Magnification:").strong());
-                    ui.add_sized(
-                        egui::vec2(60.0, 20.0),
-                        egui::TextEdit::singleline(&mut state.mag_input)
-                            .hint_text(egui::RichText::new("100").color(egui::Color32::from_gray(100)))
-                    );
-                    ui.label("%");
-                });
-                ui.add_space(8.0);
-
-                let stat_keys = ["Attack", "Dps", "Range", "Atk Cycle (f)", "Hitpoints", "Knockbacks", "Speed", "Cash Drop"];
-
-                egui::Grid::new("stat_filter_grid")
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        for (i, &stat) in stat_keys.iter().enumerate() {
-                            ui.label(format!("{}:", stat));
-
-                            let range = state.stat_ranges.entry(stat).or_default();
-
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = TILDE_SPACING;
-
-                                let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
-
-                                ui.add_sized(
-                                    egui::vec2(45.0, 20.0),
-                                    egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
-                                );
-
-                                ui.label("~");
-
-                                ui.add_sized(
-                                    egui::vec2(45.0, 20.0),
-                                    egui::TextEdit::singleline(&mut range.max).hint_text(hint)
-                                );
-                            });
-
-                            if (i + 1) % 2 == 0 {
-                                ui.end_row();
-                            }
-                        }
-                    });
-                ui.add_space(15.0);
-
-                let mut rendered_identities = HashSet::new();
-
-                ui.heading("Trait Type");
-                ui.add_space(5.0);
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                    for def in REGISTRY.iter() {
-                        let display_def = get_display_def(def.identity);
-                        if display_def.group == DisplayGroup::Type {
-                            render_filter_icon(ui, def.identity, &mut state.active_identities, sheets, assets);
-                            rendered_identities.insert(def.identity);
-                        }
-                    }
-                });
-
-                ui.add_space(8.0);
-                render_display_group(ui, state, &mut rendered_identities, DisplayGroup::Headline1, false, true, sheets, assets);
-                ui.add_space(15.0);
-
-                ui.heading("Attack Type");
-                ui.add_space(5.0);
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                    for &identity in ATTACK_TYPE_IDENTITIES {
-                        render_filter_icon(ui, identity, &mut state.active_identities, sheets, assets);
-                        rendered_identities.insert(identity);
-                    }
-                });
-                ui.add_space(15.0);
-
-                ui.heading("Abilities");
-                ui.add_space(5.0);
-
-                render_display_group(ui, state, &mut rendered_identities, DisplayGroup::Headline2, false, true, sheets, assets);
-                render_display_group(ui, state, &mut rendered_identities, DisplayGroup::Body1, true, true, sheets, assets);
-                render_display_group(ui, state, &mut rendered_identities, DisplayGroup::Body2, true, true, sheets, assets);
-                render_display_group(ui, state, &mut rendered_identities, DisplayGroup::Footer, false, true, sheets, assets);
-                ui.add_space(50.0);
-            });
-
-        let btn_size = egui::vec2(160.0, 34.0);
-        let btn_rect = egui::Rect::from_center_size(
-            max_rect.center_bottom() - egui::vec2(0.0, btn_size.y / 2.0 + 12.0),
-            btn_size
-        );
-
-        let clear_btn = egui::Button::new(
-            egui::RichText::new("Clear Filter").color(egui::Color32::WHITE).strong().size(15.0)
-        )
-            .fill(egui::Color32::from_rgb(210, 50, 50))
-            .rounding(6.0);
-
-        if ui.put(btn_rect, clear_btn).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-            clear_filters = true;
-        }
-    });
-
-    state.is_open = is_open_local;
-
-    if clear_filters {
-        *state = EnemyFilterState { is_open: state.is_open, ..Default::default() };
-    }
+#[derive(Debug, Clone)]
+pub enum Message {
+    Popup(popup::Message),
+    Toggle,
+    Clear,
+    MatchModeChanged(MatchMode),
+    MagChanged(String),
+    StatMinChanged(&'static str, String),
+    StatMaxChanged(&'static str, String),
+    IdentityToggled(Identity),
+    AdvMinChanged(Identity, &'static str, String),
+    AdvMaxChanged(Identity, &'static str, String),
 }
 
-fn render_display_group(
-    ui: &mut egui::Ui,
-    state: &mut EnemyFilterState,
-    rendered_identities: &mut HashSet<Identity>,
-    target_group: DisplayGroup,
-    is_vertical: bool,
-    draw_labels: bool,
-    sheets: &[SpriteSheet],
-    assets: &CustomAssets,
-) {
+#[derive(Default)]
+pub struct State {
+    pub filter_state: EnemyFilterState,
+    popup: popup::State,
+    icons: ability_icon::Cache,
+}
+
+
+impl State {
+    pub fn update(&mut self, message: Message) {
+        match message {
+            Message::Popup(msg) => {
+                if self.popup.update(msg, POPUP_SIZE) {
+                    self.filter_state.is_open = false;
+                }
+            }
+            Message::Toggle => self.filter_state.is_open = !self.filter_state.is_open,
+            Message::Clear => {
+                self.filter_state = EnemyFilterState { is_open: self.filter_state.is_open, ..Default::default() };
+            }
+            Message::MatchModeChanged(mode) => self.filter_state.match_mode = mode,
+            Message::MagChanged(mag) => self.filter_state.mag_input = mag,
+            Message::StatMinChanged(stat, value) => {
+                self.filter_state.stat_ranges.entry(stat).or_default().min = value;
+            }
+            Message::StatMaxChanged(stat, value) => {
+                self.filter_state.stat_ranges.entry(stat).or_default().max = value;
+            }
+            Message::IdentityToggled(identity) => {
+                if self.filter_state.active_identities.contains(&identity) {
+                    self.filter_state.active_identities.remove(&identity);
+                } else {
+                    self.filter_state.active_identities.insert(identity);
+                }
+            }
+            Message::AdvMinChanged(identity, attr, val) => {
+                self.filter_state.adv_ranges.entry(identity).or_default().entry(attr).or_default().min = val;
+            }
+            Message::AdvMaxChanged(identity, attr, val) => {
+                self.filter_state.adv_ranges.entry(identity).or_default().entry(attr).or_default().max = val;
+            }
+        }
+    }
+
+    pub fn view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, window: Size) -> Element<'a, Message> {
+        self.popup.view("Advanced Enemy Filter", POPUP_SIZE, window, Message::Popup, move || {
+            self.content_view(sheets, assets)
+        }, None)
+    }
+
+    fn content_view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
+        let match_mode_label = if self.filter_state.match_mode == MatchMode::And { "And" } else { "Or" };
+
+        let mode_row = row![
+            text("Mode:").align_y(Vertical::Center),
+            pick_list(vec!["And", "Or"], Some(match_mode_label), |s| {
+                Message::MatchModeChanged(if s == "And" { MatchMode::And } else { MatchMode::Or })
+            }).style(theme::combo_box).menu_style(theme::combo_box_menu),
+        ].spacing(8).align_y(Vertical::Center);
+
+        let mag_row = row![
+            text("Target Magnification:").align_y(Vertical::Center),
+            text_input("100", &self.filter_state.mag_input)
+                .on_input(Message::MagChanged)
+                .width(Length::Fixed(60.0))
+                .style(theme::rounded_input),
+            text("%"),
+        ].spacing(8).align_y(Vertical::Center);
+
+        let mut stats_col = column![].spacing(6);
+        for pair in STAT_KEYS.chunks(2) {
+            let mut stat_row = row![].spacing(16);
+            for &stat in pair {
+                stat_row = stat_row.push(stat_range_field(stat, &self.filter_state));
+            }
+            stats_col = stats_col.push(stat_row);
+        }
+
+        let type_identities: Vec<Identity> = REGISTRY.iter()
+            .map(|def| def.identity)
+            .filter(|&identity| get_display_def(identity).group == DisplayGroup::Type)
+            .collect();
+        let type_row = self.icon_wrap(type_identities.into_iter(), sheets, assets);
+
+        let attack_row = self.icon_wrap(ATTACK_TYPE_IDENTITIES.iter().copied(), sheets, assets);
+
+        let mut rendered_identities: HashSet<Identity> = HashSet::new();
+        let mut abilities_col = column![].spacing(0);
+
+        for group in [DisplayGroup::Headline1, DisplayGroup::Headline2] {
+            let group_identities = collect_group_identities(group, &mut rendered_identities);
+            if !group_identities.is_empty() {
+                abilities_col = abilities_col.push(self.icon_wrap(group_identities.into_iter(), sheets, assets));
+                abilities_col = abilities_col.push(Space::new().height(Length::Fixed(8.0)));
+            }
+        }
+
+        for group in [DisplayGroup::Body1, DisplayGroup::Body2] {
+            let group_identities = collect_group_identities(group, &mut rendered_identities);
+            if !group_identities.is_empty() {
+                let mut col = column![].spacing(4);
+                for identity in group_identities {
+                    col = col.push(self.icon_row_with_label(identity, sheets, assets));
+                }
+                abilities_col = abilities_col.push(col);
+                abilities_col = abilities_col.push(Space::new().height(Length::Fixed(8.0)));
+            }
+        }
+
+        let footer_identities = collect_group_identities(DisplayGroup::Footer, &mut rendered_identities);
+        if !footer_identities.is_empty() {
+            abilities_col = abilities_col.push(self.icon_wrap(footer_identities.into_iter(), sheets, assets));
+        }
+
+        let content = column![
+            text("Attributes").size(18),
+            mode_row,
+            Space::new().height(Length::Fixed(16.0)),
+            text("Stats").size(18),
+            mag_row,
+            stats_col,
+            Space::new().height(Length::Fixed(16.0)),
+            text("Trait Type").size(18),
+            type_row,
+            Space::new().height(Length::Fixed(16.0)),
+            text("Attack Type").size(18),
+            attack_row,
+            Space::new().height(Length::Fixed(16.0)),
+            text("Abilities").size(18),
+            abilities_col,
+            Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
+        ].spacing(8).padding(24);
+
+        let scroll_layer = smooth_scroll(scrollable(content).width(Length::Fill).height(Length::Fill));
+
+        let clear_btn = button(text("Clear Filter"))
+            .on_press(Message::Clear)
+            .padding([8, 16])
+            .style(button::danger);
+
+        let clear_btn_layer = container(clear_btn)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Bottom)
+            .padding(16);
+
+        stack![scroll_layer, clear_btn_layer]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn icon_wrap<'a>(
+        &'a self,
+        identities: impl Iterator<Item = Identity>,
+        sheets: &'a [SpriteSheet],
+        assets: &'a CustomAssets,
+    ) -> Element<'a, Message> {
+        let items: Vec<Identity> = identities.collect();
+        let mut col = column![].spacing(4);
+        for chunk in items.chunks(ICONS_PER_ROW) {
+            let mut wrapped_row = row![].spacing(4).align_y(Vertical::Center);
+            for &identity in chunk {
+                wrapped_row = wrapped_row.push(self.icon_with_tooltip(identity, sheets, assets));
+            }
+            col = col.push(wrapped_row);
+        }
+        col.into()
+    }
+
+    fn icon_with_tooltip<'a>(&'a self, identity: Identity, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
+        let is_active = self.filter_state.active_identities.contains(&identity);
+        let name = get_identity_name(identity);
+
+        tooltip(
+            self.icon_button(identity, sheets, assets, is_active),
+            container(text(name)).padding(6).style(container::bordered_box),
+            tooltip::Position::Top,
+        ).into()
+    }
+
+    fn icon_row_with_label<'a>(&'a self, identity: Identity, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
+        let is_active = self.filter_state.active_identities.contains(&identity);
+        let name = get_identity_name(identity);
+        let schema = ability_schema(identity);
+        let expanded = is_active && !schema.is_empty();
+
+        let label_btn = button(text(name))
+            .padding(0)
+            .style(button::text)
+            .on_press(Message::IdentityToggled(identity));
+
+        let header = row![
+            self.icon_button(identity, sheets, assets, is_active),
+            label_btn,
+        ].spacing(10).align_y(Vertical::Center);
+
+        if !expanded {
+            return header.into();
+        }
+
+        let mut grid_col = column![].spacing(6);
+        for &(attr, _) in schema {
+            grid_col = grid_col.push(self.adv_range_row(identity, attr));
+        }
+
+        container(column![header, grid_col].spacing(6))
+            .padding(8)
+            .style(theme::card_container)
+            .into()
+    }
+
+    fn adv_range_row<'a>(&'a self, identity: Identity, attr: &'static str) -> Element<'a, Message> {
+        let range = self.filter_state.adv_ranges.get(&identity).and_then(|ranges| ranges.get(attr));
+        let min = range.map_or("", |r| r.min.as_str());
+        let max = range.map_or("", |r| r.max.as_str());
+
+        range_row(
+            attr,
+            min,
+            max,
+            move |v| Message::AdvMinChanged(identity, attr, v),
+            move |v| Message::AdvMaxChanged(identity, attr, v),
+        )
+    }
+
+    fn icon_button<'a>(&'a self, identity: Identity, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, is_active: bool) -> Element<'a, Message> {
+        let icon_el = self.icon_image(identity, sheets, assets, is_active);
+        button(icon_el)
+            .padding(0)
+            .style(button::text)
+            .on_press(Message::IdentityToggled(identity))
+            .into()
+    }
+
+    fn icon_image<'a>(&'a self, identity: Identity, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, is_active: bool) -> Element<'a, Message> {
+        let opacity = if is_active { 1.0 } else { 0.4 };
+        let display_def = get_display_def(identity);
+
+        match display_def.icon {
+            AbilityIcon::Custom(custom_icon) => {
+                if let Some(handle) = assets.get_icon_texture(custom_icon) {
+                    return iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).opacity(opacity).into();
+                }
+            }
+            AbilityIcon::Standard(icon_id) => {
+                if let Some(handle) = self.icons.handle(icon_id, sheets) {
+                    return iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).opacity(opacity).into();
+                }
+            }
+            AbilityIcon::None => {}
+        }
+
+        fallback_icon("?")
+    }
+
+}
+
+fn collect_group_identities(target_group: DisplayGroup, rendered_identities: &mut HashSet<Identity>) -> Vec<Identity> {
     let mut identities_in_group = Vec::new();
 
     for def in REGISTRY.iter() {
@@ -208,157 +311,26 @@ fn render_display_group(
         rendered_identities.insert(def.identity);
     }
 
-    if identities_in_group.is_empty() { return; }
-
-    if is_vertical {
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
-            for identity in identities_in_group {
-                render_filter_icon_row(ui, state, identity, draw_labels, sheets, assets);
-            }
-        });
-    } else {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-            for identity in identities_in_group {
-                render_filter_icon(ui, identity, &mut state.active_identities, sheets, assets);
-            }
-        });
-    }
-    ui.add_space(8.0);
+    identities_in_group
 }
 
-fn render_filter_icon_row(
-    ui: &mut egui::Ui,
-    state: &mut EnemyFilterState,
-    identity: Identity,
-    draw_labels: bool,
-    sheets: &[SpriteSheet],
-    assets: &CustomAssets,
-) {
-    let is_active = state.active_identities.contains(&identity);
-    let name = get_identity_name(identity);
-
-    let pure_def = REGISTRY.iter().find(|d| d.identity == identity);
-    let schema = pure_def.map(|d| d.schema).unwrap_or(&[]);
-    let has_adv = !schema.is_empty();
-
-    let bg_fill = if is_active && has_adv { egui::Color32::from_black_alpha(150) } else { egui::Color32::TRANSPARENT };
-    let margin = if is_active && has_adv { egui::Margin::symmetric(8.0, 8.0) } else { egui::Margin::same(0.0) };
-
-    egui::Frame::none()
-        .fill(bg_fill)
-        .rounding(6.0)
-        .inner_margin(margin)
-        .show(ui, |ui| {
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    render_filter_icon(ui, identity, &mut state.active_identities, sheets, assets);
-
-                    if draw_labels {
-                        ui.add_space(10.0);
-                        let color = if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(120) };
-                        if ui.add(egui::Label::new(egui::RichText::new(&name).color(color)).sense(egui::Sense::click())).clicked() {
-                            if is_active { state.active_identities.remove(&identity); }
-                            else { state.active_identities.insert(identity); }
-                        }
-                    }
-                });
-
-                if is_active && has_adv {
-                    ui.add_space(4.0);
-                    egui::Grid::new(format!("adv_grid_{}", name))
-                        .spacing([8.0, 6.0])
-                        .show(ui, |ui| {
-                            for &(attr, _unit) in schema {
-                                ui.label(format!("{}:", attr));
-
-                                let range = state.adv_ranges
-                                    .entry(identity)
-                                    .or_default()
-                                    .entry(attr)
-                                    .or_default();
-
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = TILDE_SPACING;
-
-                                    let hint = egui::RichText::new("Any").color(egui::Color32::from_gray(100));
-
-                                    ui.add_sized(
-                                        egui::vec2(45.0, 20.0),
-                                        egui::TextEdit::singleline(&mut range.min).hint_text(hint.clone())
-                                    );
-
-                                    ui.label("~");
-
-                                    ui.add_sized(
-                                        egui::vec2(45.0, 20.0),
-                                        egui::TextEdit::singleline(&mut range.max).hint_text(hint)
-                                    );
-                                });
-                                ui.end_row();
-                            }
-                        });
-                }
-            });
-        });
+fn ability_schema(identity: Identity) -> &'static [(&'static str, AttrUnit)] {
+    REGISTRY.iter()
+        .find(|def| def.identity == identity)
+        .map(|def| def.schema)
+        .unwrap_or(&[])
 }
 
-fn render_filter_icon(
-    ui: &mut egui::Ui,
-    identity: Identity,
-    active_identities: &mut HashSet<Identity>,
-    sheets: &[SpriteSheet],
-    assets: &CustomAssets,
-) {
-    let is_active = active_identities.contains(&identity);
-    let tint = if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(80) };
+fn stat_range_field<'a>(stat: &'static str, filter_state: &'a EnemyFilterState) -> Element<'a, Message> {
+    let range = filter_state.stat_ranges.get(stat);
+    let min = range.map_or("", |r| r.min.as_str());
+    let max = range.map_or("", |r| r.max.as_str());
 
-    let display_def = get_display_def(identity);
-
-    match display_def.icon {
-        AbilityIcon::Custom(custom_icon) => {
-            if let Some(tex) = assets.get_icon_texture(custom_icon) {
-                let img = egui::Image::new(tex).fit_to_exact_size(egui::vec2(32.0, 32.0)).tint(tint);
-                let response = ui.add(egui::ImageButton::new(img).frame(false));
-                if response.clicked() {
-                    if is_active { active_identities.remove(&identity); }
-                    else { active_identities.insert(identity); }
-                }
-                response.on_hover_text(get_identity_name(identity));
-                return;
-            }
-        },
-        AbilityIcon::Standard(icon_id) => {
-            for sheet in sheets {
-                let Some(cut) = sheet.core.cuts_map.get(&icon_id) else { continue; };
-                let Some(tex) = &sheet.texture_handle else { continue; };
-
-                let img = egui::Image::new(egui::load::SizedTexture::new(tex.id(), egui::vec2(32.0, 32.0)))
-                    .uv(egui::Rect::from_min_max(egui::pos2(cut.uv_coordinates.min.x, cut.uv_coordinates.min.y), egui::pos2(cut.uv_coordinates.max.x, cut.uv_coordinates.max.y)))
-                    .tint(tint);
-
-                let response = ui.add(egui::ImageButton::new(img).frame(false));
-                if response.clicked() {
-                    if is_active { active_identities.remove(&identity); }
-                    else { active_identities.insert(identity); }
-                }
-                response.on_hover_text(get_identity_name(identity));
-                return;
-            }
-        },
-        AbilityIcon::None => {}
-    }
-
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
-    if ui.is_rect_visible(rect) {
-        ui.painter().rect_filled(rect, 4.0, egui::Color32::from_black_alpha(100));
-        let text_color = if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(100) };
-        ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "?", egui::FontId::proportional(20.0), text_color);
-    }
-    if response.clicked() {
-        if is_active { active_identities.remove(&identity); }
-        else { active_identities.insert(identity); }
-    }
-    response.on_hover_text(get_identity_name(identity));
+    range_row(
+        stat,
+        min,
+        max,
+        move |v| Message::StatMinChanged(stat, v),
+        move |v| Message::StatMaxChanged(stat, v),
+    )
 }

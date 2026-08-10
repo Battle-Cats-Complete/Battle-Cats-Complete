@@ -106,13 +106,14 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 ========================================================================
 CRATE DEPENDENCIES (MIT / APACHE-2.0 / PERMISSIVE)
 ========================================================================
-The following open-source crates are utilized under their respective 
-permissive licenses (MIT, Apache-2.0, Zlib, CC0-1.0):
+The following open-source crates are utilized under their respective
+permissive licenses (MIT, Apache-2.0, Zlib, Unlicense, CC0-1.0):
 
-eframe, image, rfd, zip, tar, zstd, regex, rayon, serde, serde_json, 
-notify, notify-debouncer-mini, self_update, bytemuck, glow, aes, cbc, 
-ecb, block-padding, md5, hex, reqwest, webp-animation, gif, directories, 
-open, imageproc, ab_glyph, arboard, indexmap, bincode, rustc-hash, winres.
+ab_glyph, anyhow, arboard, base64, bincode, bytemuck, byteorder,
+directories, gif, hex, iced, image, imageproc, indexmap, md5, notify,
+open, rasn, rasn-pkix, rayon, regex, reqwest, resand, rfd, rsa,
+rustc-hash, self_update, serde, serde_json, sha2, smol, tar, thiserror,
+tracing, tracing-subscriber, webp-animation, winres, zip, zstd.
 
 ------------------------------------------------------------------------
 The MIT License (MIT)
