@@ -87,6 +87,10 @@ impl State {
         &self.loaded_id
     }
 
+    fn is_loaded(&self, target_id: &str) -> bool {
+        self.loaded_id == target_id && self.held_unit.is_some()
+    }
+
     pub fn primary_id(&self) -> &str {
         &self.primary_id
     }
@@ -133,7 +137,7 @@ impl State {
         let wanted = index != IDX_NONE
             && !desired_id.is_empty()
             && *desired_id == result.target_id
-            && self.loaded_id != result.target_id;
+            && !self.is_loaded(&result.target_id);
 
         let Some(unit) = result.unit else {
             if wanted {
@@ -183,7 +187,7 @@ impl State {
         }
 
         let target_id = if index == IDX_SPIRIT { self.secondary_id.clone() } else { self.primary_id.clone() };
-        if target_id.is_empty() || self.loaded_id == target_id {
+        if target_id.is_empty() || self.is_loaded(&target_id) || self.failed_load_id == target_id {
             return None;
         }
 
@@ -375,14 +379,12 @@ impl State {
             return;
         }
 
-        let is_stable = self.loaded_id == target_id;
-        let has_failed = self.failed_load_id == target_id;
-
-        if is_stable {
-            if has_failed {
-                return;
-            }
+        if self.is_loaded(&target_id) {
             self.sync_animation(valid_index);
+            return;
+        }
+
+        if self.failed_load_id == target_id {
             return;
         }
 

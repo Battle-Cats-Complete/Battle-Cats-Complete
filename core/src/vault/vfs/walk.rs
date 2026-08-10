@@ -16,7 +16,7 @@ struct Collected {
     conflicts: FxHashMap<MountKey, Vec<PathBuf>>,
 }
 
-pub(super) fn walk(root: &Path) -> Result<(MountedDir, Vec<Conflict>), VfsError> {
+pub(super) fn walk(root: &Path) -> Result<MountedDir, VfsError> {
     if !root.is_dir() {
         return Err(VfsError::NotADirectory(root.to_path_buf()));
     }
@@ -25,23 +25,27 @@ pub(super) fn walk(root: &Path) -> Result<(MountedDir, Vec<Conflict>), VfsError>
 
     let collected = scan(root, root);
 
-    let conflicts = collected
+    let mut conflicts: Vec<Conflict> = collected
         .conflicts
         .into_iter()
-        .map(|(key, paths)| Conflict {
-            key,
-            paths: paths.iter().map(|relative| root.join(relative)).collect(),
+        .map(|(key, mut paths)| {
+            paths.sort();
+            Conflict {
+                key,
+                paths: paths.iter().map(|relative| root.join(relative)).collect(),
+            }
         })
         .collect();
 
-    let mount = MountedDir {
+    conflicts.sort_by(|a, b| a.key.cmp(&b.key));
+
+    Ok(MountedDir {
         root: root.to_path_buf(),
         files: collected.files,
         dirs: collected.dirs,
         folders: collected.folders,
-    };
-
-    Ok((mount, conflicts))
+        conflicts,
+    })
 }
 
 pub(super) fn stat(path: &Path) -> (u64, u64) {

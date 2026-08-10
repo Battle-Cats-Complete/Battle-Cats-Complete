@@ -6,8 +6,8 @@ pub(super) struct VfsCache;
 
 impl cache::CacheSpec for VfsCache {
     type Data = Index;
-    const FILE: &'static str = "vfs.bin";
-    const VERSION: u32 = 2;
+    const FILE: &'static str = "virtual_file_system.bin";
+    const VERSION: u32 = 3;
 }
 
 pub(super) fn save(index: &Index, hash: u64) {

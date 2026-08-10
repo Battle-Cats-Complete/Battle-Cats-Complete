@@ -116,6 +116,20 @@ impl State {
         }
     }
 
+    pub(crate) fn reload_selected(&mut self, vault: &Vault) {
+        let Some(map_id) = self.data.selected_map.clone() else { return; };
+
+        let rebuilt = scanner::scan_single(vault, &map_id.category, map_id.map);
+
+        if rebuilt.maps.is_empty() {
+            return;
+        }
+
+        self.data.registry.stages.retain(|id, _| id.category != map_id.category || id.map != map_id.map);
+        self.data.registry.maps.extend(rebuilt.maps);
+        self.data.registry.stages.extend(rebuilt.stages);
+    }
+
     pub fn set_indexing(&mut self) {
         self.scan_progress = Some((0, 0));
     }

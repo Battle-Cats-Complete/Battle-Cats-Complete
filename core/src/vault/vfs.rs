@@ -3,6 +3,7 @@ mod disk;
 mod regional;
 mod walk;
 
+use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,9 +33,10 @@ struct MountedDir {
     files: FxHashMap<MountKey, Entry>,
     dirs: FxHashMap<Box<str>, Vec<Box<str>>>,
     folders: FxHashMap<Box<str>, Vec<Box<str>>>,
+    conflicts: Vec<Conflict>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conflict {
     pub key: Box<str>,
     pub paths: Vec<PathBuf>,
@@ -48,6 +50,8 @@ pub enum VfsError {
     InvalidPath(PathBuf),
     #[error("no mount registered under key '{0}'")]
     UnknownMount(Box<str>),
+    #[error("{path} does not sit under the '{root}' mount")]
+    Unrooted { root: PathBuf, path: PathBuf },
     #[error("directory claims the reserved '{MOUNT_GAME}' mount key: {0}")]
     ReservedMount(PathBuf),
     #[error("failed to read {path}: {source}")]
@@ -231,6 +235,16 @@ impl Vfs {
         names
     }
 
+    pub fn conflicts(&self) -> Vec<Conflict> {
+        let Ok(mounts) = self.mounts.read() else {
+            return Vec::new();
+        };
+
+        let mut collisions: Vec<Conflict> = mounts.values().flat_map(|indexed| indexed.conflicts.iter().cloned()).collect();
+        collisions.sort_by(|a, b| a.key.cmp(&b.key));
+        collisions
+    }
+
     pub fn keys(&self, mount: &str) -> Vec<Box<str>> {
         let Ok(mounts) = self.mounts.read() else {
             return Vec::new();
@@ -337,7 +351,8 @@ impl Mount for &Path {
             return Err(VfsError::ReservedMount(self.to_path_buf()));
         }
 
-        let (mount, conflicts) = walk::walk(self)?;
+        let mount = walk::walk(self)?;
+        let conflicts = mount.conflicts.clone();
 
         let Ok(mut mounts) = vfs.mounts.write() else {
             return Err(VfsError::Unavailable);
@@ -374,12 +389,11 @@ impl Mount for (&str, &Path) {
             return Err(VfsError::UnknownMount(key.into()));
         };
 
-        let Ok(relative) = file.strip_prefix(&mount.root) else {
-            return Err(VfsError::UnknownMount(key.into()));
+        let Some(relative) = relative_to(&mount.root, file) else {
+            return Err(VfsError::Unrooted { root: mount.root.clone(), path: file.to_path_buf() });
         };
 
         let (mtime, len) = walk::stat(file);
-        let relative = relative.to_path_buf();
 
         if let Some(parent) = relative.parent() {
             let listing = mount.dirs.entry(parent.to_string_lossy().into()).or_default();
@@ -421,6 +435,20 @@ impl Mount for (&str, &Path) {
     }
 }
 
+fn relative_to(root: &Path, file: &Path) -> Option<PathBuf> {
+    if let Ok(relative) = file.strip_prefix(root) {
+        return Some(relative.to_path_buf());
+    }
+
+    let absolute = env::current_dir().ok()?.join(root);
+
+    if let Ok(relative) = file.strip_prefix(&absolute) {
+        return Some(relative.to_path_buf());
+    }
+
+    file.strip_prefix(fs::canonicalize(&absolute).ok()?).ok().map(Path::to_path_buf)
+}
+
 fn resolve(mounts: &Index, name: &str) -> Option<PathBuf> {
     mounts
         .iter()
@@ -431,4 +459,66 @@ fn resolve(mounts: &Index, name: &str) -> Option<PathBuf> {
 
 fn is_canonical_game(path: &Path) -> bool {
     path.components().count() == 1 && path.file_name() == Some(OsStr::new(MOUNT_GAME))
+}
+
+#[cfg(test)]
+mod verify {
+    use super::*;
+
+    #[test]
+    fn relative_to_resolves_watcher_paths() {
+        let root = std::env::temp_dir().join("bcc_vfs_relative");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("game/cats/game")).unwrap();
+        std::env::set_current_dir(&root).unwrap();
+
+        let game = Path::new("game");
+
+        assert_eq!(
+            relative_to(game, Path::new("game/cats/000_f.png")),
+            Some(PathBuf::from("cats/000_f.png")),
+            "relative event path"
+        );
+
+        let absolute = root.join("game/cats/000_f.png");
+        assert_eq!(
+            relative_to(game, &absolute),
+            Some(PathBuf::from("cats/000_f.png")),
+            "absolute event path (what notify actually emits)"
+        );
+
+        let nested = root.join("game/cats/game/000_f.png");
+        assert_eq!(
+            relative_to(game, &nested),
+            Some(PathBuf::from("cats/game/000_f.png")),
+            "a nested directory literally named 'game' must not re-anchor"
+        );
+
+        assert_eq!(relative_to(game, Path::new("/elsewhere/x.png")), None, "outside the mount");
+    }
+
+    #[test]
+    fn create_then_find_registers_a_new_file() {
+        let root = std::env::temp_dir().join("bcc_vfs_create");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("game/cats")).unwrap();
+        fs::write(root.join("game/cats/seed.csv"), b"seed").unwrap();
+        std::env::set_current_dir(&root).unwrap();
+
+        let vfs = Vfs::new(&Settings::default());
+        vfs.create(Path::new("game")).unwrap();
+
+        let added = root.join("game/cats/000_f.png");
+        fs::write(&added, b"png").unwrap();
+
+        assert!(vfs.find("000_f.png").is_none(), "not indexed before create");
+        vfs.create(("game", added.as_path())).unwrap();
+        assert!(vfs.find("000_f.png").is_some(), "indexed after create");
+
+        vfs.destroy(("game", added.as_path()));
+        assert!(vfs.find("000_f.png").is_none(), "dropped after destroy");
+
+        vfs.create(("game", added.as_path())).unwrap();
+        assert!(vfs.find("000_f.png").is_some(), "re-indexed after delete-then-replace");
+    }
 }

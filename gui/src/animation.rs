@@ -30,6 +30,8 @@ const CONTROLS_INSET_LEFT: f32 = 7.0;
 
 const ZOOM_SCROLL_STRENGTH: f32 = 2.5;
 
+const MISSING_FILES_NOTICE: &str = "Missing essential files needed to load Entity";
+
 fn frame_border<'a>() -> Element<'a, Message> {
     container(Space::new().width(Length::Fill).height(Length::Fill))
         .width(Length::Fill)
@@ -170,7 +172,7 @@ impl State {
 
     pub fn view(&self, settings: &Settings, anim_state: &AnimState) -> Element<'_, Message> {
         if self.data.held_unit.is_none() {
-            let notice = container(text("No unit loaded for this form"))
+            let notice = container(text(MISSING_FILES_NOTICE))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .center_x(Length::Fill)

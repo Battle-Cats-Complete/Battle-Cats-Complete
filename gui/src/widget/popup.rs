@@ -1,7 +1,7 @@
 use iced::advanced::{layout, overlay, renderer, widget, Clipboard, Layout, Shell, Widget};
 use iced::border::Radius;
 use iced::mouse::{self, Interaction};
-use iced::widget::{button, column, container, mouse_area, opaque, responsive, stack, text, Space};
+use iced::widget::{button, column, container, mouse_area, opaque, stack, text, Space};
 use iced::{Alignment, Border, Color, Element, Event, Length, Padding, Point, Rectangle, Size, Theme, Vector};
 
 use crate::app::theme;
@@ -11,6 +11,7 @@ const HEADER_MARGIN_X: f32 = 50.0;
 const HEADER_MARGIN_Y: f32 = 30.0;
 const DEFAULT_BODY_ALPHA: f32 = 1.0;
 const FRAME_BORDER_WIDTH: f32 = 3.0;
+const MINIMUM_WINDOW: Size = Size::new(800.0, 600.0);
 
 #[derive(Default)]
 pub struct State {
@@ -71,65 +72,62 @@ impl State {
     ) -> Element<'a, M> {
         let body_alpha = body_alpha.unwrap_or(DEFAULT_BODY_ALPHA);
 
-        responsive(move |layer| {
-            let bounds = if window.width < 1.0 || window.height < 1.0 { layer } else { window };
-            let position = self.resolved_position(size, bounds);
+        let bounds = if window.width < 1.0 || window.height < 1.0 { MINIMUM_WINDOW } else { window };
+        let position = self.resolved_position(size, bounds);
 
-            let close_button = button(text("✕").size(18))
-                .style(button::text)
-                .padding(2.0)
-                .on_press(to_message(Message::Close));
+        let close_button = button(text("✕").size(18))
+            .style(button::text)
+            .padding(2.0)
+            .on_press(to_message(Message::Close));
 
-            let title_layer = container(text(title).size(14))
+        let title_layer = container(text(title).size(14))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center);
+
+        let button_layer = container(close_button)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::End)
+            .align_y(Alignment::Center);
+
+        let header = mouse_area(
+            container(stack![title_layer, button_layer])
                 .width(Length::Fill)
-                .height(Length::Fill)
-                .align_x(Alignment::Center)
-                .align_y(Alignment::Center);
+                .height(Length::Fixed(HEADER_HEIGHT))
+                .padding(Padding { top: 0.0, right: 6.0, bottom: 0.0, left: 10.0 })
+                .style(header_style),
+        )
+        .interaction(Interaction::Grab)
+        .on_press(to_message(Message::HeaderPressed));
 
-            let button_layer = container(close_button)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_x(Alignment::End)
-                .align_y(Alignment::Center);
+        let body = container(content())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |theme: &Theme| body_style(theme, body_alpha));
 
-            let header = mouse_area(
-                container(stack![title_layer, button_layer])
-                    .width(Length::Fill)
-                    .height(Length::Fixed(HEADER_HEIGHT))
-                    .padding(Padding { top: 0.0, right: 6.0, bottom: 0.0, left: 10.0 })
-                    .style(header_style),
-            )
-            .interaction(Interaction::Grab)
-            .on_press(to_message(Message::HeaderPressed));
+        let frame = opaque(
+            container(column![header, body])
+                .width(Length::Fixed(size.width))
+                .height(Length::Fixed(size.height))
+                .padding(FRAME_BORDER_WIDTH)
+                .style(frame_style),
+        );
 
-            let body = container(content())
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(move |theme: &Theme| body_style(theme, body_alpha));
+        let base = anchored(frame, position);
 
-            let window = opaque(
-                container(column![header, body])
-                    .width(Length::Fixed(size.width))
-                    .height(Length::Fixed(size.height))
-                    .padding(FRAME_BORDER_WIDTH)
-                    .style(frame_style),
-            );
+        let mut drag_layer = mouse_area(Space::new().width(Length::Fill).height(Length::Fill));
 
-            let base = anchored(window, position);
+        if !matches!(self.drag, Drag::Idle) {
+            drag_layer = drag_layer
+                .interaction(Interaction::Grabbing)
+                .on_move(move |cursor| to_message(Message::Dragged(cursor, bounds)))
+                .on_release(to_message(Message::Released))
+                .on_exit(to_message(Message::Released));
+        }
 
-            let mut drag_layer = mouse_area(Space::new().width(Length::Fill).height(Length::Fill));
-
-            if !matches!(self.drag, Drag::Idle) {
-                drag_layer = drag_layer
-                    .interaction(Interaction::Grabbing)
-                    .on_move(move |cursor| to_message(Message::Dragged(cursor, bounds)))
-                    .on_release(to_message(Message::Released))
-                    .on_exit(to_message(Message::Released));
-            }
-
-            stack![base, drag_layer].into()
-        })
-        .into()
+        stack![base, drag_layer].into()
     }
 
     fn resolved_position(&self, size: Size, window: Size) -> Point {

@@ -168,13 +168,41 @@ fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) +
 }
 
 #[instrument(skip_all)]
-fn scan_all(vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> StageRegistry {
-    let reg_mtx = Mutex::new(StageRegistry::default());
+pub fn scan_single(vault: &Vault, category: &Category, map_id: u32) -> StageRegistry {
+    let vfs = &vault.vfs;
+    let ctx = context(vault);
+    let prefix = category.map_prefix();
+
+    let data_prefix = vfs
+        .glob(MAP_STAGE_DATA)
+        .iter()
+        .filter_map(|name| split_map_data(name).map(|(prefix, _)| prefix))
+        .find(|found| Category::from_prefix(found) == *category)
+        .unwrap_or_else(|| prefix.clone());
+
+    let mut stage_names = HashMap::new();
+
+    for file in files::stage_name_targets(&prefix) {
+        stage_names = stagename(vfs, &file);
+
+        if !stage_names.is_empty() {
+            break;
+        }
+    }
+
+    let info = CategoryInfo { prefix, data_prefix, category: category.clone(), stage_names };
+    let registry = Mutex::new(StageRegistry::default());
+
+    process_map(&registry, &info, map_id, &ctx);
+
+    registry.into_inner().unwrap_or_default()
+}
+
+fn context(vault: &Vault) -> ScanContext<'_> {
     let vfs = &vault.vfs;
     let stages = &vault.vds.stages;
 
-    info!("Loading global table dictionaries into ScanContext...");
-    let ctx = ScanContext {
+    ScanContext {
         vfs,
         map_names: stages.map_names(vfs),
         map_options: stages.map_options(vfs),
@@ -187,9 +215,16 @@ fn scan_all(vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> StageRegis
         ex_options: stages.ex_options(vfs),
         difficulties: stages.difficulties(vfs),
         fixed_formations: stages.fixed_formations(vfs),
-    };
+    }
+}
 
-    let (categories, jobs) = enumerate_maps(vfs);
+fn scan_all(vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> StageRegistry {
+    let reg_mtx = Mutex::new(StageRegistry::default());
+
+    info!("Loading global table dictionaries into ScanContext...");
+    let ctx = context(vault);
+
+    let (categories, jobs) = enumerate_maps(&vault.vfs);
 
     let total = jobs.len();
     let done = AtomicUsize::new(0);

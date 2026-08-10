@@ -1,6 +1,8 @@
 #![warn(unreachable_pub)]
 mod vault;
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod addons;
 pub mod animation;
 pub mod common;

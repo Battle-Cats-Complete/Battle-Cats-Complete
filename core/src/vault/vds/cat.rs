@@ -6,13 +6,11 @@ use nyanko::cat::unit::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::modules::cat::files;
+use crate::modules::cat::files::{self, SKILL_DESCRIPTIONS, UNIT_EVOLVE};
 use crate::Vfs;
 
 use super::Slot;
 
-const SKILL_DESCRIPTIONS: &str = "SkillDescriptions.csv";
-const UNIT_EVOLVE: &str = "unitevolve.csv";
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct CatStore {

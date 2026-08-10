@@ -17,12 +17,13 @@ use core::modules::data::architecture;
 use core::modules::settings::{Settings, UpdateMode};
 use core::{ContentStore, Vault};
 
-use crate::common::watcher::{self, Asset};
+use crate::common::watcher::{self, Asset, Change};
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
 use crate::widget::{popup, slide, Slide};
 
 use state::AppState;
 
+mod errors;
 mod logging;
 mod migrate;
 mod notice;
@@ -61,8 +62,6 @@ impl Page {
 pub(crate) const WINDOW_SHOW_FALLBACK: Duration = Duration::from_millis(400);
 
 const FRAMES_BEFORE_SHOW: u8 = 2;
-
-const COALESCE_THRESHOLD: usize = 256;
 
 const ALL_PAGES: &[Page] = &[
     Page::Home,
@@ -105,6 +104,7 @@ pub enum UpdaterAction {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActivePopup {
+    InitErrors,
     Updater,
     VersionNotice,
     HomeChangelog,
@@ -135,9 +135,11 @@ pub enum Message {
     UpdaterStatusExpired,
     Notice(popup::Message),
     AcknowledgeNotice,
+    InitErrorPopup(popup::Message),
+    AcknowledgeInitError,
     OpenUrl(String),
     VaultReady(Arc<Vault>),
-    FilesChanged(Vec<PathBuf>),
+    FilesChanged(Change),
     Home(home::Message),
     Cat(cat::Message),
     Enemy(enemy::Message),
@@ -164,6 +166,8 @@ pub struct BattleCatsApp {
     notice_open: bool,
     #[serde(skip)]
     notice_items: Vec<markdown::Item>,
+    #[serde(skip)]
+    init_errors: errors::State,
     #[serde(skip)]
     frames_painted: u8,
     #[serde(skip)]
@@ -229,6 +233,7 @@ impl Default for BattleCatsApp {
             notice_popup: popup::State::default(),
             notice_open: false,
             notice_items: notice::parse_content(),
+            init_errors: errors::State::default(),
             frames_painted: 0,
             window_shown: false,
             home_state: home::State::default(),
@@ -329,15 +334,9 @@ impl BattleCatsApp {
             return Task::none();
         }
 
-        if paths.len() >= COALESCE_THRESHOLD {
-            info!(changed = paths.len(), "Bulk filesystem change, rebuilding the index");
-            return self.spawn_vault_build();
-        }
-
         let mut units = HashSet::new();
         let mut enemies = HashSet::new();
         let mut items = HashSet::new();
-        let mut names = HashSet::new();
         let mut stage_coarse = false;
         let mut mods_coarse = false;
 
@@ -346,17 +345,17 @@ impl BattleCatsApp {
             let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue; };
 
             if path.is_file() {
-                let _ = self.vault.vfs.create((mount.as_str(), path.as_path()));
+                if let Err(err) = self.vault.vfs.create((mount.as_str(), path.as_path())) {
+                    warn!(path = %path.display(), "Failed to index a changed file: {}", err);
+                }
+
                 self.vault.evict(name);
             } else {
                 self.vault.vfs.destroy((mount.as_str(), path.as_path()));
                 self.vault.vds.evict(name);
             }
 
-            names.insert(name.to_string());
-
             let is_image = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
-            let in_mod = mount != architecture::GAME;
 
             match watcher::asset(name) {
                 Some(Asset::Unit(id)) => { units.insert(id); }
@@ -366,16 +365,20 @@ impl BattleCatsApp {
                 None => {}
             }
 
-            mods_coarse |= in_mod && is_image;
+            mods_coarse |= is_image && mount != architecture::GAME;
         }
 
-        self.cat_state.invalidate_assets(&units, &items, &names);
-        self.enemy_state.invalidate_assets(&enemies, &names);
+        self.cat_state.invalidate_assets(&units, &items);
+        self.enemy_state.invalidate_assets(&enemies);
         self.stage_state.invalidate_assets(&items, &enemies, stage_coarse);
 
         if mods_coarse {
             self.mods_state.invalidate_assets();
         }
+
+        self.cat_state.reload_selected(&self.vault, &self.settings.scanner_config(None));
+        self.enemy_state.reload_selected(&self.vault, self.settings.show_invalid_enemies());
+        self.stage_state.reload_selected(&self.vault);
 
         Task::none()
     }
@@ -525,8 +528,24 @@ impl BattleCatsApp {
                 self.sync_popup(ActivePopup::VersionNotice, false);
                 Task::none()
             }
+            Message::InitErrorPopup(msg) => {
+                self.init_errors.update(msg);
+                self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
+                Task::none()
+            }
+            Message::AcknowledgeInitError => {
+                self.init_errors.acknowledge();
+                self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
+                Task::none()
+            }
             Message::VaultReady(vault) => self.adopt_vault(vault),
-            Message::FilesChanged(paths) => self.apply_changes(paths),
+            Message::FilesChanged(Change::Unavailable) => {
+                warn!("File watcher could not be initialized; reporting it as an initialization error");
+                self.init_errors.report_watcher_failure();
+                self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
+                Task::none()
+            }
+            Message::FilesChanged(Change::Batch(paths)) => self.apply_changes(paths),
             Message::Home(msg) => {
                 let task = match msg {
                     home::Message::Navigate(page) => self.navigate(page),
@@ -683,6 +702,7 @@ impl BattleCatsApp {
         self.active_popups
             .iter()
             .filter_map(|popup| match popup {
+                ActivePopup::InitErrors => self.init_errors.view(self.window_size),
                 ActivePopup::Updater => updater::view(&self.updater_popup, &self.updater_status, self.window_size, self.download_progress),
                 ActivePopup::VersionNotice => Some(notice::view(&self.notice_popup, self.window_size, self.theme(), &self.notice_items)),
                 ActivePopup::HomeChangelog => {

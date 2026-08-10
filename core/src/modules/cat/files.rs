@@ -2,6 +2,8 @@ pub(crate) const UNIT_BUY: &str = "unitbuy.csv";
 pub(crate) const UNIT_LEVEL: &str = "unitlevel.csv";
 pub(crate) const SKILL_ACQUISITION: &str = "SkillAcquisition.csv";
 pub(crate) const SKILL_LEVEL: &str = "SkillLevel.csv";
+pub(crate) const SKILL_DESCRIPTIONS: &str = "SkillDescriptions.csv";
+pub(crate) const UNIT_EVOLVE: &str = "unitevolve.csv";
 
 #[derive(Copy, Clone, PartialEq)]
 pub(crate) enum AssetType {
@@ -62,6 +64,10 @@ pub fn anim_file(id: u32, form: usize, egg_ids: (i32, i32), file_type: AnimType)
 
 pub fn maanim_file(id: u32, form: usize, egg_ids: (i32, i32), index: usize) -> String {
     format!("{}{:02}.maanim", anim_base_filename(id, form, egg_ids), index)
+}
+
+pub fn explanation_file(id: u32) -> String {
+    format!("Unit_Explanation{}.csv", id + 1)
 }
 
 pub fn stats_file(id: u32) -> String {

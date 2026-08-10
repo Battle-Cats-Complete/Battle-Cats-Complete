@@ -3,13 +3,11 @@ use std::sync::Arc;
 use nyanko::enemy::unit::{Battle, EnemyName, EnemyPictureBook};
 use serde::{Deserialize, Serialize};
 
+use crate::modules::enemy::files::{NAMES as ENEMY_NAME, PICTURE_BOOK as ENEMY_PICTURE_BOOK, STATS as ENEMY_STATS};
 use crate::Vfs;
 
 use super::Slot;
 
-const ENEMY_STATS: &str = "t_unit.csv";
-const ENEMY_NAME: &str = "Enemyname.tsv";
-const ENEMY_PICTURE_BOOK: &str = "EnemyPictureBook.csv";
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct EnemyStore {

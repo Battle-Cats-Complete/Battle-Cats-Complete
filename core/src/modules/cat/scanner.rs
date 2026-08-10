@@ -86,6 +86,21 @@ pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, u
     scan(config, &vault, progress)
 }
 
+pub fn scan_single(id: u32, vault: &Vault, config: &ScannerConfig) -> Option<CatEntry> {
+    let vfs = &vault.vfs;
+
+    let tables = ScanTables {
+        level_curves: vault.vds.cats.curves(vfs),
+        unit_buys: vault.vds.cats.unitbuy(vfs),
+        talents: vault.vds.cats.talents(vfs),
+        evolve_texts: vault.vds.cats.evolve(vfs),
+        talent_costs: vault.vds.cats.talent_costs(vfs),
+        skill_descriptions: vault.vds.cats.descriptions(vfs),
+    };
+
+    process_cat_entry(id, vfs, &tables, config)
+}
+
 fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> Vec<CatEntry> {
     trace!("starting cat repository scan");
     let vfs = &vault.vfs;

@@ -1,5 +1,4 @@
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::thread;
@@ -9,7 +8,7 @@ use iced::futures::channel::mpsc as async_mpsc;
 use iced::futures::{SinkExt, Stream, StreamExt};
 use iced::stream;
 use notify::{recommended_watcher, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, trace, warn};
 
 use core::modules::data::architecture;
 
@@ -19,6 +18,8 @@ const MAX_WINDOW: Duration = Duration::from_secs(2);
 
 const MOD_CONTENT_DIRS: [&str; 3] = ["patch", "icons", "loose"];
 
+const SCRATCH_SUFFIXES: [&str; 6] = [".kate-swp", ".swp", ".swo", ".tmp", ".bak", "~"];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Asset {
     Unit(u32),
@@ -26,12 +27,19 @@ pub(crate) enum Asset {
     Item(u32),
 }
 
-pub(crate) fn changes() -> impl Stream<Item = Vec<PathBuf>> {
-    stream::channel(BATCH_BUFFER, |mut output: async_mpsc::Sender<Vec<PathBuf>>| async move {
+#[derive(Debug, Clone)]
+pub enum Change {
+    Batch(Vec<PathBuf>),
+    Unavailable,
+}
+
+pub(crate) fn changes() -> impl Stream<Item = Change> {
+    stream::channel(BATCH_BUFFER, |mut output: async_mpsc::Sender<Change>| async move {
         let (raw_tx, raw_rx) = channel();
 
         let Some(_watcher) = spawn_watcher(raw_tx) else {
             warn!("File watcher unavailable; live reload is disabled for this session");
+            let _ = output.send(Change::Unavailable).await;
             return;
         };
 
@@ -39,7 +47,7 @@ pub(crate) fn changes() -> impl Stream<Item = Vec<PathBuf>> {
         thread::spawn(move || debounce(&raw_rx, &batch_tx));
 
         while let Some(batch) = batch_rx.next().await {
-            if output.send(batch).await.is_err() {
+            if output.send(Change::Batch(batch)).await.is_err() {
                 break;
             }
         }
@@ -54,29 +62,24 @@ fn spawn_watcher(sender: Sender<PathBuf>) -> Option<RecommendedWatcher> {
     .inspect_err(|err| warn!("Failed to create the file watcher: {}", err))
     .ok()?;
 
-    watch(&mut watcher, Path::new(architecture::MODS), RecursiveMode::Recursive);
+    for root in [architecture::MODS, architecture::GAME] {
+        let path = Path::new(root);
 
-    let game = Path::new(architecture::GAME);
-
-    if game.exists() && !watch(&mut watcher, game, RecursiveMode::Recursive) {
-        info!("Falling back to a non-recursive watch on {}", architecture::GAME);
-        watch(&mut watcher, game, RecursiveMode::NonRecursive);
+        if path.exists() && !watch(&mut watcher, path, RecursiveMode::Recursive) {
+            return None;
+        }
     }
 
     Some(watcher)
 }
 
 fn watch(watcher: &mut RecommendedWatcher, path: &Path, mode: RecursiveMode) -> bool {
-    if !path.exists() {
-        return false;
-    }
-
     match watcher.watch(path, mode) {
         Ok(()) => true,
         Err(err) if matches!(err.kind, ErrorKind::MaxFilesWatch) => {
             warn!(
                 path = %path.display(),
-                "OS file-watch limit reached. Raise fs.inotify.max_user_watches to watch this tree recursively"
+                "OS file-watch limit reached. Simplify the directory structure or raise fs.inotify.max_user_watches"
             );
             false
         }
@@ -102,7 +105,17 @@ fn forward(event: Event, sender: &Sender<PathBuf>) {
     }
 }
 
+fn is_scratch(name: &str) -> bool {
+    name.starts_with('.')
+        || name.starts_with('#')
+        || SCRATCH_SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
+}
+
 fn is_relevant(path: &Path) -> bool {
+    if path.file_name().and_then(|name| name.to_str()).is_none_or(is_scratch) {
+        return false;
+    }
+
     let parts: Vec<String> = path
         .components()
         .filter_map(|component| match component {
@@ -199,18 +212,6 @@ pub(crate) fn asset(name: &str) -> Option<Asset> {
     let unit = name.strip_prefix("udi").or_else(|| name.strip_prefix("uni"))?;
 
     leading_id(unit).map(Asset::Unit)
-}
-
-pub(crate) fn forget_by_name<T>(cache: &RefCell<HashMap<PathBuf, T>>, names: &HashSet<String>) {
-    if names.is_empty() {
-        return;
-    }
-
-    cache.borrow_mut().retain(|path, _| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .is_none_or(|name| !names.contains(name))
-    });
 }
 
 fn leading_id(text: &str) -> Option<u32> {

@@ -113,6 +113,9 @@ impl BattleCatsApp {
         self.vault = vault;
         self.vault_ready = true;
 
+        self.init_errors.report_conflicts(self.vault.vfs.conflicts());
+        self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
+
         info!("Loading core tables");
         self.param = param(&self.vault.vfs).unwrap_or_default();
         self.localizable = localizable(&self.vault.vfs);
@@ -133,7 +136,7 @@ fn populate_vault(vault: &mut Vault, active_mod: Option<&str>) {
     let hash = Vault::hash(active_mod);
 
     if vault.vfs.restore(hash) {
-        debug!(hash, "Restored file index from vfs.bin");
+        debug!(hash, "Restored file index from the virtual file system cache");
     } else {
         mount_game(vault);
 
@@ -145,7 +148,7 @@ fn populate_vault(vault: &mut Vault, active_mod: Option<&str>) {
     }
 
     if let Some(content) = ContentStore::load(hash) {
-        debug!(hash, "Restored parsed tables from content.bin");
+        debug!(hash, "Restored parsed tables from the virtual data store cache");
         content.apply(&mut vault.vds);
     }
 }

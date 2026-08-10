@@ -35,13 +35,12 @@ use core::modules::cat::game::CatRenderContext;
 use core::modules::cat::scanner::{self, CatEntry};
 use core::modules::cat::waiter::unitid;
 use core::modules::cat::CatDataState;
-use core::modules::settings::Settings;
+use core::modules::settings::{ScannerConfig, Settings};
 use core::{Vfs, Vault};
 
 use crate::animation;
 use crate::app::state::{AppState, CatListState};
 use crate::app::theme;
-use crate::common::watcher::forget_by_name;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
@@ -235,7 +234,10 @@ impl State {
         stats
     }
 
-    pub(crate) fn invalidate_assets(&mut self, units: &HashSet<u32>, items: &HashSet<u32>, names: &HashSet<String>) {
+    pub(crate) fn invalidate_assets(&mut self, units: &HashSet<u32>, items: &HashSet<u32>) {
+        self.dynamic_stats.replace(None);
+        self.animation.invalidate_paths();
+
         for id in units {
             self.list.forget(*id);
         }
@@ -244,7 +246,15 @@ impl State {
             self.details.forget(*id as i32);
         }
 
-        forget_by_name(&self.header_icon_cache, names);
+        self.header_icon_cache.borrow_mut().clear();
+    }
+
+    pub(crate) fn reload_selected(&mut self, vault: &Vault, config: &ScannerConfig) {
+        let Some(id) = self.selected_cat else { return; };
+        let Some(index) = self.data.cats.iter().position(|entry| entry.id == id) else { return; };
+        let Some(entry) = scanner::scan_single(id, vault, config) else { return; };
+
+        self.data.cats[index] = entry;
     }
 
     pub fn set_indexing(&mut self) {

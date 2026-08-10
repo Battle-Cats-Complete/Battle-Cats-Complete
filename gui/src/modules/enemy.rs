@@ -36,7 +36,6 @@ use core::{Vfs, Vault};
 use crate::animation;
 use crate::app::state::{AppState, EnemyListState};
 use crate::app::theme;
-use crate::common::watcher::forget_by_name;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
@@ -200,12 +199,23 @@ impl EnemyState {
         stats
     }
 
-    pub(crate) fn invalidate_assets(&mut self, enemies: &HashSet<u32>, names: &HashSet<String>) {
+    pub(crate) fn invalidate_assets(&mut self, enemies: &HashSet<u32>) {
+        self.dynamic_stats.replace(None);
+        self.animation.invalidate_paths();
+
         for id in enemies {
             self.list.forget(*id);
         }
 
-        forget_by_name(&self.header_icon_cache, names);
+        self.header_icon_cache.borrow_mut().clear();
+    }
+
+    pub(crate) fn reload_selected(&mut self, vault: &Vault, show_invalid: bool) {
+        let Some(id) = self.selected_enemy else { return; };
+        let Some(index) = self.data.enemies.iter().position(|entry| entry.id == id) else { return; };
+        let Some(entry) = scanner::scan_single(id, vault, show_invalid) else { return; };
+
+        self.data.enemies[index] = entry;
     }
 
     pub fn set_indexing(&mut self) {

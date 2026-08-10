@@ -23,6 +23,7 @@ const REPO_NAME: &str = "battle-cats-complete";
 const BIN_NAME: &str = "Battle Cats Complete";
 const STATUS_EXPIRY: Duration = Duration::from_secs(2);
 const RESTART_DELAY_SECS: u8 = 1;
+const MAX_RELEASE_LOOKBACK: usize = 8;
 
 const POPUP_SIZE: Size = Size::new(440.0, 250.0);
 const POPUP_PADDING: f32 = 20.0;
@@ -96,13 +97,14 @@ impl BattleCatsApp {
             cleanup_temp_files();
             let _ = tx.unbounded_send(UpdaterMsg::DownloadStarted(target_version.clone()));
 
-            let target_tag = if target_version.starts_with('v') { target_version.clone() } else { format!("v{}", target_version) };
-
-            let target_asset_name = match () {
-                _ if cfg!(target_os = "windows") => "bcc_windows.zip",
-                _ if cfg!(target_os = "macos") => "bcc_mac.zip",
-                _ => "bcc_linux.zip",
+            let Some((target_tag, target_asset_name)) = resolve_download(&release) else {
+                cleanup_temp_files();
+                error!("No release within the last {} carries a usable asset for this platform", MAX_RELEASE_LOOKBACK);
+                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
+                return;
             };
+
+            info!("Installing asset {} from {}", target_asset_name, target_tag);
 
             let Ok(update_box) = GithubUpdate::configure()
                 .repo_owner(REPO_OWNER)
@@ -113,7 +115,7 @@ impl BattleCatsApp {
                 .no_confirm(true)
                 .current_version(cargo_crate_version!())
                 .target_version_tag(&target_tag)
-                .target(target_asset_name)
+                .target(&target_asset_name)
                 .build() else {
                 cleanup_temp_files();
                 error!("Failed to build download configurator");
@@ -291,6 +293,55 @@ pub(crate) fn restart_app() {
     }
 
     std::process::exit(0);
+}
+
+fn platform() -> &'static str {
+    match () {
+        _ if cfg!(target_os = "windows") => "windows",
+        _ if cfg!(target_os = "macos") => "mac",
+        _ => "linux",
+    }
+}
+
+fn asset_candidates() -> [String; 2] {
+    [
+        format!("bcc_{}.zip", platform()),
+        format!("bcc_gui_{}={}_{}.zip", cargo_crate_version!(), core::VERSION, platform()),
+    ]
+}
+
+fn matching_asset(release: &Release) -> Option<String> {
+    asset_candidates()
+        .into_iter()
+        .find(|candidate| release.assets.iter().any(|asset| asset.name == *candidate))
+}
+
+fn release_tag(version: &str) -> String {
+    if version.starts_with('v') { version.to_string() } else { format!("v{}", version) }
+}
+
+fn resolve_download(selected: &Release) -> Option<(String, String)> {
+    if let Some(target) = matching_asset(selected) {
+        return Some((release_tag(&selected.version), target));
+    }
+
+    info!("Release {} carries no asset this build understands; walking back through older releases", selected.version);
+
+    let releases = ReleaseList::configure()
+        .repo_owner(REPO_OWNER)
+        .repo_name(REPO_NAME)
+        .build()
+        .and_then(|list| list.fetch())
+        .inspect_err(|err| error!("Failed to list releases while resolving a download target: {}", err))
+        .ok()?;
+
+    let start = releases.iter().position(|entry| entry.version == selected.version).unwrap_or(0);
+
+    releases
+        .iter()
+        .skip(start)
+        .take(MAX_RELEASE_LOOKBACK)
+        .find_map(|entry| matching_asset(entry).map(|target| (release_tag(&entry.version), target)))
 }
 
 fn check_remote() -> Result<Option<Release>, Box<dyn std::error::Error>> {
