@@ -84,6 +84,8 @@ jobs:
           if [ "$EVENT_NAME" = "pull_request" ]; then
             SOURCE="$PR_SOURCE"
             TARGET="$PR_TARGET"
+            # Use the PR title as the merge message
+            MERGE_MSG="${{ github.event.pull_request.title }}"
           else
             MERGE_LINE=$(echo "$COMMITS_JSON" | jq -r '
               [ .[] | (.message | split("\n")[0]) | select(test("^Merge (remote-tracking )?branch ")) ] | last // empty
@@ -99,6 +101,7 @@ jobs:
 
             SOURCE="${SOURCE#origin/}"
             TARGET="${TARGET:-$BRANCH}"
+            MERGE_MSG="$MERGE_LINE"
           fi
 
           if [ -z "$SOURCE" ] || [ -z "$TARGET" ]; then
@@ -106,7 +109,7 @@ jobs:
             exit 0
           fi
 
-          SUMMARY_BODY="**MERGE ::** ${SOURCE} → ${TARGET}"
+          SUMMARY_BODY="**${SOURCE} → ${TARGET} ::** ${MERGE_MSG}"
 
           PAYLOAD=$(jq -n \
             --arg username "$USERNAME" \
