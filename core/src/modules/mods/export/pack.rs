@@ -67,22 +67,37 @@ pub(crate) fn stream_pack_and_list(
 ) -> Result<(), String> {
 
     debug!("Scanning source directory for pack: {:?}", source_dir);
-    let mut files_with_size = Vec::new();
+    let mut files = Vec::new();
 
     if let Ok(entries) = fs::read_dir(source_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file()
-                && let Ok(metadata) = fs::metadata(&path) {
-                files_with_size.push((path, metadata.len() as usize));
+            if path.is_file() {
+                files.push(path);
             }
         }
     }
 
-    let total_files = files_with_size.len();
-    if total_files == 0 {
+    if files.is_empty() {
         warn!("No files found in the patch directory.");
         return Err("No files found in the patch directory.".to_string());
+    }
+
+    stream_files(&files, dest_dir, pack_name, region_key, log_callback)
+}
+
+pub(crate) fn stream_files(
+    files: &[PathBuf],
+    dest_dir: &Path,
+    pack_name: &str,
+    region_key: &RegionKey,
+    log_callback: &impl Fn(String)
+) -> Result<(), String> {
+
+    let total_files = files.len();
+    if total_files == 0 {
+        warn!("No files were supplied to the packer.");
+        return Err("No files found to pack.".to_string());
     }
 
     let pack_name_lower = pack_name.to_lowercase();
@@ -128,7 +143,7 @@ pub(crate) fn stream_pack_and_list(
     let mut current_address = 0;
 
     debug!("Beginning stream write sequence...");
-    for (index, (file_path, _file_size)) in files_with_size.iter().enumerate() {
+    for (index, file_path) in files.iter().enumerate() {
         let filename = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
         if index > 0 && index % log_interval == 0 {

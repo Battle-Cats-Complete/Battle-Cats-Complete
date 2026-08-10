@@ -4,7 +4,7 @@ use std::time::UNIX_EPOCH;
 
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
-use tracing::warn;
+use tracing::{trace, warn};
 
 use super::{Conflict, Entry, MountKey, MountedDir, VfsError};
 
@@ -16,14 +16,14 @@ struct Collected {
     conflicts: FxHashMap<MountKey, Vec<PathBuf>>,
 }
 
-pub(super) fn walk(root: &Path) -> Result<MountedDir, VfsError> {
+pub(super) fn walk(root: &Path, skip: &[&str]) -> Result<MountedDir, VfsError> {
     if !root.is_dir() {
         return Err(VfsError::NotADirectory(root.to_path_buf()));
     }
 
     fs::read_dir(root).map_err(|source| VfsError::Walk { path: root.to_path_buf(), source })?;
 
-    let collected = scan(root, root);
+    let collected = scan(root, root, skip);
 
     let mut conflicts: Vec<Conflict> = collected
         .conflicts
@@ -59,7 +59,7 @@ fn modified(meta: &fs::Metadata) -> u64 {
         .map_or(0, |since| since.as_secs())
 }
 
-fn scan(root: &Path, dir: &Path) -> Collected {
+fn scan(root: &Path, dir: &Path, skip: &[&str]) -> Collected {
     let mut collected = Collected::default();
     let mut listing = Vec::new();
     let mut nested = Vec::new();
@@ -69,11 +69,18 @@ fn scan(root: &Path, dir: &Path) -> Collected {
         return collected;
     };
 
+    let top = dir == root;
+
     for entry in entries.flatten() {
         let path = entry.path();
 
         if path.is_dir() {
             if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                if top && skip.contains(&name) {
+                    trace!(path = %path.display(), "vfs walk skipped a transient directory");
+                    continue;
+                }
+
                 nested.push(Box::<str>::from(name));
             }
 
@@ -104,7 +111,7 @@ fn scan(root: &Path, dir: &Path) -> Collected {
         collected.folders.insert(key, nested);
     }
 
-    let branches: Vec<Collected> = subdirs.par_iter().map(|sub| scan(root, sub)).collect();
+    let branches: Vec<Collected> = subdirs.par_iter().map(|sub| scan(root, sub, skip)).collect();
 
     for branch in branches {
         merge(&mut collected, branch);

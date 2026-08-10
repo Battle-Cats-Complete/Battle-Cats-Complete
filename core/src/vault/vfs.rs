@@ -13,6 +13,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use crate::modules::data::architecture;
 use crate::modules::settings::{Settings, lang};
 
 const MOUNT_GAME: &str = "game";
@@ -111,6 +112,17 @@ impl Vfs {
         }
     }
 
+    pub(crate) fn detached() -> Self {
+        let mut order = Vec::new();
+        lang::ensure_complete_list(&mut order);
+
+        Self {
+            mounts: RwLock::new(Index::default()),
+            cache: RwLock::new(FxHashMap::default()),
+            priority: RwLock::new(order),
+        }
+    }
+
     pub fn priority(&self, order: &[String]) {
         let mut complete = order.to_vec();
         lang::ensure_complete_list(&mut complete);
@@ -138,6 +150,12 @@ impl Vfs {
 
     pub fn list<T: Target>(&self, target: T) -> Vec<PathBuf> {
         target.resolve(|names| self.collect(names))
+    }
+
+    pub fn locate(&self, filename: &str) -> Option<PathBuf> {
+        let mounts = self.mounts.read().ok()?;
+
+        resolve(&mounts, filename)
     }
 
     fn first(&self, filenames: &[&str]) -> Option<PathBuf> {
@@ -351,7 +369,8 @@ impl Mount for &Path {
             return Err(VfsError::ReservedMount(self.to_path_buf()));
         }
 
-        let mount = walk::walk(self)?;
+        let skip: &[&str] = if key == MOUNT_GAME { &[] } else { &architecture::MOD_TRANSIENT };
+        let mount = walk::walk(self, skip)?;
         let conflicts = mount.conflicts.clone();
 
         let Ok(mut mounts) = vfs.mounts.write() else {
@@ -414,24 +433,34 @@ impl Mount for (&str, &Path) {
             return;
         };
 
-        vfs.evict(name);
-
-        let Ok(mut mounts) = vfs.mounts.write() else {
-            return;
-        };
-
-        let Some(mount) = mounts.get_mut(key) else {
-            return;
-        };
-
-        let removed = mount.files.remove(name);
-
-        if let Some(entry) = removed
-            && let Some(parent) = entry.path.parent()
-            && let Some(listing) = mount.dirs.get_mut(parent.to_string_lossy().as_ref())
         {
-            listing.retain(|existing| existing.as_ref() != name);
+            let Ok(mut mounts) = vfs.mounts.write() else {
+                return;
+            };
+
+            let Some(mount) = mounts.get_mut(key) else {
+                return;
+            };
+
+            let Some(relative) = relative_to(&mount.root, file) else {
+                return;
+            };
+
+            if mount.files.get(name).is_none_or(|entry| entry.path != relative) {
+                return;
+            }
+
+            let removed = mount.files.remove(name);
+
+            if let Some(entry) = removed
+                && let Some(parent) = entry.path.parent()
+                && let Some(listing) = mount.dirs.get_mut(parent.to_string_lossy().as_ref())
+            {
+                listing.retain(|existing| existing.as_ref() != name);
+            }
         }
+
+        vfs.evict(name);
     }
 }
 

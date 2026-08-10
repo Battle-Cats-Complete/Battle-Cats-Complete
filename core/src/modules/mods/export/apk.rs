@@ -1,17 +1,69 @@
+use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use resand::res_value::ResValueType;
-use tracing::{debug, error, info, info_span};
+use tracing::{debug, error, info, info_span, trace, warn};
 use zip::ZipArchive;
 
 use crate::addons::apkeditor::xapk;
 use crate::common::job::JobEvent;
 use crate::common::region::Region;
 use crate::modules::data::engine::keys;
+use crate::modules::mods::METADATA;
 use crate::modules::settings::ExportBehavior;
+use crate::Vfs;
 
 use super::{modify, pack, sign};
+
+const ASSETS: &str = "assets";
+const DOWNLOAD_LOCAL: &str = "DownloadLocal";
+const GENERATED: [&str; 2] = ["DownloadLocal.pack", "DownloadLocal.list"];
+
+struct Indexed {
+    files: BTreeMap<String, PathBuf>,
+}
+
+impl Indexed {
+    fn remove(&mut self, name: &str) -> Option<PathBuf> {
+        self.files.remove(name)
+    }
+
+    fn into_values(self) -> Vec<PathBuf> {
+        self.files.into_values().collect()
+    }
+}
+
+fn index_mod(mod_dir: &Path, log_callback: &impl Fn(String)) -> Result<Indexed, String> {
+    let Some(mount) = mod_dir.file_name().and_then(OsStr::to_str) else {
+        return Err("Mod folder has no usable name".to_string());
+    };
+
+    let vfs = Vfs::detached();
+    vfs.create(mod_dir).map_err(|error| error.to_string())?;
+
+    let mut files = BTreeMap::new();
+
+    for key in vfs.keys(mount) {
+        if let Some(path) = vfs.locate(&key) {
+            files.insert(String::from(key), path);
+        }
+    }
+
+    for conflict in vfs.conflicts() {
+        let places = conflict.paths.len();
+        let Some(first) = conflict.paths.into_iter().min() else { continue; };
+
+        warn!(file = %conflict.key, path = %first.display(), "Duplicate mod file, keeping the shallowest match");
+        log_callback(format!("'{}' found in {} places, keeping one.", conflict.key, places));
+
+        files.insert(String::from(conflict.key), first);
+    }
+
+    debug!(mount = mount, files = files.len(), "Mod indexed for export");
+    Ok(Indexed { files })
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn run(
@@ -47,7 +99,6 @@ pub fn run(
     let temp_bin_dir = app_dir.join("binaries");
     let assets_dir = app_dir.join("assets");
     let xapk_dir = app_dir.join("xapk");
-    let icons_dir = mod_dir.join("icons");
 
     debug!("Preparing file structure in {}", app_dir.display());
     let _ = fs::remove_dir_all(&app_dir);
@@ -92,9 +143,18 @@ pub fn run(
     };
 
     debug!("Extracting Manifest & ARSC for look-ahead check...");
+    let mut asset_names = Vec::new();
+
     for index in 0..archive.len() {
         let Ok(mut archive_file) = archive.by_index(index) else { continue; };
-        let file_name = archive_file.name();
+        let file_name = archive_file.name().to_string();
+
+        if !archive_file.is_dir()
+            && Path::new(&file_name).parent() == Some(Path::new(ASSETS))
+            && let Some(name) = Path::new(&file_name).file_name().and_then(OsStr::to_str)
+        {
+            asset_names.push(name.to_string());
+        }
 
         if file_name == "AndroidManifest.xml" {
             if let Ok(mut output_file) = fs::File::create(&manifest_path) {
@@ -162,8 +222,34 @@ pub fn run(
         Region::Tw => &user_keys.tw,
     };
 
+    log_callback("Indexing mod contents...".to_string());
+    let mut contents = index_mod(&mod_dir, &log_callback)
+        .inspect_err(|error| error!("Mod indexing failed: {}", error))?;
+
+    let icons = modify::ModIcons::resolve(|name| contents.remove(name));
+    contents.remove(METADATA);
+
+    let mut loose = Vec::new();
+
+    for name in asset_names {
+        if GENERATED.contains(&name.as_str()) {
+            continue;
+        }
+
+        let Some(path) = contents.remove(&name) else { continue; };
+
+        trace!(file = %name, path = %path.display(), "Mod file replaces a loose APK asset");
+        loose.push((name, path));
+    }
+
+    let packed: Vec<PathBuf> = contents.into_values();
+
     log_callback("Packing modded game data...".to_string());
-    if let Err(error) = pack::stream_pack_and_list(&mod_dir.join("patch"), &assets_dir, "DownloadLocal", region_key, &log_callback) {
+
+    if packed.is_empty() {
+        warn!("No packable files left in the mod; the original game data is left untouched");
+        log_callback("No packable files found, keeping original game data.".to_string());
+    } else if let Err(error) = pack::stream_files(&packed, &assets_dir, DOWNLOAD_LOCAL, region_key, &log_callback) {
         error!("Data packing failed: {}", error);
         return Err(error);
     }
@@ -175,8 +261,8 @@ pub fn run(
         &working_apk,
         &unsigned_apk_path,
         &assets_dir,
-        &icons_dir,
-        &mod_dir.join("loose"),
+        &icons,
+        &loose,
         if is_update_patch { None } else { Some(manifest_path.as_path()) },
         if is_update_patch || !extracted_arsc { None } else { Some(arsc_path.as_path()) }
     ) {

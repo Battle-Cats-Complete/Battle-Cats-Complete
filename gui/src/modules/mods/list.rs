@@ -11,7 +11,7 @@ use iced::{Element, Length, Task};
 use image::imageops;
 
 use core::common::gfx;
-use core::modules::mods::ModData;
+use core::modules::mods::{self, ModData};
 
 use crate::app::theme;
 use crate::widget::{list_row, smooth_scroll};
@@ -26,6 +26,7 @@ const ROW_TEXT_SIZE: f32 = 12.0;
 
 const ACTIVE_MARKER_WIDTH: f32 = 4.0;
 const ICON_RENDER_SIZE: u32 = 64;
+const ICON_FILE: &str = "icon.png";
 
 #[derive(Clone)]
 pub enum Message {
@@ -45,21 +46,24 @@ impl std::fmt::Debug for Message {
 struct LoadRequest {
     folder_name: String,
     path: PathBuf,
+    generation: u64,
 }
 
 #[derive(Clone)]
 pub struct LoadResult {
     folder_name: String,
+    generation: u64,
     payload: Option<(u32, u32, Vec<u8>)>,
 }
 
 pub struct State {
     texture_cache: HashMap<String, Handle>,
-    pending_requests: HashSet<String>,
+    pending_requests: HashMap<String, u64>,
     missing_ids: HashSet<String>,
     last_search_query: String,
     last_mod_count: usize,
     cached_indices: Vec<usize>,
+    generation: u64,
     tx_request: Sender<LoadRequest>,
     rx_result: Option<UnboundedReceiver<LoadResult>>,
 }
@@ -74,18 +78,23 @@ impl Default for State {
                 let tx = tx_result.clone();
                 rayon::spawn(move || {
                     let payload = process_icon(&request.path);
-                    let _ = tx.unbounded_send(LoadResult { folder_name: request.folder_name, payload });
+                    let _ = tx.unbounded_send(LoadResult {
+                        folder_name: request.folder_name,
+                        generation: request.generation,
+                        payload,
+                    });
                 });
             }
         });
 
         Self {
             texture_cache: HashMap::new(),
-            pending_requests: HashSet::new(),
+            pending_requests: HashMap::new(),
             missing_ids: HashSet::new(),
             last_search_query: String::new(),
             last_mod_count: usize::MAX,
             cached_indices: Vec::new(),
+            generation: 0,
             tx_request,
             rx_result: Some(rx_result),
         }
@@ -100,6 +109,10 @@ impl State {
     pub fn update(&mut self, message: Message) {
         let Message::IconLoaded(result) = message else { return };
 
+        if self.pending_requests.get(&result.folder_name) != Some(&result.generation) {
+            return;
+        }
+
         self.pending_requests.remove(&result.folder_name);
         match result.payload {
             Some((width, height, pixels)) => {
@@ -113,10 +126,14 @@ impl State {
         }
     }
 
-    pub fn clear_icons(&mut self) {
-        self.texture_cache.clear();
-        self.missing_ids.clear();
-        self.pending_requests.clear();
+    pub(super) fn invalidate(&mut self, folders: &HashSet<String>, mods: &[ModData]) {
+        for folder in folders {
+            self.texture_cache.remove(folder);
+            self.missing_ids.remove(folder);
+            self.pending_requests.remove(folder);
+        }
+
+        self.dispatch_requests(mods);
     }
 
     pub fn refresh(&mut self, mods: &[ModData], query: &str) {
@@ -143,14 +160,19 @@ impl State {
             let Some(mod_data) = mods.get(index) else { continue; };
             let name = &mod_data.folder_name;
 
-            if self.texture_cache.contains_key(name) || self.missing_ids.contains(name) || self.pending_requests.contains(name) {
+            if self.texture_cache.contains_key(name) || self.missing_ids.contains(name) || self.pending_requests.contains_key(name) {
                 continue;
             }
 
             let path = Path::new("mods").join(name);
-            self.pending_requests.insert(name.clone());
+            self.generation += 1;
+            self.pending_requests.insert(name.clone(), self.generation);
 
-            let _ = self.tx_request.send(LoadRequest { folder_name: name.clone(), path });
+            let _ = self.tx_request.send(LoadRequest {
+                folder_name: name.clone(),
+                path,
+                generation: self.generation,
+            });
         }
     }
 
@@ -218,7 +240,7 @@ impl State {
 }
 
 fn process_icon(mod_path: &Path) -> Option<(u32, u32, Vec<u8>)> {
-    let icon_path = mod_path.join("icons").join("icon.png");
+    let icon_path = mods::locate(mod_path, ICON_FILE)?;
     let opened = image::open(&icon_path).ok()?;
 
     let cropped = gfx::autocrop(opened.to_rgba8());

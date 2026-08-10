@@ -2,6 +2,7 @@ mod export;
 mod import;
 mod list;
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -107,8 +108,22 @@ impl State {
         self.list.result_stream().map(Message::List)
     }
 
-    pub(crate) fn invalidate_assets(&mut self) {
-        self.list.clear_icons();
+    pub(crate) fn invalidate_assets(&mut self, folders: &HashSet<String>) {
+        self.list.invalidate(folders, &self.data.loaded_mods);
+    }
+
+    pub(crate) fn resync(&self, vault: &Vault, folders: &HashSet<String>) {
+        let Some(active) = self.active_mod() else {
+            return;
+        };
+
+        if !folders.contains(&active) {
+            return;
+        }
+
+        if let Err(err) = mods::enable(vault, &active) {
+            warn!(mod_name = %active, "Failed to re-index a changed mod: {}", err);
+        }
     }
 
     pub fn active_mod(&self) -> Option<String> {

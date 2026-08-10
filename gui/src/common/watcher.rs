@@ -16,8 +16,6 @@ const BATCH_BUFFER: usize = 8;
 const QUIET_WINDOW: Duration = Duration::from_millis(500);
 const MAX_WINDOW: Duration = Duration::from_secs(2);
 
-const MOD_CONTENT_DIRS: [&str; 3] = ["patch", "icons", "loose"];
-
 const SCRATCH_SUFFIXES: [&str; 6] = [".kate-swp", ".swp", ".swo", ".tmp", ".bak", "~"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,9 +130,17 @@ fn is_relevant(path: &Path) -> bool {
         return parts.get(root + 1).is_none_or(|name| !architecture::TRANSIENT.contains(&name.as_str()));
     }
 
+    let Some(folder) = parts.get(root + 1) else {
+        return false;
+    };
+
+    if folder == architecture::PACKAGES {
+        return false;
+    }
+
     parts
         .get(root + 2)
-        .is_none_or(|folder| MOD_CONTENT_DIRS.contains(&folder.as_str()))
+        .is_none_or(|nested| !architecture::MOD_TRANSIENT.contains(&nested.as_str()))
 }
 
 fn debounce(events: &Receiver<PathBuf>, batches: &async_mpsc::UnboundedSender<Vec<PathBuf>>) {

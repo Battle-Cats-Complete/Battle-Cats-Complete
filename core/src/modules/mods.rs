@@ -1,12 +1,14 @@
 pub mod export;
 pub mod import;
 
+use std::ffi::OsStr;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
+use crate::modules::data::architecture;
 use crate::{Conflict, Vault, VfsError};
 
 use super::mods::export::ExportState;
@@ -14,7 +16,9 @@ use super::mods::import::ModImportState;
 
 const MODS_ROOT: &str = "mods";
 
-const RESERVED_NAMES: [&str; 2] = ["game", "packages"];
+const RESERVED_NAMES: [&str; 2] = ["game", architecture::PACKAGES];
+
+pub const METADATA: &str = "metadata.json";
 
 pub fn taken(mods_root: &Path, candidate: &str) -> bool {
     if RESERVED_NAMES.iter().any(|reserved| candidate.eq_ignore_ascii_case(reserved)) {
@@ -28,6 +32,45 @@ pub fn taken(mods_root: &Path, candidate: &str) -> bool {
     entries.flatten().any(|entry| {
         entry.file_name().to_str().is_some_and(|name| name.eq_ignore_ascii_case(candidate))
     })
+}
+
+pub fn locate(mod_dir: &Path, filename: &str) -> Option<PathBuf> {
+    let mut level = vec![mod_dir.to_path_buf()];
+    let mut top = true;
+
+    while !level.is_empty() {
+        let mut hits = Vec::new();
+        let mut next = Vec::new();
+
+        for dir in &level {
+            let Ok(entries) = fs::read_dir(dir) else { continue };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Some(name) = path.file_name().and_then(OsStr::to_str) else { continue };
+
+                if path.is_dir() {
+                    if !top || !architecture::MOD_TRANSIENT.contains(&name) {
+                        next.push(path);
+                    }
+                    continue;
+                }
+
+                if name == filename {
+                    hits.push(path);
+                }
+            }
+        }
+
+        if let Some(found) = hits.into_iter().min() {
+            return Some(found);
+        }
+
+        level = next;
+        top = false;
+    }
+
+    None
 }
 
 pub fn enable(vault: &Vault, name: &str) -> Result<Vec<Conflict>, VfsError> {
@@ -86,18 +129,23 @@ impl Default for ModMetadata {
 
 impl ModMetadata {
     pub fn load<P: AsRef<Path>>(mod_folder_path: P) -> Self {
-        let meta_path = mod_folder_path.as_ref().join("patch").join("metadata.json");
+        let Some(meta_path) = locate(mod_folder_path.as_ref(), METADATA) else {
+            return Self::default();
+        };
+
         fs::read_to_string(meta_path).map_or_else(|_| Self::default(), |data| serde_json::from_str(&data).unwrap_or_default())
     }
 
     pub fn save<P: AsRef<Path>>(&self, mod_folder_path: P) -> Result<(), std::io::Error> {
-        let dl_dir = mod_folder_path.as_ref().join("patch");
+        let root = mod_folder_path.as_ref();
+        let meta_path = locate(root, METADATA).unwrap_or_else(|| root.join("patch").join(METADATA));
 
-        if !dl_dir.exists() {
-            let _ = fs::create_dir_all(&dl_dir);
+        if let Some(parent) = meta_path.parent()
+            && !parent.exists()
+        {
+            let _ = fs::create_dir_all(parent);
         }
 
-        let meta_path = dl_dir.join("metadata.json");
         let data = serde_json::to_string_pretty(self)?;
         fs::write(meta_path, data)
     }
@@ -130,7 +178,7 @@ impl ModDataState {
 
         if let Ok(entries) = fs::read_dir(mods_dir) {
             for entry in entries.flatten() {
-                if entry.path().is_dir() && entry.file_name() != "packages" {
+                if entry.path().is_dir() && entry.file_name() != architecture::PACKAGES {
                     let folder_name = entry.file_name().to_string_lossy().to_string();
                     current_folders.insert(folder_name.clone());
 

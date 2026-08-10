@@ -340,13 +340,16 @@ impl BattleCatsApp {
         let mut enemies = HashSet::new();
         let mut items = HashSet::new();
         let mut stage_coarse = false;
-        let mut mods_coarse = false;
+        let mut touched_mods = HashSet::new();
 
         for path in &paths {
             let Some(mount) = watcher::mount_of(path) else { continue; };
             let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue; };
 
-            if path.is_file() {
+            if mount != architecture::GAME {
+                self.vault.evict(name);
+                touched_mods.insert(mount);
+            } else if path.is_file() {
                 if let Err(err) = self.vault.vfs.create((mount.as_str(), path.as_path())) {
                     warn!(path = %path.display(), "Failed to index a changed file: {}", err);
                 }
@@ -367,16 +370,16 @@ impl BattleCatsApp {
                 None => {}
             }
 
-            mods_coarse |= is_image && mount != architecture::GAME;
+        }
+
+        if !touched_mods.is_empty() {
+            self.mods_state.resync(&self.vault, &touched_mods);
+            self.mods_state.invalidate_assets(&touched_mods);
         }
 
         self.cat_state.invalidate_assets(&units, &items);
         self.enemy_state.invalidate_assets(&enemies);
         self.stage_state.invalidate_assets(&items, &enemies, stage_coarse);
-
-        if mods_coarse {
-            self.mods_state.invalidate_assets();
-        }
 
         self.cat_state.reload_selected(&self.vault, &self.settings.scanner_config(None));
         self.enemy_state.reload_selected(&self.vault, self.settings.show_invalid_enemies());
