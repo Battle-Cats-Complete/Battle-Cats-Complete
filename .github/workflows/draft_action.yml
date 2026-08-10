@@ -1,0 +1,128 @@
+name: Draft Action Notification
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    types: [closed]
+
+jobs:
+  notify-commits:
+    name: Notify Commits
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.event.commits != null && github.event.commits[0] != null
+    steps:
+      - name: Send commit summary to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_COMMITS_WEBHOOK }}
+          COMMITS_JSON: ${{ toJSON(github.event.commits) }}
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          BRANCH="${{ github.ref_name }}"
+          USERNAME="${{ github.actor }}"
+          AVATAR_URL="https://github.com/${{ github.actor }}.png"
+
+          COMMITS_JSON=$(echo "$COMMITS_JSON" | jq '
+            [ .[] | select((.message | split("\n")[0] | test("^Merge (branch|remote-tracking branch|pull request) ")) | not) ]
+          ')
+
+          COMMIT_COUNT=$(echo "$COMMITS_JSON" | jq 'length')
+
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "Only merge commits in this push, leaving it to the merge job."
+            exit 0
+          fi
+
+          if [ "$COMMIT_COUNT" -eq 1 ]; then
+            MSG=$(echo "$COMMITS_JSON" | jq -r '.[0].message | split("\n")[0]')
+            SUMMARY_BODY="**${BRANCH} ::** ${MSG}"
+          else
+            FIRST_LINES=$(echo "$COMMITS_JSON" | jq -r '.[] | (.message | split("\n")[0])' | sed 's/^/- /')
+            SUMMARY_BODY="**${BRANCH} ::** ${COMMIT_COUNT} commits"$'\n\n'"${FIRST_LINES}"
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg username "$USERNAME" \
+            --arg avatar_url "$AVATAR_URL" \
+            --arg repo "$REPO_NAME" \
+            --arg body "$SUMMARY_BODY" \
+            '{
+              embeds: [{
+                author: { name: $username, icon_url: $avatar_url },
+                title: $repo,
+                description: $body,
+                color: 3066993
+              }]
+            }')
+
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "$PAYLOAD" \
+            "$DISCORD_WEBHOOK_URL"
+
+  notify-merge:
+    name: Notify Merge
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+      (github.event_name == 'push' && contains(toJSON(github.event.commits.*.message), 'Merge '))
+    steps:
+      - name: Send merge summary to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_COMMITS_WEBHOOK }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMITS_JSON: ${{ toJSON(github.event.commits) }}
+          PR_SOURCE: ${{ github.event.pull_request.head.ref }}
+          PR_TARGET: ${{ github.event.pull_request.base.ref }}
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          BRANCH="${{ github.ref_name }}"
+          USERNAME="${{ github.actor }}"
+          AVATAR_URL="https://github.com/${{ github.actor }}.png"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            SOURCE="$PR_SOURCE"
+            TARGET="$PR_TARGET"
+          else
+            MERGE_LINE=$(echo "$COMMITS_JSON" | jq -r '
+              [ .[] | (.message | split("\n")[0]) | select(test("^Merge (remote-tracking )?branch ")) ] | last // empty
+            ')
+
+            if [ -z "$MERGE_LINE" ]; then
+              echo "No local merge commit in this push."
+              exit 0
+            fi
+
+            SOURCE=$(echo "$MERGE_LINE" | sed -n "s/^Merge \(remote-tracking \)\?branch '\([^']*\)'.*/\2/p")
+            TARGET=$(echo "$MERGE_LINE" | sed -n "s/^Merge \(remote-tracking \)\?branch '[^']*' into \(.*\)$/\2/p")
+
+            SOURCE="${SOURCE#origin/}"
+            TARGET="${TARGET:-$BRANCH}"
+          fi
+
+          if [ -z "$SOURCE" ] || [ -z "$TARGET" ]; then
+            echo "Could not resolve both sides of the merge, skipping."
+            exit 0
+          fi
+
+          SUMMARY_BODY="**MERGE ::** ${SOURCE} → ${TARGET}"
+
+          PAYLOAD=$(jq -n \
+            --arg username "$USERNAME" \
+            --arg avatar_url "$AVATAR_URL" \
+            --arg repo "$REPO_NAME" \
+            --arg body "$SUMMARY_BODY" \
+            '{
+              embeds: [{
+                author: { name: $username, icon_url: $avatar_url },
+                title: $repo,
+                description: $body,
+                color: 7288001
+              }]
+            }')
+
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "$PAYLOAD" \
+            "$DISCORD_WEBHOOK_URL"

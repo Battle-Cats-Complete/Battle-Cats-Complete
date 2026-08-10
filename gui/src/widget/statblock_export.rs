@@ -4,7 +4,7 @@ use arboard::Clipboard;
 use iced::alignment::Horizontal;
 use iced::widget::{button, column};
 use iced::{Background, Border, Color, Element, Length, Task, Theme};
-use tracing::error;
+use tracing::{error, warn};
 
 use core::modules::settings::Settings;
 use core::Vfs;
@@ -99,6 +99,11 @@ impl State {
             return Task::none();
         }
 
+        if request.sheets.iter().any(|sheet| !sheet.is_settled()) {
+            warn!("{} statblock export blocked, sprite sheets are still loading", self.kind);
+            return self.reject(action);
+        }
+
         let data = request.data;
         let is_cat = data.is_cat;
         let id_str = data.id_str.clone();
@@ -128,6 +133,13 @@ impl State {
                 }
             }
         }, Message::Finished)
+    }
+
+    fn reject(&mut self, action: ExportAction) -> Task<Message> {
+        match action {
+            ExportAction::Copy => self.copy_feedback.set(false, Message::CopyFeedbackExpired),
+            ExportAction::Save => self.save_feedback.set(false, Message::SaveFeedbackExpired),
+        }
     }
 
     fn finish(&mut self, job: JobResult) -> Task<Message> {

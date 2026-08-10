@@ -21,6 +21,7 @@ use core::common::assets::{
 };
 use core::common::formats::{imgcut, SpriteSheet as CoreSpriteSheet};
 use core::common::game::CustomIcon;
+use core::Vfs;
 
 #[derive(Clone)]
 pub struct CustomAssets {
@@ -157,5 +158,46 @@ impl SpriteSheet {
             image_data.height(),
             image_data.as_raw().clone(),
         ));
+    }
+}
+pub fn ensure_sheet_loaded(
+    sheets: &mut Vec<SpriteSheet>,
+    vfs: &Vfs,
+    name: &str,
+) -> Task<(usize, Option<CoreSpriteSheet>)> {
+    let png_paths = vfs.list(&format!("{}.png", name));
+
+    if sheets.len() != png_paths.len() {
+        debug!("Resizing the {} sheet matrix to match resolved paths ({})", name, png_paths.len());
+        sheets.resize_with(png_paths.len(), SpriteSheet::default);
+    }
+
+    let mut tasks = Vec::new();
+
+    for (index, png_path) in png_paths.into_iter().enumerate() {
+        if sheets[index].texture_handle.is_some() || sheets[index].is_loading() || sheets[index].has_failed() {
+            continue;
+        }
+
+        let stem = png_path.file_stem().map_or_else(|| name.to_string(), |stem| stem.to_string_lossy().into_owned());
+
+        let Some(imgcut_path) = vfs
+            .locate(&format!("{}.imgcut", stem))
+            .or_else(|| vfs.locate(&format!("{}.imgcut", name)))
+        else {
+            warn!(sheet = %stem, "No matching imgcut for the resolved sprite sheet");
+            continue;
+        };
+
+        trace!("Loading sprite sheet {}", stem);
+        tasks.push(sheets[index].load(&png_path, &imgcut_path, stem).map(move |result| (index, result)));
+    }
+
+    Task::batch(tasks)
+}
+
+impl SpriteSheet {
+    pub fn is_settled(&self) -> bool {
+        self.failed || self.core.image_data.is_some()
     }
 }

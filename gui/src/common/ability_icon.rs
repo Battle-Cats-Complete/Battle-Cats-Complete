@@ -18,6 +18,10 @@ impl Cache {
         }
 
         for sheet in sheets {
+            if !sheet.is_settled() {
+                return None;
+            }
+
             let Some(cut) = sheet.core.cuts_map.get(&icon_id) else { continue; };
             let Some(image_data) = &sheet.core.image_data else { continue; };
 
