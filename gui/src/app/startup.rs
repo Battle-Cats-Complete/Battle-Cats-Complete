@@ -9,9 +9,8 @@ use smol::Timer;
 use tracing::{debug, error, info, warn};
 
 use core::common::dirs;
-use core::common::game::{localizable, param};
 use core::common::io::json;
-use core::modules::data::architecture;
+use core::modules::data::{self, architecture};
 use core::modules::mods;
 use core::modules::settings::{desktop, lang, ExceptionList, ScannerConfig, UpdateMode};
 use core::{ContentStore, Vault};
@@ -65,7 +64,7 @@ impl BattleCatsApp {
         debug!("Cleaning up temp update files");
         updater::cleanup_temp_files();
 
-        let store_task = app.spawn_vault_build();
+        let store_task = app.spawn_vault_build(true);
 
         let updater_task = if app.settings.general.update_mode != UpdateMode::Ignore {
             info!("Checking for app updates at startup");
@@ -90,10 +89,7 @@ impl BattleCatsApp {
         (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams, store_task, reveal_fallback]))
     }
 
-    pub(super) fn spawn_vault_build(&mut self) -> Task<Message> {
-        info!("Building the file index in the background");
-
-        let mut vault = Vault::new(&self.settings);
+    pub(super) fn spawn_vault_build(&mut self, hydrate: bool) -> Task<Message> {
         let config = self.settings.scanner_config(self.mods_state.active_mod());
         let (tx, rx) = mpsc::unbounded();
 
@@ -102,64 +98,79 @@ impl BattleCatsApp {
         self.stage_state.set_indexing();
 
         thread::spawn(move || {
-            populate_vault(&mut vault, &config);
-            let _ = tx.unbounded_send(Message::VaultReady(Arc::new(vault)));
+            let stored = hydrate.then(|| {
+                let mut cached = Vault::with_priority(&config.language_priority);
+                let stored = hydrate_vault(&mut cached);
+                let _ = tx.unbounded_send(Message::VaultHydrated(Arc::new(cached)));
+                stored
+            });
+
+            let index = Vault::hash(config.active_mod.as_deref());
+            let key = config.active_mod.is_none().then(|| Vault::key_for(index, &config));
+
+            if stored == Some(Some(index)) {
+                debug!(index, "File index still matches disk, keeping the hydrated caches");
+                let _ = tx.unbounded_send(Message::VaultValidated { vault: None, key });
+                return;
+            }
+
+            info!(index, "Building the file index in the background");
+            let mut rebuilt = Vault::with_priority(&config.language_priority);
+            rebuild_vault(&mut rebuilt, &config, index);
+            let _ = tx.unbounded_send(Message::VaultValidated { vault: Some(Arc::new(rebuilt)), key });
         });
 
         Task::stream(rx)
     }
 
-    pub(super) fn adopt_vault(&mut self, vault: Arc<Vault>) -> Task<Message> {
+    pub(super) fn adopt_vault(&mut self, vault: Arc<Vault>, cached: bool) -> Task<Message> {
         self.vault = vault;
         self.vault_ready = true;
-        self.rebuild_running = false;
-
-        if std::mem::take(&mut self.rebuild_queued) {
-            info!("More changes landed mid-rebuild, re-indexing again");
-            return self.rebuild_content();
-        }
 
         self.init_errors.report_conflicts(self.vault.vfs.conflicts(), self.settings.general.ignore_conflict_errors);
         self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
-
-        info!("Loading core tables");
-        self.param = param(&self.vault.vfs).unwrap_or_default();
-        self.localizable = localizable(&self.vault.vfs);
 
         self.sync_home_status();
 
         let active_mod = self.mods_state.active_mod();
 
         Task::batch([
-            self.cat_state.start_load(&self.settings, &self.vault, active_mod.clone()).map(Message::Cat),
-            self.enemy_state.start_load(&self.settings, &self.vault, active_mod.clone()).map(Message::Enemy),
-            self.stage_state.start_load(&self.settings, &self.vault, active_mod).map(Message::Stage),
+            self.load_tables(),
+            self.cat_state.start_load(&self.settings, &self.vault, active_mod.clone(), cached).map(Message::Cat),
+            self.enemy_state.start_load(&self.settings, &self.vault, active_mod.clone(), cached).map(Message::Enemy),
+            self.stage_state.start_load(&self.settings, &self.vault, active_mod, cached).map(Message::Stage),
         ])
     }
 }
 
-fn populate_vault(vault: &mut Vault, config: &ScannerConfig) {
-    let active_mod = config.active_mod.as_deref();
-    let index = Vault::hash(active_mod);
+fn hydrate_vault(vault: &mut Vault) -> Option<u64> {
+    let stored = vault.vfs.hydrate();
 
-    if vault.vfs.restore(index) {
-        debug!(index, "Restored file index from the virtual file system cache");
-    } else {
-        mount_game(vault);
-
-        if let Some(name) = active_mod {
-            mount_mod(vault, name);
-        }
-
-        vault.vfs.persist(index);
+    if let Some(index) = stored {
+        debug!(index, "Hydrated the file index from the virtual file system cache");
     }
 
-    let key = Vault::key(config);
-
-    if let Some(content) = ContentStore::load(key) {
-        debug!(key, "Restored parsed tables from the virtual data store cache");
+    if let Some(content) = ContentStore::hydrate() {
+        debug!("Hydrated parsed tables from the virtual data store cache");
         content.apply(&mut vault.vds);
     }
+
+    stored
+}
+
+fn rebuild_vault(vault: &mut Vault, config: &ScannerConfig, index: u64) {
+    mount_game(vault);
+
+    if let Some(name) = config.active_mod.as_deref() {
+        mount_mod(vault, name);
+    }
+
+    if vault.vfs.count(architecture::GAME) == 0 {
+        warn!("No game data left on disk, purging every derived cache");
+        data::purge_derived_caches();
+    }
+
+    vault.vfs.persist(index);
 }
 
 fn mount_game(vault: &Vault) {

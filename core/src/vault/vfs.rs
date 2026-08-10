@@ -161,25 +161,22 @@ pub struct Vfs {
 
 impl Vfs {
     pub fn new(settings: &Settings) -> Self {
-        let mut order = settings.general.language_priority.clone();
-        lang::ensure_complete_list(&mut order);
+        Self::with_priority(&settings.general.language_priority)
+    }
+
+    pub fn with_priority(order: &[String]) -> Self {
+        let mut complete = order.to_vec();
+        lang::ensure_complete_list(&mut complete);
 
         Self {
             mounts: RwLock::new(Index::default()),
             cache: RwLock::new(FxHashMap::default()),
-            priority: RwLock::new(order),
+            priority: RwLock::new(complete),
         }
     }
 
     pub(crate) fn detached() -> Self {
-        let mut order = Vec::new();
-        lang::ensure_complete_list(&mut order);
-
-        Self {
-            mounts: RwLock::new(Index::default()),
-            cache: RwLock::new(FxHashMap::default()),
-            priority: RwLock::new(order),
-        }
+        Self::with_priority(&[])
     }
 
     pub fn priority(&self, order: &[String]) {
@@ -412,21 +409,12 @@ impl Vfs {
         disk::store(&bytes);
     }
 
-    pub fn restore(&self, hash: u64) -> bool {
-        let Some((stored, index)) = disk::load() else {
-            return false;
-        };
-
-        if stored != hash {
-            return false;
-        }
-
-        let Ok(mut mounts) = self.mounts.write() else {
-            return false;
-        };
+    pub fn hydrate(&self) -> Option<u64> {
+        let (stored, index) = disk::load()?;
+        let mut mounts = self.mounts.write().ok()?;
 
         *mounts = index;
-        true
+        Some(stored)
     }
 
 }

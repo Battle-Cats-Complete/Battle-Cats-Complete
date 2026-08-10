@@ -7,6 +7,15 @@ pub mod raw;
 use serde::{Deserialize, Serialize};
 
 use crate::common::region::Region;
+use crate::modules::{cat, enemy, stage};
+use crate::ContentStore;
+
+pub fn purge_derived_caches() {
+    cat::scanner::purge();
+    enemy::scanner::purge();
+    stage::scanner::purge();
+    ContentStore::purge();
+}
 
 #[derive(PartialEq, Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum AdbImportType {

@@ -267,10 +267,15 @@ pub fn combo_box_menu(theme: &Theme) -> menu::Style {
     }
 }
 
-pub fn accent_marker(theme: &Theme) -> container::Style {
+const ENABLED_OUTLINE_WIDTH: f32 = 2.0;
+
+pub fn enabled_outline(theme: &Theme) -> container::Style {
     container::Style {
-        background: Some(Background::Color(theme.palette().success)),
-        border: Border { radius: Radius::from(RADIUS_SM), ..Border::default() },
+        border: Border {
+            color: theme.palette().success,
+            width: ENABLED_OUTLINE_WIDTH,
+            radius: Radius::from(RADIUS_SM),
+        },
         ..container::Style::default()
     }
 }

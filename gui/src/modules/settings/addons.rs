@@ -26,7 +26,7 @@ pub enum Addon {
 impl Addon {
     fn label(self) -> &'static str {
         match self {
-            Self::Adb => "ADB",
+            Self::Adb => "Android Bridge",
             Self::Apkeditor => "APKEditor",
             Self::Ffmpeg => "FFMPEG",
             Self::Avif => "AVIFENC",

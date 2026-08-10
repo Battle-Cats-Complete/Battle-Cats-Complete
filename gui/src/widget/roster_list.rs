@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use iced::futures::channel::mpsc::UnboundedReceiver;
 use iced::widget::image::Handle;
-use iced::widget::{container, responsive, scrollable, space, text, Column, Id};
+use iced::alignment::Vertical;
+use iced::widget::{container, responsive, row, scrollable, space, text, Column, Id};
 use iced::{Element, Length, Size, Task};
 use image::RgbaImage;
 use tracing::{info, warn};
@@ -18,6 +19,28 @@ use crate::common::udi_loader::{self, Composite, Dispatcher, LoadRequest, LoadRe
 use crate::widget::{roster_row, smooth_scroll};
 
 const BANNER_ASPECT: f32 = 318.0 / 133.0;
+
+const TAG_SIZE: f32 = 11.0;
+const TAG_WIDTH: f32 = 56.0;
+const TAG_GAP: f32 = 6.0;
+const LINE_GAP: f32 = 3.0;
+
+pub(crate) fn tooltip_table<'a>(rows: impl IntoIterator<Item = (&'a str, String)>) -> Element<'a, Message> {
+    let mut table = Column::new().spacing(LINE_GAP);
+
+    for (tag, value) in rows {
+        table = table.push(
+            row![
+                theme::bold_text(format!("[{}]", tag)).size(TAG_SIZE).width(Length::Fixed(TAG_WIDTH)),
+                text(value),
+            ]
+            .spacing(TAG_GAP)
+            .align_y(Vertical::Center),
+        );
+    }
+
+    table.into()
+}
 const SCROLLBAR_WIDTH: f32 = 16.0;
 pub(crate) const LIST_WIDTH: f32 = row_window::ROW_HEIGHT * BANNER_ASPECT + SCROLLBAR_WIDTH;
 

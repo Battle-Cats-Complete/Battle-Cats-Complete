@@ -50,18 +50,26 @@ impl cache::CacheSpec for EnemyCache {
     const VERSION: u32 = 1;
 }
 
-pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
-    if config.active_mod.is_none()
-        && let Some((hash, cached_enemies)) = cache::read::<EnemyCache>()
-        && hash == cache::content_hash(&config) {
-        debug!(hash, count = cached_enemies.len(), "loaded enemies from cache fast-path");
-        return cached_enemies;
+pub fn purge() {
+    cache::purge::<EnemyCache>();
+}
+
+pub fn hydrate(config: &ScannerConfig) -> Option<(u64, Vec<EnemyEntry>)> {
+    if config.active_mod.is_some() {
+        return None;
     }
 
+    let (hash, cached_enemies) = cache::read::<EnemyCache>()?;
+    debug!(hash, count = cached_enemies.len(), "hydrated enemies from cache");
+
+    Some((hash, cached_enemies))
+}
+
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> (Vec<EnemyEntry>, Option<u64>) {
     scan(config, &vault, progress)
 }
 
-fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> Vec<EnemyEntry> {
+fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> (Vec<EnemyEntry>, Option<u64>) {
     trace!("starting enemy repository scan");
     let vfs = &vault.vfs;
 
@@ -69,7 +77,7 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     if raw_enemies.is_empty() {
         warn!("enemy scan aborted: t_unit table unavailable");
-        return Vec::new();
+        return (Vec::new(), None);
     }
 
     let names = vault.vds.enemies.names(vfs);
@@ -93,11 +101,13 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     parsed_enemies.sort_by_key(|e| e.id);
 
-    if config.active_mod.is_none() {
-        cache::write::<EnemyCache>(cache::content_hash(&config), &parsed_enemies);
-    }
+    let key = config.active_mod.is_none().then(|| {
+        let key = cache::content_hash(&config);
+        cache::write::<EnemyCache>(key, &parsed_enemies);
+        key
+    });
 
-    parsed_enemies
+    (parsed_enemies, key)
 }
 
 pub fn scan_single(id: u32, vault: &Vault, show_invalid: bool) -> Option<EnemyEntry> {

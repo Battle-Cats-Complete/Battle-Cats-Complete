@@ -63,7 +63,7 @@ pub enum Message {
     AnimationTick,
     SheetsCheck,
     ScanProgress(usize, usize),
-    Loaded(Vec<EnemyEntry>),
+    Loaded(Vec<EnemyEntry>, Option<u64>),
     Img015Loaded(usize, Option<CoreSpriteSheet>),
     SearchChanged(String),
     SelectEnemy(u32),
@@ -82,7 +82,7 @@ impl std::fmt::Debug for Message {
             Self::AnimationTick => write!(f, "AnimationTick"),
             Self::SheetsCheck => write!(f, "SheetsCheck"),
             Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
-            Self::Loaded(enemies) => write!(f, "Loaded({})", enemies.len()),
+            Self::Loaded(enemies, _) => write!(f, "Loaded({})", enemies.len()),
             Self::Img015Loaded(i, _) => write!(f, "Img015Loaded({})", i),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
             Self::SelectEnemy(id) => write!(f, "SelectEnemy({})", id),
@@ -121,6 +121,7 @@ pub struct EnemyState {
     header_icon_dummy: HeaderIcon,
 
     scan_progress: Option<(usize, usize)>,
+    cached_key: Option<u64>,
 
     list: list::State,
     filter: filter::State,
@@ -153,6 +154,7 @@ impl Default for EnemyState {
             header_icon_dummy,
 
             scan_progress: None,
+            cached_key: None,
 
             list: list::State::default(),
             filter: filter::State::default(),
@@ -222,6 +224,10 @@ impl EnemyState {
         self.scan_progress = Some((0, 0));
     }
 
+    pub(crate) fn clear_indexing(&mut self) {
+        self.scan_progress = None;
+    }
+
     pub fn icon_stream(&mut self) -> Task<Message> {
         self.list.result_stream().map(Message::List)
     }
@@ -234,17 +240,22 @@ impl EnemyState {
         }
     }
 
-    pub fn start_load(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
-        info!("Triggering initial enemy load");
+    pub fn start_load(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>, cached: bool) -> Task<Message> {
+        info!(cached, "Triggering enemy load");
         let config = settings.scanner_config(active_mod);
         let scan_store = Arc::clone(vault);
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
-            let enemies = scanner::load(config, scan_store, |done, total| {
+            if cached && let Some((key, enemies)) = scanner::hydrate(&config) {
+                let _ = tx.unbounded_send(Message::Loaded(enemies, Some(key)));
+                return;
+            }
+
+            let (enemies, key) = scanner::load(config, scan_store, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
-            let _ = tx.unbounded_send(Message::Loaded(enemies));
+            let _ = tx.unbounded_send(Message::Loaded(enemies, key));
         });
 
         Task::batch([Task::stream(rx), self.check_sheets(&vault.vfs)])
@@ -253,7 +264,11 @@ impl EnemyState {
     pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning enemies");
         self.clear_caches();
-        self.start_load(settings, vault, active_mod)
+        self.start_load(settings, vault, active_mod, false)
+    }
+
+    pub(crate) fn cached_key(&self) -> Option<u64> {
+        self.cached_key
     }
 
     pub(crate) fn clear_caches(&mut self) {
@@ -291,8 +306,9 @@ impl EnemyState {
                 }
                 Task::none()
             }
-            Message::Loaded(enemies) => {
+            Message::Loaded(enemies, key) => {
                 info!("Enemy load finished with {} entries", enemies.len());
+                self.cached_key = key;
                 self.scan_progress = None;
                 self.list.invalidate();
                 self.header_icon_cache.borrow_mut().clear();
@@ -433,7 +449,7 @@ impl EnemyState {
             .width(Length::Fill)
             .style(move |t: &Theme, status| theme::toggle_button(t, status, self.filter.filter_state.is_active()));
 
-        let enemy_list = self.list.view(&self.data.enemies, self.selected_enemy, self.scan_progress.is_some()).map(Message::List);
+        let enemy_list = self.list.view(&self.data.enemies, self.selected_enemy, self.is_indexing()).map(Message::List);
 
         let mut sidebar = column![
             search_input,
@@ -456,7 +472,15 @@ impl EnemyState {
             .into()
     }
 
+    fn is_indexing(&self) -> bool {
+        self.scan_progress.is_some() && self.data.enemies.is_empty()
+    }
+
     fn scan_status(&self) -> Option<Element<'_, Message>> {
+        if !self.is_indexing() {
+            return None;
+        }
+
         let (done, total) = self.scan_progress?;
 
         if total == 0 {

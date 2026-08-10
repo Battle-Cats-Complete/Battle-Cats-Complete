@@ -3,8 +3,10 @@ use std::hash::{Hash, Hasher};
 use std::iter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 
+use iced::futures::channel::mpsc;
 use iced::widget::{button, column, container, markdown, operation, row, scrollable, stack};
 use iced::{task, window, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
@@ -140,7 +142,9 @@ pub enum Message {
     InitErrorPopup(popup::Message),
     AcknowledgeInitError,
     OpenUrl(String),
-    VaultReady(Arc<Vault>),
+    VaultHydrated(Arc<Vault>),
+    TablesLoaded(Box<(Param, Localizable)>),
+    VaultValidated { vault: Option<Arc<Vault>>, key: Option<u64> },
     IndexPersisted,
     FilesChanged(Change),
     Home(home::Message),
@@ -177,6 +181,8 @@ pub struct BattleCatsApp {
     rebuild_queued: bool,
     #[serde(skip)]
     index_persisting: bool,
+    #[serde(skip)]
+    validated_key: Option<u64>,
     #[serde(skip)]
     frames_painted: u8,
     #[serde(skip)]
@@ -246,6 +252,7 @@ impl Default for BattleCatsApp {
             rebuild_running: false,
             rebuild_queued: false,
             index_persisting: false,
+            validated_key: None,
             frames_painted: 0,
             window_shown: false,
             home_state: home::State::default(),
@@ -388,12 +395,10 @@ impl BattleCatsApp {
 
         }
 
-        let game = Path::new(architecture::GAME);
-
-        let wiped = !game.exists() && self.vault.vfs.count(architecture::GAME) > 0;
+        let wiped = !architecture::game_present() && self.vault.vfs.count(architecture::GAME) > 0;
 
         if wiped {
-            let dropped = self.vault.vfs.prune(architecture::GAME, game);
+            let dropped = self.vault.vfs.prune(architecture::GAME, Path::new(architecture::GAME));
             warn!(files = dropped.len(), "The game folder is gone; dropped every indexed file");
             self.vault.purge(&dropped);
             pruned = true;
@@ -423,6 +428,70 @@ impl BattleCatsApp {
         self.persist_index()
     }
 
+    fn finish_validation(&mut self, vault: Option<Arc<Vault>>, key: Option<u64>) -> Task<Message> {
+        self.rebuild_running = false;
+        let queued = std::mem::take(&mut self.rebuild_queued);
+
+        if let Some(rebuilt) = vault {
+            info!("Swapping in the rebuilt file index");
+            self.cat_state.clear_caches();
+            self.enemy_state.clear_caches();
+            self.stage_state.clear_caches();
+            self.vault.vds.clear();
+
+            let adopted = self.adopt_vault(rebuilt, false);
+
+            if !queued {
+                return adopted;
+            }
+
+            info!("More changes landed mid-validation, indexing again");
+            return Task::batch([adopted, self.rebuild_content()]);
+        }
+
+        if queued {
+            info!("More changes landed mid-validation, indexing again");
+            return self.rebuild_content();
+        }
+
+        let Some(key) = key else {
+            self.clear_indexing();
+            return Task::none();
+        };
+
+        self.validated_key = Some(key);
+        self.reconcile_caches()
+    }
+
+    pub(crate) fn reconcile_caches(&mut self) -> Task<Message> {
+        let Some(key) = self.validated_key else {
+            return Task::none();
+        };
+
+        let cached = [self.cat_state.cached_key(), self.enemy_state.cached_key(), self.stage_state.cached_key()];
+
+        if cached.iter().any(Option::is_none) {
+            return Task::none();
+        }
+
+        self.validated_key = None;
+
+        if cached.iter().all(|entry| *entry == Some(key)) {
+            self.clear_indexing();
+            return Task::none();
+        }
+
+        info!(key, "Scanner caches drifted from the current settings, rescanning");
+        self.vault.vds.clear();
+        self.rescan_units()
+    }
+
+    fn clear_indexing(&mut self) {
+        self.cat_state.clear_indexing();
+        self.enemy_state.clear_indexing();
+        self.stage_state.clear_indexing();
+    }
+
     pub(crate) fn rebuild_content(&mut self) -> Task<Message> {
         if self.rebuild_running || !self.vault_ready {
             self.rebuild_queued = true;
@@ -432,15 +501,15 @@ impl BattleCatsApp {
         info!("Rebuilding the file index and rescanning every module");
         self.rebuild_running = true;
 
-        self.cat_state.clear_caches();
-        self.enemy_state.clear_caches();
-        self.stage_state.clear_caches();
-
-        self.spawn_vault_build()
+        self.spawn_vault_build(false)
     }
 
     fn persist_index(&mut self) -> Task<Message> {
-        if self.index_persisting || self.rebuild_running {
+        if self.index_persisting || self.rebuild_running || self.rebuild_queued {
+            return Task::none();
+        }
+
+        if !architecture::game_present() {
             return Task::none();
         }
 
@@ -459,8 +528,24 @@ impl BattleCatsApp {
     }
 
     fn persist_content(&self) {
+        let vault = Arc::clone(&self.vault);
         let config = self.settings.scanner_config(self.mods_state.active_mod());
-        ContentStore::capture(&self.vault.vds).save(Vault::key(&config));
+
+        thread::spawn(move || {
+            ContentStore::capture(&vault.vds).save(Vault::key(&config));
+        });
+    }
+
+    pub(super) fn load_tables(&self) -> Task<Message> {
+        let vault = Arc::clone(&self.vault);
+        let (tx, rx) = mpsc::unbounded();
+
+        thread::spawn(move || {
+            let tables = (param(&vault.vfs).unwrap_or_default(), localizable(&vault.vfs));
+            let _ = tx.unbounded_send(Message::TablesLoaded(Box::new(tables)));
+        });
+
+        Task::stream(rx)
     }
 
     fn relocalize(&mut self) -> Task<Message> {
@@ -470,12 +555,10 @@ impl BattleCatsApp {
     }
 
     fn rescan_units(&mut self) -> Task<Message> {
-        self.param = param(&self.vault.vfs).unwrap_or_default();
-        self.localizable = localizable(&self.vault.vfs);
-
         let active_mod = self.mods_state.active_mod();
 
         Task::batch([
+            self.load_tables(),
             self.cat_state.rescan(&self.settings, &self.vault, active_mod.clone()).map(Message::Cat),
             self.enemy_state.rescan(&self.settings, &self.vault, active_mod.clone()).map(Message::Enemy),
             self.stage_state.rescan(&self.settings, &self.vault, active_mod).map(Message::Stage),
@@ -622,7 +705,15 @@ impl BattleCatsApp {
                 self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
                 Task::none()
             }
-            Message::VaultReady(vault) => self.adopt_vault(vault),
+            Message::VaultHydrated(vault) => self.adopt_vault(vault, true),
+            Message::TablesLoaded(tables) => {
+                let (param, localizable) = *tables;
+                info!("Core tables loaded");
+                self.param = param;
+                self.localizable = localizable;
+                Task::none()
+            }
+            Message::VaultValidated { vault, key } => self.finish_validation(vault, key),
             Message::FilesChanged(Change::Unavailable) => {
                 warn!("File watcher could not be initialized; reporting it as an initialization error");
                 self.init_errors.report_watcher_failure(self.settings.general.ignore_watcher_failure);
@@ -657,10 +748,16 @@ impl BattleCatsApp {
             }
             Message::Cat(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault };
+                let loaded = matches!(msg, cat::Message::Loaded(..));
                 let task = self.cat_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
                 self.cat_state.sync_state(&mut self.app_state.cat);
                 self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open(&self.app_state));
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
+
+                if loaded {
+                    return Task::batch([task, self.reconcile_caches()]);
+                }
+
                 task
             }
             Message::Enemy(enemy::Message::NavigateAppearances(id)) => Task::batch([
@@ -669,7 +766,7 @@ impl BattleCatsApp {
             ]),
             Message::Enemy(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault };
-                let enemies_loaded = matches!(msg, enemy::Message::Loaded(_));
+                let enemies_loaded = matches!(msg, enemy::Message::Loaded(..));
                 let task = self.enemy_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Enemy);
                 if enemies_loaded {
                     self.stage_state.sync_enemies(&self.enemy_state.data.enemies);
@@ -677,16 +774,26 @@ impl BattleCatsApp {
                 self.enemy_state.sync_state(&mut self.app_state.enemy);
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
                 self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open(&self.app_state));
+
+                if enemies_loaded {
+                    return Task::batch([task, self.reconcile_caches()]);
+                }
+
                 task
             }
             Message::Stage(msg) => {
-                let stages_loaded = matches!(msg, stage::Message::Loaded(_));
+                let stages_loaded = matches!(msg, stage::Message::Loaded(..));
                 let task = self.stage_state.update(msg).map(Message::Stage);
                 if stages_loaded {
                     self.persist_content();
                 }
                 self.stage_state.sync_state(&mut self.app_state.stage);
                 self.sync_popup(ActivePopup::StageFilter, self.stage_state.filter_popup_open());
+
+                if stages_loaded {
+                    return Task::batch([task, self.reconcile_caches()]);
+                }
+
                 task
             }
             Message::Mod(msg) => {

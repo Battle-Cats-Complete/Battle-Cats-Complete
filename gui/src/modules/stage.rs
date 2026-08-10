@@ -45,7 +45,7 @@ pub(super) const CONTENT_WIDTH: f32 = MIN_WINDOW_WIDTH - CONTENT_PADDING * 2.0;
 #[derive(Clone)]
 pub enum Message {
     ScanProgress(usize, usize),
-    Loaded(Box<StageBundle>),
+    Loaded(Box<StageBundle>, Option<u64>),
     ToggleSidebar,
     SelectCrown(u8),
     ShowEnemyAppearances(u32),
@@ -57,7 +57,7 @@ impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
-            Self::Loaded(bundle) => write!(f, "Loaded({} maps, {} stages)", bundle.registry.maps.len(), bundle.registry.stages.len()),
+            Self::Loaded(bundle, _) => write!(f, "Loaded({} maps, {} stages)", bundle.registry.maps.len(), bundle.registry.stages.len()),
             Self::ToggleSidebar => write!(f, "ToggleSidebar"),
             Self::SelectCrown(crown) => write!(f, "SelectCrown({})", crown),
             Self::ShowEnemyAppearances(id) => write!(f, "ShowEnemyAppearances({})", id),
@@ -72,6 +72,7 @@ pub struct State {
     pub is_sidebar_open: bool,
     pub selected_crown: u8,
     scan_progress: Option<(usize, usize)>,
+    cached_key: Option<u64>,
     filter: filter::State,
     list: list::State,
     info: info::State,
@@ -88,6 +89,7 @@ impl Default for State {
             is_sidebar_open: true,
             selected_crown: 0,
             scan_progress: None,
+            cached_key: None,
             filter: filter::State::default(),
             list: list::State::default(),
             info: info::State::default(),
@@ -134,17 +136,26 @@ impl State {
         self.scan_progress = Some((0, 0));
     }
 
-    pub fn start_load(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
-        info!("Triggering initial stage load");
+    pub(crate) fn clear_indexing(&mut self) {
+        self.scan_progress = None;
+    }
+
+    pub fn start_load(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>, cached: bool) -> Task<Message> {
+        info!(cached, "Triggering stage load");
         let config = settings.scanner_config(active_mod);
         let vault = Arc::clone(vault);
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
-            let bundle = scanner::load(config, vault, |done, total| {
+            if cached && let Some((key, bundle)) = scanner::hydrate(&config) {
+                let _ = tx.unbounded_send(Message::Loaded(Box::new(bundle), Some(key)));
+                return;
+            }
+
+            let (bundle, key) = scanner::load(config, vault, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
-            let _ = tx.unbounded_send(Message::Loaded(Box::new(bundle)));
+            let _ = tx.unbounded_send(Message::Loaded(Box::new(bundle), key));
         });
 
         Task::stream(rx)
@@ -153,7 +164,11 @@ impl State {
     pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning stages");
         self.clear_caches();
-        self.start_load(settings, vault, active_mod)
+        self.start_load(settings, vault, active_mod, false)
+    }
+
+    pub(crate) fn cached_key(&self) -> Option<u64> {
+        self.cached_key
     }
 
     pub(crate) fn clear_caches(&mut self) {
@@ -198,7 +213,8 @@ impl State {
                 }
                 Task::none()
             }
-            Message::Loaded(bundle) => {
+            Message::Loaded(bundle, key) => {
+                self.cached_key = key;
                 info!("Stage load finished with {} maps and {} stages", bundle.registry.maps.len(), bundle.registry.stages.len());
                 self.scan_progress = None;
                 self.info.clear_icons();
@@ -334,7 +350,7 @@ impl State {
 
         let mut sidebar_content = column![].height(Length::Fill);
 
-        sidebar_content = sidebar_content.push(self.list.view(&self.data, &self.filter.filter_state, self.scan_progress.is_some()).map(Message::List));
+        sidebar_content = sidebar_content.push(self.list.view(&self.data, &self.filter.filter_state, self.is_indexing()).map(Message::List));
 
         let sidebar_panel = container(sidebar_content)
             .width(Length::Fixed(self.sidebar_span()))
@@ -353,7 +369,15 @@ impl State {
             .into()
     }
 
+    fn is_indexing(&self) -> bool {
+        self.scan_progress.is_some() && self.data.registry.stages.is_empty()
+    }
+
     fn scan_status(&self) -> Option<Element<'_, Message>> {
+        if !self.is_indexing() {
+            return None;
+        }
+
         let (done, total) = self.scan_progress?;
 
         if total == 0 {
@@ -369,7 +393,13 @@ impl State {
         }
 
         let Some(stage_id) = &self.data.selected_stage else {
-            return container(theme::centered_text("Select a stage to view details").size(16))
+            let label = if self.data.registry.stages.is_empty() {
+                "No Stage Data"
+            } else {
+                "Select a stage to view details"
+            };
+
+            return container(theme::centered_text(label).size(16))
                 .center_x(Length::Fill)
                 .center_y(Length::Fill)
                 .into();

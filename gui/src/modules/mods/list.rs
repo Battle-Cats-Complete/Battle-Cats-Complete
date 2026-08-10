@@ -24,7 +24,7 @@ const ROW_HEIGHT: f32 = ICON_BOX + ICON_PADDING * 2.0;
 const ROW_SPACING: f32 = 4.0;
 const ROW_TEXT_SIZE: f32 = 12.0;
 
-const ACTIVE_MARKER_WIDTH: f32 = 4.0;
+const EDGE_GAP: f32 = 4.0;
 const ICON_RENDER_SIZE: u32 = 64;
 const ICON_FILE: &str = "icon.png";
 
@@ -207,17 +207,9 @@ impl State {
     fn view_row<'a>(&'a self, mod_data: &'a ModData, is_selected: bool) -> Element<'a, Message> {
         let folder_name = mod_data.folder_name.as_str();
 
-        let marker: Element<'a, Message> = if mod_data.enabled {
-            container(space())
-                .width(Length::Fixed(ACTIVE_MARKER_WIDTH))
-                .height(Length::Fill)
-                .style(theme::accent_marker)
-                .into()
-        } else {
-            space().width(Length::Fixed(ACTIVE_MARKER_WIDTH)).into()
-        };
-
-        let mut face = row![marker].align_y(Vertical::Center).height(Length::Fill);
+        let mut face = row![space().width(Length::Fixed(EDGE_GAP))]
+            .align_y(Vertical::Center)
+            .height(Length::Fill);
 
         if let Some(handle) = self.texture_cache.get(folder_name) {
             face = face.push(
@@ -227,12 +219,14 @@ impl State {
 
         face = face
             .push(theme::centered_text(folder_name).size(ROW_TEXT_SIZE).width(Length::Fill))
-            .push(space().width(Length::Fixed(ACTIVE_MARKER_WIDTH)));
+            .push(space().width(Length::Fixed(EDGE_GAP)));
+
+        let body = container(face).width(Length::Fill).height(Length::Fixed(ROW_HEIGHT));
 
         list_row(
-            container(face).width(Length::Fill).height(Length::Fixed(ROW_HEIGHT)),
+            if mod_data.enabled { body.style(theme::enabled_outline) } else { body },
             is_selected,
-            true,
+            !mod_data.enabled,
             Length::Fill,
             Message::SelectMod(folder_name.to_string()),
         )

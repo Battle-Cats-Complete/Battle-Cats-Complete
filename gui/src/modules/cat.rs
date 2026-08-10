@@ -69,7 +69,7 @@ pub enum Message {
     AnimationTick,
     SheetsCheck,
     ScanProgress(usize, usize),
-    Loaded(Vec<CatEntry>),
+    Loaded(Vec<CatEntry>, Option<u64>),
     Img015Loaded(usize, Option<CoreSpriteSheet>),
     Img022Loaded(usize, Option<CoreSpriteSheet>),
     SearchChanged(String),
@@ -93,7 +93,7 @@ impl std::fmt::Debug for Message {
             Self::AnimationTick => write!(f, "AnimationTick"),
             Self::SheetsCheck => write!(f, "SheetsCheck"),
             Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
-            Self::Loaded(cats) => write!(f, "Loaded({})", cats.len()),
+            Self::Loaded(cats, _) => write!(f, "Loaded({})", cats.len()),
             Self::Img015Loaded(i, _) => write!(f, "Img015Loaded({})", i),
             Self::Img022Loaded(i, _) => write!(f, "Img022Loaded({})", i),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
@@ -135,6 +135,7 @@ pub struct State {
     header_icon_dummy: Handle,
 
     scan_progress: Option<(usize, usize)>,
+    cached_key: Option<u64>,
 
     list: list::State,
     filter: filter::State,
@@ -171,6 +172,7 @@ impl Default for State {
             header_icon_dummy,
 
             scan_progress: None,
+            cached_key: None,
 
             list: list::State::default(),
             filter: filter::State::default(),
@@ -263,6 +265,10 @@ impl State {
         self.scan_progress = Some((0, 0));
     }
 
+    pub(crate) fn clear_indexing(&mut self) {
+        self.scan_progress = None;
+    }
+
     pub fn icon_stream(&mut self) -> Task<Message> {
         self.list.result_stream().map(Message::List)
     }
@@ -275,17 +281,22 @@ impl State {
         }
     }
 
-    pub fn start_load(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
-        info!("Triggering initial cat load");
+    pub fn start_load(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>, cached: bool) -> Task<Message> {
+        info!(cached, "Triggering cat load");
         let config = settings.scanner_config(active_mod);
         let scan_store = Arc::clone(vault);
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
-            let cats = scanner::load(config, scan_store, |done, total| {
+            if cached && let Some((key, cats)) = scanner::hydrate(&config, &scan_store) {
+                let _ = tx.unbounded_send(Message::Loaded(cats, Some(key)));
+                return;
+            }
+
+            let (cats, key) = scanner::load(config, scan_store, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
-            let _ = tx.unbounded_send(Message::Loaded(cats));
+            let _ = tx.unbounded_send(Message::Loaded(cats, key));
         });
 
         Task::batch([Task::stream(rx), self.check_sheets(&vault.vfs)])
@@ -294,7 +305,11 @@ impl State {
     pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
         info!("Rescanning cats");
         self.clear_caches();
-        self.start_load(settings, vault, active_mod)
+        self.start_load(settings, vault, active_mod, false)
+    }
+
+    pub(crate) fn cached_key(&self) -> Option<u64> {
+        self.cached_key
     }
 
     pub(crate) fn clear_caches(&mut self) {
@@ -388,8 +403,9 @@ impl State {
                 }
                 Task::none()
             }
-            Message::Loaded(cats) => {
+            Message::Loaded(cats, key) => {
                 info!("Cat load finished with {} entries", cats.len());
+                self.cached_key = key;
                 self.scan_progress = None;
                 self.list.invalidate();
                 self.details.clear_icons();
@@ -592,7 +608,7 @@ impl State {
             .width(Length::Fill)
             .style(move |t: &Theme, status| theme::toggle_button(t, status, self.filter.filter_state.is_active()));
 
-        let cat_list = self.list.view(&self.data.cats, self.selected_cat, self.scan_progress.is_some()).map(Message::List);
+        let cat_list = self.list.view(&self.data.cats, self.selected_cat, self.is_indexing()).map(Message::List);
 
         let mut sidebar = column![
             search_input,
@@ -615,7 +631,15 @@ impl State {
             .into()
     }
 
+    fn is_indexing(&self) -> bool {
+        self.scan_progress.is_some() && self.data.cats.is_empty()
+    }
+
     fn scan_status(&self) -> Option<Element<'_, Message>> {
+        if !self.is_indexing() {
+            return None;
+        }
+
         let (done, total) = self.scan_progress?;
 
         if total == 0 {

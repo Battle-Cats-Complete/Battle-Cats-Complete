@@ -67,22 +67,31 @@ impl cache::CacheSpec for CatCache {
     const VERSION: u32 = 1;
 }
 
-pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Vec<CatEntry> {
-    if config.active_mod.is_none()
-        && let Some((hash, cached_cats)) = cache::read::<CatCache>()
-        && hash == cache::content_hash(&config) {
-        debug!(hash, count = cached_cats.len(), "loaded cats from cache fast-path");
+pub fn purge() {
+    cache::purge::<CatCache>();
+}
 
-        let talent_costs_arc = vault.vds.cats.talent_costs(&vault.vfs);
-        let skill_descriptions_arc = vault.vds.cats.descriptions(&vault.vfs);
-
-        return cached_cats.into_iter().map(|mut cat| {
-            cat.talent_costs = Arc::clone(&talent_costs_arc);
-            cat.skill_descriptions = Arc::clone(&skill_descriptions_arc);
-            cat
-        }).collect();
+pub fn hydrate(config: &ScannerConfig, vault: &Vault) -> Option<(u64, Vec<CatEntry>)> {
+    if config.active_mod.is_some() {
+        return None;
     }
 
+    let (hash, cached_cats) = cache::read::<CatCache>()?;
+    debug!(hash, count = cached_cats.len(), "hydrated cats from cache");
+
+    let talent_costs_arc = vault.vds.cats.talent_costs(&vault.vfs);
+    let skill_descriptions_arc = vault.vds.cats.descriptions(&vault.vfs);
+
+    let cats = cached_cats.into_iter().map(|mut cat| {
+        cat.talent_costs = Arc::clone(&talent_costs_arc);
+        cat.skill_descriptions = Arc::clone(&skill_descriptions_arc);
+        cat
+    }).collect();
+
+    Some((hash, cats))
+}
+
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> (Vec<CatEntry>, Option<u64>) {
     scan(config, &vault, progress)
 }
 
@@ -101,13 +110,13 @@ pub fn scan_single(id: u32, vault: &Vault, config: &ScannerConfig) -> Option<Cat
     process_cat_entry(id, vfs, &tables, config)
 }
 
-fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> Vec<CatEntry> {
+fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> (Vec<CatEntry>, Option<u64>) {
     trace!("starting cat repository scan");
     let vfs = &vault.vfs;
 
     if vfs.find(files::UNIT_BUY).is_none() || vfs.find(files::UNIT_LEVEL).is_none() {
         warn!("cat scan aborted: unitbuy/unitlevel tables unavailable");
-        return Vec::new();
+        return (Vec::new(), None);
     }
 
     let tables = ScanTables {
@@ -135,11 +144,13 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     parsed_cats.sort_by_key(|cat| cat.id);
 
-    if config.active_mod.is_none() {
-        cache::write::<CatCache>(cache::content_hash(&config), &parsed_cats);
-    }
+    let key = config.active_mod.is_none().then(|| {
+        let key = cache::content_hash(&config);
+        cache::write::<CatCache>(key, &parsed_cats);
+        key
+    });
 
-    parsed_cats
+    (parsed_cats, key)
 }
 struct ScanTables {
     level_curves: Arc<Vec<LevelCurve>>,

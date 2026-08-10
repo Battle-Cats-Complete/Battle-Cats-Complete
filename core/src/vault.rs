@@ -22,8 +22,12 @@ impl fmt::Debug for Vault {
 
 impl Vault {
     pub fn new(settings: &Settings) -> Self {
+        Self::with_priority(&settings.general.language_priority)
+    }
+
+    pub fn with_priority(order: &[String]) -> Self {
         Self {
-            vfs: Vfs::new(settings),
+            vfs: Vfs::with_priority(order),
             vds: Vds::default(),
         }
     }
@@ -34,6 +38,10 @@ impl Vault {
 
     pub fn key(config: &ScannerConfig) -> u64 {
         cache::content_hash(config)
+    }
+
+    pub fn key_for(index: u64, config: &ScannerConfig) -> u64 {
+        cache::content_key(index, config)
     }
 
     pub fn evict(&self, key: &str) {

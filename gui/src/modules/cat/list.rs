@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
-use iced::widget::{column, row, text};
 use iced::Element;
 use image::{imageops, RgbaImage};
 
@@ -15,6 +14,8 @@ use crate::widget::roster_list::{self, Roster};
 
 pub(super) type State = roster_list::State<CatRoster>;
 pub(super) type Message = roster_list::Message;
+
+const FORM_LABELS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
 
 pub(super) struct CatRoster;
 
@@ -45,17 +46,15 @@ impl Roster for CatRoster {
     }
 
     fn tooltip<'a>(entry: &CatEntry) -> Element<'a, Message> {
-        let mut content = column![
-            row![text("[ID]").size(11), text(entry.base_id_str())].spacing(4)
-        ].spacing(2);
+        let mut rows = vec![("ID", entry.base_id_str())];
 
-        let labels = ["Normal", "Evolved", "True", "Ultra"];
-        for (i, label) in labels.iter().enumerate() {
-            if !entry.forms[i] { continue; }
-            content = content.push(row![text(format!("[{}]", label)).size(11), text(entry.display_name(i))].spacing(4));
+        for (index, label) in FORM_LABELS.iter().enumerate() {
+            if entry.forms[index] {
+                rows.push((*label, entry.display_name(index)));
+            }
         }
 
-        content.into()
+        roster_list::tooltip_table(rows)
     }
 }
 

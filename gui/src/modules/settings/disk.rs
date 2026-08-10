@@ -204,8 +204,8 @@ impl State {
     }
 
     pub fn view<'a>(&'a self) -> Element<'a, Message> {
-        let game_exists = Path::new(architecture::GAME).exists();
-        let raw_exists = Path::new(architecture::RAW).exists();
+        let game_exists = architecture::game_present();
+        let raw_exists = architecture::has_content(Path::new(architecture::RAW));
         let cache_size = core::common::dirs::cache_path()
             .map(|dir| folder_size(&dir))
             .unwrap_or(0);

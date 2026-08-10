@@ -201,7 +201,7 @@ impl State {
     fn view_setup_guide(&self) -> Element<'_, Message> {
         column![
             Space::new().height(10.0),
-            text("To get started, you will need to populate the \"game\" folder with game files using the \"Data\" page.\nOptionally, you can put decrypted files in the \"game\" folder using any folder structure you desire.").size(15.0).align_x(Alignment::Center),
+            text("To get started, you will need to populate the \"game\" folder with game files using the \"Data\" page.\nAlternatively, you can put decrypted files in the \"game\" folder using any folder structure you desire.").size(15.0).align_x(Alignment::Center),
             Space::new().height(8.0),
             button(text("Data").size(15.0))
                 .style(button::primary)

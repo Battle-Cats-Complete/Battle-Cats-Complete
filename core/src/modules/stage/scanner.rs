@@ -86,19 +86,27 @@ struct MapJob {
     map_id: u32,
 }
 
-pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
-    if config.active_mod.is_none()
-        && let Some((hash, bundle)) = cache::read::<StageCache>()
-        && hash == cache::content_hash(&config) {
-        debug!(
-            hash,
-            maps = bundle.registry.maps.len(),
-            stages = bundle.registry.stages.len(),
-            "loaded stages from cache fast-path"
-        );
-        return bundle;
+pub fn purge() {
+    cache::purge::<StageCache>();
+}
+
+pub fn hydrate(config: &ScannerConfig) -> Option<(u64, StageBundle)> {
+    if config.active_mod.is_some() {
+        return None;
     }
 
+    let (hash, bundle) = cache::read::<StageCache>()?;
+    debug!(
+        hash,
+        maps = bundle.registry.maps.len(),
+        stages = bundle.registry.stages.len(),
+        "hydrated stages from cache"
+    );
+
+    Some((hash, bundle))
+}
+
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> (StageBundle, Option<u64>) {
     scan(&config, &vault, progress)
 }
 
@@ -143,7 +151,7 @@ fn build_dictionaries(vault: &Vault) -> StageDictionaries {
     }
 }
 
-fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> StageBundle {
+fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> (StageBundle, Option<u64>) {
     info!("--- STAGE SCANNER INITIATED ---");
     let dictionaries = build_dictionaries(vault);
     let registry = scan_all(vault, progress);
@@ -151,16 +159,19 @@ fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) +
 
     let bundle = StageBundle { registry, dictionaries };
 
-    if config.active_mod.is_none() {
-        if bundle.registry.maps.is_empty() {
-            warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
-            return bundle;
-        }
-
-        cache::write::<StageCache>(cache::content_hash(config), &bundle);
+    if config.active_mod.is_some() {
+        return (bundle, None);
     }
 
-    bundle
+    if bundle.registry.maps.is_empty() {
+        warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
+        return (bundle, None);
+    }
+
+    let key = cache::content_hash(config);
+    cache::write::<StageCache>(key, &bundle);
+
+    (bundle, Some(key))
 }
 
 #[instrument(skip_all)]

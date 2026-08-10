@@ -123,9 +123,13 @@ pub(crate) fn get_game_hash(active_mod: Option<&str>) -> u64 {
 }
 
 pub(crate) fn content_hash(config: &ScannerConfig) -> u64 {
+    content_key(get_game_hash(config.active_mod.as_deref()), config)
+}
+
+pub(crate) fn content_key(index: u64, config: &ScannerConfig) -> u64 {
     let mut hasher = FxHasher::default();
 
-    get_game_hash(config.active_mod.as_deref()).hash(&mut hasher);
+    index.hash(&mut hasher);
     config.hash(&mut hasher);
 
     hasher.finish()
@@ -148,6 +152,18 @@ pub(crate) trait CacheSpec {
 
 pub(crate) fn read<C: CacheSpec>() -> Option<(u64, C::Data)> {
     load_payload(C::FILE, C::VERSION)
+}
+
+pub(crate) fn purge<C: CacheSpec>() {
+    let Some(cache_directory) = dirs::cache_path() else {
+        return;
+    };
+
+    let target_path = cache_directory.join(C::FILE);
+
+    if target_path.exists() && fs::remove_file(&target_path).is_err() {
+        tracing::warn!("Failed to purge stale cache file {}", C::FILE);
+    }
 }
 
 pub(crate) fn write<C: CacheSpec>(hash: u64, data: &C::Data) {

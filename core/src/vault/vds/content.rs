@@ -38,13 +38,11 @@ impl ContentStore {
         cache::write::<ContentCache>(hash, self);
     }
 
-    pub fn load(hash: u64) -> Option<Self> {
-        let (stored, content) = cache::read::<ContentCache>()?;
+    pub fn purge() {
+        cache::purge::<ContentCache>();
+    }
 
-        if stored != hash {
-            return None;
-        }
-
-        Some(content)
+    pub fn hydrate() -> Option<Self> {
+        cache::read::<ContentCache>().map(|(_, content)| content)
     }
 }

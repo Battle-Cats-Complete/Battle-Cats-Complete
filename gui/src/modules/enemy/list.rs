@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use iced::widget::{column, row, text};
 use iced::Element;
 use image::{imageops, Pixel, RgbaImage};
 
@@ -49,10 +48,10 @@ impl Roster for EnemyRoster {
     }
 
     fn tooltip<'a>(entry: &EnemyEntry) -> Element<'a, Message> {
-        column![
-            row![text("[ID]").size(11), text(entry.id_str())].spacing(4),
-            row![text("[Name]").size(11), text(entry.display_name())].spacing(4),
-        ].spacing(2).into()
+        roster_list::tooltip_table([
+            ("ID", entry.id_str()),
+            ("Name", entry.display_name()),
+        ])
     }
 }
 
