@@ -48,6 +48,10 @@ pub struct State {
 
 
 impl State {
+    pub(super) fn clear_icons(&self) {
+        self.icons.clear();
+    }
+
     pub fn update(&mut self, message: Message) {
         match message {
             Message::ToggleConjureExpand(cat_id) => {

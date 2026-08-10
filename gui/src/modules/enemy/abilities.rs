@@ -23,6 +23,10 @@ pub struct State {
 
 
 impl State {
+    pub(super) fn clear_icons(&self) {
+        self.icons.clear();
+    }
+
     pub fn view<'a>(
         &'a self,
         ctx: &EnemyRenderContext,

@@ -85,6 +85,7 @@ pub struct ViewCtx<'a, 'b> {
 
 pub struct State {
     icons: ability_icon::Cache,
+    np_icons: ability_icon::Cache,
     skill_name_cache: RefCell<HashMap<String, Handle>>,
     expanded: HashMap<(u32, u8), bool>,
 }
@@ -93,6 +94,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             icons: ability_icon::Cache::default(),
+            np_icons: ability_icon::Cache::default(),
             skill_name_cache: RefCell::new(HashMap::new()),
             expanded: HashMap::new(),
         }
@@ -100,6 +102,12 @@ impl Default for State {
 }
 
 impl State {
+    pub(super) fn clear_icons(&self) {
+        self.icons.clear();
+        self.np_icons.clear();
+        self.skill_name_cache.borrow_mut().clear();
+    }
+
     pub fn update(&mut self, message: Message) {
         if let Message::ToggleGroup(cat_id, index) = message {
             let key = (cat_id, index);
@@ -307,7 +315,7 @@ impl State {
     }
 
     fn np_icon<'a>(&'a self, img022_sheets: &'a [SpriteSheet], size: f32) -> Element<'a, Message> {
-        self.icons.handle(img022::ICON_NP_COST, img022_sheets)
+        self.np_icons.handle(img022::ICON_NP_COST, img022_sheets)
             .map_or_else(|| bold_text("NP Cost", 18.0).into(), |handle| iced_image(handle).height(Length::Fixed(size)).into())
     }
 

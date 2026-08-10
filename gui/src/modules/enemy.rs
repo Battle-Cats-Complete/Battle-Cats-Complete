@@ -274,6 +274,8 @@ impl EnemyState {
         self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
         self.img015_sheets.clear();
+        self.filter.clear_icons();
+        self.abilities.clear_icons();
         self.header_icon_cache.borrow_mut().clear();
     }
 

@@ -11,9 +11,9 @@ use std::thread;
 use iced::alignment::Horizontal;
 use iced::futures::channel::mpsc;
 use iced::widget::{
-    button, column, container, row, rule, scrollable, space, stack, text, text_editor, text_input, Container,
+    button, column, container, row, rule, space, text, text_editor, text_input, Container,
 };
-use iced::{Alignment, Background, Color, Element, Length, Size, Task, Theme};
+use iced::{Alignment, Element, Length, Size, Task};
 use tracing::warn;
 
 use core::common::job::{JobEvent, JobOutcome};
@@ -22,7 +22,8 @@ use core::modules::settings::Settings;
 use core::Vault;
 
 use crate::app::theme;
-use crate::widget::{section, smooth_scroll};
+use crate::common::feedback::Slot;
+use crate::widget::section;
 
 const RULE_THICKNESS: f32 = 1.0;
 const RULE_PADDING: f32 = 8.0;
@@ -44,8 +45,6 @@ const FIELD_ROW_SPACING: f32 = 8.0;
 const CONTENT_WIDTH: f32 = 515.0;
 
 const CARD_PADDING: f32 = 12.0;
-
-const MODAL_WIDTH: f32 = 500.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MetadataField {
@@ -69,9 +68,8 @@ pub enum Message {
     UpdateMetadata(MetadataField, String),
     DescriptionAction(text_editor::Action),
     CommitMetadata,
-    ShowDeleteConfirm,
-    HideDeleteConfirm,
-    ConfirmDelete,
+    DeleteRequested,
+    DeleteExpired,
     DeleteFinished(Result<(), String>),
     MountFinished { folder: String, enabled: bool, error: Option<String> },
 }
@@ -82,7 +80,7 @@ pub struct State {
     import: import::State,
     export: export::State,
     description: text_editor::Content,
-    delete_confirm_open: bool,
+    confirm_delete: Slot<()>,
     mounting: bool,
 }
 
@@ -99,7 +97,7 @@ impl State {
             import: import::State::default(),
             export: export::State::default(),
             description: text_editor::Content::new(),
-            delete_confirm_open: false,
+            confirm_delete: Slot::default(),
             mounting: false,
         }
     }
@@ -183,15 +181,17 @@ impl State {
                 self.commit_metadata();
                 Task::none()
             }
-            Message::ShowDeleteConfirm => {
-                self.delete_confirm_open = true;
+            Message::DeleteRequested => {
+                if self.confirm_delete.is_set() {
+                    return self.delete_selected();
+                }
+
+                self.confirm_delete.set((), Message::DeleteExpired)
+            }
+            Message::DeleteExpired => {
+                self.confirm_delete.expire();
                 Task::none()
             }
-            Message::HideDeleteConfirm => {
-                self.delete_confirm_open = false;
-                Task::none()
-            }
-            Message::ConfirmDelete => self.confirm_delete(),
             Message::MountFinished { folder, enabled, error } => {
                 self.mounting = false;
 
@@ -221,6 +221,7 @@ impl State {
     }
 
     fn select_mod(&mut self, folder: String) {
+        self.confirm_delete.clear();
         self.data.selected_mod = Some(folder.clone());
         self.data.rename_buffer = folder;
 
@@ -237,6 +238,8 @@ impl State {
         if self.mounting || !self.data.loaded_mods.iter().any(|m| m.folder_name == mod_folder) {
             return Task::none();
         }
+
+        self.confirm_delete.clear();
 
         let enabling = !self.data.loaded_mods.iter().any(|m| m.folder_name == mod_folder && m.enabled);
         let previous = self.data.active_mod();
@@ -348,19 +351,19 @@ impl State {
         }
     }
 
-    fn confirm_delete(&mut self) -> Task<Message> {
+    fn delete_selected(&mut self) -> Task<Message> {
+        self.confirm_delete.clear();
+
         let Some(mod_folder) = self.data.selected_mod.clone() else { return Task::none(); };
 
         if self.data.loaded_mods.iter().any(|m| m.folder_name == mod_folder && m.enabled) {
             warn!(mod_name = %mod_folder, "Refusing to delete an enabled mod; disable it first");
-            self.delete_confirm_open = false;
             return Task::none();
         }
 
         let path = Path::new("mods").join(&mod_folder);
 
         self.data.selected_mod = None;
-        self.delete_confirm_open = false;
 
         Task::perform(
             async move { fs::remove_dir_all(&path).map_err(|e| e.to_string()) },
@@ -386,37 +389,13 @@ impl State {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let content = row![
+        row![
             self.view_sidebar(),
             self.view_details()
         ]
             .width(Length::Fill)
-            .height(Length::Fill);
-
-        let modal: Option<Element<'_, Message>> = if self.delete_confirm_open {
-            Some(self.view_delete_modal())
-        } else {
-            None
-        };
-
-        match modal {
-            Some(modal_element) => stack![
-                content,
-                container(modal_element)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-                    .style(|theme: &Theme| {
-                        let palette = theme.palette();
-                        container::Style {
-                            background: Some(Background::Color(Color { a: 0.8, ..palette.background })),
-                            ..Default::default()
-                        }
-                    })
-            ].into(),
-            None => content.into(),
-        }
+            .height(Length::Fill)
+            .into()
     }
 
     pub fn import_popup_open(&self) -> bool {
@@ -499,6 +478,7 @@ impl State {
             .style(theme::rounded_input);
 
         let toggle_style: theme::ButtonStyleFn = if is_enabled { theme::danger_button } else { theme::success_button };
+        let delete_label = if self.confirm_delete.is_set() { "Are You Sure?" } else { "Delete Mod" };
 
         let actions_row = row![
             theme::sized_button(if is_enabled { "Disable Mod" } else { "Enable Mod" }, theme::POPUP_ACTION_BUTTON_WIDTH, toggle_style)
@@ -507,8 +487,8 @@ impl State {
                 .on_press(Message::OpenFolder(mod_folder)),
             theme::sized_button("Export Mod", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button)
                 .on_press(Message::Export(export::Message::Open)),
-            theme::sized_button("Delete Mod", theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
-                .on_press_maybe((!is_enabled && !self.mounting).then_some(Message::ShowDeleteConfirm)),
+            theme::sized_button(delete_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
+                .on_press_maybe((!is_enabled && !self.mounting).then_some(Message::DeleteRequested)),
         ]
             .spacing(10)
             .align_y(Alignment::Center);
@@ -565,61 +545,6 @@ impl State {
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(DETAILS_PADDING)
-            .into()
-    }
-
-    fn view_delete_modal(&self) -> Element<'_, Message> {
-        let name = self.data.selected_mod.as_deref().unwrap_or("this mod");
-        let title = theme::centered_text(format!("Are you sure you want to completely delete {}?", name))
-            .size(15)
-            .width(Length::Fill);
-
-        let buttons = row![
-            theme::sized_button("Yes", theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
-                .on_press(Message::ConfirmDelete),
-            theme::sized_button("No", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button)
-                .on_press(Message::HideDeleteConfirm),
-        ].spacing(16);
-
-        self.modal_container(
-            "Confirm Deletion",
-            Message::HideDeleteConfirm,
-            column![title, container(buttons).width(Length::Fill).center_x(Length::Fill)]
-                .spacing(SECTION_GAP)
-                .width(Length::Fill)
-                .into(),
-        )
-    }
-
-    fn modal_container<'a>(&self, title: &str, close_msg: Message, content: Element<'a, Message>) -> Element<'a, Message> {
-        let header = row![
-            theme::bold_text(title).size(18),
-            space().width(Length::Fill),
-            button(theme::centered_text("✕").size(16))
-                .padding(4)
-                .on_press(close_msg)
-                .style(theme::danger_button)
-        ].align_y(Alignment::Center);
-
-        let body = column![
-            header,
-            space().height(RULE_PADDING),
-            rule::horizontal(RULE_THICKNESS),
-            space().height(RULE_PADDING),
-            content
-        ]
-            .spacing(0)
-            .width(Length::Fill);
-
-        container(
-            smooth_scroll(
-                scrollable(container(body).width(Length::Fill).padding(POPUP_PADDING))
-                    .spacing(SCROLLBAR_GAP)
-            )
-        )
-            .width(Length::Fixed(MODAL_WIDTH))
-            .height(Length::Shrink)
-            .style(theme::confirm_modal_container)
             .into()
     }
 }

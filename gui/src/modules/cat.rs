@@ -317,6 +317,9 @@ impl State {
         self.img015_sheets.clear();
         self.img022_sheets.clear();
         self.details.clear_icons();
+        self.filter.clear_icons();
+        self.abilities.clear_icons();
+        self.talents.clear_icons();
         self.header_icon_cache.borrow_mut().clear();
     }
 

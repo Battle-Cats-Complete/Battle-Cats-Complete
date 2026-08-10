@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread;
 
 use iced::futures::channel::mpsc;
-use iced::widget::{button, column, container, row, scrollable, space, stack};
+use iced::widget::{button, column, container, opaque, row, scrollable, space, stack};
 use iced::{Alignment, Element, Length, Padding, Size, Task};
 use tracing::{debug, info, warn};
 
@@ -358,7 +358,7 @@ impl State {
             .padding(SIDEBAR_PADDING)
             .style(theme::left_sidebar_container);
 
-        let layer = row![slide(sidebar_panel, self.is_sidebar_open, Slide::Left), toggle_container]
+        let layer = row![opaque(slide(sidebar_panel, self.is_sidebar_open, Slide::Left)), toggle_container]
             .height(Length::Fill)
             .align_y(Alignment::Start);
 

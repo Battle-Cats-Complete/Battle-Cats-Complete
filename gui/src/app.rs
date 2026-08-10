@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use iced::futures::channel::mpsc;
-use iced::widget::{button, column, container, markdown, operation, row, scrollable, stack};
+use iced::widget::{button, column, container, markdown, opaque, operation, row, scrollable, stack};
 use iced::{task, window, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::common::data::{Localizable, Param};
 use rustc_hash::FxHasher;
@@ -1024,7 +1024,7 @@ impl BattleCatsApp {
             .padding(15)
             .style(theme::sidebar_container);
 
-        let layer = row![toggle_container, slide(sidebar_panel, self.sidebar_open, Slide::Right)]
+        let layer = row![toggle_container, opaque(slide(sidebar_panel, self.sidebar_open, Slide::Right))]
             .height(Length::Fill);
 
         container(layer)

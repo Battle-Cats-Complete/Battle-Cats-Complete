@@ -12,6 +12,10 @@ pub struct Cache {
 }
 
 impl Cache {
+    pub(crate) fn clear(&self) {
+        self.cache.borrow_mut().clear();
+    }
+
     pub fn handle(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Option<Handle> {
         if let Some(cached) = self.cache.borrow().get(&icon_id) {
             return Some(cached.clone());
