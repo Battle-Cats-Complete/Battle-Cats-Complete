@@ -5,9 +5,57 @@ use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use tracing::debug;
+
+use crate::{Conflict, Store, VfsError};
 
 use super::mods::export::ExportState;
 use super::mods::import::ModImportState;
+
+const MODS_ROOT: &str = "mods";
+
+const RESERVED_NAMES: [&str; 2] = ["game", "packages"];
+
+pub fn taken(mods_root: &Path, candidate: &str) -> bool {
+    if RESERVED_NAMES.iter().any(|reserved| candidate.eq_ignore_ascii_case(reserved)) {
+        return true;
+    }
+
+    let Ok(entries) = fs::read_dir(mods_root) else {
+        return false;
+    };
+
+    entries.flatten().any(|entry| {
+        entry.file_name().to_str().is_some_and(|name| name.eq_ignore_ascii_case(candidate))
+    })
+}
+
+pub fn enable(store: &Store, name: &str) -> Result<Vec<Conflict>, VfsError> {
+    let path = Path::new(MODS_ROOT).join(name);
+    let conflicts = store.vfs.create(path.as_path())?;
+
+    let keys = store.vfs.keys(name);
+    debug!(mod_name = name, files = keys.len(), "mod mounted, evicting shadowed game content");
+
+    for key in keys {
+        store.evict(&key);
+    }
+
+    Ok(conflicts)
+}
+
+pub fn disable(store: &Store, name: &str) {
+    let path = Path::new(MODS_ROOT).join(name);
+    let keys = store.vfs.keys(name);
+
+    store.vfs.destroy(path.as_path());
+
+    debug!(mod_name = name, files = keys.len(), "mod unmounted, evicting stale mod content");
+
+    for key in keys {
+        store.evict(&key);
+    }
+}
 
 fn default_source() -> String {
     "Battle Cats Complete".to_string()
@@ -79,12 +127,12 @@ pub struct ModDataState {
 
 impl ModDataState {
     pub fn refresh_mods(&mut self) {
-        let mods_dir = std::path::Path::new("mods");
+        let mods_dir = Path::new(MODS_ROOT);
         if !mods_dir.exists() { return; }
 
         let mut current_folders = std::collections::HashSet::new();
 
-        if let Ok(entries) = std::fs::read_dir(mods_dir) {
+        if let Ok(entries) = fs::read_dir(mods_dir) {
             for entry in entries.flatten() {
                 if entry.path().is_dir() && entry.file_name() != "packages" {
                     let folder_name = entry.file_name().to_string_lossy().to_string();

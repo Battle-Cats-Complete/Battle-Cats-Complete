@@ -1,5 +1,6 @@
+use crate::common::io::cache;
 use crate::modules::settings::Settings;
-use crate::{vds::Vds, vfs::Vfs};
+use crate::{Vds, Vfs};
 
 pub struct Store {
     pub vfs: Vfs,
@@ -14,7 +15,11 @@ impl Store {
         }
     }
 
-    pub fn evict_everything(&self, key: &str) {
+    pub fn hash(active_mod: Option<&str>) -> u64 {
+        cache::get_game_hash(active_mod)
+    }
+
+    pub fn evict(&self, key: &str) {
         self.vfs.evict(key);
         self.vds.evict(key);
     }

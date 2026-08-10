@@ -13,8 +13,9 @@ use iced::{Alignment, Background, Color, Element, Length, Size, Task, Theme};
 use tracing::warn;
 
 use core::common::job::{JobEvent, JobOutcome};
-use core::modules::mods::ModDataState;
+use core::modules::mods::{self, ModDataState};
 use core::modules::settings::Settings;
+use core::Store;
 
 use crate::app::theme;
 use crate::widget::{section, smooth_scroll};
@@ -104,15 +105,15 @@ impl State {
         self.data.loaded_mods.iter().find(|m| m.enabled).map(|m| m.folder_name.clone())
     }
 
-    pub fn update(&mut self, message: Message, settings: &Settings) -> Task<Message> {
-        let task = self.update_inner(message, settings);
+    pub fn update(&mut self, message: Message, settings: &Settings, store: &Store) -> Task<Message> {
+        let task = self.update_inner(message, settings, store);
 
         self.list.refresh(&self.data.loaded_mods, &self.data.search_query);
 
         task
     }
 
-    fn update_inner(&mut self, message: Message, settings: &Settings) -> Task<Message> {
+    fn update_inner(&mut self, message: Message, settings: &Settings, store: &Store) -> Task<Message> {
         match message {
             Message::List(msg) => {
                 if let list::Message::SelectMod(folder) = &msg {
@@ -133,11 +134,11 @@ impl State {
                 Task::none()
             }
             Message::CommitRename => {
-                self.commit_rename();
+                self.commit_rename(store);
                 Task::none()
             }
             Message::ToggleModStatus(mod_folder) => {
-                self.toggle_mod_status(mod_folder);
+                self.toggle_mod_status(mod_folder, store);
                 Task::none()
             }
             Message::OpenFolder(mod_folder) => {
@@ -195,22 +196,35 @@ impl State {
         self.populate_export_metadata();
     }
 
-    fn toggle_mod_status(&mut self, mod_folder: String) {
+    fn toggle_mod_status(&mut self, mod_folder: String, store: &Store) {
         let Some(idx) = self.data.loaded_mods.iter().position(|m| m.folder_name == mod_folder) else { return; };
-        let is_currently_enabled = self.data.loaded_mods[idx].enabled;
 
-        for m in self.data.loaded_mods.iter_mut() {
-            m.enabled = false;
+        if self.data.loaded_mods[idx].enabled {
+            mods::disable(store, &mod_folder);
+            self.data.loaded_mods[idx].enabled = false;
+            return;
         }
 
-        if !is_currently_enabled {
-            self.data.loaded_mods[idx].enabled = true;
+        if let Some(active) = self.data.active_mod() {
+            mods::disable(store, &active);
         }
 
-        self.data.refresh_mods();
+        for entry in self.data.loaded_mods.iter_mut() {
+            entry.enabled = false;
+        }
+
+        match mods::enable(store, &mod_folder) {
+            Ok(conflicts) => {
+                for conflict in &conflicts {
+                    warn!(key = %conflict.key, "duplicate filename in mod, all copies excluded: {:?}", conflict.paths);
+                }
+                self.data.loaded_mods[idx].enabled = true;
+            }
+            Err(err) => warn!(mod_name = %mod_folder, "Failed to enable mod: {}", err),
+        }
     }
 
-    fn commit_rename(&mut self) {
+    fn commit_rename(&mut self, store: &Store) {
         let Some(idx) = self.get_selected_mod_idx() else { return; };
         let old_name = self.data.loaded_mods[idx].folder_name.clone();
         let new_name = self.data.rename_buffer.clone();
@@ -220,19 +234,35 @@ impl State {
             return;
         }
 
-        let old_path = Path::new("mods").join(&old_name);
-        let new_path = Path::new("mods").join(&new_name);
+        let mods_root = Path::new("mods");
+        let old_path = mods_root.join(&old_name);
+        let new_path = mods_root.join(&new_name);
 
-        if !new_path.exists() && old_path.exists() && std::fs::rename(&old_path, &new_path).is_ok() {
-            self.data.loaded_mods[idx].folder_name = new_name.clone();
-            self.data.selected_mod = Some(new_name.clone());
-            self.data.loaded_mods[idx].metadata.title = new_name.clone();
+        let recasing = new_name.eq_ignore_ascii_case(&old_name);
+        let clashes = !recasing && mods::taken(mods_root, &new_name);
 
-            if let Err(e) = self.data.loaded_mods[idx].metadata.save(&new_path) {
-                warn!("Failed to save renamed metadata: {}", e);
-            }
-        } else {
+        if clashes || !old_path.exists() || fs::rename(&old_path, &new_path).is_err() {
             self.data.rename_buffer = old_name;
+            return;
+        }
+
+        let was_enabled = self.data.loaded_mods[idx].enabled;
+
+        if was_enabled {
+            mods::disable(store, &old_name);
+        }
+
+        self.data.loaded_mods[idx].folder_name = new_name.clone();
+        self.data.selected_mod = Some(new_name.clone());
+        self.data.loaded_mods[idx].metadata.title = new_name.clone();
+
+        if let Err(e) = self.data.loaded_mods[idx].metadata.save(&new_path) {
+            warn!("Failed to save renamed metadata: {}", e);
+        }
+
+        if was_enabled && let Err(err) = mods::enable(store, &new_name) {
+            warn!(mod_name = %new_name, "Failed to remount renamed mod: {}", err);
+            self.data.loaded_mods[idx].enabled = false;
         }
     }
 
@@ -261,6 +291,13 @@ impl State {
 
     fn confirm_delete(&mut self) -> Task<Message> {
         let Some(mod_folder) = self.data.selected_mod.clone() else { return Task::none(); };
+
+        if self.data.loaded_mods.iter().any(|m| m.folder_name == mod_folder && m.enabled) {
+            warn!(mod_name = %mod_folder, "Refusing to delete an enabled mod; disable it first");
+            self.delete_confirm_open = false;
+            return Task::none();
+        }
+
         let path = Path::new("mods").join(&mod_folder);
 
         self.data.selected_mod = None;
@@ -412,7 +449,7 @@ impl State {
             theme::sized_button("Export Mod", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button)
                 .on_press(Message::Export(export::Message::Open)),
             theme::sized_button("Delete Mod", theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
-                .on_press(Message::ShowDeleteConfirm),
+                .on_press_maybe((!is_enabled).then_some(Message::ShowDeleteConfirm)),
         ]
             .spacing(10)
             .align_y(Alignment::Center);

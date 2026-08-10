@@ -12,7 +12,7 @@ use tracing::{info, trace, warn};
 use core::common::context::GlobalContext;
 use core::common::io::json;
 use core::modules::settings::{Settings, UpdateMode};
-use core::Store;
+use core::{ContentStore, Store};
 
 use crate::common::watcher::GuiWatcher;
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
@@ -307,6 +307,11 @@ impl BattleCatsApp {
         }
     }
 
+    fn persist_content(&self) {
+        let hash = Store::hash(self.mods_state.active_mod().as_deref());
+        ContentStore::capture(&self.store.vds).save(hash);
+    }
+
     fn rescan_units(&mut self) -> Task<Message> {
         let active_mod = self.mods_state.active_mod();
 
@@ -489,14 +494,18 @@ impl BattleCatsApp {
                 task
             }
             Message::Stage(msg) => {
+                let stages_loaded = matches!(msg, stage::Message::Loaded(_));
                 let task = self.stage_state.update(msg).map(Message::Stage);
+                if stages_loaded {
+                    self.persist_content();
+                }
                 self.stage_state.sync_state(&mut self.app_state.stage);
                 self.sync_popup(ActivePopup::StageFilter, self.stage_state.filter_popup_open());
                 task
             }
             Message::Mod(msg) => {
                 let active_before = self.mods_state.active_mod();
-                let task = self.mods_state.update(msg, &self.settings).map(Message::Mod);
+                let task = self.mods_state.update(msg, &self.settings, &self.store).map(Message::Mod);
                 self.sync_popup(ActivePopup::ModsImport, self.mods_state.import_popup_open());
                 self.sync_popup(ActivePopup::ModsExport, self.mods_state.export_popup_open());
                 if self.mods_state.active_mod() != active_before {
@@ -514,7 +523,12 @@ impl BattleCatsApp {
                     self.set_updater_popup(true);
                     return Task::none();
                 }
+                let priority_before = self.settings.general.language_priority.clone();
                 let task = self.settings_state.update(msg, &mut self.settings).map(Message::Settings);
+                if self.settings.general.language_priority != priority_before {
+                    info!("Language priority changed, clearing resolved data");
+                    self.store.priority(&self.settings.general.language_priority);
+                }
                 self.sync_popup(ActivePopup::SettingsKeys, self.settings_state.keys_popup_open());
                 self.sync_popup(ActivePopup::SettingsExceptions, self.settings_state.exceptions_popup_open());
                 self.sync_popup(ActivePopup::SettingsPem, self.settings_state.pem_popup_open());

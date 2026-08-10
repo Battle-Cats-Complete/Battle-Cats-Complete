@@ -10,7 +10,7 @@ use tracing::{error, info, trace};
 use crate::common::job::JobEvent;
 use crate::modules::data::engine::keys;
 
-use super::ModMetadata;
+use super::{taken, ModMetadata};
 
 #[derive(Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
 pub enum ModImportTab {
@@ -86,12 +86,12 @@ pub fn create_workspace(base_name: Option<&str>) -> std::io::Result<(PathBuf, St
     let mut counter = 1;
 
     if base_name.is_none() {
-        while mods_root.join(format!("{}{}", default_name, counter)).exists() {
+        while taken(mods_root, &format!("{}{}", default_name, counter)) {
             counter += 1;
         }
         final_name = format!("{}{}", default_name, counter);
     } else {
-        while mods_root.join(&final_name).exists() {
+        while taken(mods_root, &final_name) {
             final_name = format!("{}{}", default_name, counter);
             counter += 1;
         }
@@ -121,7 +121,7 @@ pub fn apply_metadata_rename(mods_root: &Path, target_dir: &Path) -> String {
             let mut new_path = mods_root.join(&attempt);
 
             if new_path != target_dir {
-                while new_path.exists() {
+                while !attempt.eq_ignore_ascii_case(&final_name) && taken(mods_root, &attempt) {
                     attempt = format!("{}{}", safe_title, counter);
                     new_path = mods_root.join(&attempt);
                     counter += 1;
