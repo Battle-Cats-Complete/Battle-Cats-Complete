@@ -3,6 +3,7 @@ pub mod game;
 pub mod files;
 pub(crate) mod patterns;
 pub mod scanner;
+pub mod statblock;
 
 use serde::{Deserialize, Serialize};
 

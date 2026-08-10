@@ -3,7 +3,6 @@ mod details;
 mod export;
 mod filter;
 mod list;
-mod statblock;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};

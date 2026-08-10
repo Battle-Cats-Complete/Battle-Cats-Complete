@@ -1,24 +1,24 @@
-use std::borrow::Cow;
+mod draw;
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use ab_glyph::{Font, FontRef, PxScale};
-use arboard::{Clipboard, ImageData};
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use imageproc::rect::Rect;
 use nyanko::common::data::img015;
 use nyanko::graphics::rig::SpriteCut;
 
-use core::common::assets;
-use core::common::game::{AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y};
-use core::common::gfx::autocrop;
+use crate::common::assets;
+use crate::common::game::{AbilityItem, CustomIcon, ABILITY_X, ABILITY_Y, TRAIT_Y};
+use crate::common::gfx::autocrop;
 
-use super::draw::*;
+use draw::*;
 
 #[derive(Clone)]
-pub(crate) struct SpiritData {
+pub struct SpiritData {
     pub dmg_text: String,
     pub traits: Vec<AbilityItem>,
     pub h1: Vec<AbilityItem>,
@@ -29,13 +29,13 @@ pub(crate) struct SpiritData {
 }
 
 #[derive(Clone)]
-pub(crate) enum StatCell {
+pub enum StatCell {
     Text(String),
     Frames(i32),
 }
 
 #[derive(Clone)]
-pub(crate) struct StatblockData {
+pub struct StatblockData {
     pub is_cat: bool,
     pub id_str: String,
     pub name: String,
@@ -81,7 +81,7 @@ const CANVAS_BORDER_COLOR: Rgba<u8> = Rgba([31, 106, 165, 255]);
 
 const SPIRIT_PADDING_X: f32 = 8.0;
 
-pub(crate) fn build_statblock_image(
+pub fn build_statblock_image(
     priority: &[String],
     sheet_path: Option<&Path>,
     data: StatblockData,
@@ -566,18 +566,7 @@ pub(crate) fn build_statblock_image(
     Ok(final_background_layer)
 }
 
-pub(crate) fn copy_to_clipboard(clipboard: &mut Clipboard, image: &RgbaImage) -> Result<(), String> {
-    let (width, height) = image.dimensions();
-    let img_data = ImageData {
-        width: width as usize,
-        height: height as usize,
-        bytes: Cow::Borrowed(image.as_raw()),
-    };
-
-    clipboard.set_image(img_data).map_err(|err| err.to_string())
-}
-
-pub(crate) fn save_to_disk(image: &RgbaImage, is_cat: bool, id_str: &str, top_value: &str) -> Result<PathBuf, String> {
+pub fn save_to_disk(image: &RgbaImage, is_cat: bool, id_str: &str, top_value: &str) -> Result<PathBuf, String> {
     let export_dir = Path::new("exports");
     fs::create_dir_all(export_dir).map_err(|err| err.to_string())?;
 

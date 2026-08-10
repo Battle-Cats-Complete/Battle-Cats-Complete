@@ -1,20 +1,20 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
-use arboard::Clipboard;
+use arboard::{Clipboard, ImageData};
+use image::RgbaImage;
 use iced::alignment::Horizontal;
 use iced::widget::{button, column};
 use iced::{Background, Border, Color, Element, Length, Task, Theme};
 use tracing::{error, warn};
 
 use core::modules::settings::Settings;
+use core::statblock::{self, StatblockData};
 use core::Vfs;
 
 use crate::app::theme;
-use crate::common::SpriteSheet;
-use crate::modules::statblock::builder::{self, StatblockData};
-use crate::modules::statblock::JobResult;
-
 use crate::common::feedback::Slot;
+use crate::common::SpriteSheet;
 
 const BUTTON_WIDTH: f32 = 100.0;
 const BUTTON_HEIGHT: f32 = 24.0;
@@ -29,6 +29,23 @@ pub(crate) const ACTIONS_HEIGHT: f32 = BUTTON_HEIGHT * 2.0 + BUTTON_SPACING;
 pub enum ExportAction {
     Copy,
     Save,
+}
+
+#[derive(Clone)]
+pub enum JobResult {
+    Copy(Result<RgbaImage, String>),
+    Save(Result<(), String>),
+}
+
+fn copy_to_clipboard(clipboard: &mut Clipboard, image: &RgbaImage) -> Result<(), String> {
+    let (width, height) = image.dimensions();
+    let data = ImageData {
+        width: width as usize,
+        height: height as usize,
+        bytes: Cow::Borrowed(image.as_raw()),
+    };
+
+    clipboard.set_image(data).map_err(|err| err.to_string())
 }
 
 #[derive(Clone)]
@@ -120,12 +137,12 @@ impl State {
         self.pending = Some(action);
 
         Task::perform(async move {
-            let build_result = builder::build_statblock_image(&priority, sheet_path.as_deref(), data, cuts_map);
+            let build_result = statblock::build_statblock_image(&priority, sheet_path.as_deref(), data, cuts_map);
 
             match action {
                 ExportAction::Copy => JobResult::Copy(build_result),
                 ExportAction::Save => {
-                    let result = build_result.and_then(|image| builder::save_to_disk(&image, is_cat, &id_str, &top_value).map(|_| ()));
+                    let result = build_result.and_then(|image| statblock::save_to_disk(&image, is_cat, &id_str, &top_value).map(|_| ()));
                     if let Err(err) = &result {
                         error!("{kind} statblock save failed: {err}");
                     }
@@ -149,7 +166,7 @@ impl State {
             JobResult::Copy(Ok(image)) => {
                 let result = self
                     .ensure_clipboard()
-                    .map_or_else(|| Err("Clipboard unavailable".to_string()), |clipboard| builder::copy_to_clipboard(clipboard, &image));
+                    .map_or_else(|| Err("Clipboard unavailable".to_string()), |clipboard| copy_to_clipboard(clipboard, &image));
                 if let Err(err) = &result {
                     error!("{kind} statblock copy failed: {err}");
                 }

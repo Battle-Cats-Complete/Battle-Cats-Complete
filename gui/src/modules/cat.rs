@@ -4,7 +4,6 @@ mod details;
 mod export;
 mod filter;
 mod list;
-mod statblock;
 mod talents;
 mod ultra;
 

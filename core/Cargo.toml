@@ -10,6 +10,8 @@ publish = false
 [dependencies]
 nyanko = { workspace = true, features = ["pack", "graphics"] }
 image = { version = "0.25", features = ["png", "ico"] }
+imageproc = "0.25.0"
+ab_glyph = "0.2"
 zip = "2"
 tar = "0.4"
 zstd = { version = "0.13", features = ["zstdmt"] }

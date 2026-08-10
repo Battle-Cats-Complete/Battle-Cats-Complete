@@ -1,6 +1,7 @@
 pub mod filter;
 pub mod game;
 pub mod scanner;
+pub mod statblock;
 pub mod files;
 pub(crate) mod patterns;
 pub mod waiter;

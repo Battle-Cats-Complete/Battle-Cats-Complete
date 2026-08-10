@@ -1,13 +1,50 @@
-use core::modules::cat::game::abilities::collect_ability_data;
-use core::modules::cat::game::registry::{format_cat_stat, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
-use core::modules::cat::game::stats::get_final_stats;
-use core::modules::cat::game::CatRenderContext;
-use core::modules::cat::scanner::CatEntry;
-use core::modules::cat::waiter::unitid;
+use std::collections::HashMap;
 
-use crate::modules::statblock::builder::{SpiritData, StatCell, StatblockData};
+use crate::common::context::GlobalContext;
+use crate::statblock::{SpiritData, StatCell, StatblockData};
 
-pub(crate) fn build_cat_statblock(
+use super::game::abilities::collect_ability_data;
+use super::game::registry::{format_cat_stat, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
+use super::game::stats::get_final_stats;
+use super::game::CatRenderContext;
+use super::scanner::CatEntry;
+use super::waiter::unitid;
+
+pub struct Subject<'a> {
+    pub cat: &'a CatEntry,
+    pub form: usize,
+    pub current_level: i32,
+    pub level_input: &'a str,
+    pub talent_levels: Option<&'a HashMap<u8, u8>>,
+    pub is_conjure_expanded: bool,
+    pub global: GlobalContext<'a>,
+}
+
+pub fn build(subject: Subject<'_>) -> Option<StatblockData> {
+    let cat = subject.cat;
+    let dynamic_stats = unitid(&subject.global.vault.vfs, cat.id as i32);
+    let base_stats = dynamic_stats.as_ref().and_then(|forms| forms.get(subject.form))?;
+
+    let form_allows_talents = subject.form >= 2;
+    let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
+    let talent_levels = if form_allows_talents { subject.talent_levels } else { None };
+    let final_stats = get_final_stats(base_stats, cat.curve.as_ref(), subject.current_level, talent_data, talent_levels);
+
+    let ctx = CatRenderContext {
+        global: subject.global,
+        base_stats,
+        final_stats: &final_stats,
+        current_level: subject.current_level,
+        level_curve: cat.curve.as_ref(),
+        talent_data,
+        talent_levels,
+        is_conjure_unit: false,
+    };
+
+    Some(assemble(&ctx, cat, subject.form, subject.level_input.to_string(), subject.is_conjure_expanded))
+}
+
+fn assemble(
     ctx: &CatRenderContext,
     cat_entry: &CatEntry,
     current_form: usize,

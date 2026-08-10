@@ -902,6 +902,7 @@ checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 name = "core"
 version = "1.0.2"
 dependencies = [
+ "ab_glyph",
  "anyhow",
  "base64",
  "bincode",
@@ -910,6 +911,7 @@ dependencies = [
  "gif 0.13.3",
  "hex",
  "image",
+ "imageproc",
  "indexmap",
  "md5",
  "nyanko",
