@@ -22,8 +22,6 @@ const ROW_WIDTH: f32 = 140.0;
 const DRAG_HIGHLIGHT_ALPHA: f32 = 0.25;
 const WEAK_TEXT_ALPHA: f32 = 0.4;
 
-const NIGHTLY_GLYPH: &str = "\u{263D}";
-
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DesktopFeedback {
@@ -223,7 +221,7 @@ impl State {
         let nightly_available = nightly::features_available();
         let weak = |theme: &Theme| iced::widget::text::Style { color: Some(Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }) };
         let nightly_name = text("Enable Nightly Features ");
-        let nightly_moon = text(NIGHTLY_GLYPH).font(fonts::MISC_SYMBOLS);
+        let nightly_moon = text(fonts::MOON_CLOSE).font(fonts::MISC_SYMBOLS);
         let nightly_label: Element<'a, Message> = if nightly_available {
             row![nightly_name, nightly_moon].align_y(Vertical::Center).into()
         } else {

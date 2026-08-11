@@ -6,7 +6,7 @@ use self_update::backends::github::ReleaseList;
 use tracing::{debug, error, info, warn};
 
 use crate::app::{theme, Page};
-use crate::widget::{popup, smooth_scroll};
+use crate::widget::{nightly_label, popup, smooth_scroll};
 
 const SPACE_TOP: f32 = 20.0;
 const SPACE_TITLE_SUBTITLE: f32 = 2.0;
@@ -14,6 +14,7 @@ const SPACE_SUBTITLE_SECTION: f32 = 50.0;
 const SPACE_BETWEEN_SECTIONS: f32 = 20.0;
 const BUTTON_WIDTH: f32 = 120.0;
 const BUTTON_SPACING: f32 = 10.0;
+const BUTTON_TEXT_SIZE: f32 = 15.0;
 const CHANGELOG_POPUP_SIZE: Size = Size::new(600.0, 430.0);
 const SCROLLBAR_GAP: f32 = 8.0;
 
@@ -121,7 +122,7 @@ impl State {
         }
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self, nightly: bool) -> Element<'_, Message> {
         let is_empty = self.is_game_empty.unwrap_or(false);
 
         let main_content = column![
@@ -141,7 +142,7 @@ impl State {
             if is_empty {
                 self.view_setup_guide()
             } else {
-                self.view_navigation()
+                self.view_navigation(nightly)
             }
         ]
             .align_x(Alignment::Center)
@@ -227,12 +228,22 @@ impl State {
             .into()
     }
 
-    fn view_navigation(&self) -> Element<'_, Message> {
+    fn view_navigation(&self, nightly: bool) -> Element<'_, Message> {
         let nav_row = |buttons: &[(&'static str, Page)]| -> Element<Message> {
             let mut row = row![].spacing(BUTTON_SPACING).align_y(Alignment::Center);
             for (label, page) in buttons {
+                if page.nightly() && !nightly {
+                    continue;
+                }
+
+                let content: Element<Message> = if page.nightly() {
+                    nightly_label(label, BUTTON_TEXT_SIZE)
+                } else {
+                    text(*label).size(BUTTON_TEXT_SIZE).align_x(Alignment::Center).into()
+                };
+
                 row = row.push(
-                    button(text(*label).size(15.0).align_x(Alignment::Center))
+                    button(content)
                         .width(BUTTON_WIDTH)
                         .style(button::primary)
                         .on_press(Message::Navigate(*page))
@@ -249,7 +260,7 @@ impl State {
 
             text("Database").size(18.0),
             Space::new().height(10.0),
-            nav_row(&[("Mods", Page::Mods), ("Import", Page::Import)]),
+            nav_row(&[("Mods", Page::Mods), ("Files", Page::Files), ("Import", Page::Import)]),
             Space::new().height(SPACE_BETWEEN_SECTIONS),
 
             text("Other").size(18.0),

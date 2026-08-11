@@ -23,8 +23,8 @@ use core::{ContentStore, Vault};
 
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
-use crate::modules::{cat, enemy, home, import, mods, settings as gui_settings, stage};
-use crate::widget::{popup, slide, Slide};
+use crate::modules::{cat, enemy, files, home, import, mods, settings as gui_settings, stage};
+use crate::widget::{nightly_label, popup, slide, Slide};
 
 use state::AppState;
 
@@ -46,6 +46,7 @@ pub enum Page {
     Enemies,
     Stages,
     Mods,
+    Files,
     Import,
     Settings,
 }
@@ -58,9 +59,14 @@ impl Page {
             Self::Enemies => "Enemies",
             Self::Stages => "Stages",
             Self::Mods => "Mods",
+            Self::Files => "Files",
             Self::Import => "Import",
             Self::Settings => "Settings",
         }
+    }
+
+    pub(crate) fn nightly(self) -> bool {
+        matches!(self, Self::Files)
     }
 }
 
@@ -68,12 +74,15 @@ pub(crate) const WINDOW_SHOW_FALLBACK: Duration = Duration::from_millis(400);
 
 const FRAMES_BEFORE_SHOW: u8 = 2;
 
+const TAB_TEXT_SIZE: f32 = 16.0;
+
 const ALL_PAGES: &[Page] = &[
     Page::Home,
     Page::Cats,
     Page::Enemies,
     Page::Stages,
     Page::Mods,
+    Page::Files,
     Page::Import,
     Page::Settings,
 ];
@@ -850,22 +859,25 @@ impl BattleCatsApp {
                 }
                 let task = self.settings_state.update(msg, &mut self.settings).map(Message::Settings);
                 let relocalize = self.settings_state.take_language_change().then(|| self.relocalize());
+                let left_nightly = (self.current_page.nightly() && !self.settings.general.enable_nightly)
+                    .then(|| self.navigate(Page::Home));
                 self.sync_popup(ActivePopup::SettingsKeys, self.settings_state.keys_popup_open());
                 self.sync_popup(ActivePopup::SettingsExceptions, self.settings_state.exceptions_popup_open());
                 self.sync_popup(ActivePopup::SettingsPem, self.settings_state.pem_popup_open());
 
-                Task::batch(iter::once(task).chain(relocalize))
+                Task::batch(iter::once(task).chain(relocalize).chain(left_nightly))
             }
         }
     }
 
     pub fn view(&self) -> Element<'_, Message> {
         let content = match self.current_page {
-            Page::Home => self.home_state.view().map(Message::Home),
+            Page::Home => self.home_state.view(self.settings.general.enable_nightly).map(Message::Home),
             Page::Cats => self.cat_state.view(&self.settings, &self.app_state, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }).map(Message::Cat),
             Page::Enemies => self.enemy_state.view(&self.settings, &self.app_state, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }).map(Message::Enemy),
             Page::Stages => self.stage_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }).map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
+            Page::Files => files::view(),
             Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
             Page::Settings => self.settings_state.view(&self.settings, &self.updater_status).map(Message::Settings),
         };
@@ -1039,8 +1051,17 @@ impl BattleCatsApp {
 
         let mut tabs: iced::widget::Column<'_, Message> = column![].spacing(10);
         for page in ALL_PAGES {
+            if page.nightly() && !self.settings.general.enable_nightly {
+                continue;
+            }
+
             let is_active = self.current_page == *page;
-            let btn = button(theme::button_label(page.tab_name()).size(16))
+            let label: Element<'_, Message> = if page.nightly() {
+                nightly_label(page.tab_name(), TAB_TEXT_SIZE)
+            } else {
+                theme::button_label(page.tab_name()).size(TAB_TEXT_SIZE).into()
+            };
+            let btn = button(label)
                 .width(Length::Fill)
                 .padding(10)
                 .on_press(Message::Navigate(*page))
