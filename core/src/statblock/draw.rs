@@ -239,10 +239,13 @@ fn flush_word(line: String, word: &str, font: &impl Font, scale: PxScale, max_w:
     }
 }
 
-fn ink_top(font: &impl Font, scale: PxScale, text: &str) -> f32 {
+const BASELINE_REFERENCE: &str = "0";
+
+fn ink_bounds(font: &impl Font, scale: PxScale, text: &str) -> Option<(f32, f32)> {
     let scaled = font.as_scaled(scale);
     let mut caret = 0.0;
     let mut top = f32::MAX;
+    let mut bottom = f32::MIN;
 
     for c in text.chars() {
         let glyph_id = scaled.glyph_id(c);
@@ -250,16 +253,21 @@ fn ink_top(font: &impl Font, scale: PxScale, text: &str) -> f32 {
         caret += scaled.h_advance(glyph_id);
 
         if let Some(outlined) = font.outline_glyph(glyph) {
-            top = top.min(outlined.px_bounds().min.y);
+            let bounds = outlined.px_bounds();
+            top = top.min(bounds.min.y);
+            bottom = bottom.max(bounds.max.y);
         }
     }
 
-    if top == f32::MAX { 0.0 } else { top }
+    (top <= bottom).then_some((top, bottom))
 }
 
-fn centered_ink_y(font: &impl Font, scale: PxScale, rect: Rect, text: &str) -> i32 {
-    let (_, ink_height) = text_size(scale, font, text);
-    let offset = (rect.height() as f32 - ink_height as f32) / 2.0 - ink_top(font, scale, text);
+fn centered_ink_y(font: &impl Font, scale: PxScale, rect: Rect) -> i32 {
+    let Some((top, bottom)) = ink_bounds(font, scale, BASELINE_REFERENCE) else {
+        return rect.top();
+    };
+
+    let offset = (rect.height() as f32 - (bottom - top)) / 2.0 - top;
 
     rect.top() + offset.round() as i32
 }
@@ -268,7 +276,7 @@ pub(super) fn draw_centered_text(img: &mut RgbaImage, color: Rgba<u8>, rect: Rec
     let (tw, _) = text_size(scale, font, text);
     let tx = rect.left() + (rect.width() as i32 - tw as i32) / 2;
 
-    draw_text_mut(img, color, tx.max(rect.left()), centered_ink_y(font, scale, rect, text), scale, font, text);
+    draw_text_mut(img, color, tx.max(rect.left()), centered_ink_y(font, scale, rect), scale, font, text);
 }
 
 pub(super) fn draw_centered_superscript(
@@ -276,9 +284,8 @@ pub(super) fn draw_centered_superscript(
 ) {
     let width = style.measure(font, text);
     let tx = rect.left() + (rect.width() as i32 - width as i32) / 2;
-    let base_text = text.replace('^', "");
 
-    style.draw(img, color, tx.max(rect.left()), centered_ink_y(font, style.base, rect, &base_text), font, text);
+    style.draw(img, color, tx.max(rect.left()), centered_ink_y(font, style.base, rect), font, text);
 }
 
 fn safe_resize(mut img: RgbaImage, width: u32, height: u32) -> RgbaImage {
