@@ -13,7 +13,7 @@ use iced::futures::channel::mpsc;
 use iced::widget::{
     button, column, container, row, rule, space, text, text_editor, text_input, Container,
 };
-use iced::{Alignment, Element, Length, Size, Task};
+use iced::{Alignment, Element, Length, Size, Task, Theme};
 use tracing::{info, warn};
 
 use core::common::job::{JobEvent, JobOutcome};
@@ -471,11 +471,12 @@ impl State {
             .width(Length::Fill)
             .style(theme::rounded_input);
 
+        let import_open = self.import_popup_open();
         let import_btn = button(theme::button_label("Import Mod").size(13))
             .on_press(Message::Import(import::Message::Open))
             .padding([4, 8])
             .width(Length::Fill)
-            .style(theme::primary_button);
+            .style(move |t: &Theme, status| theme::toggle_button(t, status, import_open));
 
         let mod_list = self.list.view(&self.data.loaded_mods, self.data.selected_mod.as_deref()).map(Message::List);
 
