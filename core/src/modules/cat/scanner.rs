@@ -11,7 +11,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
-use crate::common::io::cache;
+use crate::common::io::cache::{self, Scan};
 use crate::modules::cat::files;
 use crate::modules::cat::waiter::unitexplanation;
 use crate::modules::settings::ScannerConfig;
@@ -91,7 +91,11 @@ pub fn hydrate(config: &ScannerConfig, vault: &Vault) -> Option<(u64, Vec<CatEnt
     Some((hash, cats))
 }
 
-pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> (Vec<CatEntry>, Option<u64>) {
+pub fn persist(payload: &[u8]) {
+    cache::store::<CatCache>(payload);
+}
+
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Scan<Vec<CatEntry>> {
     scan(config, &vault, progress)
 }
 
@@ -110,13 +114,13 @@ pub fn scan_single(id: u32, vault: &Vault, config: &ScannerConfig) -> Option<Cat
     process_cat_entry(id, vfs, &tables, config)
 }
 
-fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> (Vec<CatEntry>, Option<u64>) {
+fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> Scan<Vec<CatEntry>> {
     trace!("starting cat repository scan");
     let vfs = &vault.vfs;
 
     if vfs.find(files::UNIT_BUY).is_none() || vfs.find(files::UNIT_LEVEL).is_none() {
         warn!("cat scan aborted: unitbuy/unitlevel tables unavailable");
-        return (Vec::new(), None);
+        return Scan { data: Vec::new(), key: None, payload: None };
     }
 
     let tables = ScanTables {
@@ -144,13 +148,10 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     parsed_cats.sort_by_key(|cat| cat.id);
 
-    let key = config.active_mod.is_none().then(|| {
-        let key = cache::content_hash(&config);
-        cache::write::<CatCache>(key, &parsed_cats);
-        key
-    });
+    let key = config.active_mod.is_none().then(|| cache::content_hash(&config));
+    let payload = key.and_then(|key| cache::encode::<CatCache>(key, &parsed_cats));
 
-    (parsed_cats, key)
+    Scan { data: parsed_cats, key, payload }
 }
 struct ScanTables {
     level_curves: Arc<Vec<LevelCurve>>,

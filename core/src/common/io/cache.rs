@@ -134,9 +134,16 @@ pub(crate) fn content_key(index: u64, config: &ScannerConfig) -> u64 {
 
 const SIZE_LIMIT: u64 = 1024 * 1024 * 100;
 
+pub struct Scan<T> {
+    pub data: T,
+    pub key: Option<u64>,
+    pub payload: Option<Vec<u8>>,
+}
+
 #[derive(Serialize, Deserialize)]
 struct CachePayload<T> {
     schema_version: u32,
+    app_version: String,
     hash: u64,
     data: T,
 }
@@ -172,7 +179,7 @@ pub(crate) fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
 }
 
 pub(crate) fn encode<C: CacheSpec>(hash: u64, data: &C::Data) -> Option<Vec<u8>> {
-    let payload = CachePayload { schema_version: C::VERSION, hash, data };
+    let payload = CachePayload { schema_version: C::VERSION, app_version: crate::VERSION.to_string(), hash, data };
 
     postcard::to_allocvec(&payload)
         .inspect_err(|err| tracing::error!("Failed to serialize cache payload for {}: {}", C::FILE, err))
@@ -223,6 +230,15 @@ fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> O
 
     match postcard::from_bytes::<CachePayload<T>>(&bytes) {
         Ok(payload) => {
+            if payload.app_version != crate::VERSION {
+                tracing::info!(
+                    "Cache {} was written by version {} (this is {}). Rebuilding it.",
+                    filename, payload.app_version, crate::VERSION
+                );
+                let _ = fs::remove_file(&cache_path);
+                return None;
+            }
+
             if payload.schema_version != expected_version {
                 tracing::warn!(
                     "Cache schema mismatch for {} (found v{}, expected v{}). Purging stale cache file.",

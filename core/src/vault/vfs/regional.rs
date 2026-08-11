@@ -17,6 +17,24 @@ pub(super) fn interleaved<'a>(
         .flat_map(move |code| filenames.iter().filter_map(move |filename| variant(filename, code)))
 }
 
+pub(super) fn stripped(filename: &str, priority: &[String]) -> Option<String> {
+    let path = Path::new(filename);
+    let stem = path.file_stem().and_then(OsStr::to_str)?;
+    let extension = path.extension().and_then(OsStr::to_str).unwrap_or_default();
+
+    let (base, code) = stem.rsplit_once('_')?;
+
+    if code.is_empty() || !priority.iter().any(|candidate| candidate == code) {
+        return None;
+    }
+
+    if extension.is_empty() {
+        return Some(base.to_string());
+    }
+
+    Some(format!("{}.{}", base, extension))
+}
+
 fn variant(filename: &str, code: &str) -> Option<String> {
     if code.is_empty() {
         return Some(filename.to_string());

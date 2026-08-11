@@ -272,6 +272,12 @@ impl Vfs {
         self.load(filename)
     }
 
+    pub fn base_name(&self, filename: &str) -> Option<String> {
+        let order = self.priority.read().ok()?;
+
+        regional::stripped(filename, &order)
+    }
+
     pub fn evict(&self, filename: &str) {
         if let Ok(mut cache) = self.cache.write() {
             cache.remove(filename);

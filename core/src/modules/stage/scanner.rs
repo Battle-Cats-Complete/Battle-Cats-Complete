@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::common::formats::{gatyaitembuy, gatyaitemname, GatyaItemBuy, GatyaItemName};
-use crate::common::io::cache;
+use crate::common::io::cache::{self, Scan};
 use crate::modules::cat::waiter::unitexplanation;
 use crate::modules::settings::ScannerConfig;
 use crate::{Vfs, Vault};
@@ -106,7 +106,11 @@ pub fn hydrate(config: &ScannerConfig) -> Option<(u64, StageBundle)> {
     Some((hash, bundle))
 }
 
-pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> (StageBundle, Option<u64>) {
+pub fn persist(payload: &[u8]) {
+    cache::store::<StageCache>(payload);
+}
+
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Scan<StageBundle> {
     scan(&config, &vault, progress)
 }
 
@@ -151,7 +155,7 @@ fn build_dictionaries(vault: &Vault) -> StageDictionaries {
     }
 }
 
-fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> (StageBundle, Option<u64>) {
+fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> Scan<StageBundle> {
     info!("--- STAGE SCANNER INITIATED ---");
     let dictionaries = build_dictionaries(vault);
     let registry = scan_all(vault, progress);
@@ -160,18 +164,18 @@ fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) +
     let bundle = StageBundle { registry, dictionaries };
 
     if config.active_mod.is_some() {
-        return (bundle, None);
+        return Scan { data: bundle, key: None, payload: None };
     }
 
     if bundle.registry.maps.is_empty() {
         warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
-        return (bundle, None);
+        return Scan { data: bundle, key: None, payload: None };
     }
 
     let key = cache::content_hash(config);
-    cache::write::<StageCache>(key, &bundle);
+    let payload = cache::encode::<StageCache>(key, &bundle);
 
-    (bundle, Some(key))
+    Scan { data: bundle, key: Some(key), payload }
 }
 
 #[instrument(skip_all)]

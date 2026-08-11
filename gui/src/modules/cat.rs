@@ -294,10 +294,16 @@ impl State {
                 return;
             }
 
-            let (cats, key) = scanner::load(config, scan_store, |done, total| {
+            let scan = scanner::load(config, scan_store, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
-            let _ = tx.unbounded_send(Message::Loaded(cats, key));
+
+            let payload = scan.payload;
+            let _ = tx.unbounded_send(Message::Loaded(scan.data, scan.key));
+
+            if let Some(bytes) = payload {
+                scanner::persist(&bytes);
+            }
         });
 
         Task::batch([Task::stream(rx), self.check_sheets(&vault.vfs)])
@@ -317,8 +323,9 @@ impl State {
         self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
         self.sheet_generation = self.sheet_generation.wrapping_add(1);
-        self.img015_sheets.clear();
-        self.img022_sheets.clear();
+        for sheet in self.img015_sheets.iter_mut().chain(self.img022_sheets.iter_mut()) {
+            sheet.mark_stale();
+        }
         self.details.clear_icons();
         self.filter.clear_icons();
         self.abilities.clear_icons();

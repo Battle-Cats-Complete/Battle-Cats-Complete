@@ -153,10 +153,16 @@ impl State {
                 return;
             }
 
-            let (bundle, key) = scanner::load(config, vault, |done, total| {
+            let scan = scanner::load(config, vault, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
-            let _ = tx.unbounded_send(Message::Loaded(Box::new(bundle), key));
+
+            let payload = scan.payload;
+            let _ = tx.unbounded_send(Message::Loaded(Box::new(scan.data), scan.key));
+
+            if let Some(bytes) = payload {
+                scanner::persist(&bytes);
+            }
         });
 
         Task::stream(rx)

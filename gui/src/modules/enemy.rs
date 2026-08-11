@@ -253,10 +253,16 @@ impl EnemyState {
                 return;
             }
 
-            let (enemies, key) = scanner::load(config, scan_store, |done, total| {
+            let scan = scanner::load(config, scan_store, |done, total| {
                 let _ = tx.unbounded_send(Message::ScanProgress(done, total));
             });
-            let _ = tx.unbounded_send(Message::Loaded(enemies, key));
+
+            let payload = scan.payload;
+            let _ = tx.unbounded_send(Message::Loaded(scan.data, scan.key));
+
+            if let Some(bytes) = payload {
+                scanner::persist(&bytes);
+            }
         });
 
         Task::batch([Task::stream(rx), self.check_sheets(&vault.vfs)])
@@ -276,7 +282,9 @@ impl EnemyState {
         self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
         self.sheet_generation = self.sheet_generation.wrapping_add(1);
-        self.img015_sheets.clear();
+        for sheet in &mut self.img015_sheets {
+            sheet.mark_stale();
+        }
         self.filter.clear_icons();
         self.abilities.clear_icons();
         self.header_icon_cache.borrow_mut().clear();

@@ -2,6 +2,7 @@ mod vds;
 mod vfs;
 
 use std::fmt;
+use std::iter;
 
 use crate::common::io::cache;
 use crate::modules::settings::{ScannerConfig, Settings};
@@ -47,11 +48,24 @@ impl Vault {
     pub fn evict(&self, key: &str) {
         self.vfs.evict(key);
         self.vds.evict(key);
+
+        if let Some(base) = self.vfs.base_name(key) {
+            self.vfs.evict(&base);
+            self.vds.evict(&base);
+        }
     }
 
     pub fn purge(&self, keys: &[Box<str>]) {
-        self.vfs.purge(keys);
-        self.vds.purge(keys);
+        let expanded: Vec<Box<str>> = keys
+            .iter()
+            .flat_map(|key| {
+                let base = self.vfs.base_name(key).map(Box::<str>::from);
+                iter::once(key.clone()).chain(base)
+            })
+            .collect();
+
+        self.vfs.purge(&expanded);
+        self.vds.purge(&expanded);
     }
 
     pub fn priority(&self, order: &[String]) {

@@ -102,11 +102,24 @@ pub struct SpriteSheet {
     pub texture_handle: Option<Handle>,
     loading: bool,
     failed: bool,
+    stale: bool,
 }
 
 impl SpriteSheet {
     pub fn is_loading(&self) -> bool {
         self.loading
+    }
+
+    pub fn mark_stale(&mut self) {
+        self.stale = true;
+    }
+
+    fn needs_load(&self) -> bool {
+        if self.loading {
+            return false;
+        }
+
+        self.stale || (self.texture_handle.is_none() && !self.failed)
     }
 
     pub fn has_failed(&self) -> bool {
@@ -140,6 +153,7 @@ impl SpriteSheet {
 
     pub fn apply(&mut self, result: Option<CoreSpriteSheet>) {
         self.loading = false;
+        self.stale = false;
 
         let Some(core) = result else {
             self.failed = true;
@@ -176,7 +190,7 @@ pub fn ensure_sheet_loaded(
     let mut tasks = Vec::new();
 
     for (index, png_path) in png_paths.into_iter().enumerate() {
-        if sheets[index].texture_handle.is_some() || sheets[index].is_loading() || sheets[index].has_failed() {
+        if !sheets[index].needs_load() {
             continue;
         }
 

@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
-use crate::common::io::cache;
+use crate::common::io::cache::{self, Scan};
 use crate::modules::enemy::files;
 use crate::modules::settings::ScannerConfig;
 use crate::{Vfs, Vault};
@@ -65,11 +65,15 @@ pub fn hydrate(config: &ScannerConfig) -> Option<(u64, Vec<EnemyEntry>)> {
     Some((hash, cached_enemies))
 }
 
-pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> (Vec<EnemyEntry>, Option<u64>) {
+pub fn persist(payload: &[u8]) {
+    cache::store::<EnemyCache>(payload);
+}
+
+pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Scan<Vec<EnemyEntry>> {
     scan(config, &vault, progress)
 }
 
-fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> (Vec<EnemyEntry>, Option<u64>) {
+fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> Scan<Vec<EnemyEntry>> {
     trace!("starting enemy repository scan");
     let vfs = &vault.vfs;
 
@@ -77,7 +81,7 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     if raw_enemies.is_empty() {
         warn!("enemy scan aborted: t_unit table unavailable");
-        return (Vec::new(), None);
+        return Scan { data: Vec::new(), key: None, payload: None };
     }
 
     let names = vault.vds.enemies.names(vfs);
@@ -101,13 +105,10 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     parsed_enemies.sort_by_key(|e| e.id);
 
-    let key = config.active_mod.is_none().then(|| {
-        let key = cache::content_hash(&config);
-        cache::write::<EnemyCache>(key, &parsed_enemies);
-        key
-    });
+    let key = config.active_mod.is_none().then(|| cache::content_hash(&config));
+    let payload = key.and_then(|key| cache::encode::<EnemyCache>(key, &parsed_enemies));
 
-    (parsed_enemies, key)
+    Scan { data: parsed_enemies, key, payload }
 }
 
 pub fn scan_single(id: u32, vault: &Vault, show_invalid: bool) -> Option<EnemyEntry> {

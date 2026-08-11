@@ -16,6 +16,11 @@ fn shade_color(color: Color, factor: f32) -> Color {
     Color { r: color.r * factor, g: color.g * factor, b: color.b * factor, a: color.a }
 }
 
+pub(crate) fn darken_color(color: Color, factor: f32) -> Color {
+    let darken = |c: f32| c * (1.0 - factor);
+    Color { r: darken(color.r), g: darken(color.g), b: darken(color.b), a: color.a }
+}
+
 fn lighten_color(color: Color, factor: f32) -> Color {
     let lighten = |c: f32| c + (1.0 - c) * factor;
     Color { r: lighten(color.r), g: lighten(color.g), b: lighten(color.b), a: color.a }
