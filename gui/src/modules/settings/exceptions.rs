@@ -9,7 +9,7 @@ use core::modules::settings::{ExceptionList, ExceptionRule, RuleHandling};
 
 use crate::app::theme;
 use crate::common::feedback::Slot;
-use crate::widget::{popup, smooth_scroll};
+use crate::widget::{popup, smooth_scroll, toggle_label};
 
 use super::hover_hint;
 
@@ -305,7 +305,14 @@ impl State {
                 let code = lang_code.to_string();
                 list = list.push(
                     column![
-                        text(lang_code.to_uppercase()).size(12),
+                        toggle_label(
+                            text(lang_code.to_uppercase()).size(12),
+                            enabled,
+                            Some({
+                                let code = code.clone();
+                                move |v| Message::LanguageToggled(index, code.clone(), v)
+                            }),
+                        ),
                         toggler(enabled).on_toggle(move |v| Message::LanguageToggled(index, code.clone(), v)).style(theme::ios_toggle),
                     ].spacing(6).align_x(Alignment::Center)
                 );

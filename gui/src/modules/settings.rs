@@ -7,7 +7,7 @@ mod pem;
 
 use iced::mouse::Interaction;
 use iced::widget::{
-    column, container, mouse_area, pick_list, row, rule, scrollable, text, text_input, toggler, tooltip, Space, Stack,
+    column, container, mouse_area, pick_list, row, rule, scrollable, text, text_input, tooltip, Space, Stack,
 };
 use iced::{Alignment, Element, Length, Size, Task};
 
@@ -18,7 +18,7 @@ use core::modules::settings::{
 
 use crate::app::theme;
 use crate::app::UpdateStatus;
-use crate::widget::{list_row, smooth_scroll};
+use crate::widget::{list_row, smooth_scroll, toggle_row};
 
 const SECTION_SPACING: f32 = 20.0;
 
@@ -350,16 +350,10 @@ impl State {
                 ).style(theme::combo_box).menu_style(theme::combo_box_menu),
             ].spacing(10).align_y(Alignment::Center),
 
-            row![
-                toggler(core_settings.cat_data.show_invalid_cats).on_toggle(Message::ToggleInvalidCats).style(theme::ios_toggle),
-                text("Show Invalid Cats"),
-            ].spacing(10).align_y(Alignment::Center),
+            toggle_row(core_settings.cat_data.show_invalid_cats, text("Show Invalid Cats"), Some(Message::ToggleInvalidCats)),
         ].spacing(10);
 
-        let ability_content = row![
-            toggler(core_settings.cat_data.expand_spirit_details).on_toggle(Message::ToggleExpandSpirit).style(theme::ios_toggle),
-            text("Expand Spirit Details by Default"),
-        ].spacing(10).align_y(Alignment::Center);
+        let ability_content = toggle_row(core_settings.cat_data.expand_spirit_details, text("Expand Spirit Details by Default"), Some(Message::ToggleExpandSpirit));
 
         let level_content = column![
             row![
@@ -371,18 +365,12 @@ impl State {
             ].spacing(10).align_y(Alignment::Center),
 
             hover_hint(
-                row![
-                    toggler(core_settings.cat_data.auto_level_calculations).on_toggle(Message::ToggleAutoLevel).style(theme::ios_toggle),
-                    text("Auto Level Calculations"),
-                ].spacing(10).align_y(Alignment::Center),
+                toggle_row(core_settings.cat_data.auto_level_calculations, text("Auto Level Calculations"), Some(Message::ToggleAutoLevel)),
                 "Automatically calculates the max reasonable level for a unit based on their level caps",
             ),
 
             hover_hint(
-                row![
-                    toggler(core_settings.cat_data.bump_ultra_60).on_toggle(Message::ToggleBumpUltra).style(theme::ios_toggle),
-                    text("Lv60 For Ultra"),
-                ].spacing(10).align_y(Alignment::Center),
+                toggle_row(core_settings.cat_data.bump_ultra_60, text("Lv60 For Ultra"), Some(Message::ToggleBumpUltra)),
                 "Automatically bumps the level to 60 (if not higher already) when an Ultra Form or Ultra Talent is selected",
             ),
         ].spacing(10);
@@ -395,10 +383,7 @@ impl State {
     }
 
     fn view_enemies<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
-        let list_content = row![
-            toggler(core_settings.enemy_data.show_invalid_enemies).on_toggle(Message::ToggleInvalidEnemies).style(theme::ios_toggle),
-            text("Show Invalid Enemies"),
-        ].spacing(10).align_y(Alignment::Center);
+        let list_content = toggle_row(core_settings.enemy_data.show_invalid_enemies, text("Show Invalid Enemies"), Some(Message::ToggleInvalidEnemies));
 
         column![
             header_section(text("Enemy List").size(24), list_content),
@@ -471,10 +456,7 @@ impl State {
         column![
             theme::sized_button("Manage Keys", theme::MANAGE_BUTTON_WIDTH, theme::primary_button).on_press(Message::Keys(keys::Message::Open)),
             hover_hint(
-                row![
-                    toggler(core_settings.game_data.enforce_key_validation).on_toggle(Message::ToggleKeyValidation).style(theme::ios_toggle),
-                    text("Enforce Key Validation"),
-                ].spacing(10).align_y(Alignment::Center),
+                toggle_row(core_settings.game_data.enforce_key_validation, text("Enforce Key Validation"), Some(Message::ToggleKeyValidation)),
                 "Prevents decryption/encryption if the cryptographic keys don't match the known official file hashes\nTurn this off only if the game keys have changed and you haven't updated BCC yet",
             ),
         ].spacing(10).into()
@@ -485,10 +467,7 @@ impl State {
             theme::sized_button("Manage Exceptions", theme::MANAGE_BUTTON_WIDTH, theme::primary_button).on_press(Message::Exceptions(exceptions::Message::Open)),
 
             hover_hint(
-                row![
-                    toggler(core_settings.game_data.ignore_modified_app).on_toggle(Message::ToggleIgnoreModifiedApp).style(theme::ios_toggle),
-                    text("Ignore Modified App"),
-                ].spacing(10).align_y(Alignment::Center),
+                toggle_row(core_settings.game_data.ignore_modified_app, text("Ignore Modified App"), Some(Message::ToggleIgnoreModifiedApp)),
                 "Imports modded versions of the app with Vanilla package names as if they are Vanilla intalls, bypassing the import refusal",
             ),
 
@@ -506,10 +485,7 @@ impl State {
         ].spacing(10);
 
         let android_content = hover_hint(
-            row![
-                toggler(core_settings.game_data.app_folder_persistence).on_toggle(Message::ToggleAppPersistence).style(theme::ios_toggle),
-                text("App Folder Persistence"),
-            ].spacing(10).align_y(Alignment::Center),
+            toggle_row(core_settings.game_data.app_folder_persistence, text("App Folder Persistence"), Some(Message::ToggleAppPersistence)),
             "Skip the deletion of the \"game/app\" directory after android import",
         );
 
@@ -526,24 +502,15 @@ impl State {
     }
 
     fn view_animation<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
-        let viewer_content = row![
-            toggler(core_settings.animation.debug_view).on_toggle(Message::ToggleDebugView).style(theme::ios_toggle),
-            text("Enable Debug View"),
-        ].spacing(10).align_y(Alignment::Center);
+        let viewer_content = toggle_row(core_settings.animation.debug_view, text("Enable Debug View"), Some(Message::ToggleDebugView));
 
         let exporter_content = column![
             hover_hint(
-                row![
-                    toggler(core_settings.animation.use_tight_bounds).on_toggle(Message::ToggleTightBounds).style(theme::ios_toggle),
-                    text("Use Tight Bounds"),
-                ].spacing(10).align_y(Alignment::Center),
+                toggle_row(core_settings.animation.use_tight_bounds, text("Use Tight Bounds"), Some(Message::ToggleTightBounds)),
                 "Automatically crops out minor vfx and glow when calculating camera bounds",
             ),
             hover_hint(
-                row![
-                    toggler(core_settings.animation.auto_set_camera_region).on_toggle(Message::ToggleAutoCamera).style(theme::ios_toggle),
-                    text("Auto-Set Camera Region"),
-                ].spacing(10).align_y(Alignment::Center),
+                toggle_row(core_settings.animation.auto_set_camera_region, text("Auto-Set Camera Region"), Some(Message::ToggleAutoCamera)),
                 "Automatically calculates a Units tight bounding box when exporting\nThis setting may cause lag spikes on some devices",
             ),
         ].spacing(10);

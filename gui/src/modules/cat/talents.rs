@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, row, scrollable, slider, text, text_input, Space};
-use iced::{font, Alignment, Color, Element, Length, Theme};
+use iced::alignment::{Horizontal, Vertical};
+use iced::{font, Alignment, Color, Element, Length, Padding, Theme};
 use nyanko::cat::abilities::get_talent;
 use nyanko::cat::unit::{Battle, LevelCurve, Talent, TalentCost, TalentGroup};
 use nyanko::common::data::img022;
@@ -16,10 +17,30 @@ use core::Vfs;
 
 use crate::app::theme;
 use crate::common::ability_icon;
+use crate::common::fonts::{self, MISC_SYMBOLS_LINE_HEIGHT};
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::widget::{fallback_icon, smooth_scroll};
 
-const GROUP_ICON_SIZE: f32 = 40.0;
+const HEADER_SCALE: f32 = 0.75;
+
+const HEADER_ICON_SIZE: f32 = 40.0 * HEADER_SCALE;
+const HEADER_NAME_HEIGHT: f32 = 35.0 * HEADER_SCALE;
+const HEADER_NAME_TEXT_SIZE: f32 = 18.0 * HEADER_SCALE;
+const HEADER_ARROW_SIZE: f32 = 22.0 * HEADER_SCALE;
+const HEADER_ARROW_RADIUS: f32 = 5.0 * HEADER_SCALE;
+const HEADER_OUTLINE_WIDTH: f32 = 1.5;
+const HEADER_OUTLINE_SHADE: f32 = 0.8;
+const HEADER_ARROW_TOP_PAD: f32 = 4.0 * HEADER_SCALE;
+
+const DARK_BOX_BG: Color = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.4 };
+
+const ARROW_EXPANDED: &str = "\u{25B2}";
+const ARROW_COLLAPSED: &str = "\u{25BC}";
+const HEADER_FALLBACK_SIZE: f32 = 24.0 * HEADER_SCALE;
+const HEADER_PADDING: f32 = 2.0 * HEADER_SCALE;
+const HEADER_GAP: f32 = 6.0 * HEADER_SCALE;
+
+const SCROLLBAR_GAP: f32 = 4.0;
 const NP_ICON_SIZE: f32 = 20.0;
 const HEADER_NP_ICON_SIZE: f32 = 24.0;
 const HEADER_NP_TEXT_SIZE: f32 = 20.0;
@@ -194,7 +215,7 @@ impl State {
             col = col.push(self.group_view(&ctx, index as u8, group));
         }
 
-        smooth_scroll(scrollable(col).height(Length::Fill).width(Length::Fill)).into()
+        smooth_scroll(scrollable(col).spacing(SCROLLBAR_GAP).height(Length::Fill).width(Length::Fill)).into()
     }
 
     fn group_view<'a>(&'a self, ctx: &ViewCtx<'a, '_>, index: u8, group: &'a TalentGroup) -> Element<'a, Message> {
@@ -222,27 +243,26 @@ impl State {
         let icon = self.talent_icon(group, ctx.sheets, ctx.assets);
 
         let name_el: Element<Message> = match self.skill_name_handle(group, ctx.vfs) {
-            Some(handle) => iced_image(handle).into(),
+            Some(handle) => iced_image(handle).height(Length::Fixed(HEADER_NAME_HEIGHT)).into(),
             None => {
                 let fallback_text = get_talent(group.ability_id)
                     .map_or_else(|| format!("Unknown Skill (ID: {})", group.ability_id), |def| get_display_def(def.identity).name.to_string());
-                bold_text(fallback_text, 18.0).into()
+                bold_text(fallback_text, HEADER_NAME_TEXT_SIZE).into()
             }
         };
 
-        let arrow = if expanded { "\u{25B2}" } else { "\u{25BC}" };
-
         let content = row![
-            row![icon, name_el].spacing(8).align_y(Alignment::Center).width(Length::Fill),
-            text(arrow).size(20)
+            row![icon, name_el].spacing(HEADER_GAP).align_y(Alignment::Center).width(Length::Fill),
+            header_arrow(expanded),
         ]
-            .spacing(8)
+            .spacing(HEADER_GAP)
             .align_y(Alignment::Center)
             .width(Length::Fill);
 
         button(content)
             .on_press(Message::ToggleGroup(ctx.cat_id, index))
             .style(button::text)
+            .padding(HEADER_PADDING)
             .width(Length::Fill)
             .into()
     }
@@ -293,19 +313,19 @@ impl State {
 
     fn talent_icon<'a>(&'a self, group: &TalentGroup, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
         let Some(def) = get_talent(group.ability_id) else {
-            return text("?").size(24).into();
+            return text("?").size(HEADER_FALLBACK_SIZE).into();
         };
         let display_def = get_display_def(def.identity);
 
         match display_def.icon {
             AbilityIcon::Custom(custom) => {
                 if let Some(handle) = assets.get_icon_texture(custom) {
-                    return iced_image(handle).width(Length::Fixed(GROUP_ICON_SIZE)).height(Length::Fixed(GROUP_ICON_SIZE)).into();
+                    return iced_image(handle).width(Length::Fixed(HEADER_ICON_SIZE)).height(Length::Fixed(HEADER_ICON_SIZE)).into();
                 }
             }
             AbilityIcon::Standard(icon_id) => {
                 if let Some(handle) = self.icons.handle(icon_id, sheets) {
-                    return iced_image(handle).width(Length::Fixed(GROUP_ICON_SIZE)).height(Length::Fixed(GROUP_ICON_SIZE)).into();
+                    return iced_image(handle).width(Length::Fixed(HEADER_ICON_SIZE)).height(Length::Fixed(HEADER_ICON_SIZE)).into();
                 }
             }
             AbilityIcon::None => {}
@@ -339,12 +359,37 @@ impl State {
     }
 }
 
+fn header_arrow<'a>(expanded: bool) -> Element<'a, Message> {
+    let glyph = if expanded { ARROW_EXPANDED } else { ARROW_COLLAPSED };
+
+    container(
+        text(glyph)
+            .font(fonts::MISC_SYMBOLS)
+            .size(HEADER_ARROW_SIZE)
+            .line_height(MISC_SYMBOLS_LINE_HEIGHT)
+            .color(Color::WHITE),
+    )
+        .width(Length::Fixed(HEADER_ICON_SIZE))
+        .height(Length::Fixed(HEADER_ICON_SIZE))
+        .padding(Padding { top: HEADER_ARROW_TOP_PAD, right: 0.0, bottom: 0.0, left: 0.0 })
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Center)
+        .style(|theme: &Theme| container::Style {
+            background: Some(DARK_BOX_BG.into()),
+            border: iced::border::rounded(HEADER_ARROW_RADIUS)
+                .color(theme::darken_color(theme.palette().background, HEADER_OUTLINE_SHADE))
+                .width(HEADER_OUTLINE_WIDTH),
+            ..Default::default()
+        })
+        .into()
+}
+
 fn dark_box<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     container(content)
         .padding(4)
         .width(Length::Fill)
         .style(|_theme: &Theme| container::Style {
-            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.4).into()),
+            background: Some(DARK_BOX_BG.into()),
             border: iced::border::rounded(4),
             ..Default::default()
         })

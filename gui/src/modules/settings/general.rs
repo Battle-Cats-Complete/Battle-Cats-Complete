@@ -1,7 +1,7 @@
 use iced::alignment::Vertical;
 use iced::border::Radius;
 use iced::mouse::Interaction;
-use iced::widget::{column, container, mouse_area, pick_list, row, text, toggler};
+use iced::widget::{column, container, mouse_area, pick_list, row, text};
 use iced::{Alignment, Border, Color, Element, Length, Point, Task, Theme};
 use tracing::debug;
 
@@ -11,6 +11,7 @@ use core::modules::settings::{Settings as CoreSettings, UpdateMode};
 use crate::app::theme;
 use crate::app::UpdateStatus;
 use crate::common::fonts;
+use crate::widget::toggle_row;
 #[cfg(target_os = "linux")]
 use crate::common::feedback::Slot;
 
@@ -236,33 +237,19 @@ impl State {
 
         let behavior_content = column![
             hover_hint(
-                row![
-                    toggler(core_settings.general.enable_logging).on_toggle(Message::ToggleLogging).style(theme::ios_toggle),
-                    text("Enable Logging"),
-                ].spacing(10).align_y(Alignment::Center),
+                toggle_row(core_settings.general.enable_logging, text("Enable Logging"), Some(Message::ToggleLogging)),
                 "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs",
             ),
             hover_hint(
-                row![
-                    toggler(core_settings.general.enable_nightly)
-                        .on_toggle_maybe(nightly_available.then_some(Message::ToggleNightly))
-                        .style(theme::ios_toggle),
+                toggle_row(
+                    core_settings.general.enable_nightly,
                     nightly_label,
-                ].spacing(10).align_y(Alignment::Center),
+                    nightly_available.then_some(Message::ToggleNightly),
+                ),
                 nightly_hint,
             ),
-            row![
-                toggler(core_settings.general.ignore_conflict_errors)
-                    .on_toggle(Message::ToggleIgnoreConflicts)
-                    .style(theme::ios_toggle),
-                text("Ignore Conflict Errors"),
-            ].spacing(10).align_y(Alignment::Center),
-            row![
-                toggler(core_settings.general.ignore_watcher_failure)
-                    .on_toggle(Message::ToggleIgnoreWatcherFailure)
-                    .style(theme::ios_toggle),
-                text("Ignore Watcher Failure"),
-            ].spacing(10).align_y(Alignment::Center),
+            toggle_row(core_settings.general.ignore_conflict_errors, text("Ignore Conflict Errors"), Some(Message::ToggleIgnoreConflicts)),
+            toggle_row(core_settings.general.ignore_watcher_failure, text("Ignore Watcher Failure"), Some(Message::ToggleIgnoreWatcherFailure)),
             row![
                 text("Update Handling"),
                 pick_list(
