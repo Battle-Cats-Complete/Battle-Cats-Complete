@@ -2,6 +2,10 @@ use std::thread;
 
 use iced::futures::channel::mpsc;
 use iced::widget::{column, text};
+#[cfg(target_os = "windows")]
+use iced::widget::{button, row};
+#[cfg(target_os = "windows")]
+use iced::Alignment;
 use iced::{Element, Task, Theme};
 use tracing::error;
 
