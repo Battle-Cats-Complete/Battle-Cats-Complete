@@ -42,7 +42,7 @@ pub fn run(
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
-    let temporary_filename = format!("{}.{}.{}.tmp", file_stem, job_stamp, file_extension);
+    let temporary_filename = format!(".{}.{}.{}.tmp", file_stem, job_stamp, file_extension);
     let temporary_path = config.output_path.with_file_name(&temporary_filename);
     let final_path = config.output_path.clone();
 

@@ -6,6 +6,8 @@ use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use tracing::{trace, warn};
 
+use crate::common::junk;
+
 use super::{Conflict, Entry, MountKey, MountedDir, VfsError};
 
 #[derive(Default)]
@@ -73,6 +75,11 @@ fn scan(root: &Path, dir: &Path, skip: &[&str]) -> Collected {
 
     for entry in entries.flatten() {
         let path = entry.path();
+
+        if path.file_name().and_then(|name| name.to_str()).is_some_and(junk::ignored) {
+            trace!(path = %path.display(), "vfs walk skipped a hidden or junk entry");
+            continue;
+        }
 
         if path.is_dir() {
             if let Some(name) = path.file_name().and_then(|name| name.to_str()) {

@@ -17,6 +17,13 @@ use core::common::assets;
 use core::common::dirs::APP_DIR;
 
 pub fn main() -> iced::Result {
+    #[cfg(windows)]
+    {
+        if std::env::var_os("WGPU_BACKEND").is_none() {
+            unsafe { std::env::set_var("WGPU_BACKEND", "dx12,gl") };
+        }
+    }
+
     panic::set_hook(Box::new(|panic_info| {
         let msg = format!("Battle Cats Complete crashed!\n{}\n", panic_info);
         let _ = fs::write("crash.txt", msg);

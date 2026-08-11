@@ -4,7 +4,7 @@ use std::iter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use iced::futures::channel::mpsc;
 use iced::widget::{button, column, container, markdown, opaque, operation, row, scrollable, stack};
@@ -188,6 +188,8 @@ pub struct BattleCatsApp {
     frames_painted: u8,
     #[serde(skip)]
     window_shown: bool,
+    #[serde(skip)]
+    pub(crate) boot: Option<Instant>,
 
     #[serde(skip)]
     pub home_state: home::State,
@@ -256,6 +258,7 @@ impl Default for BattleCatsApp {
             validated_key: None,
             frames_painted: 0,
             window_shown: false,
+            boot: None,
             home_state: home::State::default(),
             cat_state: cat::State::default(),
             enemy_state: enemy::EnemyState::default(),
@@ -310,6 +313,11 @@ impl BattleCatsApp {
 
     fn show_window(&mut self) -> Task<Message> {
         self.window_shown = true;
+
+        if let Some(boot) = self.boot {
+            info!(ms = boot.elapsed().as_millis(), "Window revealed");
+        }
+
         window::latest().and_then(|id| window::set_mode(id, window::Mode::Windowed))
     }
 
@@ -1005,9 +1013,16 @@ impl BattleCatsApp {
 
     fn view_sidebar_overlay(&self) -> Element<'_, Message> {
         let arrow_text = if self.sidebar_open { "▶" } else { "◀" };
-        let toggle_btn = button(theme::centered_text(arrow_text).font(fonts::MISC_SYMBOLS).size(20))
+        let toggle_btn = button(
+            theme::centered_text(arrow_text)
+                .font(fonts::MISC_SYMBOLS)
+                .size(20)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
             .width(Length::Fixed(37.0))
             .height(Length::Fixed(37.0))
+            .padding(0)
             .on_press(Message::ToggleSidebar)
             .style(theme::primary_button);
 

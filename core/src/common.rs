@@ -6,6 +6,7 @@ pub mod game;
 pub mod gfx;
 pub mod io;
 pub mod job;
+pub mod junk;
 pub mod keys;
 pub mod process;
 pub mod region;

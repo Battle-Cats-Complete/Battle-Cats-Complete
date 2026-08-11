@@ -12,6 +12,7 @@ use iced::stream;
 use notify::{recommended_watcher, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tracing::{debug, trace, warn};
 
+use core::common::junk;
 use core::modules::data::architecture;
 
 const BATCH_BUFFER: usize = 8;
@@ -30,8 +31,6 @@ pub(crate) fn resume() {
     debug!("File watcher resumed");
     SUSPENDED.store(false, Ordering::Relaxed);
 }
-
-const SCRATCH_SUFFIXES: [&str; 6] = [".kate-swp", ".swp", ".swo", ".tmp", ".bak", "~"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Asset {
@@ -124,14 +123,8 @@ fn forward(event: Event, sender: &Sender<PathBuf>) {
     }
 }
 
-fn is_scratch(name: &str) -> bool {
-    name.starts_with('.')
-        || name.starts_with('#')
-        || SCRATCH_SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
-}
-
 fn is_relevant(path: &Path) -> bool {
-    if path.file_name().and_then(|name| name.to_str()).is_none_or(is_scratch) {
+    if path.file_name().and_then(|name| name.to_str()).is_none_or(junk::ignored) {
         return false;
     }
 
@@ -146,6 +139,10 @@ fn is_relevant(path: &Path) -> bool {
     let Some(root) = parts.iter().position(|part| part == architecture::GAME || part == architecture::MODS) else {
         return false;
     };
+
+    if parts[root + 1..].iter().any(|part| junk::ignored(part)) {
+        return false;
+    }
 
     if parts[root] == architecture::GAME {
         return parts.get(root + 1).is_none_or(|name| !architecture::TRANSIENT.contains(&name.as_str()));

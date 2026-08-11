@@ -29,7 +29,7 @@ fn save_in<T: Serialize>(directory: &Path, filename: &str, data: &T) -> io::Resu
     let path = directory.join(filename);
 
     let json = serde_json::to_string_pretty(data).map_err(Error::other)?;
-    let tmp_path = path.with_extension("tmp");
+    let tmp_path = super::hidden_temp(&path);
     fs::write(&tmp_path, json)?;
     fs::rename(&tmp_path, &path)
 }

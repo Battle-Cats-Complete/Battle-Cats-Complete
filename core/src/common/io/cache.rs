@@ -191,7 +191,7 @@ pub(crate) fn store<C: CacheSpec>(bytes: &[u8]) {
     };
 
     let target_path = cache_directory.join(C::FILE);
-    let tmp_path = target_path.with_extension("tmp");
+    let tmp_path = super::hidden_temp(&target_path);
 
     if let Err(err) = fs::write(&tmp_path, bytes) {
         tracing::error!("Failed to write temporary cache file at {:?}: {}", tmp_path, err);

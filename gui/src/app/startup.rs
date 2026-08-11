@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use std::thread;
+use std::time::Instant;
 
 use iced::futures::channel::mpsc;
 use iced::Task;
@@ -21,12 +22,23 @@ use crate::modules::home;
 
 use super::{logging, migrate, notice, updater, ActivePopup, BattleCatsApp, Message};
 
+fn split(phase: &mut Instant) -> u128 {
+    let elapsed = phase.elapsed().as_millis();
+    *phase = Instant::now();
+    elapsed
+}
+
 impl BattleCatsApp {
     pub fn new() -> (Self, Task<Message>) {
+        let boot = Instant::now();
+        let mut phase = boot;
+
         let migration_notes = migrate::run();
+        let migrate_ms = split(&mut phase);
 
         let mut app: Self = json::load("settings.json").unwrap_or_default();
         app.app_state = json::load_state("state.json").unwrap_or_default();
+        let settings_ms = split(&mut phase);
 
         logging::init_logging(app.settings.general.enable_logging);
 
@@ -37,7 +49,8 @@ impl BattleCatsApp {
             }
         }
 
-        info!("Starting initialization sequence...");
+        info!(migrate_ms, settings_ms, "Starting initialization sequence...");
+        app.boot = Some(boot);
 
         app.cat_state.restore_state(&app.app_state.cat);
         app.enemy_state.restore_state(&app.app_state.enemy);
@@ -54,6 +67,7 @@ impl BattleCatsApp {
         }
 
         ExceptionList::sync_on_boot();
+        info!(ms = split(&mut phase), "Boot phase: exception list synced");
 
         #[cfg(target_os = "linux")]
         {
@@ -65,8 +79,10 @@ impl BattleCatsApp {
 
         debug!("Cleaning up temp update files");
         updater::cleanup_temp_files();
+        info!(ms = split(&mut phase), "Boot phase: temp update files cleaned");
 
         let store_task = app.spawn_vault_build(true);
+        info!(ms = split(&mut phase), "Boot phase: index build dispatched");
 
         let updater_task = if app.settings.general.update_mode != UpdateMode::Ignore {
             info!("Checking for app updates at startup");
@@ -86,7 +102,7 @@ impl BattleCatsApp {
 
         let reveal_fallback = Task::future(Timer::after(super::WINDOW_SHOW_FALLBACK)).map(|_| Message::ShowWindow);
 
-        info!("Initialization sequence complete");
+        info!(total_ms = boot.elapsed().as_millis(), "Initialization sequence complete");
 
         (app, Task::batch([home_task.map(Message::Home), updater_task, icon_streams, store_task, reveal_fallback]))
     }

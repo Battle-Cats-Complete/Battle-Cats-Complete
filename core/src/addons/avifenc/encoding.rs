@@ -189,7 +189,7 @@ fn encode_via_folder(
         return false;
     };
 
-    let folder_name = format!("{}.temp", temp_path.file_stem().unwrap_or_default().to_string_lossy());
+    let folder_name = format!(".{}.temp", temp_path.file_stem().unwrap_or_default().to_string_lossy());
     let parent_directory = temp_path.parent().unwrap_or_else(|| Path::new("../../../../.."));
     let work_directory = parent_directory.join(folder_name);
 

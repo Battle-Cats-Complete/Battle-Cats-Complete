@@ -1,9 +1,22 @@
 pub mod cache;
 pub mod json;
 
-use std::path::PathBuf;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
 use crate::Vfs;
+
+pub(crate) fn hidden_temp(path: &Path) -> PathBuf {
+    let Some(name) = path.file_name() else {
+        return path.to_path_buf();
+    };
+
+    let mut hidden = OsString::from(".");
+    hidden.push(name);
+    hidden.push(".tmp");
+
+    path.with_file_name(hidden)
+}
 
 pub(crate) const ASSET_IMG015_PATTERN: &str = r"^img015(?:_([a-z]{2}))?\.png$";
 pub(crate) const ASSET_015CUT_PATTERN: &str = r"^img015(?:_([a-z]{2}))?\.imgcut$";
