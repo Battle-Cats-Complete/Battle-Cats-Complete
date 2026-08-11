@@ -203,9 +203,9 @@ impl State {
             Space::new().height(10.0),
             text("To get started, you will need to populate the \"game\" folder with game files using the \"Data\" page.\nAlternatively, you can put decrypted files in the \"game\" folder using any folder structure you desire.").size(15.0).align_x(Alignment::Center),
             Space::new().height(8.0),
-            button(text("Data").size(15.0))
+            button(text("Import").size(15.0))
                 .style(button::primary)
-                .on_press(Message::Navigate(Page::Data)),
+                .on_press(Message::Navigate(Page::Import)),
 
             Space::new().height(35.0),
 
@@ -249,7 +249,7 @@ impl State {
 
             text("Database").size(18.0),
             Space::new().height(10.0),
-            nav_row(&[("Mods", Page::Mods), ("Data", Page::Data)]),
+            nav_row(&[("Mods", Page::Mods), ("Import", Page::Import)]),
             Space::new().height(SPACE_BETWEEN_SECTIONS),
 
             text("Other").size(18.0),

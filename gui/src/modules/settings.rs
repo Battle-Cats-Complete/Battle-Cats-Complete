@@ -29,7 +29,8 @@ pub enum Tab {
     Enemies,
     Stages,
     Mods,
-    Data,
+    Import,
+    Files,
     Animation,
     AddOns,
     About,
@@ -113,7 +114,7 @@ impl State {
                         }
                     }
                     Tab::Cats => self.default_cat_level_buffer = core_settings.cat_data.default_level.to_string(),
-                    Tab::Data => return self.disk.update(disk::Message::Refresh).map(Message::Disk),
+                    Tab::Files => return self.disk.update(disk::Message::Refresh).map(Message::Disk),
                     Tab::Animation => {
                         self.showcase_walk_buffer = core_settings.animation.default_showcase_walk.to_string();
                         self.showcase_idle_buffer = core_settings.animation.default_showcase_idle.to_string();
@@ -294,7 +295,8 @@ impl State {
             (Tab::Enemies, "Enemies"),
             (Tab::Stages, "Stages"),
             (Tab::Mods, "Mods"),
-            (Tab::Data, "Data"),
+            (Tab::Import, "Import"),
+            (Tab::Files, "Files"),
             (Tab::Animation, "Animation"),
             (Tab::AddOns, "Add-Ons"),
             (Tab::About, "About"),
@@ -319,12 +321,16 @@ impl State {
 
     fn view_tab_content<'a>(&'a self, core_settings: &'a CoreSettings, updater_status: &'a UpdateStatus) -> Element<'a, Message> {
         match self.active_tab {
-            Tab::General => self.general.view(core_settings, updater_status).map(Message::General),
+            Tab::General => column![
+                header_section(text("Keys & IV").size(24), self.view_keys(core_settings)),
+                self.general.view(core_settings, updater_status).map(Message::General),
+            ].spacing(SECTION_SPACING).into(),
             Tab::Cats => self.view_cats(core_settings),
             Tab::Enemies => self.view_enemies(core_settings),
             Tab::Stages => self.view_stages(core_settings),
             Tab::Mods => self.view_mods(core_settings),
-            Tab::Data => self.view_data(core_settings),
+            Tab::Import => self.view_import(core_settings),
+            Tab::Files => self.view_files(),
             Tab::Animation => self.view_animation(core_settings),
             Tab::AddOns => self.addons.view().map(Message::Addons),
             Tab::About => self.view_about(),
@@ -461,13 +467,9 @@ impl State {
         ].spacing(SECTION_SPACING).into()
     }
 
-    fn view_data<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
-        let management_content = column![
-            column![
-                theme::sized_button("Manage Keys", theme::MANAGE_BUTTON_WIDTH, theme::primary_button).on_press(Message::Keys(keys::Message::Open)),
-                theme::sized_button("Manage Exceptions", theme::MANAGE_BUTTON_WIDTH, theme::primary_button).on_press(Message::Exceptions(exceptions::Message::Open)),
-            ].spacing(10),
-
+    fn view_keys<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
+        column![
+            theme::sized_button("Manage Keys", theme::MANAGE_BUTTON_WIDTH, theme::primary_button).on_press(Message::Keys(keys::Message::Open)),
             hover_hint(
                 row![
                     toggler(core_settings.game_data.enforce_key_validation).on_toggle(Message::ToggleKeyValidation).style(theme::ios_toggle),
@@ -475,6 +477,12 @@ impl State {
                 ].spacing(10).align_y(Alignment::Center),
                 "Prevents decryption/encryption if the cryptographic keys don't match the known official file hashes\nTurn this off only if the game keys have changed and you haven't updated BCC yet",
             ),
+        ].spacing(10).into()
+    }
+
+    fn view_import<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
+        let management_content = column![
+            theme::sized_button("Manage Exceptions", theme::MANAGE_BUTTON_WIDTH, theme::primary_button).on_press(Message::Exceptions(exceptions::Message::Open)),
 
             hover_hint(
                 row![
@@ -483,18 +491,7 @@ impl State {
                 ].spacing(10).align_y(Alignment::Center),
                 "Imports modded versions of the app with Vanilla package names as if they are Vanilla intalls, bypassing the import refusal",
             ),
-        ].spacing(10);
 
-        let android_content = hover_hint(
-            row![
-                toggler(core_settings.game_data.app_folder_persistence).on_toggle(Message::ToggleAppPersistence).style(theme::ios_toggle),
-                text("App Folder Persistence"),
-            ].spacing(10).align_y(Alignment::Center),
-            "Skip the deletion of the \"game/app\" directory after android import",
-        );
-
-        let disk_content = column![
-            self.disk.view().map(Message::Disk),
             hover_hint(
                 row![
                     text("Import Structure"),
@@ -508,10 +505,23 @@ impl State {
             ),
         ].spacing(10);
 
+        let android_content = hover_hint(
+            row![
+                toggler(core_settings.game_data.app_folder_persistence).on_toggle(Message::ToggleAppPersistence).style(theme::ios_toggle),
+                text("App Folder Persistence"),
+            ].spacing(10).align_y(Alignment::Center),
+            "Skip the deletion of the \"game/app\" directory after android import",
+        );
+
         column![
-            header_section(text("Disk").size(24), disk_content),
             header_section(text("Management").size(24), management_content),
             header_section(text("Android").size(24), android_content),
+        ].spacing(SECTION_SPACING).into()
+    }
+
+    fn view_files<'a>(&'a self) -> Element<'a, Message> {
+        column![
+            header_section(text("Disk").size(24), self.disk.view().map(Message::Disk)),
         ].spacing(SECTION_SPACING).into()
     }
 

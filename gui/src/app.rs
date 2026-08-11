@@ -23,7 +23,7 @@ use core::{ContentStore, Vault};
 
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
-use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
+use crate::modules::{cat, enemy, home, import, mods, settings as gui_settings, stage};
 use crate::widget::{popup, slide, Slide};
 
 use state::AppState;
@@ -46,7 +46,7 @@ pub enum Page {
     Enemies,
     Stages,
     Mods,
-    Data,
+    Import,
     Settings,
 }
 
@@ -58,7 +58,7 @@ impl Page {
             Self::Enemies => "Enemies",
             Self::Stages => "Stages",
             Self::Mods => "Mods",
-            Self::Data => "Data",
+            Self::Import => "Import",
             Self::Settings => "Settings",
         }
     }
@@ -74,7 +74,7 @@ const ALL_PAGES: &[Page] = &[
     Page::Enemies,
     Page::Stages,
     Page::Mods,
-    Page::Data,
+    Page::Import,
     Page::Settings,
 ];
 
@@ -153,7 +153,7 @@ pub enum Message {
     Enemy(enemy::Message),
     Stage(stage::Message),
     Mod(mods::Message),
-    Data(data::Message),
+    Import(import::Message),
     Settings(gui_settings::Message),
 }
 
@@ -202,7 +202,7 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     pub mods_state: mods::State,
     #[serde(skip)]
-    pub data_state: data::State,
+    pub import_state: import::State,
     #[serde(skip)]
     pub settings_state: gui_settings::State,
 
@@ -264,7 +264,7 @@ impl Default for BattleCatsApp {
             enemy_state: enemy::EnemyState::default(),
             stage_state: stage::State::default(),
             mods_state: mods::State::new(core::modules::mods::ModDataState::default()),
-            data_state: data::State::default(),
+            import_state: import::State::default(),
             settings_state: gui_settings::State::default(),
             settings: Settings::default(),
             vault: Arc::new(Vault::new(&Settings::default())),
@@ -296,7 +296,7 @@ impl BattleCatsApp {
             iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::AutoSave),
             self.cat_state.subscription().map(Message::Cat),
             self.enemy_state.subscription().map(Message::Enemy),
-            self.data_state.subscription().map(Message::Data),
+            self.import_state.subscription().map(Message::Import),
             Subscription::run(watcher::changes).map(Message::FilesChanged),
         ];
 
@@ -754,7 +754,7 @@ impl BattleCatsApp {
                     ]),
                     home::Message::NavigateSettingsKeys => Task::batch([
                         self.navigate(Page::Settings),
-                        self.update(Message::Settings(gui_settings::Message::TabSelected(gui_settings::Tab::Data))),
+                        self.update(Message::Settings(gui_settings::Message::TabSelected(gui_settings::Tab::General))),
                         self.update(Message::Settings(gui_settings::Message::OpenKeysPopup)),
                     ]),
                     _ => self.home_state.update(msg).map(Message::Home),
@@ -830,10 +830,10 @@ impl BattleCatsApp {
 
                 Task::batch([task, self.rescan_units()])
             }
-            Message::Data(msg) => {
-                let task = self.data_state.update(msg, &mut self.settings, &mut self.app_state).map(Message::Data);
+            Message::Import(msg) => {
+                let task = self.import_state.update(msg, &mut self.settings, &mut self.app_state).map(Message::Import);
 
-                if !self.data_state.take_import_success() {
+                if !self.import_state.take_import_success() {
                     return task;
                 }
 
@@ -866,7 +866,7 @@ impl BattleCatsApp {
             Page::Enemies => self.enemy_state.view(&self.settings, &self.app_state, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }).map(Message::Enemy),
             Page::Stages => self.stage_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }).map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
-            Page::Data => self.data_state.view(&self.app_state).map(Message::Data),
+            Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
             Page::Settings => self.settings_state.view(&self.settings, &self.updater_status).map(Message::Settings),
         };
 
