@@ -236,7 +236,7 @@ fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> O
             Some((payload.hash, payload.data))
         },
         Err(err) => {
-            tracing::warn!("Failed to deserialize cache payload for {}: {}. Purging corrupted cache file.", filename, err);
+            tracing::info!("Cache {} was written in a format this version cannot read ({}). Rebuilding it.", filename, err);
             let _ = fs::remove_file(&cache_path);
             None
         }
