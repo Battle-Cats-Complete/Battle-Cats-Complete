@@ -10,6 +10,7 @@ use core::modules::settings::{Settings as CoreSettings, UpdateMode};
 
 use crate::app::theme;
 use crate::app::UpdateStatus;
+use crate::common::fonts;
 #[cfg(target_os = "linux")]
 use crate::common::feedback::Slot;
 
@@ -19,6 +20,8 @@ const ROW_HEIGHT: f32 = 32.0;
 const ROW_WIDTH: f32 = 140.0;
 const DRAG_HIGHLIGHT_ALPHA: f32 = 0.25;
 const WEAK_TEXT_ALPHA: f32 = 0.4;
+
+const NIGHTLY_GLYPH: &str = "\u{263D}";
 
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,13 +220,13 @@ impl State {
         );
 
         let nightly_available = nightly::features_available();
-        let nightly_label = text("Enable Nightly Features 🌙");
+        let weak = |theme: &Theme| iced::widget::text::Style { color: Some(Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }) };
+        let nightly_name = text("Enable Nightly Features ");
+        let nightly_moon = text(NIGHTLY_GLYPH).font(fonts::MISC_SYMBOLS);
         let nightly_label: Element<'a, Message> = if nightly_available {
-            nightly_label.into()
+            row![nightly_name, nightly_moon].align_y(Vertical::Center).into()
         } else {
-            nightly_label
-                .style(|theme: &Theme| iced::widget::text::Style { color: Some(Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }) })
-                .into()
+            row![nightly_name.style(weak), nightly_moon.style(weak)].align_y(Vertical::Center).into()
         };
         let nightly_hint = if nightly_available {
             "Enables work-in-progress and unstable features"

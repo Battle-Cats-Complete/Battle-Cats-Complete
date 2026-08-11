@@ -21,6 +21,7 @@ use core::modules::data::architecture;
 use core::modules::settings::{Settings, UpdateMode};
 use core::{ContentStore, Vault};
 
+use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
 use crate::modules::{cat, data, enemy, home, mods, settings as gui_settings, stage};
 use crate::widget::{popup, slide, Slide};
@@ -1004,7 +1005,7 @@ impl BattleCatsApp {
 
     fn view_sidebar_overlay(&self) -> Element<'_, Message> {
         let arrow_text = if self.sidebar_open { "▶" } else { "◀" };
-        let toggle_btn = button(theme::centered_text(arrow_text).size(20))
+        let toggle_btn = button(theme::centered_text(arrow_text).font(fonts::MISC_SYMBOLS).size(20))
             .width(Length::Fixed(37.0))
             .height(Length::Fixed(37.0))
             .on_press(Message::ToggleSidebar)

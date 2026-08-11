@@ -28,6 +28,7 @@ use core::Vault;
 
 use crate::app::state::StageListState;
 use crate::app::theme;
+use crate::common::fonts;
 use crate::widget::{slide, smooth_scroll, status, Slide};
 
 const SIDEBAR_PUSH_GAP: f32 = 10.0;
@@ -338,7 +339,7 @@ impl State {
 
     fn view_sidebar_overlay(&self) -> Element<'_, Message> {
         let arrow_text = if self.is_sidebar_open { "◀" } else { "▶" };
-        let toggle_btn = button(theme::centered_text(arrow_text).size(16).width(Length::Fill).height(Length::Fill))
+        let toggle_btn = button(theme::centered_text(arrow_text).font(fonts::MISC_SYMBOLS).size(16).width(Length::Fill).height(Length::Fill))
             .width(TOGGLE_BUTTON_SIZE)
             .height(TOGGLE_BUTTON_SIZE)
             .padding(0)

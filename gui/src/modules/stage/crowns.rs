@@ -1,14 +1,18 @@
-use iced::widget::{button, row, space};
+use iced::alignment::{Horizontal, Vertical};
+use iced::widget::{button, container, row, space, text};
 use iced::{Element, Length, Theme};
 
 use core::modules::stage::Stage;
 
 use crate::app::theme;
+use crate::common::fonts;
 
 const CROWN_BTN_WIDTH: f32 = 50.0;
 const CROWN_BTN_HEIGHT: f32 = 30.0;
 const CROWN_BTN_SPACING: f32 = 5.0;
 const CROWN_TEXT_SIZE: f32 = 14.0;
+
+const CROWN_GLYPH: &str = "\u{1F732}";
 
 pub fn view(stage: &Stage, selected_crown: u8) -> Element<'_, super::Message> {
     if stage.max_crowns <= 1 {
@@ -21,10 +25,15 @@ pub fn view(stage: &Stage, selected_crown: u8) -> Element<'_, super::Message> {
         let is_selected = selected_crown == crown;
         let is_enabled = stage.target_crowns == -1 || stage.target_crowns as u8 == crown;
 
-        let label = theme::centered_text(format!("{}🜲", crown + 1))
-            .size(CROWN_TEXT_SIZE)
+        let label = container(row![
+            text(crown + 1).size(CROWN_TEXT_SIZE),
+            text(CROWN_GLYPH).font(fonts::MISC_SYMBOLS).size(CROWN_TEXT_SIZE),
+        ]
+        .align_y(Vertical::Center))
             .width(Length::Fill)
-            .height(Length::Fill);
+            .height(Length::Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center);
 
         crown_row = crown_row.push(
             button(label)

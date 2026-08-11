@@ -1,5 +1,6 @@
 pub mod ability_icon;
 pub mod feedback;
+pub mod fonts;
 pub mod img015;
 pub mod img022;
 pub mod item_icon;

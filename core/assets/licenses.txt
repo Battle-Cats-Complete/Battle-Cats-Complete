@@ -104,6 +104,24 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 
 ========================================================================
+SIL OPEN FONT LICENSE (NOTO SANS SYMBOLS)
+========================================================================
+Copyright 2022 The Noto Project Authors (https://github.com/notofonts/symbols)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1,
+the full text of which is reproduced above under "SIL OPEN FONT LICENSE
+(ADOBE SOURCE)", and is also available with a FAQ at:
+https://openfontlicense.org
+
+The bundled 'Miscellaneous-Symbols' font is a Modified Version of this Font
+Software: glyphs were subset from Noto Sans Symbols and Noto Sans Symbols 2 and
+merged into a single file, hinting was stripped, the advance width and vertical
+placement of U+25AE were adjusted to match U+25B6, and the font family name was
+changed to 'Miscellaneous-Symbols'. Neither source font carries a Reserved Font
+Name.
+
+
+========================================================================
 CRATE DEPENDENCIES (MIT / APACHE-2.0 / PERMISSIVE)
 ========================================================================
 The following open-source crates are utilized under their respective

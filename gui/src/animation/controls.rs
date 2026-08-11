@@ -1,6 +1,6 @@
 use iced::widget::{button, column, container, mouse_area, opaque, row, rule, text, text_input, Button, Container, TextInput};
 use iced::border::Radius;
-use iced::{alignment, border, font, Background, Border, Color, Element, Length, Padding, Theme, Vector};
+use iced::{alignment, border, font, Background, Border, Color, Element, Font, Length, Padding, Theme, Vector};
 
 use core::animation::{
     IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT, IDX_SURFACE,
@@ -9,6 +9,7 @@ use core::animation::{
 
 use crate::app::state::AnimState;
 use crate::app::theme;
+use crate::common::fonts;
 use crate::widget::{slide, Slide};
 
 use super::{canvas, data};
@@ -234,8 +235,8 @@ fn tile_input<'a>(
     if enabled { input.on_input(on_input) } else { input }
 }
 
-fn control_button<'a>(label: &'a str, size: f32, width: f32, on_press: Option<Message>) -> Button<'a, Message> {
-    button(text(label).size(size).width(Length::Fill).height(Length::Fill).center())
+fn control_button<'a>(label: &'a str, font: Font, size: f32, width: f32, on_press: Option<Message>) -> Button<'a, Message> {
+    button(text(label).font(font).size(size).width(Length::Fill).height(Length::Fill).center())
         .width(Length::Fixed(width))
         .height(Length::Fixed(TILE_HEIGHT))
         .padding(0)
@@ -244,7 +245,7 @@ fn control_button<'a>(label: &'a str, size: f32, width: f32, on_press: Option<Me
 }
 
 fn step_control<'a>(label: &'a str, direction: i8, enabled: bool) -> Element<'a, Message> {
-    let face = container(text(label).size(TILE_TEXT_SIZE))
+    let face = container(text(label).font(fonts::MISC_SYMBOLS).size(TILE_TEXT_SIZE))
         .width(Length::Fixed(NAV_W))
         .height(Length::Fixed(TILE_HEIGHT))
         .align_x(alignment::Horizontal::Center)
@@ -447,8 +448,8 @@ impl State {
         let play_icon = if canvas.is_playing { PAUSE_GLYPH } else { PLAY_GLYPH };
 
         let transport = column![
-            control_button(play_icon, PLAY_TEXT_SIZE, ICON_W, anim_loaded.then_some(Message::TogglePlay)),
-            control_button("Orient", TILE_TEXT_SIZE, ICON_W, base_available.then_some(Message::ResetPan)),
+            control_button(play_icon, fonts::MISC_SYMBOLS, PLAY_TEXT_SIZE, ICON_W, anim_loaded.then_some(Message::TogglePlay)),
+            control_button("Orient", Font::DEFAULT, TILE_TEXT_SIZE, ICON_W, base_available.then_some(Message::ResetPan)),
         ]
         .spacing(GAP);
 
@@ -491,7 +492,7 @@ impl State {
         .spacing(GAP);
 
         let output = column![
-            control_button("Export", TILE_TEXT_SIZE, COL3_W, base_available.then_some(Message::OpenExport)),
+            control_button("Export", Font::DEFAULT, TILE_TEXT_SIZE, COL3_W, base_available.then_some(Message::OpenExport)),
             speed_row,
         ]
         .spacing(GAP);

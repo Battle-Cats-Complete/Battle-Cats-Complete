@@ -14,10 +14,11 @@ pub const GOD: &[u8] = include_bytes!("../../assets/god.png");
 pub const UNKNOWN: &[u8] = include_bytes!("../../assets/unknown.png");
 
 pub const ICON: &[u8] = include_bytes!("../../assets/icon.ico");
-pub const FONT_JP: &[u8] = include_bytes!("../../assets/NotoSansJP-Regular.ttf");
-pub const FONT_KR: &[u8] = include_bytes!("../../assets/NotoSansKR-Regular.ttf");
-pub const FONT_TC: &[u8] = include_bytes!("../../assets/NotoSansTC-Regular.ttf");
-pub const FONT_TH: &[u8] = include_bytes!("../../assets/NotoSansThai-Regular.ttf");
+pub const FONT_JP: &[u8] = include_bytes!("../../fonts/NotoSansJP-Regular.ttf");
+pub const FONT_KR: &[u8] = include_bytes!("../../fonts/NotoSansKR-Regular.ttf");
+pub const FONT_TC: &[u8] = include_bytes!("../../fonts/NotoSansTC-Regular.ttf");
+pub const FONT_TH: &[u8] = include_bytes!("../../fonts/NotoSansThai-Regular.ttf");
+pub const FONT_SYMBOLS: &[u8] = include_bytes!("../../fonts/Miscellaneous-Symbols.ttf");
 
 pub const CUSTOM_ICON_DATA: &[(CustomIcon, &[u8])] = &[
     (CustomIcon::Multihit, MULTIHIT),

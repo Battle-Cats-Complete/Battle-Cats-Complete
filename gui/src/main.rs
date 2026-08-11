@@ -33,6 +33,7 @@ pub fn main() -> iced::Result {
         .font(assets::FONT_KR)
         .font(assets::FONT_TC)
         .font(assets::FONT_TH)
+        .font(assets::FONT_SYMBOLS)
         .window(window::Settings {
             size: Size::new(800.0, 600.0),
             min_size: Some(Size::new(800.0, 600.0)),
