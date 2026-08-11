@@ -14,13 +14,14 @@ use iced::widget::{
     button, column, container, row, rule, space, text, text_editor, text_input, Container,
 };
 use iced::{Alignment, Element, Length, Size, Task};
-use tracing::warn;
+use tracing::{info, warn};
 
 use core::common::job::{JobEvent, JobOutcome};
 use core::modules::mods::{self, ModDataState};
 use core::modules::settings::Settings;
 use core::Vault;
 
+use crate::app::state::ModsListState;
 use crate::app::theme;
 use crate::common::feedback::Slot;
 use crate::widget::section;
@@ -128,6 +129,31 @@ impl State {
 
     pub fn active_mod(&self) -> Option<String> {
         self.data.loaded_mods.iter().find(|m| m.enabled).map(|m| m.folder_name.clone())
+    }
+
+    pub(crate) fn restore_state(&mut self, state: &ModsListState) {
+        self.data.search_query = state.search_query.clone();
+        self.list.refresh(&self.data.loaded_mods, &self.data.search_query);
+
+        let Some(folder) = state.selected_mod.as_ref() else {
+            return;
+        };
+
+        if !self.data.loaded_mods.iter().any(|entry| &entry.folder_name == folder) {
+            info!(mod_name = %folder, "Persisted mod selection no longer exists, starting with none selected");
+            return;
+        }
+
+        self.select_mod(folder.clone());
+    }
+
+    pub(crate) fn sync_state(&self, state: &mut ModsListState) {
+        if state.selected_mod != self.data.selected_mod {
+            state.selected_mod = self.data.selected_mod.clone();
+        }
+        if state.search_query != self.data.search_query {
+            state.search_query = self.data.search_query.clone();
+        }
     }
 
     pub(crate) fn mounting(&self) -> bool {

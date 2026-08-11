@@ -55,6 +55,7 @@ impl BattleCatsApp {
         app.cat_state.restore_state(&app.app_state.cat);
         app.enemy_state.restore_state(&app.app_state.enemy);
         app.stage_state.restore_state(&app.app_state.stage);
+        app.mods_state.restore_state(&app.app_state.mods);
 
         if notice::should_show(&app.app_state.notice.acknowledged) {
             info!("Notice {} not yet acknowledged, showing at startup", notice::hash());

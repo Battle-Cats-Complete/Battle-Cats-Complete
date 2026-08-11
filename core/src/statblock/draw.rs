@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use ab_glyph::{point, Font, PxScale, ScaleFont};
 use image::{Rgba, RgbaImage};
-use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
+use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size, Canvas};
 use imageproc::rect::Rect;
 use nyanko::graphics::rig::SpriteCut;
 
@@ -49,8 +49,8 @@ impl SuperscriptStyle {
         total_width
     }
 
-    pub(super) fn draw(
-        &self, img: &mut RgbaImage, color: Rgba<u8>, mut x: i32, y: i32, font: &impl Font, text: &str,
+    pub(super) fn draw<C: Canvas<Pixel = Rgba<u8>>>(
+        &self, img: &mut C, color: Rgba<u8>, mut x: i32, y: i32, font: &impl Font, text: &str,
     ) {
         let mut parts = text.split('^');
 
@@ -105,18 +105,35 @@ pub(super) fn draw_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, col
     imageproc::drawing::draw_filled_circle_mut(img, (x + w - 1 - r, y + h - 1 - r), r, color);
 }
 
-pub(super) fn draw_bordered_rect_mut(
-    img: &mut RgbaImage, rect: Rect, radius: i32, border: i32, fill: Rgba<u8>, border_color: Rgba<u8>,
-) {
-    draw_rounded_rect_mut(img, rect, radius, border_color);
+#[derive(Clone, Copy)]
+pub(super) struct CellShape {
+    pub(super) rect: Rect,
+    radius: i32,
+    border: i32,
+}
 
-    if border <= 0 { return; }
+impl CellShape {
+    pub(super) fn new(rect: Rect, radius: i32, border: i32) -> Self {
+        Self { rect, radius, border }
+    }
 
-    let inner_width = (rect.width() as i32 - border * 2).max(1) as u32;
-    let inner_height = (rect.height() as i32 - border * 2).max(1) as u32;
-    let inner = Rect::at(rect.left() + border, rect.top() + border).of_size(inner_width, inner_height);
+    fn inner(&self) -> (Rect, i32) {
+        let width = (self.rect.width() as i32 - self.border * 2).max(1) as u32;
+        let height = (self.rect.height() as i32 - self.border * 2).max(1) as u32;
+        let rect = Rect::at(self.rect.left() + self.border, self.rect.top() + self.border).of_size(width, height);
 
-    draw_rounded_rect_mut(img, inner, (radius - border).max(0), fill);
+        (rect, (self.radius - self.border).max(0))
+    }
+}
+
+pub(super) fn draw_bordered_rect_mut(img: &mut RgbaImage, cell: CellShape, fill: Rgba<u8>, border_color: Rgba<u8>) {
+    draw_rounded_rect_mut(img, cell.rect, cell.radius, border_color);
+
+    if cell.border <= 0 { return; }
+
+    let (inner, inner_radius) = cell.inner();
+
+    draw_rounded_rect_mut(img, inner, inner_radius, fill);
 }
 
 pub(super) fn draw_bottom_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgba<u8>) {
@@ -241,6 +258,74 @@ fn flush_word(line: String, word: &str, font: &impl Font, scale: PxScale, max_w:
 
 const BASELINE_REFERENCE: &str = "0";
 
+pub(super) struct RoundedClip<'a> {
+    img: &'a mut RgbaImage,
+    rect: Rect,
+    radius: i32,
+}
+
+impl<'a> RoundedClip<'a> {
+    fn new(img: &'a mut RgbaImage, rect: Rect, radius: i32) -> Self {
+        let radius = radius.min(rect.width() as i32 / 2).min(rect.height() as i32 / 2).max(0);
+
+        Self { img, rect, radius }
+    }
+
+    fn contains(&self, x: u32, y: u32) -> bool {
+        let (x, y) = (x as i32, y as i32);
+        let left = self.rect.left();
+        let top = self.rect.top();
+        let right = left + self.rect.width() as i32 - 1;
+        let bottom = top + self.rect.height() as i32 - 1;
+
+        if x < left || x > right || y < top || y > bottom {
+            return false;
+        }
+
+        if self.radius == 0 {
+            return true;
+        }
+
+        let corner_x = if x < left + self.radius {
+            left + self.radius
+        } else if x > right - self.radius {
+            right - self.radius
+        } else {
+            return true;
+        };
+
+        let corner_y = if y < top + self.radius {
+            top + self.radius
+        } else if y > bottom - self.radius {
+            bottom - self.radius
+        } else {
+            return true;
+        };
+
+        let (dx, dy) = (x - corner_x, y - corner_y);
+
+        dx * dx + dy * dy <= self.radius * self.radius
+    }
+}
+
+impl Canvas for RoundedClip<'_> {
+    type Pixel = Rgba<u8>;
+
+    fn dimensions(&self) -> (u32, u32) {
+        self.img.dimensions()
+    }
+
+    fn get_pixel(&self, x: u32, y: u32) -> Rgba<u8> {
+        *self.img.get_pixel(x, y)
+    }
+
+    fn draw_pixel(&mut self, x: u32, y: u32, color: Rgba<u8>) {
+        if self.contains(x, y) {
+            self.img.put_pixel(x, y, color);
+        }
+    }
+}
+
 fn ink_bounds(font: &impl Font, scale: PxScale, text: &str) -> Option<(f32, f32)> {
     let scaled = font.as_scaled(scale);
     let mut caret = 0.0;
@@ -272,20 +357,26 @@ fn centered_ink_y(font: &impl Font, scale: PxScale, rect: Rect) -> i32 {
     rect.top() + offset.round() as i32
 }
 
-pub(super) fn draw_centered_text(img: &mut RgbaImage, color: Rgba<u8>, rect: Rect, scale: PxScale, font: &impl Font, text: &str) {
+pub(super) fn draw_centered_text(
+    img: &mut RgbaImage, color: Rgba<u8>, cell: CellShape, scale: PxScale, font: &impl Font, text: &str,
+) {
+    let (inner, inner_radius) = cell.inner();
     let (tw, _) = text_size(scale, font, text);
-    let tx = rect.left() + (rect.width() as i32 - tw as i32) / 2;
+    let tx = inner.left() + (inner.width() as i32 - tw as i32) / 2;
+    let ty = centered_ink_y(font, scale, cell.rect);
 
-    draw_text_mut(img, color, tx.max(rect.left()), centered_ink_y(font, scale, rect), scale, font, text);
+    draw_text_mut(&mut RoundedClip::new(img, inner, inner_radius), color, tx.max(inner.left()), ty, scale, font, text);
 }
 
 pub(super) fn draw_centered_superscript(
-    img: &mut RgbaImage, color: Rgba<u8>, rect: Rect, style: &SuperscriptStyle, font: &impl Font, text: &str,
+    img: &mut RgbaImage, color: Rgba<u8>, cell: CellShape, style: &SuperscriptStyle, font: &impl Font, text: &str,
 ) {
+    let (inner, inner_radius) = cell.inner();
     let width = style.measure(font, text);
-    let tx = rect.left() + (rect.width() as i32 - width as i32) / 2;
+    let tx = inner.left() + (inner.width() as i32 - width as i32) / 2;
+    let ty = centered_ink_y(font, style.base, cell.rect);
 
-    style.draw(img, color, tx.max(rect.left()), centered_ink_y(font, style.base, rect), font, text);
+    style.draw(&mut RoundedClip::new(img, inner, inner_radius), color, tx.max(inner.left()), ty, font, text);
 }
 
 fn safe_resize(mut img: RgbaImage, width: u32, height: u32) -> RgbaImage {

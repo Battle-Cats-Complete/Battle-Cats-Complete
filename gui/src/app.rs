@@ -813,6 +813,7 @@ impl BattleCatsApp {
             Message::Mod(msg) => {
                 let mount_settled = matches!(msg, mods::Message::MountFinished { .. });
                 let task = self.mods_state.update(msg, &self.settings, &self.vault).map(Message::Mod);
+                self.mods_state.sync_state(&mut self.app_state.mods);
                 self.sync_popup(ActivePopup::ModsImport, self.mods_state.import_popup_open());
                 self.sync_popup(ActivePopup::ModsExport, self.mods_state.export_popup_open());
 

@@ -99,7 +99,7 @@ const LEVEL_INPUT_PADDING_Y: f32 = 2.0;
 const CELL_WIDTH: f32 = 82.0;
 const CELL_HEIGHT: f32 = 28.0;
 const CELL_GAP: f32 = 4.0;
-const CELL_TEXT_SIZE: f32 = 13.0 * TEXT_SCALE;
+const CELL_TEXT_SIZE: f32 = 12.5 * TEXT_SCALE;
 const CELL_BORDER_WIDTH: f32 = 2.0;
 
 const ABILITY_ICON_SIZE: f32 = 40.0;
@@ -107,7 +107,7 @@ const ABILITY_TEXT_SIZE: f32 = 13.0 * TEXT_SCALE;
 const ABILITY_TEXT_GAP: f32 = 8.0;
 const ABILITY_LINE_GAP: f32 = -2.0;
 const ABILITY_OVERFLOW_PADDING: f32 = 4.5;
-const ICON_GAP_X: f32 = 4.5;
+const ICON_GAP_X: f32 = 3.2;
 const ICON_GAP_Y: f32 = 5.5;
 const ICON_TRAIT_GAP_Y: f32 = 7.0;
 
@@ -348,8 +348,9 @@ pub fn build_statblock_image(
     let input_y = level_top + (level_row_height - input_height) / 2;
     let input_rect = Rect::at(input_x, input_y).of_size(input_width as u32, input_height as u32);
 
-    draw_bordered_rect_mut(&mut target_image, input_rect, cell_radius, px(BORDER_WIDTH), COLOR_INPUT, COLOR_INPUT_BORDER);
-    draw_centered_text(&mut target_image, COLOR_TEXT, input_rect, info_scale, font, &data.top_value);
+    let input_cell = CellShape::new(input_rect, cell_radius, px(BORDER_WIDTH));
+    draw_bordered_rect_mut(&mut target_image, input_cell, COLOR_INPUT, COLOR_INPUT_BORDER);
+    draw_centered_text(&mut target_image, COLOR_TEXT, input_cell, info_scale, font, &data.top_value);
 
     let mut current_y_global = header_top + header_height + section_gap;
     draw_filled_rect_mut(
@@ -369,18 +370,18 @@ pub fn build_statblock_image(
         for col in 0..headers.len() {
             let current_x = padding + ((col as i32) * (cell_width + cell_gap));
 
-            let h_rect = Rect::at(current_x, h_y).of_size(cell_width as u32, cell_height as u32);
-            draw_bordered_rect_mut(ui_img, h_rect, cell_radius, cell_border, COLOR_CELL_HEADER, COLOR_CELL_BORDER);
-            draw_centered_text(ui_img, COLOR_TEXT, h_rect, cell_style.base, font, &headers[col]);
+            let h_cell = CellShape::new(Rect::at(current_x, h_y).of_size(cell_width as u32, cell_height as u32), cell_radius, cell_border);
+            draw_bordered_rect_mut(ui_img, h_cell, COLOR_CELL_HEADER, COLOR_CELL_BORDER);
+            draw_centered_text(ui_img, COLOR_TEXT, h_cell, cell_style.base, font, &headers[col]);
 
-            let d_rect = Rect::at(current_x, d_y).of_size(cell_width as u32, cell_height as u32);
-            draw_bordered_rect_mut(ui_img, d_rect, cell_radius, cell_border, COLOR_CELL_VALUE, COLOR_CELL_BORDER);
+            let d_cell = CellShape::new(Rect::at(current_x, d_y).of_size(cell_width as u32, cell_height as u32), cell_radius, cell_border);
+            draw_bordered_rect_mut(ui_img, d_cell, COLOR_CELL_VALUE, COLOR_CELL_BORDER);
 
             match &row_data[col] {
                 StatCell::Frames(frames) => draw_centered_superscript(
-                    ui_img, COLOR_TEXT, d_rect, &cell_style, font, &frame_text(*frames),
+                    ui_img, COLOR_TEXT, d_cell, &cell_style, font, &frame_text(*frames),
                 ),
-                StatCell::Text(text) => draw_centered_text(ui_img, COLOR_TEXT, d_rect, cell_style.base, font, text),
+                StatCell::Text(text) => draw_centered_text(ui_img, COLOR_TEXT, d_cell, cell_style.base, font, text),
             }
         }
     };
@@ -589,7 +590,11 @@ pub fn build_statblock_image(
     let outer_rect = Rect::at(0, 0).of_size(final_width_with_pad, final_height_with_pad);
 
     if border_thick > 0 {
-        draw_bordered_rect_mut(&mut final_background_layer, outer_rect, border_radius + border_thick, border_thick, COLOR_BACKGROUND, COLOR_FRAME);
+        draw_bordered_rect_mut(
+            &mut final_background_layer,
+            CellShape::new(outer_rect, border_radius + border_thick, border_thick),
+            COLOR_BACKGROUND, COLOR_FRAME,
+        );
     } else {
         draw_rounded_rect_mut(&mut final_background_layer, outer_rect, border_radius, COLOR_BACKGROUND);
     }

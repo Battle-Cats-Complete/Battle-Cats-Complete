@@ -14,6 +14,7 @@ pub struct AppState {
     pub(crate) cat: CatListState,
     pub(crate) enemy: EnemyListState,
     pub(crate) stage: StageListState,
+    pub(crate) mods: ModsListState,
     pub(crate) data: GameDataState,
     pub(crate) animation: AnimState,
     pub(crate) notice: NoticeState,
@@ -23,6 +24,13 @@ pub struct AppState {
 #[serde(default)]
 pub(crate) struct NoticeState {
     pub acknowledged: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub(crate) struct ModsListState {
+    pub selected_mod: Option<String>,
+    pub search_query: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
