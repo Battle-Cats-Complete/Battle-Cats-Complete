@@ -7,7 +7,6 @@ pub(super) struct VfsCache;
 impl cache::CacheSpec for VfsCache {
     type Data = Index;
     const FILE: &'static str = "virtual_file_system.bin";
-    const VERSION: u32 = 3;
 }
 
 pub(super) fn encode(index: &Index, hash: u64) -> Option<Vec<u8>> {

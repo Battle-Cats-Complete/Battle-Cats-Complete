@@ -64,7 +64,6 @@ struct CatCache;
 impl cache::CacheSpec for CatCache {
     type Data = Vec<CatEntry>;
     const FILE: &'static str = "cats_cache.bin";
-    const VERSION: u32 = 1;
 }
 
 pub fn purge() {

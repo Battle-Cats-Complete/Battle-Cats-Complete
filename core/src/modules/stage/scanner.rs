@@ -53,7 +53,6 @@ struct StageCache;
 impl cache::CacheSpec for StageCache {
     type Data = StageBundle;
     const FILE: &'static str = "stages_cache.bin";
-    const VERSION: u32 = 2;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

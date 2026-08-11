@@ -114,6 +114,8 @@ pub(crate) fn get_game_hash(active_mod: Option<&str>) -> u64 {
         "vanilla_base_game".hash(&mut final_game_hasher);
     }
 
+    BUILD_STAMP.hash(&mut final_game_hasher);
+
     let hash_result = final_game_hasher.finish();
     tracing::debug!("Generated game hash: {}", hash_result);
     hash_result
@@ -128,13 +130,14 @@ pub(crate) fn content_key(index: u64, config: &ScannerConfig) -> u64 {
 
     index.hash(&mut hasher);
     config.hash(&mut hasher);
+    BUILD_STAMP.hash(&mut hasher);
 
     hasher.finish()
 }
 
 const SIZE_LIMIT: u64 = 1024 * 1024 * 100;
 
-const BUILD_STAMP: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("NYANKO_REV"));
+const BUILD_STAMP: &str = env!("CORE_FINGERPRINT");
 
 pub struct Scan<T> {
     pub data: T,
@@ -144,7 +147,6 @@ pub struct Scan<T> {
 
 #[derive(Serialize, Deserialize)]
 struct CachePayload<T> {
-    schema_version: u32,
     build_stamp: String,
     hash: u64,
     data: T,
@@ -153,11 +155,10 @@ struct CachePayload<T> {
 pub(crate) trait CacheSpec {
     type Data: Serialize + DeserializeOwned;
     const FILE: &'static str;
-    const VERSION: u32;
 }
 
 pub(crate) fn read<C: CacheSpec>() -> Option<(u64, C::Data)> {
-    load_payload(C::FILE, C::VERSION)
+    load_payload(C::FILE)
 }
 
 pub(crate) fn purge<C: CacheSpec>() {
@@ -181,7 +182,7 @@ pub(crate) fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
 }
 
 pub(crate) fn encode<C: CacheSpec>(hash: u64, data: &C::Data) -> Option<Vec<u8>> {
-    let payload = CachePayload { schema_version: C::VERSION, build_stamp: BUILD_STAMP.to_string(), hash, data };
+    let payload = CachePayload { build_stamp: BUILD_STAMP.to_string(), hash, data };
 
     postcard::to_allocvec(&payload)
         .inspect_err(|err| tracing::error!("Failed to serialize cache payload for {}: {}", C::FILE, err))
@@ -209,7 +210,7 @@ pub(crate) fn store<C: CacheSpec>(bytes: &[u8]) {
 }
 
 #[tracing::instrument(level = "debug", skip_all, fields(file = %filename))]
-fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> Option<(u64, T)> {
+fn load_payload<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
     let cache_directory = dirs::cache_path()?;
 
     let cache_path = cache_directory.join(filename);
@@ -234,21 +235,11 @@ fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> O
         Ok(payload) => {
             if payload.build_stamp != BUILD_STAMP {
                 tracing::info!(
-                    "Cache {} was written by build {} (this is {}). Rebuilding it.",
+                    "Cache {} is from build {} (this is {}). Serving it while the rescan runs.",
                     filename, payload.build_stamp, BUILD_STAMP
                 );
-                let _ = fs::remove_file(&cache_path);
-                return None;
             }
 
-            if payload.schema_version != expected_version {
-                tracing::warn!(
-                    "Cache schema mismatch for {} (found v{}, expected v{}). Purging stale cache file.",
-                    filename, payload.schema_version, expected_version
-                );
-                let _ = fs::remove_file(&cache_path);
-                return None;
-            }
 
             tracing::debug!("Successfully loaded cache payload for {}", filename);
             Some((payload.hash, payload.data))

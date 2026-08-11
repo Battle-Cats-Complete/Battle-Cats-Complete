@@ -47,7 +47,6 @@ struct EnemyCache;
 impl cache::CacheSpec for EnemyCache {
     type Data = Vec<EnemyEntry>;
     const FILE: &'static str = "enemies_cache.bin";
-    const VERSION: u32 = 1;
 }
 
 pub fn purge() {

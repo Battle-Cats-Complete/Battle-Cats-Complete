@@ -9,7 +9,6 @@ struct ContentCache;
 impl cache::CacheSpec for ContentCache {
     type Data = ContentStore;
     const FILE: &'static str = "virtual_data_store.bin";
-    const VERSION: u32 = 1;
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]
