@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 
 use indexmap::IndexMap;
-use md5;
+use md5::{Digest, Md5};
 use nyanko::common::tools::variant::Region;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -412,7 +412,7 @@ impl UserKeys {
             let clean_value = sanitize(input_value);
             if clean_value.is_empty() { return false; }
 
-            let hash_result = format!("{:x}", md5::compute(clean_value.as_bytes()));
+            let hash_result = format!("{:x}", Md5::digest(clean_value.as_bytes()));
             hash_result == expected_hash
         };
 

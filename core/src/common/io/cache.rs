@@ -1,12 +1,9 @@
 use std::fs;
-use std::fs::File;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
 
-use bincode::Options;
 use rayon::prelude::*;
 use rustc_hash::FxHasher;
 use serde::de::DeserializeOwned;
@@ -177,9 +174,7 @@ pub(crate) fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
 pub(crate) fn encode<C: CacheSpec>(hash: u64, data: &C::Data) -> Option<Vec<u8>> {
     let payload = CachePayload { schema_version: C::VERSION, hash, data };
 
-    bincode::DefaultOptions::new()
-        .with_limit(SIZE_LIMIT)
-        .serialize(&payload)
+    postcard::to_allocvec(&payload)
         .inspect_err(|err| tracing::error!("Failed to serialize cache payload for {}: {}", C::FILE, err))
         .ok()
 }
@@ -210,17 +205,23 @@ fn load_payload<T: DeserializeOwned>(filename: &str, expected_version: u32) -> O
 
     let cache_path = cache_directory.join(filename);
 
-    let Ok(cache_file) = File::open(&cache_path) else {
+    let Ok(metadata) = fs::metadata(&cache_path) else {
         tracing::trace!("Cache file {} does not exist or cannot be read", filename);
         return None;
     };
 
-    let reader = BufReader::new(cache_file);
+    if metadata.len() > SIZE_LIMIT {
+        tracing::warn!("Cache file {} is {} bytes, past the {} byte limit. Purging oversized cache file.", filename, metadata.len(), SIZE_LIMIT);
+        let _ = fs::remove_file(&cache_path);
+        return None;
+    }
 
-    let options = bincode::DefaultOptions::new()
-        .with_limit(SIZE_LIMIT);
+    let Ok(bytes) = fs::read(&cache_path) else {
+        tracing::trace!("Cache file {} could not be read", filename);
+        return None;
+    };
 
-    match options.deserialize_from::<_, CachePayload<T>>(reader) {
+    match postcard::from_bytes::<CachePayload<T>>(&bytes) {
         Ok(payload) => {
             if payload.schema_version != expected_version {
                 tracing::warn!(

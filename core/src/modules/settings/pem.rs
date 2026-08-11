@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use rasn_pkix::{Certificate, SubjectPublicKeyInfo};
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
@@ -10,6 +9,30 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, error, info};
 
 use crate::common::dirs;
+
+#[derive(Debug, thiserror::Error)]
+pub enum PemError {
+    #[error("config directory unavailable")]
+    ConfigDir,
+    #[error("failed to write identity.pem: {0}")]
+    Write(#[from] std::io::Error),
+    #[error("failed to generate RSA key: {0}")]
+    Rsa(#[from] rsa::Error),
+    #[error("failed to encode private key: {0}")]
+    PrivateKey(#[from] rsa::pkcs8::Error),
+    #[error("failed to encode public key: {0}")]
+    PublicKey(#[from] rsa::pkcs8::spki::Error),
+    #[error("failed to base64 decode the certificate template: {0}")]
+    Base64(#[from] base64::DecodeError),
+    #[error("failed to decode ASN.1: {0}")]
+    Decode(#[from] rasn::error::DecodeError),
+    #[error("failed to encode ASN.1: {0}")]
+    Encode(#[from] rasn::error::EncodeError),
+    #[error("the bundled certificate template is malformed")]
+    Template,
+    #[error("invalid UTF-8 produced while base64 encoding: {0}")]
+    Utf8(#[from] std::str::Utf8Error),
+}
 
 const DEFAULT_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCmBNx3G6wn5h63
@@ -78,10 +101,10 @@ pub fn get_active_pem() -> (String, bool) {
     (DEFAULT_PEM.to_string(), false)
 }
 
-pub fn save_pem(pem_content: &str) -> Result<()> {
-    let certificate_path = get_pem_path().context("Config directory unavailable")?;
+pub fn save_pem(pem_content: &str) -> Result<(), PemError> {
+    let certificate_path = get_pem_path().ok_or(PemError::ConfigDir)?;
     info!("Writing new PEM certificate payload to {:?}", certificate_path);
-    fs::write(certificate_path, pem_content).context("Failed to write identity.pem")
+    fs::write(certificate_path, pem_content).map_err(PemError::Write)
 }
 
 pub fn delete_pem() {
@@ -97,11 +120,11 @@ pub fn delete_pem() {
     }
 }
 
-pub fn generate_pem() -> Result<String> {
+pub fn generate_pem() -> Result<String, PemError> {
     info!("Generating new RSA hardware-backed PEM certificate...");
 
     let mut hardware_rng = rsa::rand_core::OsRng;
-    let private_key = RsaPrivateKey::new(&mut hardware_rng, 2048).context("Failed to generate RSA Key")?;
+    let private_key = RsaPrivateKey::new(&mut hardware_rng, 2048)?;
 
     let private_pem_string = private_key.to_pkcs8_pem(LineEnding::LF)?.to_string();
 
@@ -112,8 +135,8 @@ pub fn generate_pem() -> Result<String> {
     let cert_start_tag = "-----BEGIN CERTIFICATE-----";
     let cert_end_tag = "-----END CERTIFICATE-----";
 
-    let cert_start_index = DEFAULT_PEM.find(cert_start_tag).context("Missing cert start tag in default PEM")?;
-    let cert_end_index = DEFAULT_PEM.find(cert_end_tag).context("Missing cert end tag in default PEM")?;
+    let cert_start_index = DEFAULT_PEM.find(cert_start_tag).ok_or(PemError::Template)?;
+    let cert_end_index = DEFAULT_PEM.find(cert_end_tag).ok_or(PemError::Template)?;
 
     let base64_certificate = &DEFAULT_PEM[cert_start_index + cert_start_tag.len()..cert_end_index]
         .replace(['\n', '\r'], "");
@@ -127,7 +150,7 @@ pub fn generate_pem() -> Result<String> {
 
     let digest = Sha256::digest(&tbs_der);
     let padding = Pkcs1v15Sign::new::<Sha256>();
-    let signature = private_key.sign(padding, &digest).context("Failed to sign certificate generated object")?;
+    let signature = private_key.sign(padding, &digest)?;
 
     certificate_template.signature_value = rasn::types::BitString::from_vec(signature);
 
@@ -141,7 +164,7 @@ pub fn generate_pem() -> Result<String> {
     final_combined_pem.push_str("\n-----BEGIN CERTIFICATE-----\n");
 
     for chunk in base64_final_certificate.as_bytes().chunks(64) {
-        let chunk_string = std::str::from_utf8(chunk).context("Invalid UTF-8 sequence generated during base64 encoding")?;
+        let chunk_string = std::str::from_utf8(chunk)?;
         final_combined_pem.push_str(chunk_string);
         final_combined_pem.push('\n');
     }

@@ -23,6 +23,7 @@ const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "battle-cats-complete";
 const BIN_NAME: &str = "Battle Cats Complete";
 const STATUS_EXPIRY: Duration = Duration::from_secs(2);
+#[cfg(unix)]
 const RESTART_DELAY_SECS: u8 = 1;
 const MAX_RELEASE_LOOKBACK: usize = 8;
 
