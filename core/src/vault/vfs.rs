@@ -223,7 +223,9 @@ impl Vfs {
             return None;
         };
 
-        regional::interleaved(filenames, &order).find_map(|candidate| resolve(&mounts, &candidate))
+        regional::interleaved(filenames, &order)
+            .find_map(|candidate| from_mods(&mounts, &candidate))
+            .or_else(|| regional::interleaved(filenames, &order).find_map(|candidate| from_game(&mounts, &candidate)))
     }
 
     fn collect(&self, filenames: &[&str]) -> Vec<PathBuf> {
@@ -235,15 +237,23 @@ impl Vfs {
             return Vec::new();
         };
 
-        let mut paths = Vec::new();
+        let mut modded = Vec::new();
+        let mut vanilla = Vec::new();
+
         for candidate in regional::interleaved(filenames, &order) {
-            if let Some(path) = resolve(&mounts, &candidate) {
-                paths.push(path);
+            if let Some(path) = from_mods(&mounts, &candidate) {
+                modded.push(path);
+                continue;
+            }
+
+            if let Some(path) = from_game(&mounts, &candidate) {
+                vanilla.push(path);
             }
         }
 
-        paths.dedup();
-        paths
+        modded.append(&mut vanilla);
+        modded.dedup();
+        modded
     }
 
     pub fn load(&self, filename: &str) -> Option<Arc<[u8]>> {
@@ -550,10 +560,20 @@ fn relative_to(root: &Path, file: &Path) -> Option<PathBuf> {
 }
 
 fn resolve(mounts: &Index, name: &str) -> Option<PathBuf> {
+    from_mods(mounts, name).or_else(|| from_game(mounts, name))
+}
+
+fn from_mods(mounts: &Index, name: &str) -> Option<PathBuf> {
     mounts
         .iter()
         .filter(|(key, _)| key.as_ref() != MOUNT_GAME)
-        .chain(mounts.iter().filter(|(key, _)| key.as_ref() == MOUNT_GAME))
+        .find_map(|(_, mount)| mount.files.get(name).map(|entry| mount.root.join(&entry.path)))
+}
+
+fn from_game(mounts: &Index, name: &str) -> Option<PathBuf> {
+    mounts
+        .iter()
+        .filter(|(key, _)| key.as_ref() == MOUNT_GAME)
         .find_map(|(_, mount)| mount.files.get(name).map(|entry| mount.root.join(&entry.path)))
 }
 
