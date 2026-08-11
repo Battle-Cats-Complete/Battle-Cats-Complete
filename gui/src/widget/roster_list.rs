@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::mem;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -83,6 +84,7 @@ impl std::fmt::Debug for Message {
 
 pub(crate) struct State<R: Roster> {
     texture_cache: HashMap<u32, Handle>,
+    stale: HashMap<u32, Handle>,
     placeholder: Handle,
     background: Option<Arc<RgbaImage>>,
     pending_requests: HashSet<u32>,
@@ -115,6 +117,7 @@ impl<R: Roster> Default for State<R> {
 
         Self {
             texture_cache: HashMap::new(),
+            stale: HashMap::new(),
             placeholder,
             background,
             pending_requests: HashSet::new(),
@@ -169,6 +172,8 @@ impl<R: Roster> State<R> {
         }
 
         self.pending_requests.remove(&result.id);
+        self.stale.remove(&result.id);
+
         match result.payload {
             Some((width, height, pixels)) => {
                 self.texture_cache.insert(result.id, Handle::from_rgba(width, height, pixels));
@@ -181,13 +186,14 @@ impl<R: Roster> State<R> {
 
     pub(crate) fn forget(&mut self, id: u32) {
         self.texture_cache.remove(&id);
+        self.stale.remove(&id);
         self.missing_ids.remove(&id);
         self.pending_requests.remove(&id);
     }
 
     pub(crate) fn invalidate(&mut self) {
         self.generation += 1;
-        self.texture_cache.clear();
+        self.stale = mem::take(&mut self.texture_cache);
         self.missing_ids.clear();
         self.pending_requests.clear();
         self.last_unit_count = usize::MAX;
@@ -293,7 +299,11 @@ impl<R: Roster> State<R> {
 
     fn view_row<'a>(&'a self, entry: &'a R::Entry, is_selected: bool) -> Element<'a, Message> {
         let id = R::id(entry);
-        let handle = self.texture_cache.get(&id).cloned().unwrap_or_else(|| self.placeholder.clone());
+        let handle = self.texture_cache
+            .get(&id)
+            .or_else(|| self.stale.get(&id))
+            .cloned()
+            .unwrap_or_else(|| self.placeholder.clone());
 
         roster_row(handle, is_selected, Message::Select(id), R::tooltip(entry))
     }
