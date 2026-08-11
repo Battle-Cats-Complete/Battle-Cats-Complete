@@ -151,13 +151,11 @@ impl State {
 
         let generate_label = if self.is_generating {
             "Generating..."
-        } else if self.confirm_generate.is_set() {
-            "Are You Sure?"
         } else {
-            "Generate PEM"
+            self.confirm_generate.confirm_label("Generate PEM")
         };
 
-        let delete_label = if self.confirm_delete.is_set() { "Are You Sure?" } else { "Delete PEM" };
+        let delete_label = self.confirm_delete.confirm_label("Delete PEM");
 
         let import_msg = if self.is_generating { None } else { Some(Message::Import) };
         let export_msg = if self.is_generating { None } else { Some(Message::Export) };

@@ -115,6 +115,7 @@ pub(crate) fn get_game_hash(active_mod: Option<&str>) -> u64 {
     }
 
     BUILD_STAMP.hash(&mut final_game_hasher);
+    force_token().hash(&mut final_game_hasher);
 
     let hash_result = final_game_hasher.finish();
     tracing::debug!("Generated game hash: {}", hash_result);
@@ -131,6 +132,7 @@ pub(crate) fn content_key(index: u64, config: &ScannerConfig) -> u64 {
     index.hash(&mut hasher);
     config.hash(&mut hasher);
     BUILD_STAMP.hash(&mut hasher);
+    force_token().hash(&mut hasher);
 
     hasher.finish()
 }
@@ -138,6 +140,12 @@ pub(crate) fn content_key(index: u64, config: &ScannerConfig) -> u64 {
 const SIZE_LIMIT: u64 = 1024 * 1024 * 100;
 
 const BUILD_STAMP: &str = env!("CORE_FINGERPRINT");
+
+pub const FORCE_RESCAN: &str = "BCC_FORCE_RESCAN";
+
+fn force_token() -> Option<String> {
+    std::env::var(FORCE_RESCAN).ok()
+}
 
 pub struct Scan<T> {
     pub data: T,

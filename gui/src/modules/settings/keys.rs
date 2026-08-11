@@ -192,7 +192,7 @@ impl State {
             None => "Export Keys",
         };
 
-        let delete_label = if self.confirm_delete.is_set() { "Are You Sure?" } else { "Delete Keys" };
+        let delete_label = self.confirm_delete.confirm_label("Delete Keys");
 
         let actions = row![
             theme::sized_button(import_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::feedback_button_style(self.import_feedback.get().copied())).on_press(Message::Import),

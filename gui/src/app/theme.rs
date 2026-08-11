@@ -222,15 +222,6 @@ pub fn list_panel_container(theme: &Theme) -> container::Style {
     }
 }
 
-pub fn confirm_modal_container(theme: &Theme) -> container::Style {
-    let palette = theme.palette();
-
-    container::Style {
-        background: Some(Background::Color(palette.background)),
-        border: Border { color: palette.text, width: 1.0, radius: Radius::from(RADIUS_LG) },
-        ..container::Style::default()
-    }
-}
 
 const CARD_SHADE: f32 = 0.15;
 const CARD_ALPHA: f32 = 0.92;

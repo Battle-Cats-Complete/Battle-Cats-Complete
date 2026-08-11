@@ -1,8 +1,8 @@
 use std::thread;
 
 use iced::futures::channel::mpsc;
-use iced::widget::{button, column, container, row, text};
-use iced::{Alignment, Element, Task, Theme};
+use iced::widget::{column, text};
+use iced::{Element, Task, Theme};
 use tracing::error;
 
 use core::addons::adb::AdbManager;
@@ -14,6 +14,7 @@ use core::addons::oem::{OemDriver, OemManager};
 use core::addons::{manager, AddonStatus};
 
 use crate::app::theme;
+use crate::common::feedback::{Slot as Confirm, CONFIRM_LABEL};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Addon {
@@ -39,8 +40,7 @@ pub enum Message {
     Install(Addon),
     Download(Addon, AddonStatus),
     RequestDelete(Addon),
-    ConfirmDelete,
-    CancelDelete,
+    ConfirmExpired,
     #[cfg(target_os = "windows")]
     OemDriverSelected(OemDriver),
     #[cfg(target_os = "windows")]
@@ -55,14 +55,10 @@ pub struct State {
     ffmpeg: FfmpegManager,
     #[cfg(target_os = "windows")]
     oem: OemManager,
-    pending_delete: Option<Addon>,
+    confirm_delete: Confirm<Addon>,
 }
 
 impl State {
-    pub fn is_modal_open(&self) -> bool {
-        self.pending_delete.is_some()
-    }
-
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Install(addon) => {
@@ -102,23 +98,22 @@ impl State {
                 *slot = status;
                 Task::none()
             }
+            Message::ConfirmExpired => {
+                self.confirm_delete.expire();
+                Task::none()
+            }
             Message::RequestDelete(addon) => {
-                self.pending_delete = Some(addon);
-                Task::none()
-            }
-            Message::CancelDelete => {
-                self.pending_delete = None;
-                Task::none()
-            }
-            Message::ConfirmDelete => {
-                if let Some(addon) = self.pending_delete.take() {
-                    match addon {
-                        Addon::Adb => self.adb.uninstall(),
-                        Addon::Apkeditor => self.apkeditor.uninstall(),
-                        Addon::Ffmpeg => self.ffmpeg.uninstall(),
-                        Addon::Avif => self.avif.uninstall(),
-                    }
+                if !self.confirm_delete.take(&addon) {
+                    return self.confirm_delete.set(addon, Message::ConfirmExpired);
                 }
+
+                match addon {
+                    Addon::Adb => self.adb.uninstall(),
+                    Addon::Apkeditor => self.apkeditor.uninstall(),
+                    Addon::Ffmpeg => self.ffmpeg.uninstall(),
+                    Addon::Avif => self.avif.uninstall(),
+                }
+
                 Task::none()
             }
             #[cfg(target_os = "windows")]
@@ -137,7 +132,13 @@ impl State {
     fn addon_section<'a>(&'a self, addon: Addon, status: &'a AddonStatus, description: &'a str) -> Element<'a, Message> {
         let controls: Element<'a, Message> = match status {
             AddonStatus::Installed => {
-                theme::sized_button(format!("Delete {}", addon.label()), theme::ACTION_BUTTON_WIDTH, theme::danger_button)
+                let label = if self.confirm_delete.armed_for(&addon) {
+                    CONFIRM_LABEL.to_string()
+                } else {
+                    format!("Delete {}", addon.label())
+                };
+
+                theme::sized_button(label, theme::ACTION_BUTTON_WIDTH, theme::danger_button)
                     .on_press(Message::RequestDelete(addon))
                     .into()
             }
@@ -217,19 +218,4 @@ impl State {
         content.into()
     }
 
-    pub fn view_modal<'a>(&'a self) -> Element<'a, Message> {
-        let name = self.pending_delete.map(Addon::label).unwrap_or_default();
-
-        container(
-            column![
-                text(format!("Are you sure you want to delete {}?", name)).size(16),
-                row![
-                    button("Yes").on_press(Message::ConfirmDelete).style(button::danger),
-                    button("No").on_press(Message::CancelDelete),
-                ].spacing(10)
-            ].spacing(20).padding(25).align_x(Alignment::Center)
-        )
-            .style(theme::confirm_modal_container)
-            .into()
-    }
 }

@@ -352,9 +352,11 @@ impl BattleCatsApp {
     }
 
     pub(crate) fn sync_home_status(&mut self) {
-        if self.vault_ready {
-            self.home_state.set_game_empty(self.vault.vfs.count(architecture::GAME) == 0);
+        if !self.vault_ready || self.rebuild_running {
+            return;
         }
+
+        self.home_state.set_game_empty(self.vault.vfs.count(architecture::GAME) == 0);
     }
 
     fn apply_changes(&mut self, paths: Vec<PathBuf>) -> Task<Message> {

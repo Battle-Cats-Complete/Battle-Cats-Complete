@@ -195,7 +195,7 @@ impl State {
             None => "Export List",
         };
 
-        let reset_label = if self.confirm_reset.is_set() { "Are You Sure?" } else { "Set to Default" };
+        let reset_label = self.confirm_reset.confirm_label("Set to Default");
 
         let actions = row![
             theme::sized_button("Add Rule", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button).on_press(Message::AddRule),

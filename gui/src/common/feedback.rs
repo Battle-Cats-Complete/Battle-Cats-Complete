@@ -4,6 +4,8 @@ use iced::{task, Task};
 
 const EXPIRY: Duration = Duration::from_secs(2);
 
+pub const CONFIRM_LABEL: &str = "Are You Sure?";
+
 pub struct Slot<T> {
     value: Option<T>,
     handle: Option<task::Handle>,
@@ -48,5 +50,24 @@ impl<T> Slot<T> {
 
     pub fn is_set(&self) -> bool {
         self.value.is_some()
+    }
+
+    pub fn confirm_label<'a>(&self, idle: &'a str) -> &'a str {
+        if self.is_set() { CONFIRM_LABEL } else { idle }
+    }
+}
+
+impl<T: PartialEq> Slot<T> {
+    pub fn armed_for(&self, value: &T) -> bool {
+        self.value.as_ref() == Some(value)
+    }
+
+    pub fn take(&mut self, value: &T) -> bool {
+        if !self.armed_for(value) {
+            return false;
+        }
+
+        self.clear();
+        true
     }
 }

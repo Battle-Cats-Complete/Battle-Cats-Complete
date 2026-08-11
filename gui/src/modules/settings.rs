@@ -7,9 +7,9 @@ mod pem;
 
 use iced::mouse::Interaction;
 use iced::widget::{
-    column, container, mouse_area, opaque, pick_list, row, rule, scrollable, text, text_input, toggler, tooltip, Space, Stack,
+    column, container, mouse_area, pick_list, row, rule, scrollable, text, text_input, toggler, tooltip, Space, Stack,
 };
-use iced::{Alignment, Element, Length, Size, Task, Theme};
+use iced::{Alignment, Element, Length, Size, Task};
 
 use core::modules::settings::{lang, nightly};
 use core::modules::settings::{
@@ -113,6 +113,7 @@ impl State {
                         }
                     }
                     Tab::Cats => self.default_cat_level_buffer = core_settings.cat_data.default_level.to_string(),
+                    Tab::Data => return self.disk.update(disk::Message::Refresh).map(Message::Disk),
                     Tab::Animation => {
                         self.showcase_walk_buffer = core_settings.animation.default_showcase_walk.to_string();
                         self.showcase_idle_buffer = core_settings.animation.default_showcase_idle.to_string();
@@ -279,29 +280,6 @@ impl State {
                     .on_release(Message::General(general::Message::LanguageDragEnd))
                     .into()
             );
-        }
-
-        let modal: Option<Element<'a, Message>> = if self.addons.is_modal_open() {
-            Some(self.addons.view_modal().map(Message::Addons))
-        } else if self.disk.is_modal_open() {
-            Some(self.disk.view_modal().map(Message::Disk))
-        } else {
-            None
-        };
-
-        if let Some(modal_content) = modal {
-            layers.push(opaque(
-                container(modal_content)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-                    .style(|_theme: &Theme| {
-                        container::background(
-                            iced::Color::from_rgba8(0, 0, 0, 0.6)
-                        )
-                    })
-            ));
         }
 
         Stack::with_children(layers).into()

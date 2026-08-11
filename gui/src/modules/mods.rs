@@ -521,7 +521,7 @@ impl State {
             .style(theme::rounded_input);
 
         let toggle_style: theme::ButtonStyleFn = if is_enabled { theme::danger_button } else { theme::success_button };
-        let delete_label = if self.confirm_delete.is_set() { "Are You Sure?" } else { "Delete Mod" };
+        let delete_label = self.confirm_delete.confirm_label("Delete Mod");
 
         let actions_row = row![
             theme::sized_button(if is_enabled { "Disable Mod" } else { "Enable Mod" }, theme::POPUP_ACTION_BUTTON_WIDTH, toggle_style)
