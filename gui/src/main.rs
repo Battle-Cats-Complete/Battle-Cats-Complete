@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 pub(crate) mod animation;
 pub mod app;
 pub mod common;

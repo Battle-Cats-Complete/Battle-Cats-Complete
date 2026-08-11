@@ -1,10 +1,10 @@
 use std::env;
 use std::path::Path;
-use std::process::Command;
 
 use tracing::{debug, error, info, warn};
 
 use crate::addons::apkeditor::{get_apkeditor_path, get_java_path};
+use crate::common::process;
 
 fn execute_command(
     binary_path: &Path,
@@ -13,19 +13,12 @@ fn execute_command(
 ) -> Result<(), String> {
     debug!("Preparing to execute command: {:?}", binary_path);
 
-    let mut command = Command::new(binary_path);
+    let mut command = process::command(binary_path);
     command.args(arguments);
 
     if let Some((key, value)) = env_vars {
         debug!("Setting environment variable: {}={}", key, value);
         command.env(key, value);
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        command.creation_flags(CREATE_NO_WINDOW);
     }
 
     let output = command

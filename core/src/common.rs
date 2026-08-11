@@ -7,4 +7,5 @@ pub mod gfx;
 pub mod io;
 pub mod job;
 pub mod keys;
+pub mod process;
 pub mod region;

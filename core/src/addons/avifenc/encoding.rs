@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread;
@@ -10,6 +10,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::addons::ffmpeg as ffmpeg_dl;
 use crate::addons::paths::{self, Presence};
+use crate::common::process;
 use crate::animation::export::{
     EncoderMessage, EncoderStatus, ExportConfig,
 };
@@ -55,12 +56,7 @@ fn encode_via_pipe(
     let speed_value = 10 - (config.compression_percent / 10).clamp(0, 10);
     let quality_value = config.quality_percent.clamp(0, 100) as u8;
 
-    let mut avif_command_builder = Command::new(&avif_path);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        avif_command_builder.creation_flags(0x08000000);
-    }
+    let mut avif_command_builder = process::command(&avif_path);
 
     let arguments = vec![
         "--speed".to_string(), speed_value.to_string(),
@@ -86,12 +82,7 @@ fn encode_via_pipe(
         return false;
     };
 
-    let mut ffmpeg_command_builder = Command::new(&ffmpeg_path);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        ffmpeg_command_builder.creation_flags(0x08000000);
-    }
+    let mut ffmpeg_command_builder = process::command(&ffmpeg_path);
 
     let Ok(mut ffmpeg_command) = ffmpeg_command_builder.args([
         "-f", "rawvideo",
@@ -258,12 +249,7 @@ fn encode_via_folder(
         arguments.push(frame_path.to_string_lossy().to_string());
     }
 
-    let mut avif_command_builder = Command::new(&avifenc_path);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        avif_command_builder.creation_flags(0x08000000);
-    }
+    let mut avif_command_builder = process::command(&avifenc_path);
 
     let Ok(mut child_process) = avif_command_builder.args(&arguments)
         .stdout(Stdio::null())

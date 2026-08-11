@@ -144,7 +144,7 @@ pub enum Message {
     OpenUrl(String),
     VaultHydrated(Arc<Vault>),
     TablesLoaded(Box<(Param, Localizable)>),
-    VaultValidated { vault: Option<Arc<Vault>>, key: Option<u64> },
+    VaultValidated { vault: Option<Arc<Vault>>, key: Option<u64>, mounted: Option<String> },
     IndexPersisted,
     FilesChanged(Change),
     Home(home::Message),
@@ -428,9 +428,14 @@ impl BattleCatsApp {
         self.persist_index()
     }
 
-    fn finish_validation(&mut self, vault: Option<Arc<Vault>>, key: Option<u64>) -> Task<Message> {
+    fn finish_validation(&mut self, vault: Option<Arc<Vault>>, key: Option<u64>, mounted: Option<String>) -> Task<Message> {
         self.rebuild_running = false;
         let queued = std::mem::take(&mut self.rebuild_queued);
+
+        if mounted != self.mods_state.intended_mod() {
+            warn!(?mounted, "The active mod changed while indexing, discarding the stale index");
+            return self.rebuild_content();
+        }
 
         if let Some(rebuilt) = vault {
             info!("Swapping in the rebuilt file index");
@@ -493,13 +498,13 @@ impl BattleCatsApp {
     }
 
     pub(crate) fn rebuild_content(&mut self) -> Task<Message> {
-        if self.rebuild_running || !self.vault_ready {
+        if self.rebuild_running || !self.vault_ready || self.mods_state.mounting() {
             self.rebuild_queued = true;
             return Task::none();
         }
 
         info!("Rebuilding the file index and rescanning every module");
-        self.rebuild_running = true;
+        self.rebuild_queued = false;
 
         self.spawn_vault_build(false)
     }
@@ -713,7 +718,7 @@ impl BattleCatsApp {
                 self.localizable = localizable;
                 Task::none()
             }
-            Message::VaultValidated { vault, key } => self.finish_validation(vault, key),
+            Message::VaultValidated { vault, key, mounted } => self.finish_validation(vault, key, mounted),
             Message::FilesChanged(Change::Unavailable) => {
                 warn!("File watcher could not be initialized; reporting it as an initialization error");
                 self.init_errors.report_watcher_failure(self.settings.general.ignore_watcher_failure);
@@ -797,14 +802,21 @@ impl BattleCatsApp {
                 task
             }
             Message::Mod(msg) => {
-                let active_before = self.mods_state.active_mod();
+                let mount_settled = matches!(msg, mods::Message::MountFinished { .. });
                 let task = self.mods_state.update(msg, &self.settings, &self.vault).map(Message::Mod);
                 self.sync_popup(ActivePopup::ModsImport, self.mods_state.import_popup_open());
                 self.sync_popup(ActivePopup::ModsExport, self.mods_state.export_popup_open());
-                if self.mods_state.active_mod() != active_before {
-                    return Task::batch([task, self.rescan_units()]);
+
+                if !mount_settled {
+                    return task;
                 }
-                task
+
+                if self.rebuild_queued {
+                    info!("Changes landed while mounting, indexing again");
+                    return Task::batch([task, self.rebuild_content()]);
+                }
+
+                Task::batch([task, self.rescan_units()])
             }
             Message::Data(msg) => {
                 let task = self.data_state.update(msg, &mut self.settings, &mut self.app_state).map(Message::Data);

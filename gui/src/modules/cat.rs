@@ -69,8 +69,8 @@ pub enum Message {
     SheetsCheck,
     ScanProgress(usize, usize),
     Loaded(Vec<CatEntry>, Option<u64>),
-    Img015Loaded(usize, Option<CoreSpriteSheet>),
-    Img022Loaded(usize, Option<CoreSpriteSheet>),
+    Img015Loaded(u64, usize, Option<CoreSpriteSheet>),
+    Img022Loaded(u64, usize, Option<CoreSpriteSheet>),
     SearchChanged(String),
     SelectCat(u32),
     SelectForm(usize),
@@ -93,8 +93,8 @@ impl std::fmt::Debug for Message {
             Self::SheetsCheck => write!(f, "SheetsCheck"),
             Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
             Self::Loaded(cats, _) => write!(f, "Loaded({})", cats.len()),
-            Self::Img015Loaded(i, _) => write!(f, "Img015Loaded({})", i),
-            Self::Img022Loaded(i, _) => write!(f, "Img022Loaded({})", i),
+            Self::Img015Loaded(_, i, _) => write!(f, "Img015Loaded({})", i),
+            Self::Img022Loaded(_, i, _) => write!(f, "Img022Loaded({})", i),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
             Self::SelectCat(id) => write!(f, "SelectCat({})", id),
             Self::SelectForm(i) => write!(f, "SelectForm({})", i),
@@ -127,6 +127,7 @@ pub struct State {
 
     img015_sheets: Vec<SpriteSheet>,
     img022_sheets: Vec<SpriteSheet>,
+    sheet_generation: u64,
     custom_assets: CustomAssets,
 
     dynamic_stats: StatsMemo,
@@ -164,6 +165,7 @@ impl Default for State {
 
             img015_sheets: Vec::new(),
             img022_sheets: Vec::new(),
+            sheet_generation: 0,
             custom_assets: CustomAssets::new(),
 
             dynamic_stats: RefCell::new(None),
@@ -314,6 +316,7 @@ impl State {
     pub(crate) fn clear_caches(&mut self) {
         self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
+        self.sheet_generation = self.sheet_generation.wrapping_add(1);
         self.img015_sheets.clear();
         self.img022_sheets.clear();
         self.details.clear_icons();
@@ -355,10 +358,11 @@ impl State {
     }
 
     fn check_sheets(&mut self, vfs: &Vfs) -> Task<Message> {
+        let generation = self.sheet_generation;
         let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, vfs)
-            .map(|(index, sheet)| Message::Img015Loaded(index, sheet));
+            .map(move |(index, sheet)| Message::Img015Loaded(generation, index, sheet));
         let img022_task = crate::common::img022::ensure_loaded(&mut self.img022_sheets, vfs)
-            .map(|(index, sheet)| Message::Img022Loaded(index, sheet));
+            .map(move |(index, sheet)| Message::Img022Loaded(generation, index, sheet));
 
         Task::batch([img015_task, img022_task])
     }
@@ -387,14 +391,18 @@ impl State {
     fn update_inner(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
             Message::SheetsCheck => self.check_sheets(&global_ctx.vault.vfs),
-            Message::Img015Loaded(index, sheet) => {
-                if let Some(slot) = self.img015_sheets.get_mut(index) {
+            Message::Img015Loaded(generation, index, sheet) => {
+                if generation == self.sheet_generation
+                    && let Some(slot) = self.img015_sheets.get_mut(index)
+                {
                     slot.apply(sheet);
                 }
                 Task::none()
             }
-            Message::Img022Loaded(index, sheet) => {
-                if let Some(slot) = self.img022_sheets.get_mut(index) {
+            Message::Img022Loaded(generation, index, sheet) => {
+                if generation == self.sheet_generation
+                    && let Some(slot) = self.img022_sheets.get_mut(index)
+                {
                     slot.apply(sheet);
                 }
                 Task::none()

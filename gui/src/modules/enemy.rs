@@ -63,7 +63,7 @@ pub enum Message {
     SheetsCheck,
     ScanProgress(usize, usize),
     Loaded(Vec<EnemyEntry>, Option<u64>),
-    Img015Loaded(usize, Option<CoreSpriteSheet>),
+    Img015Loaded(u64, usize, Option<CoreSpriteSheet>),
     SearchChanged(String),
     SelectEnemy(u32),
     SelectTab(DetailTab),
@@ -82,7 +82,7 @@ impl std::fmt::Debug for Message {
             Self::SheetsCheck => write!(f, "SheetsCheck"),
             Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
             Self::Loaded(enemies, _) => write!(f, "Loaded({})", enemies.len()),
-            Self::Img015Loaded(i, _) => write!(f, "Img015Loaded({})", i),
+            Self::Img015Loaded(_, i, _) => write!(f, "Img015Loaded({})", i),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
             Self::SelectEnemy(id) => write!(f, "SelectEnemy({})", id),
             Self::SelectTab(t) => write!(f, "SelectTab({:?})", t),
@@ -113,6 +113,7 @@ pub struct EnemyState {
     pub magnification: Magnification,
 
     img015_sheets: Vec<SpriteSheet>,
+    sheet_generation: u64,
     custom_assets: CustomAssets,
 
     dynamic_stats: RefCell<Option<(u32, Option<Battle>)>>,
@@ -146,6 +147,7 @@ impl Default for EnemyState {
             magnification: Magnification { hitpoints: 100, attack: 100 },
 
             img015_sheets: Vec::new(),
+            sheet_generation: 0,
             custom_assets: CustomAssets::new(),
 
             dynamic_stats: RefCell::new(None),
@@ -273,6 +275,7 @@ impl EnemyState {
     pub(crate) fn clear_caches(&mut self) {
         self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
+        self.sheet_generation = self.sheet_generation.wrapping_add(1);
         self.img015_sheets.clear();
         self.filter.clear_icons();
         self.abilities.clear_icons();
@@ -280,8 +283,10 @@ impl EnemyState {
     }
 
     fn check_sheets(&mut self, vfs: &Vfs) -> Task<Message> {
+        let generation = self.sheet_generation;
+
         crate::common::img015::ensure_loaded(&mut self.img015_sheets, vfs)
-            .map(|(index, sheet)| Message::Img015Loaded(index, sheet))
+            .map(move |(index, sheet)| Message::Img015Loaded(generation, index, sheet))
     }
 
     pub fn update(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
@@ -295,8 +300,10 @@ impl EnemyState {
     fn update_inner(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {
         match message {
             Message::SheetsCheck => self.check_sheets(&global_ctx.vault.vfs),
-            Message::Img015Loaded(index, sheet) => {
-                if let Some(slot) = self.img015_sheets.get_mut(index) {
+            Message::Img015Loaded(generation, index, sheet) => {
+                if generation == self.sheet_generation
+                    && let Some(slot) = self.img015_sheets.get_mut(index)
+                {
                     slot.apply(sheet);
                 }
                 Task::none()

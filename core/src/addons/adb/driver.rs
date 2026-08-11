@@ -1,6 +1,7 @@
-use std::process::Command;
 use std::thread;
 use std::time::Duration;
+
+use crate::common::process;
 
 use super::get_adb_path;
 
@@ -13,14 +14,8 @@ fn get_adb_command() -> Result<std::path::PathBuf, String> {
 
 pub(crate) fn run_command(arguments: &[&str]) -> Result<String, String> {
     let adb_path = get_adb_command()?;
-    let mut command_process = Command::new(adb_path);
+    let mut command_process = process::command(adb_path);
     command_process.args(arguments);
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        command_process.creation_flags(0x08000000);
-    }
 
     let command_output = command_process.output().map_err(|error| error.to_string())?;
 

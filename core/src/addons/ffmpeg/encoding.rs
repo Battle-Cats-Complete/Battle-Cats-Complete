@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
@@ -11,6 +11,7 @@ use crate::animation::export::{
     ExportConfig, ExportFormat,
 };
 use crate::animation::export::encoding::prepare_image;
+use crate::common::process;
 
 use super::get_ffmpeg_path;
 
@@ -143,12 +144,7 @@ pub(crate) fn encode(
     arguments.push("-y".to_string());
     arguments.push(temp_path.to_string_lossy().to_string());
 
-    let mut command_builder = Command::new(&ffmpeg_path);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        command_builder.creation_flags(0x08000000);
-    }
+    let mut command_builder = process::command(&ffmpeg_path);
 
     let Ok(mut child_process) = command_builder.args(&arguments)
         .stdin(Stdio::piped())

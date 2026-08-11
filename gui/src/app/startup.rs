@@ -95,6 +95,7 @@ impl BattleCatsApp {
         let config = self.settings.scanner_config(self.mods_state.active_mod());
         let (tx, rx) = mpsc::unbounded();
 
+        self.rebuild_running = true;
         self.cat_state.set_indexing();
         self.enemy_state.set_indexing();
         self.stage_state.set_indexing();
@@ -112,14 +113,15 @@ impl BattleCatsApp {
 
             if stored == Some(Some(index)) {
                 debug!(index, "File index still matches disk, keeping the hydrated caches");
-                let _ = tx.unbounded_send(Message::VaultValidated { vault: None, key });
+                let _ = tx.unbounded_send(Message::VaultValidated { vault: None, key, mounted: config.active_mod });
                 return;
             }
 
             info!(index, "Building the file index in the background");
             let mut rebuilt = Vault::with_priority(&config.language_priority);
             rebuild_vault(&mut rebuilt, &config, index);
-            let _ = tx.unbounded_send(Message::VaultValidated { vault: Some(Arc::new(rebuilt)), key });
+            let vault = Some(Arc::new(rebuilt));
+            let _ = tx.unbounded_send(Message::VaultValidated { vault, key, mounted: config.active_mod });
         });
 
         Task::stream(rx)

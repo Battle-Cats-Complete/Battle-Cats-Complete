@@ -2,7 +2,6 @@ use std::env;
 use std::fs;
 #[cfg(unix)]
 use std::path::Path;
-use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
@@ -13,6 +12,8 @@ use self_update::{cargo_crate_version, version};
 use self_update::backends::github::{ReleaseList, Update as GithubUpdate};
 use self_update::update::Release;
 use tracing::{error, info};
+
+use core::common::process;
 
 use crate::widget::popup;
 
@@ -270,7 +271,7 @@ pub(crate) fn restart_app() {
 
     let script = format!("sleep {}; exec \"$0\"", RESTART_DELAY_SECS);
 
-    if let Err(err) = Command::new("sh").arg("-c").arg(script).arg(clean_path).spawn() {
+    if let Err(err) = process::command("sh").arg("-c").arg(script).arg(clean_path).spawn() {
         error!("Restart aborted: could not spawn the relaunch helper: {}", err);
         return;
     }
@@ -287,7 +288,7 @@ pub(crate) fn restart_app() {
 
     info!("Executing non-unix restart sequence for {}", exe.display());
 
-    if let Err(err) = Command::new(&exe).spawn() {
+    if let Err(err) = process::command(&exe).spawn() {
         error!("Restart aborted: could not spawn {}: {}", exe.display(), err);
         return;
     }

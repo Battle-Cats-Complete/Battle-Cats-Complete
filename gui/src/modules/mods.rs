@@ -82,6 +82,7 @@ pub struct State {
     description: text_editor::Content,
     confirm_delete: Slot<()>,
     mounting: bool,
+    mount_target: Option<String>,
 }
 
 impl State {
@@ -99,6 +100,7 @@ impl State {
             description: text_editor::Content::new(),
             confirm_delete: Slot::default(),
             mounting: false,
+            mount_target: None,
         }
     }
 
@@ -126,6 +128,18 @@ impl State {
 
     pub fn active_mod(&self) -> Option<String> {
         self.data.loaded_mods.iter().find(|m| m.enabled).map(|m| m.folder_name.clone())
+    }
+
+    pub(crate) fn mounting(&self) -> bool {
+        self.mounting
+    }
+
+    pub(crate) fn intended_mod(&self) -> Option<String> {
+        if self.mounting {
+            return self.mount_target.clone();
+        }
+
+        self.active_mod()
     }
 
     pub fn update(&mut self, message: Message, settings: &Settings, vault: &Arc<Vault>) -> Task<Message> {
@@ -194,6 +208,7 @@ impl State {
             }
             Message::MountFinished { folder, enabled, error } => {
                 self.mounting = false;
+                self.mount_target = None;
 
                 for entry in self.data.loaded_mods.iter_mut() {
                     entry.enabled = false;
@@ -255,6 +270,7 @@ impl State {
         folder: String,
     ) -> Task<Message> {
         self.mounting = true;
+        self.mount_target = target.clone();
 
         let vault = Arc::clone(vault);
         let (tx, rx) = mpsc::unbounded();
