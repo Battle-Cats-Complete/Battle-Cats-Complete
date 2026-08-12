@@ -68,6 +68,7 @@ const FOLDER_SHUT: &str = "\u{25b8}";
 
 const EMPTY_LABEL: &str = "No Files Found on Mount";
 const MISSING_LABEL: &str = "Selected Mount Missing from Memory";
+const NO_MOUNTS_LABEL: &str = "No Mounts Available";
 
 pub(crate) fn register_nightly() {
     nightly::register_nightly_usage();
@@ -103,6 +104,25 @@ impl fmt::Display for Mode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Content {
+    Rows,
+    NoMounts,
+    MountMissing,
+    NoFiles,
+}
+
+impl Content {
+    fn label(self) -> Option<&'static str> {
+        match self {
+            Self::Rows => None,
+            Self::NoMounts => Some(NO_MOUNTS_LABEL),
+            Self::MountMissing => Some(MISSING_LABEL),
+            Self::NoFiles => Some(EMPTY_LABEL),
+        }
+    }
+}
+
 struct Row {
     name: Box<str>,
     depth: u16,
@@ -123,7 +143,7 @@ pub struct State {
     flat_keys: Vec<Box<str>>,
     rows: Vec<Row>,
     selected_row: Option<usize>,
-    populated: bool,
+    content: Content,
     has_folders: bool,
     widest: f32,
     scroll_offset: f32,
@@ -145,7 +165,7 @@ impl Default for State {
             flat_keys: Vec::new(),
             rows: Vec::new(),
             selected_row: None,
-            populated: false,
+            content: Content::NoMounts,
             has_folders: false,
             widest: 0.0,
             scroll_offset: 0.0,
@@ -345,16 +365,23 @@ impl State {
         self.rows.clear();
         self.selected_row = None;
         self.widest = 0.0;
-        self.populated = false;
         self.has_folders = false;
 
-        let Some(mount) = self.mount.as_deref() else {
-            return;
-        };
-
-        if vfs.count(mount) == 0 {
+        if self.mounts.is_empty() {
+            self.content = Content::NoMounts;
             return;
         }
+
+        if self.stale() {
+            self.content = Content::MountMissing;
+            self.selected = None;
+            return;
+        }
+
+        let Some(mount) = self.mount.as_deref() else {
+            self.content = Content::NoFiles;
+            return;
+        };
 
         let dropped = self.selected.as_deref().is_some_and(|path| {
             let Some(parent) = path.parent() else {
@@ -370,6 +397,11 @@ impl State {
 
         if dropped {
             self.selected = None;
+        }
+
+        if vfs.count(mount) == 0 {
+            self.content = Content::NoFiles;
+            return;
         }
 
         let anchor = self
@@ -395,7 +427,7 @@ impl State {
             Mode::Flat => flatten.flat(),
         }
 
-        self.populated = !flatten.rows.is_empty();
+        self.content = if flatten.rows.is_empty() { Content::NoFiles } else { Content::Rows };
         self.has_folders = flatten.folders;
         self.widest = flatten.widest + if flatten.folders { MARKER_WIDTH } else { 0.0 };
         self.rows = flatten.rows;
@@ -541,7 +573,9 @@ impl State {
         let style: fn(&Theme, pick_list::Status) -> pick_list::Style =
             if self.stale() { theme::combo_box_stale } else { theme::combo_box };
 
-        let mount = pick_list(self.mounts.as_slice(), self.mount.as_ref(), Message::MountSelected)
+        let selected = self.mount.as_ref().filter(|_| !self.mounts.is_empty());
+
+        let mount = pick_list(self.mounts.as_slice(), selected, Message::MountSelected)
             .placeholder("Mount")
             .text_size(PICKER_TEXT_SIZE)
             .padding(PICKER_PADDING)
@@ -570,18 +604,17 @@ impl State {
     }
 
     fn view_tree(&self) -> Element<'_, Message> {
-        let body: Element<'_, Message> = if self.populated {
-            responsive(move |size: Size| self.view_rows(size)).into()
-        } else {
-            let label = if self.stale() { MISSING_LABEL } else { EMPTY_LABEL };
-
-            container(theme::centered_text(label).size(EMPTY_TEXT_SIZE).style(text::danger))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill)
-                .into()
-        };
+        let body: Element<'_, Message> = self.content.label().map_or_else(
+            || responsive(move |size: Size| self.view_rows(size)).into(),
+            |label| {
+                container(theme::centered_text(label).size(EMPTY_TEXT_SIZE).style(text::danger))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                    .into()
+            },
+        );
 
         container(container(body).padding(theme::CONSOLE_BORDER_WIDTH))
             .width(Length::Fill)
