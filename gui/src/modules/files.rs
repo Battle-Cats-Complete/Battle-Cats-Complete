@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use iced::alignment::Vertical;
 use iced::widget::{column, container, operation, pick_list, responsive, row, scrollable, space, text, Column};
-use iced::{widget, Element, Font, Length, Padding, Size, Task};
+use iced::{widget, Element, Font, Length, Padding, Size, Task, Theme};
 use rustc_hash::FxHashSet;
 
 use core::modules::settings::nightly;
@@ -13,20 +13,23 @@ use crate::common::row_window::{self, RowWindow};
 use crate::common::watcher;
 use crate::widget::{list_row, smooth_scroll};
 
-const PAGE_PADDING: f32 = 12.0;
-const PANEL_WIDTH: f32 = 380.0;
-const PANEL_GAP: f32 = 8.0;
+const PANEL_WIDTH: f32 = 320.0;
+const PANEL_PADDING: f32 = 8.0;
+const PICKER_TREE_GAP: f32 = 8.0;
 
-const LABEL_SIZE: f32 = 13.0;
-const PICKER_GAP: f32 = 8.0;
+const PICKER_TEXT_SIZE: f32 = 13.0;
+const EMPTY_TEXT_SIZE: f32 = 14.0;
 
 const TEXT_SIZE: f32 = 13.0;
 const CHAR_WIDTH: f32 = TEXT_SIZE * 0.65;
-const ROW_HEIGHT: f32 = 20.0;
+const ROW_HEIGHT: f32 = 24.0;
 const ROW_SPACING: f32 = 0.0;
 const ROW_PADDING: f32 = 6.0;
 const INDENT: f32 = 12.0;
-const MARKER_WIDTH: f32 = 12.0;
+
+const MARKER_SIZE: f32 = 22.0;
+const MARKER_LINE_HEIGHT: f32 = ROW_HEIGHT / MARKER_SIZE;
+const MARKER_WIDTH: f32 = 16.0;
 
 const SCROLLBAR_WIDTH: f32 = 6.0;
 const SCROLLBAR_MARGIN: f32 = 2.0;
@@ -34,6 +37,9 @@ const SCROLLBAR_ALLOWANCE: f32 = 14.0;
 
 const FOLDER_OPEN: &str = "\u{25be}";
 const FOLDER_SHUT: &str = "\u{25b8}";
+
+const EMPTY_LABEL: &str = "No Files Found on Mount";
+const MISSING_LABEL: &str = "Selected Mount Missing from Memory";
 
 pub(crate) fn register_nightly() {
     nightly::register_nightly_usage();
@@ -60,6 +66,7 @@ pub struct State {
     selected: Option<PathBuf>,
     rows: Vec<Row>,
     selected_row: Option<usize>,
+    populated: bool,
     widest: f32,
     scroll_offset: f32,
     scroll_id: widget::Id,
@@ -74,6 +81,7 @@ impl Default for State {
             selected: None,
             rows: Vec::new(),
             selected_row: None,
+            populated: false,
             widest: 0.0,
             scroll_offset: 0.0,
             scroll_id: widget::Id::unique(),
@@ -89,7 +97,7 @@ impl State {
             self.mounts = keys;
         }
 
-        if !self.mount.as_ref().is_some_and(|current| self.mounts.contains(current)) {
+        if self.mount.is_none() {
             self.mount = self.mounts.first().cloned();
             self.reset();
         }
@@ -140,11 +148,12 @@ impl State {
                     return Task::none();
                 };
 
-                if folder && !self.expanded.remove(&path) {
-                    self.expanded.insert(path.clone());
+                if !folder {
+                    self.selected = Some(path);
+                } else if !self.expanded.remove(&path) {
+                    self.expanded.insert(path);
                 }
 
-                self.selected = Some(path);
                 self.rebuild(vfs);
 
                 Task::none()
@@ -164,19 +173,23 @@ impl State {
     }
 
     fn rebuild(&mut self, vfs: &Vfs) {
+        self.rows.clear();
+        self.selected_row = None;
+        self.widest = 0.0;
+        self.populated = false;
+
         let Some(mount) = self.mount.as_deref() else {
-            self.rows.clear();
-            self.selected_row = None;
-            self.widest = 0.0;
             return;
         };
+
+        if vfs.count(mount) == 0 {
+            return;
+        }
 
         let anchor = self
             .selected
             .as_deref()
             .and_then(|path| Some((path.parent()?, path.file_name()?.to_str()?)));
-
-        let root_open = self.expanded.contains(Path::new(""));
 
         let mut flatten = Flatten {
             vfs,
@@ -188,16 +201,9 @@ impl State {
             widest: 0.0,
         };
 
-        flatten.push(Row { name: mount.into(), depth: 0, folder: true, expanded: root_open });
+        flatten.walk(Path::new(""), 0);
 
-        if root_open {
-            flatten.walk(Path::new(""), 1);
-        }
-
-        if self.selected.as_deref() == Some(Path::new("")) {
-            flatten.selected_row = Some(0);
-        }
-
+        self.populated = !flatten.rows.is_empty();
         self.rows = flatten.rows;
         self.selected_row = flatten.selected_row;
         self.widest = flatten.widest;
@@ -205,27 +211,18 @@ impl State {
 
     fn path_of(&self, index: usize) -> Option<PathBuf> {
         let target = self.rows.get(index)?;
-        let mut parts: Vec<&str> = Vec::with_capacity(target.depth as usize);
+        let mut parts: Vec<&str> = vec![target.name.as_ref()];
         let mut wanted = target.depth;
 
-        if wanted == 0 {
-            return Some(PathBuf::new());
-        }
-
-        parts.push(target.name.as_ref());
-
         for row in self.rows[..index].iter().rev() {
-            if row.depth != wanted - 1 {
-                continue;
-            }
-
-            wanted -= 1;
-
             if wanted == 0 {
                 break;
             }
 
-            parts.push(row.name.as_ref());
+            if row.depth == wanted - 1 {
+                wanted -= 1;
+                parts.push(row.name.as_ref());
+            }
         }
 
         let mut path = PathBuf::new();
@@ -238,38 +235,53 @@ impl State {
     }
 
     pub(crate) fn view(&self) -> Element<'_, Message> {
-        let panel = column![self.view_picker(), self.view_tree()]
-            .spacing(PANEL_GAP)
-            .width(Length::Fixed(PANEL_WIDTH))
+        let sidebar = column![
+            self.view_picker(),
+            space().height(Length::Fixed(PICKER_TREE_GAP)),
+            self.view_tree(),
+        ]
+            .spacing(0)
             .height(Length::Fill);
 
-        container(panel).padding(PAGE_PADDING).width(Length::Fill).height(Length::Fill).into()
+        let panel = container(sidebar)
+            .width(Length::Fixed(PANEL_WIDTH))
+            .height(Length::Fill)
+            .padding(PANEL_PADDING)
+            .style(theme::list_panel_container);
+
+        row![panel].width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn stale(&self) -> bool {
+        self.mount.as_ref().is_some_and(|mount| !self.mounts.contains(mount))
     }
 
     fn view_picker(&self) -> Element<'_, Message> {
-        let picker = pick_list(self.mounts.as_slice(), self.mount.as_ref(), Message::MountSelected)
-            .placeholder("Mount")
-            .text_size(LABEL_SIZE)
-            .width(Length::Fill)
-            .style(theme::combo_box)
-            .menu_style(theme::combo_box_menu);
+        let style: fn(&Theme, pick_list::Status) -> pick_list::Style =
+            if self.stale() { theme::combo_box_stale } else { theme::combo_box };
 
-        row![text("Mount").size(LABEL_SIZE), picker]
-            .spacing(PICKER_GAP)
-            .align_y(Vertical::Center)
+        pick_list(self.mounts.as_slice(), self.mount.as_ref(), Message::MountSelected)
+            .placeholder("Mount")
+            .text_size(PICKER_TEXT_SIZE)
+            .padding([4, 8])
+            .width(Length::Fill)
+            .style(style)
+            .menu_style(theme::combo_box_menu)
             .into()
     }
 
     fn view_tree(&self) -> Element<'_, Message> {
-        let body: Element<'_, Message> = if self.rows.is_empty() {
-            container(theme::centered_text("No mounts indexed").size(TEXT_SIZE))
+        let body: Element<'_, Message> = if self.populated {
+            responsive(move |size: Size| self.view_rows(size)).into()
+        } else {
+            let label = if self.stale() { MISSING_LABEL } else { EMPTY_LABEL };
+
+            container(theme::centered_text(label).size(EMPTY_TEXT_SIZE).style(text::danger))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .center_x(Length::Fill)
                 .center_y(Length::Fill)
                 .into()
-        } else {
-            responsive(move |size: Size| self.view_rows(size)).into()
         };
 
         container(container(body).padding(theme::CONSOLE_BORDER_WIDTH))
@@ -322,11 +334,13 @@ impl State {
             (false, _) => "",
         };
 
-        let glyph = |content: &'a str| text(content).font(Font::MONOSPACE).size(TEXT_SIZE);
-
         let label = row![
-            glyph(marker).width(Length::Fixed(MARKER_WIDTH)),
-            glyph(row.name.as_ref()).wrapping(text::Wrapping::None),
+            text(marker)
+                .font(Font::MONOSPACE)
+                .size(MARKER_SIZE)
+                .line_height(MARKER_LINE_HEIGHT)
+                .width(Length::Fixed(MARKER_WIDTH)),
+            text(row.name.as_ref()).font(Font::MONOSPACE).size(TEXT_SIZE).wrapping(text::Wrapping::None),
         ]
             .align_y(Vertical::Center);
 
@@ -370,10 +384,6 @@ impl Flatten<'_> {
         for folder in listing.folders {
             let path = dir.join(folder.as_ref());
             let open = self.expanded.contains(&path);
-
-            if marked == Some(folder.as_ref()) {
-                self.selected_row = Some(self.rows.len());
-            }
 
             self.push(Row { name: folder, depth, folder: true, expanded: open });
 
