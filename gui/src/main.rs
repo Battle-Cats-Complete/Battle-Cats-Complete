@@ -49,6 +49,7 @@ pub fn main() -> iced::Result {
             platform_specific: platform_specific_settings(),
             ..Default::default()
         })
+        .exit_on_close_request(false)
         .subscription(app::BattleCatsApp::subscription)
         .run()
 }

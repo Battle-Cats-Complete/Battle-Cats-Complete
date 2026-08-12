@@ -141,6 +141,7 @@ pub enum Message {
     FramePainted,
     ShowWindow,
     Navigate(Page),
+    CloseRequested(window::Id),
     ToggleSidebar,
     WindowResized(Size),
     Updater(UpdaterMsg),
@@ -311,6 +312,7 @@ impl BattleCatsApp {
             self.enemy_state.subscription().map(Message::Enemy),
             self.import_state.subscription().map(Message::Import),
             Subscription::run(watcher::changes).map(Message::FilesChanged),
+            window::close_requests().map(Message::CloseRequested),
         ];
 
         if self.updater_popup_open && matches!(self.updater_status, UpdateStatus::Downloading(_)) {
@@ -335,6 +337,10 @@ impl BattleCatsApp {
     }
 
     fn navigate(&mut self, page: Page) -> Task<Message> {
+        if self.current_page == Page::Files && page != Page::Files {
+            self.files_state.leave(&self.vault.vfs);
+        }
+
         self.current_page = page;
 
         match page {
@@ -343,7 +349,7 @@ impl BattleCatsApp {
                 Task::none()
             }
             Page::Files => {
-                self.files_state.sync(&self.vault.vfs);
+                self.files_state.sync(&self.vault.vfs, self.settings.files.unlock_game_mount, false);
                 self.files_state.sync_state(&mut self.app_state.files);
                 Task::none()
             }
@@ -437,14 +443,14 @@ impl BattleCatsApp {
             self.sync_home_status();
         }
 
-        if self.current_page == Page::Files {
-            self.files_state.apply_changes(&self.vault.vfs, &paths);
-            self.files_state.sync_state(&mut self.app_state.files);
-        }
-
         if !touched_mods.is_empty() {
             self.mods_state.resync(&self.vault, &touched_mods);
             self.mods_state.invalidate_assets(&touched_mods);
+        }
+
+        if self.current_page == Page::Files {
+            self.files_state.apply_changes(&self.vault.vfs, &paths, self.settings.files.unlock_game_mount);
+            self.files_state.sync_state(&mut self.app_state.files);
         }
 
         if wiped {
@@ -686,6 +692,13 @@ impl BattleCatsApp {
                 self.updater_status_handle = None;
                 Task::none()
             }
+            Message::CloseRequested(id) => {
+                self.files_state.leave(&self.vault.vfs);
+                self.check_auto_save();
+                self.check_auto_save_state();
+
+                window::close(id)
+            }
             Message::Navigate(page) => self.navigate(page),
             Message::ToggleSidebar => {
                 self.sidebar_open = !self.sidebar_open;
@@ -863,7 +876,8 @@ impl BattleCatsApp {
                 Task::batch([task, self.rebuild_content()])
             }
             Message::Files(msg) => {
-                let task = self.files_state.update(msg, &self.vault.vfs).map(Message::Files);
+                let unlocked = self.settings.files.unlock_game_mount;
+                let task = self.files_state.update(msg, &self.vault.vfs, unlocked).map(Message::Files);
                 self.files_state.sync_state(&mut self.app_state.files);
                 task
             }

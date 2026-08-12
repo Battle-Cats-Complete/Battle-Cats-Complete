@@ -60,6 +60,13 @@ pub struct Settings {
     pub animation: AnimSettings,
     pub mods: ModsSettings,
     pub stages: StageDataSettings,
+    pub files: FilesSettings,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct FilesSettings {
+    pub unlock_game_mount: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]

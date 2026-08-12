@@ -259,17 +259,7 @@ impl State {
                 .width(Length::Fixed(EXPAND_BUTTON_SIZE))
                 .height(Length::Fixed(EXPAND_BUTTON_SIZE))
                 .padding(0)
-                .style(move |t: &Theme, status| {
-                    let base = theme::toggle_button(t, status, is_expanded);
-                    button::Style {
-                        border: Border {
-                            color: t.extended_palette().background.strong.color,
-                            width: 1.0,
-                            ..base.border
-                        },
-                        ..base
-                    }
-                })
+                .style(move |t: &Theme, status| theme::overlay_button(t, status, is_expanded))
                 .on_press(Message::ToggleExpanded),
         )
         .padding(EXPAND_BUTTON_INSET);

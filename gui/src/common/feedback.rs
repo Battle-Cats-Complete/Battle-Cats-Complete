@@ -19,14 +19,18 @@ impl<T> Default for Slot<T> {
 
 impl<T> Slot<T> {
     pub fn set<M: Send + 'static>(&mut self, value: T, expired: M) -> Task<M> {
+        self.set_after(value, expired, EXPIRY)
+    }
+
+    pub fn set_after<M: Send + 'static>(&mut self, value: T, expired: M, delay: Duration) -> Task<M> {
         self.value = Some(value);
         if let Some(handle) = self.handle.take() {
             handle.abort();
         }
 
         let (task, handle) = Task::perform(
-            async {
-                smol::Timer::after(EXPIRY).await;
+            async move {
+                smol::Timer::after(delay).await;
             },
             move |_| expired,
         )

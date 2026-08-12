@@ -95,10 +95,6 @@ impl State {
         self.has_folders = false;
     }
 
-    pub(super) fn shows(&self, dir: &Path) -> bool {
-        self.expanded.contains(dir)
-    }
-
     pub(super) fn reveal(&mut self, path: &Path) {
         let mut current = path.parent();
 

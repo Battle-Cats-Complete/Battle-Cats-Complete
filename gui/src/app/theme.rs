@@ -162,6 +162,17 @@ pub fn header_toggle_button(theme: &Theme, status: button::Status, is_selected: 
     }
 }
 
+pub const OVERLAY_BUTTON_SIZE: f32 = 30.0;
+
+pub fn overlay_button(theme: &Theme, status: button::Status, is_active: bool) -> button::Style {
+    let base = toggle_button(theme, status, is_active);
+
+    button::Style {
+        border: Border { color: theme.extended_palette().background.strong.color, width: 1.0, ..base.border },
+        ..base
+    }
+}
+
 pub fn neutral_button(theme: &Theme, status: button::Status) -> button::Style {
     let palette = theme.extended_palette();
 
@@ -405,6 +416,39 @@ pub fn mock_console_container(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(background)),
         border: Border { color: border_color, width: CONSOLE_BORDER_WIDTH, radius: Radius::from(RADIUS_SM) },
+        ..container::Style::default()
+    }
+}
+
+const NOTICE_ALPHA: f32 = 220.0 / 255.0;
+const NOTICE_SHADE: f32 = 0.0;
+
+pub fn plain_editor(theme: &Theme, status: text_editor::Status) -> text_editor::Style {
+    let style = text_editor::default(theme, status);
+
+    text_editor::Style {
+        background: Background::Color(Color::TRANSPARENT),
+        border: Border::default(),
+        ..style
+    }
+}
+
+pub fn notice_banner(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+
+    container::Style {
+        text_color: Some(Color::WHITE),
+        background: Some(Background::Color(Color {
+            r: NOTICE_SHADE,
+            g: NOTICE_SHADE,
+            b: NOTICE_SHADE,
+            a: NOTICE_ALPHA,
+        })),
+        border: Border {
+            color: palette.danger,
+            width: 1.0,
+            radius: Radius { top_left: 0.0, top_right: 0.0, bottom_left: RADIUS_LG, bottom_right: RADIUS_LG },
+        },
         ..container::Style::default()
     }
 }

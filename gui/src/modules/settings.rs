@@ -60,6 +60,7 @@ pub enum Message {
     Pem(pem::Message),
     Addons(addons::Message),
     ToggleDebugView(bool),
+    ToggleUnlockGameMount(bool),
     ToggleTightBounds(bool),
     ToggleAutoCamera(bool),
     ShowcaseWalkChanged(String),
@@ -194,6 +195,10 @@ impl State {
 
             Message::Addons(msg) => self.addons.update(msg).map(Message::Addons),
 
+            Message::ToggleUnlockGameMount(val) => {
+                core_settings.files.unlock_game_mount = val;
+                Task::none()
+            }
             Message::ToggleDebugView(val) => {
                 core_settings.animation.debug_view = val;
                 Task::none()
@@ -329,7 +334,7 @@ impl State {
             Tab::Enemies => self.view_enemies(core_settings),
             Tab::Stages => self.view_stages(core_settings),
             Tab::Mods => self.view_mods(core_settings),
-            Tab::Files => self.view_files(),
+            Tab::Files => self.view_files(core_settings),
             Tab::Import => self.view_import(core_settings),
             Tab::Animation => self.view_animation(core_settings),
             Tab::AddOns => self.addons.view().map(Message::Addons),
@@ -495,9 +500,19 @@ impl State {
         ].spacing(SECTION_SPACING).into()
     }
 
-    fn view_files<'a>(&'a self) -> Element<'a, Message> {
+    fn view_files<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
+        let editor_content = hover_hint(
+            toggle_row(
+                core_settings.files.unlock_game_mount,
+                text("Unlock \"game\" Mount"),
+                Some(Message::ToggleUnlockGameMount),
+            ),
+            "Allows editing vanilla game files in place\nPrefer creating a Mod so the original data stays intact",
+        );
+
         column![
             header_section(text("Disk").size(24), self.disk.view().map(Message::Disk)),
+            header_section(text("Editor").size(24), editor_content),
         ].spacing(SECTION_SPACING).into()
     }
 
