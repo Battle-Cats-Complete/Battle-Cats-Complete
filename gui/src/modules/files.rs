@@ -1,14 +1,13 @@
+mod body;
+mod tree;
+
 use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{
-    button, column, container, operation, pick_list, responsive, row, scrollable, space, stack, text, text_input,
-    Column,
-};
-use iced::{font, widget, Alignment, Element, Font, Length, Padding, Size, Task, Theme};
-use rustc_hash::FxHashSet;
+use iced::widget::{button, column, container, pick_list, row, scrollable, space, stack, text_input};
+use iced::{font, Alignment, Element, Font, Length, Padding, Task, Theme};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -18,9 +17,8 @@ use core::Vfs;
 use crate::app::state::FilesState;
 use crate::app::theme;
 use crate::common::fonts;
-use crate::common::row_window::{self, RowWindow};
 use crate::common::watcher;
-use crate::widget::{list_row, slide, smooth_scroll, Slide};
+use crate::widget::{slide, Slide};
 
 const PANEL_WIDTH: f32 = 320.0;
 const PANEL_PADDING: f32 = 8.0;
@@ -39,32 +37,21 @@ const HEADER_TOP_GAP: f32 = 3.0;
 const HEADER_BODY_GAP: f32 = 3.0;
 const HEADER_SEPARATOR: &str = " :: ";
 const HEADER_EMPTY: &str = "Please select a file";
+
 const PICKER_GAP: f32 = 4.0;
 const PICKER_TREE_GAP: f32 = 8.0;
-const MODE_WIDTH: f32 = 60.0;
-
 const PICKER_TEXT_SIZE: f32 = 13.0;
 const PICKER_PADDING: [u16; 2] = [4, 8];
-const EMPTY_TEXT_SIZE: f32 = 14.0;
+const MODE_WIDTH: f32 = 60.0;
+
+const BODY_PADDING: f32 = 8.0;
 
 const TEXT_SIZE: f32 = 13.0;
-const CHAR_WIDTH: f32 = TEXT_SIZE * 0.65;
-const ROW_HEIGHT: f32 = 24.0;
-const ROW_SPACING: f32 = 0.0;
-const ROW_PADDING: f32 = 6.0;
-const INDENT: f32 = 12.0;
-
-const MARKER_SIZE: f32 = 22.0;
-const MARKER_LINE_HEIGHT: f32 = ROW_HEIGHT / MARKER_SIZE;
-const MARKER_WIDTH: f32 = 16.0;
+const EMPTY_TEXT_SIZE: f32 = 14.0;
 
 const SCROLLBAR_WIDTH: f32 = 6.0;
 const SCROLLBAR_MARGIN: f32 = 2.0;
 const SCROLLBAR_ALLOWANCE: f32 = 14.0;
-const SCROLL_TAIL: f32 = 14.0;
-
-const FOLDER_OPEN: &str = "\u{25be}";
-const FOLDER_SHUT: &str = "\u{25b8}";
 
 const EMPTY_LABEL: &str = "No Files Found on Mount";
 const MISSING_LABEL: &str = "Selected Mount Missing from Memory";
@@ -74,14 +61,19 @@ pub(crate) fn register_nightly() {
     nightly::register_nightly_usage();
 }
 
+fn both_ways() -> scrollable::Direction {
+    let bar = || scrollable::Scrollbar::new().width(SCROLLBAR_WIDTH).margin(SCROLLBAR_MARGIN);
+
+    scrollable::Direction::Both { vertical: bar(), horizontal: bar() }
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     MountSelected(String),
     ModeSelected(Mode),
     SearchChanged(String),
     ToggleSidebar,
-    Activate(usize),
-    Scrolled(f32),
+    Tree(tree::Message),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -123,31 +115,18 @@ impl Content {
     }
 }
 
-struct Row {
-    name: Box<str>,
-    depth: u16,
-    folder: bool,
-    expanded: bool,
-}
-
 pub struct State {
     mounts: Vec<String>,
     mount: Option<String>,
     mode: Mode,
     search_query: String,
+    selected: Option<PathBuf>,
+    content: Content,
     sidebar_open: bool,
     entered: bool,
     verify: bool,
-    expanded: FxHashSet<PathBuf>,
-    selected: Option<PathBuf>,
-    flat_keys: Vec<Box<str>>,
-    rows: Vec<Row>,
-    selected_row: Option<usize>,
-    content: Content,
-    has_folders: bool,
-    widest: f32,
-    scroll_offset: f32,
-    scroll_id: widget::Id,
+    tree: tree::State,
+    body: body::State,
 }
 
 impl Default for State {
@@ -157,19 +136,13 @@ impl Default for State {
             mount: None,
             mode: Mode::default(),
             search_query: String::new(),
+            selected: None,
+            content: Content::NoMounts,
             sidebar_open: true,
             entered: true,
             verify: false,
-            expanded: FxHashSet::from_iter([PathBuf::new()]),
-            selected: None,
-            flat_keys: Vec::new(),
-            rows: Vec::new(),
-            selected_row: None,
-            content: Content::NoMounts,
-            has_folders: false,
-            widest: 0.0,
-            scroll_offset: 0.0,
-            scroll_id: widget::Id::unique(),
+            tree: tree::State::default(),
+            body: body::State::default(),
         }
     }
 }
@@ -205,6 +178,7 @@ impl State {
 
     pub(crate) fn sync(&mut self, vfs: &Vfs) {
         self.entered = true;
+        self.body.invalidate();
 
         let keys: Vec<String> = vfs.mount_keys().iter().map(|key| key.to_string()).collect();
 
@@ -226,23 +200,7 @@ impl State {
             self.reset();
         }
 
-        self.refresh_keys(vfs);
-        self.rebuild(vfs);
-    }
-
-    fn refresh_keys(&mut self, vfs: &Vfs) {
-        self.flat_keys.clear();
-
-        if self.mode != Mode::Flat {
-            return;
-        }
-
-        let Some(mount) = self.mount.as_deref() else {
-            return;
-        };
-
-        self.flat_keys = vfs.keys(mount);
-        self.flat_keys.sort_unstable();
+        self.reindex(vfs);
     }
 
     pub(crate) fn apply_changes(&mut self, vfs: &Vfs, paths: &[PathBuf]) {
@@ -250,27 +208,33 @@ impl State {
             return;
         };
 
-        let showing = paths.iter().any(|path| {
+        let mut showing = false;
+        let mut touched = false;
+
+        for path in paths {
             if watcher::mount_of(path).is_none_or(|key| key != mount) {
-                return false;
+                continue;
             }
 
-            if self.mode == Mode::Flat {
-                return true;
+            let relative = vfs.relative(mount, path);
+
+            if relative.is_some() && relative == self.selected {
+                touched = true;
             }
 
-            vfs.relative(mount, path)
-                .as_deref()
-                .and_then(Path::parent)
-                .is_some_and(|parent| self.expanded.contains(parent))
-        });
+            showing |= self.mode == Mode::Flat
+                || relative.as_deref().and_then(Path::parent).is_some_and(|parent| self.tree.shows(parent));
+        }
 
-        if !showing {
+        if touched {
+            self.body.invalidate();
+        }
+
+        if !showing && !touched {
             return;
         }
 
-        self.refresh_keys(vfs);
-        self.rebuild(vfs);
+        self.reindex(vfs);
     }
 
     pub(crate) fn update(&mut self, message: Message, vfs: &Vfs) -> Task<Message> {
@@ -282,10 +246,9 @@ impl State {
 
                 self.mount = Some(mount);
                 self.reset();
-                self.refresh_keys(vfs);
-                self.rebuild(vfs);
+                self.reindex(vfs);
 
-                self.snap_to_top()
+                self.tree.snap_to_top().map(Message::Tree)
             }
             Message::ModeSelected(mode) => {
                 if self.mode == mode {
@@ -293,94 +256,85 @@ impl State {
                 }
 
                 self.mode = mode;
-                self.scroll_offset = 0.0;
-                self.refresh_keys(vfs);
-                self.rebuild(vfs);
+                self.tree.rewind();
+                self.reindex(vfs);
 
-                self.snap_to_top()
+                self.tree.snap_to_top().map(Message::Tree)
             }
             Message::SearchChanged(query) => {
                 self.search_query = query;
-                self.scroll_offset = 0.0;
-                self.rebuild(vfs);
+                self.tree.rewind();
+                self.refresh(vfs);
 
-                self.snap_to_top()
-            }
-            Message::Activate(index) => {
-                let Some(folder) = self.rows.get(index).map(|row| row.folder) else {
-                    return Task::none();
-                };
-
-                let path = if self.mode == Mode::Flat {
-                    self.flat_path(vfs, index)
-                } else {
-                    self.path_of(index)
-                };
-
-                let Some(path) = path else {
-                    return Task::none();
-                };
-
-                if !folder {
-                    self.selected = Some(path);
-                } else if !self.expanded.remove(&path) {
-                    self.expanded.insert(path);
-                }
-
-                self.rebuild(vfs);
-
-                Task::none()
+                self.tree.snap_to_top().map(Message::Tree)
             }
             Message::ToggleSidebar => {
                 self.sidebar_open = !self.sidebar_open;
                 self.entered = false;
                 Task::none()
             }
-            Message::Scrolled(offset) => {
-                self.scroll_offset = offset;
-                Task::none()
+            Message::Tree(msg) => {
+                let Some(index) = self.tree.update(msg) else {
+                    return Task::none();
+                };
+
+                self.activate(vfs, index)
             }
         }
     }
 
+    fn activate(&mut self, vfs: &Vfs, index: usize) -> Task<Message> {
+        let Some(mount) = self.mount.as_deref() else {
+            return Task::none();
+        };
+
+        let Some((folder, path)) = self.tree.entry(vfs, mount, self.mode, index) else {
+            return Task::none();
+        };
+
+        if folder {
+            self.tree.toggle(path);
+            self.refresh(vfs);
+
+            return Task::none();
+        }
+
+        self.selected = Some(path);
+        self.refresh(vfs);
+
+        self.body.snap_to_top()
+    }
+
     fn reset(&mut self) {
-        self.expanded.clear();
-        self.expanded.insert(PathBuf::new());
+        self.tree.reset();
         self.selected = None;
-        self.scroll_offset = 0.0;
     }
 
-    fn snap_to_top(&self) -> Task<Message> {
-        operation::scroll_to(self.scroll_id.clone(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 })
+    fn reindex(&mut self, vfs: &Vfs) {
+        self.tree.refresh_keys(vfs, self.mount.as_deref(), self.mode);
+        self.refresh(vfs);
     }
 
-    fn flat_path(&self, vfs: &Vfs, index: usize) -> Option<PathBuf> {
-        let name = self.rows.get(index)?.name.as_ref();
-        let mount = self.mount.as_deref()?;
-
-        vfs.locate_in(mount, name)
+    fn refresh(&mut self, vfs: &Vfs) {
+        self.content = self.rebuild(vfs);
+        self.body.refresh(vfs, self.mount.as_deref(), self.selected.as_deref());
     }
 
-    fn rebuild(&mut self, vfs: &Vfs) {
-        self.rows.clear();
-        self.selected_row = None;
-        self.widest = 0.0;
-        self.has_folders = false;
-
+    fn rebuild(&mut self, vfs: &Vfs) -> Content {
         if self.mounts.is_empty() {
-            self.content = Content::NoMounts;
-            return;
+            self.tree.clear();
+            return Content::NoMounts;
         }
 
         if self.stale() {
-            self.content = Content::MountMissing;
+            self.tree.clear();
             self.selected = None;
-            return;
+            return Content::MountMissing;
         }
 
         let Some(mount) = self.mount.as_deref() else {
-            self.content = Content::NoFiles;
-            return;
+            self.tree.clear();
+            return Content::NoFiles;
         };
 
         let dropped = self.selected.as_deref().is_some_and(|path| {
@@ -400,63 +354,24 @@ impl State {
         }
 
         if vfs.count(mount) == 0 {
-            self.content = Content::NoFiles;
-            return;
+            self.tree.clear();
+            return Content::NoFiles;
         }
 
-        let anchor = self
-            .selected
-            .as_deref()
-            .and_then(|path| Some((path.parent()?, path.file_name()?.to_str()?)));
+        let populated = self.tree.rebuild(vfs, mount, self.mode, &self.search_query, self.selected.as_deref());
 
-        let mut flatten = Flatten {
-            vfs,
-            mount,
-            expanded: &self.expanded,
-            anchor,
-            query: self.search_query.trim(),
-            flat_keys: &self.flat_keys,
-            rows: Vec::new(),
-            selected_row: None,
-            folders: false,
-            widest: 0.0,
-        };
-
-        match self.mode {
-            Mode::Tree => flatten.walk(Path::new(""), 0),
-            Mode::Flat => flatten.flat(),
-        }
-
-        self.content = if flatten.rows.is_empty() { Content::NoFiles } else { Content::Rows };
-        self.has_folders = flatten.folders;
-        self.widest = flatten.widest + if flatten.folders { MARKER_WIDTH } else { 0.0 };
-        self.rows = flatten.rows;
-        self.selected_row = flatten.selected_row;
+        if populated { Content::Rows } else { Content::NoFiles }
     }
 
-    fn path_of(&self, index: usize) -> Option<PathBuf> {
-        let target = self.rows.get(index)?;
-        let mut parts: Vec<&str> = vec![target.name.as_ref()];
-        let mut wanted = target.depth;
+    fn stale(&self) -> bool {
+        !self.mounts.is_empty() && self.mount.as_ref().is_some_and(|mount| !self.mounts.contains(mount))
+    }
 
-        for row in self.rows[..index].iter().rev() {
-            if wanted == 0 {
-                break;
-            }
+    fn selection_label(&self) -> Option<String> {
+        let mount = self.mount.as_deref()?;
+        let name = self.selected.as_deref()?.file_name()?.to_str()?;
 
-            if row.depth == wanted - 1 {
-                wanted -= 1;
-                parts.push(row.name.as_ref());
-            }
-        }
-
-        let mut path = PathBuf::new();
-
-        for part in parts.iter().rev() {
-            path.push(part);
-        }
-
-        Some(path)
+        Some(format!("{}{}{}", mount, HEADER_SEPARATOR, name))
     }
 
     pub(crate) fn view(&self) -> Element<'_, Message> {
@@ -465,7 +380,7 @@ impl State {
             space().height(Length::Fixed(PICKER_GAP)),
             self.view_search(),
             space().height(Length::Fixed(PICKER_TREE_GAP)),
-            self.view_tree(),
+            self.tree.view(self.content.label()).map(Message::Tree),
         ]
             .spacing(0)
             .height(Length::Fill);
@@ -488,85 +403,6 @@ impl State {
             .align_y(Alignment::Start);
 
         stack![base, hover].width(Length::Fill).height(Length::Fill).into()
-    }
-
-    fn view_toggle(&self) -> Element<'_, Message> {
-        let arrow = if self.sidebar_open { ARROW_OPEN } else { ARROW_SHUT };
-
-        let toggle = button(
-            theme::centered_text(arrow)
-                .font(fonts::MISC_SYMBOLS)
-                .size(TOGGLE_ARROW_SIZE)
-                .width(Length::Fill)
-                .height(Length::Fill),
-        )
-            .width(TOGGLE_BUTTON_SIZE)
-            .height(TOGGLE_BUTTON_SIZE)
-            .padding(0)
-            .on_press(Message::ToggleSidebar)
-            .style(theme::neutral_button);
-
-        container(toggle)
-            .padding(Padding { top: TOGGLE_BUTTON_GAP, left: TOGGLE_BUTTON_GAP, right: TOGGLE_BUTTON_GAP, ..Padding::ZERO })
-            .into()
-    }
-
-    fn view_workspace(&self) -> Element<'_, Message> {
-        let surface = container(space())
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(theme::workspace_container);
-
-        let reserve = (TOGGLE_BUTTON_GAP + TOGGLE_BUTTON_SIZE).max(theme::NAV_TOGGLE_RIGHT + theme::NAV_TOGGLE_SIZE);
-
-        let strip = container(self.view_header())
-            .width(Length::Fill)
-            .height(Length::Fixed(HEADER_TOP_GAP + HEADER_HEIGHT))
-            .align_x(Horizontal::Center)
-            .align_y(Vertical::Bottom)
-            .padding(Padding::default().left(reserve).right(reserve));
-
-        let body = column![strip, surface].spacing(HEADER_BODY_GAP).height(Length::Fill);
-
-        container(body)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .padding(Padding {
-                top: 0.0,
-                right: TOGGLE_BUTTON_GAP,
-                bottom: TOGGLE_BUTTON_GAP,
-                left: TOGGLE_BUTTON_GAP,
-            })
-            .into()
-    }
-
-    fn view_header(&self) -> Element<'_, Message> {
-        let label = self.selection_label().unwrap_or_else(|| HEADER_EMPTY.to_string());
-        let header_font = Font { weight: font::Weight::Bold, ..Font::MONOSPACE };
-
-        container(
-            text(label)
-                .size(HEADER_TEXT_SIZE)
-                .font(header_font)
-                .align_x(Horizontal::Center)
-                .wrapping(text::Wrapping::None),
-        )
-            .height(Length::Fixed(HEADER_HEIGHT))
-            .align_y(Vertical::Center)
-            .padding(Padding::default().left(HEADER_PADDING).right(HEADER_PADDING))
-            .style(theme::workspace_header_container)
-            .into()
-    }
-
-    fn selection_label(&self) -> Option<String> {
-        let mount = self.mount.as_deref()?;
-        let name = self.selected.as_deref()?.file_name()?.to_str()?;
-
-        Some(format!("{}{}{}", mount, HEADER_SEPARATOR, name))
-    }
-
-    fn stale(&self) -> bool {
-        !self.mounts.is_empty() && self.mount.as_ref().is_some_and(|mount| !self.mounts.contains(mount))
     }
 
     fn view_controls(&self) -> Element<'_, Message> {
@@ -603,185 +439,72 @@ impl State {
             .into()
     }
 
-    fn view_tree(&self) -> Element<'_, Message> {
-        let body: Element<'_, Message> = self.content.label().map_or_else(
-            || responsive(move |size: Size| self.view_rows(size)).into(),
-            |label| {
-                container(theme::centered_text(label).size(EMPTY_TEXT_SIZE).style(text::danger))
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-                    .into()
-            },
-        );
+    fn view_toggle(&self) -> Element<'_, Message> {
+        let arrow = if self.sidebar_open { ARROW_OPEN } else { ARROW_SHUT };
 
-        container(container(body).padding(theme::CONSOLE_BORDER_WIDTH))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(theme::mock_console_container)
-            .into()
-    }
-
-    fn view_rows(&self, size: Size) -> Element<'_, Message> {
-        let tail = if self.widest > size.width { SCROLL_TAIL } else { 0.0 };
-
-        let RowWindow { range, pad_before, pad_after } =
-            row_window::compute_with(self.rows.len(), size.height - tail, self.scroll_offset, ROW_HEIGHT, ROW_SPACING);
-
-        let width = self.widest.max(size.width - SCROLLBAR_ALLOWANCE);
-        let mut list = Column::with_capacity(range.len() + 3).spacing(ROW_SPACING);
-
-        if pad_before > 0.0 {
-            list = list.push(space().height(Length::Fixed(pad_before)));
-        }
-
-        for index in range {
-            let Some(row) = self.rows.get(index) else {
-                continue;
-            };
-
-            list = list.push(self.view_row(index, row, width));
-        }
-
-        if pad_after > 0.0 {
-            list = list.push(space().height(Length::Fixed(pad_after)));
-        }
-
-        if tail > 0.0 {
-            list = list.push(space().height(Length::Fixed(tail)));
-        }
-
-        let scrollbar = || scrollable::Scrollbar::new().width(SCROLLBAR_WIDTH).margin(SCROLLBAR_MARGIN);
-
-        smooth_scroll(
-            scrollable(list)
-                .id(self.scroll_id.clone())
-                .direction(scrollable::Direction::Both { vertical: scrollbar(), horizontal: scrollbar() })
-                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+        let toggle = button(
+            theme::centered_text(arrow)
+                .font(fonts::MISC_SYMBOLS)
+                .size(TOGGLE_ARROW_SIZE)
                 .width(Length::Fill)
                 .height(Length::Fill),
         )
+            .width(TOGGLE_BUTTON_SIZE)
+            .height(TOGGLE_BUTTON_SIZE)
+            .padding(0)
+            .on_press(Message::ToggleSidebar)
+            .style(theme::neutral_button);
+
+        container(toggle)
+            .padding(Padding { top: TOGGLE_BUTTON_GAP, left: TOGGLE_BUTTON_GAP, right: TOGGLE_BUTTON_GAP, ..Padding::ZERO })
             .into()
     }
 
-    fn view_row<'a>(&self, index: usize, row: &'a Row, width: f32) -> Element<'a, Message> {
-        let marker = match (row.folder, row.expanded) {
-            (true, true) => FOLDER_OPEN,
-            (true, false) => FOLDER_SHUT,
-            (false, _) => "",
-        };
+    fn view_workspace(&self) -> Element<'_, Message> {
+        let surface = container(self.body.view())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(BODY_PADDING)
+            .style(theme::workspace_container);
 
-        let name = text(row.name.as_ref()).font(Font::MONOSPACE).size(TEXT_SIZE).wrapping(text::Wrapping::None);
+        let reserve = (TOGGLE_BUTTON_GAP + TOGGLE_BUTTON_SIZE).max(theme::NAV_TOGGLE_RIGHT + theme::NAV_TOGGLE_SIZE);
 
-        let label = if self.has_folders {
-            row![
-                text(marker)
-                    .font(Font::MONOSPACE)
-                    .size(MARKER_SIZE)
-                    .line_height(MARKER_LINE_HEIGHT)
-                    .width(Length::Fixed(MARKER_WIDTH)),
-                name,
-            ]
-        } else {
-            row![name]
-        };
+        let strip = container(self.view_header())
+            .width(Length::Fill)
+            .height(Length::Fixed(HEADER_TOP_GAP + HEADER_HEIGHT))
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Bottom)
+            .padding(Padding::default().left(reserve).right(reserve));
 
-        let label = label.align_y(Vertical::Center);
+        let body = column![strip, surface].spacing(HEADER_BODY_GAP).height(Length::Fill);
 
-        let content = container(label)
-            .height(Length::Fixed(ROW_HEIGHT))
+        container(body)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(Padding {
+                top: 0.0,
+                right: TOGGLE_BUTTON_GAP,
+                bottom: TOGGLE_BUTTON_GAP,
+                left: TOGGLE_BUTTON_GAP,
+            })
+            .into()
+    }
+
+    fn view_header(&self) -> Element<'_, Message> {
+        let label = self.selection_label().unwrap_or_else(|| HEADER_EMPTY.to_string());
+        let header_font = Font { weight: font::Weight::Bold, ..Font::MONOSPACE };
+
+        container(
+            iced::widget::text(label)
+                .size(HEADER_TEXT_SIZE)
+                .font(header_font)
+                .align_x(Horizontal::Center)
+                .wrapping(iced::widget::text::Wrapping::None),
+        )
+            .height(Length::Fixed(HEADER_HEIGHT))
             .align_y(Vertical::Center)
-            .padding(Padding::default().left(ROW_PADDING + INDENT * f32::from(row.depth)).right(ROW_PADDING));
-
-        list_row(content, self.selected_row == Some(index), false, Length::Fixed(width), Message::Activate(index))
-    }
-}
-
-struct Flatten<'a> {
-    vfs: &'a Vfs,
-    mount: &'a str,
-    expanded: &'a FxHashSet<PathBuf>,
-    anchor: Option<(&'a Path, &'a str)>,
-    query: &'a str,
-    flat_keys: &'a [Box<str>],
-    rows: Vec<Row>,
-    selected_row: Option<usize>,
-    folders: bool,
-    widest: f32,
-}
-
-fn matches(name: &str, query: &str) -> bool {
-    if query.is_empty() {
-        return true;
-    }
-
-    let (name, query) = (name.as_bytes(), query.as_bytes());
-
-    name.len() >= query.len() && name.windows(query.len()).any(|window| window.eq_ignore_ascii_case(query))
-}
-
-impl Flatten<'_> {
-    fn push(&mut self, row: Row) {
-        let span = ROW_PADDING * 2.0
-            + INDENT * f32::from(row.depth)
-            + CHAR_WIDTH * row.name.chars().count() as f32;
-
-        self.widest = self.widest.max(span);
-        self.rows.push(row);
-    }
-
-    fn flat(&mut self) {
-        let marked = self.anchor.map(|(_, name)| name);
-
-        for name in self.flat_keys {
-            if !matches(name, self.query) {
-                continue;
-            }
-
-            if marked == Some(name.as_ref()) {
-                self.selected_row = Some(self.rows.len());
-            }
-
-            self.push(Row { name: name.clone(), depth: 0, folder: false, expanded: false });
-        }
-    }
-
-    fn walk(&mut self, dir: &Path, depth: u16) {
-        let Some(listing) = self.vfs.browse(self.mount, dir) else {
-            return;
-        };
-
-        let marked = self.anchor.filter(|(parent, _)| *parent == dir).map(|(_, name)| name);
-        let query = self.query;
-
-        for folder in listing.folders {
-            let path = dir.join(folder.as_ref());
-
-            if !self.vfs.any_file(self.mount, &path, |name| matches(name, query)) {
-                continue;
-            }
-
-            let open = self.expanded.contains(&path);
-
-            self.folders = true;
-            self.push(Row { name: folder, depth, folder: true, expanded: open });
-
-            if open {
-                self.walk(&path, depth + 1);
-            }
-        }
-
-        for file in listing.files {
-            if !matches(&file, self.query) {
-                continue;
-            }
-
-            if marked == Some(file.as_ref()) {
-                self.selected_row = Some(self.rows.len());
-            }
-
-            self.push(Row { name: file, depth, folder: false, expanded: false });
-        }
+            .padding(Padding::default().left(HEADER_PADDING).right(HEADER_PADDING))
+            .style(theme::workspace_header_container)
+            .into()
     }
 }

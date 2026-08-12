@@ -8,5 +8,6 @@ pub mod io;
 pub mod job;
 pub mod junk;
 pub mod keys;
+pub mod preview;
 pub mod process;
 pub mod region;

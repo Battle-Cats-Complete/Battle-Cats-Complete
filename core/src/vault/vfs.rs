@@ -397,6 +397,12 @@ impl Vfs {
         mounts.get(mount).is_some_and(|indexed| descends(indexed, dir, &keep))
     }
 
+    pub fn root(&self, mount: &str) -> Option<PathBuf> {
+        let mounts = self.mounts.read().ok()?;
+
+        mounts.get(mount).map(|indexed| indexed.root.clone())
+    }
+
     pub fn locate_in(&self, mount: &str, name: &str) -> Option<PathBuf> {
         let mounts = self.mounts.read().ok()?;
 

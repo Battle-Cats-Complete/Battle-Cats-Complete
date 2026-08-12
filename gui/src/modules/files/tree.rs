@@ -1,0 +1,368 @@
+use std::path::{Path, PathBuf};
+
+use iced::alignment::Vertical;
+use iced::widget::{container, operation, responsive, row, scrollable, space, text, Column};
+use iced::{widget, Element, Font, Length, Padding, Size, Task};
+use rustc_hash::FxHashSet;
+
+use core::Vfs;
+
+use crate::app::theme;
+use crate::common::row_window::{self, RowWindow};
+use crate::widget::{list_row, smooth_scroll};
+
+use super::{both_ways, Mode, EMPTY_TEXT_SIZE, SCROLLBAR_ALLOWANCE, TEXT_SIZE};
+
+const CHAR_WIDTH: f32 = TEXT_SIZE * 0.65;
+const ROW_HEIGHT: f32 = 24.0;
+const ROW_SPACING: f32 = 0.0;
+const ROW_PADDING: f32 = 6.0;
+const INDENT: f32 = 12.0;
+
+const MARKER_SIZE: f32 = 22.0;
+const MARKER_LINE_HEIGHT: f32 = ROW_HEIGHT / MARKER_SIZE;
+const MARKER_WIDTH: f32 = 16.0;
+
+const SCROLL_TAIL: f32 = 14.0;
+
+const FOLDER_OPEN: &str = "\u{25be}";
+const FOLDER_SHUT: &str = "\u{25b8}";
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    Activate(usize),
+    Scrolled(f32),
+}
+
+struct Row {
+    name: Box<str>,
+    depth: u16,
+    folder: bool,
+    expanded: bool,
+}
+
+pub(super) struct State {
+    expanded: FxHashSet<PathBuf>,
+    flat_keys: Vec<Box<str>>,
+    rows: Vec<Row>,
+    selected_row: Option<usize>,
+    has_folders: bool,
+    widest: f32,
+    scroll_offset: f32,
+    scroll_id: widget::Id,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            expanded: FxHashSet::from_iter([PathBuf::new()]),
+            flat_keys: Vec::new(),
+            rows: Vec::new(),
+            selected_row: None,
+            has_folders: false,
+            widest: 0.0,
+            scroll_offset: 0.0,
+            scroll_id: widget::Id::unique(),
+        }
+    }
+}
+
+impl State {
+    pub(super) fn update(&mut self, message: Message) -> Option<usize> {
+        match message {
+            Message::Activate(index) => Some(index),
+            Message::Scrolled(offset) => {
+                self.scroll_offset = offset;
+                None
+            }
+        }
+    }
+
+    pub(super) fn reset(&mut self) {
+        self.expanded.clear();
+        self.expanded.insert(PathBuf::new());
+        self.rewind();
+    }
+
+    pub(super) fn rewind(&mut self) {
+        self.scroll_offset = 0.0;
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.rows.clear();
+        self.selected_row = None;
+        self.widest = 0.0;
+        self.has_folders = false;
+    }
+
+    pub(super) fn shows(&self, dir: &Path) -> bool {
+        self.expanded.contains(dir)
+    }
+
+    pub(super) fn toggle(&mut self, path: PathBuf) {
+        if !self.expanded.remove(&path) {
+            self.expanded.insert(path);
+        }
+    }
+
+    pub(super) fn snap_to_top(&self) -> Task<Message> {
+        operation::scroll_to(self.scroll_id.clone(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 })
+    }
+
+    pub(super) fn refresh_keys(&mut self, vfs: &Vfs, mount: Option<&str>, mode: Mode) {
+        self.flat_keys.clear();
+
+        if mode != Mode::Flat {
+            return;
+        }
+
+        let Some(mount) = mount else {
+            return;
+        };
+
+        self.flat_keys = vfs.keys(mount);
+        self.flat_keys.sort_unstable();
+    }
+
+    pub(super) fn entry(&self, vfs: &Vfs, mount: &str, mode: Mode, index: usize) -> Option<(bool, PathBuf)> {
+        let target = self.rows.get(index)?;
+
+        if mode == Mode::Flat {
+            return vfs.locate_in(mount, target.name.as_ref()).map(|path| (target.folder, path));
+        }
+
+        self.path_of(index).map(|path| (target.folder, path))
+    }
+
+    fn path_of(&self, index: usize) -> Option<PathBuf> {
+        let target = self.rows.get(index)?;
+        let mut parts: Vec<&str> = vec![target.name.as_ref()];
+        let mut wanted = target.depth;
+
+        for row in self.rows[..index].iter().rev() {
+            if wanted == 0 {
+                break;
+            }
+
+            if row.depth == wanted - 1 {
+                wanted -= 1;
+                parts.push(row.name.as_ref());
+            }
+        }
+
+        let mut path = PathBuf::new();
+
+        for part in parts.iter().rev() {
+            path.push(part);
+        }
+
+        Some(path)
+    }
+
+    pub(super) fn rebuild(&mut self, vfs: &Vfs, mount: &str, mode: Mode, query: &str, selected: Option<&Path>) -> bool {
+        self.clear();
+
+        let anchor = selected.and_then(|path| Some((path.parent()?, path.file_name()?.to_str()?)));
+
+        let mut flatten = Flatten {
+            vfs,
+            mount,
+            expanded: &self.expanded,
+            anchor,
+            query: query.trim(),
+            flat_keys: &self.flat_keys,
+            rows: Vec::new(),
+            selected_row: None,
+            folders: false,
+            widest: 0.0,
+        };
+
+        match mode {
+            Mode::Tree => flatten.walk(Path::new(""), 0),
+            Mode::Flat => flatten.flat(),
+        }
+
+        self.has_folders = flatten.folders;
+        self.widest = flatten.widest + if flatten.folders { MARKER_WIDTH } else { 0.0 };
+        self.rows = flatten.rows;
+        self.selected_row = flatten.selected_row;
+
+        !self.rows.is_empty()
+    }
+
+    pub(super) fn view(&self, empty: Option<&'static str>) -> Element<'_, Message> {
+        let body: Element<'_, Message> = empty.map_or_else(
+            || responsive(move |size: Size| self.view_rows(size)).into(),
+            |label| {
+                container(theme::centered_text(label).size(EMPTY_TEXT_SIZE).style(text::danger))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                    .into()
+            },
+        );
+
+        container(container(body).padding(theme::CONSOLE_BORDER_WIDTH))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(theme::mock_console_container)
+            .into()
+    }
+
+    fn view_rows(&self, size: Size) -> Element<'_, Message> {
+        let tail = if self.widest > size.width { SCROLL_TAIL } else { 0.0 };
+
+        let RowWindow { range, pad_before, pad_after } =
+            row_window::compute_with(self.rows.len(), size.height - tail, self.scroll_offset, ROW_HEIGHT, ROW_SPACING);
+
+        let width = self.widest.max(size.width - SCROLLBAR_ALLOWANCE);
+        let mut list = Column::with_capacity(range.len() + 3).spacing(ROW_SPACING);
+
+        if pad_before > 0.0 {
+            list = list.push(space().height(Length::Fixed(pad_before)));
+        }
+
+        for index in range {
+            let Some(row) = self.rows.get(index) else {
+                continue;
+            };
+
+            list = list.push(self.view_row(index, row, width));
+        }
+
+        if pad_after > 0.0 {
+            list = list.push(space().height(Length::Fixed(pad_after)));
+        }
+
+        if tail > 0.0 {
+            list = list.push(space().height(Length::Fixed(tail)));
+        }
+
+        smooth_scroll(
+            scrollable(list)
+                .id(self.scroll_id.clone())
+                .direction(both_ways())
+                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
+            .into()
+    }
+
+    fn view_row<'a>(&self, index: usize, row: &'a Row, width: f32) -> Element<'a, Message> {
+        let marker = match (row.folder, row.expanded) {
+            (true, true) => FOLDER_OPEN,
+            (true, false) => FOLDER_SHUT,
+            (false, _) => "",
+        };
+
+        let name = text(row.name.as_ref()).font(Font::MONOSPACE).size(TEXT_SIZE).wrapping(text::Wrapping::None);
+
+        let label = if self.has_folders {
+            row![
+                text(marker)
+                    .font(Font::MONOSPACE)
+                    .size(MARKER_SIZE)
+                    .line_height(MARKER_LINE_HEIGHT)
+                    .width(Length::Fixed(MARKER_WIDTH)),
+                name,
+            ]
+        } else {
+            row![name]
+        };
+
+        let content = container(label.align_y(Vertical::Center))
+            .height(Length::Fixed(ROW_HEIGHT))
+            .align_y(Vertical::Center)
+            .padding(Padding::default().left(ROW_PADDING + INDENT * f32::from(row.depth)).right(ROW_PADDING));
+
+        list_row(content, self.selected_row == Some(index), false, Length::Fixed(width), Message::Activate(index))
+    }
+}
+
+struct Flatten<'a> {
+    vfs: &'a Vfs,
+    mount: &'a str,
+    expanded: &'a FxHashSet<PathBuf>,
+    anchor: Option<(&'a Path, &'a str)>,
+    query: &'a str,
+    flat_keys: &'a [Box<str>],
+    rows: Vec<Row>,
+    selected_row: Option<usize>,
+    folders: bool,
+    widest: f32,
+}
+
+fn matches(name: &str, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+
+    let (name, query) = (name.as_bytes(), query.as_bytes());
+
+    name.len() >= query.len() && name.windows(query.len()).any(|window| window.eq_ignore_ascii_case(query))
+}
+
+impl Flatten<'_> {
+    fn push(&mut self, row: Row) {
+        let span = ROW_PADDING * 2.0 + INDENT * f32::from(row.depth) + CHAR_WIDTH * row.name.chars().count() as f32;
+
+        self.widest = self.widest.max(span);
+        self.rows.push(row);
+    }
+
+    fn flat(&mut self) {
+        let marked = self.anchor.map(|(_, name)| name);
+
+        for name in self.flat_keys {
+            if !matches(name, self.query) {
+                continue;
+            }
+
+            if marked == Some(name.as_ref()) {
+                self.selected_row = Some(self.rows.len());
+            }
+
+            self.push(Row { name: name.clone(), depth: 0, folder: false, expanded: false });
+        }
+    }
+
+    fn walk(&mut self, dir: &Path, depth: u16) {
+        let Some(listing) = self.vfs.browse(self.mount, dir) else {
+            return;
+        };
+
+        let marked = self.anchor.filter(|(parent, _)| *parent == dir).map(|(_, name)| name);
+        let query = self.query;
+
+        for folder in listing.folders {
+            let path = dir.join(folder.as_ref());
+
+            if !self.vfs.any_file(self.mount, &path, |name| matches(name, query)) {
+                continue;
+            }
+
+            let open = self.expanded.contains(&path);
+
+            self.folders = true;
+            self.push(Row { name: folder, depth, folder: true, expanded: open });
+
+            if open {
+                self.walk(&path, depth + 1);
+            }
+        }
+
+        for file in listing.files {
+            if !matches(&file, self.query) {
+                continue;
+            }
+
+            if marked == Some(file.as_ref()) {
+                self.selected_row = Some(self.rows.len());
+            }
+
+            self.push(Row { name: file, depth, folder: false, expanded: false });
+        }
+    }
+}
