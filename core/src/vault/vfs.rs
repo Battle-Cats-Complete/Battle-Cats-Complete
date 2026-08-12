@@ -378,6 +378,31 @@ impl Vfs {
         relative_to(&indexed.root, path)
     }
 
+    pub fn contains(&self, mount: &str, dir: &Path, name: &str) -> bool {
+        let Ok(mounts) = self.mounts.read() else {
+            return false;
+        };
+
+        mounts
+            .get(mount)
+            .and_then(|indexed| indexed.dirs.get(dir.to_string_lossy().as_ref()))
+            .is_some_and(|names| names.iter().any(|entry| entry.as_ref() == name))
+    }
+
+    pub fn any_file(&self, mount: &str, dir: &Path, keep: impl Fn(&str) -> bool) -> bool {
+        let Ok(mounts) = self.mounts.read() else {
+            return false;
+        };
+
+        mounts.get(mount).is_some_and(|indexed| descends(indexed, dir, &keep))
+    }
+
+    pub fn locate_in(&self, mount: &str, name: &str) -> Option<PathBuf> {
+        let mounts = self.mounts.read().ok()?;
+
+        mounts.get(mount)?.files.get(name).map(|entry| entry.path.clone())
+    }
+
     pub fn browse(&self, mount: &str, dir: &Path) -> Option<Listing> {
         let mounts = self.mounts.read().ok()?;
         let indexed = mounts.get(mount)?;
@@ -593,6 +618,19 @@ impl Mount for (&str, &Path) {
 
         vfs.evict(name);
     }
+}
+
+fn descends(indexed: &MountedDir, dir: &Path, keep: &impl Fn(&str) -> bool) -> bool {
+    let key = dir.to_string_lossy();
+
+    if indexed.dirs.get(key.as_ref()).is_some_and(|names| names.iter().any(|name| keep(name))) {
+        return true;
+    }
+
+    indexed
+        .folders
+        .get(key.as_ref())
+        .is_some_and(|names| names.iter().any(|name| descends(indexed, &dir.join(name.as_ref()), keep)))
 }
 
 fn link_ancestors(mount: &mut MountedDir, dir: &Path) {

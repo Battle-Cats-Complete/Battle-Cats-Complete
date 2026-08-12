@@ -56,6 +56,7 @@ impl BattleCatsApp {
         app.enemy_state.restore_state(&app.app_state.enemy);
         app.stage_state.restore_state(&app.app_state.stage);
         app.mods_state.restore_state(&app.app_state.mods);
+        app.files_state.restore_state(&app.app_state.files);
 
         if notice::should_show(&app.app_state.notice.acknowledged) {
             info!("Notice {} not yet acknowledged, showing at startup", notice::hash());
@@ -155,6 +156,7 @@ impl BattleCatsApp {
 
         self.sync_home_status();
         self.files_state.sync(&self.vault.vfs);
+        self.files_state.sync_state(&mut self.app_state.files);
 
         let active_mod = self.mods_state.active_mod();
 

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +9,8 @@ use core::animation::export::ExportFormat;
 use core::modules::data::ImportSubTab;
 use core::modules::stage::{GlobalMapId, GlobalStageId};
 
+use crate::modules::files::Mode;
+
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct AppState {
@@ -15,6 +18,7 @@ pub struct AppState {
     pub(crate) enemy: EnemyListState,
     pub(crate) stage: StageListState,
     pub(crate) mods: ModsListState,
+    pub(crate) files: FilesState,
     pub(crate) data: GameDataState,
     pub(crate) animation: AnimState,
     pub(crate) notice: NoticeState,
@@ -31,6 +35,15 @@ pub(crate) struct NoticeState {
 pub(crate) struct ModsListState {
     pub selected_mod: Option<String>,
     pub search_query: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub(crate) struct FilesState {
+    pub mount: Option<String>,
+    pub mode: Mode,
+    pub search_query: String,
+    pub selected_file: Option<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

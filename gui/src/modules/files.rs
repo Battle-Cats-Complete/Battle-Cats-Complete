@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -7,10 +8,13 @@ use iced::widget::{
 };
 use iced::{widget, Element, Font, Length, Padding, Size, Task, Theme};
 use rustc_hash::FxHashSet;
+use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use core::modules::settings::nightly;
 use core::Vfs;
 
+use crate::app::state::FilesState;
 use crate::app::theme;
 use crate::common::row_window::{self, RowWindow};
 use crate::common::watcher;
@@ -56,11 +60,12 @@ pub(crate) fn register_nightly() {
 pub enum Message {
     MountSelected(String),
     ModeSelected(Mode),
+    SearchChanged(String),
     Activate(usize),
     Scrolled(f32),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Mode {
     #[default]
     Tree,
@@ -91,8 +96,11 @@ pub struct State {
     mounts: Vec<String>,
     mount: Option<String>,
     mode: Mode,
+    search_query: String,
+    verify: bool,
     expanded: FxHashSet<PathBuf>,
     selected: Option<PathBuf>,
+    flat_keys: Vec<Box<str>>,
     rows: Vec<Row>,
     selected_row: Option<usize>,
     populated: bool,
@@ -108,8 +116,11 @@ impl Default for State {
             mounts: Vec::new(),
             mount: None,
             mode: Mode::default(),
+            search_query: String::new(),
+            verify: false,
             expanded: FxHashSet::from_iter([PathBuf::new()]),
             selected: None,
+            flat_keys: Vec::new(),
             rows: Vec::new(),
             selected_row: None,
             populated: false,
@@ -122,6 +133,34 @@ impl Default for State {
 }
 
 impl State {
+    pub(crate) fn restore_state(&mut self, state: &FilesState) {
+        self.mount = state.mount.clone();
+        self.mode = state.mode;
+        self.search_query = state.search_query.clone();
+        self.selected = state.selected_file.clone();
+        self.verify = true;
+    }
+
+    pub(crate) fn sync_state(&self, state: &mut FilesState) {
+        let mount = if self.stale() { None } else { self.mount.clone() };
+
+        if state.mount != mount {
+            state.mount = mount;
+        }
+
+        if state.mode != self.mode {
+            state.mode = self.mode;
+        }
+
+        if state.search_query != self.search_query {
+            state.search_query = self.search_query.clone();
+        }
+
+        if state.selected_file != self.selected {
+            state.selected_file = self.selected.clone();
+        }
+    }
+
     pub(crate) fn sync(&mut self, vfs: &Vfs) {
         let keys: Vec<String> = vfs.mount_keys().iter().map(|key| key.to_string()).collect();
 
@@ -129,12 +168,37 @@ impl State {
             self.mounts = keys;
         }
 
+        if self.verify && !self.mounts.is_empty() {
+            self.verify = false;
+
+            if let Some(missing) = self.stale().then(|| self.mount.take()).flatten() {
+                info!(mount = %missing, "Persisted mount is no longer indexed, falling back to the first mount");
+                self.selected = None;
+            }
+        }
+
         if self.mount.is_none() {
             self.mount = self.mounts.first().cloned();
             self.reset();
         }
 
+        self.refresh_keys(vfs);
         self.rebuild(vfs);
+    }
+
+    fn refresh_keys(&mut self, vfs: &Vfs) {
+        self.flat_keys.clear();
+
+        if self.mode != Mode::Flat {
+            return;
+        }
+
+        let Some(mount) = self.mount.as_deref() else {
+            return;
+        };
+
+        self.flat_keys = vfs.keys(mount);
+        self.flat_keys.sort_unstable();
     }
 
     pub(crate) fn apply_changes(&mut self, vfs: &Vfs, paths: &[PathBuf]) {
@@ -161,6 +225,7 @@ impl State {
             return;
         }
 
+        self.refresh_keys(vfs);
         self.rebuild(vfs);
     }
 
@@ -173,9 +238,10 @@ impl State {
 
                 self.mount = Some(mount);
                 self.reset();
+                self.refresh_keys(vfs);
                 self.rebuild(vfs);
 
-                operation::scroll_to(self.scroll_id.clone(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 })
+                self.snap_to_top()
             }
             Message::ModeSelected(mode) => {
                 if self.mode == mode {
@@ -185,16 +251,30 @@ impl State {
                 self.mode = mode;
                 self.selected = None;
                 self.scroll_offset = 0.0;
+                self.refresh_keys(vfs);
                 self.rebuild(vfs);
 
-                operation::scroll_to(self.scroll_id.clone(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 })
+                self.snap_to_top()
+            }
+            Message::SearchChanged(query) => {
+                self.search_query = query;
+                self.scroll_offset = 0.0;
+                self.rebuild(vfs);
+
+                self.snap_to_top()
             }
             Message::Activate(index) => {
                 let Some(folder) = self.rows.get(index).map(|row| row.folder) else {
                     return Task::none();
                 };
 
-                let Some(path) = self.path_of(index) else {
+                let path = if self.mode == Mode::Flat {
+                    self.flat_path(vfs, index)
+                } else {
+                    self.path_of(index)
+                };
+
+                let Some(path) = path else {
                     return Task::none();
                 };
 
@@ -222,6 +302,17 @@ impl State {
         self.scroll_offset = 0.0;
     }
 
+    fn snap_to_top(&self) -> Task<Message> {
+        operation::scroll_to(self.scroll_id.clone(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 })
+    }
+
+    fn flat_path(&self, vfs: &Vfs, index: usize) -> Option<PathBuf> {
+        let name = self.rows.get(index)?.name.as_ref();
+        let mount = self.mount.as_deref()?;
+
+        vfs.locate_in(mount, name)
+    }
+
     fn rebuild(&mut self, vfs: &Vfs) {
         self.rows.clear();
         self.selected_row = None;
@@ -237,6 +328,22 @@ impl State {
             return;
         }
 
+        let dropped = self.selected.as_deref().is_some_and(|path| {
+            let Some(parent) = path.parent() else {
+                return true;
+            };
+
+            let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+                return true;
+            };
+
+            !vfs.contains(mount, parent, name)
+        });
+
+        if dropped {
+            self.selected = None;
+        }
+
         let anchor = self
             .selected
             .as_deref()
@@ -247,6 +354,8 @@ impl State {
             mount,
             expanded: &self.expanded,
             anchor,
+            query: self.search_query.trim(),
+            flat_keys: &self.flat_keys,
             rows: Vec::new(),
             selected_row: None,
             folders: false,
@@ -311,7 +420,7 @@ impl State {
     }
 
     fn stale(&self) -> bool {
-        self.mount.as_ref().is_some_and(|mount| !self.mounts.contains(mount))
+        !self.mounts.is_empty() && self.mount.as_ref().is_some_and(|mount| !self.mounts.contains(mount))
     }
 
     fn view_picker(&self) -> Element<'_, Message> {
@@ -336,7 +445,8 @@ impl State {
             .style(theme::combo_box)
             .menu_style(theme::combo_box_menu);
 
-        let field = text_input("", "")
+        let field = text_input("Search File...", &self.search_query)
+            .on_input(Message::SearchChanged)
             .size(PICKER_TEXT_SIZE)
             .padding(PICKER_PADDING)
             .width(Length::Fill)
@@ -446,10 +556,22 @@ struct Flatten<'a> {
     mount: &'a str,
     expanded: &'a FxHashSet<PathBuf>,
     anchor: Option<(&'a Path, &'a str)>,
+    query: &'a str,
+    flat_keys: &'a [Box<str>],
     rows: Vec<Row>,
     selected_row: Option<usize>,
     folders: bool,
     widest: f32,
+}
+
+fn matches(name: &str, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+
+    let (name, query) = (name.as_bytes(), query.as_bytes());
+
+    name.len() >= query.len() && name.windows(query.len()).any(|window| window.eq_ignore_ascii_case(query))
 }
 
 impl Flatten<'_> {
@@ -463,20 +585,18 @@ impl Flatten<'_> {
     }
 
     fn flat(&mut self) {
-        let mut names = self.vfs.keys(self.mount);
-        names.sort_unstable();
+        let marked = self.anchor.map(|(_, name)| name);
 
-        let marked = self
-            .anchor
-            .filter(|(parent, _)| parent.as_os_str().is_empty())
-            .map(|(_, name)| name);
+        for name in self.flat_keys {
+            if !matches(name, self.query) {
+                continue;
+            }
 
-        for name in names {
             if marked == Some(name.as_ref()) {
                 self.selected_row = Some(self.rows.len());
             }
 
-            self.push(Row { name, depth: 0, folder: false, expanded: false });
+            self.push(Row { name: name.clone(), depth: 0, folder: false, expanded: false });
         }
     }
 
@@ -486,9 +606,15 @@ impl Flatten<'_> {
         };
 
         let marked = self.anchor.filter(|(parent, _)| *parent == dir).map(|(_, name)| name);
+        let query = self.query;
 
         for folder in listing.folders {
             let path = dir.join(folder.as_ref());
+
+            if !self.vfs.any_file(self.mount, &path, |name| matches(name, query)) {
+                continue;
+            }
+
             let open = self.expanded.contains(&path);
 
             self.folders = true;
@@ -500,6 +626,10 @@ impl Flatten<'_> {
         }
 
         for file in listing.files {
+            if !matches(&file, self.query) {
+                continue;
+            }
+
             if marked == Some(file.as_ref()) {
                 self.selected_row = Some(self.rows.len());
             }

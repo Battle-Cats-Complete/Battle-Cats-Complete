@@ -344,6 +344,7 @@ impl BattleCatsApp {
             }
             Page::Files => {
                 self.files_state.sync(&self.vault.vfs);
+                self.files_state.sync_state(&mut self.app_state.files);
                 Task::none()
             }
             Page::Cats => {
@@ -438,6 +439,7 @@ impl BattleCatsApp {
 
         if self.current_page == Page::Files {
             self.files_state.apply_changes(&self.vault.vfs, &paths);
+            self.files_state.sync_state(&mut self.app_state.files);
         }
 
         if !touched_mods.is_empty() {
@@ -860,7 +862,11 @@ impl BattleCatsApp {
 
                 Task::batch([task, self.rebuild_content()])
             }
-            Message::Files(msg) => self.files_state.update(msg, &self.vault.vfs).map(Message::Files),
+            Message::Files(msg) => {
+                let task = self.files_state.update(msg, &self.vault.vfs).map(Message::Files);
+                self.files_state.sync_state(&mut self.app_state.files);
+                task
+            }
             Message::Settings(msg) => {
                 if matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ManualUpdateCheck)) {
                     info!("Manual update check requested from Settings");
