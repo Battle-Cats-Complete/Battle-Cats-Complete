@@ -28,13 +28,21 @@ pub(crate) fn slide<'a, Message>(
     open: bool,
     direction: Slide,
 ) -> Sliding<'a, Message> {
-    Sliding { content: content.into(), open, direction }
+    Sliding { content: content.into(), open, direction, snap: false }
 }
 
 pub(crate) struct Sliding<'a, Message> {
     content: Element<'a, Message>,
     open: bool,
     direction: Slide,
+    snap: bool,
+}
+
+impl<Message> Sliding<'_, Message> {
+    pub(crate) fn snap(mut self, snap: bool) -> Self {
+        self.snap = snap;
+        self
+    }
 }
 
 impl<'a, Message: 'a> From<Sliding<'a, Message>> for Element<'a, Message> {
@@ -87,7 +95,11 @@ impl<'a, Message> Widget<Message, Theme, iced::Renderer> for Sliding<'a, Message
         let now = Instant::now();
 
         if state.animation.value() != self.open {
-            state.animation.go_mut(self.open, now);
+            if self.snap {
+                state.animation = Animation::new(self.open).easing(SLIDE_EASING).duration(SLIDE_DURATION);
+            } else {
+                state.animation.go_mut(self.open, now);
+            }
         }
 
         let factor = state.animation.interpolate(0.0, 1.0, now).clamp(0.0, 1.0);

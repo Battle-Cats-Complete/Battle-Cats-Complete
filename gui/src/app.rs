@@ -1054,16 +1054,16 @@ impl BattleCatsApp {
                 .width(Length::Fill)
                 .height(Length::Fill),
         )
-            .width(Length::Fixed(37.0))
-            .height(Length::Fixed(37.0))
+            .width(Length::Fixed(theme::NAV_TOGGLE_SIZE))
+            .height(Length::Fixed(theme::NAV_TOGGLE_SIZE))
             .padding(0)
             .on_press(Message::ToggleSidebar)
             .style(theme::primary_button);
 
         let toggle_container = column![toggle_btn]
             .padding(iced::Padding {
-                top: 2.5,
-                right: 10.0,
+                top: theme::NAV_TOGGLE_TOP,
+                right: theme::NAV_TOGGLE_RIGHT,
                 bottom: 0.0,
                 left: 0.0,
             });

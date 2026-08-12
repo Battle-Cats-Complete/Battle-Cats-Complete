@@ -223,6 +223,44 @@ pub fn list_panel_container(theme: &Theme) -> container::Style {
 }
 
 
+pub const NAV_TOGGLE_SIZE: f32 = 37.0;
+pub const NAV_TOGGLE_TOP: f32 = 2.5;
+pub const NAV_TOGGLE_RIGHT: f32 = 10.0;
+
+const DARK_PANEL_SHADE: f32 = 0.62;
+
+pub fn dark_panel_container(theme: &Theme) -> container::Style {
+    let background = shade_color(theme.palette().background, DARK_PANEL_SHADE);
+
+    container::Style { background: Some(Background::Color(background)), ..list_panel_container(theme) }
+}
+
+const WORKSPACE_SHADE: f32 = 0.78;
+const WORKSPACE_OUTLINE: f32 = 0.28;
+const WORKSPACE_OUTLINE_WIDTH: f32 = 3.0;
+
+pub fn workspace_container(theme: &Theme) -> container::Style {
+    let background = shade_color(theme.palette().background, WORKSPACE_SHADE);
+
+    container::Style {
+        background: Some(Background::Color(background)),
+        border: Border {
+            color: lighten_color(background, WORKSPACE_OUTLINE),
+            width: WORKSPACE_OUTLINE_WIDTH,
+            radius: Radius::from(RADIUS_MD),
+        },
+        ..container::Style::default()
+    }
+}
+
+const WORKSPACE_HEADER_SHADE: f32 = 0.5;
+
+pub fn workspace_header_container(theme: &Theme) -> container::Style {
+    let background = shade_color(theme.palette().background, WORKSPACE_HEADER_SHADE);
+
+    container::Style { background: Some(Background::Color(background)), ..workspace_container(theme) }
+}
+
 const CARD_SHADE: f32 = 0.15;
 const CARD_ALPHA: f32 = 0.92;
 

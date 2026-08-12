@@ -2,11 +2,12 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use iced::alignment::Vertical;
+use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
-    column, container, operation, pick_list, responsive, row, scrollable, space, text, text_input, Column,
+    button, column, container, operation, pick_list, responsive, row, scrollable, space, stack, text, text_input,
+    Column,
 };
-use iced::{widget, Element, Font, Length, Padding, Size, Task, Theme};
+use iced::{font, widget, Alignment, Element, Font, Length, Padding, Size, Task, Theme};
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -16,15 +17,31 @@ use core::Vfs;
 
 use crate::app::state::FilesState;
 use crate::app::theme;
+use crate::common::fonts;
 use crate::common::row_window::{self, RowWindow};
 use crate::common::watcher;
-use crate::widget::{list_row, smooth_scroll};
+use crate::widget::{list_row, slide, smooth_scroll, Slide};
 
 const PANEL_WIDTH: f32 = 320.0;
 const PANEL_PADDING: f32 = 8.0;
+
+const TOGGLE_BUTTON_SIZE: f32 = 30.0;
+const TOGGLE_BUTTON_GAP: f32 = 5.0;
+const TOGGLE_ARROW_SIZE: f32 = 16.0;
+
+const ARROW_OPEN: &str = "\u{25c0}";
+const ARROW_SHUT: &str = "\u{25b6}";
+
+const HEADER_HEIGHT: f32 = 38et.0;
+const HEADER_PADDING: f32 = 10.0;
+const HEADER_TEXT_SIZE: f32 = 13.0;
+const HEADER_TOP_GAP: f32 = 3.0;
+const HEADER_BODY_GAP: f32 = 3.0;
+const HEADER_SEPARATOR: &str = " :: ";
+const HEADER_EMPTY: &str = "Please select a file";
 const PICKER_GAP: f32 = 4.0;
 const PICKER_TREE_GAP: f32 = 8.0;
-const MODE_WIDTH: f32 = 90.0;
+const MODE_WIDTH: f32 = 60.0;
 
 const PICKER_TEXT_SIZE: f32 = 13.0;
 const PICKER_PADDING: [u16; 2] = [4, 8];
@@ -61,6 +78,7 @@ pub enum Message {
     MountSelected(String),
     ModeSelected(Mode),
     SearchChanged(String),
+    ToggleSidebar,
     Activate(usize),
     Scrolled(f32),
 }
@@ -97,6 +115,8 @@ pub struct State {
     mount: Option<String>,
     mode: Mode,
     search_query: String,
+    sidebar_open: bool,
+    entered: bool,
     verify: bool,
     expanded: FxHashSet<PathBuf>,
     selected: Option<PathBuf>,
@@ -117,6 +137,8 @@ impl Default for State {
             mount: None,
             mode: Mode::default(),
             search_query: String::new(),
+            sidebar_open: true,
+            entered: true,
             verify: false,
             expanded: FxHashSet::from_iter([PathBuf::new()]),
             selected: None,
@@ -162,6 +184,8 @@ impl State {
     }
 
     pub(crate) fn sync(&mut self, vfs: &Vfs) {
+        self.entered = true;
+
         let keys: Vec<String> = vfs.mount_keys().iter().map(|key| key.to_string()).collect();
 
         if keys != self.mounts {
@@ -249,7 +273,6 @@ impl State {
                 }
 
                 self.mode = mode;
-                self.selected = None;
                 self.scroll_offset = 0.0;
                 self.refresh_keys(vfs);
                 self.rebuild(vfs);
@@ -286,6 +309,11 @@ impl State {
 
                 self.rebuild(vfs);
 
+                Task::none()
+            }
+            Message::ToggleSidebar => {
+                self.sidebar_open = !self.sidebar_open;
+                self.entered = false;
                 Task::none()
             }
             Message::Scrolled(offset) => {
@@ -401,9 +429,9 @@ impl State {
 
     pub(crate) fn view(&self) -> Element<'_, Message> {
         let sidebar = column![
-            self.view_picker(),
+            self.view_controls(),
             space().height(Length::Fixed(PICKER_GAP)),
-            self.view_mode(),
+            self.view_search(),
             space().height(Length::Fixed(PICKER_TREE_GAP)),
             self.view_tree(),
         ]
@@ -414,45 +442,131 @@ impl State {
             .width(Length::Fixed(PANEL_WIDTH))
             .height(Length::Fill)
             .padding(PANEL_PADDING)
-            .style(theme::list_panel_container);
+            .style(theme::dark_panel_container);
 
-        row![panel].width(Length::Fill).height(Length::Fill).into()
+        let base = row![slide(panel, self.sidebar_open, Slide::Left).snap(self.entered), self.view_workspace()]
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        let hover = row![
+            slide(space().width(Length::Fixed(PANEL_WIDTH)), self.sidebar_open, Slide::Left).snap(self.entered),
+            self.view_toggle(),
+        ]
+            .height(Length::Fill)
+            .align_y(Alignment::Start);
+
+        stack![base, hover].width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn view_toggle(&self) -> Element<'_, Message> {
+        let arrow = if self.sidebar_open { ARROW_OPEN } else { ARROW_SHUT };
+
+        let toggle = button(
+            theme::centered_text(arrow)
+                .font(fonts::MISC_SYMBOLS)
+                .size(TOGGLE_ARROW_SIZE)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
+            .width(TOGGLE_BUTTON_SIZE)
+            .height(TOGGLE_BUTTON_SIZE)
+            .padding(0)
+            .on_press(Message::ToggleSidebar)
+            .style(theme::neutral_button);
+
+        container(toggle)
+            .padding(Padding { top: TOGGLE_BUTTON_GAP, left: TOGGLE_BUTTON_GAP, right: TOGGLE_BUTTON_GAP, ..Padding::ZERO })
+            .into()
+    }
+
+    fn view_workspace(&self) -> Element<'_, Message> {
+        let surface = container(space())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(theme::workspace_container);
+
+        let reserve = (TOGGLE_BUTTON_GAP + TOGGLE_BUTTON_SIZE).max(theme::NAV_TOGGLE_RIGHT + theme::NAV_TOGGLE_SIZE);
+
+        let strip = container(self.view_header())
+            .width(Length::Fill)
+            .height(Length::Fixed(HEADER_TOP_GAP + HEADER_HEIGHT))
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Bottom)
+            .padding(Padding::default().left(reserve).right(reserve));
+
+        let body = column![strip, surface].spacing(HEADER_BODY_GAP).height(Length::Fill);
+
+        container(body)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(Padding {
+                top: 0.0,
+                right: TOGGLE_BUTTON_GAP,
+                bottom: TOGGLE_BUTTON_GAP,
+                left: TOGGLE_BUTTON_GAP,
+            })
+            .into()
+    }
+
+    fn view_header(&self) -> Element<'_, Message> {
+        let label = self.selection_label().unwrap_or_else(|| HEADER_EMPTY.to_string());
+        let header_font = Font { weight: font::Weight::Bold, ..Font::MONOSPACE };
+
+        container(
+            text(label)
+                .size(HEADER_TEXT_SIZE)
+                .font(header_font)
+                .align_x(Horizontal::Center)
+                .wrapping(text::Wrapping::None),
+        )
+            .height(Length::Fixed(HEADER_HEIGHT))
+            .align_y(Vertical::Center)
+            .padding(Padding::default().left(HEADER_PADDING).right(HEADER_PADDING))
+            .style(theme::workspace_header_container)
+            .into()
+    }
+
+    fn selection_label(&self) -> Option<String> {
+        let mount = self.mount.as_deref()?;
+        let name = self.selected.as_deref()?.file_name()?.to_str()?;
+
+        Some(format!("{}{}{}", mount, HEADER_SEPARATOR, name))
     }
 
     fn stale(&self) -> bool {
         !self.mounts.is_empty() && self.mount.as_ref().is_some_and(|mount| !self.mounts.contains(mount))
     }
 
-    fn view_picker(&self) -> Element<'_, Message> {
+    fn view_controls(&self) -> Element<'_, Message> {
         let style: fn(&Theme, pick_list::Status) -> pick_list::Style =
             if self.stale() { theme::combo_box_stale } else { theme::combo_box };
 
-        pick_list(self.mounts.as_slice(), self.mount.as_ref(), Message::MountSelected)
+        let mount = pick_list(self.mounts.as_slice(), self.mount.as_ref(), Message::MountSelected)
             .placeholder("Mount")
             .text_size(PICKER_TEXT_SIZE)
             .padding(PICKER_PADDING)
             .width(Length::Fill)
             .style(style)
-            .menu_style(theme::combo_box_menu)
-            .into()
-    }
+            .menu_style(theme::combo_box_menu);
 
-    fn view_mode(&self) -> Element<'_, Message> {
-        let picker = pick_list(&Mode::ALL[..], Some(self.mode), Message::ModeSelected)
+        let mode = pick_list(&Mode::ALL[..], Some(self.mode), Message::ModeSelected)
             .text_size(PICKER_TEXT_SIZE)
             .padding(PICKER_PADDING)
             .width(Length::Fixed(MODE_WIDTH))
             .style(theme::combo_box)
             .menu_style(theme::combo_box_menu);
 
-        let field = text_input("Search File...", &self.search_query)
+        row![mount, mode].spacing(PICKER_GAP).align_y(Vertical::Center).into()
+    }
+
+    fn view_search(&self) -> Element<'_, Message> {
+        text_input("Search File...", &self.search_query)
             .on_input(Message::SearchChanged)
             .size(PICKER_TEXT_SIZE)
             .padding(PICKER_PADDING)
             .width(Length::Fill)
-            .style(theme::rounded_input);
-
-        row![picker, field].spacing(PICKER_GAP).align_y(Vertical::Center).into()
+            .style(theme::rounded_input)
+            .into()
     }
 
     fn view_tree(&self) -> Element<'_, Message> {
