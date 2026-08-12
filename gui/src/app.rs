@@ -162,6 +162,7 @@ pub enum Message {
     Enemy(enemy::Message),
     Stage(stage::Message),
     Mod(mods::Message),
+    Files(files::Message),
     Import(import::Message),
     Settings(gui_settings::Message),
 }
@@ -210,6 +211,8 @@ pub struct BattleCatsApp {
     pub stage_state: stage::State,
     #[serde(skip)]
     pub mods_state: mods::State,
+    #[serde(skip)]
+    pub files_state: files::State,
     #[serde(skip)]
     pub import_state: import::State,
     #[serde(skip)]
@@ -273,6 +276,7 @@ impl Default for BattleCatsApp {
             enemy_state: enemy::EnemyState::default(),
             stage_state: stage::State::default(),
             mods_state: mods::State::new(core::modules::mods::ModDataState::default()),
+            files_state: files::State::default(),
             import_state: import::State::default(),
             settings_state: gui_settings::State::default(),
             settings: Settings::default(),
@@ -336,6 +340,10 @@ impl BattleCatsApp {
         match page {
             Page::Home => {
                 self.sync_home_status();
+                Task::none()
+            }
+            Page::Files => {
+                self.files_state.sync(&self.vault.vfs);
                 Task::none()
             }
             Page::Cats => {
@@ -426,6 +434,10 @@ impl BattleCatsApp {
 
         if pruned {
             self.sync_home_status();
+        }
+
+        if self.current_page == Page::Files {
+            self.files_state.apply_changes(&self.vault.vfs, &paths);
         }
 
         if !touched_mods.is_empty() {
@@ -848,6 +860,7 @@ impl BattleCatsApp {
 
                 Task::batch([task, self.rebuild_content()])
             }
+            Message::Files(msg) => self.files_state.update(msg, &self.vault.vfs).map(Message::Files),
             Message::Settings(msg) => {
                 if matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ManualUpdateCheck)) {
                     info!("Manual update check requested from Settings");
@@ -877,7 +890,7 @@ impl BattleCatsApp {
             Page::Enemies => self.enemy_state.view(&self.settings, &self.app_state, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }).map(Message::Enemy),
             Page::Stages => self.stage_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }).map(Message::Stage),
             Page::Mods => self.mods_state.view().map(Message::Mod),
-            Page::Files => files::view(),
+            Page::Files => self.files_state.view().map(Message::Files),
             Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
             Page::Settings => self.settings_state.view(&self.settings, &self.updater_status).map(Message::Settings),
         };

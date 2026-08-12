@@ -102,6 +102,12 @@ pub struct Conflict {
     pub paths: Vec<PathBuf>,
 }
 
+#[derive(Debug, Default)]
+pub struct Listing {
+    pub folders: Vec<Box<str>>,
+    pub files: Vec<Box<str>>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum VfsError {
     #[error("mount target is not a directory: {0}")]
@@ -351,6 +357,48 @@ impl Vfs {
         collisions
     }
 
+    pub fn mount_keys(&self) -> Vec<Box<str>> {
+        let Ok(mounts) = self.mounts.read() else {
+            return Vec::new();
+        };
+
+        let mut keys: Vec<Box<str>> = mounts.keys().cloned().collect();
+        keys.sort_unstable_by(|a, b| {
+            let rank = |key: &str| u8::from(key != MOUNT_GAME);
+            rank(a).cmp(&rank(b)).then_with(|| a.cmp(b))
+        });
+
+        keys
+    }
+
+    pub fn relative(&self, mount: &str, path: &Path) -> Option<PathBuf> {
+        let mounts = self.mounts.read().ok()?;
+        let indexed = mounts.get(mount)?;
+
+        relative_to(&indexed.root, path)
+    }
+
+    pub fn browse(&self, mount: &str, dir: &Path) -> Option<Listing> {
+        let mounts = self.mounts.read().ok()?;
+        let indexed = mounts.get(mount)?;
+        let key = dir.to_string_lossy();
+
+        let folders = indexed.folders.get(key.as_ref());
+        let files = indexed.dirs.get(key.as_ref());
+
+        if folders.is_none() && files.is_none() {
+            return None;
+        }
+
+        let sorted = |names: Option<&Vec<Box<str>>>| {
+            let mut names = names.cloned().unwrap_or_default();
+            names.sort_unstable();
+            names
+        };
+
+        Some(Listing { folders: sorted(folders), files: sorted(files) })
+    }
+
     pub fn keys(&self, mount: &str) -> Vec<Box<str>> {
         let Ok(mounts) = self.mounts.read() else {
             return Vec::new();
@@ -501,6 +549,8 @@ impl Mount for (&str, &Path) {
             if !listing.iter().any(|existing| existing.as_ref() == name) {
                 listing.push(name.into());
             }
+
+            link_ancestors(mount, parent);
         }
 
         mount.files.insert(name.into(), Entry { path: relative, mtime, len });
@@ -542,6 +592,28 @@ impl Mount for (&str, &Path) {
         }
 
         vfs.evict(name);
+    }
+}
+
+fn link_ancestors(mount: &mut MountedDir, dir: &Path) {
+    let mut current = Some(dir);
+
+    while let Some(branch) = current {
+        let Some(parent) = branch.parent() else {
+            return;
+        };
+
+        let Some(name) = branch.file_name().and_then(OsStr::to_str) else {
+            return;
+        };
+
+        let listing = mount.folders.entry(parent.to_string_lossy().into()).or_default();
+
+        if !listing.iter().any(|existing| existing.as_ref() == name) {
+            listing.push(name.into());
+        }
+
+        current = Some(parent);
     }
 }
 

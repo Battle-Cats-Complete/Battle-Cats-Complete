@@ -10,5 +10,5 @@ pub mod modules;
 pub mod statblock;
 
 pub use vault::{
-    CatStore, Conflict, ContentStore, EnemyStore, Mount, StageStore, Target, Vault, Vds, Vfs, VfsError,
+    CatStore, Conflict, ContentStore, EnemyStore, Listing, Mount, StageStore, Target, Vault, Vds, Vfs, VfsError,
 };

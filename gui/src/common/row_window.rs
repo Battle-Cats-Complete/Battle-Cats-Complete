@@ -13,24 +13,29 @@ pub(crate) struct RowWindow {
 }
 
 pub(crate) fn compute(total: usize, viewport_h: f32, offset: f32) -> RowWindow {
+    compute_with(total, viewport_h, offset, ROW_HEIGHT, ROW_SPACING)
+}
+
+pub(crate) fn compute_with(total: usize, viewport_h: f32, offset: f32, height: f32, spacing: f32) -> RowWindow {
     if total == 0 {
         return RowWindow { range: 0..0, pad_before: 0.0, pad_after: 0.0 };
     }
 
-    let content_h = ROW_PITCH * total as f32 - ROW_SPACING;
+    let pitch = height + spacing;
+    let content_h = pitch * total as f32 - spacing;
     let max_offset = (content_h - viewport_h).max(0.0);
     let offset = offset.clamp(0.0, max_offset).round();
 
-    let anchor = (offset / ROW_PITCH).floor() as usize;
-    let span = ((viewport_h / ROW_PITCH).ceil() as usize).saturating_add(1);
+    let anchor = (offset / pitch).floor() as usize;
+    let span = ((viewport_h / pitch).ceil() as usize).saturating_add(1);
 
     let first = anchor.saturating_sub(BUFFER_ROWS);
     let end = anchor.saturating_add(span).saturating_add(BUFFER_ROWS).min(total);
 
     RowWindow {
         range: first..end,
-        pad_before: if first > 0 { ROW_PITCH * first as f32 - ROW_SPACING } else { 0.0 },
-        pad_after: if end < total { ROW_PITCH * (total - end) as f32 - ROW_SPACING } else { 0.0 },
+        pad_before: if first > 0 { pitch * first as f32 - spacing } else { 0.0 },
+        pad_after: if end < total { pitch * (total - end) as f32 - spacing } else { 0.0 },
     }
 }
 

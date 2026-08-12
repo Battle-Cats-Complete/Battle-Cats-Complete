@@ -8,7 +8,7 @@ use crate::common::io::cache;
 use crate::modules::settings::{ScannerConfig, Settings};
 
 pub use vds::{CatStore, ContentStore, EnemyStore, StageStore, Vds};
-pub use vfs::{Conflict, Mount, Target, Vfs, VfsError};
+pub use vfs::{Conflict, Listing, Mount, Target, Vfs, VfsError};
 
 pub struct Vault {
     pub vfs: Vfs,
