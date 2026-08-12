@@ -67,6 +67,34 @@ pub struct Settings {
 #[serde(default)]
 pub struct FilesSettings {
     pub unlock_game_mount: bool,
+    pub editor_mode: EditorMode,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum EditorMode {
+    #[default]
+    Fill,
+    Virtual,
+}
+
+impl EditorMode {
+    pub const ALL: [Self; 2] = [Self::Fill, Self::Virtual];
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::Fill => "Loads the whole file at once, so you can select and copy all of it, but very long files may stutter",
+            Self::Virtual => "Only keeps the visible part of the file loaded, so long files stay smooth, but selecting and copying is limited to what is on screen",
+        }
+    }
+}
+
+impl std::fmt::Display for EditorMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Fill => "Fill",
+            Self::Virtual => "Virtual",
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]

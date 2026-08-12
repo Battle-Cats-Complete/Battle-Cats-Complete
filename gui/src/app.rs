@@ -349,7 +349,7 @@ impl BattleCatsApp {
                 Task::none()
             }
             Page::Files => {
-                let task = self.files_state.sync(&self.vault.vfs, self.settings.files.unlock_game_mount, false);
+                let task = self.files_state.sync(&self.vault.vfs, &self.settings.files, false);
                 self.files_state.sync_state(&mut self.app_state.files);
 
                 task.map(Message::Files)
@@ -450,7 +450,7 @@ impl BattleCatsApp {
         }
 
         let files_task = if self.current_page == Page::Files {
-            let task = self.files_state.apply_changes(&self.vault.vfs, &paths, self.settings.files.unlock_game_mount);
+            let task = self.files_state.apply_changes(&self.vault.vfs, &paths, &self.settings.files);
             self.files_state.sync_state(&mut self.app_state.files);
 
             task.map(Message::Files)
@@ -881,8 +881,7 @@ impl BattleCatsApp {
                 Task::batch([task, self.rebuild_content()])
             }
             Message::Files(msg) => {
-                let unlocked = self.settings.files.unlock_game_mount;
-                let task = self.files_state.update(msg, &self.vault.vfs, unlocked).map(Message::Files);
+                let task = self.files_state.update(msg, &self.vault.vfs, &self.settings.files).map(Message::Files);
                 self.files_state.sync_state(&mut self.app_state.files);
                 task
             }

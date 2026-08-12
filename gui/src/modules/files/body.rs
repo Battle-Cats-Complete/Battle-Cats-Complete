@@ -1,13 +1,14 @@
 use std::fs;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, container, operation, responsive, scrollable, space, stack, text, text_editor};
+use iced::widget::{button, column, container, operation, responsive, scrollable, space, stack, text, text_editor};
 use iced::{widget, Element, Font, Length, Padding, Size, Task, Theme};
 use tracing::warn;
 
 use core::common::preview::{self, Preview, Stamp};
+use core::modules::settings::EditorMode;
 use core::Vfs;
 
 use crate::app::theme;
@@ -24,16 +25,19 @@ const UPLOAD_INSET: f32 = 2.0;
 
 const CHAR_WIDTH: f32 = TEXT_SIZE * 0.6;
 const TAB_COLUMNS: usize = 8;
-const HEAD_LINES: usize = 60;
 const LINE_HEIGHT: f32 = TEXT_SIZE * 1.3;
 const DOCUMENT_PADDING: f32 = 4.0;
 const DOCUMENT_CLEARANCE: f32 = 14.0;
+
+const OPENING_LINES: usize = 80;
+const WINDOW_FACTOR: usize = 3;
+const BUFFER_LINES: usize = 12;
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Picture(picture::Message),
     Edit(text_editor::Action),
-    Fill,
+    Scrolled(scrollable::Viewport),
     Upload,
 }
 
@@ -45,35 +49,156 @@ pub(super) enum Outcome {
 }
 
 struct Draft {
+    mode: EditorMode,
+    body: String,
+    starts: Vec<usize>,
+    window: Range<usize>,
     editor: text_editor::Content,
-    pending: Option<String>,
     stamp: Stamp,
+    staged: bool,
     dirty: bool,
     widest: f32,
 }
 
 impl Draft {
+    fn new(body: String, stamp: Stamp, mode: EditorMode) -> Self {
+        let starts = Self::index(&body);
+        let widest = Self::measure(&body);
+
+        let opening = match mode {
+            EditorMode::Virtual => OPENING_LINES.min(starts.len()),
+            EditorMode::Fill => starts.len(),
+        };
+
+        let window = 0..opening;
+
+        let mut draft = Self {
+            mode,
+            body,
+            starts,
+            window,
+            editor: text_editor::Content::new(),
+            stamp,
+            staged: false,
+            dirty: false,
+            widest,
+        };
+
+        draft.reload();
+        draft
+    }
+
+    fn index(body: &str) -> Vec<usize> {
+        let mut starts = Vec::with_capacity(body.len() / 32 + 1);
+        starts.push(0);
+        starts.extend(body.match_indices('\n').map(|(offset, _)| offset + 1));
+        starts
+    }
+
+    fn bounds(&self, window: &Range<usize>) -> (usize, usize) {
+        let from = self.starts.get(window.start).copied().unwrap_or(self.body.len());
+        let to = self.starts.get(window.end).map_or(self.body.len(), |next| next.saturating_sub(1));
+
+        (from, to.max(from))
+    }
+
+    fn reach(&self) -> usize {
+        self.window.start + self.editor.line_count()
+    }
+
+    fn total(&self) -> usize {
+        if self.staged {
+            return self.starts.len() + self.editor.line_count() - self.window.len();
+        }
+
+        self.starts.len()
+    }
+
+    fn flush(&mut self) {
+        if !self.staged {
+            return;
+        }
+
+        let (from, to) = self.bounds(&self.window);
+        let text = self.editor.text();
+
+        self.body.replace_range(from..to, &text);
+        self.starts = Self::index(&self.body);
+        self.window = self.window.start..self.window.start + self.editor.line_count();
+        self.staged = false;
+    }
+
+    fn reload(&mut self) {
+        let (from, to) = self.bounds(&self.window);
+
+        self.editor = text_editor::Content::with_text(&self.body[from..to]);
+    }
+
+    fn retarget(&mut self, window: Range<usize>) {
+        if window == self.window {
+            return;
+        }
+
+        let anchor = self.editor.cursor();
+        let absolute = self.window.start + anchor.position.line;
+
+        self.flush();
+
+        let limit = self.starts.len();
+        self.window = window.start.min(limit)..window.end.min(limit);
+        self.reload();
+
+        if self.window.contains(&absolute) {
+            self.editor.move_to(text_editor::Cursor {
+                position: text_editor::Position {
+                    line: absolute - self.window.start,
+                    column: anchor.position.column,
+                },
+                selection: None,
+            });
+        }
+    }
+
+    fn reopen(&mut self, anchor: usize) {
+        if self.mode == EditorMode::Fill {
+            return;
+        }
+
+        let span = self.window.len().max(OPENING_LINES);
+        let start = anchor.min(self.starts.len().saturating_sub(1));
+
+        self.retarget(start..(start + span).min(self.starts.len()));
+    }
+
+    fn scrolled(&mut self, offset: f32, height: f32) {
+        if self.mode == EditorMode::Fill {
+            return;
+        }
+
+        let visible = ((height / LINE_HEIGHT).ceil() as usize).max(1);
+        let first = (offset / LINE_HEIGHT).floor() as usize;
+        let last = (first + visible).min(self.total());
+
+        let reach = self.reach();
+        let room_above = self.window.start > 0 && first < self.window.start + BUFFER_LINES;
+        let room_below = reach < self.total() && last + BUFFER_LINES > reach;
+
+        if !room_above && !room_below {
+            return;
+        }
+
+        let span = (visible * WINDOW_FACTOR).max(OPENING_LINES);
+        let start = first.saturating_sub(span.saturating_sub(visible) / 2);
+        let end = (start + span).min(self.total());
+
+        self.retarget(start.min(end)..end);
+    }
+
     fn columns(line: &str) -> usize {
         line.chars().fold(0, |column, character| match character {
             '\t' => (column / TAB_COLUMNS + 1) * TAB_COLUMNS,
             _ => column + 1,
         })
-    }
-
-    fn split(body: &str) -> (&str, &str) {
-        body.match_indices('\n')
-            .nth(HEAD_LINES - 1)
-            .map_or((body, ""), |(index, _)| body.split_at(index + 1))
-    }
-
-    fn fill(&mut self) {
-        let Some(tail) = self.pending.take() else {
-            return;
-        };
-
-        self.editor.perform(text_editor::Action::Move(text_editor::Motion::DocumentEnd));
-        self.editor.perform(text_editor::Action::Edit(text_editor::Edit::Paste(Arc::new(tail))));
-        self.editor.perform(text_editor::Action::Move(text_editor::Motion::DocumentStart));
     }
 
     fn span(columns: usize) -> f32 {
@@ -110,6 +235,7 @@ pub(super) struct State {
     content: Content,
     picture: picture::State,
     writable: bool,
+    stale: bool,
     scroll_id: widget::Id,
 }
 
@@ -121,6 +247,7 @@ impl Default for State {
             content: Content::default(),
             picture: picture::State::default(),
             writable: false,
+            stale: false,
             scroll_id: widget::Id::unique(),
         }
     }
@@ -128,11 +255,26 @@ impl Default for State {
 
 impl State {
     pub(super) fn invalidate(&mut self) {
-        self.loaded = None;
+        self.stale = true;
     }
 
-    pub(super) fn recenter(&mut self) {
+    fn resume(&self) -> Option<usize> {
+        match &self.content {
+            Content::Text(draft) => Some(draft.window.start),
+            _ => None,
+        }
+    }
+
+    pub(super) fn recenter(&mut self) -> Task<Message> {
         self.picture.reset();
+
+        let Content::Text(draft) = &mut self.content else {
+            return Task::none();
+        };
+
+        draft.reopen(0);
+
+        operation::scroll_to(self.scroll_id.clone(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 })
     }
 
     pub(super) fn update(&mut self, message: Message) -> (Outcome, Task<Message>) {
@@ -141,9 +283,9 @@ impl State {
                 self.picture.update(msg);
                 (Outcome::Idle, Task::none())
             }
-            Message::Fill => {
+            Message::Scrolled(viewport) => {
                 if let Content::Text(draft) = &mut self.content {
-                    draft.fill();
+                    draft.scrolled(viewport.absolute_offset().y, viewport.bounds().height);
                 }
 
                 (Outcome::Idle, Task::none())
@@ -167,6 +309,7 @@ impl State {
                     let edited = action.is_edit();
 
                     draft.dirty |= edited;
+                    draft.staged |= edited;
                     draft.editor.perform(action);
 
                     if edited {
@@ -242,7 +385,9 @@ impl State {
             return;
         };
 
-        match preview::save(&target, draft.editor.text().as_bytes(), draft.stamp) {
+        draft.flush();
+
+        match preview::save(&target, draft.body.as_bytes(), draft.stamp) {
             Ok(stamp) => {
                 draft.stamp = stamp;
                 draft.dirty = false;
@@ -251,7 +396,14 @@ impl State {
         }
     }
 
-    pub(super) fn refresh(&mut self, vfs: &Vfs, mount: Option<&str>, selected: Option<&Path>, writable: bool) -> bool {
+    pub(super) fn refresh(
+        &mut self,
+        vfs: &Vfs,
+        mount: Option<&str>,
+        selected: Option<&Path>,
+        writable: bool,
+        mode: EditorMode,
+    ) {
         let Some(relative) = selected else {
             let previous = self.loaded.take();
 
@@ -261,25 +413,31 @@ impl State {
             self.content = Content::Empty;
             self.picture.reset();
 
-            return false;
+            return;
         };
 
-        if self.loaded.as_deref() == selected && self.writable == writable {
-            return false;
+        let reloaded = self.loaded.as_deref() == selected;
+        let settled = matches!(&self.content, Content::Text(draft) if draft.mode == mode);
+
+        if reloaded && self.writable == writable && !self.stale && settled {
+            return;
         }
 
-        if self.loaded.as_deref() != selected {
+        if !reloaded {
             let previous = self.loaded.clone();
             self.commit(vfs, mount, previous.as_deref());
         }
 
+        let resume = reloaded.then(|| self.resume()).flatten();
+
+        self.stale = false;
         self.loaded = Some(relative.to_path_buf());
         self.writable = writable;
 
         let resolved = mount.and_then(|mount| vfs.root(mount)).map(|root| root.join(relative));
 
         let Some(path) = resolved else {
-            return false;
+            return;
         };
 
         match preview::load(&path) {
@@ -292,28 +450,18 @@ impl State {
                 self.content = Content::Image { source: picture::Source::new(bytes, width, height), stamp };
             }
             Preview::Text { body, stamp } => {
-                let widest = Draft::measure(&body);
-                let (head, tail) = Draft::split(&body);
+                let mut draft = Draft::new(body, stamp, mode);
 
-                let pending = (!tail.is_empty()).then(|| tail.to_string());
-                let queued = pending.is_some();
+                if let Some(anchor) = resume {
+                    draft.reopen(anchor);
+                }
 
-                self.content = Content::Text(Draft {
-                    editor: text_editor::Content::with_text(head),
-                    pending,
-                    stamp,
-                    dirty: false,
-                    widest,
-                });
-
-                return queued;
+                self.content = Content::Text(draft);
             }
             Preview::Oversized => self.content = Content::Notice(OVERSIZED_LABEL),
             Preview::Binary => self.content = Content::Notice(BINARY_LABEL),
             Preview::Unavailable => {}
         }
-
-        false
     }
 
     pub(super) fn view(&self) -> Element<'_, Message> {
@@ -361,6 +509,7 @@ impl State {
     fn view_document<'a>(&'a self, draft: &'a Draft) -> Element<'a, Message> {
         responsive(move |size: Size| {
             let width = draft.widest.max(size.width - DOCUMENT_CLEARANCE);
+            let total = draft.total();
 
             let page = text_editor(&draft.editor)
                 .on_action(Message::Edit)
@@ -368,13 +517,19 @@ impl State {
                 .size(TEXT_SIZE)
                 .wrapping(text::Wrapping::None)
                 .width(width)
-                .height(Length::Shrink)
+                .height(Length::Fixed(draft.editor.line_count() as f32 * LINE_HEIGHT))
                 .padding(DOCUMENT_PADDING)
                 .style(theme::plain_editor);
 
-            scrollable(container(page).padding(Padding::default().right(DOCUMENT_CLEARANCE).bottom(DOCUMENT_CLEARANCE)))
+            let above = draft.window.start as f32 * LINE_HEIGHT;
+            let below = total.saturating_sub(draft.reach()) as f32 * LINE_HEIGHT;
+
+            let document = column![space().height(above), page, space().height(below)].width(width);
+
+            scrollable(container(document).padding(Padding::default().right(DOCUMENT_CLEARANCE).bottom(DOCUMENT_CLEARANCE)))
                 .id(self.scroll_id.clone())
                 .direction(both_ways())
+                .on_scroll(Message::Scrolled)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into()

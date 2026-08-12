@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use core::modules::data::architecture;
+use core::modules::settings::{EditorMode, FilesSettings};
 use core::Vfs;
 
 use crate::app::state::FilesState;
@@ -135,6 +136,7 @@ pub struct State {
     entered: bool,
     verify: bool,
     unlocked: bool,
+    editor_mode: EditorMode,
     tree: tree::State,
     body: body::State,
     notice: Slot<()>,
@@ -153,6 +155,7 @@ impl Default for State {
             entered: true,
             verify: false,
             unlocked: false,
+            editor_mode: EditorMode::default(),
             tree: tree::State::default(),
             body: body::State::default(),
             notice: Slot::default(),
@@ -189,8 +192,8 @@ impl State {
         }
     }
 
-    pub(crate) fn sync(&mut self, vfs: &Vfs, unlocked: bool, validated: bool) -> Task<Message> {
-        self.unlocked = unlocked;
+    pub(crate) fn sync(&mut self, vfs: &Vfs, files: &FilesSettings, validated: bool) -> Task<Message> {
+        self.adopt(files);
         self.entered = true;
         self.body.invalidate();
 
@@ -219,8 +222,8 @@ impl State {
         self.reindex(vfs)
     }
 
-    pub(crate) fn apply_changes(&mut self, vfs: &Vfs, paths: &[PathBuf], unlocked: bool) -> Task<Message> {
-        self.unlocked = unlocked;
+    pub(crate) fn apply_changes(&mut self, vfs: &Vfs, paths: &[PathBuf], files: &FilesSettings) -> Task<Message> {
+        self.adopt(files);
         let Some(mount) = self.mount.as_deref() else {
             return Task::none();
         };
@@ -251,8 +254,8 @@ impl State {
         self.reindex(vfs)
     }
 
-    pub(crate) fn update(&mut self, message: Message, vfs: &Vfs, unlocked: bool) -> Task<Message> {
-        self.unlocked = unlocked;
+    pub(crate) fn update(&mut self, message: Message, vfs: &Vfs, files: &FilesSettings) -> Task<Message> {
+        self.adopt(files);
         match message {
             Message::MountSelected(mount) => {
                 if self.mount.as_deref() == Some(mount.as_str()) {
@@ -340,11 +343,11 @@ impl State {
         self.selected = Some(path);
         let queued = self.refresh(vfs);
 
-        if repeat {
-            self.body.recenter();
+        if !repeat {
+            return queued;
         }
 
-        queued
+        Task::batch([queued, self.body.recenter().map(Message::Body)])
     }
 
     fn reset(&mut self) {
@@ -360,11 +363,7 @@ impl State {
     fn refresh(&mut self, vfs: &Vfs) -> Task<Message> {
         self.content = self.rebuild(vfs);
 
-        let queued = self.body.refresh(vfs, self.mount.as_deref(), self.selected.as_deref(), self.writable());
-
-        if queued {
-            return Task::done(Message::Body(body::Message::Fill));
-        }
+        self.body.refresh(vfs, self.mount.as_deref(), self.selected.as_deref(), self.writable(), self.editor_mode);
 
         Task::none()
     }
@@ -427,6 +426,11 @@ impl State {
 
     pub(crate) fn leave(&mut self, vfs: &Vfs) {
         self.body.commit(vfs, self.mount.as_deref(), self.selected.as_deref());
+    }
+
+    fn adopt(&mut self, files: &FilesSettings) {
+        self.unlocked = files.unlock_game_mount;
+        self.editor_mode = files.editor_mode;
     }
 
     fn writable(&self) -> bool {

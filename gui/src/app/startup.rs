@@ -153,7 +153,7 @@ impl BattleCatsApp {
         self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
 
         self.sync_home_status();
-        let files_task = self.files_state.sync(&self.vault.vfs, self.settings.files.unlock_game_mount, !cached);
+        let files_task = self.files_state.sync(&self.vault.vfs, &self.settings.files, !cached);
         self.files_state.sync_state(&mut self.app_state.files);
 
         let active_mod = self.mods_state.active_mod();

@@ -11,7 +11,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length, Size, Task};
 
-use core::modules::settings::{lang, nightly};
+use core::modules::settings::{lang, nightly, EditorMode};
 use core::modules::settings::{
     ExportBehavior, ImportStructure, Settings as CoreSettings, SidebarBehavior,
 };
@@ -61,6 +61,7 @@ pub enum Message {
     Addons(addons::Message),
     ToggleDebugView(bool),
     ToggleUnlockGameMount(bool),
+    EditorModeSelected(EditorMode),
     ToggleTightBounds(bool),
     ToggleAutoCamera(bool),
     ShowcaseWalkChanged(String),
@@ -195,6 +196,10 @@ impl State {
 
             Message::Addons(msg) => self.addons.update(msg).map(Message::Addons),
 
+            Message::EditorModeSelected(mode) => {
+                core_settings.files.editor_mode = mode;
+                Task::none()
+            }
             Message::ToggleUnlockGameMount(val) => {
                 core_settings.files.unlock_game_mount = val;
                 Task::none()
@@ -510,9 +515,21 @@ impl State {
             "Allows editing vanilla game files in place\nPrefer creating a Mod so the original data stays intact",
         );
 
+        let mode = core_settings.files.editor_mode;
+
+        let mode_row = hover_hint(
+            row![
+                text("UTF-8 Mode"),
+                pick_list(EditorMode::ALL, Some(mode), Message::EditorModeSelected)
+                    .style(theme::combo_box)
+                    .menu_style(theme::combo_box_menu),
+            ].spacing(10).align_y(Alignment::Center),
+            mode.hint(),
+        );
+
         column![
             header_section(text("Disk").size(24), self.disk.view().map(Message::Disk)),
-            header_section(text("Editor").size(24), editor_content),
+            header_section(text("Editor").size(24), column![mode_row, editor_content].spacing(10)),
         ].spacing(SECTION_SPACING).into()
     }
 
