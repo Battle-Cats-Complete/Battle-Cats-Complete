@@ -349,9 +349,10 @@ impl BattleCatsApp {
                 Task::none()
             }
             Page::Files => {
-                self.files_state.sync(&self.vault.vfs, self.settings.files.unlock_game_mount, false);
+                let task = self.files_state.sync(&self.vault.vfs, self.settings.files.unlock_game_mount, false);
                 self.files_state.sync_state(&mut self.app_state.files);
-                Task::none()
+
+                task.map(Message::Files)
             }
             Page::Cats => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault };
@@ -448,10 +449,14 @@ impl BattleCatsApp {
             self.mods_state.invalidate_assets(&touched_mods);
         }
 
-        if self.current_page == Page::Files {
-            self.files_state.apply_changes(&self.vault.vfs, &paths, self.settings.files.unlock_game_mount);
+        let files_task = if self.current_page == Page::Files {
+            let task = self.files_state.apply_changes(&self.vault.vfs, &paths, self.settings.files.unlock_game_mount);
             self.files_state.sync_state(&mut self.app_state.files);
-        }
+
+            task.map(Message::Files)
+        } else {
+            Task::none()
+        };
 
         if wiped {
             return self.rebuild_content();
@@ -465,7 +470,7 @@ impl BattleCatsApp {
         self.enemy_state.reload_selected(&self.vault, self.settings.show_invalid_enemies());
         self.stage_state.reload_selected(&self.vault);
 
-        self.persist_index()
+        Task::batch([files_task, self.persist_index()])
     }
 
     fn finish_validation(&mut self, vault: Option<Arc<Vault>>, key: Option<u64>, mounted: Option<String>) -> Task<Message> {

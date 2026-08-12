@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, container, operation, responsive, scrollable, space, stack, text, text_editor};
@@ -22,6 +23,8 @@ const UPLOAD_GLYPH_SIZE: f32 = 16.0;
 const UPLOAD_INSET: f32 = 2.0;
 
 const CHAR_WIDTH: f32 = TEXT_SIZE * 0.6;
+const TAB_COLUMNS: usize = 8;
+const HEAD_LINES: usize = 60;
 const LINE_HEIGHT: f32 = TEXT_SIZE * 1.3;
 const DOCUMENT_PADDING: f32 = 4.0;
 const DOCUMENT_CLEARANCE: f32 = 14.0;
@@ -30,6 +33,7 @@ const DOCUMENT_CLEARANCE: f32 = 14.0;
 pub enum Message {
     Picture(picture::Message),
     Edit(text_editor::Action),
+    Fill,
     Upload,
 }
 
@@ -42,18 +46,42 @@ pub(super) enum Outcome {
 
 struct Draft {
     editor: text_editor::Content,
+    pending: Option<String>,
     stamp: Stamp,
     dirty: bool,
     widest: f32,
 }
 
 impl Draft {
+    fn columns(line: &str) -> usize {
+        line.chars().fold(0, |column, character| match character {
+            '\t' => (column / TAB_COLUMNS + 1) * TAB_COLUMNS,
+            _ => column + 1,
+        })
+    }
+
+    fn split(body: &str) -> (&str, &str) {
+        body.match_indices('\n')
+            .nth(HEAD_LINES - 1)
+            .map_or((body, ""), |(index, _)| body.split_at(index + 1))
+    }
+
+    fn fill(&mut self) {
+        let Some(tail) = self.pending.take() else {
+            return;
+        };
+
+        self.editor.perform(text_editor::Action::Move(text_editor::Motion::DocumentEnd));
+        self.editor.perform(text_editor::Action::Edit(text_editor::Edit::Paste(Arc::new(tail))));
+        self.editor.perform(text_editor::Action::Move(text_editor::Motion::DocumentStart));
+    }
+
     fn span(columns: usize) -> f32 {
         DOCUMENT_PADDING * 2.0 + CHAR_WIDTH * columns as f32
     }
 
     fn measure(body: &str) -> f32 {
-        Self::span(body.lines().map(|line| line.chars().count()).max().unwrap_or(0))
+        Self::span(body.lines().map(Self::columns).max().unwrap_or(0))
     }
 
     fn grow(&mut self) {
@@ -63,7 +91,7 @@ impl Draft {
             return;
         };
 
-        self.widest = self.widest.max(Self::span(line.text.chars().count()));
+        self.widest = self.widest.max(Self::span(Self::columns(&line.text)));
     }
 }
 
@@ -111,6 +139,13 @@ impl State {
         match message {
             Message::Picture(msg) => {
                 self.picture.update(msg);
+                (Outcome::Idle, Task::none())
+            }
+            Message::Fill => {
+                if let Content::Text(draft) = &mut self.content {
+                    draft.fill();
+                }
+
                 (Outcome::Idle, Task::none())
             }
             Message::Upload => {
@@ -216,7 +251,7 @@ impl State {
         }
     }
 
-    pub(super) fn refresh(&mut self, vfs: &Vfs, mount: Option<&str>, selected: Option<&Path>, writable: bool) {
+    pub(super) fn refresh(&mut self, vfs: &Vfs, mount: Option<&str>, selected: Option<&Path>, writable: bool) -> bool {
         let Some(relative) = selected else {
             let previous = self.loaded.take();
 
@@ -226,11 +261,11 @@ impl State {
             self.content = Content::Empty;
             self.picture.reset();
 
-            return;
+            return false;
         };
 
         if self.loaded.as_deref() == selected && self.writable == writable {
-            return;
+            return false;
         }
 
         if self.loaded.as_deref() != selected {
@@ -244,7 +279,7 @@ impl State {
         let resolved = mount.and_then(|mount| vfs.root(mount)).map(|root| root.join(relative));
 
         let Some(path) = resolved else {
-            return;
+            return false;
         };
 
         match preview::load(&path) {
@@ -257,17 +292,28 @@ impl State {
                 self.content = Content::Image { source: picture::Source::new(bytes, width, height), stamp };
             }
             Preview::Text { body, stamp } => {
+                let widest = Draft::measure(&body);
+                let (head, tail) = Draft::split(&body);
+
+                let pending = (!tail.is_empty()).then(|| tail.to_string());
+                let queued = pending.is_some();
+
                 self.content = Content::Text(Draft {
-                    widest: Draft::measure(&body),
-                    editor: text_editor::Content::with_text(&body),
+                    editor: text_editor::Content::with_text(head),
+                    pending,
                     stamp,
                     dirty: false,
+                    widest,
                 });
+
+                return queued;
             }
             Preview::Oversized => self.content = Content::Notice(OVERSIZED_LABEL),
             Preview::Binary => self.content = Content::Notice(BINARY_LABEL),
             Preview::Unavailable => {}
         }
+
+        false
     }
 
     pub(super) fn view(&self) -> Element<'_, Message> {

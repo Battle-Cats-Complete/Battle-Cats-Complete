@@ -189,7 +189,7 @@ impl State {
         }
     }
 
-    pub(crate) fn sync(&mut self, vfs: &Vfs, unlocked: bool, validated: bool) {
+    pub(crate) fn sync(&mut self, vfs: &Vfs, unlocked: bool, validated: bool) -> Task<Message> {
         self.unlocked = unlocked;
         self.entered = true;
         self.body.invalidate();
@@ -216,13 +216,13 @@ impl State {
             self.reset();
         }
 
-        self.reindex(vfs);
+        self.reindex(vfs)
     }
 
-    pub(crate) fn apply_changes(&mut self, vfs: &Vfs, paths: &[PathBuf], unlocked: bool) {
+    pub(crate) fn apply_changes(&mut self, vfs: &Vfs, paths: &[PathBuf], unlocked: bool) -> Task<Message> {
         self.unlocked = unlocked;
         let Some(mount) = self.mount.as_deref() else {
-            return;
+            return Task::none();
         };
 
         let mut mounted = false;
@@ -245,10 +245,10 @@ impl State {
         }
 
         if !mounted {
-            return;
+            return Task::none();
         }
 
-        self.reindex(vfs);
+        self.reindex(vfs)
     }
 
     pub(crate) fn update(&mut self, message: Message, vfs: &Vfs, unlocked: bool) -> Task<Message> {
@@ -261,9 +261,8 @@ impl State {
 
                 self.mount = Some(mount);
                 self.reset();
-                self.reindex(vfs);
 
-                self.tree.snap_to_top().map(Message::Tree)
+                Task::batch([self.reindex(vfs), self.tree.snap_to_top().map(Message::Tree)])
             }
             Message::ModeSelected(mode) => {
                 if self.mode == mode {
@@ -272,16 +271,14 @@ impl State {
 
                 self.mode = mode;
                 self.tree.rewind();
-                self.reindex(vfs);
 
-                self.tree.snap_to_top().map(Message::Tree)
+                Task::batch([self.reindex(vfs), self.tree.snap_to_top().map(Message::Tree)])
             }
             Message::SearchChanged(query) => {
                 self.search_query = query;
                 self.tree.rewind();
-                self.refresh(vfs);
 
-                self.tree.snap_to_top().map(Message::Tree)
+                Task::batch([self.refresh(vfs), self.tree.snap_to_top().map(Message::Tree)])
             }
             Message::ToggleSidebar => {
                 self.sidebar_open = !self.sidebar_open;
@@ -294,9 +291,8 @@ impl State {
                 }
 
                 self.selected = None;
-                self.refresh(vfs);
 
-                Task::none()
+                self.refresh(vfs)
             }
             Message::NoticeExpired => {
                 self.notice.expire();
@@ -335,21 +331,20 @@ impl State {
 
         if folder {
             self.tree.toggle(path);
-            self.refresh(vfs);
 
-            return Task::none();
+            return self.refresh(vfs);
         }
 
         let repeat = self.selected.as_deref() == Some(path.as_path());
 
         self.selected = Some(path);
-        self.refresh(vfs);
+        let queued = self.refresh(vfs);
 
         if repeat {
             self.body.recenter();
         }
 
-        Task::none()
+        queued
     }
 
     fn reset(&mut self) {
@@ -357,14 +352,21 @@ impl State {
         self.selected = None;
     }
 
-    fn reindex(&mut self, vfs: &Vfs) {
+    fn reindex(&mut self, vfs: &Vfs) -> Task<Message> {
         self.tree.refresh_keys(vfs, self.mount.as_deref(), self.mode);
-        self.refresh(vfs);
+        self.refresh(vfs)
     }
 
-    fn refresh(&mut self, vfs: &Vfs) {
+    fn refresh(&mut self, vfs: &Vfs) -> Task<Message> {
         self.content = self.rebuild(vfs);
-        self.body.refresh(vfs, self.mount.as_deref(), self.selected.as_deref(), self.writable());
+
+        let queued = self.body.refresh(vfs, self.mount.as_deref(), self.selected.as_deref(), self.writable());
+
+        if queued {
+            return Task::done(Message::Body(body::Message::Fill));
+        }
+
+        Task::none()
     }
 
     fn rebuild(&mut self, vfs: &Vfs) -> Content {
@@ -420,7 +422,7 @@ impl State {
         }
 
         self.body.invalidate();
-        self.refresh(vfs);
+        drop(self.refresh(vfs));
     }
 
     pub(crate) fn leave(&mut self, vfs: &Vfs) {

@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -66,6 +66,12 @@ pub fn load(path: &Path) -> Preview {
         return Preview::Oversized;
     }
 
+    let png = signature(path).is_some_and(|head| head == PNG_SIGNATURE);
+
+    if !png && meta.len() > MAX_TEXT_BYTES {
+        return Preview::Oversized;
+    }
+
     let Ok(bytes) = fs::read(path).inspect_err(|err| warn!(path = %path.display(), "preview read failed: {}", err)) else {
         return Preview::Unavailable;
     };
@@ -74,16 +80,21 @@ pub fn load(path: &Path) -> Preview {
         return Preview::Unavailable;
     };
 
-    if is_png(&bytes) {
+    if png {
         return dimensions(&bytes)
             .map_or(Preview::Unavailable, |(width, height)| Preview::Image { bytes, width, height, stamp: current });
     }
 
-    if meta.len() > MAX_TEXT_BYTES {
-        return Preview::Oversized;
-    }
-
     String::from_utf8(bytes).map_or(Preview::Binary, |body| Preview::Text { body, stamp: current })
+}
+
+fn signature(path: &Path) -> Option<[u8; PNG_SIGNATURE.len()]> {
+    let mut file = File::open(path).ok()?;
+    let mut head = [0u8; PNG_SIGNATURE.len()];
+
+    file.read_exact(&mut head).ok()?;
+
+    Some(head)
 }
 
 pub fn is_png(bytes: &[u8]) -> bool {

@@ -153,12 +153,13 @@ impl BattleCatsApp {
         self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
 
         self.sync_home_status();
-        self.files_state.sync(&self.vault.vfs, self.settings.files.unlock_game_mount, !cached);
+        let files_task = self.files_state.sync(&self.vault.vfs, self.settings.files.unlock_game_mount, !cached);
         self.files_state.sync_state(&mut self.app_state.files);
 
         let active_mod = self.mods_state.active_mod();
 
         Task::batch([
+            files_task.map(Message::Files),
             self.load_tables(),
             self.cat_state.start_load(&self.settings, &self.vault, active_mod.clone(), cached).map(Message::Cat),
             self.enemy_state.start_load(&self.settings, &self.vault, active_mod.clone(), cached).map(Message::Enemy),
