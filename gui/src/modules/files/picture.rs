@@ -2,7 +2,6 @@ use iced::advanced::image::{FilterMethod, Handle, Image, Renderer as _};
 use iced::advanced::{layout, mouse, renderer, widget, Clipboard, Layout, Shell, Widget};
 use iced::time::Instant;
 use iced::{window, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
-use image::imageops::{self, FilterType};
 use image::RgbaImage;
 
 use crate::widget::{BOOTSTRAP_DT, DECAY_RATE, EPSILON, LINE_PIXELS};
@@ -13,6 +12,105 @@ const ZOOM_RATE_PER_PIXEL: f32 = 0.004;
 const WORLD_PADDING: f32 = 0.75;
 const CRISP_MAGNIFICATION: f32 = 1.8;
 const MIN_LEVEL: u32 = 128;
+const DILATE_PASSES: usize = 2;
+
+fn dilate(pixels: &mut RgbaImage) {
+    let (width, height) = (pixels.width(), pixels.height());
+    let mut filled: Vec<bool> = pixels.pixels().map(|pixel| pixel.0[3] != 0).collect();
+
+    if filled.iter().all(|known| *known) {
+        return;
+    }
+
+    for _ in 0..DILATE_PASSES {
+        let source = pixels.clone();
+        let known = filled.clone();
+        let mut grew = false;
+
+        for y in 0..height {
+            for x in 0..width {
+                let index = (y * width + x) as usize;
+
+                if known.get(index).copied().unwrap_or(true) {
+                    continue;
+                }
+
+                let mut sum = [0u32; 3];
+                let mut count = 0u32;
+
+                for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
+                    let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+
+                    if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 {
+                        continue;
+                    }
+
+                    let neighbour = (ny as u32 * width + nx as u32) as usize;
+
+                    if !known.get(neighbour).copied().unwrap_or(false) {
+                        continue;
+                    }
+
+                    let pixel = source.get_pixel(nx as u32, ny as u32);
+
+                    for (channel, total) in sum.iter_mut().enumerate() {
+                        *total += u32::from(pixel.0[channel]);
+                    }
+
+                    count += 1;
+                }
+
+                if count == 0 {
+                    continue;
+                }
+
+                let target = pixels.get_pixel_mut(x, y);
+
+                for (channel, total) in sum.iter().enumerate() {
+                    target.0[channel] = (total / count) as u8;
+                }
+
+                filled[index] = true;
+                grew = true;
+            }
+        }
+
+        if !grew {
+            return;
+        }
+    }
+}
+
+fn halve(source: &RgbaImage) -> RgbaImage {
+    let (source_width, source_height) = (source.width(), source.height());
+    let (width, height) = ((source_width / 2).max(1), (source_height / 2).max(1));
+
+    let src = source.as_raw();
+    let mut out = vec![0u8; width as usize * height as usize * 4];
+
+    for y in 0..height {
+        let top = (2 * y * source_width) as usize * 4;
+        let bottom = ((2 * y + 1).min(source_height - 1) * source_width) as usize * 4;
+        let row = (y * width) as usize * 4;
+
+        for x in 0..width {
+            let left = 2 * x as usize * 4;
+            let right = (2 * x + 1).min(source_width - 1) as usize * 4;
+            let target = row + x as usize * 4;
+
+            for channel in 0..4 {
+                let sum = u32::from(src[top + left + channel])
+                    + u32::from(src[top + right + channel])
+                    + u32::from(src[bottom + left + channel])
+                    + u32::from(src[bottom + right + channel]);
+
+                out[target + channel] = (sum / 4) as u8;
+            }
+        }
+    }
+
+    RgbaImage::from_raw(width, height, out).unwrap_or_else(|| RgbaImage::new(width, height))
+}
 
 fn premultiply(pixels: &mut RgbaImage) {
     for pixel in pixels.pixels_mut() {
@@ -44,32 +142,37 @@ pub(super) struct Source {
 
 impl Source {
     pub(super) fn new(bytes: Vec<u8>, width: u32, height: u32) -> Self {
-        let mut levels = Vec::new();
+        let Ok(decoded) = image::load_from_memory(&bytes) else {
+            let size = Size::new(width as f32, height as f32);
 
-        if width.max(height) > MIN_LEVEL
-            && let Ok(decoded) = image::load_from_memory(&bytes)
-        {
-            let mut current = decoded.to_rgba8();
-            premultiply(&mut current);
+            return Self { levels: vec![(size, Handle::from_bytes(bytes))] };
+        };
 
-            while current.width().max(current.height()) > MIN_LEVEL {
-                let half = ((current.width() / 2).max(1), (current.height() / 2).max(1));
+        let mut current = decoded.to_rgba8();
+        dilate(&mut current);
 
-                if half == (current.width(), current.height()) {
-                    break;
-                }
+        let native = Size::new(current.width() as f32, current.height() as f32);
+        let handle = Handle::from_rgba(current.width(), current.height(), current.as_raw().clone());
+        let mut levels = vec![(native, handle)];
 
-                current = imageops::resize(&current, half.0, half.1, FilterType::Triangle);
+        premultiply(&mut current);
 
-                let mut straight = current.clone();
-                straighten(&mut straight);
+        while current.width().max(current.height()) > MIN_LEVEL {
+            let half = ((current.width() / 2).max(1), (current.height() / 2).max(1));
 
-                let size = Size::new(half.0 as f32, half.1 as f32);
-                levels.push((size, Handle::from_rgba(half.0, half.1, straight.into_raw())));
+            if half == (current.width(), current.height()) {
+                break;
             }
-        }
 
-        levels.insert(0, (Size::new(width as f32, height as f32), Handle::from_bytes(bytes)));
+            current = halve(&current);
+
+            let mut straight = current.clone();
+            straighten(&mut straight);
+            dilate(&mut straight);
+
+            let size = Size::new(half.0 as f32, half.1 as f32);
+            levels.push((size, Handle::from_rgba(half.0, half.1, straight.into_raw())));
+        }
 
         Self { levels }
     }
