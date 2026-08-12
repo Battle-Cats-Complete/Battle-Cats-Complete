@@ -99,6 +99,15 @@ impl State {
         self.expanded.contains(dir)
     }
 
+    pub(super) fn reveal(&mut self, path: &Path) {
+        let mut current = path.parent();
+
+        while let Some(dir) = current {
+            self.expanded.insert(dir.to_path_buf());
+            current = dir.parent();
+        }
+    }
+
     pub(super) fn toggle(&mut self, path: PathBuf) {
         if !self.expanded.remove(&path) {
             self.expanded.insert(path);

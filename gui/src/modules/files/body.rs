@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{container, image, operation, responsive, scrollable, space, text};
-use iced::{widget, ContentFit, Element, Font, Length, Size, Task};
+use iced::widget::{container, operation, scrollable, space, text};
+use iced::{widget, Element, Font, Length, Task};
 
 use core::common::preview::{self, Preview};
 use core::Vfs;
@@ -10,33 +10,50 @@ use core::Vfs;
 use crate::app::theme;
 use crate::widget::smooth_scroll;
 
-use super::{both_ways, EMPTY_TEXT_SIZE, SCROLLBAR_ALLOWANCE, TEXT_SIZE};
+use super::picture::{self, Message};
+use super::{both_ways, EMPTY_TEXT_SIZE, TEXT_SIZE};
 
 const OVERSIZED_LABEL: &str = "File Too Large to Preview";
 const BINARY_LABEL: &str = "No Preview for Binary Files";
 
 enum Content {
     Empty,
-    Image { handle: image::Handle, width: u32, height: u32 },
+    Image(picture::Source),
     Text(String),
     Notice(&'static str),
 }
 
 pub(super) struct State {
     loaded: Option<PathBuf>,
+    framed: Option<PathBuf>,
     content: Content,
+    picture: picture::State,
     scroll_id: widget::Id,
 }
 
 impl Default for State {
     fn default() -> Self {
-        Self { loaded: None, content: Content::Empty, scroll_id: widget::Id::unique() }
+        Self {
+            loaded: None,
+            framed: None,
+            content: Content::Empty,
+            picture: picture::State::default(),
+            scroll_id: widget::Id::unique(),
+        }
     }
 }
 
 impl State {
     pub(super) fn invalidate(&mut self) {
         self.loaded = None;
+    }
+
+    pub(super) fn update(&mut self, message: Message) {
+        self.picture.update(message);
+    }
+
+    pub(super) fn recenter(&mut self) {
+        self.picture.reset();
     }
 
     pub(super) fn snap_to_top<M: Send + 'static>(&self) -> Task<M> {
@@ -63,7 +80,12 @@ impl State {
 
         match preview::load(&path) {
             Preview::Image { bytes, width, height } => {
-                self.content = Content::Image { handle: image::Handle::from_bytes(bytes), width, height };
+                if self.framed.as_deref() != Some(relative) {
+                    self.framed = Some(relative.to_path_buf());
+                    self.picture.reset();
+                }
+
+                self.content = Content::Image(picture::Source::new(bytes, width, height));
             }
             Preview::Text(text) => self.content = Content::Text(text),
             Preview::Oversized => self.content = Content::Notice(OVERSIZED_LABEL),
@@ -72,7 +94,7 @@ impl State {
         }
     }
 
-    pub(super) fn view<M: 'static>(&self) -> Element<'_, M> {
+    pub(super) fn view(&self) -> Element<'_, Message> {
         match &self.content {
             Content::Empty => space().into(),
             Content::Notice(label) => container(theme::centered_text(*label).size(EMPTY_TEXT_SIZE))
@@ -82,7 +104,7 @@ impl State {
                 .align_y(Vertical::Center)
                 .into(),
             Content::Text(body) => self.view_document(body),
-            Content::Image { handle, width, height } => self.view_picture(handle, *width, *height),
+            Content::Image(source) => self.picture.view(source),
         }
     }
 
@@ -99,29 +121,4 @@ impl State {
             .into()
     }
 
-    fn view_picture<'a, M: 'a>(&self, handle: &image::Handle, width: u32, height: u32) -> Element<'a, M> {
-        let handle = handle.clone();
-        let id = self.scroll_id.clone();
-
-        responsive(move |size: Size| {
-            let frame_width = (width as f32).max(size.width - SCROLLBAR_ALLOWANCE);
-            let frame_height = (height as f32).max(size.height - SCROLLBAR_ALLOWANCE);
-
-            let framed = container(image(handle.clone()).content_fit(ContentFit::None))
-                .width(Length::Fixed(frame_width))
-                .height(Length::Fixed(frame_height))
-                .align_x(Horizontal::Center)
-                .align_y(Vertical::Center);
-
-            smooth_scroll(
-                scrollable(framed)
-                    .id(id.clone())
-                    .direction(both_ways())
-                    .width(Length::Fill)
-                    .height(Length::Fill),
-            )
-                .into()
-        })
-            .into()
-    }
 }

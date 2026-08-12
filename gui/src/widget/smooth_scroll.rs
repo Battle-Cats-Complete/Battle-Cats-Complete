@@ -3,10 +3,10 @@ use iced::time::{Duration, Instant};
 use iced::{window, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
 
 pub(crate) const LINE_PIXELS: f32 = 60.0;
-const DECAY_RATE: f32 = 16.0;
-const EPSILON: f32 = 0.05;
+pub(crate) const DECAY_RATE: f32 = 16.0;
+pub(crate) const EPSILON: f32 = 0.05;
+pub(crate) const BOOTSTRAP_DT: Duration = Duration::from_millis(16);
 const DEFAULT_STRENGTH: f32 = 1.0;
-const BOOTSTRAP_DT: Duration = Duration::from_millis(16);
 
 pub(crate) fn smooth_scroll<'a, Message>(content: impl Into<Element<'a, Message>>) -> SmoothScroll<'a, Message> {
     SmoothScroll { content: content.into(), strength: DEFAULT_STRENGTH }

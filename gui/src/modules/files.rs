@@ -1,4 +1,5 @@
 mod body;
+mod picture;
 mod tree;
 
 use std::ffi::OsStr;
@@ -74,6 +75,7 @@ pub enum Message {
     SearchChanged(String),
     ToggleSidebar,
     Tree(tree::Message),
+    Body(picture::Message),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -192,6 +194,8 @@ impl State {
             if let Some(missing) = self.stale().then(|| self.mount.take()).flatten() {
                 info!(mount = %missing, "Persisted mount is no longer indexed, falling back to the first mount");
                 self.selected = None;
+            } else if let Some(path) = self.selected.as_deref() {
+                self.tree.reveal(path);
             }
         }
 
@@ -280,6 +284,10 @@ impl State {
 
                 self.activate(vfs, index)
             }
+            Message::Body(msg) => {
+                self.body.update(msg);
+                Task::none()
+            }
         }
     }
 
@@ -299,8 +307,14 @@ impl State {
             return Task::none();
         }
 
+        let repeat = self.selected.as_deref() == Some(path.as_path());
+
         self.selected = Some(path);
         self.refresh(vfs);
+
+        if repeat {
+            self.body.recenter();
+        }
 
         self.body.snap_to_top()
     }
@@ -461,7 +475,7 @@ impl State {
     }
 
     fn view_workspace(&self) -> Element<'_, Message> {
-        let surface = container(self.body.view())
+        let surface = container(self.body.view().map(Message::Body))
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(BODY_PADDING)
