@@ -79,8 +79,7 @@ const RULE_THICKNESS: f32 = 1.0;
 const BORDER_WIDTH: f32 = 1.0;
 
 const ICON_BOX_WIDTH: f32 = 110.0;
-const ICON_BOX_HEIGHT: f32 = 96.0;
-const ICON_NUDGE_Y: f32 = 0.0;
+const ICON_BOX_HEIGHT: f32 = 88.0;
 const HEADER_GAP_X: f32 = 12.0;
 
 const NAME_WRAP_WIDTH: f32 = 145.0;
@@ -164,7 +163,7 @@ pub fn build_statblock_image(
     });
 
     let icon_column_width = header_icon.as_ref().map_or(icon_box_width, |icon| icon_box_width.max(icon.width() as i32));
-    let header_height = header_icon.as_ref().map_or(icon_box_height, |icon| icon.height() as i32);
+    let header_height = icon_box_height;
 
     let max_cols = data.headers_1.len().max(data.headers_2.len()) as f32;
     let base_grid_width =
@@ -317,8 +316,9 @@ pub fn build_statblock_image(
 
     if let Some(icon) = &header_icon {
         let x_offset = padding as i64 + ((icon_column_width - icon.width() as i32) / 2) as i64;
+        let seated = (header_height - icon.height() as i32).max(0);
 
-        image::imageops::overlay(&mut target_image, icon, x_offset, (header_top + px(ICON_NUDGE_Y)) as i64);
+        image::imageops::overlay(&mut target_image, icon, x_offset, (header_top + seated) as i64);
     }
 
     let text_start_x = padding + icon_column_width + px(HEADER_GAP_X);
