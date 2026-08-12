@@ -609,8 +609,8 @@ impl State {
     }
 
     fn view_sidebar(&self) -> Element<'_, Message> {
-        const SEARCH_FILTER_GAP: f32 = 4.0;
-        const FILTER_LIST_GAP: f32 = 8.0;
+        const FILTER_SEARCH_GAP: f32 = 4.0;
+        const SEARCH_LIST_GAP: f32 = 8.0;
 
         let search_input = text_input("Search Cat...", &self.search_query)
             .on_input(Message::SearchChanged)
@@ -628,10 +628,10 @@ impl State {
         let cat_list = self.list.view(&self.data.cats, self.selected_cat, self.is_indexing()).map(Message::List);
 
         let mut sidebar = column![
-            search_input,
-            Space::new().height(Length::Fixed(SEARCH_FILTER_GAP)),
             filter_button,
-            Space::new().height(Length::Fixed(FILTER_LIST_GAP)),
+            Space::new().height(Length::Fixed(FILTER_SEARCH_GAP)),
+            search_input,
+            Space::new().height(Length::Fixed(SEARCH_LIST_GAP)),
         ];
 
         sidebar = sidebar.push(cat_list);
