@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use core::modules::data::architecture;
-use core::modules::settings::nightly;
 use core::Vfs;
 
 use crate::app::state::FilesState;
@@ -67,10 +66,6 @@ const LOCKED_NOTICE: &str = "Vanilla \"game\" mount is locked and cannot be writ
 const EMPTY_LABEL: &str = "No Files Found on Mount";
 const MISSING_LABEL: &str = "Selected Mount Missing from Memory";
 const NO_MOUNTS_LABEL: &str = "No Mounts Available";
-
-pub(crate) fn register_nightly() {
-    nightly::register_nightly_usage();
-}
 
 fn both_ways() -> scrollable::Direction {
     let bar = || scrollable::Scrollbar::new().width(SCROLLBAR_WIDTH).margin(SCROLLBAR_MARGIN);

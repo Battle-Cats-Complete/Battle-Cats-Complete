@@ -66,7 +66,7 @@ impl Page {
     }
 
     pub(crate) fn nightly(self) -> bool {
-        matches!(self, Self::Files)
+        false
     }
 }
 

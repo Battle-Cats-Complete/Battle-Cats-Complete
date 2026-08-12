@@ -18,7 +18,7 @@ use core::modules::settings::{lang, ExceptionList, ScannerConfig, UpdateMode};
 use core::modules::settings::desktop;
 use core::{ContentStore, Vault};
 
-use crate::modules::{files, home};
+use crate::modules::home;
 
 use super::{logging, migrate, notice, updater, ActivePopup, BattleCatsApp, Message};
 
@@ -67,8 +67,6 @@ impl BattleCatsApp {
         if let Some(state_dir) = dirs::state() {
             let _ = fs::remove_file(state_dir.join("meta.json"));
         }
-
-        files::register_nightly();
 
         ExceptionList::sync_on_boot();
         info!(ms = split(&mut phase), "Boot phase: exception list synced");
