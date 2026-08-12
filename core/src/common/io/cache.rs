@@ -3,6 +3,8 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rayon::prelude::*;
 use rustc_hash::FxHasher;
@@ -141,10 +143,17 @@ const SIZE_LIMIT: u64 = 1024 * 1024 * 100;
 
 const BUILD_STAMP: &str = env!("CORE_FINGERPRINT");
 
-pub const FORCE_RESCAN: &str = "BCC_FORCE_RESCAN";
+pub const FORCE_RESCAN: &str = "FORCE_RESCAN";
 
-fn force_token() -> Option<String> {
-    std::env::var(FORCE_RESCAN).ok()
+static FORCE_STAMP: OnceLock<Option<u128>> = OnceLock::new();
+
+fn force_token() -> Option<u128> {
+    *FORCE_STAMP.get_or_init(|| {
+        std::env::var(FORCE_RESCAN)
+            .is_ok_and(|value| value.trim().eq_ignore_ascii_case("true"))
+            .then(|| SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_nanos()))
+            .inspect(|stamp| tracing::info!(stamp, "{} is true, forcing a rescan for this run", FORCE_RESCAN))
+    })
 }
 
 pub struct Scan<T> {

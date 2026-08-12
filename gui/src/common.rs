@@ -112,6 +112,13 @@ impl SpriteSheet {
 
     pub fn mark_stale(&mut self) {
         self.stale = true;
+        self.loading = false;
+    }
+
+    pub fn mark_unavailable(&mut self) {
+        self.loading = false;
+        self.stale = false;
+        self.failed = true;
     }
 
     fn needs_load(&self) -> bool {
@@ -201,6 +208,7 @@ pub fn ensure_sheet_loaded(
             .or_else(|| vfs.locate(&format!("{}.imgcut", name)))
         else {
             warn!(sheet = %stem, "No matching imgcut for the resolved sprite sheet");
+            sheets[index].mark_unavailable();
             continue;
         };
 
