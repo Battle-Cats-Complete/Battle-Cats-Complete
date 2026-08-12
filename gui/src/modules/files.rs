@@ -32,7 +32,7 @@ const TOGGLE_ARROW_SIZE: f32 = 16.0;
 const ARROW_OPEN: &str = "\u{25c0}";
 const ARROW_SHUT: &str = "\u{25b6}";
 
-const HEADER_HEIGHT: f32 = 38et.0;
+const HEADER_HEIGHT: f32 = 38.0;
 const HEADER_PADDING: f32 = 10.0;
 const HEADER_TEXT_SIZE: f32 = 13.0;
 const HEADER_TOP_GAP: f32 = 3.0;
