@@ -80,13 +80,14 @@ const BORDER_WIDTH: f32 = 1.0;
 
 const ICON_BOX_WIDTH: f32 = 110.0;
 const ICON_BOX_HEIGHT: f32 = 96.0;
+const ICON_NUDGE_Y: f32 = 0.0;
 const HEADER_GAP_X: f32 = 12.0;
 
 const NAME_WRAP_WIDTH: f32 = 145.0;
 const NAME_MAX_FONT_SIZE: f32 = 22.0 * TEXT_SCALE;
 const NAME_MIN_FONT_SIZE: f32 = 8.0 * TEXT_SCALE;
 const NAME_LINE_GAP: f32 = -4.0;
-const NAME_TO_ID_GAP: f32 = -0.5;
+const NAME_TO_ID_GAP: f32 = -1.5;
 const NAME_FONT_STEP: f32 = 0.5;
 const NAME_MAX_LINES: usize = 2;
 
@@ -149,9 +150,11 @@ pub fn build_statblock_image(
 
     let header_icon = data.icon_path.as_ref().and_then(|path| image::open(path).ok()).map(|icon_img| {
         let rgba = autocrop(icon_img.to_rgba8());
-        let aspect = rgba.width() as f32 / rgba.height() as f32;
-        let target_h = icon_box_height as u32;
-        let target_w = ((target_h as f32 * aspect).round() as u32).max(1);
+        let (source_w, source_h) = (rgba.width() as f32, rgba.height() as f32);
+
+        let scale = (icon_box_width as f32 / source_w).min(icon_box_height as f32 / source_h);
+        let target_w = ((source_w * scale).round() as u32).max(1);
+        let target_h = ((source_h * scale).round() as u32).max(1);
 
         if rgba.width() == target_w && rgba.height() == target_h {
             return rgba;
@@ -161,6 +164,7 @@ pub fn build_statblock_image(
     });
 
     let icon_column_width = header_icon.as_ref().map_or(icon_box_width, |icon| icon_box_width.max(icon.width() as i32));
+    let header_height = header_icon.as_ref().map_or(icon_box_height, |icon| icon.height() as i32);
 
     let max_cols = data.headers_1.len().max(data.headers_2.len()) as f32;
     let base_grid_width =
@@ -291,7 +295,7 @@ pub fn build_statblock_image(
     let level_row_height = input_height.max(info_line_height);
 
     let name_to_id_gap = px(NAME_TO_ID_GAP);
-    let name_box_height = (icon_box_height - name_to_id_gap - info_line_height - level_row_height)
+    let name_box_height = (header_height - name_to_id_gap - info_line_height - level_row_height)
         .max(px(NAME_MIN_FONT_SIZE));
 
     let mut name_size = NAME_MAX_FONT_SIZE;
@@ -309,12 +313,12 @@ pub fn build_statblock_image(
     let name_line_height = px(name_size + NAME_LINE_GAP);
     let name_block_height = name_lines.len() as i32 * name_line_height;
 
-    let header_height = icon_box_height;
     let header_top = padding;
 
     if let Some(icon) = &header_icon {
         let x_offset = padding as i64 + ((icon_column_width - icon.width() as i32) / 2) as i64;
-        image::imageops::overlay(&mut target_image, icon, x_offset, header_top as i64);
+
+        image::imageops::overlay(&mut target_image, icon, x_offset, (header_top + px(ICON_NUDGE_Y)) as i64);
     }
 
     let text_start_x = padding + icon_column_width + px(HEADER_GAP_X);
