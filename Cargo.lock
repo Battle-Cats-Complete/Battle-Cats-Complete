@@ -3467,7 +3467,6 @@ dependencies = [
 [[package]]
 name = "nyanko"
 version = "0.6.0"
-source = "git+https://github.com/omochikaeri15/nyanko#ff09aa55527eb806639f47426bb3fedd82027277"
 dependencies = [
  "aes",
  "block-padding",

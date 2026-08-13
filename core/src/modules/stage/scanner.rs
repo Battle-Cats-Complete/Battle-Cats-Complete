@@ -498,6 +498,7 @@ fn load_map(
                 RuleType::MoreThanOne(_) => 8,
                 RuleType::MegaCatCannon(_) => 9,
                 RuleType::UniformMotion(_) => 10,
+                RuleType::CompoundingCost(_) => 11,
                 RuleType::Unknown(id, _) => *id,
             };
 

@@ -124,6 +124,7 @@ fn format_special_rule(rule: &SpecialRulesMapEntry, global_ctx: &GlobalContext) 
                 RuleType::MoreThanOne(params) => format!("Awesome Cat Spawn {:?}", params),
                 RuleType::MegaCatCannon(params) => format!("Awesome Cat Cannon {:?}", params),
                 RuleType::UniformMotion(params) => format!("Awesome Unit Speed {:?}", params),
+                RuleType::CompoundingCost(params) => format!("Compounding Cost {:?}", params),
                 RuleType::Unknown(id, params) => format!("Unknown Rule {} {:?}", id, params),
             };
             fallback.push_str(&formatted_rule);
@@ -143,6 +144,7 @@ fn format_special_rule(rule: &SpecialRulesMapEntry, global_ctx: &GlobalContext) 
                 RuleType::MoreThanOne(params) => params,
                 RuleType::MegaCatCannon(params) => params,
                 RuleType::UniformMotion(params) => params,
+                RuleType::CompoundingCost(params) => params,
                 RuleType::Unknown(_, params) => params,
             };
 
