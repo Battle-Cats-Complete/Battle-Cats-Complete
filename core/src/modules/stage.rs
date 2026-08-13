@@ -1,3 +1,4 @@
+pub mod cost;
 pub mod filter;
 pub mod fixedlineup;
 pub mod materials;

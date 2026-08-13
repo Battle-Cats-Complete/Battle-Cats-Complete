@@ -434,7 +434,7 @@ impl State {
                 left: CONTENT_PADDING,
             });
 
-        content = content.push(self.info.view(stage, map, vfs, &self.data.lock_skip_registry, &self.data.scat_cpu_setting, self.selected_crown));
+        content = content.push(self.info.view(stage, map, vfs, &self.data, self.selected_crown));
 
         if materials::has_drops(stage, map) {
             content = content.push(

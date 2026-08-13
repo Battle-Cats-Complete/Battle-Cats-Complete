@@ -9,7 +9,7 @@ use nyanko::chapter::map::LockSkipDataEntry;
 use nyanko::chapter::stage::ScatCpuSetting;
 use nyanko::chapter::Category;
 
-use core::modules::stage::{Map, Stage};
+use core::modules::stage::{cost, Map, Stage, StageDataState};
 use core::Vfs;
 
 use crate::app::theme;
@@ -29,22 +29,6 @@ fn format_diff(difficulty_level: u16) -> String {
         return "-".to_string();
     }
     format!("★{}", difficulty_level)
-}
-
-fn format_energy(category: &Category, raw_energy: u32) -> String {
-    if *category != Category::CataminStages {
-        return raw_energy.to_string();
-    }
-
-    if raw_energy < 1000 {
-        return format!("{}A", raw_energy);
-    }
-
-    if raw_energy < 2000 {
-        return format!("{}B", raw_energy % 1000);
-    }
-
-    format!("{}C", raw_energy % 1000)
 }
 
 fn format_base(anim_id: u32, standard_id: i32) -> (String, String) {
@@ -162,8 +146,7 @@ impl State {
         stage: &'a Stage,
         map: &'a Map,
         vfs: &Vfs,
-        lock_registry: &HashMap<u32, LockSkipDataEntry>,
-        cpu_setting: &ScatCpuSetting,
+        data: &StageDataState,
         selected_crown: u8,
     ) -> Element<'a, super::Message> {
         let image_prefix = stage.category.image_prefix();
@@ -207,8 +190,9 @@ impl State {
         let hp_header = if is_dojo { "Time Limit" } else { "Base HP" };
         let hp_value = if is_dojo { format_time(stage.time_limit) } else { final_hp.to_string() };
 
-        let energy_header = if stage.category == Category::CataminStages { "Catamin" } else { "Energy" };
-        let energy_value = format_energy(&stage.category, stage.energy);
+        let cost = cost::resolve_cost(&stage.category, stage.energy, &data.item_buy_registry, &data.item_name_registry);
+        let energy_header = cost.header.as_str();
+        let energy_value = cost.value;
 
         let difficulty_value = format_diff(stage.difficulty);
         let continue_value = format_bool(stage.is_no_continues, "No", "Yes");
@@ -216,7 +200,7 @@ impl State {
         let (base_header, base_value) = format_base(stage.anim_base_id, stage.base_id);
         let respawn_value = format_respawn(stage.min_spawn, stage.max_spawn);
         let boss_bgm_value = format_boss_bgm(stage.boss_track, stage.init_track, stage.bgm_change_percent);
-        let skip_value = get_skip_status(&stage.category, stage.map_id, lock_registry, cpu_setting);
+        let skip_value = get_skip_status(&stage.category, stage.map_id, &data.lock_skip_registry, &data.scat_cpu_setting);
 
         let headers_row_1 = row![
             grid_header(hp_header),
