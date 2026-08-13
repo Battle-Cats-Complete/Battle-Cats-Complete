@@ -234,20 +234,6 @@ impl State {
         };
 
         let behavior_content = column![
-            hover_hint(
-                toggle_row(core_settings.general.enable_logging, text("Enable Logging"), Some(Message::ToggleLogging)),
-                "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs",
-            ),
-            hover_hint(
-                toggle_row(
-                    core_settings.general.enable_nightly,
-                    nightly_label,
-                    nightly_available.then_some(Message::ToggleNightly),
-                ),
-                nightly_hint,
-            ),
-            toggle_row(core_settings.general.ignore_conflict_errors, text("Ignore Conflict Errors"), Some(Message::ToggleIgnoreConflicts)),
-            toggle_row(core_settings.general.ignore_watcher_failure, text("Ignore Watcher Failure"), Some(Message::ToggleIgnoreWatcherFailure)),
             row![
                 text("Update Handling"),
                 pick_list(
@@ -262,6 +248,20 @@ impl State {
                     }
                 ).style(theme::combo_box).menu_style(theme::combo_box_menu),
             ].spacing(10).align_y(Alignment::Center),
+            hover_hint(
+                toggle_row(core_settings.general.enable_logging, text("Enable Logging"), Some(Message::ToggleLogging)),
+                "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs",
+            ),
+            hover_hint(
+                toggle_row(
+                    core_settings.general.enable_nightly,
+                    nightly_label,
+                    nightly_available.then_some(Message::ToggleNightly),
+                ),
+                nightly_hint,
+            ),
+            toggle_row(core_settings.general.ignore_conflict_errors, text("Ignore Conflict Errors"), Some(Message::ToggleIgnoreConflicts)),
+            toggle_row(core_settings.general.ignore_watcher_failure, text("Ignore Watcher Failure"), Some(Message::ToggleIgnoreWatcherFailure)),
         ].spacing(10);
 
         let language_content = column![

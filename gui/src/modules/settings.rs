@@ -477,11 +477,6 @@ impl State {
             theme::sized_button("Manage Exceptions", theme::MANAGE_BUTTON_WIDTH, theme::primary_button).on_press(Message::Exceptions(exceptions::Message::Open)),
 
             hover_hint(
-                toggle_row(core_settings.game_data.ignore_modified_app, text("Ignore Modified App"), Some(Message::ToggleIgnoreModifiedApp)),
-                "Imports modded versions of the app with Vanilla package names as if they are Vanilla intalls, bypassing the import refusal",
-            ),
-
-            hover_hint(
                 row![
                     text("Import Structure"),
                     pick_list(
@@ -491,6 +486,11 @@ impl State {
                     ).style(theme::combo_box).menu_style(theme::combo_box_menu),
                 ].spacing(10).align_y(Alignment::Center),
                 core_settings.game_data.import_structure.hint(),
+            ),
+
+            hover_hint(
+                toggle_row(core_settings.game_data.ignore_modified_app, text("Ignore Modified App"), Some(Message::ToggleIgnoreModifiedApp)),
+                "Imports modded versions of the app with Vanilla package names as if they are Vanilla intalls, bypassing the import refusal",
             ),
         ].spacing(10);
 
