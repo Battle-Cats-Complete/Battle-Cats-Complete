@@ -619,6 +619,8 @@ impl BattleCatsApp {
         match message {
             Message::WindowResized(size) => {
                 self.window_size = size;
+                self.settings.window.width = size.width;
+                self.settings.window.height = size.height;
                 Task::none()
             }
             Message::AutoSave => {
