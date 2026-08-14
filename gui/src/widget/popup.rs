@@ -1,8 +1,12 @@
+use std::collections::BTreeMap;
+use std::sync::RwLock;
+
 use iced::advanced::{layout, overlay, renderer, widget, Clipboard, Layout, Shell, Widget};
 use iced::border::Radius;
 use iced::mouse::{self, Interaction};
 use iced::widget::{button, column, container, mouse_area, opaque, stack, text, Space};
 use iced::{Alignment, Border, Color, Element, Event, Length, Padding, Point, Rectangle, Size, Theme, Vector};
+use serde::{Deserialize, Serialize};
 
 use crate::app::theme;
 
@@ -12,11 +16,212 @@ const HEADER_MARGIN_Y: f32 = 30.0;
 const DEFAULT_BODY_ALPHA: f32 = 1.0;
 const FRAME_BORDER_WIDTH: f32 = 3.0;
 const MINIMUM_WINDOW: Size = Size::new(800.0, 600.0);
+const GRIP_OUTSET: f32 = 5.0;
+const GRIP_INSET: f32 = FRAME_BORDER_WIDTH;
+const GRIP_BAND: f32 = GRIP_OUTSET + GRIP_INSET;
+const GRIP_CORNER: f32 = 14.0;
+const HIGHLIGHT_CORNER: f32 = 26.0;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Kind {
+    CatFilter,
+    EnemyFilter,
+    StageFilter,
+    ModImport,
+    ModExport,
+    AnimationExport,
+    Keys,
+    Pem,
+    Exceptions,
+    Changelog,
+    Notice,
+    Updater,
+    InitErrors,
+}
+
+const KIND_COUNT: usize = 13;
+
+const KINDS: [Kind; KIND_COUNT] = [
+    Kind::CatFilter,
+    Kind::EnemyFilter,
+    Kind::StageFilter,
+    Kind::ModImport,
+    Kind::ModExport,
+    Kind::AnimationExport,
+    Kind::Keys,
+    Kind::Pem,
+    Kind::Exceptions,
+    Kind::Changelog,
+    Kind::Notice,
+    Kind::Updater,
+    Kind::InitErrors,
+];
+
+impl Kind {
+    fn minimum(self) -> Size {
+        match self {
+            Self::CatFilter => Size::new(600.0, 528.0),
+            Self::EnemyFilter => Size::new(600.0, 528.0),
+            Self::StageFilter => Size::new(720.0, 528.0),
+            Self::ModImport => Size::new(500.0, 520.0),
+            Self::ModExport => Size::new(470.0, 560.0),
+            Self::AnimationExport => Size::new(320.0, 486.0),
+            Self::Keys => Size::new(650.0, 335.0),
+            Self::Pem => Size::new(650.0, 480.0),
+            Self::Exceptions => Size::new(750.0, 520.0),
+            Self::Changelog => Size::new(600.0, 430.0),
+            Self::Notice => Size::new(500.0, 400.0),
+            Self::Updater => Size::new(440.0, 250.0),
+            Self::InitErrors => Size::new(560.0, 420.0),
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::CatFilter => "cat_filter",
+            Self::EnemyFilter => "enemy_filter",
+            Self::StageFilter => "stage_filter",
+            Self::ModImport => "mod_import",
+            Self::ModExport => "mod_export",
+            Self::AnimationExport => "animation_export",
+            Self::Keys => "keys",
+            Self::Pem => "pem",
+            Self::Exceptions => "exceptions",
+            Self::Changelog => "changelog",
+            Self::Notice => "notice",
+            Self::Updater => "updater",
+            Self::InitErrors => "init_errors",
+        }
+    }
+
+    fn slot(self) -> usize {
+        self as usize
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+const EDGES: [Edge; 8] = [
+    Edge::Top,
+    Edge::Bottom,
+    Edge::Left,
+    Edge::Right,
+    Edge::TopLeft,
+    Edge::TopRight,
+    Edge::BottomLeft,
+    Edge::BottomRight,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Start,
+    End,
+}
+
+impl Edge {
+    fn horizontal(self) -> Option<Side> {
+        match self {
+            Self::Left | Self::TopLeft | Self::BottomLeft => Some(Side::Start),
+            Self::Right | Self::TopRight | Self::BottomRight => Some(Side::End),
+            Self::Top | Self::Bottom => None,
+        }
+    }
+
+    fn vertical(self) -> Option<Side> {
+        match self {
+            Self::Top | Self::TopLeft | Self::TopRight => Some(Side::Start),
+            Self::Bottom | Self::BottomLeft | Self::BottomRight => Some(Side::End),
+            Self::Left | Self::Right => None,
+        }
+    }
+
+    fn interaction(self) -> Interaction {
+        match self {
+            Self::Left | Self::Right => Interaction::ResizingHorizontally,
+            Self::Top | Self::Bottom => Interaction::ResizingVertically,
+            Self::TopLeft | Self::BottomRight => Interaction::ResizingDiagonallyDown,
+            Self::TopRight | Self::BottomLeft => Interaction::ResizingDiagonallyUp,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub(crate) struct StoredSize {
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Clone, Copy)]
+struct Geometry {
+    position: Option<Point>,
+    size: Option<Size>,
+}
+
+const EMPTY_GEOMETRY: Geometry = Geometry { position: None, size: None };
+
+static GEOMETRY: RwLock<[Geometry; KIND_COUNT]> = RwLock::new([EMPTY_GEOMETRY; KIND_COUNT]);
+
+fn geometry(kind: Kind) -> Geometry {
+    GEOMETRY.read().map_or(EMPTY_GEOMETRY, |slots| slots[kind.slot()])
+}
+
+fn store(kind: Kind, geometry: Geometry) {
+    if let Ok(mut slots) = GEOMETRY.write() {
+        slots[kind.slot()] = geometry;
+    }
+}
+
+fn place(kind: Kind, position: Point) {
+    if let Ok(mut slots) = GEOMETRY.write() {
+        slots[kind.slot()].position = Some(position);
+    }
+}
+
+pub(crate) fn snapshot() -> BTreeMap<String, StoredSize> {
+    let Ok(slots) = GEOMETRY.read() else { return BTreeMap::new() };
+
+    KINDS
+        .into_iter()
+        .filter_map(|kind| {
+            let size = slots[kind.slot()].size.filter(|size| *size != kind.minimum())?;
+
+            Some((kind.key().to_owned(), StoredSize { width: size.width, height: size.height }))
+        })
+        .collect()
+}
+
+pub(crate) fn restore(stored: &BTreeMap<String, StoredSize>) {
+    let Ok(mut slots) = GEOMETRY.write() else { return };
+
+    for kind in KINDS {
+        let Some(entry) = stored.get(kind.key()) else { continue };
+
+        let minimum = kind.minimum();
+        let size = Size::new(entry.width.max(minimum.width), entry.height.max(minimum.height));
+        slots[kind.slot()].size = (size != minimum).then_some(size);
+    }
+}
+
+pub(crate) fn reset() {
+    if let Ok(mut slots) = GEOMETRY.write() {
+        *slots = [EMPTY_GEOMETRY; KIND_COUNT];
+    }
+}
 
 #[derive(Default)]
 pub struct State {
-    position: Option<Point>,
     drag: Drag,
+    hovered: Option<Edge>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -27,28 +232,54 @@ enum Drag {
     Moving {
         last: Point,
     },
+    Grabbed {
+        edge: Edge,
+    },
+    Resizing {
+        edge: Edge,
+        origin: Point,
+        position: Point,
+        size: Size,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     HeaderPressed,
+    EdgePressed(Edge),
+    EdgeEntered(Edge),
+    EdgeExited(Edge),
     Dragged(Point, Size),
     Released,
     Close,
 }
 
 impl State {
-    pub fn update(&mut self, message: Message, size: Size) -> bool {
+    pub fn update(&mut self, message: Message, kind: Kind) -> bool {
         match message {
             Message::HeaderPressed => self.drag = Drag::Pressed,
+            Message::EdgePressed(edge) => self.drag = Drag::Grabbed { edge },
+            Message::EdgeEntered(edge) => self.hovered = Some(edge),
+            Message::EdgeExited(edge) => {
+                if self.hovered == Some(edge) {
+                    self.hovered = None;
+                }
+            }
             Message::Dragged(cursor, window) => match self.drag {
                 Drag::Idle => {}
                 Drag::Pressed => self.drag = Drag::Moving { last: cursor },
                 Drag::Moving { last } => {
-                    let current = self.resolved_position(size, window);
-                    let next = Point::new(current.x + cursor.x - last.x, current.y + cursor.y - last.y);
-                    self.position = Some(clamp(next, size, window));
+                    let (position, size) = resolved(kind, window);
+                    let next = Point::new(position.x + cursor.x - last.x, position.y + cursor.y - last.y);
+                    place(kind, clamp(next, size, window));
                     self.drag = Drag::Moving { last: cursor };
+                }
+                Drag::Grabbed { edge } => {
+                    let (position, size) = resolved(kind, window);
+                    self.drag = Drag::Resizing { edge, origin: cursor, position, size };
+                }
+                Drag::Resizing { edge, origin, position, size } => {
+                    resize(kind, edge, cursor - origin, position, size, window);
                 }
             },
             Message::Released => self.drag = Drag::Idle,
@@ -64,7 +295,7 @@ impl State {
     pub fn view<'a, M: Clone + 'a>(
         &'a self,
         title: &'a str,
-        size: Size,
+        kind: Kind,
         window: Size,
         to_message: fn(Message) -> M,
         content: impl Fn() -> Element<'a, M> + 'a,
@@ -73,7 +304,7 @@ impl State {
         let body_alpha = body_alpha.unwrap_or(DEFAULT_BODY_ALPHA);
 
         let bounds = if window.width < 1.0 || window.height < 1.0 { MINIMUM_WINDOW } else { window };
-        let position = self.resolved_position(size, bounds);
+        let (position, size) = resolved(kind, bounds);
 
         let close_button = button(text("✕").size(18))
             .style(button::text)
@@ -115,29 +346,150 @@ impl State {
                 .style(frame_style),
         );
 
-        let base = anchored(frame, position);
+        let mut layers = vec![anchored(frame, position)];
+
+        let lit = match self.drag {
+            Drag::Grabbed { edge } | Drag::Resizing { edge, .. } => Some(edge),
+            Drag::Idle => self.hovered,
+            Drag::Pressed | Drag::Moving { .. } => None,
+        };
+
+        if let Some(edge) = lit {
+            layers.extend(highlight(edge, position, size));
+        }
+
+        layers.extend(EDGES.map(|edge| grip(edge, position, size, to_message)));
 
         let mut drag_layer = mouse_area(Space::new().width(Length::Fill).height(Length::Fill));
 
         if !matches!(self.drag, Drag::Idle) {
+            let interaction = match self.drag {
+                Drag::Grabbed { edge } | Drag::Resizing { edge, .. } => edge.interaction(),
+                _ => Interaction::Grabbing,
+            };
+
             drag_layer = drag_layer
-                .interaction(Interaction::Grabbing)
+                .interaction(interaction)
                 .on_move(move |cursor| to_message(Message::Dragged(cursor, bounds)))
                 .on_release(to_message(Message::Released))
                 .on_exit(to_message(Message::Released));
         }
 
-        stack![base, drag_layer].into()
-    }
+        layers.push(drag_layer.into());
 
-    fn resolved_position(&self, size: Size, window: Size) -> Point {
-        let centered = Point::new(
-            ((window.width - size.width) / 2.0).max(0.0),
-            ((window.height - size.height) / 2.0).max(0.0),
-        );
-
-        clamp(self.position.unwrap_or(centered), size, window)
+        stack(layers).into()
     }
+}
+
+fn resolved(kind: Kind, window: Size) -> (Point, Size) {
+    let geometry = geometry(kind);
+    let size = geometry.size.unwrap_or(kind.minimum());
+
+    let centered = Point::new(
+        ((window.width - size.width) / 2.0).max(0.0),
+        ((window.height - size.height) / 2.0).max(0.0),
+    );
+
+    (clamp(geometry.position.unwrap_or(centered), size, window), size)
+}
+
+fn resize(kind: Kind, edge: Edge, delta: Vector, position: Point, size: Size, window: Size) {
+    let minimum = kind.minimum();
+    let right = position.x + size.width;
+    let bottom = position.y + size.height;
+
+    let x = match edge.horizontal() {
+        Some(Side::Start) => (position.x + delta.x).min(right - minimum.width),
+        Some(Side::End) | None => position.x,
+    };
+
+    let y = match edge.vertical() {
+        Some(Side::Start) => (position.y + delta.y).min(bottom - minimum.height).max(0.0),
+        Some(Side::End) | None => position.y,
+    };
+
+    let anchor = clamp(Point::new(x, y), size, window);
+
+    let width = match edge.horizontal() {
+        Some(Side::Start) => right - anchor.x,
+        Some(Side::End) => (size.width + delta.x).max(minimum.width),
+        None => size.width,
+    };
+
+    let height = match edge.vertical() {
+        Some(Side::Start) => bottom - anchor.y,
+        Some(Side::End) => (size.height + delta.y).max(minimum.height),
+        None => size.height,
+    };
+
+    store(kind, Geometry { position: Some(anchor), size: Some(Size::new(width, height)) });
+}
+
+fn grip_bounds(edge: Edge, position: Point, size: Size) -> Rectangle {
+    let (x, y, width, height) = (position.x, position.y, size.width, size.height);
+    let far_x = x + width + GRIP_OUTSET - GRIP_CORNER;
+    let far_y = y + height + GRIP_OUTSET - GRIP_CORNER;
+    let corner = Size::new(GRIP_CORNER, GRIP_CORNER);
+
+    match edge {
+        Edge::Top => Rectangle::new(Point::new(x, y - GRIP_OUTSET), Size::new(width, GRIP_BAND)),
+        Edge::Bottom => Rectangle::new(Point::new(x, y + height - GRIP_INSET), Size::new(width, GRIP_BAND)),
+        Edge::Left => Rectangle::new(Point::new(x - GRIP_OUTSET, y), Size::new(GRIP_BAND, height)),
+        Edge::Right => Rectangle::new(Point::new(x + width - GRIP_INSET, y), Size::new(GRIP_BAND, height)),
+        Edge::TopLeft => Rectangle::new(Point::new(x - GRIP_OUTSET, y - GRIP_OUTSET), corner),
+        Edge::TopRight => Rectangle::new(Point::new(far_x, y - GRIP_OUTSET), corner),
+        Edge::BottomLeft => Rectangle::new(Point::new(x - GRIP_OUTSET, far_y), corner),
+        Edge::BottomRight => Rectangle::new(Point::new(far_x, far_y), corner),
+    }
+}
+
+fn grip<'a, M: Clone + 'a>(edge: Edge, position: Point, size: Size, to_message: fn(Message) -> M) -> Element<'a, M> {
+    let bounds = grip_bounds(edge, position, size);
+
+    let area = mouse_area(Space::new().width(bounds.width).height(bounds.height))
+        .interaction(edge.interaction())
+        .on_press(to_message(Message::EdgePressed(edge)))
+        .on_enter(to_message(Message::EdgeEntered(edge)))
+        .on_exit(to_message(Message::EdgeExited(edge)));
+
+    anchored(area, bounds.position())
+}
+
+fn highlight<'a, M: 'a>(edge: Edge, position: Point, size: Size) -> Vec<Element<'a, M>> {
+    let (x, y, width, height) = (position.x, position.y, size.width, size.height);
+    let along_x = HIGHLIGHT_CORNER.min(width);
+    let along_y = HIGHLIGHT_CORNER.min(height);
+
+    let top = |length: f32| Rectangle::new(Point::new(x, y), Size::new(length, FRAME_BORDER_WIDTH));
+    let bottom = |length: f32| Rectangle::new(Point::new(x, y + height - FRAME_BORDER_WIDTH), Size::new(length, FRAME_BORDER_WIDTH));
+    let left = |length: f32| Rectangle::new(Point::new(x, y), Size::new(FRAME_BORDER_WIDTH, length));
+    let right = |length: f32| Rectangle::new(Point::new(x + width - FRAME_BORDER_WIDTH, y), Size::new(FRAME_BORDER_WIDTH, length));
+    let shift_x = |bounds: Rectangle| Rectangle { x: bounds.x + width - bounds.width, ..bounds };
+    let shift_y = |bounds: Rectangle| Rectangle { y: bounds.y + height - bounds.height, ..bounds };
+
+    let bars = match edge {
+        Edge::Top => vec![top(width)],
+        Edge::Bottom => vec![bottom(width)],
+        Edge::Left => vec![left(height)],
+        Edge::Right => vec![right(height)],
+        Edge::TopLeft => vec![top(along_x), left(along_y)],
+        Edge::TopRight => vec![shift_x(top(along_x)), right(along_y)],
+        Edge::BottomLeft => vec![bottom(along_x), shift_y(left(along_y))],
+        Edge::BottomRight => vec![shift_x(bottom(along_x)), shift_y(right(along_y))],
+    };
+
+    bars.into_iter().map(|bounds| anchored(bar(bounds.size()), bounds.position())).collect()
+}
+
+fn bar<'a, M: 'a>(size: Size) -> Element<'a, M> {
+    container(Space::new())
+        .width(Length::Fixed(size.width))
+        .height(Length::Fixed(size.height))
+        .style(|theme: &Theme| container::Style {
+            background: Some(theme.palette().primary.into()),
+            ..container::Style::default()
+        })
+        .into()
 }
 
 struct Anchored<'a, M> {
@@ -318,4 +670,3 @@ fn body_style(theme: &Theme, alpha: f32) -> container::Style {
         ..container::Style::default()
     }
 }
-

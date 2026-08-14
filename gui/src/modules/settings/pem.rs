@@ -10,7 +10,6 @@ use crate::app::theme;
 use crate::common::feedback::Slot;
 use crate::widget::{popup, smooth_scroll};
 
-const POPUP_SIZE: Size = Size::new(650.0, 480.0);
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -64,7 +63,7 @@ impl State {
                 Task::none()
             }
             Message::Popup(msg) => {
-                if self.popup.update(msg, POPUP_SIZE) {
+                if self.popup.update(msg, popup::Kind::Pem) {
                     self.is_open = false;
                     self.confirm_generate.clear();
                     self.confirm_delete.clear();
@@ -139,7 +138,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, window: Size) -> Element<'a, Message> {
-        self.popup.view("Manage PEM", POPUP_SIZE, window, Message::Popup, move || self.content_view(), None)
+        self.popup.view("Manage PEM", popup::Kind::Pem, window, Message::Popup, move || self.content_view(), None)
     }
 
     fn content_view<'a>(&'a self) -> Element<'a, Message> {

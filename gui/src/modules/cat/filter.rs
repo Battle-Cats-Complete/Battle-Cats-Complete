@@ -21,7 +21,6 @@ const STAT_KEYS: [&str; 9] = [
 ];
 
 const ICONS_PER_ROW: usize = 11;
-const POPUP_SIZE: Size = Size::new(600.0, 528.0);
 const CLEAR_BTN_CLEARANCE: f32 = 56.0;
 
 #[derive(Debug, Clone)]
@@ -58,7 +57,7 @@ impl State {
     pub fn update(&mut self, message: Message) {
         match message {
             Message::Popup(msg) => {
-                if self.popup.update(msg, POPUP_SIZE) {
+                if self.popup.update(msg, popup::Kind::CatFilter) {
                     self.filter_state.is_open = false;
                 }
             }
@@ -103,7 +102,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, window: Size) -> Element<'a, Message> {
-        self.popup.view("Advanced Cat Filter", POPUP_SIZE, window, Message::Popup, move || {
+        self.popup.view("Advanced Cat Filter", popup::Kind::CatFilter, window, Message::Popup, move || {
             self.content_view(sheets, assets)
         }, None)
     }

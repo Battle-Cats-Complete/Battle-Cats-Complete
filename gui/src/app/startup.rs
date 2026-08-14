@@ -19,6 +19,7 @@ use core::modules::settings::desktop;
 use core::{ContentStore, Vault};
 
 use crate::modules::home;
+use crate::widget::popup;
 
 use super::{logging, migrate, notice, updater, ActivePopup, BattleCatsApp, Message};
 
@@ -57,6 +58,7 @@ impl BattleCatsApp {
         app.stage_state.restore_state(&app.app_state.stage);
         app.mods_state.restore_state(&app.app_state.mods);
         app.files_state.restore_state(&app.app_state.files);
+        popup::restore(&app.app_state.popups);
 
         if notice::should_show(&app.app_state.notice.acknowledged) {
             info!("Notice {} not yet acknowledged, showing at startup", notice::hash());

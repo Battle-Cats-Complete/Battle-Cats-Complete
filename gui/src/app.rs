@@ -1141,6 +1141,8 @@ impl BattleCatsApp {
     }
 
     fn check_auto_save_state(&mut self) {
+        self.app_state.popups = popup::snapshot();
+
         let Ok(json_string) = serde_json::to_string(&self.app_state) else { return; };
 
         let mut hasher = FxHasher::default();

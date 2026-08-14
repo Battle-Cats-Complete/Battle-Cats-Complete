@@ -23,7 +23,6 @@ use super::{
     SCROLLBAR_GAP,
 };
 
-const POPUP_SIZE: Size = Size::new(500.0, 520.0);
 const POPUP_TAB_WIDTH: f32 = 90.0;
 const PACKAGE_FIELD_WIDTH: f32 = 70.0;
 
@@ -58,7 +57,7 @@ impl State {
     pub fn update(&mut self, message: Message, data: &mut ModDataState, settings: &Settings) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
-                if self.popup.update(msg, POPUP_SIZE) {
+                if self.popup.update(msg, popup::Kind::ModImport) {
                     self.is_open = false;
                 }
                 Task::none()
@@ -229,7 +228,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, data: &'a ModDataState, window: Size) -> Element<'a, Message> {
-        self.popup.view("Import Mod", POPUP_SIZE, window, Message::Popup, move || {
+        self.popup.view("Import Mod", popup::Kind::ModImport, window, Message::Popup, move || {
             let upper = smooth_scroll(
                 scrollable(container(self.content_view(data)).width(Length::Fill).padding(POPUP_PADDING))
                     .spacing(SCROLLBAR_GAP)

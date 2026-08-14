@@ -11,7 +11,6 @@ use crate::app::theme;
 use crate::common::feedback::Slot;
 use crate::widget::{popup, smooth_scroll};
 
-const POPUP_SIZE: Size = Size::new(650.0, 335.0);
 const REGION_COLUMN_WIDTH: f32 = 60.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,7 +101,7 @@ impl State {
                 Task::none()
             }
             Message::Popup(msg) => {
-                if self.popup.update(msg, POPUP_SIZE) {
+                if self.popup.update(msg, popup::Kind::Keys) {
                     self.is_open = false;
                     self.validation_status = None;
                 }
@@ -176,7 +175,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, window: Size) -> Element<'a, Message> {
-        self.popup.view("Manage Decryption Keys", POPUP_SIZE, window, Message::Popup, move || self.content_view(), None)
+        self.popup.view("Manage Decryption Keys", popup::Kind::Keys, window, Message::Popup, move || self.content_view(), None)
     }
 
     fn content_view<'a>(&'a self) -> Element<'a, Message> {

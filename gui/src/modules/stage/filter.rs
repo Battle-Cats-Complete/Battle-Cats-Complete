@@ -13,7 +13,6 @@ use crate::app::theme;
 use crate::widget::{popup, range_row, section, smooth_scroll};
 
 
-const POPUP_SIZE: Size = Size::new(720.0, 528.0);
 const CLEAR_BTN_CLEARANCE: f32 = 56.0;
 const CONTENT_PADDING: f32 = 20.0;
 const SCROLLBAR_GAP: f32 = 2.0;
@@ -338,7 +337,7 @@ impl State {
 
         match message {
             Message::Popup(msg) => {
-                if self.popup.update(msg, POPUP_SIZE) {
+                if self.popup.update(msg, popup::Kind::StageFilter) {
                     state.is_open = false;
                 }
             }
@@ -431,7 +430,7 @@ impl State {
     }
 
     pub fn view(&self, window: Size) -> Element<'_, Message> {
-        self.popup.view("Advanced Stage Filter", POPUP_SIZE, window, Message::Popup, move || self.content_view(), None)
+        self.popup.view("Advanced Stage Filter", popup::Kind::StageFilter, window, Message::Popup, move || self.content_view(), None)
     }
 
     fn content_view(&self) -> Element<'_, Message> {

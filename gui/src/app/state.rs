@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,7 @@ use core::modules::data::ImportSubTab;
 use core::modules::stage::{GlobalMapId, GlobalStageId};
 
 use crate::modules::files::Mode;
+use crate::widget::popup::StoredSize;
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -22,6 +23,7 @@ pub struct AppState {
     pub(crate) data: GameDataState,
     pub(crate) animation: AnimState,
     pub(crate) notice: NoticeState,
+    pub(crate) popups: BTreeMap<String, StoredSize>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]

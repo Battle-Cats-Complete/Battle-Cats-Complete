@@ -27,7 +27,6 @@ const STATUS_EXPIRY: Duration = Duration::from_secs(2);
 const RESTART_DELAY_SECS: u8 = 1;
 const MAX_RELEASE_LOOKBACK: usize = 8;
 
-const POPUP_SIZE: Size = Size::new(440.0, 250.0);
 const POPUP_PADDING: f32 = 20.0;
 const CONTENT_SPACING: f32 = 14.0;
 const BUTTON_SPACING: f32 = 12.0;
@@ -144,7 +143,7 @@ impl BattleCatsApp {
 }
 
 pub(super) fn update_popup(state: &mut popup::State, message: popup::Message) -> bool {
-    state.update(message, POPUP_SIZE)
+    state.update(message, popup::Kind::Updater)
 }
 
 pub(super) fn view<'a>(state: &'a popup::State, status: &'a UpdateStatus, window: Size, progress: f32) -> Option<Element<'a, Message>> {
@@ -155,7 +154,7 @@ pub(super) fn view<'a>(state: &'a popup::State, status: &'a UpdateStatus, window
         _ => return None,
     };
 
-    Some(state.view(title, POPUP_SIZE, window, Message::UpdaterPopup, move || {
+    Some(state.view(title, popup::Kind::Updater, window, Message::UpdaterPopup, move || {
         let body = match status {
             UpdateStatus::UpdateFound(tag, release) => view_update_found(tag, release),
             UpdateStatus::Downloading(tag) => view_downloading(tag, progress),

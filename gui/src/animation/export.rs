@@ -30,7 +30,6 @@ const FORMAT_OPTIONS: [&str; 8] = ["GIF", "WebP", "AVIF", "PNG", "MP4", "MKV", "
 
 const CONTENT_PADDING: f32 = 20.0;
 const SECTION_SPACING: f32 = 14.0;
-const POPUP_SIZE: Size = Size::new(320.0, 500.0 - SECTION_SPACING);
 const ROW_SPACING: f32 = 6.0;
 const FIELD_SPACING: f32 = 8.0;
 const FIELD_LABEL_WIDTH: f32 = 82.0;
@@ -467,7 +466,7 @@ impl State {
     pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings, anim_state: &mut AnimState) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
-                if self.popup.update(msg, POPUP_SIZE) {
+                if self.popup.update(msg, popup::Kind::AnimationExport) {
                     anim_state.export_popup_open = false;
                 }
             }
@@ -861,7 +860,7 @@ impl State {
     }
 
     pub fn view(&self, window: Size) -> Element<'_, Message> {
-        self.popup.view("Export Animation", POPUP_SIZE, window, Message::Popup, move || self.content_view(), Some(POPUP_BODY_ALPHA))
+        self.popup.view("Export Animation", popup::Kind::AnimationExport, window, Message::Popup, move || self.content_view(), Some(POPUP_BODY_ALPHA))
     }
 
     fn content_view(&self) -> Element<'_, Message> {

@@ -10,10 +10,9 @@ use core::modules::settings::{Settings as CoreSettings, UpdateMode};
 
 use crate::app::theme;
 use crate::app::UpdateStatus;
-use crate::common::fonts;
-use crate::widget::toggle_row;
-#[cfg(target_os = "linux")]
 use crate::common::feedback::Slot;
+use crate::common::fonts;
+use crate::widget::{popup, toggle_row};
 
 use super::{header_section, hover_hint, SECTION_SPACING};
 
@@ -55,6 +54,8 @@ pub enum Message {
     LanguageDragMove(Point),
     LanguageDragEnd,
     LanguageSetDefault,
+    ResetPopups,
+    PopupResetExpired,
     #[cfg(target_os = "linux")]
     ToggleDesktopData,
     #[cfg(target_os = "linux")]
@@ -68,6 +69,7 @@ pub struct State {
     drag: Drag,
     baseline: Vec<String>,
     settled: bool,
+    popup_feedback: Slot<()>,
 
     #[cfg(target_os = "linux")]
     desktop_feedback: Slot<DesktopFeedback>,
@@ -144,6 +146,15 @@ impl State {
                 let restored = lang::default_priority();
                 self.settled |= core_settings.general.language_priority != restored;
                 core_settings.general.language_priority = restored;
+                Task::none()
+            }
+            Message::ResetPopups => {
+                debug!("Resetting every popup back to its default position and size");
+                popup::reset();
+                self.popup_feedback.set((), Message::PopupResetExpired)
+            }
+            Message::PopupResetExpired => {
+                self.popup_feedback.expire();
                 Task::none()
             }
             #[cfg(target_os = "linux")]
@@ -233,7 +244,15 @@ impl State {
             "No Nightly features available in this version"
         };
 
+        let (popup_reset_label, popup_reset_style): (&str, theme::ButtonStyleFn) = if self.popup_feedback.is_set() {
+            ("Popup Metadata Reset!", theme::success_button)
+        } else {
+            ("Reset Popup Metadata", theme::danger_button)
+        };
+
         let behavior_content = column![
+            theme::sized_button(popup_reset_label, theme::STATUS_BUTTON_WIDTH, popup_reset_style)
+                .on_press(Message::ResetPopups),
             row![
                 text("Update Handling"),
                 pick_list(

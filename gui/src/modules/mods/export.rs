@@ -21,7 +21,6 @@ use super::{
 };
 
 const REGIONS: [Region; 4] = [Region::En, Region::Ja, Region::Ko, Region::Tw];
-const POPUP_SIZE: Size = Size::new(470.0, 560.0);
 const POPUP_TAB_WIDTH: f32 = 80.0;
 const FIELD_WIDTH: f32 = 160.0;
 const PACKAGE_FIELD_WIDTH: f32 = 70.0;
@@ -70,7 +69,7 @@ impl State {
     pub fn update(&mut self, message: Message, data: &mut ModDataState, settings: &Settings) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
-                if self.popup.update(msg, POPUP_SIZE) {
+                if self.popup.update(msg, popup::Kind::ModExport) {
                     self.is_open = false;
                 }
                 Task::none()
@@ -219,7 +218,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, data: &'a ModDataState, window: Size) -> Element<'a, Message> {
-        self.popup.view("Export Mod", POPUP_SIZE, window, Message::Popup, move || {
+        self.popup.view("Export Mod", popup::Kind::ModExport, window, Message::Popup, move || {
             let upper = smooth_scroll(
                 scrollable(container(self.content_view(data)).width(Length::Fill).padding(POPUP_PADDING))
                     .spacing(SCROLLBAR_GAP)
