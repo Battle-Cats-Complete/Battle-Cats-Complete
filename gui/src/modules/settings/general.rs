@@ -284,7 +284,7 @@ impl State {
         ].spacing(10);
 
         let language_content = column![
-            theme::sized_button("Set to Default", theme::MANAGE_BUTTON_WIDTH, theme::danger_button)
+            theme::sized_button("Set to Default", theme::STATUS_BUTTON_WIDTH, theme::danger_button)
                 .on_press(Message::LanguageSetDefault),
             self.language_list(core_settings),
         ].spacing(10);
