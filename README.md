@@ -10,45 +10,15 @@ This app is a hobby and passion project. Join the [Discord Server](https://disco
 To use this app, you must provide game files for it to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
 
 ## Current Features
-- **Importing Game Data**
-  - Direct import from emulator/android
-  - Import from `.pack` / `.apk` files
-  - Import from standard archives
-- **Import, View, Export Mods**
-  - Import from Android, Packs, or Files
-  - Add custom icons and metadata
-  - Patch mods into the live database
-  - Inject mod into APK/XAPK
-- **Displaying Cat Data**
-  - Icons and Banners
-  - Forms, Stats, and Abilities
-  - Talents and Evolution Info
-  - In-game Descriptions
-- **Displaying Enemy Data**
-  - Icons, Stats, and Abilities
-  - In-game Descriptions
-- **Displaying Stage Data**
-  - Battleground, Treasure, and Materials
-  - Niche features like Fixed Line-Ups
-  - Uses data/images from Cats & Enemies
-- **Unit Animations**
-  - View Walk, Idle, Attack, and Knockback
-  - View Burrow, Surface, and Spirit animations
-  - Raw Model viewing
-- **Export Animations**
-  - Export to GIF, WebP, AVIF, and more
-  - Export single animations or custom sequences
-  - User-defined camera area rendering
-- **Advanced Filtering**
-  - Filter Cats and Enemies by Forms, Rarity, or Talents
-  - Search using specific Ability Toggles
-  - Search using exact Ability Mathematical Attributes
-- **Export Statblocks**
-  - Generate statblocks for both Cats and Enemies
-  - Instantly copy to clipboard
-  - Export as a saved Image
-  - Dynamically scaling image sizes
-
+- **Import Game Data:** Import from an emulator, `.pack` files, or bring your own decrypted assets.
+- **Handle Game Mods:** Import from `.apk`, view modded data in the database, and inject modded data into `.apk`.
+- **Handle Raw Data:** File tree for vanilla game files and active mod files, view and upload images, view and edit raw table data.
+- **Display Cat Data:** Stats, abilities, descriptions, talents, conjures, and image assets.
+- **Display Enemy Data:** Stats, abilities, descriptions, and appearances.
+- **Display Stage Data:** Attributes, battleground, treasure, fixed line-ups, and more.
+- **View Animations** View and export animations from both Cats and Enemies to various formats, user-defined camera field.
+- **Advanced Filtering:** Filter Cats, Enemies, and Stages by highly specific attributes.
+- **Export Statblocks:** One-click `.png` statblock images for cats and enemies, export to file or copy to clipboard.
 
 ### Setup
 Because this app is an open-source hobby project and not signed with a paid certificate, your OS may flag it on the first run.
@@ -63,15 +33,8 @@ Because this app is an open-source hobby project and not signed with a paid cert
 >
 > To fix this, type the following command in Terminal: `xattr -cr`, then drag the app file into the terminal window to auto-fill the path.
 
-BCC requires two additonal third-party resources to unlock full functionality. Without these, the apps capabilities are limited:
+BCC requires two additional third-party resources to unlock full functionality. Without these, the apps capabilities are limited:
 - Rooted Android device/emulator that is not Bluestacks and can run The Battle Cats
 - Legally obtained Decryption Keys and Initialization Vectors for every region
-
-## Credit
-Various people have motivated and helped me create this project:
-- **TheWWRNerdGuy:** Provided a repo which holds Rust code for reading raw game data, also gave coding tips.
-- **SweetDonut0:** Used their Cat Stats Tool & Animation Viewer web-app hosted on the Wiki as a reference for code.
-- **fieryhenry:** Coder with many Battle Cats related projects of their own, of which I took inspiration from.
-- **Timtams:** Did field research to confirm certain game data quirks, also supplied some custom assets.
 
 >This is an unofficial, educational tool. For full details regarding PONOS Corp. copyrights, authorized handling of game files and decryption keys, and our strict liability disclaimer, please read LEGAL.md before use.
