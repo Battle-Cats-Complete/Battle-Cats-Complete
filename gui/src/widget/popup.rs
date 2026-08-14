@@ -1,5 +1,5 @@
+use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::sync::RwLock;
 
 use iced::advanced::{layout, overlay, renderer, widget, Clipboard, Layout, Shell, Widget};
 use iced::border::Radius;
@@ -155,39 +155,27 @@ pub(crate) struct StoredSize {
     pub height: f32,
 }
 
-#[derive(Clone, Copy)]
-struct Geometry {
-    position: Option<Point>,
-    size: Option<Size>,
+thread_local! {
+    static SIZES: Cell<[Option<Size>; KIND_COUNT]> = const { Cell::new([None; KIND_COUNT]) };
 }
 
-const EMPTY_GEOMETRY: Geometry = Geometry { position: None, size: None };
-
-static GEOMETRY: RwLock<[Geometry; KIND_COUNT]> = RwLock::new([EMPTY_GEOMETRY; KIND_COUNT]);
-
-fn geometry(kind: Kind) -> Geometry {
-    GEOMETRY.read().map_or(EMPTY_GEOMETRY, |slots| slots[kind.slot()])
+fn stored_size(kind: Kind) -> Option<Size> {
+    SIZES.with(|sizes| sizes.get()[kind.slot()])
 }
 
-fn store(kind: Kind, geometry: Geometry) {
-    if let Ok(mut slots) = GEOMETRY.write() {
-        slots[kind.slot()] = geometry;
-    }
-}
-
-fn place(kind: Kind, position: Point) {
-    if let Ok(mut slots) = GEOMETRY.write() {
-        slots[kind.slot()].position = Some(position);
-    }
+fn store_size(kind: Kind, size: Option<Size>) {
+    SIZES.with(|sizes| {
+        let mut slots = sizes.get();
+        slots[kind.slot()] = size;
+        sizes.set(slots);
+    });
 }
 
 pub(crate) fn snapshot() -> BTreeMap<String, StoredSize> {
-    let Ok(slots) = GEOMETRY.read() else { return BTreeMap::new() };
-
     KINDS
         .into_iter()
         .filter_map(|kind| {
-            let size = slots[kind.slot()].size?;
+            let size = stored_size(kind)?;
 
             Some((kind.key().to_owned(), StoredSize { width: size.width, height: size.height }))
         })
@@ -195,25 +183,18 @@ pub(crate) fn snapshot() -> BTreeMap<String, StoredSize> {
 }
 
 pub(crate) fn restore(stored: &BTreeMap<String, StoredSize>) {
-    let Ok(mut slots) = GEOMETRY.write() else { return };
-
     for kind in KINDS {
         let Some(entry) = stored.get(kind.key()).filter(|entry| entry.width.is_finite() && entry.height.is_finite()) else {
             continue;
         };
 
-        slots[kind.slot()].size = Some(Size::new(entry.width, entry.height));
-    }
-}
-
-pub(crate) fn reset() {
-    if let Ok(mut slots) = GEOMETRY.write() {
-        *slots = [EMPTY_GEOMETRY; KIND_COUNT];
+        store_size(kind, Some(Size::new(entry.width, entry.height)));
     }
 }
 
 #[derive(Default)]
 pub struct State {
+    position: Option<Point>,
     drag: Drag,
     hovered: Option<Edge>,
 }
@@ -263,17 +244,17 @@ impl State {
                 Drag::Idle => {}
                 Drag::Pressed => self.drag = Drag::Moving { last: cursor },
                 Drag::Moving { last } => {
-                    let (position, size) = resolved(spec, window);
+                    let (position, size) = self.resolved(spec, window);
                     let next = Point::new(position.x + cursor.x - last.x, position.y + cursor.y - last.y);
-                    place(spec.kind, clamp(next, size, window));
+                    self.position = Some(clamp(next, size, window));
                     self.drag = Drag::Moving { last: cursor };
                 }
                 Drag::Grabbed { edge } => {
-                    let (position, size) = resolved(spec, window);
+                    let (position, size) = self.resolved(spec, window);
                     self.drag = Drag::Resizing { edge, origin: cursor, position, size };
                 }
                 Drag::Resizing { edge, origin, position, size } => {
-                    resize(spec, edge, cursor - origin, position, size, window);
+                    self.position = Some(resize(spec, edge, cursor - origin, position, size, window));
                 }
             },
             Message::Released => self.drag = Drag::Idle,
@@ -298,7 +279,7 @@ impl State {
         let body_alpha = body_alpha.unwrap_or(DEFAULT_BODY_ALPHA);
 
         let bounds = if window.width < 1.0 || window.height < 1.0 { MINIMUM_WINDOW } else { window };
-        let (position, size) = resolved(spec, bounds);
+        let (position, size) = self.resolved(spec, bounds);
 
         let close_button = button(text("✕").size(18))
             .style(button::text)
@@ -373,22 +354,21 @@ impl State {
 
         stack(layers).into()
     }
+
+    fn resolved(&self, spec: Spec, window: Size) -> (Point, Size) {
+        let stored = stored_size(spec.kind).unwrap_or(spec.minimum);
+        let size = Size::new(stored.width.max(spec.minimum.width), stored.height.max(spec.minimum.height));
+
+        let centered = Point::new(
+            ((window.width - size.width) / 2.0).max(0.0),
+            ((window.height - size.height) / 2.0).max(0.0),
+        );
+
+        (clamp(self.position.unwrap_or(centered), size, window), size)
+    }
 }
 
-fn resolved(spec: Spec, window: Size) -> (Point, Size) {
-    let geometry = geometry(spec.kind);
-    let stored = geometry.size.unwrap_or(spec.minimum);
-    let size = Size::new(stored.width.max(spec.minimum.width), stored.height.max(spec.minimum.height));
-
-    let centered = Point::new(
-        ((window.width - size.width) / 2.0).max(0.0),
-        ((window.height - size.height) / 2.0).max(0.0),
-    );
-
-    (clamp(geometry.position.unwrap_or(centered), size, window), size)
-}
-
-fn resize(spec: Spec, edge: Edge, delta: Vector, position: Point, size: Size, window: Size) {
+fn resize(spec: Spec, edge: Edge, delta: Vector, position: Point, size: Size, window: Size) -> Point {
     let minimum = spec.minimum;
     let right = position.x + size.width;
     let bottom = position.y + size.height;
@@ -403,22 +383,22 @@ fn resize(spec: Spec, edge: Edge, delta: Vector, position: Point, size: Size, wi
         Some(Side::End) | None => position.y,
     };
 
-    let anchor = clamp(Point::new(x, y), size, window);
-
     let width = match edge.horizontal() {
-        Some(Side::Start) => right - anchor.x,
+        Some(Side::Start) => right - x,
         Some(Side::End) => (size.width + delta.x).max(minimum.width),
         None => size.width,
     };
 
     let height = match edge.vertical() {
-        Some(Side::Start) => bottom - anchor.y,
+        Some(Side::Start) => bottom - y,
         Some(Side::End) => (size.height + delta.y).max(minimum.height),
         None => size.height,
     };
 
     let resized = Size::new(width, height);
-    store(spec.kind, Geometry { position: Some(anchor), size: (resized != minimum).then_some(resized) });
+    store_size(spec.kind, (resized != minimum).then_some(resized));
+
+    clamp(Point::new(x, y), resized, window)
 }
 
 fn grip_bounds(edge: Edge, position: Point, size: Size) -> Rectangle {
