@@ -6,6 +6,7 @@ use crate::widget::{popup, smooth_scroll};
 
 use super::Message;
 
+const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Notice, Size::new(500.0, 400.0));
 const HASH_BYTES: usize = 8;
 const SCROLLBAR_GAP: f32 = 8.0;
 
@@ -42,11 +43,11 @@ pub(super) fn should_show(acknowledged: &[String]) -> bool {
 }
 
 pub(super) fn update(state: &mut popup::State, message: popup::Message) -> bool {
-    state.update(message, popup::Kind::Notice)
+    state.update(message, POPUP)
 }
 
 pub(super) fn view<'a>(state: &'a popup::State, window: Size, theme: Theme, items: &'a [markdown::Item]) -> Element<'a, Message> {
-    state.view(NOTICE_TITLE, popup::Kind::Notice, window, Message::Notice, move || {
+    state.view(NOTICE_TITLE, POPUP, window, Message::Notice, move || {
         column![
             smooth_scroll(
                 scrollable(

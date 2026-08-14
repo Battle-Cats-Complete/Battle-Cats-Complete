@@ -58,24 +58,6 @@ const KINDS: [Kind; KIND_COUNT] = [
 ];
 
 impl Kind {
-    fn minimum(self) -> Size {
-        match self {
-            Self::CatFilter => Size::new(600.0, 528.0),
-            Self::EnemyFilter => Size::new(600.0, 528.0),
-            Self::StageFilter => Size::new(720.0, 528.0),
-            Self::ModImport => Size::new(500.0, 520.0),
-            Self::ModExport => Size::new(470.0, 560.0),
-            Self::AnimationExport => Size::new(320.0, 486.0),
-            Self::Keys => Size::new(650.0, 335.0),
-            Self::Pem => Size::new(650.0, 480.0),
-            Self::Exceptions => Size::new(750.0, 520.0),
-            Self::Changelog => Size::new(600.0, 430.0),
-            Self::Notice => Size::new(500.0, 400.0),
-            Self::Updater => Size::new(440.0, 250.0),
-            Self::InitErrors => Size::new(560.0, 420.0),
-        }
-    }
-
     fn key(self) -> &'static str {
         match self {
             Self::CatFilter => "cat_filter",
@@ -96,6 +78,18 @@ impl Kind {
 
     fn slot(self) -> usize {
         self as usize
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Spec {
+    kind: Kind,
+    minimum: Size,
+}
+
+impl Spec {
+    pub const fn new(kind: Kind, minimum: Size) -> Self {
+        Self { kind, minimum }
     }
 }
 
@@ -193,7 +187,7 @@ pub(crate) fn snapshot() -> BTreeMap<String, StoredSize> {
     KINDS
         .into_iter()
         .filter_map(|kind| {
-            let size = slots[kind.slot()].size.filter(|size| *size != kind.minimum())?;
+            let size = slots[kind.slot()].size?;
 
             Some((kind.key().to_owned(), StoredSize { width: size.width, height: size.height }))
         })
@@ -204,11 +198,11 @@ pub(crate) fn restore(stored: &BTreeMap<String, StoredSize>) {
     let Ok(mut slots) = GEOMETRY.write() else { return };
 
     for kind in KINDS {
-        let Some(entry) = stored.get(kind.key()) else { continue };
+        let Some(entry) = stored.get(kind.key()).filter(|entry| entry.width.is_finite() && entry.height.is_finite()) else {
+            continue;
+        };
 
-        let minimum = kind.minimum();
-        let size = Size::new(entry.width.max(minimum.width), entry.height.max(minimum.height));
-        slots[kind.slot()].size = (size != minimum).then_some(size);
+        slots[kind.slot()].size = Some(Size::new(entry.width, entry.height));
     }
 }
 
@@ -255,7 +249,7 @@ pub enum Message {
 }
 
 impl State {
-    pub fn update(&mut self, message: Message, kind: Kind) -> bool {
+    pub fn update(&mut self, message: Message, spec: Spec) -> bool {
         match message {
             Message::HeaderPressed => self.drag = Drag::Pressed,
             Message::EdgePressed(edge) => self.drag = Drag::Grabbed { edge },
@@ -269,17 +263,17 @@ impl State {
                 Drag::Idle => {}
                 Drag::Pressed => self.drag = Drag::Moving { last: cursor },
                 Drag::Moving { last } => {
-                    let (position, size) = resolved(kind, window);
+                    let (position, size) = resolved(spec, window);
                     let next = Point::new(position.x + cursor.x - last.x, position.y + cursor.y - last.y);
-                    place(kind, clamp(next, size, window));
+                    place(spec.kind, clamp(next, size, window));
                     self.drag = Drag::Moving { last: cursor };
                 }
                 Drag::Grabbed { edge } => {
-                    let (position, size) = resolved(kind, window);
+                    let (position, size) = resolved(spec, window);
                     self.drag = Drag::Resizing { edge, origin: cursor, position, size };
                 }
                 Drag::Resizing { edge, origin, position, size } => {
-                    resize(kind, edge, cursor - origin, position, size, window);
+                    resize(spec, edge, cursor - origin, position, size, window);
                 }
             },
             Message::Released => self.drag = Drag::Idle,
@@ -295,7 +289,7 @@ impl State {
     pub fn view<'a, M: Clone + 'a>(
         &'a self,
         title: &'a str,
-        kind: Kind,
+        spec: Spec,
         window: Size,
         to_message: fn(Message) -> M,
         content: impl Fn() -> Element<'a, M> + 'a,
@@ -304,7 +298,7 @@ impl State {
         let body_alpha = body_alpha.unwrap_or(DEFAULT_BODY_ALPHA);
 
         let bounds = if window.width < 1.0 || window.height < 1.0 { MINIMUM_WINDOW } else { window };
-        let (position, size) = resolved(kind, bounds);
+        let (position, size) = resolved(spec, bounds);
 
         let close_button = button(text("✕").size(18))
             .style(button::text)
@@ -381,9 +375,10 @@ impl State {
     }
 }
 
-fn resolved(kind: Kind, window: Size) -> (Point, Size) {
-    let geometry = geometry(kind);
-    let size = geometry.size.unwrap_or(kind.minimum());
+fn resolved(spec: Spec, window: Size) -> (Point, Size) {
+    let geometry = geometry(spec.kind);
+    let stored = geometry.size.unwrap_or(spec.minimum);
+    let size = Size::new(stored.width.max(spec.minimum.width), stored.height.max(spec.minimum.height));
 
     let centered = Point::new(
         ((window.width - size.width) / 2.0).max(0.0),
@@ -393,8 +388,8 @@ fn resolved(kind: Kind, window: Size) -> (Point, Size) {
     (clamp(geometry.position.unwrap_or(centered), size, window), size)
 }
 
-fn resize(kind: Kind, edge: Edge, delta: Vector, position: Point, size: Size, window: Size) {
-    let minimum = kind.minimum();
+fn resize(spec: Spec, edge: Edge, delta: Vector, position: Point, size: Size, window: Size) {
+    let minimum = spec.minimum;
     let right = position.x + size.width;
     let bottom = position.y + size.height;
 
@@ -422,7 +417,8 @@ fn resize(kind: Kind, edge: Edge, delta: Vector, position: Point, size: Size, wi
         None => size.height,
     };
 
-    store(kind, Geometry { position: Some(anchor), size: Some(Size::new(width, height)) });
+    let resized = Size::new(width, height);
+    store(spec.kind, Geometry { position: Some(anchor), size: (resized != minimum).then_some(resized) });
 }
 
 fn grip_bounds(edge: Edge, position: Point, size: Size) -> Rectangle {

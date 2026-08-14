@@ -8,6 +8,7 @@ use crate::widget::{popup, smooth_scroll};
 use super::{theme, Message};
 
 const POPUP_TITLE: &str = "Initialization Errors Found";
+const POPUP: popup::Spec = popup::Spec::new(popup::Kind::InitErrors, Size::new(560.0, 420.0));
 const SCROLLBAR_GAP: f32 = 8.0;
 const BODY_PADDING: f32 = 20.0;
 const BODY_SPACING: f32 = 14.0;
@@ -59,7 +60,7 @@ impl State {
     }
 
     pub(super) fn update(&mut self, message: popup::Message) {
-        if self.popup.update(message, popup::Kind::InitErrors) {
+        if self.popup.update(message, POPUP) {
             self.acknowledge();
         }
     }
@@ -69,7 +70,7 @@ impl State {
             return None;
         }
 
-        Some(self.popup.view(POPUP_TITLE, popup::Kind::InitErrors, window, Message::InitErrorPopup, move || {
+        Some(self.popup.view(POPUP_TITLE, POPUP, window, Message::InitErrorPopup, move || {
             let body = if self.conflicts.is_empty() { watcher_body() } else { self.conflict_body() };
 
             column![

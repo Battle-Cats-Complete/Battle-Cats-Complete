@@ -13,6 +13,7 @@ use crate::widget::{popup, smooth_scroll, toggle_label};
 
 use super::hover_hint;
 
+const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Exceptions, Size::new(750.0, 520.0));
 const STEM_WIDTH: f32 = 265.0;
 const EXTENSION_WIDTH: f32 = 135.0;
 const HANDLING_WIDTH: f32 = 90.0;
@@ -78,7 +79,7 @@ impl State {
                 Task::none()
             }
             Message::Popup(msg) => {
-                if self.popup.update(msg, popup::Kind::Exceptions) {
+                if self.popup.update(msg, POPUP) {
                     self.is_open = false;
                     self.confirm_reset.clear();
                     self.open_lang_dropdown = None;
@@ -179,7 +180,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, window: Size) -> Element<'a, Message> {
-        self.popup.view("Manage Exceptions", popup::Kind::Exceptions, window, Message::Popup, move || self.content_view(), None)
+        self.popup.view("Manage Exceptions", POPUP, window, Message::Popup, move || self.content_view(), None)
     }
 
     fn content_view<'a>(&'a self) -> Element<'a, Message> {

@@ -15,6 +15,7 @@ const SPACE_BETWEEN_SECTIONS: f32 = 20.0;
 const BUTTON_WIDTH: f32 = 120.0;
 const BUTTON_SPACING: f32 = 10.0;
 const BUTTON_TEXT_SIZE: f32 = 15.0;
+const CHANGELOG_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Changelog, Size::new(600.0, 430.0));
 const SCROLLBAR_GAP: f32 = 8.0;
 
 #[derive(Default)]
@@ -69,7 +70,7 @@ impl State {
             }
 
             Message::Popup(msg) => {
-                if self.changelog_popup.update(msg, popup::Kind::Changelog) {
+                if self.changelog_popup.update(msg, CHANGELOG_POPUP) {
                     self.changelog_open = false;
                 }
                 Task::none()
@@ -271,7 +272,7 @@ impl State {
     }
 
     fn view_changelog_modal(&self, window: Size, theme: Theme) -> Element<'_, Message> {
-        self.changelog_popup.view("Changelogs", popup::Kind::Changelog, window, Message::Popup, move || self.changelog_content(&theme), None)
+        self.changelog_popup.view("Changelogs", CHANGELOG_POPUP, window, Message::Popup, move || self.changelog_content(&theme), None)
     }
 
     fn changelog_content(&self, theme: &Theme) -> Element<'_, Message> {

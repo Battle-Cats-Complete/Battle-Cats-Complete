@@ -20,6 +20,7 @@ const STAT_KEYS: [&str; 8] = [
     "Attack", "Dps", "Range", "Atk Cycle (f)", "Hitpoints", "Knockbacks", "Speed", "Cash Drop",
 ];
 
+const POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnemyFilter, Size::new(600.0, 528.0));
 const ICONS_PER_ROW: usize = 11;
 const CLEAR_BTN_CLEARANCE: f32 = 56.0;
 
@@ -53,7 +54,7 @@ impl State {
     pub fn update(&mut self, message: Message) {
         match message {
             Message::Popup(msg) => {
-                if self.popup.update(msg, popup::Kind::EnemyFilter) {
+                if self.popup.update(msg, POPUP) {
                     self.filter_state.is_open = false;
                 }
             }
@@ -86,7 +87,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, window: Size) -> Element<'a, Message> {
-        self.popup.view("Advanced Enemy Filter", popup::Kind::EnemyFilter, window, Message::Popup, move || {
+        self.popup.view("Advanced Enemy Filter", POPUP, window, Message::Popup, move || {
             self.content_view(sheets, assets)
         }, None)
     }
