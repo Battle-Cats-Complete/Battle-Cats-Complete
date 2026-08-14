@@ -15,7 +15,7 @@ use serde::Serialize;
 use crate::modules::settings::ScannerConfig;
 
 use crate::common::dirs;
-use crate::modules::data::architecture;
+use crate::modules::import::architecture;
 
 fn hash_directory_parallel(directory_path: &Path) -> u64 {
     if !directory_path.exists() {

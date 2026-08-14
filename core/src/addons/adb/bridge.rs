@@ -4,7 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::common::region::Region;
-use crate::modules::data::{AdbImportType, AdbTarget};
+use crate::modules::import::{AdbImportType, AdbTarget};
 
 use super::driver;
 

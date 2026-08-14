@@ -13,7 +13,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::modules::data::architecture;
+use crate::modules::import::architecture;
 use crate::modules::settings::{Settings, lang};
 
 const MOUNT_GAME: &str = "game";

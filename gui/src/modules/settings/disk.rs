@@ -6,7 +6,7 @@ use iced::widget::{column, container, text, tooltip};
 use iced::{task, Element, Task};
 use tracing::{debug, error};
 
-use core::modules::data::architecture;
+use core::modules::import::architecture;
 
 use crate::app::theme;
 use crate::common::feedback::{Slot as Confirm, CONFIRM_LABEL};

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::addons::adb::driver;
 use crate::common::job::JobEvent;
-use crate::modules::data::engine::keys;
+use crate::modules::import::engine::keys;
 use crate::modules::mods::import::extract;
 
 pub fn run(suffix: String, enforce_validation: bool, emit: impl Fn(JobEvent) + Sync) -> Result<(), String> {

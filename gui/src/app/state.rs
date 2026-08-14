@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use nyanko::chapter::Category;
 
 use core::animation::export::ExportFormat;
-use core::modules::data::ImportSubTab;
+use core::modules::import::ImportSubTab;
 use core::modules::stage::{GlobalMapId, GlobalStageId};
 
 use crate::modules::files::Mode;

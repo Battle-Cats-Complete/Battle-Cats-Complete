@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::modules::data::architecture;
+use crate::modules::import::architecture;
 use crate::{Conflict, Vault, VfsError};
 
 use super::mods::export::ExportState;

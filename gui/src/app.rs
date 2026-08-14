@@ -17,7 +17,7 @@ use tracing::{info, trace, warn};
 use core::common::context::GlobalContext;
 use core::common::game::{localizable, param};
 use core::common::io::json;
-use core::modules::data::architecture;
+use core::modules::import::architecture;
 use core::modules::settings::{Settings, UpdateMode};
 use core::{ContentStore, Vault};
 

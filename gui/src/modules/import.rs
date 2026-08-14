@@ -17,7 +17,7 @@ use tracing::{info, trace, warn};
 use core::addons::paths::{self, Presence};
 use core::common::job::{JobEvent, JobOutcome, ProgressCounter};
 use core::common::region::Region;
-use core::modules::data::{
+use core::modules::import::{
     android, pack, raw, AdbImportType, AdbTarget, DataConfigState, ImportMode, ImportSubTab,
 };
 use core::modules::settings::Settings;

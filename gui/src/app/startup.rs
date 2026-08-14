@@ -11,7 +11,7 @@ use tracing::{debug, error, info, warn};
 
 use core::common::dirs;
 use core::common::io::json;
-use core::modules::data::{self, architecture};
+use core::modules::import::{self, architecture};
 use core::modules::mods;
 use core::modules::settings::{lang, ExceptionList, ScannerConfig, UpdateMode};
 #[cfg(target_os = "linux")]
@@ -194,7 +194,7 @@ fn rebuild_vault(vault: &mut Vault, config: &ScannerConfig, index: u64) {
 
     if vault.vfs.count(architecture::GAME) == 0 {
         warn!("No game data left on disk, purging every derived cache");
-        data::purge_derived_caches();
+        import::purge_derived_caches();
     }
 
     vault.vfs.persist(index);

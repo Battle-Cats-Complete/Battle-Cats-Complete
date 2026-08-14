@@ -13,7 +13,7 @@ use iced::{font, Alignment, Element, Font, Length, Padding, Task, Theme};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use core::modules::data::architecture;
+use core::modules::import::architecture;
 use core::modules::settings::{EditorMode, FilesSettings};
 use core::Vfs;
 
