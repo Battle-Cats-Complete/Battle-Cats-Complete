@@ -9,7 +9,7 @@ This app is a hobby and passion project. Join the [Discord Server](https://disco
 ## Usage
 To use this app, you must provide game files for it to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
 
-## Current Features
+### Features
 - **Import Game Data:** Import from an emulator, `.pack` files, or bring your own decrypted assets.
 - **Handle Game Mods:** Import from `.apk`, view modded data in the database, and inject modded data into `.apk`.
 - **Handle Raw Data:** File tree for vanilla game files and active mod files, view and upload images, view and edit raw table data.
