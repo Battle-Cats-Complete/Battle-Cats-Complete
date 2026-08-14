@@ -205,6 +205,10 @@ impl Draft {
         DOCUMENT_PADDING * 2.0 + CHAR_WIDTH * columns as f32
     }
 
+    fn extent(lines: usize) -> f32 {
+        DOCUMENT_PADDING * 2.0 + LINE_HEIGHT * lines as f32
+    }
+
     fn measure(body: &str) -> f32 {
         Self::span(body.lines().map(Self::columns).max().unwrap_or(0))
     }
@@ -517,7 +521,7 @@ impl State {
                 .size(TEXT_SIZE)
                 .wrapping(text::Wrapping::None)
                 .width(width)
-                .height(Length::Fixed(draft.editor.line_count() as f32 * LINE_HEIGHT))
+                .height(Length::Fixed(Draft::extent(draft.editor.line_count())))
                 .padding(DOCUMENT_PADDING)
                 .style(theme::plain_editor);
 
