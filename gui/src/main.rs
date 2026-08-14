@@ -42,7 +42,7 @@ pub fn main() -> iced::Result {
         .font(assets::FONT_TH)
         .font(assets::FONT_SYMBOLS)
         .window(window::Settings {
-            size: app::window_config::saved_size(),
+            size: app::startup::saved_window_size(),
             min_size: Some(Size::new(800.0, 600.0)),
             visible: false,
             icon: load_icon(),

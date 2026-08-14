@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Instant;
 
 use iced::futures::channel::mpsc;
-use iced::Task;
+use iced::{Size, Task};
 use smol::Timer;
 use tracing::{debug, error, info, warn};
 
@@ -13,7 +13,7 @@ use core::common::dirs;
 use core::common::io::json;
 use core::modules::import::{self, architecture};
 use core::modules::mods;
-use core::modules::settings::{lang, ExceptionList, ScannerConfig, UpdateMode};
+use core::modules::settings::{lang, ExceptionList, ScannerConfig, UpdateMode, WindowSettings};
 #[cfg(target_os = "linux")]
 use core::modules::settings::desktop;
 use core::{ContentStore, Vault};
@@ -22,6 +22,23 @@ use crate::modules::home;
 use crate::widget::popup;
 
 use super::{logging, migrate, notice, updater, ActivePopup, BattleCatsApp, Message};
+
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct WindowConfig {
+    settings: SettingsWindowField,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct SettingsWindowField {
+    window: WindowSettings,
+}
+
+pub(crate) fn saved_window_size() -> Size {
+    let config: WindowConfig = json::load("settings.json").unwrap_or_default();
+    Size::new(config.settings.window.width.max(800.0), config.settings.window.height.max(600.0))
+}
 
 fn split(phase: &mut Instant) -> u128 {
     let elapsed = phase.elapsed().as_millis();
