@@ -36,6 +36,7 @@ mod startup;
 pub mod state;
 pub(crate) mod theme;
 mod updater;
+pub mod window_config;
 
 pub use theme::AppTheme;
 

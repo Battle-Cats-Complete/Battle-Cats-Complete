@@ -13,10 +13,8 @@ use iced::window;
 use iced::Size;
 
 use core::common::assets;
-use core::common::io::json;
 #[cfg(target_os = "linux")]
 use core::common::dirs::APP_DIR;
-use core::modules::settings::WindowSettings;
 
 pub fn main() -> iced::Result {
     #[cfg(windows)]
@@ -44,7 +42,7 @@ pub fn main() -> iced::Result {
         .font(assets::FONT_TH)
         .font(assets::FONT_SYMBOLS)
         .window(window::Settings {
-            size: saved_window_size(),
+            size: app::window_config::saved_size(),
             min_size: Some(Size::new(800.0, 600.0)),
             visible: false,
             icon: load_icon(),
@@ -64,23 +62,6 @@ fn platform_specific_settings() -> window::settings::PlatformSpecific {
 #[cfg(not(target_os = "linux"))]
 fn platform_specific_settings() -> window::settings::PlatformSpecific {
     window::settings::PlatformSpecific::default()
-}
-
-#[derive(serde::Deserialize, Default)]
-#[serde(default)]
-struct WindowConfig {
-    settings: SettingsWindowField,
-}
-
-#[derive(serde::Deserialize, Default)]
-#[serde(default)]
-struct SettingsWindowField {
-    window: WindowSettings,
-}
-
-fn saved_window_size() -> Size {
-    let config: WindowConfig = json::load("settings.json").unwrap_or_default();
-    Size::new(config.settings.window.width.max(800.0), config.settings.window.height.max(600.0))
 }
 
 fn load_icon() -> Option<window::icon::Icon> {
