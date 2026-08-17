@@ -355,7 +355,7 @@ impl State {
         let parse_anim = |target_idx: usize| -> Option<Animation> {
             let (_, path) = data.available_anims.iter().find(|(idx, _)| *idx == target_idx)?;
             let bytes = fs::read(path).ok()?;
-            Animation::parse(&bytes)
+            Animation::parse(&bytes).ok()
         };
 
         if let Some(attack) = parse_anim(IDX_ATTACK) {
@@ -827,7 +827,7 @@ impl State {
                         for slot in [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB] {
                             if let Some((_, path)) = data.available_anims.iter().find(|(idx, _)| *idx == slot)
                                 && let Ok(bytes) = fs::read(path)
-                                && let Some(anim) = Animation::parse(&bytes) {
+                                && let Ok(anim) = Animation::parse(&bytes) {
                                 showcase_clips.push(anim);
                             }
                         }
@@ -837,11 +837,11 @@ impl State {
                     }
 
                     if !anim_refs.is_empty()
-                        && let Some((x, y, w, h)) = unit.calculate_bounds(&anim_refs, tolerance) {
-                        self.exporter.region_x = x;
-                        self.exporter.region_y = y;
-                        self.exporter.region_w = w;
-                        self.exporter.region_h = h;
+                        && let Some(bounds) = unit.calculate_bounds(&anim_refs, tolerance) {
+                        self.exporter.region_x = bounds.min_x;
+                        self.exporter.region_y = bounds.min_y;
+                        self.exporter.region_w = bounds.width();
+                        self.exporter.region_h = bounds.height();
                         self.exporter.zoom = 1.0;
                         calculated = true;
                     }

@@ -14,12 +14,12 @@ use super::Slot;
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct CatStore {
-    talents: Slot<HashMap<u16, Talent>>,
+    talents: Slot<HashMap<u32, Talent>>,
     talent_costs: Slot<HashMap<u8, TalentCost>>,
     descriptions: Slot<Vec<String>>,
     unitbuy: Slot<HashMap<u32, UnitBuy>>,
     evolve: Slot<HashMap<u32, UnitEvolve>>,
-    curves: Slot<Vec<LevelCurve>>,
+    curves: Slot<HashMap<u32, LevelCurve>>,
 }
 
 impl Clone for CatStore {
@@ -36,7 +36,7 @@ impl Clone for CatStore {
 }
 
 impl CatStore {
-    pub fn talents(&self, vfs: &Vfs) -> Arc<HashMap<u16, Talent>> {
+    pub fn talents(&self, vfs: &Vfs) -> Arc<HashMap<u32, Talent>> {
         super::cached(&self.talents, || {
             super::parsed(vfs, files::SKILL_ACQUISITION, Talent::parse).unwrap_or_default()
         })
@@ -62,7 +62,7 @@ impl CatStore {
         })
     }
 
-    pub fn curves(&self, vfs: &Vfs) -> Arc<Vec<LevelCurve>> {
+    pub fn curves(&self, vfs: &Vfs) -> Arc<HashMap<u32, LevelCurve>> {
         super::cached(&self.curves, || {
             super::parsed(vfs, files::UNIT_LEVEL, LevelCurve::parse).unwrap_or_default()
         })

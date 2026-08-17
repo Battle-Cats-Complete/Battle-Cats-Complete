@@ -10,7 +10,7 @@ use image::RgbaImage;
 use tracing::{error, warn};
 
 use nyanko::graphics::engine::{resolve_frame, FrameData};
-use nyanko::graphics::rig::{Animation, Unit};
+use nyanko::graphics::rig::{Animation, Rig};
 
 use core::systems::animation::export::process::calculate_export_time;
 use core::systems::animation::export::{EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
@@ -96,7 +96,7 @@ impl Renderer {
 
     fn render_frame(
         &mut self,
-        unit: &Unit,
+        unit: &Rig,
         animation: Option<&Animation>,
         frame_time: f32,
         camera: Camera,
@@ -231,7 +231,7 @@ impl Renderer {
 }
 
 pub struct Job {
-    pub unit: Arc<Unit>,
+    pub unit: Arc<Rig>,
     pub animation: Option<Arc<Animation>>,
     pub available_anims: Vec<(usize, PathBuf)>,
     pub timing: FrameTiming,
@@ -321,7 +321,7 @@ impl ShowcaseClips {
         let parse = |slot: usize| -> Option<Animation> {
             let (_, path) = available_anims.iter().find(|(idx, _)| *idx == slot)?;
             let bytes = fs::read(path).ok()?;
-            Animation::parse(&bytes)
+            Animation::parse(&bytes).ok()
         };
 
         Self {

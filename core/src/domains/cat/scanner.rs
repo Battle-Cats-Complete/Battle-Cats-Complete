@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use nyanko::cat::unit::{unitid, LevelCurve, Talent, TalentCost, UnitBuy, UnitEvolve};
+use nyanko::cat::unitid;
+use nyanko::cat::unit::{LevelCurve, Talent, TalentCost, UnitBuy, UnitEvolve};
 use nyanko::combat::Entity;
 use nyanko::graphics::rig::Animation;
 use rayon::prelude::*;
@@ -154,9 +155,9 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
     Scan { data: parsed_cats, key, payload }
 }
 struct ScanTables {
-    level_curves: Arc<Vec<LevelCurve>>,
+    level_curves: Arc<HashMap<u32, LevelCurve>>,
     unit_buys: Arc<HashMap<u32, UnitBuy>>,
-    talents: Arc<HashMap<u16, Talent>>,
+    talents: Arc<HashMap<u32, Talent>>,
     evolve_texts: Arc<HashMap<u32, UnitEvolve>>,
     talent_costs: Arc<HashMap<u8, TalentCost>>,
     skill_descriptions: Arc<Vec<String>>,
@@ -252,8 +253,8 @@ fn process_cat_entry(
         if let Some(resolved) = vfs.find(&anim_name)
             && let Ok(bytes) = fs::read(&resolved) {
             let content = String::from_utf8_lossy(&bytes);
-            let duration = Animation::scan_duration(content.as_bytes());
-            attack_anim_frames[i] = if duration > 0 { duration + 1 } else { 0 };
+            attack_anim_frames[i] = Animation::scan_duration(content.as_bytes())
+                .map_or(0, |duration| if duration > 0 { duration + 1 } else { 0 });
         }
     }
 
@@ -285,10 +286,10 @@ fn process_cat_entry(
         description: explanation.descriptions,
         forms: forms_existence,
         stats: cat_stats,
-        curve: tables.level_curves.get(cat_id as usize).cloned(),
+        curve: tables.level_curves.get(&cat_id).cloned(),
         atk_anim_frames: attack_anim_frames,
         egg_ids: egg_ids_opt,
-        talent_data: tables.talents.get(&(cat_id as u16)).cloned(),
+        talent_data: tables.talents.get(&cat_id).cloned(),
         unitbuy: ub_row.clone(),
         evolve_text: tables.evolve_texts.get(&{ cat_id }).cloned().unwrap_or_default(),
         talent_costs: Arc::clone(&tables.talent_costs),

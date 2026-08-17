@@ -1,6 +1,7 @@
 use std::fs;
 
-use nyanko::cat::unit::{unitid as unitid_file, UnitExplanation};
+use nyanko::cat::unitid;
+use nyanko::cat::unit::UnitExplanation;
 use nyanko::combat::Entity;
 use tracing::trace;
 
@@ -40,5 +41,5 @@ pub fn unitid(vfs: &Vfs, cat_id: i32) -> Option<Vec<Entity>> {
 
     let bytes = fs::read(resolved_path).ok()?;
 
-    unitid_file::parse(&bytes).ok()
+    unitid::parse(&bytes).ok()
 }

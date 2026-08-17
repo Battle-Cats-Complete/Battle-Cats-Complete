@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use nyanko::graphics::rig::{Animation, Unit};
+use nyanko::graphics::rig::{Animation, Rig};
 
 use core::systems::animation::{
     loop_frame, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT,
@@ -25,7 +25,7 @@ type PrimaryAssets = (PathBuf, PathBuf, PathBuf);
 type SecondaryAssets = (PathBuf, PathBuf, PathBuf, PathBuf);
 
 pub struct State {
-    pub held_unit: Option<Arc<Unit>>,
+    pub held_unit: Option<Arc<Rig>>,
     pub current_anim: Option<Arc<Animation>>,
     pub loaded_anim_index: usize,
     pub available_anims: Vec<(usize, PathBuf)>,
@@ -397,7 +397,7 @@ impl State {
         let loaded_unit = match (png, cut, model) {
             (Some(png), Some(cut), Some(model)) => {
                 match (std::fs::read(png), std::fs::read(cut), std::fs::read(model)) {
-                    (Ok(png_bytes), Ok(cut_bytes), Ok(model_bytes)) => Unit::parse(&png_bytes, &cut_bytes, &model_bytes),
+                    (Ok(png_bytes), Ok(cut_bytes), Ok(model_bytes)) => Rig::parse(&png_bytes, &cut_bytes, &model_bytes).ok(),
                     _ => None,
                 }
             }
@@ -446,7 +446,7 @@ impl State {
 
         let parsed = anim_path
             .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| Animation::parse(&bytes))
+            .and_then(|bytes| Animation::parse(&bytes).ok())
             .map(Arc::new);
 
         if let Some(anim) = &parsed {
@@ -482,7 +482,7 @@ pub struct PreloadRequest {
 impl PreloadRequest {
     pub fn run(self) -> PreloadResult {
         let unit = match (std::fs::read(&self.png), std::fs::read(&self.cut), std::fs::read(&self.model)) {
-            (Ok(png_bytes), Ok(cut_bytes), Ok(model_bytes)) => Unit::parse(&png_bytes, &cut_bytes, &model_bytes),
+            (Ok(png_bytes), Ok(cut_bytes), Ok(model_bytes)) => Rig::parse(&png_bytes, &cut_bytes, &model_bytes).ok(),
             _ => None,
         };
 
@@ -492,7 +492,7 @@ impl PreloadRequest {
 
         let anim = self.anim
             .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| Animation::parse(&bytes));
+            .and_then(|bytes| Animation::parse(&bytes).ok());
 
         PreloadResult {
             target_id: self.target_id,
@@ -507,7 +507,7 @@ impl PreloadRequest {
 pub struct PreloadResult {
     target_id: String,
     anim_index: usize,
-    unit: Option<Arc<Unit>>,
+    unit: Option<Arc<Rig>>,
     anim: Option<Arc<Animation>>,
 }
 
@@ -530,12 +530,12 @@ struct RigCache {
 
 struct CacheSlot {
     id: String,
-    unit: Arc<Unit>,
+    unit: Arc<Rig>,
     anims: Vec<(usize, Arc<Animation>)>,
 }
 
 impl RigCache {
-    fn lookup(&mut self, id: &str) -> Option<Arc<Unit>> {
+    fn lookup(&mut self, id: &str) -> Option<Arc<Rig>> {
         let pos = self.slots.iter().position(|slot| slot.id == id)?;
         let slot = self.slots.remove(pos);
         let unit = slot.unit.clone();
@@ -548,7 +548,7 @@ impl RigCache {
         slot.anims.iter().find(|(i, _)| *i == index).map(|(_, anim)| anim.clone())
     }
 
-    fn insert(&mut self, id: &str, unit: Arc<Unit>) {
+    fn insert(&mut self, id: &str, unit: Arc<Rig>) {
         if let Some(pos) = self.slots.iter().position(|slot| slot.id == id) {
             let mut slot = self.slots.remove(pos);
             slot.unit = unit;

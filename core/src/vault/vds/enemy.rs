@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use nyanko::combat::Entity;
-use nyanko::enemy::unit::{t_unit, EnemyName, EnemyPictureBook};
+use nyanko::enemy::{t_unit, EnemyName, EnemyPictureBook};
 use serde::{Deserialize, Serialize};
 
 use crate::domains::enemy::files::{NAMES as ENEMY_NAME, PICTURE_BOOK as ENEMY_PICTURE_BOOK, STATS as ENEMY_STATS};
@@ -39,7 +39,7 @@ impl EnemyStore {
             let mut merged: Vec<String> = Vec::new();
 
             for bytes in super::layered(vfs, ENEMY_NAME) {
-                let Ok(parsed) = EnemyName::parse_all(bytes) else {
+                let Ok(parsed) = EnemyName::parse(bytes) else {
                     continue;
                 };
 
@@ -66,7 +66,7 @@ impl EnemyStore {
             let mut merged: Vec<Vec<String>> = Vec::new();
 
             for bytes in super::layered(vfs, ENEMY_PICTURE_BOOK) {
-                let Ok(parsed) = EnemyPictureBook::parse_all(bytes) else {
+                let Ok(parsed) = EnemyPictureBook::parse(bytes) else {
                     continue;
                 };
 

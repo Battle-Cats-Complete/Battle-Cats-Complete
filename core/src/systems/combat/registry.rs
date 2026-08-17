@@ -1030,6 +1030,13 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             group: DisplayGroup::Footer,
             formatter: |_| String::new(),
         },
+        _ => AbilityDisplayDef {
+            name: "Unknown",
+            fallback: "???",
+            icon: AbilityIcon::None,
+            group: DisplayGroup::Footer,
+            formatter: |_| String::new(),
+        },
     }
 }
 

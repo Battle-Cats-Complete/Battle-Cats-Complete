@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use nyanko::graphics::rig::{Animation, Unit};
+use nyanko::graphics::rig::{Animation, Rig};
 use tracing::{info, warn};
 
 use super::LoopStatus;
@@ -10,7 +10,7 @@ use super::LoopStatus;
 const TIMEOUT_SECONDS: u64 = 180;
 
 pub fn search(
-    unit: &Unit,
+    unit: &Rig,
     animation: &Animation,
     tolerance: f32,
     minimum_loop_length: i32,
@@ -51,9 +51,9 @@ pub fn search(
     );
 
     match cycle_result {
-        Some((start_frame, end_frame)) => {
-            info!("Loop boundary found: {} to {}", start_frame, end_frame);
-            emit(LoopStatus::Found(start_frame, end_frame));
+        Some(cycle) => {
+            info!("Loop boundary found: {} to {}", cycle.start, cycle.end);
+            emit(LoopStatus::Found(cycle.start, cycle.end));
         }
         None => {
             if !abort_signal.load(Ordering::Relaxed) && start_time.elapsed().as_secs() <= TIMEOUT_SECONDS {
