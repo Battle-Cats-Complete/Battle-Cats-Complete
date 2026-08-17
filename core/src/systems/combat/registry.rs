@@ -54,6 +54,20 @@ pub struct AbilityDisplayDef {
     pub formatter: fn(&FormatContext<'_>) -> String,
 }
 
+fn unmapped() -> AbilityDisplayDef {
+    AbilityDisplayDef {
+        name: "Unsupported",
+        fallback: "Unsup",
+        icon: AbilityIcon::None,
+        group: DisplayGroup::Body2,
+        formatter: |ctx| side(
+            ctx,
+            "This Cat has an ability Battle Cats Complete does not recognize\nBattle Cats Complete may need to be updated",
+            "This Enemy has an ability Battle Cats Complete does not recognize\nBattle Cats Complete may need to be updated",
+        ),
+    }
+}
+
 
 fn pick<T>(faction: Faction, cat: T, enemy: T) -> T {
     if faction == Faction::Cat { cat } else { enemy }
@@ -1030,13 +1044,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             group: DisplayGroup::Footer,
             formatter: |_| String::new(),
         },
-        _ => AbilityDisplayDef {
-            name: "Unknown",
-            fallback: "???",
-            icon: AbilityIcon::None,
-            group: DisplayGroup::Footer,
-            formatter: |_| String::new(),
-        },
+        _ => unmapped(),
     }
 }
 
@@ -1230,4 +1238,27 @@ pub(crate) const ENEMY_STATS_REGISTRY: &[StatsDef] = &[
 
 pub fn format_stat(definition: &StatsDef, ctx: &StatContext<'_>) -> String {
     (definition.formatter)((definition.get_value)(ctx))
+}
+
+#[cfg(test)]
+mod tests {
+    use nyanko::combat::REGISTRY;
+
+    use super::{get_display_def, AbilityIcon};
+
+    #[test]
+    fn every_registry_ability_has_a_display_def() {
+        let unmapped: Vec<_> = REGISTRY
+            .iter()
+            .map(|ability| ability.identity)
+            .filter(|identity| get_display_def(*identity).icon == AbilityIcon::None)
+            .collect();
+
+        assert!(
+            unmapped.is_empty(),
+            "these nyanko REGISTRY abilities have no arm in get_display_def, so they would render \
+             as an iconless blank row in statblocks and a bare \"?\" chip in the filters: {:?}",
+            unmapped
+        );
+    }
 }
