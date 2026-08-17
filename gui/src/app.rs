@@ -508,6 +508,8 @@ impl BattleCatsApp {
             return self.rebuild_content();
         }
 
+        self.report_conflicts();
+
         let Some(key) = key else {
             self.clear_indexing();
             return Task::none();
@@ -900,7 +902,22 @@ impl BattleCatsApp {
                     self.set_updater_popup(true);
                     return Task::none();
                 }
+                let conflicts_toggled =
+                    matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ToggleIgnoreConflicts(_)));
+                let watcher_toggled =
+                    matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ToggleIgnoreWatcherFailure(_)));
+
                 let task = self.settings_state.update(msg, &mut self.settings).map(Message::Settings);
+
+                if conflicts_toggled && !self.rebuild_running {
+                    self.report_conflicts();
+                }
+
+                if watcher_toggled {
+                    self.init_errors.refresh_watcher(self.settings.general.ignore_watcher_failure);
+                    self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
+                }
+
                 let relocalize = self.settings_state.take_language_change().then(|| self.relocalize());
                 let left_nightly = (self.current_page.nightly() && !self.settings.general.enable_nightly)
                     .then(|| self.navigate(Page::Home));

@@ -31,23 +31,25 @@ pub(super) struct State {
     popup: popup::State,
     conflicts: Vec<Conflict>,
     watcher_failed: bool,
+    watcher_shown: bool,
 }
 
 impl State {
     pub(super) fn report_conflicts(&mut self, conflicts: Vec<Conflict>, ignored: bool) {
-        if ignored || conflicts.is_empty() {
-            return;
-        }
-
-        self.conflicts = conflicts;
+        self.conflicts = if ignored { Vec::new() } else { conflicts };
     }
 
     pub(super) fn report_watcher_failure(&mut self, ignored: bool) {
-        self.watcher_failed = !ignored;
+        self.watcher_failed = true;
+        self.watcher_shown = !ignored;
+    }
+
+    pub(super) fn refresh_watcher(&mut self, ignored: bool) {
+        self.watcher_shown = self.watcher_failed && !ignored;
     }
 
     pub(super) fn is_open(&self) -> bool {
-        !self.conflicts.is_empty() || self.watcher_failed
+        !self.conflicts.is_empty() || self.watcher_shown
     }
 
     pub(super) fn acknowledge(&mut self) {
@@ -56,7 +58,7 @@ impl State {
             return;
         }
 
-        self.watcher_failed = false;
+        self.watcher_shown = false;
     }
 
     pub(super) fn update(&mut self, message: popup::Message) {

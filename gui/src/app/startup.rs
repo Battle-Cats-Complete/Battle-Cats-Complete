@@ -164,12 +164,19 @@ impl BattleCatsApp {
         Task::stream(rx)
     }
 
+    pub(super) fn report_conflicts(&mut self) {
+        self.init_errors
+            .report_conflicts(self.vault.vfs.conflicts(), self.settings.general.ignore_conflict_errors);
+        self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
+    }
+
     pub(super) fn adopt_vault(&mut self, vault: Arc<Vault>, cached: bool) -> Task<Message> {
         self.vault = vault;
         self.vault_ready = true;
 
-        self.init_errors.report_conflicts(self.vault.vfs.conflicts(), self.settings.general.ignore_conflict_errors);
-        self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
+        if !cached {
+            self.report_conflicts();
+        }
 
         self.sync_home_status();
         let files_task = self.files_state.sync(&self.vault.vfs, &self.settings.files, !cached);
