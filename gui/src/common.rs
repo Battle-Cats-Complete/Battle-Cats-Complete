@@ -21,7 +21,7 @@ use core::common::assets::{
     UNKNOWN,
 };
 use core::common::formats::{imgcut, SpriteSheet as CoreSpriteSheet};
-use core::common::game::CustomIcon;
+use core::systems::combat::CustomIcon;
 use core::Vfs;
 
 #[derive(Clone)]

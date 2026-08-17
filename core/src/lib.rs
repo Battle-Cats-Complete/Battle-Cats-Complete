@@ -3,11 +3,9 @@ mod vault;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub mod addons;
-pub mod animation;
 pub mod common;
-pub mod modules;
-pub mod statblock;
+pub mod domains;
+pub mod systems;
 
 pub use vault::{
     CatStore, Conflict, ContentStore, EnemyStore, Listing, Mount, StageStore, Target, Vault, Vds, Vfs, VfsError,

@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 
 use nyanko::chapter::Category;
 
-use core::animation::export::ExportFormat;
-use core::modules::import::ImportSubTab;
-use core::modules::stage::{GlobalMapId, GlobalStageId};
+use core::systems::animation::export::ExportFormat;
+use core::domains::import::ImportSubTab;
+use core::domains::stage::{GlobalMapId, GlobalStageId};
 
-use crate::modules::files::Mode;
+use crate::domains::files::Mode;
 use crate::widget::popup::StoredSize;
 
 #[derive(Serialize, Deserialize, Default)]

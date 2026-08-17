@@ -1,7 +1,7 @@
 use iced::widget::Space;
 use iced::{Element, Length};
 
-use core::common::game::ABILITY_X;
+use core::systems::combat::ABILITY_X;
 
 use super::ability_fallback::ICON_SIZE;
 

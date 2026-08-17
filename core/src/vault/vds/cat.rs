@@ -6,7 +6,7 @@ use nyanko::cat::unit::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::modules::cat::files::{self, SKILL_DESCRIPTIONS, UNIT_EVOLVE};
+use crate::domains::cat::files::{self, SKILL_DESCRIPTIONS, UNIT_EVOLVE};
 use crate::Vfs;
 
 use super::Slot;

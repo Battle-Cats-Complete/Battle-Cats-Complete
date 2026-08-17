@@ -8,8 +8,8 @@ use iced::widget::{button, column};
 use iced::{Background, Border, Color, Element, Length, Task, Theme};
 use tracing::{error, warn};
 
-use core::modules::settings::Settings;
-use core::statblock::{self, StatblockData};
+use core::domains::settings::Settings;
+use core::systems::statblock::{self, StatblockData};
 use core::Vfs;
 
 use crate::app::theme;

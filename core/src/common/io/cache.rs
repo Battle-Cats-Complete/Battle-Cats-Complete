@@ -12,10 +12,10 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::modules::settings::ScannerConfig;
+use crate::domains::settings::ScannerConfig;
 
 use crate::common::dirs;
-use crate::modules::import::architecture;
+use crate::domains::import::architecture;
 
 fn hash_directory_parallel(directory_path: &Path) -> u64 {
     if !directory_path.exists() {

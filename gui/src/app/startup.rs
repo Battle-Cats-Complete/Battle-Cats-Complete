@@ -11,14 +11,14 @@ use tracing::{debug, error, info, warn};
 
 use core::common::dirs;
 use core::common::io::json;
-use core::modules::import::{self, architecture};
-use core::modules::mods;
-use core::modules::settings::{lang, ExceptionList, ScannerConfig, UpdateMode, WindowSettings};
+use core::domains::import::{self, architecture};
+use core::domains::mods;
+use core::domains::settings::{lang, ExceptionList, ScannerConfig, UpdateMode, WindowSettings};
 #[cfg(target_os = "linux")]
-use core::modules::settings::desktop;
+use core::domains::settings::desktop;
 use core::{ContentStore, Vault};
 
-use crate::modules::home;
+use crate::domains::home;
 use crate::widget::popup;
 
 use super::{logging, migrate, notice, updater, ActivePopup, BattleCatsApp, Message};

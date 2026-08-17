@@ -5,7 +5,7 @@ use std::fmt;
 use std::iter;
 
 use crate::common::io::cache;
-use crate::modules::settings::{ScannerConfig, Settings};
+use crate::domains::settings::{ScannerConfig, Settings};
 
 pub use vds::{CatStore, ContentStore, EnemyStore, StageStore, Vds};
 pub use vfs::{Conflict, Listing, Mount, Target, Vfs, VfsError};

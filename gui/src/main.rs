@@ -1,9 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-pub(crate) mod animation;
 pub mod app;
 pub mod common;
-pub mod modules;
+pub mod domains;
+pub(crate) mod systems;
 pub mod widget;
 
 use std::fs;

@@ -17,13 +17,13 @@ use tracing::{info, trace, warn};
 use core::common::context::GlobalContext;
 use core::common::game::{localizable, param};
 use core::common::io::json;
-use core::modules::import::architecture;
-use core::modules::settings::{Settings, UpdateMode};
+use core::domains::import::architecture;
+use core::domains::settings::{Settings, UpdateMode};
 use core::{ContentStore, Vault};
 
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
-use crate::modules::{cat, enemy, files, home, import, mods, settings as gui_settings, stage};
+use crate::domains::{cat, enemy, files, home, import, mods, settings as gui_settings, stage};
 use crate::widget::{nightly_label, popup, slide, Slide};
 
 use state::AppState;
@@ -276,7 +276,7 @@ impl Default for BattleCatsApp {
             cat_state: cat::State::default(),
             enemy_state: enemy::EnemyState::default(),
             stage_state: stage::State::default(),
-            mods_state: mods::State::new(core::modules::mods::ModDataState::default()),
+            mods_state: mods::State::new(core::domains::mods::ModDataState::default()),
             files_state: files::State::default(),
             import_state: import::State::default(),
             settings_state: gui_settings::State::default(),

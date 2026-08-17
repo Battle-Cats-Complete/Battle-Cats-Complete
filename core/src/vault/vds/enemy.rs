@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use nyanko::enemy::unit::{Battle, EnemyName, EnemyPictureBook};
+use nyanko::combat::Entity;
+use nyanko::enemy::unit::{t_unit, EnemyName, EnemyPictureBook};
 use serde::{Deserialize, Serialize};
 
-use crate::modules::enemy::files::{NAMES as ENEMY_NAME, PICTURE_BOOK as ENEMY_PICTURE_BOOK, STATS as ENEMY_STATS};
+use crate::domains::enemy::files::{NAMES as ENEMY_NAME, PICTURE_BOOK as ENEMY_PICTURE_BOOK, STATS as ENEMY_STATS};
 use crate::Vfs;
 
 use super::Slot;
@@ -11,7 +12,7 @@ use super::Slot;
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct EnemyStore {
-    stats: Slot<Vec<Battle>>,
+    stats: Slot<Vec<Entity>>,
     names: Slot<Vec<String>>,
     descriptions: Slot<Vec<Vec<String>>>,
 }
@@ -27,9 +28,9 @@ impl Clone for EnemyStore {
 }
 
 impl EnemyStore {
-    pub fn stats(&self, vfs: &Vfs) -> Arc<Vec<Battle>> {
+    pub fn stats(&self, vfs: &Vfs) -> Arc<Vec<Entity>> {
         super::cached(&self.stats, || {
-            super::parsed(vfs, ENEMY_STATS, Battle::parse_all).unwrap_or_default()
+            super::parsed(vfs, ENEMY_STATS, t_unit::parse).unwrap_or_default()
         })
     }
 
