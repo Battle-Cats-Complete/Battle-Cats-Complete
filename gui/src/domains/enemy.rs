@@ -18,7 +18,7 @@ use iced::widget::{
     text, text_input, Id, Space,
 };
 use iced::{Color, Element, Length, Size, Subscription, Task, Theme};
-use nyanko::combat::{Entity, Faction};
+use nyanko::combat::Entity;
 use tracing::info;
 
 use core::common::context::GlobalContext;
@@ -329,6 +329,7 @@ impl EnemyState {
                 self.list.invalidate();
                 self.header_icon_cache.borrow_mut().clear();
                 self.data.enemies = enemies;
+                self.filter.refresh_available(&self.data.enemies);
                 match self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
                     Some(enemy) => self.animation.preload_enemy(enemy, &global_ctx.vault.vfs).map(Message::Animation),
                     None => Task::none(),
@@ -705,7 +706,7 @@ impl EnemyState {
             self.view_stats(enemy, stats),
             Space::new().height(Length::Fixed(8.0)),
             self.abilities.view(&enemy_ctx, &self.img015_sheets, &self.custom_assets, |items, layout| {
-                self.abilities.ability_list(items, &self.img015_sheets, &self.custom_assets, layout, Faction::Enemy)
+                self.abilities.ability_list(items, &self.img015_sheets, &self.custom_assets, layout)
             })
         ]
             .width(Length::Fill)

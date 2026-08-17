@@ -6,7 +6,7 @@ use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, row, scrollable, slider, text, text_input, Space};
 use iced::alignment::{Horizontal, Vertical};
 use iced::{font, Alignment, Color, Element, Length, Padding, Theme};
-use nyanko::combat::{get_talent, Entity, Faction};
+use nyanko::combat::{get_talent, Entity};
 use nyanko::cat::unit::{LevelCurve, Talent, TalentCost, TalentGroup};
 use nyanko::common::data::img022;
 
@@ -246,7 +246,7 @@ impl State {
             Some(handle) => iced_image(handle).height(Length::Fixed(HEADER_NAME_HEIGHT)).into(),
             None => {
                 let fallback_text = get_talent(group.ability_id)
-                    .map_or_else(|| format!("Unknown Skill (ID: {})", group.ability_id), |def| get_display_def(def.identity, Faction::Cat).name.to_string());
+                    .map_or_else(|| format!("Unknown Skill (ID: {})", group.ability_id), |def| get_display_def(def.identity).name.to_string());
                 bold_text(fallback_text, HEADER_NAME_TEXT_SIZE).into()
             }
         };
@@ -315,7 +315,7 @@ impl State {
         let Some(def) = get_talent(group.ability_id) else {
             return text("?").size(HEADER_FALLBACK_SIZE).into();
         };
-        let display_def = get_display_def(def.identity, Faction::Cat);
+        let display_def = get_display_def(def.identity);
 
         match display_def.icon {
             AbilityIcon::Custom(custom) => {

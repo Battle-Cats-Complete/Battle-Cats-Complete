@@ -1,7 +1,6 @@
 use iced::border::Radius;
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Alignment, Border, Element, Length, Theme};
-use nyanko::combat::Faction;
 use nyanko::common::data::img015;
 
 use core::domains::cat::game::stats::get_final_stats;
@@ -30,7 +29,7 @@ impl State {
         assets: &CustomAssets,
         settings: &Settings,
     ) -> Element<'_, Message> {
-        let icon = self.shared.icon_element(item, sheets, assets, Faction::Cat);
+        let icon = self.shared.icon_element(item, sheets, assets);
         let description = text_with_superscript(&item.text, DESCRIPTION_TEXT_SIZE);
         let expanded = self.conjure_expanded(spirit.cat_id, settings);
         let details_btn = button(text("Details").size(11))
@@ -81,7 +80,7 @@ impl State {
         };
 
         let dmg_row = row![
-            self.shared.raw_icon(img015::ICON_AREA_ATTACK, sheets, Faction::Cat),
+            self.shared.raw_icon(img015::ICON_AREA_ATTACK, sheets),
             text(format!("Damage {}\nRange {}", conjure_final.attack_1, conjure_final.standing_range)).size(DESCRIPTION_TEXT_SIZE)
         ].spacing(ICON_TEXT_GAP).align_y(Alignment::Center);
 
@@ -93,7 +92,7 @@ impl State {
 
         if !s_traits.is_empty() {
             col = col.push(ability_spacer(ABILITY_Y));
-            col = col.push(self.shared.icon_row(&s_traits, sheets, assets, per_row, Faction::Cat));
+            col = col.push(self.shared.icon_row(&s_traits, sheets, assets, per_row));
             prev = true;
             last_was_trait = true;
         }
@@ -102,7 +101,7 @@ impl State {
             if headline.is_empty() { continue; }
 
             col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
-            col = col.push(self.shared.icon_row(headline, sheets, assets, per_row, Faction::Cat));
+            col = col.push(self.shared.icon_row(headline, sheets, assets, per_row));
             prev = true;
             last_was_trait = false;
         }
@@ -125,7 +124,7 @@ impl State {
             if prev {
                 col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
             }
-            col = col.push(self.shared.icon_row(&s_footer, sheets, assets, per_row, Faction::Cat));
+            col = col.push(self.shared.icon_row(&s_footer, sheets, assets, per_row));
         }
 
         container(col).width(Length::Shrink).padding(8).style(spirit_card_container).into()

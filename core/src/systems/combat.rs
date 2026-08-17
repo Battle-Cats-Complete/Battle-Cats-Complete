@@ -1,10 +1,10 @@
 pub mod abilities;
 pub mod registry;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nyanko::cat::unit::{LevelCurve, Talent};
-use nyanko::combat::{AttrValue, Entity};
+use nyanko::combat::{AttrValue, Entity, Identity, REGISTRY};
 
 use crate::common::context::GlobalContext;
 use crate::systems::combat::registry::Magnification;
@@ -66,6 +66,29 @@ impl<'a> RenderContext<'a> {
             is_conjure_unit: false,
         }
     }
+}
+
+pub fn present_identities<'a>(entities: impl Iterator<Item = &'a Entity>) -> HashSet<Identity> {
+    let mut present = HashSet::new();
+
+    for entity in entities {
+        for ability in REGISTRY {
+            if present.contains(&ability.identity) { continue; }
+
+            if !(ability.attributes)(entity).is_empty() {
+                present.insert(ability.identity);
+            }
+        }
+    }
+
+    present
+}
+
+pub fn talent_identities() -> HashSet<Identity> {
+    REGISTRY.iter()
+        .filter(|ability| ability.talent_id.is_some())
+        .map(|ability| ability.identity)
+        .collect()
 }
 
 pub(crate) fn comparable(value: AttrValue) -> i32 {

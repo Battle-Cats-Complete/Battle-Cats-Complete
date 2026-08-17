@@ -1,6 +1,5 @@
 use iced::widget::{column, container, image as iced_image, responsive, row, scrollable, stack, tooltip};
 use iced::{Alignment, Element, Length, Size};
-use nyanko::combat::Faction;
 
 use core::systems::combat::abilities::collect_ability_data;
 use core::systems::combat::registry::{get_fallback_by_icon, AbilityIcon};
@@ -44,7 +43,6 @@ impl State {
         assets: &'a CustomAssets,
         body: impl Fn(&[AbilityItem], ListLayout) -> Element<'a, Message> + 'a,
     ) -> Element<'a, Message> {
-        let faction = ctx.final_stats.faction;
         let (grp_trait, grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = collect_ability_data(ctx);
 
         responsive(move |size: Size| {
@@ -55,7 +53,7 @@ impl State {
             let mut last_was_trait = false;
 
             if !grp_trait.is_empty() {
-                col = col.push(self.icon_row(&grp_trait, sheets, assets, per_row, faction));
+                col = col.push(self.icon_row(&grp_trait, sheets, assets, per_row));
                 previous_content = true;
                 last_was_trait = true;
             }
@@ -68,7 +66,7 @@ impl State {
                     last_was_trait = false;
                 }
 
-                col = col.push(self.icon_row(headline, sheets, assets, per_row, faction));
+                col = col.push(self.icon_row(headline, sheets, assets, per_row));
                 previous_content = true;
             }
 
@@ -93,7 +91,7 @@ impl State {
                 if previous_content {
                     col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
                 }
-                col = col.push(self.icon_row(&grp_footer, sheets, assets, per_row, faction));
+                col = col.push(self.icon_row(&grp_footer, sheets, assets, per_row));
             }
 
             smooth_scroll(scrollable(col).height(Length::Fill).width(Length::Fill)).into()
@@ -106,7 +104,6 @@ impl State {
         sheets: &[SpriteSheet],
         assets: &CustomAssets,
         per_row: usize,
-        faction: Faction,
     ) -> Element<'a, Message> {
         let mut col = column![].spacing(ABILITY_Y);
 
@@ -115,7 +112,7 @@ impl State {
 
             for item in chunk {
                 wrapped_row = wrapped_row.push(tooltip(
-                    self.icon_element(item, sheets, assets, faction),
+                    self.icon_element(item, sheets, assets),
                     container(text_with_superscript(&item.text, DESCRIPTION_TEXT_SIZE)).padding(6).style(container::bordered_box),
                     tooltip::Position::Top,
                 ));
@@ -133,9 +130,8 @@ impl State {
         sheets: &[SpriteSheet],
         assets: &CustomAssets,
         layout: ListLayout,
-        faction: Faction,
     ) -> Element<'a, Message> {
-        let icon = self.icon_element(item, sheets, assets, faction);
+        let icon = self.icon_element(item, sheets, assets);
         let description = container(text_with_superscript(&item.text, DESCRIPTION_TEXT_SIZE)).width(layout.width());
 
         row![icon, description].spacing(8).align_y(Alignment::Center).width(layout.width()).into()
@@ -147,12 +143,11 @@ impl State {
         sheets: &[SpriteSheet],
         assets: &CustomAssets,
         layout: ListLayout,
-        faction: Faction,
     ) -> Element<'a, Message> {
         let mut col = column![].spacing(0).width(layout.width());
 
         for (index, item) in items.iter().enumerate() {
-            col = col.push(self.ability_row(item, sheets, assets, layout, faction));
+            col = col.push(self.ability_row(item, sheets, assets, layout));
 
             if index + 1 < items.len() {
                 col = col.push(ability_spacer(ABILITY_Y));
@@ -167,7 +162,6 @@ impl State {
         item: &AbilityItem,
         sheets: &[SpriteSheet],
         assets: &CustomAssets,
-        faction: Faction,
     ) -> Element<'a, Message> {
         if item.custom_icon != CustomIcon::None
             && let Some(handle) = assets.get_icon_texture(item.custom_icon) {
@@ -196,12 +190,12 @@ impl State {
             AbilityIcon::Standard(item.icon_id.unwrap_or(MISSING_ICON_ID))
         };
 
-        fallback_icon(get_fallback_by_icon(icon, faction))
+        fallback_icon(get_fallback_by_icon(icon))
     }
 
-    pub(crate) fn raw_icon<'a, Message: 'a>(&self, icon_id: usize, sheets: &[SpriteSheet], faction: Faction) -> Element<'a, Message> {
+    pub(crate) fn raw_icon<'a, Message: 'a>(&self, icon_id: usize, sheets: &[SpriteSheet]) -> Element<'a, Message> {
         self.icons.handle(icon_id, sheets).map_or_else(
-            || fallback_icon(get_fallback_by_icon(AbilityIcon::Standard(icon_id), faction)),
+            || fallback_icon(get_fallback_by_icon(AbilityIcon::Standard(icon_id))),
             sized_image,
         )
     }

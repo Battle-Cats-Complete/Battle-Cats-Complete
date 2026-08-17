@@ -427,6 +427,7 @@ impl State {
                 self.list.invalidate();
                 self.details.clear_icons();
                 self.data.cats = cats;
+                self.filter.refresh_available(&self.data.cats);
                 match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
                     Some(cat) => {
                         let (form, tab) = self.clamped_selection(cat);

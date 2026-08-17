@@ -1,4 +1,4 @@
-use nyanko::combat::{Entity, Faction, Identity, REGISTRY};
+use nyanko::combat::{Entity, Identity, REGISTRY};
 
 use crate::systems::combat::comparable;
 use crate::systems::combat::registry::{get_display_def, Magnification, StatContext, ENEMY_STATS_REGISTRY};
@@ -19,7 +19,7 @@ pub(crate) fn get_stat_value(s: &Entity, stat: &str, anim_frames: i32, mag: i32)
 }
 
 pub fn get_identity_name(identity: Identity) -> String {
-    get_display_def(identity, Faction::Enemy).name.to_string()
+    get_display_def(identity).name.to_string()
 }
 
 pub(crate) fn has_trait_or_ability(s: &Entity, identity: Identity) -> bool {

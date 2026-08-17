@@ -3,9 +3,11 @@ use std::collections::HashSet;
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, stack, text, text_input, tooltip, Space};
 use iced::{Element, Length, Size};
-use nyanko::combat::{AttrUnit, Faction, Identity, REGISTRY};
+use nyanko::combat::{AttrUnit, Identity, REGISTRY};
 
 use core::domains::enemy::filter::evaluation::get_identity_name;
+use core::domains::enemy::scanner::EnemyEntry;
+use core::systems::combat::present_identities;
 use core::domains::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
 use core::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
 
@@ -40,6 +42,7 @@ pub enum Message {
 
 #[derive(Default)]
 pub struct State {
+    available: HashSet<Identity>,
     pub filter_state: EnemyFilterState,
     popup: popup::State,
     icons: ability_icon::Cache,
@@ -122,7 +125,8 @@ impl State {
 
         let type_identities: Vec<Identity> = REGISTRY.iter()
             .map(|def| def.identity)
-            .filter(|&identity| get_display_def(identity, Faction::Enemy).group == DisplayGroup::Trait)
+            .filter(|&identity| self.available.contains(&identity))
+            .filter(|&identity| get_display_def(identity).group == DisplayGroup::Trait)
             .collect();
         let type_row = self.icon_wrap(type_identities.into_iter(), sheets, assets);
 
@@ -132,7 +136,7 @@ impl State {
         let mut abilities_col = column![].spacing(0);
 
         for group in [DisplayGroup::Headline1, DisplayGroup::Headline2] {
-            let group_identities = collect_group_identities(group, &mut rendered_identities);
+            let group_identities = self.collect_group_identities(group, &mut rendered_identities);
             if !group_identities.is_empty() {
                 abilities_col = abilities_col.push(self.icon_wrap(group_identities.into_iter(), sheets, assets));
                 abilities_col = abilities_col.push(Space::new().height(Length::Fixed(8.0)));
@@ -140,7 +144,7 @@ impl State {
         }
 
         for group in [DisplayGroup::Body1, DisplayGroup::Body2] {
-            let group_identities = collect_group_identities(group, &mut rendered_identities);
+            let group_identities = self.collect_group_identities(group, &mut rendered_identities);
             if !group_identities.is_empty() {
                 let mut col = column![].spacing(4);
                 for identity in group_identities {
@@ -151,7 +155,7 @@ impl State {
             }
         }
 
-        let footer_identities = collect_group_identities(DisplayGroup::Footer, &mut rendered_identities);
+        let footer_identities = self.collect_group_identities(DisplayGroup::Footer, &mut rendered_identities);
         if !footer_identities.is_empty() {
             abilities_col = abilities_col.push(self.icon_wrap(footer_identities.into_iter(), sheets, assets));
         }
@@ -280,7 +284,7 @@ impl State {
 
     fn icon_image<'a>(&'a self, identity: Identity, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, is_active: bool) -> Element<'a, Message> {
         let opacity: f32 = if is_active { 1.0 } else { 0.4 };
-        let display_def = get_display_def(identity, Faction::Enemy);
+        let display_def = get_display_def(identity);
 
         match display_def.icon {
             AbilityIcon::Custom(custom_icon) => {
@@ -301,21 +305,29 @@ impl State {
 
 }
 
-fn collect_group_identities(target_group: DisplayGroup, rendered_identities: &mut HashSet<Identity>) -> Vec<Identity> {
-    let mut identities_in_group = Vec::new();
-
-    for def in REGISTRY.iter() {
-        let display_def = get_display_def(def.identity, Faction::Enemy);
-        if display_def.group != target_group { continue; }
-        if display_def.group == DisplayGroup::Trait { continue; }
-        if ATTACK_TYPE_IDENTITIES.contains(&def.identity) { continue; }
-        if identities_in_group.contains(&def.identity) { continue; }
-
-        identities_in_group.push(def.identity);
-        rendered_identities.insert(def.identity);
+impl State {
+    pub(super) fn refresh_available(&mut self, enemies: &[EnemyEntry]) {
+        self.available = present_identities(enemies.iter().map(|enemy| &enemy.stats));
     }
 
-    identities_in_group
+    fn collect_group_identities(&self, target_group: DisplayGroup, rendered_identities: &mut HashSet<Identity>) -> Vec<Identity> {
+        let mut identities_in_group = Vec::new();
+
+        for def in REGISTRY.iter() {
+            if !self.available.contains(&def.identity) { continue; }
+
+            let display_def = get_display_def(def.identity);
+            if display_def.group != target_group { continue; }
+            if display_def.group == DisplayGroup::Trait { continue; }
+            if ATTACK_TYPE_IDENTITIES.contains(&def.identity) { continue; }
+            if identities_in_group.contains(&def.identity) { continue; }
+
+            identities_in_group.push(def.identity);
+            rendered_identities.insert(def.identity);
+        }
+
+        identities_in_group
+    }
 }
 
 fn ability_schema(identity: Identity) -> &'static [(&'static str, AttrUnit)] {

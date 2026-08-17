@@ -27,9 +27,8 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
     };
 
     for pure_def in REGISTRY {
-        let display_def = registry::get_display_def(pure_def.identity, faction);
-
-        let Some(slot) = slot(display_def.group) else { continue; };
+        let display_def = registry::get_display_def(pure_def.identity);
+        let slot = slot(display_def.group);
 
         if ctx.is_conjure_unit {
             if slot == TRAIT || slot == HEADLINE_1 { continue; }
@@ -68,7 +67,7 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
 
             let Some(pure_def) = get_talent(group.ability_id) else { continue; };
 
-            let display_def = registry::get_display_def(pure_def.identity, faction);
+            let display_def = registry::get_display_def(pure_def.identity);
             let border_id = pure_def.talent_id.and_then(|talent_id| talent_border(ctx, talent_id));
             let icon_id = standard_icon(display_def.icon);
             let custom = custom_icon(display_def.icon);
@@ -104,15 +103,14 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
     (group_trait, headline_1, headline_2, body_1, body_2, footer)
 }
 
-fn slot(group: DisplayGroup) -> Option<usize> {
+fn slot(group: DisplayGroup) -> usize {
     match group {
-        DisplayGroup::Trait => Some(TRAIT),
-        DisplayGroup::Headline1 => Some(HEADLINE_1),
-        DisplayGroup::Headline2 => Some(HEADLINE_2),
-        DisplayGroup::Body1 => Some(BODY_1),
-        DisplayGroup::Body2 => Some(BODY_2),
-        DisplayGroup::Footer => Some(FOOTER),
-        DisplayGroup::Hidden => None,
+        DisplayGroup::Trait => TRAIT,
+        DisplayGroup::Headline1 => HEADLINE_1,
+        DisplayGroup::Headline2 => HEADLINE_2,
+        DisplayGroup::Body1 => BODY_1,
+        DisplayGroup::Body2 => BODY_2,
+        DisplayGroup::Footer => FOOTER,
     }
 }
 

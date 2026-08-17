@@ -3,11 +3,12 @@ use std::collections::HashSet;
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, stack, text, text_input, tooltip, Space};
 use iced::{Element, Length, Size, Theme};
-use nyanko::combat::{AttrUnit, Faction, REGISTRY};
+use nyanko::combat::{AttrUnit, Identity, REGISTRY};
 
-use core::systems::combat::CustomIcon;
 use core::domains::cat::filter::{icons, ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
+use core::domains::cat::scanner::CatEntry;
 use core::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
+use core::systems::combat::{present_identities, talent_identities, CustomIcon};
 
 use crate::app::theme;
 use crate::common::ability_icon;
@@ -47,12 +48,17 @@ pub struct State {
     pub filter_state: CatFilterState,
     popup: popup::State,
     icons: ability_icon::Cache,
+    inherent: HashSet<Identity>,
 }
 
 
 impl State {
     pub(super) fn clear_icons(&self) {
         self.icons.clear();
+    }
+
+    pub(super) fn refresh_available(&mut self, cats: &[CatEntry]) {
+        self.inherent = present_identities(cats.iter().flat_map(|cat| cat.stats.iter().flatten()));
     }
 
     pub fn update(&mut self, message: Message) {
@@ -156,7 +162,8 @@ impl State {
         }
 
         let trait_icons: Vec<AbilityIcon> = REGISTRY.iter()
-            .map(|def| get_display_def(def.identity, Faction::Cat))
+            .filter(|def| self.inherent.contains(&def.identity))
+            .map(|def| get_display_def(def.identity))
             .filter(|display_def| display_def.group == DisplayGroup::Trait)
             .map(|display_def| display_def.icon)
             .collect();
@@ -168,7 +175,7 @@ impl State {
         let mut abilities_col = column![].spacing(0);
 
         for group in [DisplayGroup::Headline1, DisplayGroup::Headline2] {
-            let group_icons = collect_group_icons(group, &mut rendered_icons);
+            let group_icons = self.collect_group_icons(group, &mut rendered_icons);
             if !group_icons.is_empty() {
                 abilities_col = abilities_col.push(self.icon_wrap(group_icons.into_iter(), sheets, assets));
                 abilities_col = abilities_col.push(Space::new().height(Length::Fixed(8.0)));
@@ -176,7 +183,7 @@ impl State {
         }
 
         for group in [DisplayGroup::Body1, DisplayGroup::Body2] {
-            let group_icons = collect_group_icons(group, &mut rendered_icons);
+            let group_icons = self.collect_group_icons(group, &mut rendered_icons);
             if !group_icons.is_empty() {
                 let mut col = column![].spacing(4);
                 for icon in group_icons {
@@ -187,7 +194,7 @@ impl State {
             }
         }
 
-        let footer_icons = collect_group_icons(DisplayGroup::Footer, &mut rendered_icons);
+        let footer_icons = self.collect_group_icons(DisplayGroup::Footer, &mut rendered_icons);
         if !footer_icons.is_empty() {
             abilities_col = abilities_col.push(self.icon_wrap(footer_icons.into_iter(), sheets, assets));
             abilities_col = abilities_col.push(Space::new().height(Length::Fixed(8.0)));
@@ -197,10 +204,12 @@ impl State {
             || self.filter_state.ultra_talent_mode != TalentFilterMode::Ignore;
 
         if check_talents {
+            let gainable = talent_identities();
             let mut talent_icons: Vec<AbilityIcon> = Vec::new();
             for def in REGISTRY.iter() {
-                let display_def = get_display_def(def.identity, Faction::Cat);
-                if display_def.group == DisplayGroup::Hidden { continue; }
+                if !gainable.contains(&def.identity) { continue; }
+
+                let display_def = get_display_def(def.identity);
                 if display_def.group == DisplayGroup::Trait { continue; }
                 if rendered_icons.contains(&display_def.icon) { continue; }
                 if ATTACK_TYPE_ICONS.contains(&display_def.icon) { continue; }
@@ -362,34 +371,38 @@ impl State {
 
 }
 
-fn collect_group_icons(target_group: DisplayGroup, rendered_icons: &mut HashSet<AbilityIcon>) -> Vec<AbilityIcon> {
-    let mut icons_in_group = Vec::new();
+impl State {
+    fn collect_group_icons(&self, target_group: DisplayGroup, rendered_icons: &mut HashSet<AbilityIcon>) -> Vec<AbilityIcon> {
+        let mut icons_in_group = Vec::new();
 
-    for def in REGISTRY.iter() {
-        let display_def = get_display_def(def.identity, Faction::Cat);
-        if display_def.group != target_group { continue; }
-        if display_def.group == DisplayGroup::Trait { continue; }
-        if ATTACK_TYPE_ICONS.contains(&display_def.icon) { continue; }
-        if icons_in_group.contains(&display_def.icon) { continue; }
+        for def in REGISTRY.iter() {
+            if !self.inherent.contains(&def.identity) { continue; }
 
-        icons_in_group.push(display_def.icon);
-        rendered_icons.insert(display_def.icon);
-    }
+            let display_def = get_display_def(def.identity);
+            if display_def.group != target_group { continue; }
+            if display_def.group == DisplayGroup::Trait { continue; }
+            if ATTACK_TYPE_ICONS.contains(&display_def.icon) { continue; }
+            if icons_in_group.contains(&display_def.icon) { continue; }
 
-    if target_group == DisplayGroup::Headline2 {
-        let kamikaze = AbilityIcon::Custom(CustomIcon::Kamikaze);
-        if !icons_in_group.contains(&kamikaze) {
-            icons_in_group.push(kamikaze);
-            rendered_icons.insert(kamikaze);
+            icons_in_group.push(display_def.icon);
+            rendered_icons.insert(display_def.icon);
         }
-    }
 
-    icons_in_group
+        if target_group == DisplayGroup::Headline2 {
+            let kamikaze = AbilityIcon::Custom(CustomIcon::Kamikaze);
+            if !icons_in_group.contains(&kamikaze) {
+                icons_in_group.push(kamikaze);
+                rendered_icons.insert(kamikaze);
+            }
+        }
+
+        icons_in_group
+    }
 }
 
 fn ability_schema(icon: AbilityIcon) -> &'static [(&'static str, AttrUnit)] {
     REGISTRY.iter()
-        .find(|def| get_display_def(def.identity, Faction::Cat).icon == icon)
+        .find(|def| get_display_def(def.identity).icon == icon)
         .map(|def| def.schema)
         .unwrap_or(&[])
 }

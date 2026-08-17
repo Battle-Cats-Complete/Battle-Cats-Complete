@@ -1,24 +1,21 @@
 use std::collections::HashMap;
 
-use nyanko::combat::{Ability, Entity, Faction, REGISTRY};
+use nyanko::combat::{Ability, Entity, REGISTRY};
 use tracing::trace;
 
 use crate::domains::cat::filter::{CatFilterState, FilterCounts, RangeInput, TalentFilterMode};
 use crate::domains::cat::scanner::CatEntry;
 use crate::systems::combat::comparable;
-use crate::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
+use crate::systems::combat::registry::{get_display_def, AbilityIcon};
 
 fn definition_for_icon(icon: &AbilityIcon) -> Option<&'static Ability> {
-    REGISTRY.iter().find(|pure_definition| {
-        let display_definition = get_display_def(pure_definition.identity, Faction::Cat);
-        display_definition.group != DisplayGroup::Hidden && &display_definition.icon == icon
-    })
+    REGISTRY.iter().find(|pure_definition| &get_display_def(pure_definition.identity).icon == icon)
 }
 
 pub fn get_icon_name(icon: &AbilityIcon) -> String {
     definition_for_icon(icon).map_or_else(
         || "Unknown".to_string(),
-        |pure_definition| get_display_def(pure_definition.identity, Faction::Cat).name.to_string(),
+        |pure_definition| get_display_def(pure_definition.identity).name.to_string(),
     )
 }
 

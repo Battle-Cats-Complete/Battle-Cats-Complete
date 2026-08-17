@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nyanko::cat::unit::{LevelCurve, Talent, TalentCost, TalentGroup};
-use nyanko::combat::{get_talent, Ability, Attribute, AttrUnit, Entity, Faction};
+use nyanko::combat::{get_talent, Ability, Attribute, AttrUnit, Entity};
 
 use crate::domains::cat::game::stats;
 use crate::systems::combat::comparable;
@@ -30,7 +30,7 @@ pub fn calculate_talent_display(
     unit_level: i32
 ) -> Option<String> {
     let pure_definition = get_talent(talent_group.ability_id)?;
-    let display_definition = get_display_def(pure_definition.identity, Faction::Cat);
+    let display_definition = get_display_def(pure_definition.identity);
 
     let leveled_base_stats = stats::apply_level(base_stats, level_curve, unit_level);
     let mut mutated_stats = leveled_base_stats.clone();

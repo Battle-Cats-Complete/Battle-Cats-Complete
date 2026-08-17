@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use iced::widget::column;
 use iced::Element;
 use nyanko::cat::unit::LevelCurve;
-use nyanko::combat::Faction;
 use nyanko::common::data::img015;
 
 use core::common::context::GlobalContext;
@@ -89,7 +88,7 @@ impl State {
             let item_row = if is_conjure {
                 self.conjure_row(item, spirit, sheets, assets, settings)
             } else {
-                self.shared.ability_row(item, sheets, assets, layout, Faction::Cat)
+                self.shared.ability_row(item, sheets, assets, layout)
             };
 
             col = col.push(item_row);
