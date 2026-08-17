@@ -427,8 +427,8 @@ impl State {
                 self.list.invalidate();
                 self.details.clear_icons();
                 self.data.cats = cats;
-                self.filter.refresh_available(&self.data.cats);
-                match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
+                let filter_task = self.filter.refresh_available(&self.data.cats).map(Message::Filter);
+                let preload_task = match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
                     Some(cat) => {
                         let (form, tab) = self.clamped_selection(cat);
                         self.selected_form = form;
@@ -436,7 +436,9 @@ impl State {
                         self.animation.preload(cat, form, &global_ctx.vault.vfs).map(Message::Animation)
                     }
                     None => Task::none(),
-                }
+                };
+
+                Task::batch([filter_task, preload_task])
             }
             Message::AnimationTick => {
                 if let Some(cat) = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
@@ -585,6 +587,10 @@ impl State {
 
     pub fn filter_popup_open(&self) -> bool {
         self.filter.filter_state.is_open
+    }
+
+    pub(crate) fn filter_scroll_task<M: 'static>(&self) -> Task<M> {
+        self.filter.restore_scroll()
     }
 
     pub fn filter_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {

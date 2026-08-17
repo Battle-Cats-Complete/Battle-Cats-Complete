@@ -1,29 +1,31 @@
 use std::collections::HashSet;
 
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, stack, text, text_input, tooltip, Space};
-use iced::{Element, Length, Size, Theme};
+use iced::widget::{button, column, container, image as iced_image, operation, pick_list, row, scrollable, stack, text, text_input, tooltip, Id, Space};
+use iced::{Element, Length, Size, Task, Theme};
 use nyanko::combat::{AttrUnit, Identity, REGISTRY};
 
 use core::domains::cat::filter::{icons, ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
 use core::domains::cat::scanner::CatEntry;
 use core::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
-use core::systems::combat::{present_identities, talent_identities, CustomIcon};
+use core::systems::combat::{present_identities, talent_identities, CustomIcon, TalentIdentities};
 
 use crate::app::theme;
 use crate::common::ability_icon;
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::widget::popup;
 use crate::widget::range_row;
-use crate::widget::{fallback_icon, smooth_scroll, ICON_SIZE};
+use crate::widget::{fallback_icon, icons_per_row, smooth_scroll, ICON_SIZE};
 
 const STAT_KEYS: [&str; 9] = [
     "Attack", "Dps", "Range", "Atk Cycle (f)", "Hitpoints", "Knockbacks", "Speed", "Cooldown (f)", "Cost",
 ];
 
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::CatFilter, Size::new(600.0, 528.0));
-const ICONS_PER_ROW: usize = 11;
+const ICON_SPACING: f32 = 4.0;
+const CONTENT_PADDING: f32 = 24.0;
 const CLEAR_BTN_CLEARANCE: f32 = 56.0;
+const SCROLLABLE_ID: &str = "cat-filter-scroll";
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -41,6 +43,7 @@ pub enum Message {
     LevelInputChanged(String),
     StatMinChanged(&'static str, String),
     StatMaxChanged(&'static str, String),
+    Scrolled(f32),
 }
 
 #[derive(Default)]
@@ -49,6 +52,8 @@ pub struct State {
     popup: popup::State,
     icons: ability_icon::Cache,
     inherent: HashSet<Identity>,
+    gainable: TalentIdentities,
+    scroll_offset: f32,
 }
 
 
@@ -57,8 +62,26 @@ impl State {
         self.icons.clear();
     }
 
-    pub(super) fn refresh_available(&mut self, cats: &[CatEntry]) {
+    fn is_gainable(&self, identity: Identity) -> bool {
+        let normal = self.filter_state.talent_mode != TalentFilterMode::Ignore && self.gainable.normal.contains(&identity);
+        let ultra = self.filter_state.ultra_talent_mode != TalentFilterMode::Ignore && self.gainable.ultra.contains(&identity);
+
+        normal || ultra
+    }
+
+    fn scrollable_id() -> Id {
+        Id::new(SCROLLABLE_ID)
+    }
+
+    pub(crate) fn restore_scroll<M: 'static>(&self) -> Task<M> {
+        operation::scroll_to(Self::scrollable_id(), scrollable::AbsoluteOffset { x: 0.0, y: self.scroll_offset })
+    }
+
+    pub(super) fn refresh_available(&mut self, cats: &[CatEntry]) -> Task<Message> {
         self.inherent = present_identities(cats.iter().flat_map(|cat| cat.stats.iter().flatten()));
+        self.gainable = talent_identities(cats.iter().filter_map(|cat| cat.talent_data.as_ref()));
+
+        self.restore_scroll()
     }
 
     pub fn update(&mut self, message: Message) {
@@ -105,16 +128,19 @@ impl State {
             Message::StatMaxChanged(stat, value) => {
                 self.filter_state.stat_ranges.entry(stat).or_default().max = value;
             }
+            Message::Scrolled(offset) => self.scroll_offset = offset,
         }
     }
 
     pub fn view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, window: Size) -> Element<'a, Message> {
+        let per_row = icons_per_row(self.popup.body_width(POPUP, window) - CONTENT_PADDING * 2.0, ICON_SPACING);
+
         self.popup.view("Advanced Cat Filter", POPUP, window, Message::Popup, move || {
-            self.content_view(sheets, assets)
+            self.content_view(sheets, assets, per_row)
         }, None)
     }
 
-    fn content_view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
+    fn content_view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, per_row: usize) -> Element<'a, Message> {
         let rarity_labels = ["Normal", "Special", "Rare", "Super Rare", "Uber Rare", "Legend Rare"];
         let mut rarity_row = row![].spacing(4);
         for (i, &label) in rarity_labels.iter().enumerate() {
@@ -167,9 +193,9 @@ impl State {
             .filter(|display_def| display_def.group == DisplayGroup::Trait)
             .map(|display_def| display_def.icon)
             .collect();
-        let traits_row = self.icon_wrap(trait_icons.into_iter(), sheets, assets);
+        let traits_row = self.icon_wrap(trait_icons.into_iter(), sheets, assets, per_row);
 
-        let attack_row = self.icon_wrap(ATTACK_TYPE_ICONS.iter().copied(), sheets, assets);
+        let attack_row = self.icon_wrap(ATTACK_TYPE_ICONS.iter().copied(), sheets, assets, per_row);
 
         let mut rendered_icons: HashSet<AbilityIcon> = HashSet::new();
         let mut abilities_col = column![].spacing(0);
@@ -177,7 +203,7 @@ impl State {
         for group in [DisplayGroup::Headline1, DisplayGroup::Headline2] {
             let group_icons = self.collect_group_icons(group, &mut rendered_icons);
             if !group_icons.is_empty() {
-                abilities_col = abilities_col.push(self.icon_wrap(group_icons.into_iter(), sheets, assets));
+                abilities_col = abilities_col.push(self.icon_wrap(group_icons.into_iter(), sheets, assets, per_row));
                 abilities_col = abilities_col.push(Space::new().height(Length::Fixed(8.0)));
             }
         }
@@ -196,7 +222,7 @@ impl State {
 
         let footer_icons = self.collect_group_icons(DisplayGroup::Footer, &mut rendered_icons);
         if !footer_icons.is_empty() {
-            abilities_col = abilities_col.push(self.icon_wrap(footer_icons.into_iter(), sheets, assets));
+            abilities_col = abilities_col.push(self.icon_wrap(footer_icons.into_iter(), sheets, assets, per_row));
             abilities_col = abilities_col.push(Space::new().height(Length::Fixed(8.0)));
         }
 
@@ -204,10 +230,9 @@ impl State {
             || self.filter_state.ultra_talent_mode != TalentFilterMode::Ignore;
 
         if check_talents {
-            let gainable = talent_identities();
             let mut talent_icons: Vec<AbilityIcon> = Vec::new();
             for def in REGISTRY.iter() {
-                if !gainable.contains(&def.identity) { continue; }
+                if !self.is_gainable(def.identity) { continue; }
 
                 let display_def = get_display_def(def.identity);
                 if display_def.group == DisplayGroup::Trait { continue; }
@@ -220,7 +245,7 @@ impl State {
             if !talent_icons.is_empty() {
                 abilities_col = abilities_col.push(text("Talents").size(18));
                 abilities_col = abilities_col.push(Space::new().height(Length::Fixed(5.0)));
-                abilities_col = abilities_col.push(self.icon_wrap(talent_icons.into_iter(), sheets, assets));
+                abilities_col = abilities_col.push(self.icon_wrap(talent_icons.into_iter(), sheets, assets, per_row));
             }
         }
 
@@ -244,9 +269,15 @@ impl State {
             text("Abilities").size(18),
             abilities_col,
             Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
-        ].spacing(8).padding(24);
+        ].spacing(8).padding(CONTENT_PADDING);
 
-        let scroll_layer = smooth_scroll(scrollable(content).width(Length::Fill).height(Length::Fill));
+        let scroll_layer = smooth_scroll(
+            scrollable(content)
+                .id(Self::scrollable_id())
+                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+                .width(Length::Fill)
+                .height(Length::Fill),
+        );
 
         let clear_btn = button(text("Clear Filter"))
             .on_press(Message::Clear)
@@ -271,11 +302,12 @@ impl State {
         icons: impl Iterator<Item = AbilityIcon>,
         sheets: &'a [SpriteSheet],
         assets: &'a CustomAssets,
+        per_row: usize,
     ) -> Element<'a, Message> {
         let items: Vec<AbilityIcon> = icons.collect();
-        let mut col = column![].spacing(4);
-        for chunk in items.chunks(ICONS_PER_ROW) {
-            let mut wrapped_row = row![].spacing(4).align_y(Vertical::Center);
+        let mut col = column![].spacing(ICON_SPACING);
+        for chunk in items.chunks(per_row) {
+            let mut wrapped_row = row![].spacing(ICON_SPACING).align_y(Vertical::Center);
             for &icon in chunk {
                 wrapped_row = wrapped_row.push(self.icon_with_tooltip(icon, sheets, assets));
             }

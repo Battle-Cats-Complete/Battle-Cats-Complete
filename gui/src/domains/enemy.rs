@@ -329,11 +329,13 @@ impl EnemyState {
                 self.list.invalidate();
                 self.header_icon_cache.borrow_mut().clear();
                 self.data.enemies = enemies;
-                self.filter.refresh_available(&self.data.enemies);
-                match self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
+                let filter_task = self.filter.refresh_available(&self.data.enemies).map(Message::Filter);
+                let preload_task = match self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
                     Some(enemy) => self.animation.preload_enemy(enemy, &global_ctx.vault.vfs).map(Message::Animation),
                     None => Task::none(),
-                }
+                };
+
+                Task::batch([filter_task, preload_task])
             }
             Message::AnimationTick => {
                 if let Some(enemy) = self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
@@ -425,6 +427,10 @@ impl EnemyState {
 
     pub fn filter_popup_open(&self) -> bool {
         self.filter.filter_state.is_open
+    }
+
+    pub(crate) fn filter_scroll_task<M: 'static>(&self) -> Task<M> {
+        self.filter.restore_scroll()
     }
 
     pub fn filter_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {

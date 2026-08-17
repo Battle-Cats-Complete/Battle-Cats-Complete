@@ -46,7 +46,7 @@ impl State {
         let (grp_trait, grp_hl1, grp_hl2, grp_b1, grp_b2, grp_footer) = collect_ability_data(ctx);
 
         responsive(move |size: Size| {
-            let per_row = icons_per_row(size.width);
+            let per_row = icons_per_row(size.width, ABILITY_X);
 
             let mut col = column![].spacing(0).width(Length::Fill);
             let mut previous_content = false;

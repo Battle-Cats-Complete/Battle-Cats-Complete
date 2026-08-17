@@ -355,6 +355,13 @@ impl State {
         stack(layers).into()
     }
 
+    pub(crate) fn body_width(&self, spec: Spec, window: Size) -> f32 {
+        let bounds = if window.width < 1.0 || window.height < 1.0 { MINIMUM_WINDOW } else { window };
+        let (_, size) = self.resolved(spec, bounds);
+
+        size.width - FRAME_BORDER_WIDTH * 2.0
+    }
+
     fn resolved(&self, spec: Spec, window: Size) -> (Point, Size) {
         let stored = stored_size(spec.kind).unwrap_or(spec.minimum);
         let size = Size::new(stored.width.max(spec.minimum.width), stored.height.max(spec.minimum.height));

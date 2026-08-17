@@ -1,14 +1,14 @@
 use std::collections::HashSet;
 
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, column, container, image as iced_image, pick_list, row, scrollable, stack, text, text_input, tooltip, Space};
-use iced::{Element, Length, Size};
+use iced::widget::{button, column, container, image as iced_image, operation, pick_list, row, scrollable, stack, text, text_input, tooltip, Id, Space};
+use iced::{Element, Length, Size, Task};
 use nyanko::combat::{AttrUnit, Identity, REGISTRY};
 
 use core::domains::enemy::filter::evaluation::get_identity_name;
+use core::domains::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
 use core::domains::enemy::scanner::EnemyEntry;
 use core::systems::combat::present_identities;
-use core::domains::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
 use core::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
 
 use crate::app::theme;
@@ -16,15 +16,17 @@ use crate::common::ability_icon;
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::widget::popup;
 use crate::widget::range_row;
-use crate::widget::{fallback_icon, smooth_scroll, ICON_SIZE};
+use crate::widget::{fallback_icon, icons_per_row, smooth_scroll, ICON_SIZE};
 
 const STAT_KEYS: [&str; 8] = [
     "Attack", "Dps", "Range", "Atk Cycle (f)", "Hitpoints", "Knockbacks", "Speed", "Cash Drop",
 ];
 
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnemyFilter, Size::new(600.0, 528.0));
-const ICONS_PER_ROW: usize = 11;
+const ICON_SPACING: f32 = 4.0;
+const CONTENT_PADDING: f32 = 24.0;
 const CLEAR_BTN_CLEARANCE: f32 = 56.0;
+const SCROLLABLE_ID: &str = "enemy-filter-scroll";
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -38,6 +40,7 @@ pub enum Message {
     IdentityToggled(Identity),
     AdvMinChanged(Identity, &'static str, String),
     AdvMaxChanged(Identity, &'static str, String),
+    Scrolled(f32),
 }
 
 #[derive(Default)]
@@ -46,6 +49,7 @@ pub struct State {
     pub filter_state: EnemyFilterState,
     popup: popup::State,
     icons: ability_icon::Cache,
+    scroll_offset: f32,
 }
 
 
@@ -86,16 +90,19 @@ impl State {
             Message::AdvMaxChanged(identity, attr, val) => {
                 self.filter_state.adv_ranges.entry(identity).or_default().entry(attr).or_default().max = val;
             }
+            Message::Scrolled(offset) => self.scroll_offset = offset,
         }
     }
 
     pub fn view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, window: Size) -> Element<'a, Message> {
+        let per_row = icons_per_row(self.popup.body_width(POPUP, window) - CONTENT_PADDING * 2.0, ICON_SPACING);
+
         self.popup.view("Advanced Enemy Filter", POPUP, window, Message::Popup, move || {
-            self.content_view(sheets, assets)
+            self.content_view(sheets, assets, per_row)
         }, None)
     }
 
-    fn content_view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets) -> Element<'a, Message> {
+    fn content_view<'a>(&'a self, sheets: &'a [SpriteSheet], assets: &'a CustomAssets, per_row: usize) -> Element<'a, Message> {
         let match_mode_label = if self.filter_state.match_mode == MatchMode::And { "And" } else { "Or" };
 
         let mode_row = row![
@@ -128,9 +135,9 @@ impl State {
             .filter(|&identity| self.available.contains(&identity))
             .filter(|&identity| get_display_def(identity).group == DisplayGroup::Trait)
             .collect();
-        let type_row = self.icon_wrap(type_identities.into_iter(), sheets, assets);
+        let type_row = self.icon_wrap(type_identities.into_iter(), sheets, assets, per_row);
 
-        let attack_row = self.icon_wrap(ATTACK_TYPE_IDENTITIES.iter().copied(), sheets, assets);
+        let attack_row = self.icon_wrap(ATTACK_TYPE_IDENTITIES.iter().copied(), sheets, assets, per_row);
 
         let mut rendered_identities: HashSet<Identity> = HashSet::new();
         let mut abilities_col = column![].spacing(0);
@@ -138,7 +145,7 @@ impl State {
         for group in [DisplayGroup::Headline1, DisplayGroup::Headline2] {
             let group_identities = self.collect_group_identities(group, &mut rendered_identities);
             if !group_identities.is_empty() {
-                abilities_col = abilities_col.push(self.icon_wrap(group_identities.into_iter(), sheets, assets));
+                abilities_col = abilities_col.push(self.icon_wrap(group_identities.into_iter(), sheets, assets, per_row));
                 abilities_col = abilities_col.push(Space::new().height(Length::Fixed(8.0)));
             }
         }
@@ -157,7 +164,7 @@ impl State {
 
         let footer_identities = self.collect_group_identities(DisplayGroup::Footer, &mut rendered_identities);
         if !footer_identities.is_empty() {
-            abilities_col = abilities_col.push(self.icon_wrap(footer_identities.into_iter(), sheets, assets));
+            abilities_col = abilities_col.push(self.icon_wrap(footer_identities.into_iter(), sheets, assets, per_row));
         }
 
         let content = column![
@@ -177,9 +184,15 @@ impl State {
             text("Abilities").size(18),
             abilities_col,
             Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
-        ].spacing(8).padding(24);
+        ].spacing(8).padding(CONTENT_PADDING);
 
-        let scroll_layer = smooth_scroll(scrollable(content).width(Length::Fill).height(Length::Fill));
+        let scroll_layer = smooth_scroll(
+            scrollable(content)
+                .id(Self::scrollable_id())
+                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+                .width(Length::Fill)
+                .height(Length::Fill),
+        );
 
         let clear_btn = button(text("Clear Filter"))
             .on_press(Message::Clear)
@@ -204,11 +217,12 @@ impl State {
         identities: impl Iterator<Item = Identity>,
         sheets: &'a [SpriteSheet],
         assets: &'a CustomAssets,
+        per_row: usize,
     ) -> Element<'a, Message> {
         let items: Vec<Identity> = identities.collect();
-        let mut col = column![].spacing(4);
-        for chunk in items.chunks(ICONS_PER_ROW) {
-            let mut wrapped_row = row![].spacing(4).align_y(Vertical::Center);
+        let mut col = column![].spacing(ICON_SPACING);
+        for chunk in items.chunks(per_row) {
+            let mut wrapped_row = row![].spacing(ICON_SPACING).align_y(Vertical::Center);
             for &identity in chunk {
                 wrapped_row = wrapped_row.push(self.icon_with_tooltip(identity, sheets, assets));
             }
@@ -306,8 +320,18 @@ impl State {
 }
 
 impl State {
-    pub(super) fn refresh_available(&mut self, enemies: &[EnemyEntry]) {
+    fn scrollable_id() -> Id {
+        Id::new(SCROLLABLE_ID)
+    }
+
+    pub(crate) fn restore_scroll<M: 'static>(&self) -> Task<M> {
+        operation::scroll_to(Self::scrollable_id(), scrollable::AbsoluteOffset { x: 0.0, y: self.scroll_offset })
+    }
+
+    pub(super) fn refresh_available(&mut self, enemies: &[EnemyEntry]) -> Task<Message> {
         self.available = present_identities(enemies.iter().map(|enemy| &enemy.stats));
+
+        self.restore_scroll()
     }
 
     fn collect_group_identities(&self, target_group: DisplayGroup, rendered_identities: &mut HashSet<Identity>) -> Vec<Identity> {

@@ -84,11 +84,30 @@ pub fn present_identities<'a>(entities: impl Iterator<Item = &'a Entity>) -> Has
     present
 }
 
-pub fn talent_identities() -> HashSet<Identity> {
-    REGISTRY.iter()
-        .filter(|ability| ability.talent_id.is_some())
-        .map(|ability| ability.identity)
-        .collect()
+#[derive(Default)]
+pub struct TalentIdentities {
+    pub normal: HashSet<Identity>,
+    pub ultra: HashSet<Identity>,
+}
+
+pub fn talent_identities<'a>(talents: impl Iterator<Item = &'a Talent>) -> TalentIdentities {
+    let mut referenced = TalentIdentities::default();
+
+    for talent in talents {
+        for group in &talent.groups {
+            let side = if group.limit == 1 { &mut referenced.ultra } else { &mut referenced.normal };
+
+            for ability in REGISTRY {
+                let Some(talent_id) = ability.talent_id else { continue; };
+
+                if group.ability_id == talent_id || group.name_id as u8 == talent_id {
+                    side.insert(ability.identity);
+                }
+            }
+        }
+    }
+
+    referenced
 }
 
 pub(crate) fn comparable(value: AttrValue) -> i32 {
