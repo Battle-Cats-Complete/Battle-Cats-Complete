@@ -79,7 +79,7 @@ const RULE_THICKNESS: f32 = 1.0;
 const BORDER_WIDTH: f32 = 1.0;
 
 const ICON_BOX_WIDTH: f32 = 110.0;
-const ICON_BOX_HEIGHT: f32 = 88.0;
+const ICON_BOX_HEIGHT: f32 = 83.0;
 const HEADER_GAP_X: f32 = 12.0;
 
 const NAME_WRAP_WIDTH: f32 = 145.0;

@@ -372,6 +372,10 @@ impl BattleCatsApp {
                 );
                 Task::batch([sheets_task, scroll_task])
             }
+            Page::Stages => {
+                self.stage_state.enter();
+                Task::none()
+            }
             _ => Task::none(),
         }
     }

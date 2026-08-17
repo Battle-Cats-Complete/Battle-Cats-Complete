@@ -82,8 +82,22 @@ pub fn calculate_talent_display(
         let value_one_maximum = calculate_talent_value(talent_group.min_1, talent_group.max_1, talent_group.max_level, talent_group.max_level);
 
         if value_one_minimum == value_one_maximum {
-            let level_one_stats = (stat_definition.get_value)(&dummy_min_stats, 0, None);
-            return Some(format!("{}: {}", stat_definition.display_name, (stat_definition.formatter)(level_one_stats)));
+            let value_two_minimum = calculate_talent_value(talent_group.min_2, talent_group.max_2, 1, talent_group.max_level);
+
+            let (displayed_stats, modifier_one, modifier_two) = if talent_level == 0 {
+                (&leveled_base_stats, 0, 0)
+            } else {
+                (&dummy_min_stats, value_one_minimum, value_two_minimum)
+            };
+
+            let displayed_value = (stat_definition.get_value)(displayed_stats, 0, None);
+            let modifier_string = stat_definition.talent_modifier_fmt.map(|format_func| format_func(modifier_one, modifier_two)).unwrap_or_default();
+
+            return Some(if modifier_string.is_empty() {
+                format!("{}: {}", stat_definition.display_name, (stat_definition.formatter)(displayed_value))
+            } else {
+                format!("{}: {} {}", stat_definition.display_name, (stat_definition.formatter)(displayed_value), modifier_string)
+            });
         }
 
         let old_string_format = (stat_definition.formatter)(old_stat_value);

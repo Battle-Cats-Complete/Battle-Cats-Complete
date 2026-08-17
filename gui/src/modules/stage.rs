@@ -72,6 +72,7 @@ pub struct State {
     pub data: StageDataState,
     pub is_sidebar_open: bool,
     pub selected_crown: u8,
+    entered: bool,
     scan_progress: Option<(usize, usize)>,
     cached_key: Option<u64>,
     filter: filter::State,
@@ -89,6 +90,7 @@ impl Default for State {
             data: StageDataState::default(),
             is_sidebar_open: true,
             selected_crown: 0,
+            entered: true,
             scan_progress: None,
             cached_key: None,
             filter: filter::State::default(),
@@ -139,6 +141,10 @@ impl State {
 
     pub(crate) fn clear_indexing(&mut self) {
         self.scan_progress = None;
+    }
+
+    pub(crate) fn enter(&mut self) {
+        self.entered = true;
     }
 
     pub fn start_load(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>, cached: bool) -> Task<Message> {
@@ -246,6 +252,7 @@ impl State {
             }
             Message::ToggleSidebar => {
                 self.is_sidebar_open = !self.is_sidebar_open;
+                self.entered = false;
                 Task::none()
             }
             Message::SelectCrown(crown) => {
@@ -285,7 +292,7 @@ impl State {
                 .width(Length::Fixed(self.sidebar_span() + SIDEBAR_PUSH_GAP))
                 .height(Length::Fill);
 
-            base = row![slide(push_spacer, self.is_sidebar_open, Slide::Left), base]
+            base = row![slide(push_spacer, self.is_sidebar_open, Slide::Left).snap(self.entered), base]
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into();
@@ -365,7 +372,7 @@ impl State {
             .padding(SIDEBAR_PADDING)
             .style(theme::left_sidebar_container);
 
-        let layer = row![opaque(slide(sidebar_panel, self.is_sidebar_open, Slide::Left)), toggle_container]
+        let layer = row![opaque(slide(sidebar_panel, self.is_sidebar_open, Slide::Left).snap(self.entered)), toggle_container]
             .height(Length::Fill)
             .align_y(Alignment::Start);
 
