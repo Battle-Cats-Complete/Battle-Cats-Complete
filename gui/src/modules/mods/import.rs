@@ -32,6 +32,7 @@ pub enum Message {
     Popup(popup::Message),
     Open,
     TabSelected(ModImportTab),
+    NewModNameChanged(String),
     PackageSuffixChanged(String),
     SelectArchive,
     FormatSelected(ModPackType),
@@ -46,7 +47,8 @@ pub enum Message {
 pub struct State {
     pub is_open: bool,
     popup: popup::State,
-    selected_path: Option<PathBuf>,
+    bcm_path: Option<PathBuf>,
+    pack_path: Option<PathBuf>,
     pack_error: Slot<String>,
     running: bool,
     log: String,
@@ -75,19 +77,23 @@ impl State {
                 data.import.tab = tab;
                 Task::none()
             }
+            Message::NewModNameChanged(value) => {
+                data.import.new_mod_name = value;
+                Task::none()
+            }
             Message::PackageSuffixChanged(value) => {
                 data.import.package_suffix = value;
                 Task::none()
             }
             Message::SelectArchive => {
                 if let Some(path) = rfd::FileDialog::new().add_filter("Archive", &["bcm", "zip"]).pick_file() {
-                    self.selected_path = Some(path);
+                    self.bcm_path = Some(path);
                 }
                 Task::none()
             }
             Message::FormatSelected(format) => {
                 data.import.pack_type = format;
-                self.selected_path = None;
+                self.pack_path = None;
                 self.pack_error.clear();
                 Task::none()
             }
@@ -115,6 +121,9 @@ impl State {
                 match outcome {
                     JobOutcome::Completed => {
                         info!("Import job completed.");
+                        if data.import.tab == ModImportTab::New {
+                            data.import.new_mod_name.clear();
+                        }
                         data.refresh_mods();
                         Task::none()
                     }
@@ -148,6 +157,21 @@ impl State {
         let (tx, rx) = mpsc::unbounded();
 
         match data.import.tab {
+            ModImportTab::New => {
+                let name = data.import.new_mod_name.trim().to_string();
+                if name.is_empty() {
+                    return Task::none();
+                }
+                self.begin("Initializing mod creation...".to_string());
+
+                thread::spawn(move || {
+                    let emit = |event: JobEvent| {
+                        let _ = tx.unbounded_send(event);
+                    };
+                    let result = import::run_new(name, emit);
+                    emit(job_finished(result));
+                });
+            }
             ModImportTab::Adb => {
                 let suffix = data.import.package_suffix.clone();
                 self.begin("Initializing Mod ADB Pull...".to_string());
@@ -161,7 +185,7 @@ impl State {
                 });
             }
             ModImportTab::Bcm => {
-                let Some(path) = self.selected_path.clone() else {
+                let Some(path) = self.bcm_path.clone() else {
                     return Task::none();
                 };
                 self.begin(format!("Extracting {:?}...", path.file_name().unwrap_or_default()));
@@ -175,7 +199,7 @@ impl State {
                 });
             }
             ModImportTab::Pack => {
-                let Some(path) = self.selected_path.clone() else {
+                let Some(path) = self.pack_path.clone() else {
                     return Task::none();
                 };
                 let pack_type = data.import.pack_type;
@@ -200,7 +224,7 @@ impl State {
         match data.import.pack_type {
             ModPackType::Apk => {
                 if let Some(path) = rfd::FileDialog::new().add_filter("APK", &["apk", "xapk", "apkm"]).pick_file() {
-                    self.selected_path = Some(path);
+                    self.pack_path = Some(path);
                 }
             }
             ModPackType::Pack => {
@@ -213,13 +237,13 @@ impl State {
                 let list_file = parent.join(format!("{}.list", stem));
 
                 if !pack_file.exists() {
-                    self.selected_path = None;
+                    self.pack_path = None;
                     return self.pack_error.set("Missing .pack!".to_string(), Message::PackErrorExpired);
                 } else if !list_file.exists() {
-                    self.selected_path = None;
+                    self.pack_path = None;
                     return self.pack_error.set("Missing .list!".to_string(), Message::PackErrorExpired);
                 } else {
-                    self.selected_path = Some(pack_file);
+                    self.pack_path = Some(pack_file);
                     self.pack_error.clear();
                 }
             }
@@ -229,7 +253,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, data: &'a ModDataState, window: Size) -> Element<'a, Message> {
-        self.popup.view("Import Mod", POPUP, window, Message::Popup, move || {
+        self.popup.view("Add Mod", POPUP, window, Message::Popup, move || {
             let upper = smooth_scroll(
                 scrollable(container(self.content_view(data)).width(Length::Fill).padding(POPUP_PADDING))
                     .spacing(SCROLLBAR_GAP)
@@ -245,12 +269,14 @@ impl State {
 
     fn content_view<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
         let tabs_row = row![
+            tab_button("New", data.import.tab == ModImportTab::New, Message::TabSelected(ModImportTab::New)),
             tab_button("Android", data.import.tab == ModImportTab::Adb, Message::TabSelected(ModImportTab::Adb)),
             tab_button("BCM", data.import.tab == ModImportTab::Bcm, Message::TabSelected(ModImportTab::Bcm)),
             tab_button("Pack", data.import.tab == ModImportTab::Pack, Message::TabSelected(ModImportTab::Pack)),
         ].spacing(8);
 
         let content: Element<'a, Message> = match data.import.tab {
+            ModImportTab::New => self.view_new(data),
             ModImportTab::Adb => self.view_adb(data),
             ModImportTab::Bcm => self.view_bcm(data),
             ModImportTab::Pack => self.view_pack(data),
@@ -285,6 +311,29 @@ impl State {
             .into()
     }
 
+    fn view_new<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
+        let is_busy = self.running;
+
+        let name_row = field_row(
+            "Name",
+            text_input("My Mod", &data.import.new_mod_name)
+                .on_input_maybe((!is_busy).then_some(Message::NewModNameChanged))
+                .width(Length::Fixed(PACKAGE_FIELD_WIDTH * 2.0))
+                .style(theme::rounded_input),
+        );
+
+        let name_present = !data.import.new_mod_name.trim().is_empty();
+        let create_style: theme::ButtonStyleFn = if name_present { theme::primary_button } else { theme::neutral_button };
+        let create_btn = theme::sized_button("Create Mod", theme::MANAGE_BUTTON_WIDTH, create_style)
+            .on_press_maybe((!is_busy && name_present).then_some(Message::StartImport));
+
+        column![
+            text("Start a blank mod with the standard internal layout"),
+            name_row,
+            create_btn
+        ].spacing(FIELD_ROW_SPACING).into()
+    }
+
     fn view_adb<'a>(&'a self, data: &'a ModDataState) -> Element<'a, Message> {
         let has_adb = paths::adb_status() == Presence::Installed;
         let is_busy = self.running;
@@ -299,15 +348,18 @@ impl State {
 
         let package_row = field_row(
             "Package",
-            text_input("en", &data.import.package_suffix)
+            text_input("cc", &data.import.package_suffix)
                 .on_input_maybe((!is_busy && has_adb).then_some(Message::PackageSuffixChanged))
                 .width(Length::Fixed(PACKAGE_FIELD_WIDTH))
                 .style(theme::rounded_input),
         );
 
+        let package_present = !data.import.package_suffix.trim().is_empty();
+        let can_import = has_adb && package_present;
         let btn_text = if has_adb { "Start Import" } else { "ADB Missing" };
-        let start_btn = theme::sized_button(btn_text, theme::MANAGE_BUTTON_WIDTH, theme::primary_button)
-            .on_press_maybe((!is_busy && has_adb).then_some(Message::StartImport));
+        let start_style: theme::ButtonStyleFn = if can_import { theme::primary_button } else { theme::neutral_button };
+        let start_btn = theme::sized_button(btn_text, theme::MANAGE_BUTTON_WIDTH, start_style)
+            .on_press_maybe((!is_busy && can_import).then_some(Message::StartImport));
 
         column![info, package_row, start_btn].spacing(FIELD_ROW_SPACING).into()
     }
@@ -315,13 +367,15 @@ impl State {
     fn view_bcm<'a>(&'a self, _data: &'a ModDataState) -> Element<'a, Message> {
         let is_busy = self.running;
 
-        let (label, style) = pick_button_face(self.selected_path.as_deref(), "Select Archive");
+        let (label, style) = pick_button_face(self.bcm_path.as_deref(), "Select Archive");
 
         let select_btn = theme::sized_button(label, theme::MANAGE_BUTTON_WIDTH, style)
             .on_press_maybe((!is_busy).then_some(Message::SelectArchive));
 
-        let start_btn = theme::sized_button("Start Import", theme::MANAGE_BUTTON_WIDTH, theme::primary_button)
-            .on_press_maybe((!is_busy && self.selected_path.is_some()).then_some(Message::StartImport));
+        let path_present = self.bcm_path.is_some();
+        let start_style: theme::ButtonStyleFn = if path_present { theme::primary_button } else { theme::neutral_button };
+        let start_btn = theme::sized_button("Start Import", theme::MANAGE_BUTTON_WIDTH, start_style)
+            .on_press_maybe((!is_busy && path_present).then_some(Message::StartImport));
 
         column![
             text("Import packaged .bcm or .zip mod archives"),
@@ -354,7 +408,7 @@ impl State {
 
         let (label, style) = match self.pack_error.get() {
             Some(message) => (message.clone(), theme::danger_button as theme::ButtonStyleFn),
-            None => pick_button_face(self.selected_path.as_deref(), default_label),
+            None => pick_button_face(self.pack_path.as_deref(), default_label),
         };
 
         let source_row = field_row(
@@ -363,8 +417,10 @@ impl State {
                 .on_press_maybe((!is_busy).then_some(Message::SelectSource)),
         );
 
-        let start_btn = theme::sized_button("Start Import", theme::MANAGE_BUTTON_WIDTH, theme::primary_button)
-            .on_press_maybe((!is_busy && self.selected_path.is_some()).then_some(Message::StartImport));
+        let path_present = self.pack_path.is_some();
+        let start_style: theme::ButtonStyleFn = if path_present { theme::primary_button } else { theme::neutral_button };
+        let start_btn = theme::sized_button("Start Import", theme::MANAGE_BUTTON_WIDTH, start_style)
+            .on_press_maybe((!is_busy && path_present).then_some(Message::StartImport));
 
         column![
             text("Import modded files directly from game formats"),

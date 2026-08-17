@@ -472,7 +472,7 @@ impl State {
             .style(theme::rounded_input);
 
         let import_open = self.import_popup_open();
-        let import_btn = button(theme::button_label("Import Mod").size(13))
+        let import_btn = button(theme::button_label("Add Mod").size(13))
             .on_press(Message::Import(import::Message::Open))
             .padding([4, 8])
             .width(Length::Fill)

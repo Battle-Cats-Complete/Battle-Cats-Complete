@@ -15,6 +15,7 @@ use super::{taken, ModMetadata};
 #[derive(Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
 pub enum ModImportTab {
     #[default]
+    New,
     Adb,
     Bcm,
     Pack,
@@ -33,14 +34,30 @@ pub struct ModImportState {
     pub tab: ModImportTab,
     pub package_suffix: String,
     pub pack_type: ModPackType,
+    pub new_mod_name: String,
+}
+
+pub fn run_new(name: String, emit: impl Fn(JobEvent) + Sync) -> Result<(), String> {
+    let log = |line: String| emit(JobEvent::Log(line));
+
+    let safe_name = name.replace(&['<', '>', ':', '"', '/', '\\', '|', '?', '*'][..], "").trim().to_string();
+
+    if safe_name.is_empty() {
+        return Err("Mod name cannot be empty".to_string());
+    }
+
+    let (_workspace_dir, final_name) = create_workspace(Some(&safe_name), &log)
+        .map_err(|e| format!("Failed to construct workspace: {}", e))?;
+
+    info!("New mod created. Saved as {}", final_name);
+    log(format!("\nCreation Complete! Saved as '{}'", final_name));
+    Ok(())
 }
 
 pub fn run_bcm(path: PathBuf, enforce_validation: bool, emit: impl Fn(JobEvent) + Sync) -> Result<(), String> {
     let log = |line: String| emit(JobEvent::Log(line));
 
-    log("Creating workspace...".to_string());
-
-    let (workspace_dir, _name) = create_workspace(None)
+    let (workspace_dir, _name) = create_workspace(None, &log)
         .map_err(|e| format!("Failed to construct workspace: {}", e))?;
 
     let user_keys = keys::verify(enforce_validation, &log)?;
@@ -58,7 +75,7 @@ pub fn run_pack(path: PathBuf, pack_type: ModPackType, enforce_validation: bool,
 
     let user_keys = keys::verify(enforce_validation, &log)?;
 
-    let (workspace_dir, _name) = create_workspace(None)
+    let (workspace_dir, _name) = create_workspace(None, &log)
         .map_err(|e| format!("Failed to construct workspace: {}", e))?;
 
     let res = match pack_type {
@@ -77,7 +94,7 @@ pub fn run_pack(path: PathBuf, pack_type: ModPackType, enforce_validation: bool,
     Ok(())
 }
 
-pub fn create_workspace(base_name: Option<&str>) -> std::io::Result<(PathBuf, String)> {
+pub fn create_workspace(base_name: Option<&str>, log: &impl Fn(String)) -> std::io::Result<(PathBuf, String)> {
     let mods_root = Path::new("mods");
     fs::create_dir_all(mods_root)?;
 
@@ -98,9 +115,17 @@ pub fn create_workspace(base_name: Option<&str>) -> std::io::Result<(PathBuf, St
     }
 
     let workspace_dir = mods_root.join(&final_name);
+
+    log("Creating root folder".to_string());
     fs::create_dir_all(&workspace_dir)?;
+
+    log("Creating 'patch' folder".to_string());
     fs::create_dir_all(workspace_dir.join("patch"))?;
+
+    log("Creating 'loose' folder".to_string());
     fs::create_dir_all(workspace_dir.join("loose"))?;
+
+    log("Creating 'icons' folder".to_string());
     fs::create_dir_all(workspace_dir.join("icons"))?;
 
     trace!("Workspace generated: {}", final_name);
