@@ -10,6 +10,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
+use crate::common::job::Ticker;
 use crate::common::io::cache::{self, Scan};
 use crate::domains::enemy::files;
 use crate::domains::settings::ScannerConfig;
@@ -53,11 +54,7 @@ pub fn purge() {
     cache::purge::<EnemyCache>();
 }
 
-pub fn hydrate(config: &ScannerConfig) -> Option<(u64, Vec<EnemyEntry>)> {
-    if config.active_mod.is_some() {
-        return None;
-    }
-
+pub fn hydrate() -> Option<(u64, Vec<EnemyEntry>)> {
     let (hash, cached_enemies) = cache::read::<EnemyCache>()?;
     debug!(hash, count = cached_enemies.len(), "hydrated enemies from cache");
 
@@ -88,6 +85,7 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     let total_enemies = raw_enemies.len();
     let processed_count = AtomicUsize::new(0);
+    let ticker = Ticker::default();
 
     let mut parsed_enemies: Vec<EnemyEntry> = raw_enemies.par_iter().enumerate().filter_map(|(id, stats)| {
         let id_u32 = id as u32;
@@ -97,14 +95,17 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
         let enemy = process_enemy_entry(id_u32, vfs, stats.clone(), name, description, config.show_invalid_enemies);
 
         let done = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
-        progress(done, total_enemies);
+
+        if ticker.ready(done, total_enemies) {
+            progress(done, total_enemies);
+        }
 
         enemy
     }).collect();
 
     parsed_enemies.sort_by_key(|e| e.id);
 
-    let key = config.active_mod.is_none().then(|| cache::content_hash(&config));
+    let key = Some(cache::content_hash(&config));
     let payload = key.and_then(|key| cache::encode::<EnemyCache>(key, &parsed_enemies));
 
     Scan { data: parsed_enemies, key, payload }

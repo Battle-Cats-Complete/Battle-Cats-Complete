@@ -289,7 +289,7 @@ impl State {
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
-            if cached && let Some((key, cats)) = scanner::hydrate(&config, &scan_store) {
+            if cached && let Some((key, cats)) = scanner::hydrate(&scan_store) {
                 let _ = tx.unbounded_send(Message::Loaded(cats, Some(key)));
                 return;
             }

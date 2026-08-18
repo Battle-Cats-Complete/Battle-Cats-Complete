@@ -7,7 +7,9 @@ use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -20,6 +22,7 @@ const MOUNT_GAME: &str = "game";
 
 type MountKey = Box<str>;
 type Index = FxHashMap<MountKey, MountedDir>;
+type Sorted = Option<(u64, Arc<[MountKey]>)>;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Entry {
@@ -163,6 +166,33 @@ pub struct Vfs {
     mounts: RwLock<Index>,
     cache: RwLock<FxHashMap<MountKey, Arc<[u8]>>>,
     priority: RwLock<Vec<String>>,
+    generation: AtomicU64,
+    sorted: RwLock<Sorted>,
+}
+
+struct Mutation<'a> {
+    mounts: RwLockWriteGuard<'a, Index>,
+    generation: &'a AtomicU64,
+}
+
+impl Deref for Mutation<'_> {
+    type Target = Index;
+
+    fn deref(&self) -> &Index {
+        &self.mounts
+    }
+}
+
+impl DerefMut for Mutation<'_> {
+    fn deref_mut(&mut self) -> &mut Index {
+        &mut self.mounts
+    }
+}
+
+impl Drop for Mutation<'_> {
+    fn drop(&mut self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 impl Vfs {
@@ -178,7 +208,16 @@ impl Vfs {
             mounts: RwLock::new(Index::default()),
             cache: RwLock::new(FxHashMap::default()),
             priority: RwLock::new(complete),
+            generation: AtomicU64::new(0),
+            sorted: RwLock::new(None),
         }
+    }
+
+    fn mutate(&self) -> Option<Mutation<'_>> {
+        self.mounts
+            .write()
+            .ok()
+            .map(|mounts| Mutation { mounts, generation: &self.generation })
     }
 
     pub(crate) fn detached() -> Self {
@@ -309,7 +348,7 @@ impl Vfs {
     }
 
     pub fn prune(&self, mount: &str, path: &Path) -> Vec<Box<str>> {
-        let Ok(mut mounts) = self.mounts.write() else {
+        let Some(mut mounts) = self.mutate() else {
             return Vec::new();
         };
 
@@ -371,19 +410,36 @@ impl Vfs {
     }
 
     pub fn glob(&self, prefix: &str) -> Vec<Box<str>> {
+        let sorted = self.sorted_keys();
+        let start = sorted.partition_point(|name| name.as_ref() < prefix);
+
+        sorted[start..].iter().take_while(|name| name.starts_with(prefix)).cloned().collect()
+    }
+
+    fn sorted_keys(&self) -> Arc<[MountKey]> {
+        let generation = self.generation.load(Ordering::Relaxed);
+
+        if let Ok(cached) = self.sorted.read()
+            && let Some((stamp, names)) = cached.as_ref()
+            && *stamp == generation
+        {
+            return Arc::clone(names);
+        }
+
         let Ok(mounts) = self.mounts.read() else {
-            return Vec::new();
+            return Arc::from([]);
         };
 
-        let mut names: Vec<Box<str>> = mounts
-            .values()
-            .flat_map(|indexed| indexed.files.keys())
-            .filter(|name| name.starts_with(prefix))
-            .cloned()
-            .collect();
-
+        let mut names: Vec<MountKey> = mounts.values().flat_map(|indexed| indexed.files.keys()).cloned().collect();
         names.sort_unstable();
         names.dedup();
+
+        let names: Arc<[MountKey]> = Arc::from(names);
+
+        if let Ok(mut cached) = self.sorted.write() {
+            *cached = Some((generation, Arc::clone(&names)));
+        }
+
         names
     }
 
@@ -553,7 +609,7 @@ impl Vfs {
 
     pub fn hydrate(&self) -> Option<u64> {
         let (stored, index) = disk::load()?;
-        let mut mounts = self.mounts.write().ok()?;
+        let mut mounts = self.mutate()?;
 
         *mounts = index;
         Some(stored)
@@ -580,7 +636,7 @@ impl Mount for &Path {
         let mount = walk::walk(self, skip)?;
         let conflicts = mount.conflicts.clone();
 
-        let Ok(mut mounts) = vfs.mounts.write() else {
+        let Some(mut mounts) = vfs.mutate() else {
             return Err(VfsError::Unavailable);
         };
 
@@ -593,7 +649,7 @@ impl Mount for &Path {
             return;
         };
 
-        if let Ok(mut mounts) = vfs.mounts.write() {
+        if let Some(mut mounts) = vfs.mutate() {
             mounts.remove(key);
         }
     }
@@ -607,7 +663,7 @@ impl Mount for (&str, &Path) {
             return Err(VfsError::InvalidPath(file.to_path_buf()));
         };
 
-        let Ok(mut mounts) = vfs.mounts.write() else {
+        let Some(mut mounts) = vfs.mutate() else {
             return Err(VfsError::Unavailable);
         };
 
@@ -643,7 +699,7 @@ impl Mount for (&str, &Path) {
         };
 
         {
-            let Ok(mut mounts) = vfs.mounts.write() else {
+            let Some(mut mounts) = vfs.mutate() else {
                 return;
             };
 

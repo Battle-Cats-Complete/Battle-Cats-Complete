@@ -1,10 +1,43 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub enum JobEvent {
     Log(String),
     Progress { current: usize, total: usize },
     Finished(JobOutcome),
+}
+
+const TICK_INTERVAL_US: u64 = 16_000;
+
+pub struct Ticker {
+    start: Instant,
+    next: AtomicU64,
+}
+
+impl Default for Ticker {
+    fn default() -> Self {
+        Self { start: Instant::now(), next: AtomicU64::new(0) }
+    }
+}
+
+impl Ticker {
+    pub fn ready(&self, done: usize, total: usize) -> bool {
+        if done >= total {
+            return true;
+        }
+
+        let elapsed = self.start.elapsed().as_micros() as u64;
+        let next = self.next.load(Ordering::Relaxed);
+
+        if elapsed < next {
+            return false;
+        }
+
+        self.next
+            .compare_exchange(next, elapsed + TICK_INTERVAL_US, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+    }
 }
 
 #[derive(Default)]

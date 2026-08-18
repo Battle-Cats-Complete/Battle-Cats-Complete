@@ -148,7 +148,7 @@ impl BattleCatsApp {
             });
 
             let index = Vault::hash(config.active_mod.as_deref());
-            let key = config.active_mod.is_none().then(|| Vault::key_for(index, &config));
+            let key = Some(Vault::key_for(index, &config));
 
             if stored == Some(Some(index)) {
                 debug!(index, "File index still matches disk, keeping the hydrated caches");

@@ -75,6 +75,8 @@ pub(crate) const WINDOW_SHOW_FALLBACK: Duration = Duration::from_millis(400);
 
 const FRAMES_BEFORE_SHOW: u8 = 2;
 
+const INDEX_PERSIST_COOLDOWN: Duration = Duration::from_secs(10);
+
 const TAB_TEXT_SIZE: f32 = 16.0;
 
 const ALL_PAGES: &[Page] = &[
@@ -196,6 +198,10 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     index_persisting: bool,
     #[serde(skip)]
+    index_dirty: bool,
+    #[serde(skip)]
+    index_persisted_at: Option<Instant>,
+    #[serde(skip)]
     validated_key: Option<u64>,
     #[serde(skip)]
     frames_painted: u8,
@@ -272,6 +278,8 @@ impl Default for BattleCatsApp {
             rebuild_running: false,
             rebuild_queued: false,
             index_persisting: false,
+            index_dirty: false,
+            index_persisted_at: None,
             validated_key: None,
             frames_painted: 0,
             window_shown: false,
@@ -584,6 +592,13 @@ impl BattleCatsApp {
             return Task::none();
         }
 
+        if self.index_persisted_at.is_some_and(|at| at.elapsed() < INDEX_PERSIST_COOLDOWN) {
+            self.index_dirty = true;
+            return Task::none();
+        }
+
+        self.index_dirty = false;
+        self.index_persisted_at = Some(Instant::now());
         self.index_persisting = true;
         let vault = Arc::clone(&self.vault);
         let active_mod = self.mods_state.active_mod();
@@ -647,7 +662,12 @@ impl BattleCatsApp {
             Message::AutoSave => {
                 self.check_auto_save();
                 self.check_auto_save_state();
-                Task::none()
+
+                if !self.index_dirty {
+                    return Task::none();
+                }
+
+                self.persist_index()
             }
             Message::FramePainted => {
                 if self.window_shown {

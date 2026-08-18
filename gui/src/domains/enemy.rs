@@ -237,7 +237,7 @@ impl EnemyState {
         let (tx, rx) = mpsc::unbounded();
 
         thread::spawn(move || {
-            if cached && let Some((key, enemies)) = scanner::hydrate(&config) {
+            if cached && let Some((key, enemies)) = scanner::hydrate() {
                 let _ = tx.unbounded_send(Message::Loaded(enemies, Some(key)));
                 return;
             }

@@ -13,6 +13,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
+use crate::common::job::Ticker;
 use crate::common::io::cache::{self, Scan};
 use crate::domains::cat::files;
 use crate::domains::cat::waiter::unitexplanation;
@@ -72,11 +73,7 @@ pub fn purge() {
     cache::purge::<CatCache>();
 }
 
-pub fn hydrate(config: &ScannerConfig, vault: &Vault) -> Option<(u64, Vec<CatEntry>)> {
-    if config.active_mod.is_some() {
-        return None;
-    }
-
+pub fn hydrate(vault: &Vault) -> Option<(u64, Vec<CatEntry>)> {
     let (hash, cached_cats) = cache::read::<CatCache>()?;
     debug!(hash, count = cached_cats.len(), "hydrated cats from cache");
 
@@ -137,19 +134,23 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     let total_units = unit_ids.len();
     let processed_count = AtomicUsize::new(0);
+    let ticker = Ticker::default();
 
     let mut parsed_cats: Vec<CatEntry> = unit_ids.par_iter().filter_map(|&cat_id| {
         let cat = process_cat_entry(cat_id, vfs, &tables, &config);
 
         let done = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
-        progress(done, total_units);
+
+        if ticker.ready(done, total_units) {
+            progress(done, total_units);
+        }
 
         cat
     }).collect();
 
     parsed_cats.sort_by_key(|cat| cat.id);
 
-    let key = config.active_mod.is_none().then(|| cache::content_hash(&config));
+    let key = Some(cache::content_hash(&config));
     let payload = key.and_then(|key| cache::encode::<CatCache>(key, &parsed_cats));
 
     Scan { data: parsed_cats, key, payload }

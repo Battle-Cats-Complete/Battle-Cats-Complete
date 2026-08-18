@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::common::formats::{gatyaitembuy, gatyaitemname, GatyaItemBuy, GatyaItemName};
+use crate::common::job::Ticker;
 use crate::common::io::cache::{self, Scan};
 use crate::domains::cat::waiter::unitexplanation;
 use crate::domains::settings::ScannerConfig;
@@ -120,11 +121,7 @@ pub fn purge() {
     cache::purge::<StageCache>();
 }
 
-pub fn hydrate(config: &ScannerConfig) -> Option<(u64, StageBundle)> {
-    if config.active_mod.is_some() {
-        return None;
-    }
-
+pub fn hydrate() -> Option<(u64, StageBundle)> {
     let (hash, bundle) = cache::read::<StageCache>()?;
     debug!(
         hash,
@@ -192,10 +189,6 @@ fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) +
     info!("--- STAGE SCANNER COMPLETE: Found {} maps and {} stages ---", registry.maps.len(), registry.stages.len());
 
     let bundle = StageBundle { registry, dictionaries };
-
-    if config.active_mod.is_some() {
-        return Scan { data: bundle, key: None, payload: None };
-    }
 
     if bundle.registry.maps.is_empty() {
         warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
@@ -270,6 +263,7 @@ fn scan_all(vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> StageRegis
 
     let total = jobs.len();
     let done = AtomicUsize::new(0);
+    let ticker = Ticker::default();
 
     jobs.par_iter().for_each(|job| {
         if let Some(info) = categories.get(job.category_index) {
@@ -277,7 +271,10 @@ fn scan_all(vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> StageRegis
         }
 
         let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
-        progress(finished, total);
+
+        if ticker.ready(finished, total) {
+            progress(finished, total);
+        }
     });
 
     reg_mtx.into_inner().unwrap_or_default()
