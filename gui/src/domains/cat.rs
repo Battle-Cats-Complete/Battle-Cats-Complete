@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use iced::alignment::Vertical;
+use iced::alignment::{Horizontal, Vertical};
 use iced::futures::channel::mpsc;
 use iced::widget::image::Handle;
 use iced::widget::{
@@ -808,7 +808,8 @@ impl State {
         editor::target(
             container(iced_image(handle).height(Length::Fixed(ICON_BOX_HEIGHT)))
                 .width(Length::Fixed(ICON_BOX_WIDTH))
-                .height(Length::Fixed(ICON_BOX_HEIGHT)),
+                .height(Length::Fixed(ICON_BOX_HEIGHT))
+                .align_x(Horizontal::Center),
             editor::Target::CatIcon,
         )
     }
