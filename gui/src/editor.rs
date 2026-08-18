@@ -153,13 +153,7 @@ impl Item {
     }
 
     fn list(label: impl Into<String>, children: Vec<Item>) -> Self {
-        let hint = children
-            .iter()
-            .all(|child| child.action.is_none())
-            .then(|| children.iter().find_map(|child| child.hint.clone()))
-            .flatten();
-
-        Self { label: label.into(), hint, action: None, children, confirm: false }
+        Self { label: label.into(), hint: None, action: None, children, confirm: false }
     }
 
     fn opens(&self) -> bool {
