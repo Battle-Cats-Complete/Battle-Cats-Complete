@@ -628,16 +628,18 @@ impl EnemyState {
         let icon = self.enemy_icon(enemy.icon_path.as_ref(), vfs);
         let scale = (ICON_BOX_WIDTH / icon.width).min(ICON_BOX_HEIGHT / icon.height);
 
-        container(
-            iced_image(icon.handle)
-                .width(Length::Fixed(icon.width * scale))
-                .height(Length::Fixed(icon.height * scale))
+        editor::target(
+            container(
+                iced_image(icon.handle)
+                    .width(Length::Fixed(icon.width * scale))
+                    .height(Length::Fixed(icon.height * scale))
+            )
+                .width(Length::Fixed(ICON_BOX_WIDTH))
+                .height(Length::Fixed(ICON_BOX_HEIGHT))
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Bottom),
+            editor::Target::EnemyIcon,
         )
-            .width(Length::Fixed(ICON_BOX_WIDTH))
-            .height(Length::Fixed(ICON_BOX_HEIGHT))
-            .align_x(Horizontal::Center)
-            .align_y(Vertical::Bottom)
-            .into()
     }
 
     fn enemy_icon(&self, path: Option<&PathBuf>, vfs: &Vfs) -> HeaderIcon {

@@ -17,7 +17,8 @@ const SHAPING: text::Shaping = text::Shaping::Advanced;
 const WRAPPING: text::Wrapping = text::Wrapping::None;
 const SAFETY: f32 = 1.0;
 const TOOLTIP_PADDING: f32 = 8.0;
-const TOOLTIP_GAP: f32 = FRAME_PADDING + BORDER_WIDTH + 4.0;
+const TOOLTIP_GAP: f32 = FRAME_PADDING + BORDER_WIDTH;
+const FRAME_SHADE: f32 = 0.35;
 
 type Paragraph = <iced::Renderer as text::Renderer>::Paragraph;
 
@@ -98,7 +99,7 @@ fn frame(theme: &Theme) -> container::Style {
     let palette = theme.extended_palette();
 
     container::Style {
-        background: Some(palette.background.base.color.into()),
+        background: Some(theme::darken_color(palette.background.base.color, FRAME_SHADE).into()),
         border: Border {
             color: palette.background.strong.color,
             width: BORDER_WIDTH,

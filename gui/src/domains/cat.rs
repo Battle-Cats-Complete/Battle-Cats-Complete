@@ -805,10 +805,12 @@ impl State {
         let path = cat.deploy_icon_paths[self.selected_form].as_ref();
         let handle = self.cat_icon_handle(path, vfs);
 
-        container(iced_image(handle).height(Length::Fixed(ICON_BOX_HEIGHT)))
-            .width(Length::Fixed(ICON_BOX_WIDTH))
-            .height(Length::Fixed(ICON_BOX_HEIGHT))
-            .into()
+        editor::target(
+            container(iced_image(handle).height(Length::Fixed(ICON_BOX_HEIGHT)))
+                .width(Length::Fixed(ICON_BOX_WIDTH))
+                .height(Length::Fixed(ICON_BOX_HEIGHT)),
+            editor::Target::CatIcon,
+        )
     }
 
     fn cat_icon_handle(&self, path: Option<&PathBuf>, vfs: &Vfs) -> Handle {

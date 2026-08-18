@@ -104,6 +104,22 @@ pub fn find(mod_name: &str, source: &Path) -> Option<PathBuf> {
     locate(&Path::new(MODS_ROOT).join(mod_name), name)
 }
 
+pub fn place(mod_name: &str, source: &Path, name: &str) -> Result<PathBuf, std::io::Error> {
+    let root = Path::new(MODS_ROOT).join(mod_name);
+
+    let destination = locate(&root, name).unwrap_or_else(|| {
+        let patch = root.join(PATCH);
+
+        if patch.is_dir() { patch.join(name) } else { root.join(name) }
+    });
+
+    fs::copy(source, &destination)?;
+
+    debug!(mod_name, path = %destination.display(), "Placed a file into a mod");
+
+    Ok(destination)
+}
+
 pub fn ensure(mod_name: &str, source: &Path) -> Result<PathBuf, std::io::Error> {
     find(mod_name, source).map_or_else(|| adopt(mod_name, source), Ok)
 }

@@ -19,6 +19,7 @@ use core::Vfs;
 
 use crate::app::state::FilesState;
 use crate::app::theme;
+use crate::common::feedback::LOCKED_NOTICE;
 use crate::common::feedback::Slot;
 use crate::common::fonts;
 use crate::common::watcher;
@@ -61,7 +62,6 @@ const NOTICE_PADDING_Y: f32 = 7.0;
 const NOTICE_OVERHANG: f32 = 4.0;
 const NOTICE_TEXT_SIZE: f32 = 13.0;
 const NOTICE_EXPIRY: Duration = Duration::from_secs(3);
-const LOCKED_NOTICE: &str = "Vanilla \"game\" mount is locked and cannot be written\nMake a Mod or unlock under Settings > Files > Editor";
 
 const EMPTY_LABEL: &str = "No Files Found on Mount";
 const MISSING_LABEL: &str = "Selected Mount Missing from Memory";

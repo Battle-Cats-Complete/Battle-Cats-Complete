@@ -6,6 +6,9 @@ const EXPIRY: Duration = Duration::from_secs(2);
 
 pub const CONFIRM_LABEL: &str = "Are You Sure?";
 
+pub const LOCKED_NOTICE: &str =
+    "Vanilla \"game\" mount is locked and cannot be written\nMake a Mod or unlock under Settings > Files > Editor";
+
 pub struct Slot<T> {
     value: Option<T>,
     handle: Option<task::Handle>,
@@ -35,7 +38,7 @@ impl<T> Slot<T> {
             move |_| expired,
         )
         .abortable();
-        self.handle = Some(handle);
+        self.handle = Some(handle.abort_on_drop());
         task
     }
 
@@ -46,6 +49,7 @@ impl<T> Slot<T> {
 
     pub fn clear(&mut self) {
         self.value = None;
+        self.handle = None;
     }
 
     pub fn get(&self) -> Option<&T> {

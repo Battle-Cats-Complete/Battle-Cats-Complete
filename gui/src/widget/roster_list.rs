@@ -185,8 +185,10 @@ impl<R: Roster> State<R> {
     }
 
     pub(crate) fn forget(&mut self, id: u32) {
-        self.texture_cache.remove(&id);
-        self.stale.remove(&id);
+        if let Some(texture) = self.texture_cache.remove(&id) {
+            self.stale.insert(id, texture);
+        }
+
         self.missing_ids.remove(&id);
         self.pending_requests.remove(&id);
     }

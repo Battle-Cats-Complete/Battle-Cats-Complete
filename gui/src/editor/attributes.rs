@@ -404,16 +404,16 @@ impl Draft {
         };
 
         let body = file::scrub(&bytes);
-        self.delimiter = file::detect_separator(&body);
-        self.lines = body.lines().map(str::to_owned).collect();
+        let delimiter = file::detect_separator(&body);
+        let vanilla: Vec<&str> = body.lines().collect();
 
-        let Some(raw) = self.lines.get(self.plan.row) else {
+        let Some(raw) = vanilla.get(self.plan.row) else {
             self.failed = true;
 
             return;
         };
 
-        let (cells, gap, comment) = split_row(raw, self.delimiter, self.plan.schema);
+        let (cells, gap, comment) = split_row(raw, delimiter, self.plan.schema);
         self.cells = cells;
         self.gap = gap;
         self.comment = comment;

@@ -5,7 +5,8 @@ mod target;
 mod watch;
 
 use std::fs;
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use iced::{Element, Point, Size, Task};
 use tracing::{info, trace, warn};
@@ -28,6 +29,8 @@ pub enum Target {
     FileRow(usize),
     CatAttributes,
     EnemyAttributes,
+    CatIcon,
+    EnemyIcon,
 }
 
 pub(crate) struct Context {
@@ -36,12 +39,22 @@ pub(crate) struct Context {
     file: Option<FileTarget>,
     cat: Option<CatTarget>,
     enemy: Option<EnemyTarget>,
+    icon: Option<IconTarget>,
+}
+
+struct IconTarget {
+    file: String,
+    game: Option<PathBuf>,
+    unlocked: bool,
+    active_mod: Option<String>,
+    mod_copy: Option<PathBuf>,
 }
 
 const ENEMY_HEADER_ROWS: usize = 2;
 
 struct EnemyTarget {
     file: String,
+    mod_copy: Option<PathBuf>,
     name: Option<String>,
     source: PathBuf,
     row: usize,
@@ -62,6 +75,7 @@ const FORM_LABELS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
 
 struct CatTarget {
     file: String,
+    mod_copy: Option<PathBuf>,
     name: Option<String>,
     source: PathBuf,
     form: usize,
@@ -82,12 +96,13 @@ impl CatTarget {
 
 struct FileTarget {
     source: PathBuf,
+    game: Option<PathBuf>,
     name: String,
     mount: String,
     folder: bool,
     unlocked: bool,
     active_mod: Option<String>,
-    in_active_mod: bool,
+    mod_copy: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -125,6 +140,8 @@ enum Action {
     AddFileToMod { source: PathBuf, target_mod: String },
     DeleteFile { source: PathBuf },
     ModifyAttributes(attributes::Plan),
+    ReplaceIcon { file: String, target_mod: Option<String>, game: Option<PathBuf> },
+    SyncWithGame { file: String, target_mod: String, game: PathBuf },
 }
 
 #[derive(Default)]
@@ -230,6 +247,13 @@ impl State {
                 Err(err) => warn!(path = %source.display(), "Failed to delete the file: {}", err),
             },
             Action::ModifyAttributes(plan) => self.subject_mut(plan.subject()).begin(plan.clone()),
+            Action::ReplaceIcon { file, target_mod, game } => {
+                replace_icon(file, target_mod.as_deref(), game.as_deref());
+            }
+            Action::SyncWithGame { file, target_mod, game } => match mods::place(target_mod, game, file) {
+                Ok(path) => info!(path = %path.display(), "Synced a mod file with game"),
+                Err(err) => warn!(file, "Failed to sync the file with game: {}", err),
+            },
         }
     }
 
@@ -272,6 +296,62 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
         file: file_target(app, target),
         cat: matches!(target, Some(Target::CatAttributes)).then(|| cat_subject(app)).flatten(),
         enemy: matches!(target, Some(Target::EnemyAttributes)).then(|| enemy_subject(app)).flatten(),
+        icon: icon_target(app, target),
+    }
+}
+
+fn mod_copy(app: &BattleCatsApp, file: &str) -> Option<PathBuf> {
+    mods::find(app.mods_state.active_mod().as_deref()?, Path::new(file))
+}
+
+fn icon_target(app: &BattleCatsApp, target: Option<Target>) -> Option<IconTarget> {
+    let name = match target? {
+        Target::CatIcon => {
+            let id = app.app_state.cat.selected_cat?;
+            let cat = app.cat_state.data.cats.iter().find(|cat| cat.id == id)?;
+
+            cat.deploy_icon_paths[app.app_state.cat.selected_form].as_ref()?.file_name()?
+        }
+        Target::EnemyIcon => {
+            let id = app.app_state.enemy.selected_enemy?;
+            let enemy = app.enemy_state.data.enemies.iter().find(|enemy| enemy.id == id)?;
+
+            enemy.icon_path.as_ref()?.file_name()?
+        }
+        _ => return None,
+    };
+
+    let file = name.to_string_lossy().into_owned();
+    let active_mod = app.mods_state.active_mod();
+
+    let mod_copy = mod_copy(app, &file);
+    let game = app.vault.vfs.rooted_in(architecture::GAME, &file);
+
+    Some(IconTarget {
+        file,
+        game,
+        unlocked: app.settings.files.unlock_game_mount,
+        active_mod,
+        mod_copy,
+    })
+}
+
+fn replace_icon(file: &str, target_mod: Option<&str>, game: Option<&Path>) {
+    let Some(source) = rfd::FileDialog::new().add_filter("PNG Image", &["png"]).pick_file() else {
+        return;
+    };
+
+    let placed = match target_mod {
+        Some(name) => mods::place(name, &source, file),
+        None => match game {
+            Some(path) => fs::copy(&source, path).map(|_| path.to_path_buf()),
+            None => Err(io::Error::new(io::ErrorKind::NotFound, "the vanilla icon is missing")),
+        },
+    };
+
+    match placed {
+        Ok(path) => info!(path = %path.display(), "Replaced an icon"),
+        Err(err) => warn!(file, "Failed to replace the icon: {}", err),
     }
 }
 
@@ -285,6 +365,8 @@ fn cat_subject(app: &BattleCatsApp) -> Option<CatTarget> {
     let source = app.vault.vfs.rooted_in(architecture::GAME, &file)?;
     let form = app.app_state.cat.selected_form;
 
+    let mod_copy = mod_copy(app, &file);
+
     let name = app
         .cat_state
         .data
@@ -295,6 +377,7 @@ fn cat_subject(app: &BattleCatsApp) -> Option<CatTarget> {
 
     Some(CatTarget {
         file,
+        mod_copy,
         name,
         source,
         form,
@@ -312,6 +395,8 @@ fn enemy_subject(app: &BattleCatsApp) -> Option<EnemyTarget> {
     let file = enemy_files::STATS.to_owned();
     let source = app.vault.vfs.rooted_in(architecture::GAME, &file)?;
 
+    let mod_copy = mod_copy(app, &file);
+
     let name = app
         .enemy_state
         .data
@@ -322,6 +407,7 @@ fn enemy_subject(app: &BattleCatsApp) -> Option<EnemyTarget> {
 
     Some(EnemyTarget {
         file,
+        mod_copy,
         name,
         source,
         row: ENEMY_HEADER_ROWS + id as usize,
@@ -358,17 +444,18 @@ fn file_target(app: &BattleCatsApp, target: Option<Target>) -> Option<FileTarget
     let name = relative.file_name()?.to_string_lossy().into_owned();
     let active_mod = app.mods_state.active_mod();
 
-    let in_active_mod = active_mod
-        .as_deref()
-        .is_some_and(|active| app.vault.vfs.locate_in(active, &name).is_some());
+    let mod_copy = active_mod.as_deref().and_then(|active| mods::find(active, Path::new(&name)));
+
+    let game = app.vault.vfs.rooted_in(architecture::GAME, &name);
 
     Some(FileTarget {
         source,
+        game,
         name,
         mount: mount.to_owned(),
         folder,
         unlocked: app.settings.files.unlock_game_mount,
         active_mod,
-        in_active_mod,
+        mod_copy,
     })
 }
