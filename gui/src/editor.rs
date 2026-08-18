@@ -390,9 +390,8 @@ fn explanation_target(app: &BattleCatsApp) -> Option<ExplanationTarget> {
     let files: Vec<ExplanationFile> = app
         .vault
         .vfs
-        .list(&cat_files::explanation_file(id))
-        .iter()
-        .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .variants(&cat_files::explanation_file(id))
+        .into_iter()
         .filter_map(|name| {
             let game = app.vault.vfs.rooted_in(architecture::GAME, &name)?;
             let mod_copy = mod_copy(app, &name);

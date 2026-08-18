@@ -122,13 +122,9 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
             return;
         };
 
-        let panels = if self.children.is_empty() {
-            overlay.bounds()
-        } else {
-            overlay.bounds().union(&nested.bounds())
-        };
-
-        let inside = cursor.is_over(panels);
+        let inside = cursor.is_over(overlay.bounds())
+            || (!self.children.is_empty()
+                && (cursor.is_over(nested.bounds()) || cursor.is_over(bridge(overlay.bounds(), nested.bounds()))));
         let right_press = matches!(event, Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)));
         let relocating = self.open && right_press && !inside;
 
@@ -294,6 +290,16 @@ fn dismisses(event: &Event, inside: bool) -> bool {
         Event::Keyboard(keyboard::Event::KeyPressed { key: keyboard::Key::Named(Named::Escape), .. }) => true,
         _ => false,
     }
+}
+
+fn bridge(main: Rectangle, sub: Rectangle) -> Rectangle {
+    let (x, width) = if sub.x >= main.x + main.width {
+        (main.x + main.width, sub.x - main.x - main.width)
+    } else {
+        (sub.x + sub.width, main.x - sub.x - sub.width)
+    };
+
+    Rectangle { x, y: sub.y, width: width.max(0.0), height: sub.height }
 }
 
 fn clamped(size: Size, bounds: Size) -> Size {

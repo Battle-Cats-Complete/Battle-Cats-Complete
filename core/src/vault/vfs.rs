@@ -330,6 +330,46 @@ impl Vfs {
             .map_or(0, |mounts| mounts.get(mount).map_or(0, |indexed| indexed.files.len()))
     }
 
+    pub fn variants(&self, filename: &str) -> Vec<String> {
+        let path = Path::new(filename);
+        let Some(stem) = path.file_stem().and_then(OsStr::to_str) else {
+            return Vec::new();
+        };
+
+        let extension = path.extension().and_then(OsStr::to_str).unwrap_or_default();
+        let order = self.priority.read().map(|order| order.clone()).unwrap_or_default();
+
+        let mut found: Vec<(usize, String)> = self
+            .glob(stem)
+            .into_iter()
+            .filter_map(|name| {
+                let candidate = Path::new(name.as_ref());
+                let candidate_stem = candidate.file_stem().and_then(OsStr::to_str)?;
+
+                if candidate.extension().and_then(OsStr::to_str).unwrap_or_default() != extension {
+                    return None;
+                }
+
+                let suffix = candidate_stem.strip_prefix(stem)?;
+                let code = match suffix {
+                    "" => None,
+                    other => Some(other.strip_prefix('_')?),
+                };
+
+                let rank = code.map_or(0, |code| {
+                    order.iter().position(|entry| entry == code).map_or(usize::MAX, |index| index + 1)
+                });
+
+                Some((rank, name.to_string()))
+            })
+            .collect();
+
+        found.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+        found.dedup_by(|left, right| left.1 == right.1);
+
+        found.into_iter().map(|(_, name)| name).collect()
+    }
+
     pub fn glob(&self, prefix: &str) -> Vec<Box<str>> {
         let Ok(mounts) = self.mounts.read() else {
             return Vec::new();
