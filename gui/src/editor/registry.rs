@@ -5,7 +5,7 @@ use core::domains::import::architecture;
 use crate::app::{theme, Page};
 use crate::common::feedback::LOCKED_NOTICE;
 
-use super::{attributes, explanation, Action, CatTarget, Context, EnemyTarget, Exception, ExplanationTarget, FileTarget, IconTarget, Item, Scope};
+use super::{attributes, prose, Action, CatTarget, Context, EnemyTarget, Exception, FileTarget, IconTarget, Item, ProseTarget, Scope};
 
 struct Mount<'a> {
     name: &'a str,
@@ -61,8 +61,8 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
         icons(&mut items, icon);
     }
 
-    if let Some(target) = context.explanation.as_ref() {
-        explanations(&mut items, target);
+    if let Some(target) = context.prose.as_ref() {
+        prose(&mut items, target);
     }
 
     items
@@ -137,60 +137,61 @@ fn sync(file: &str, game: Option<&Path>, active_mod: Option<&str>, shadowed: boo
     Some(if shadowed { item.confirming() } else { item })
 }
 
-pub(super) fn explanation_plan(target: &ExplanationTarget, target_mod: Option<String>) -> Option<explanation::Plan> {
-    let file = target.files.first()?;
-
-    Some(explanation::plan(
-        target.row,
-        [file.name.as_str(), target.label.as_str()].join(theme::HEADER_SEPARATOR),
-        file.name.clone(),
-        file.source()?,
-        target_mod,
-    ))
-}
-
-fn explanations(items: &mut Vec<Item>, target: &ExplanationTarget) {
+pub(super) fn prose_plans(target: &ProseTarget) -> Vec<prose::Plan> {
     let mount = mount(target.active_mod.as_deref(), target.unlocked);
 
-    let edits = target
-        .files
+    plans(target, &target.asset.scopes(mount.target.is_some()), mount.target)
+}
+
+fn plans(target: &ProseTarget, scopes: &[Scope<'_>], target_mod: Option<&str>) -> Vec<prose::Plan> {
+    scopes
         .iter()
-        .filter_map(|file| {
-            let plan = explanation::plan(
+        .filter_map(|scope| {
+            let source = scope.source.or(scope.present)?;
+
+            Some(prose::plan(
+                target.subject,
                 target.row,
-                [file.name.as_str(), target.label.as_str()].join(theme::HEADER_SEPARATOR),
-                file.name.clone(),
-                file.source()?,
-                mount.target.map(str::to_owned),
-            );
+                [scope.name, target.label.as_str()].join(theme::HEADER_SEPARATOR),
+                scope.name.to_owned(),
+                source,
+                target_mod.map(str::to_owned),
+            ))
+        })
+        .collect()
+}
 
-            let item = mount.item(file.name.clone(), Action::EditExplanation(plan), false);
+fn prose(items: &mut Vec<Item>, target: &ProseTarget) {
+    let mount = mount(target.active_mod.as_deref(), target.unlocked);
+    let scopes = target.asset.scopes(mount.target.is_some());
 
-            Some(item.relabel(file.name.clone()))
+    let edits = plans(target, &scopes, mount.target)
+        .into_iter()
+        .map(|plan| {
+            let name = plan.file().to_owned();
+
+            mount.item(name, Action::EditProse(plan), false)
         })
         .collect();
 
     items.extend(option(|name| format!("Edit \"{name}\" in \"{}\"", mount.name), edits));
 
-    let syncs = target
-        .files
+    upkeep(items, &scopes, &mount);
+}
+
+fn upkeep(items: &mut Vec<Item>, scopes: &[Scope<'_>], mount: &Mount<'_>) {
+    let syncs = scopes
         .iter()
-        .filter_map(|file| {
-            sync(&file.name, file.game.as_deref(), target.active_mod.as_deref(), file.mod_copy.is_some())
-                .map(|item| item.relabel(file.name.clone()))
+        .filter_map(|scope| {
+            sync(scope.name, scope.source, mount.target, scope.present.is_some())
+                .map(|item| item.relabel(scope.name.to_owned()))
         })
         .collect();
 
     items.extend(option(|name| format!("Sync \"{name}\" with game in \"{}\"", mount.name), syncs));
 
-    let removes = target
-        .files
-        .iter()
-        .map(|file| {
-            remove(&file.name, &mount, present(&mount, file.mod_copy.as_deref(), file.game.as_deref()))
-                .relabel(file.name.clone())
-        })
-        .collect();
+    let removes =
+        scopes.iter().map(|scope| remove(scope.name, mount, scope.present).relabel(scope.name.to_owned())).collect();
 
     items.extend(option(|name| format!("Remove \"{name}\" from \"{}\"", mount.name), removes));
 }
@@ -208,20 +209,7 @@ fn entries(items: &mut Vec<Item>, exception: &Exception, mount: &Mount<'_>) {
 
     items.extend(option(|name| format!("Replace \"{name}\" in \"{}\"", mount.name), replaces));
 
-    let syncs = scopes
-        .iter()
-        .filter_map(|scope| {
-            sync(scope.name, scope.source, mount.target, scope.present.is_some())
-                .map(|item| item.relabel(scope.name.to_owned()))
-        })
-        .collect();
-
-    items.extend(option(|name| format!("Sync \"{name}\" with game in \"{}\"", mount.name), syncs));
-
-    let removes =
-        scopes.iter().map(|scope| remove(scope.name, mount, scope.present).relabel(scope.name.to_owned())).collect();
-
-    items.extend(option(|name| format!("Remove \"{name}\" from \"{}\"", mount.name), removes));
+    upkeep(items, &scopes, mount);
 }
 
 fn present<'a>(mount: &Mount<'_>, mod_copy: Option<&'a Path>, game: Option<&'a Path>) -> Option<&'a Path> {

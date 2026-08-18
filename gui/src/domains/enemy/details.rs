@@ -3,6 +3,7 @@ use iced::{Element, Length};
 
 use core::domains::enemy::scanner::EnemyEntry;
 
+use crate::editor;
 use crate::widget::smooth_scroll;
 
 use super::Message;
@@ -16,12 +17,15 @@ pub(super) fn view<'a>(enemy: &'a EnemyEntry) -> Element<'a, Message> {
         .filter(|text| !text.trim().is_empty())
         .unwrap_or_else(|| "No description available".to_string());
 
-    let description_section = column![
-        text("Description").size(HEADING_SIZE),
-        text(description),
-    ]
-        .spacing(HEADING_BODY_GAP)
-        .width(Length::Fill);
+    let description_section = editor::target(
+        column![
+            text("Description").size(HEADING_SIZE),
+            text(description),
+        ]
+            .spacing(HEADING_BODY_GAP)
+            .width(Length::Fill),
+        editor::Target::EnemyDescription,
+    );
 
     let content = column![description_section]
         .spacing(SECTION_SPACING)

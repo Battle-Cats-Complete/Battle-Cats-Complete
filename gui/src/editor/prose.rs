@@ -9,35 +9,95 @@ use tracing::warn;
 use core::common::preview::{self, Stamp};
 use core::domains::mods;
 
-use crate::app::theme;
+use crate::app::{theme, Page};
 use crate::common::feedback::{Slot, CONFIRM_LABEL};
 use crate::widget::{popup, smooth_scroll};
 
 const FIELD_HEIGHT: f32 = INPUT_SIZE * 1.3 + PADDING * 2.0;
 const SYNC_HEIGHT: f32 = INPUT_SIZE * 1.3 + (PADDING + 1.0) * 2.0;
 
-const POPUP_HEIGHT: f32 = FIELD_HEIGHT * FIELDS as f32
-    + GAP * (FIELDS - 1) as f32
-    + SYNC_HEIGHT
-    + GAP
-    + BODY_PADDING * 3.0
-    + popup::CHROME_HEIGHT;
+const POPUP_WIDTH: f32 = 420.0;
 
-const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Explanation, Size::new(420.0, POPUP_HEIGHT));
-
-const FIELDS: usize = 5;
-const LABELS: [&str; FIELDS] = [
+const EXPLANATION_LABELS: &[&str] = &[
     "Name...",
     "Description Line 1...",
     "Description Line 2...",
     "Description Line 3...",
     "Comment...",
 ];
+
+const ENEMY_NAME_LABELS: &[&str] = &["Name..."];
+
+const ENEMY_DESCRIPTION_LABELS: &[&str] = &[
+    "Name Format (%s)...",
+    "Description Line 1...",
+    "Description Line 2...",
+    "Description Line 3...",
+    "Description Line 4...",
+];
+
 const INPUT_SIZE: f32 = 13.0;
 const PADDING: f32 = 4.0;
 const GAP: f32 = 8.0;
 const BODY_PADDING: f32 = 12.0;
 const SYNC_WIDTH: f32 = 172.0;
+
+pub(super) const COUNT: usize = 3;
+
+pub(super) const SUBJECTS: [Subject; COUNT] =
+    [Subject::Explanation, Subject::EnemyName, Subject::EnemyDescription];
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Subject {
+    Explanation,
+    EnemyName,
+    EnemyDescription,
+}
+
+impl Subject {
+    pub(super) fn slot(self) -> usize {
+        self as usize
+    }
+
+    pub(super) fn page(self) -> Page {
+        match self {
+            Self::Explanation => Page::Cats,
+            Self::EnemyName | Self::EnemyDescription => Page::Enemies,
+        }
+    }
+
+    fn labels(self) -> &'static [&'static str] {
+        match self {
+            Self::Explanation => EXPLANATION_LABELS,
+            Self::EnemyName => ENEMY_NAME_LABELS,
+            Self::EnemyDescription => ENEMY_DESCRIPTION_LABELS,
+        }
+    }
+
+    fn kind(self) -> popup::Kind {
+        match self {
+            Self::Explanation => popup::Kind::Explanation,
+            Self::EnemyName => popup::Kind::EnemyName,
+            Self::EnemyDescription => popup::Kind::EnemyDescription,
+        }
+    }
+
+    fn delimited(self) -> bool {
+        !matches!(self, Self::EnemyName)
+    }
+}
+
+fn spec(subject: Subject) -> popup::Spec {
+    let fields = subject.labels().len() as f32;
+    let height = FIELD_HEIGHT * fields
+        + GAP * (fields - 1.0)
+        + SYNC_HEIGHT
+        + GAP
+        + BODY_PADDING * 3.0
+        + popup::CHROME_HEIGHT;
+
+    popup::Spec::new(subject.kind(), Size::new(POPUP_WIDTH, height))
+}
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -49,6 +109,7 @@ pub enum Message {
 
 #[derive(Clone)]
 pub(crate) struct Plan {
+    subject: Subject,
     row: usize,
     label: String,
     file: String,
@@ -57,6 +118,14 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
+    pub(super) fn subject(&self) -> Subject {
+        self.subject
+    }
+
+    pub(super) fn file(&self) -> &str {
+        &self.file
+    }
+
     fn matches(&self, other: &Plan) -> bool {
         self.row == other.row
             && self.game == other.game
@@ -73,7 +142,7 @@ impl Plan {
 }
 
 #[derive(Default)]
-pub(crate) struct State {
+pub(super) struct State {
     draft: Option<Draft>,
     frame: popup::State,
     confirm: Slot<()>,
@@ -83,26 +152,31 @@ struct Draft {
     plan: Plan,
     read_from: PathBuf,
     stamp: Stamp,
-    delimiter: char,
+    delimiter: Option<char>,
     lines: Vec<String>,
-    fields: [String; FIELDS],
+    fields: Vec<String>,
     tail: Vec<String>,
     failed: bool,
 }
 
 impl State {
-    pub(crate) fn begin(&mut self, plan: Plan) {
+    pub(super) fn begin(&mut self, plan: Plan) {
         self.frame = popup::State::default();
         self.confirm.expire();
         self.draft = Draft::load(plan);
     }
 
-    pub(crate) fn sync(&mut self, plan: Option<Plan>) {
+    pub(super) fn close(&mut self) {
+        self.draft = None;
+        self.confirm.expire();
+    }
+
+    pub(super) fn sync(&mut self, plans: &[Plan]) {
         let Some(current) = self.draft.as_ref() else {
             return;
         };
 
-        let Some(plan) = plan else {
+        let Some(plan) = plans.iter().find(|plan| plan.file == current.plan.file).or_else(|| plans.first()) else {
             self.draft = None;
 
             return;
@@ -114,17 +188,20 @@ impl State {
             return;
         }
 
-        if !current.plan.matches(&plan) || preview::stamp(&current.read_from) != Some(current.stamp) {
-            self.draft = Draft::load(plan);
+        if !current.plan.matches(plan) || preview::stamp(&current.read_from) != Some(current.stamp) {
+            self.draft = Draft::load(plan.clone());
         }
     }
 
-    pub(crate) fn update(&mut self, message: Message) -> Task<Message> {
+    pub(super) fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
-                if self.draft.is_some() && self.frame.update(msg, POPUP) {
-                    self.draft = None;
-                    self.confirm.expire();
+                let Some(subject) = self.draft.as_ref().map(|draft| draft.plan.subject) else {
+                    return Task::none();
+                };
+
+                if self.frame.update(msg, spec(subject)) {
+                    self.close();
                 }
             }
             Message::Changed(index, value) => {
@@ -147,11 +224,18 @@ impl State {
         Task::none()
     }
 
-    pub(crate) fn view(&self, window: Size) -> Option<Element<'_, Message>> {
+    pub(super) fn view(&self, window: Size) -> Option<Element<'_, Message>> {
         let draft = self.draft.as_ref()?;
         let armed = self.confirm.is_set();
 
-        Some(self.frame.view(&draft.plan.label, POPUP, window, Message::Popup, move || draft.body(armed), None))
+        Some(self.frame.view(
+            &draft.plan.label,
+            spec(draft.plan.subject),
+            window,
+            Message::Popup,
+            move || draft.body(armed),
+            None,
+        ))
     }
 }
 
@@ -160,14 +244,15 @@ impl Draft {
         let read_from = plan.source();
 
         let bytes = fs::read(&read_from)
-            .inspect_err(|err| warn!(path = %read_from.display(), "Explanation editor could not read the file: {}", err))
+            .inspect_err(|err| warn!(path = %read_from.display(), "Prose editor could not read the file: {}", err))
             .ok()?;
 
         let stamp = preview::stamp(&read_from)?;
         let body = file::scrub(&bytes);
-        let delimiter = separator(&body);
+        let delimiter = plan.subject.delimited().then(|| separator(&body));
         let lines: Vec<String> = body.lines().map(str::to_owned).collect();
-        let (fields, tail) = row(lines.get(plan.row).map_or("", String::as_str), delimiter);
+        let source = lines.get(plan.row).map_or("", String::as_str);
+        let (fields, tail) = row(source, delimiter, plan.subject.labels().len());
 
         Some(Draft { plan, read_from, stamp, delimiter, lines, fields, tail, failed: false })
     }
@@ -187,17 +272,18 @@ impl Draft {
 
     fn restore(&mut self) {
         let Ok(bytes) = fs::read(&self.plan.game) else {
-            warn!(path = %self.plan.game.display(), "Explanation editor could not read the vanilla file");
+            warn!(path = %self.plan.game.display(), "Prose editor could not read the vanilla file");
             self.failed = true;
 
             return;
         };
 
         let body = file::scrub(&bytes);
-        let delimiter = separator(&body);
+        let delimiter = self.plan.subject.delimited().then(|| separator(&body));
         let vanilla: Vec<&str> = body.lines().collect();
+        let source = vanilla.get(self.plan.row).copied().unwrap_or_default();
 
-        let (fields, tail) = row(vanilla.get(self.plan.row).copied().unwrap_or_default(), delimiter);
+        let (fields, tail) = row(source, delimiter, self.plan.subject.labels().len());
         self.fields = fields;
         self.tail = tail;
         self.commit();
@@ -208,8 +294,8 @@ impl Draft {
             return Some((self.plan.game.clone(), self.stamp));
         };
 
-        let path = mods::ensure(name, &self.plan.game)
-            .inspect_err(|err| warn!(source = %self.plan.game.display(), "Explanation editor could not stage the file: {}", err))
+        let path = mods::ensure_as(name, &self.plan.game, &self.plan.file)
+            .inspect_err(|err| warn!(source = %self.plan.game.display(), "Prose editor could not stage the file: {}", err))
             .ok()?;
 
         if path == self.read_from {
@@ -230,13 +316,7 @@ impl Draft {
             self.lines.push(String::new());
         }
 
-        let joined = self
-            .fields
-            .iter()
-            .chain(self.tail.iter())
-            .cloned()
-            .collect::<Vec<String>>()
-            .join(&self.delimiter.to_string());
+        let joined = join(&self.fields, &self.tail, self.delimiter);
         let Some(slot) = self.lines.get_mut(self.plan.row) else {
             self.failed = true;
 
@@ -255,7 +335,7 @@ impl Draft {
                 self.failed = false;
             }
             Err(err) => {
-                warn!(path = %path.display(), "Explanation editor could not write the file: {}", err);
+                warn!(path = %path.display(), "Prose editor could not write the file: {}", err);
                 self.failed = true;
             }
         }
@@ -264,7 +344,7 @@ impl Draft {
     fn body(&self, armed: bool) -> Element<'_, Message> {
         let mut rows = column![].spacing(GAP);
 
-        for (index, label) in LABELS.iter().enumerate() {
+        for (index, label) in self.plan.subject.labels().iter().enumerate() {
             let field = text_input(label, self.fields.get(index).map_or("", String::as_str))
                 .on_input(move |value| Message::Changed(index, value))
                 .size(INPUT_SIZE)
@@ -303,13 +383,34 @@ fn separator(body: &str) -> char {
     if body.contains('|') { '|' } else { file::detect_separator(body) }
 }
 
-fn row(line: &str, delimiter: char) -> ([String; FIELDS], Vec<String>) {
+fn row(line: &str, delimiter: Option<char>, count: usize) -> (Vec<String>, Vec<String>) {
+    let Some(delimiter) = delimiter else {
+        return (vec![line.trim().to_owned()], Vec::new());
+    };
+
     let mut parts = line.split(delimiter);
-    let fields = std::array::from_fn(|_| parts.next().unwrap_or_default().trim().to_owned());
+    let fields = (0..count).map(|_| parts.next().unwrap_or_default().trim().to_owned()).collect();
 
     (fields, parts.map(str::to_owned).collect())
 }
 
-pub(crate) fn plan(row: usize, label: String, file: String, game: &Path, target_mod: Option<String>) -> Plan {
-    Plan { row, label, file, game: game.to_path_buf(), target_mod }
+fn join(fields: &[String], tail: &[String], delimiter: Option<char>) -> String {
+    let Some(delimiter) = delimiter else {
+        return fields.first().cloned().unwrap_or_default();
+    };
+
+    let parts: Vec<&str> = fields.iter().chain(tail).map(String::as_str).collect();
+
+    parts.join(&delimiter.to_string())
+}
+
+pub(super) fn plan(
+    subject: Subject,
+    row: usize,
+    label: String,
+    file: String,
+    game: &Path,
+    target_mod: Option<String>,
+) -> Plan {
+    Plan { subject, row, label, file, game: game.to_path_buf(), target_mod }
 }

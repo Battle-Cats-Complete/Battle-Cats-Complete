@@ -1,6 +1,6 @@
 pub const STATS: &str = "t_unit.csv";
-pub(crate) const NAMES: &str = "Enemyname.tsv";
-pub(crate) const PICTURE_BOOK: &str = "EnemyPictureBook.csv";
+pub const NAMES: &str = "Enemyname.tsv";
+pub const PICTURE_BOOK: &str = "EnemyPictureBook.csv";
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum AnimType {

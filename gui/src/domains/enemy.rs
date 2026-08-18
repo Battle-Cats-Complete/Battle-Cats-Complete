@@ -662,7 +662,7 @@ impl EnemyState {
         ].spacing(6).align_y(Vertical::Center);
 
         column![
-            name_box(disp_name, 123.0, 56.0, 145.0),
+            editor::target(name_box(disp_name, 123.0, 56.0, 145.0), editor::Target::EnemyName),
             id_text,
             mag_row,
         ].spacing(0).into()

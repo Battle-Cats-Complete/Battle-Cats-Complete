@@ -124,6 +124,10 @@ pub fn ensure(mod_name: &str, source: &Path) -> Result<PathBuf, std::io::Error> 
     find(mod_name, source).map_or_else(|| adopt(mod_name, source), Ok)
 }
 
+pub fn ensure_as(mod_name: &str, source: &Path, name: &str) -> Result<PathBuf, std::io::Error> {
+    locate(&Path::new(MODS_ROOT).join(mod_name), name).map_or_else(|| place(mod_name, source, name), Ok)
+}
+
 pub fn adopt(mod_name: &str, source: &Path) -> Result<PathBuf, std::io::Error> {
     let Some(name) = source.file_name() else {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "the source path has no file name"));
