@@ -46,14 +46,18 @@ pub(crate) struct Context {
     explanation: Option<ExplanationTarget>,
 }
 
-struct ExplanationTarget {
-    file: String,
-    label: String,
+struct ExplanationFile {
+    name: String,
     game: PathBuf,
+    mod_copy: Option<PathBuf>,
+}
+
+struct ExplanationTarget {
+    files: Vec<ExplanationFile>,
+    label: String,
     row: usize,
     unlocked: bool,
     active_mod: Option<String>,
-    mod_copy: Option<PathBuf>,
 }
 
 struct IconTarget {
@@ -124,6 +128,8 @@ pub enum Message {
     Opened(Point, Option<Target>),
     Dismissed,
     Invoked(usize),
+    InvokedChild(usize, usize),
+    Hovered(Option<usize>),
     ConfirmExpired,
     Attributes(attributes::Subject, attributes::Message),
     Explanation(explanation::Message),
@@ -133,16 +139,40 @@ struct Item {
     label: String,
     hint: Option<String>,
     action: Option<Action>,
+    children: Vec<Item>,
     confirm: bool,
 }
 
 impl Item {
     fn new(label: impl Into<String>, action: Action) -> Self {
-        Self { label: label.into(), hint: None, action: Some(action), confirm: false }
+        Self { label: label.into(), hint: None, action: Some(action), children: Vec::new(), confirm: false }
     }
 
     fn disabled(label: impl Into<String>, hint: impl Into<String>) -> Self {
-        Self { label: label.into(), hint: Some(hint.into()), action: None, confirm: false }
+        Self { label: label.into(), hint: Some(hint.into()), action: None, children: Vec::new(), confirm: false }
+    }
+
+    fn list(label: impl Into<String>, children: Vec<Item>) -> Self {
+        let hint = children
+            .iter()
+            .all(|child| child.action.is_none())
+            .then(|| children.iter().find_map(|child| child.hint.clone()))
+            .flatten();
+
+        Self { label: label.into(), hint, action: None, children, confirm: false }
+    }
+
+    fn opens(&self) -> bool {
+        !self.children.is_empty()
+    }
+
+    fn live(&self) -> bool {
+        self.action.is_some() || self.children.iter().any(|child| child.action.is_some())
+    }
+
+    fn relabel(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
     }
 
     fn confirming(mut self) -> Self {
@@ -158,6 +188,21 @@ enum Action {
     EditExplanation(explanation::Plan),
     ReplaceIcon { file: String, target_mod: Option<String>, game: Option<PathBuf> },
     SyncWithGame { file: String, target_mod: String, game: PathBuf },
+}
+
+const ARM_STRIDE: usize = 1024;
+
+fn arm_slot(index: usize, child: Option<usize>) -> usize {
+    child.map_or(index, |child| ARM_STRIDE + index * ARM_STRIDE + child)
+}
+
+fn pick(items: &[Item], index: usize, child: Option<usize>) -> Option<&Item> {
+    let item = items.get(index)?;
+
+    match child {
+        Some(child) => item.children.get(child),
+        None => Some(item),
+    }
 }
 
 #[derive(Default)]
@@ -178,6 +223,7 @@ pub(crate) struct Snapshot {
 struct Open {
     at: Point,
     items: Vec<Item>,
+    hovered: Option<usize>,
 }
 
 impl State {
@@ -194,12 +240,20 @@ impl State {
         }
 
         self.confirm.expire();
-        self.open = (!items.is_empty()).then_some(Open { at, items });
+        self.open = (!items.is_empty()).then_some(Open { at, items, hovered: None });
     }
 
     pub(crate) fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Invoked(index) => self.invoke(index),
+            Message::Invoked(index) => self.invoke(index, None),
+            Message::InvokedChild(parent, index) => self.invoke(parent, Some(index)),
+            Message::Hovered(index) => {
+                if let Some(open) = self.open.as_mut() {
+                    open.hovered = index;
+                }
+
+                Task::none()
+            }
             Message::Dismissed => {
                 self.open = None;
                 self.confirm.expire();
@@ -280,11 +334,11 @@ impl State {
         }
     }
 
-    fn invoke(&mut self, index: usize) -> Task<Message> {
+    fn invoke(&mut self, index: usize, child: Option<usize>) -> Task<Message> {
         let Some((actionable, confirms)) = self
             .open
             .as_ref()
-            .and_then(|open| open.items.get(index))
+            .and_then(|open| pick(&open.items, index, child))
             .map(|item| (item.action.is_some(), item.confirm))
         else {
             return Task::none();
@@ -294,8 +348,10 @@ impl State {
             return Task::none();
         }
 
-        if confirms && !self.confirm.armed_for(&index) {
-            return self.confirm.set(index, Message::ConfirmExpired);
+        let slot = arm_slot(index, child);
+
+        if confirms && !self.confirm.armed_for(&slot) {
+            return self.confirm.set(slot, Message::ConfirmExpired);
         }
 
         self.confirm.expire();
@@ -304,7 +360,7 @@ impl State {
             return Task::none();
         };
 
-        if let Some(action) = open.items.get(index).and_then(|item| item.action.as_ref()) {
+        if let Some(action) = pick(&open.items, index, child).and_then(|item| item.action.as_ref()) {
             self.perform(action);
         }
 
@@ -336,7 +392,24 @@ fn explanation_target(app: &BattleCatsApp) -> Option<ExplanationTarget> {
 
     let resolved = cat_waiter::unitexplanation_source(&app.vault.vfs, id, form)?;
     let file = resolved.file_name()?.to_string_lossy().into_owned();
-    let game = app.vault.vfs.rooted_in(architecture::GAME, &file)?;
+
+    let files: Vec<ExplanationFile> = app
+        .vault
+        .vfs
+        .list(&cat_files::explanation_file(id))
+        .iter()
+        .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .filter_map(|name| {
+            let game = app.vault.vfs.rooted_in(architecture::GAME, &name)?;
+            let mod_copy = mod_copy(app, &name);
+
+            Some(ExplanationFile { name, game, mod_copy })
+        })
+        .collect();
+
+    if files.is_empty() {
+        return None;
+    }
 
     let name = app
         .cat_state
@@ -354,10 +427,8 @@ fn explanation_target(app: &BattleCatsApp) -> Option<ExplanationTarget> {
     };
 
     Some(ExplanationTarget {
-        mod_copy: mod_copy(app, &file),
-        file,
+        files,
         label,
-        game,
         row: form,
         unlocked: app.settings.files.unlock_game_mount,
         active_mod: app.mods_state.active_mod(),
@@ -480,7 +551,7 @@ pub(crate) fn snapshot(app: &BattleCatsApp) -> Snapshot {
     Snapshot {
         page: app.current_page,
         plan: current_plan(app),
-        explanation: explanation_target(app).map(|target| {
+        explanation: explanation_target(app).and_then(|target| {
             let active = target.active_mod.clone();
 
             registry::explanation_plan(&target, active)

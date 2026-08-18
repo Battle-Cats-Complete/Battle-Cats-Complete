@@ -2,7 +2,7 @@ use std::path::Path;
 
 use core::domains::import::architecture;
 
-use crate::app::Page;
+use crate::app::{theme, Page};
 use crate::common::feedback::LOCKED_NOTICE;
 
 use super::{attributes, explanation, Action, CatTarget, Context, EnemyTarget, ExplanationTarget, FileTarget, IconTarget, Item};
@@ -82,6 +82,20 @@ fn remove(file: &str, mount: &Mount<'_>, present: Option<&Path>) -> Item {
     Item::new(label, Action::DeleteFile { source: path.to_path_buf() }).confirming()
 }
 
+fn option(label: impl Fn(&str) -> String, targets: Vec<Item>) -> Option<Item> {
+    let mut targets = targets;
+
+    match targets.len() {
+        0 => None,
+        1 => targets.pop().map(|only| {
+            let named = label(&only.label);
+
+            only.relabel(named)
+        }),
+        _ => Some(Item::list(label("..."), targets)),
+    }
+}
+
 fn sync(file: &str, game: Option<&Path>, active_mod: Option<&str>, shadowed: bool) -> Option<Item> {
     let active = active_mod?;
     let game = game?;
@@ -98,21 +112,64 @@ fn sync(file: &str, game: Option<&Path>, active_mod: Option<&str>, shadowed: boo
     Some(if shadowed { item.confirming() } else { item })
 }
 
-pub(super) fn explanation_plan(target: &ExplanationTarget, target_mod: Option<String>) -> explanation::Plan {
-    explanation::plan(target.row, target.label.clone(), target.file.clone(), &target.game, target_mod)
+pub(super) fn explanation_plan(target: &ExplanationTarget, target_mod: Option<String>) -> Option<explanation::Plan> {
+    let file = target.files.first()?;
+
+    Some(explanation::plan(
+        target.row,
+        [file.name.as_str(), target.label.as_str()].join(theme::HEADER_SEPARATOR),
+        file.name.clone(),
+        &file.game,
+        target_mod,
+    ))
 }
 
 fn explanations(items: &mut Vec<Item>, target: &ExplanationTarget) {
     let mount = mount(target.active_mod.as_deref(), target.unlocked);
 
-    items.push(mount.item(
-        format!("Edit \"{}\" in \"{}\"", target.file, mount.name),
-        Action::EditExplanation(explanation_plan(target, mount.target.map(str::to_owned))),
-        false,
-    ));
+    let edits = target
+        .files
+        .iter()
+        .map(|file| {
+            mount
+                .item(
+                    file.name.clone(),
+                    Action::EditExplanation(explanation::plan(
+                        target.row,
+                        [file.name.as_str(), target.label.as_str()].join(theme::HEADER_SEPARATOR),
+                        file.name.clone(),
+                        &file.game,
+                        mount.target.map(str::to_owned),
+                    )),
+                    false,
+                )
+                .relabel(file.name.clone())
+        })
+        .collect();
 
-    items.extend(sync(&target.file, Some(&target.game), target.active_mod.as_deref(), target.mod_copy.is_some()));
-    items.push(remove(&target.file, &mount, present(&mount, target.mod_copy.as_deref(), Some(&target.game))));
+    items.extend(option(|name| format!("Edit \"{name}\" in \"{}\"", mount.name), edits));
+
+    let syncs = target
+        .files
+        .iter()
+        .filter_map(|file| {
+            sync(&file.name, Some(&file.game), target.active_mod.as_deref(), file.mod_copy.is_some())
+                .map(|item| item.relabel(file.name.clone()))
+        })
+        .collect();
+
+    items.extend(option(|name| format!("Sync \"{name}\" with game in \"{}\"", mount.name), syncs));
+
+    let removes = target
+        .files
+        .iter()
+        .map(|file| {
+            remove(&file.name, &mount, present(&mount, file.mod_copy.as_deref(), Some(&file.game)))
+                .relabel(file.name.clone())
+        })
+        .collect();
+
+    items.extend(option(|name| format!("Remove \"{name}\" from \"{}\"", mount.name), removes));
 }
 
 fn icons(items: &mut Vec<Item>, icon: &IconTarget) {
