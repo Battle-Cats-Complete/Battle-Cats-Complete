@@ -809,7 +809,8 @@ impl State {
             container(iced_image(handle).height(Length::Fixed(ICON_BOX_HEIGHT)))
                 .width(Length::Fixed(ICON_BOX_WIDTH))
                 .height(Length::Fixed(ICON_BOX_HEIGHT))
-                .align_x(Horizontal::Center),
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Bottom),
             editor::Target::CatIcon,
         )
     }
