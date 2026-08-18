@@ -31,6 +31,7 @@ pub enum CustomIcon {
 
 #[derive(Clone, Debug)]
 pub struct AbilityItem {
+    pub identity: Identity,
     pub icon_id: Option<usize>,
     pub text: String,
     pub custom_icon: CustomIcon,

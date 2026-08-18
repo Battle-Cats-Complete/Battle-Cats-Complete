@@ -8,6 +8,7 @@ use ab_glyph::{Font, FontRef, PxScale};
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use imageproc::rect::Rect;
+use nyanko::combat::Identity;
 use nyanko::common::data::img015;
 use nyanko::graphics::rig::SpriteCut;
 
@@ -499,7 +500,7 @@ pub fn build_statblock_image(
         draw_bottom_rounded_rect_mut(canvas_image, spirit_rect, px(RADIUS_LG), COLOR_CARD);
 
         let mut current_y_offset = card_inner_y + card_padding;
-        let area_item = AbilityItem { icon_id: Some(img015::ICON_AREA_ATTACK), border_id: None, custom_icon: CustomIcon::None, text: String::new() };
+        let area_item = AbilityItem { identity: Identity::AreaAttack, icon_id: Some(img015::ICON_AREA_ATTACK), border_id: None, custom_icon: CustomIcon::None, text: String::new() };
         let area_icon = get_icon_image(&area_item, &cuts_map, &img015_base, &custom_assets, icon_size as u32);
         let area_icon_y = current_y_offset + overflow_padding(&spirit.dmg_text);
         image::imageops::overlay(canvas_image, &area_icon, start_x_absolute as i64, area_icon_y as i64);

@@ -13,7 +13,7 @@ use core::common::dirs;
 use core::common::io::json;
 use core::domains::import::{self, architecture};
 use core::domains::mods;
-use core::domains::settings::{lang, ExceptionList, ScannerConfig, UpdateMode, WindowSettings};
+use core::domains::settings::{lang, nightly, ExceptionList, ScannerConfig, UpdateMode, WindowSettings};
 #[cfg(target_os = "linux")]
 use core::domains::settings::desktop;
 use core::{ContentStore, Vault};
@@ -86,6 +86,8 @@ impl BattleCatsApp {
         if let Some(state_dir) = dirs::state() {
             let _ = fs::remove_file(state_dir.join("meta.json"));
         }
+
+        nightly::register_nightly_usage();
 
         ExceptionList::sync_on_boot();
         info!(ms = split(&mut phase), "Boot phase: exception list synced");

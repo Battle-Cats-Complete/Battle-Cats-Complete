@@ -192,6 +192,14 @@ impl State {
         }
     }
 
+    pub(crate) fn mount(&self) -> Option<&str> {
+        self.mount.as_deref()
+    }
+
+    pub(crate) fn entry_at(&self, vfs: &Vfs, index: usize) -> Option<(bool, PathBuf)> {
+        self.tree.entry(vfs, self.mount.as_deref()?, self.mode, index)
+    }
+
     pub(crate) fn sync(&mut self, vfs: &Vfs, files: &FilesSettings, validated: bool) -> Task<Message> {
         self.adopt(files);
         self.entered = true;

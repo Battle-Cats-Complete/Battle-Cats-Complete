@@ -12,6 +12,12 @@ pub const RADIUS_LG: f32 = 8.0;
 
 const DISABLED_BUTTON_SHADE: f32 = 0.6;
 
+pub const WEAK_TEXT_ALPHA: f32 = 0.4;
+
+pub fn weak_text_color(theme: &Theme) -> Color {
+    Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }
+}
+
 fn shade_color(color: Color, factor: f32) -> Color {
     Color { r: color.r * factor, g: color.g * factor, b: color.b * factor, a: color.a }
 }

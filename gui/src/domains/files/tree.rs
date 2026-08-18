@@ -9,6 +9,7 @@ use core::Vfs;
 
 use crate::app::theme;
 use crate::common::row_window::{self, RowWindow};
+use crate::editor;
 use crate::widget::{list_row, smooth_scroll};
 
 use super::{both_ways, Mode, EMPTY_TEXT_SIZE, SCROLLBAR_ALLOWANCE, TEXT_SIZE};
@@ -282,7 +283,10 @@ impl State {
             .align_y(Vertical::Center)
             .padding(Padding::default().left(ROW_PADDING + INDENT * f32::from(row.depth)).right(ROW_PADDING));
 
-        list_row(content, self.selected_row == Some(index), false, Length::Fixed(width), Message::Activate(index))
+        editor::target(
+            list_row(content, self.selected_row == Some(index), false, Length::Fixed(width), Message::Activate(index)),
+            editor::Target::FileRow(index),
+        )
     }
 }
 

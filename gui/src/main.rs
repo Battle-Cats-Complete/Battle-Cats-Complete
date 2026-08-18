@@ -3,6 +3,7 @@
 pub mod app;
 pub mod common;
 pub mod domains;
+pub mod editor;
 pub(crate) mod systems;
 pub mod widget;
 

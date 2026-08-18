@@ -20,7 +20,6 @@ use super::{header_section, hover_hint, SECTION_SPACING};
 const ROW_HEIGHT: f32 = 32.0;
 const ROW_WIDTH: f32 = 140.0;
 const DRAG_HIGHLIGHT_ALPHA: f32 = 0.25;
-const WEAK_TEXT_ALPHA: f32 = 0.4;
 
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,7 +218,7 @@ impl State {
         );
 
         let nightly_available = nightly::features_available();
-        let weak = |theme: &Theme| iced::widget::text::Style { color: Some(Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }) };
+        let weak = |theme: &Theme| iced::widget::text::Style { color: Some(theme::weak_text_color(theme)) };
         let nightly_name = text("Enable Nightly Features ");
         let nightly_moon = text(fonts::MOON_CLOSE).font(fonts::MISC_SYMBOLS);
         let nightly_label: Element<'a, Message> = if nightly_available {
@@ -307,7 +306,7 @@ fn language_row<'a>(index: usize, code: &'a str, is_none: bool, is_weak: bool, i
     let label = if is_none { theme::bold_text(lang::get_label_for_code(code)) } else { text(lang::get_label_for_code(code)) };
 
     let label: Element<'_, Message> = if is_weak {
-        label.style(|theme: &Theme| iced::widget::text::Style { color: Some(Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }) }).into()
+        label.style(|theme: &Theme| iced::widget::text::Style { color: Some(theme::weak_text_color(theme)) }).into()
     } else {
         label.into()
     };

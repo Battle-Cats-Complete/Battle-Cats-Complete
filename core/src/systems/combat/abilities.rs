@@ -51,6 +51,7 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
         };
 
         groups[slot].push(AbilityItem {
+            identity: pure_def.identity,
             icon_id: standard_icon(display_def.icon),
             text: (display_def.formatter)(&format_ctx),
             custom_icon: custom_icon(display_def.icon),
@@ -67,7 +68,8 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
 
             let Some(pure_def) = get_talent(group.ability_id) else { continue; };
 
-            let display_def = registry::get_display_def(pure_def.identity);
+            let identity = pure_def.identity;
+            let display_def = registry::get_display_def(identity);
             let border_id = pure_def.talent_id.and_then(|talent_id| talent_border(ctx, talent_id));
             let icon_id = standard_icon(display_def.icon);
             let custom = custom_icon(display_def.icon);
@@ -75,7 +77,7 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
             match group.ability_id {
                 25 | 26 | 27 | 31 | 32 | 61 | 82 => {
                     if let Some(text) = talents::calculate_talent_display(group, ctx.base_stats, level, ctx.level_curve, ctx.current_level) {
-                        talent_headline.push(AbilityItem { icon_id, text, custom_icon: custom, border_id });
+                        talent_headline.push(AbilityItem { identity, icon_id, text, custom_icon: custom, border_id });
                     }
                 },
                 18 | 19 | 20 | 21 | 22 | 24 | 30 | 52 | 54 => {
@@ -89,7 +91,7 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
                     };
 
                     let text = (display_def.formatter)(&format_ctx);
-                    groups[FOOTER].push(AbilityItem { icon_id, text, custom_icon: custom, border_id });
+                    groups[FOOTER].push(AbilityItem { identity, icon_id, text, custom_icon: custom, border_id });
                 },
                 _ => {}
             }

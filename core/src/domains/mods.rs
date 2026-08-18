@@ -20,6 +20,8 @@ const RESERVED_NAMES: [&str; 2] = ["game", architecture::PACKAGES];
 
 pub const METADATA: &str = "metadata.json";
 
+pub const PATCH: &str = "patch";
+
 pub fn taken(mods_root: &Path, candidate: &str) -> bool {
     if RESERVED_NAMES.iter().any(|reserved| candidate.eq_ignore_ascii_case(reserved)) {
         return true;
@@ -96,6 +98,22 @@ pub fn disable(vault: &Vault, name: &str) {
     vault.purge(&keys);
 }
 
+pub fn adopt(mod_name: &str, source: &Path) -> Result<PathBuf, std::io::Error> {
+    let Some(name) = source.file_name() else {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "the source path has no file name"));
+    };
+
+    let root = Path::new(MODS_ROOT).join(mod_name);
+    let patch = root.join(PATCH);
+    let destination = if patch.is_dir() { patch.join(name) } else { root.join(name) };
+
+    fs::copy(source, &destination)?;
+
+    debug!(mod_name, path = %destination.display(), "Copied a file into a mod");
+
+    Ok(destination)
+}
+
 fn default_source() -> String {
     "Battle Cats Complete".to_string()
 }
@@ -138,7 +156,7 @@ impl ModMetadata {
 
     pub fn save<P: AsRef<Path>>(&self, mod_folder_path: P) -> Result<(), std::io::Error> {
         let root = mod_folder_path.as_ref();
-        let meta_path = locate(root, METADATA).unwrap_or_else(|| root.join("patch").join(METADATA));
+        let meta_path = locate(root, METADATA).unwrap_or_else(|| root.join(PATCH).join(METADATA));
 
         if let Some(parent) = meta_path.parent()
             && !parent.exists()

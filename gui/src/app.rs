@@ -24,6 +24,7 @@ use core::{ContentStore, Vault};
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
 use crate::domains::{cat, enemy, files, home, import, mods, settings as gui_settings, stage};
+use crate::editor;
 use crate::widget::{nightly_label, popup, slide, Slide};
 
 use state::AppState;
@@ -166,6 +167,7 @@ pub enum Message {
     Files(files::Message),
     Import(import::Message),
     Settings(gui_settings::Message),
+    Editor(editor::Message),
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -218,6 +220,8 @@ pub struct BattleCatsApp {
     pub import_state: import::State,
     #[serde(skip)]
     pub settings_state: gui_settings::State,
+    #[serde(skip)]
+    editor: editor::State,
 
     pub settings: Settings,
 
@@ -280,6 +284,7 @@ impl Default for BattleCatsApp {
             files_state: files::State::default(),
             import_state: import::State::default(),
             settings_state: gui_settings::State::default(),
+            editor: editor::State::default(),
             settings: Settings::default(),
             vault: Arc::new(Vault::new(&Settings::default())),
             vault_ready: false,
@@ -893,6 +898,12 @@ impl BattleCatsApp {
                 self.files_state.sync_state(&mut self.app_state.files);
                 task
             }
+            Message::Editor(editor::Message::Opened(at, target)) => {
+                let context = editor::context(self, target);
+                self.editor.open(at, &context);
+                Task::none()
+            }
+            Message::Editor(msg) => self.editor.update(msg).map(Message::Editor),
             Message::Settings(msg) => {
                 if matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ManualUpdateCheck)) {
                     info!("Manual update check requested from Settings");
@@ -972,7 +983,7 @@ impl BattleCatsApp {
             }
         }
 
-        layers.into()
+        editor::watch(layers, &self.editor, Message::Editor)
     }
 
     fn sync_popup(&mut self, popup: ActivePopup, open: bool) {

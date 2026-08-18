@@ -17,6 +17,7 @@ use core::Vfs;
 
 use crate::app::state::AnimState;
 use crate::app::theme;
+use crate::editor;
 use crate::widget::smooth_scroll;
 
 const FRAME_BORDER_WIDTH: f32 = 4.0;
@@ -273,9 +274,9 @@ impl State {
             frame_border(),
         ];
 
-        container(layers)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        editor::suppress(
+            container(layers).width(Length::Fill).height(Length::Fill),
+            self.overlay.selecting,
+        )
     }
 }
