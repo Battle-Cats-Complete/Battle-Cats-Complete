@@ -46,14 +46,74 @@ pub(crate) struct Context {
     explanation: Option<ExplanationTarget>,
 }
 
-struct ExplanationFile {
+struct AssetFile {
     name: String,
-    game: PathBuf,
+    game: Option<PathBuf>,
     mod_copy: Option<PathBuf>,
 }
 
+impl AssetFile {
+    fn source(&self) -> Option<&Path> {
+        self.game.as_deref().or(self.mod_copy.as_deref())
+    }
+}
+
+fn asset_files(app: &BattleCatsApp, base: &str) -> Vec<AssetFile> {
+    app.vault
+        .vfs
+        .variants(base)
+        .into_iter()
+        .map(|name| {
+            let game = app.vault.vfs.rooted_in(architecture::GAME, &name);
+            let mod_copy = mod_copy(app, &name);
+
+            AssetFile { name, game, mod_copy }
+        })
+        .collect()
+}
+
+struct Exception {
+    internal: String,
+    vanilla: Option<PathBuf>,
+    mod_copy: Option<PathBuf>,
+    variants: Vec<AssetFile>,
+}
+
+struct Scope<'a> {
+    name: &'a str,
+    source: Option<&'a Path>,
+    present: Option<&'a Path>,
+}
+
+fn exception(app: &BattleCatsApp, resolved: &Path) -> Option<Exception> {
+    let visible = resolved.file_name()?.to_string_lossy().into_owned();
+    let internal = app.vault.vfs.base_name(&visible).unwrap_or_else(|| visible.clone());
+    let variants = asset_files(app, &internal);
+
+    let vanilla = app
+        .vault
+        .vfs
+        .rooted_in(architecture::GAME, &visible)
+        .or_else(|| variants.iter().find_map(|file| file.game.clone()));
+
+    Some(Exception { mod_copy: mod_copy(app, &internal), variants, vanilla, internal })
+}
+
+impl Exception {
+    fn scopes(&self, in_mod: bool) -> Vec<Scope<'_>> {
+        if in_mod {
+            return vec![Scope { name: &self.internal, source: self.vanilla.as_deref(), present: self.mod_copy.as_deref() }];
+        }
+
+        self.variants
+            .iter()
+            .map(|file| Scope { name: &file.name, source: file.game.as_deref(), present: file.game.as_deref() })
+            .collect()
+    }
+}
+
 struct ExplanationTarget {
-    files: Vec<ExplanationFile>,
+    files: Vec<AssetFile>,
     label: String,
     row: usize,
     unlocked: bool,
@@ -61,11 +121,9 @@ struct ExplanationTarget {
 }
 
 struct IconTarget {
-    file: String,
-    game: Option<PathBuf>,
+    asset: Exception,
     unlocked: bool,
     active_mod: Option<String>,
-    mod_copy: Option<PathBuf>,
 }
 
 const ENEMY_HEADER_ROWS: usize = 2;
@@ -387,18 +445,7 @@ fn explanation_target(app: &BattleCatsApp) -> Option<ExplanationTarget> {
     let resolved = cat_waiter::unitexplanation_source(&app.vault.vfs, id, form)?;
     let file = resolved.file_name()?.to_string_lossy().into_owned();
 
-    let files: Vec<ExplanationFile> = app
-        .vault
-        .vfs
-        .variants(&cat_files::explanation_file(id))
-        .into_iter()
-        .filter_map(|name| {
-            let game = app.vault.vfs.rooted_in(architecture::GAME, &name)?;
-            let mod_copy = mod_copy(app, &name);
-
-            Some(ExplanationFile { name, game, mod_copy })
-        })
-        .collect();
+    let files = asset_files(app, &cat_files::explanation_file(id));
 
     if files.is_empty() {
         return None;
@@ -429,34 +476,26 @@ fn explanation_target(app: &BattleCatsApp) -> Option<ExplanationTarget> {
 }
 
 fn icon_target(app: &BattleCatsApp, target: Option<Target>) -> Option<IconTarget> {
-    let name = match target? {
+    let resolved = match target? {
         Target::CatIcon => {
             let id = app.app_state.cat.selected_cat?;
             let cat = app.cat_state.data.cats.iter().find(|cat| cat.id == id)?;
 
-            cat.deploy_icon_paths[app.app_state.cat.selected_form].as_ref()?.file_name()?
+            cat.deploy_icon_paths[app.app_state.cat.selected_form].as_ref()?
         }
         Target::EnemyIcon => {
             let id = app.app_state.enemy.selected_enemy?;
             let enemy = app.enemy_state.data.enemies.iter().find(|enemy| enemy.id == id)?;
 
-            enemy.icon_path.as_ref()?.file_name()?
+            enemy.icon_path.as_ref()?
         }
         _ => return None,
     };
 
-    let file = name.to_string_lossy().into_owned();
-    let active_mod = app.mods_state.active_mod();
-
-    let mod_copy = mod_copy(app, &file);
-    let game = app.vault.vfs.rooted_in(architecture::GAME, &file);
-
     Some(IconTarget {
-        file,
-        game,
+        asset: exception(app, resolved)?,
         unlocked: app.settings.files.unlock_game_mount,
-        active_mod,
-        mod_copy,
+        active_mod: app.mods_state.active_mod(),
     })
 }
 

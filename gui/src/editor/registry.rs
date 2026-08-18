@@ -5,7 +5,7 @@ use core::domains::import::architecture;
 use crate::app::{theme, Page};
 use crate::common::feedback::LOCKED_NOTICE;
 
-use super::{attributes, explanation, Action, CatTarget, Context, EnemyTarget, ExplanationTarget, FileTarget, IconTarget, Item};
+use super::{attributes, explanation, Action, CatTarget, Context, EnemyTarget, Exception, ExplanationTarget, FileTarget, IconTarget, Item, Scope};
 
 struct Mount<'a> {
     name: &'a str,
@@ -68,6 +68,31 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
     items
 }
 
+fn replace(scope: &Scope<'_>, mount: &Mount<'_>) -> Item {
+    let label = format!("Replace \"{}\" in \"{}\"", scope.name, mount.name);
+
+    if mount.locked {
+        return Item::disabled(label, LOCKED_NOTICE);
+    }
+
+    let Some(target_mod) = mount.target else {
+        let Some(path) = scope.present else {
+            return Item::disabled(label, format!("File does not exist in \"{}\"", mount.name));
+        };
+
+        let action = Action::ReplaceIcon { file: scope.name.to_owned(), target_mod: None, game: Some(path.to_path_buf()) };
+
+        return Item::new(label, action).confirming();
+    };
+
+    let action =
+        Action::ReplaceIcon { file: scope.name.to_owned(), target_mod: Some(target_mod.to_owned()), game: None };
+
+    let item = Item::new(label, action);
+
+    if scope.present.is_some() { item.confirming() } else { item }
+}
+
 fn remove(file: &str, mount: &Mount<'_>, present: Option<&Path>) -> Item {
     let label = format!("Remove \"{file}\" from \"{}\"", mount.name);
 
@@ -119,7 +144,7 @@ pub(super) fn explanation_plan(target: &ExplanationTarget, target_mod: Option<St
         target.row,
         [file.name.as_str(), target.label.as_str()].join(theme::HEADER_SEPARATOR),
         file.name.clone(),
-        &file.game,
+        file.source()?,
         target_mod,
     ))
 }
@@ -130,20 +155,18 @@ fn explanations(items: &mut Vec<Item>, target: &ExplanationTarget) {
     let edits = target
         .files
         .iter()
-        .map(|file| {
-            mount
-                .item(
-                    file.name.clone(),
-                    Action::EditExplanation(explanation::plan(
-                        target.row,
-                        [file.name.as_str(), target.label.as_str()].join(theme::HEADER_SEPARATOR),
-                        file.name.clone(),
-                        &file.game,
-                        mount.target.map(str::to_owned),
-                    )),
-                    false,
-                )
-                .relabel(file.name.clone())
+        .filter_map(|file| {
+            let plan = explanation::plan(
+                target.row,
+                [file.name.as_str(), target.label.as_str()].join(theme::HEADER_SEPARATOR),
+                file.name.clone(),
+                file.source()?,
+                mount.target.map(str::to_owned),
+            );
+
+            let item = mount.item(file.name.clone(), Action::EditExplanation(plan), false);
+
+            Some(item.relabel(file.name.clone()))
         })
         .collect();
 
@@ -153,7 +176,7 @@ fn explanations(items: &mut Vec<Item>, target: &ExplanationTarget) {
         .files
         .iter()
         .filter_map(|file| {
-            sync(&file.name, Some(&file.game), target.active_mod.as_deref(), file.mod_copy.is_some())
+            sync(&file.name, file.game.as_deref(), target.active_mod.as_deref(), file.mod_copy.is_some())
                 .map(|item| item.relabel(file.name.clone()))
         })
         .collect();
@@ -164,7 +187,7 @@ fn explanations(items: &mut Vec<Item>, target: &ExplanationTarget) {
         .files
         .iter()
         .map(|file| {
-            remove(&file.name, &mount, present(&mount, file.mod_copy.as_deref(), Some(&file.game)))
+            remove(&file.name, &mount, present(&mount, file.mod_copy.as_deref(), file.game.as_deref()))
                 .relabel(file.name.clone())
         })
         .collect();
@@ -175,18 +198,30 @@ fn explanations(items: &mut Vec<Item>, target: &ExplanationTarget) {
 fn icons(items: &mut Vec<Item>, icon: &IconTarget) {
     let mount = mount(icon.active_mod.as_deref(), icon.unlocked);
 
-    items.push(mount.item(
-        format!("Replace \"{}\" in \"{}\"", icon.file, mount.name),
-        Action::ReplaceIcon {
-            file: icon.file.clone(),
-            target_mod: mount.target.map(str::to_owned),
-            game: icon.game.clone(),
-        },
-        icon.mod_copy.is_some(),
-    ));
+    entries(items, &icon.asset, &mount);
+}
 
-    items.extend(sync(&icon.file, icon.game.as_deref(), icon.active_mod.as_deref(), icon.mod_copy.is_some()));
-    items.push(remove(&icon.file, &mount, present(&mount, icon.mod_copy.as_deref(), icon.game.as_deref())));
+fn entries(items: &mut Vec<Item>, exception: &Exception, mount: &Mount<'_>) {
+    let scopes = exception.scopes(mount.target.is_some());
+
+    let replaces = scopes.iter().map(|scope| replace(scope, mount).relabel(scope.name.to_owned())).collect();
+
+    items.extend(option(|name| format!("Replace \"{name}\" in \"{}\"", mount.name), replaces));
+
+    let syncs = scopes
+        .iter()
+        .filter_map(|scope| {
+            sync(scope.name, scope.source, mount.target, scope.present.is_some())
+                .map(|item| item.relabel(scope.name.to_owned()))
+        })
+        .collect();
+
+    items.extend(option(|name| format!("Sync \"{name}\" with game in \"{}\"", mount.name), syncs));
+
+    let removes =
+        scopes.iter().map(|scope| remove(scope.name, mount, scope.present).relabel(scope.name.to_owned())).collect();
+
+    items.extend(option(|name| format!("Remove \"{name}\" from \"{}\"", mount.name), removes));
 }
 
 fn present<'a>(mount: &Mount<'_>, mod_copy: Option<&'a Path>, game: Option<&'a Path>) -> Option<&'a Path> {
