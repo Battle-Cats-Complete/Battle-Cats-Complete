@@ -20,7 +20,6 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
     }
 
     if context.page == Page::Cats
-        && context.abilities
         && let Some(cat) = context.cat.as_ref()
     {
         cats(&mut items, cat);

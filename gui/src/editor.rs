@@ -26,12 +26,13 @@ pub(crate) use watch::watch;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Target {
     FileRow(usize),
+    CatAttributes,
+    EnemyAttributes,
 }
 
 pub(crate) struct Context {
     enabled: bool,
     page: Page,
-    abilities: bool,
     file: Option<FileTarget>,
     cat: Option<CatTarget>,
     enemy: Option<EnemyTarget>,
@@ -268,14 +269,13 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
     Context {
         enabled: app.settings.general.enable_nightly,
         page: app.current_page,
-        abilities: app.cat_state.selected_tab == DetailTab::Abilities,
         file: file_target(app, target),
-        cat: cat_target(app),
-        enemy: enemy_target(app),
+        cat: matches!(target, Some(Target::CatAttributes)).then(|| cat_subject(app)).flatten(),
+        enemy: matches!(target, Some(Target::EnemyAttributes)).then(|| enemy_subject(app)).flatten(),
     }
 }
 
-fn cat_target(app: &BattleCatsApp) -> Option<CatTarget> {
+fn cat_subject(app: &BattleCatsApp) -> Option<CatTarget> {
     if app.current_page != Page::Cats {
         return None;
     }
@@ -303,7 +303,7 @@ fn cat_target(app: &BattleCatsApp) -> Option<CatTarget> {
     })
 }
 
-fn enemy_target(app: &BattleCatsApp) -> Option<EnemyTarget> {
+fn enemy_subject(app: &BattleCatsApp) -> Option<EnemyTarget> {
     if app.current_page != Page::Enemies {
         return None;
     }
@@ -335,13 +335,13 @@ pub(crate) fn snapshot(app: &BattleCatsApp) -> Snapshot {
 }
 
 fn current_plan(app: &BattleCatsApp) -> Option<attributes::Plan> {
-    if let Some(cat) = cat_target(app) {
+    if let Some(cat) = cat_subject(app) {
         let active = cat.active_mod.clone();
 
         return Some(registry::cat_plan(&cat, active));
     }
 
-    let enemy = enemy_target(app)?;
+    let enemy = enemy_subject(app)?;
     let active = enemy.active_mod.clone();
 
     Some(registry::enemy_plan(&enemy, active))

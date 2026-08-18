@@ -42,6 +42,7 @@ use crate::app::state::{AppState, CatListState};
 use crate::app::theme;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
+use crate::editor;
 use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
@@ -886,14 +887,16 @@ impl State {
             is_conjure_unit: false,
         };
 
-        column![
-            self.view_stats(cat, &final_stats, self.selected_form),
-            Space::new().height(Length::Fixed(8.0)),
-            self.abilities.view(&cat_ctx, cat, global_ctx, &self.img015_sheets, &self.custom_assets, settings).map(Message::Abilities)
-        ]
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        editor::target(
+            column![
+                self.view_stats(cat, &final_stats, self.selected_form),
+                Space::new().height(Length::Fixed(8.0)),
+                self.abilities.view(&cat_ctx, cat, global_ctx, &self.img015_sheets, &self.custom_assets, settings).map(Message::Abilities)
+            ]
+                .width(Length::Fill)
+                .height(Length::Fill),
+            editor::Target::CatAttributes,
+        )
     }
 
     fn view_stats(&self, cat: &CatEntry, final_stats: &Entity, form: usize) -> Element<'_, Message> {

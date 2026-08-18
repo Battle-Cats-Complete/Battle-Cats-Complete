@@ -37,6 +37,7 @@ use crate::app::state::{AppState, EnemyListState};
 use crate::app::theme;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
+use crate::editor;
 use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
@@ -708,16 +709,18 @@ impl EnemyState {
 
         let enemy_ctx = RenderContext::enemy(global_ctx, stats, self.magnification);
 
-        column![
-            self.view_stats(enemy, stats),
-            Space::new().height(Length::Fixed(8.0)),
-            self.abilities.view(&enemy_ctx, &self.img015_sheets, &self.custom_assets, |items, layout| {
-                self.abilities.ability_list(items, &self.img015_sheets, &self.custom_assets, layout)
-            })
-        ]
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        editor::target(
+            column![
+                self.view_stats(enemy, stats),
+                Space::new().height(Length::Fixed(8.0)),
+                self.abilities.view(&enemy_ctx, &self.img015_sheets, &self.custom_assets, |items, layout| {
+                    self.abilities.ability_list(items, &self.img015_sheets, &self.custom_assets, layout)
+                })
+            ]
+                .width(Length::Fill)
+                .height(Length::Fill),
+            editor::Target::EnemyAttributes,
+        )
     }
 
     fn view_stats(&self, enemy: &EnemyEntry, stats: &Entity) -> Element<'_, Message> {
