@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "core"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
  "ab_glyph",
  "base64 0.23.1",
@@ -1963,7 +1963,7 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
  "arboard",
  "bytemuck",
