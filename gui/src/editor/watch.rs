@@ -14,7 +14,6 @@ pub(crate) fn watch<'a, M: Clone + 'a>(
     to_message: fn(Message) -> M,
 ) -> Element<'a, M> {
     let opened = state.open.as_ref();
-
     let armed = state.confirm.get().copied();
 
     let overlay: Element<'a, M> = opened.map_or_else(
@@ -101,8 +100,9 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
             return;
         };
 
+        let inside = cursor.is_over(overlay.bounds());
         let right_press = matches!(event, Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)));
-        let relocating = self.open && right_press && !cursor.is_over(overlay.bounds());
+        let relocating = self.open && right_press && !inside;
 
         if self.open {
             self.layers[MENU].as_widget_mut().update(
@@ -116,7 +116,7 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
                 viewport,
             );
 
-            if !relocating && dismisses(event, overlay.bounds(), cursor) {
+            if !relocating && dismisses(event, inside) {
                 shell.publish((self.to_message)(Message::Dismissed));
                 shell.capture_event();
                 shell.request_redraw();
@@ -232,9 +232,9 @@ fn is_input(event: &Event) -> bool {
     matches!(event, Event::Mouse(_) | Event::Keyboard(_) | Event::Touch(_))
 }
 
-fn dismisses(event: &Event, bounds: Rectangle, cursor: mouse::Cursor) -> bool {
+fn dismisses(event: &Event, inside: bool) -> bool {
     match event {
-        Event::Mouse(mouse::Event::ButtonPressed(_)) => !cursor.is_over(bounds),
+        Event::Mouse(mouse::Event::ButtonPressed(_)) => !inside,
         Event::Keyboard(keyboard::Event::KeyPressed { key: keyboard::Key::Named(Named::Escape), .. }) => true,
         _ => false,
     }

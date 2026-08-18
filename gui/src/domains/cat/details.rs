@@ -11,6 +11,7 @@ use core::domains::cat::scanner::CatEntry;
 use core::Vfs;
 
 use crate::common::item_icon;
+use crate::editor;
 use crate::widget::smooth_scroll;
 
 use super::Message;
@@ -83,12 +84,15 @@ impl State {
             .filter(|text| !text.trim().is_empty())
             .unwrap_or_else(|| "No description available".to_string());
 
-        let description_section = column![
-            text("Description").size(HEADING_SIZE),
-            text(description),
-        ]
-            .spacing(HEADING_BODY_GAP)
-            .width(Length::Fill);
+        let description_section = editor::target(
+            column![
+                text("Description").size(HEADING_SIZE),
+                text(description),
+            ]
+                .spacing(HEADING_BODY_GAP)
+                .width(Length::Fill),
+            editor::Target::CatExplanation,
+        );
 
         let mut content = column![description_section]
             .spacing(SECTION_SPACING)

@@ -5,7 +5,7 @@ use core::domains::import::architecture;
 use crate::app::Page;
 use crate::common::feedback::LOCKED_NOTICE;
 
-use super::{attributes, Action, CatTarget, Context, EnemyTarget, FileTarget, IconTarget, Item};
+use super::{attributes, explanation, Action, CatTarget, Context, EnemyTarget, ExplanationTarget, FileTarget, IconTarget, Item};
 
 struct Mount<'a> {
     name: &'a str,
@@ -61,6 +61,10 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
         icons(&mut items, icon);
     }
 
+    if let Some(target) = context.explanation.as_ref() {
+        explanations(&mut items, target);
+    }
+
     items
 }
 
@@ -92,6 +96,23 @@ fn sync(file: &str, game: Option<&Path>, active_mod: Option<&str>, shadowed: boo
     );
 
     Some(if shadowed { item.confirming() } else { item })
+}
+
+pub(super) fn explanation_plan(target: &ExplanationTarget, target_mod: Option<String>) -> explanation::Plan {
+    explanation::plan(target.row, target.label.clone(), target.file.clone(), &target.game, target_mod)
+}
+
+fn explanations(items: &mut Vec<Item>, target: &ExplanationTarget) {
+    let mount = mount(target.active_mod.as_deref(), target.unlocked);
+
+    items.push(mount.item(
+        format!("Edit \"{}\" in \"{}\"", target.file, mount.name),
+        Action::EditExplanation(explanation_plan(target, mount.target.map(str::to_owned))),
+        false,
+    ));
+
+    items.extend(sync(&target.file, Some(&target.game), target.active_mod.as_deref(), target.mod_copy.is_some()));
+    items.push(remove(&target.file, &mount, present(&mount, target.mod_copy.as_deref(), Some(&target.game))));
 }
 
 fn icons(items: &mut Vec<Item>, icon: &IconTarget) {

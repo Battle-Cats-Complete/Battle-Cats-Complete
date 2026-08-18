@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 
 use nyanko::cat::unitid;
 use nyanko::cat::unit::UnitExplanation;
@@ -31,6 +32,33 @@ pub fn unitexplanation(vfs: &Vfs, cat_id: u32) -> UnitExplanation {
     }
 
     final_explanation
+}
+
+pub fn unitexplanation_source(vfs: &Vfs, cat_id: u32, form: usize) -> Option<PathBuf> {
+    let base_filename = format!("Unit_Explanation{}.csv", cat_id + 1);
+    let mut fallback = None;
+
+    for file_path in vfs.list(&base_filename) {
+        let Ok(bytes) = fs::read(&file_path) else {
+            continue;
+        };
+
+        let Ok(parsed) = UnitExplanation::parse(&bytes) else {
+            continue;
+        };
+
+        if parsed.names.get(form).is_some_and(Option::is_some)
+            || parsed.descriptions.get(form).is_some_and(Option::is_some)
+        {
+            return Some(file_path);
+        }
+
+        if fallback.is_none() {
+            fallback = Some(file_path);
+        }
+    }
+
+    fallback.or_else(|| vfs.find(&base_filename))
 }
 
 pub fn unitid(vfs: &Vfs, cat_id: i32) -> Option<Vec<Entity>> {

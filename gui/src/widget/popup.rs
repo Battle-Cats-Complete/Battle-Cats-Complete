@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::app::theme;
 
 const HEADER_HEIGHT: f32 = 28.0;
+
+pub(crate) const CHROME_HEIGHT: f32 = HEADER_HEIGHT + FRAME_BORDER_WIDTH * 2.0;
 const HEADER_MARGIN_X: f32 = 50.0;
 const HEADER_MARGIN_Y: f32 = 30.0;
 const DEFAULT_BODY_ALPHA: f32 = 1.0;
@@ -65,9 +67,10 @@ pub enum Kind {
     InitErrors,
     CatAttributes,
     EnemyAttributes,
+    Explanation,
 }
 
-const KIND_COUNT: usize = 15;
+const KIND_COUNT: usize = 16;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -85,6 +88,7 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::InitErrors,
     Kind::CatAttributes,
     Kind::EnemyAttributes,
+    Kind::Explanation,
 ];
 
 impl Kind {
@@ -105,6 +109,7 @@ impl Kind {
             Self::InitErrors => "init_errors",
             Self::CatAttributes => "cat_attributes",
             Self::EnemyAttributes => "enemy_attributes",
+            Self::Explanation => "explanation",
         }
     }
 
