@@ -21,7 +21,8 @@ pub(super) static CAT: Schema = Schema { subject: Subject::Cat, comments: true }
 pub(super) static ENEMY: Schema = Schema { subject: Subject::Enemy, comments: false };
 
 const CAT_NAMES: &[(&str, &str)] = &[
-    ("attack_1", "Attack 1 Damage"),
+    ("hitpoints", "Base Hitpoints"),
+    ("attack_1", "Attack 1 Base Damage"),
     ("eoc1_cost", "EoC1 Cost"),
     ("trait_red", "Target Red"),
     ("trait_floating", "Target Floating"),
@@ -33,17 +34,18 @@ const CAT_NAMES: &[(&str, &str)] = &[
     ("trait_zombie", "Target Zombie"),
     ("is_metal", "Metal"),
     ("trait_witch", "Target Witch"),
-    ("attack_2", "Attack 2 Damage"),
-    ("attack_3", "Attack 3 Damage"),
+    ("attack_2", "Attack 2 Base Damage"),
+    ("attack_3", "Attack 3 Base Damage"),
     ("trait_eva", "Target Eva"),
     ("trait_relic", "Target Relic"),
     ("trait_aku", "Target Aku"),
 ];
 
 const ENEMY_NAMES: &[(&str, &str)] = &[
-    ("attack_1", "Attack 1 Damage"),
-    ("attack_2", "Attack 2 Damage"),
-    ("attack_3", "Attack 3 Damage"),
+    ("hitpoints", "Base Hitpoints"),
+    ("attack_1", "Attack 1 Base Damage"),
+    ("attack_2", "Attack 2 Base Damage"),
+    ("attack_3", "Attack 3 Base Damage"),
 ];
 
 static CAT_LABELS: LazyLock<Vec<String>> = LazyLock::new(|| labels(unitid::COLUMNS, CAT_NAMES));
