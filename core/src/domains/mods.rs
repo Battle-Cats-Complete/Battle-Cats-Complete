@@ -5,6 +5,8 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -36,43 +38,77 @@ pub fn taken(mods_root: &Path, candidate: &str) -> bool {
     })
 }
 
+type Sweep<'a> = (Vec<(&'a str, PathBuf)>, Vec<PathBuf>);
+
+fn descends(entry: &fs::DirEntry, path: &Path) -> bool {
+    entry.file_type().map_or_else(
+        |_| path.is_dir(),
+        |kind| if kind.is_symlink() { path.is_dir() } else { kind.is_dir() },
+    )
+}
+
 pub fn locate(mod_dir: &Path, filename: &str) -> Option<PathBuf> {
+    locate_many(mod_dir, [filename]).remove(filename)
+}
+
+pub fn locate_many<'a>(mod_dir: &Path, names: impl IntoIterator<Item = &'a str>) -> FxHashMap<&'a str, PathBuf> {
+    let mut wanted: FxHashSet<&str> = names.into_iter().collect();
+    let mut found: FxHashMap<&str, PathBuf> = FxHashMap::default();
     let mut level = vec![mod_dir.to_path_buf()];
     let mut top = true;
 
-    while !level.is_empty() {
-        let mut hits = Vec::new();
+    while !level.is_empty() && !wanted.is_empty() {
+        let scanned: Vec<Sweep<'_>> = level
+            .par_iter()
+            .map(|dir| {
+                let mut hits = Vec::new();
+                let mut next = Vec::new();
+
+                let Ok(entries) = fs::read_dir(dir) else { return (hits, next) };
+
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let Some(name) = path.file_name().and_then(OsStr::to_str) else { continue };
+
+                    if descends(&entry, &path) {
+                        if !top || !architecture::MOD_TRANSIENT.contains(&name) {
+                            next.push(path);
+                        }
+                        continue;
+                    }
+
+                    if let Some(&target) = wanted.get(name) {
+                        hits.push((target, path));
+                    }
+                }
+
+                (hits, next)
+            })
+            .collect();
+
+        let mut hits: FxHashMap<&str, PathBuf> = FxHashMap::default();
         let mut next = Vec::new();
 
-        for dir in &level {
-            let Ok(entries) = fs::read_dir(dir) else { continue };
-
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let Some(name) = path.file_name().and_then(OsStr::to_str) else { continue };
-
-                if path.is_dir() {
-                    if !top || !architecture::MOD_TRANSIENT.contains(&name) {
-                        next.push(path);
-                    }
-                    continue;
-                }
-
-                if name == filename {
-                    hits.push(path);
+        for (found_here, descend_into) in scanned {
+            for (target, path) in found_here {
+                if hits.get(target).is_none_or(|existing| path < *existing) {
+                    hits.insert(target, path);
                 }
             }
+
+            next.extend(descend_into);
         }
 
-        if let Some(found) = hits.into_iter().min() {
-            return Some(found);
+        for (name, path) in hits {
+            wanted.remove(name);
+            found.insert(name, path);
         }
 
         level = next;
         top = false;
     }
 
-    None
+    found
 }
 
 pub fn enable(vault: &Vault, name: &str) -> Result<Vec<Conflict>, VfsError> {
@@ -102,6 +138,10 @@ pub fn find(mod_name: &str, source: &Path) -> Option<PathBuf> {
     let name = source.file_name().and_then(OsStr::to_str)?;
 
     locate(&Path::new(MODS_ROOT).join(mod_name), name)
+}
+
+pub fn find_all<'a>(mod_name: &str, names: impl IntoIterator<Item = &'a str>) -> FxHashMap<&'a str, PathBuf> {
+    locate_many(&Path::new(MODS_ROOT).join(mod_name), names)
 }
 
 pub fn place(mod_name: &str, source: &Path, name: &str) -> Result<PathBuf, std::io::Error> {

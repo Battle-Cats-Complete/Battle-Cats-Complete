@@ -10,6 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use iced::{Element, Point, Size, Task};
+use rustc_hash::FxHashMap;
 use tracing::{info, trace, warn};
 
 use core::domains::cat::files as cat_files;
@@ -56,17 +57,29 @@ struct AssetFile {
 }
 
 fn asset_files(app: &BattleCatsApp, base: &str) -> Vec<AssetFile> {
-    app.vault
-        .vfs
-        .variants(base)
+    let names = app.vault.vfs.variants(base);
+
+    let copies: Vec<Option<PathBuf>> = {
+        let located = mod_copies(app, &names);
+
+        names.iter().map(|name| located.get(name.as_str()).cloned()).collect()
+    };
+
+    names
         .into_iter()
-        .map(|name| {
+        .zip(copies)
+        .map(|(name, mod_copy)| {
             let game = app.vault.vfs.rooted_in(architecture::GAME, &name);
-            let mod_copy = mod_copy(app, &name);
 
             AssetFile { name, game, mod_copy }
         })
         .collect()
+}
+
+fn mod_copies<'a>(app: &BattleCatsApp, names: &'a [String]) -> FxHashMap<&'a str, PathBuf> {
+    app.mods_state.active_mod().map_or_else(FxHashMap::default, |active| {
+        mods::find_all(&active, names.iter().map(String::as_str))
+    })
 }
 
 struct Exception {
@@ -283,12 +296,23 @@ pub(crate) struct State {
     cats: attributes::State,
     enemies: attributes::State,
     prose: [prose::State; prose::COUNT],
+    synced: Option<Key>,
 }
 
 pub(crate) struct Snapshot {
     page: Page,
     plan: Option<attributes::Plan>,
     prose: [Vec<prose::Plan>; prose::COUNT],
+}
+
+#[derive(PartialEq)]
+pub(crate) struct Key {
+    page: Page,
+    cat: Option<u32>,
+    form: usize,
+    enemy: Option<u32>,
+    unlocked: bool,
+    active_mod: Option<String>,
 }
 
 struct Open {
@@ -388,7 +412,17 @@ impl State {
         self.prose[subject.slot()].drafting()
     }
 
-    pub(crate) fn sync(&mut self, snapshot: Snapshot) {
+    pub(crate) fn stale(&self, key: &Key) -> bool {
+        self.synced.as_ref() != Some(key) || self.drifted()
+    }
+
+    fn drifted(&self) -> bool {
+        self.cats.drifted() || self.enemies.drifted() || self.prose.iter().any(prose::State::drifted)
+    }
+
+    pub(crate) fn sync(&mut self, snapshot: Snapshot, key: Key) {
+        self.synced = Some(key);
+
         for subject in prose::SUBJECTS {
             if subject.page() != snapshot.page {
                 continue;
@@ -702,6 +736,17 @@ fn enemy_subject(app: &BattleCatsApp) -> Option<EnemyTarget> {
         unlocked: app.settings.files.unlock_game_mount,
         active_mod: app.mods_state.active_mod(),
     })
+}
+
+pub(crate) fn key(app: &BattleCatsApp) -> Key {
+    Key {
+        page: app.current_page,
+        cat: app.app_state.cat.selected_cat,
+        form: app.app_state.cat.selected_form,
+        enemy: app.app_state.enemy.selected_enemy,
+        unlocked: app.settings.files.unlock_game_mount,
+        active_mod: app.mods_state.active_mod(),
+    }
 }
 
 pub(crate) fn snapshot(app: &BattleCatsApp, editor: &State) -> Snapshot {
