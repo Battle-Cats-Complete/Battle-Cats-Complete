@@ -186,6 +186,10 @@ impl State {
         self.confirm.expire();
     }
 
+    pub(super) fn drafting(&self) -> bool {
+        self.draft.is_some()
+    }
+
     pub(super) fn sync(&mut self, plans: &[Plan]) {
         let Some(current) = self.draft.as_ref() else {
             return;

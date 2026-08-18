@@ -230,6 +230,10 @@ impl State {
         self.draft = Draft::load(plan);
     }
 
+    pub(super) fn drafting(&self) -> bool {
+        self.draft.is_some()
+    }
+
     pub(super) fn sync(&mut self, plan: Option<Plan>) {
         let Some(current) = self.draft.as_ref() else {
             return;

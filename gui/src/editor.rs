@@ -372,6 +372,22 @@ impl State {
             .map(|view| view.map(move |inner| Message::Attributes(subject, inner)))
     }
 
+    pub(crate) fn drafting(&self) -> bool {
+        self.cats.drafting() || self.enemies.drafting() || self.prose.iter().any(prose::State::drafting)
+    }
+
+    fn attributes_drafting(&self, page: Page) -> bool {
+        match page {
+            Page::Cats => self.cats.drafting(),
+            Page::Enemies => self.enemies.drafting(),
+            _ => false,
+        }
+    }
+
+    fn prose_drafting(&self, subject: prose::Subject) -> bool {
+        self.prose[subject.slot()].drafting()
+    }
+
     pub(crate) fn sync(&mut self, snapshot: Snapshot) {
         for subject in prose::SUBJECTS {
             if subject.page() != snapshot.page {
@@ -688,12 +704,12 @@ fn enemy_subject(app: &BattleCatsApp) -> Option<EnemyTarget> {
     })
 }
 
-pub(crate) fn snapshot(app: &BattleCatsApp) -> Snapshot {
+pub(crate) fn snapshot(app: &BattleCatsApp, editor: &State) -> Snapshot {
     Snapshot {
         page: app.current_page,
-        plan: current_plan(app),
+        plan: editor.attributes_drafting(app.current_page).then(|| current_plan(app)).flatten(),
         prose: prose::SUBJECTS.map(|subject| {
-            if subject.page() != app.current_page {
+            if subject.page() != app.current_page || !editor.prose_drafting(subject) {
                 return Vec::new();
             }
 

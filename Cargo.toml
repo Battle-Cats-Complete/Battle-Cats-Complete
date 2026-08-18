@@ -17,7 +17,7 @@ repository = "https://github.com/omochikaeri15/battle-cats-complete"
 nyanko = { git = "https://github.com/omochikaeri15/nyanko" }
 
 #[patch."https://github.com/omochikaeri15/nyanko"]
-#nyanko = { path = "../nyanko" }
+#THING itnyanko = { path = "../nyanko" }
 
 [profile.release]
 strip = true

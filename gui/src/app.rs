@@ -547,6 +547,15 @@ impl BattleCatsApp {
         self.rescan_units()
     }
 
+    fn sync_editor(&mut self) {
+        if !self.editor.drafting() {
+            return;
+        }
+
+        let snapshot = editor::snapshot(self, &self.editor);
+        self.editor.sync(snapshot);
+    }
+
     fn clear_indexing(&mut self) {
         self.cat_state.clear_indexing();
         self.enemy_state.clear_indexing();
@@ -796,8 +805,7 @@ impl BattleCatsApp {
             }
             Message::FilesChanged(Change::Batch(paths)) => {
                 let task = self.apply_changes(paths);
-                let snapshot = editor::snapshot(self);
-                self.editor.sync(snapshot);
+                self.sync_editor();
 
                 task
             }
@@ -827,8 +835,7 @@ impl BattleCatsApp {
                 let loaded = matches!(msg, cat::Message::Loaded(..));
                 let task = self.cat_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
                 self.cat_state.sync_state(&mut self.app_state.cat);
-                let snapshot = editor::snapshot(self);
-                self.editor.sync(snapshot);
+                self.sync_editor();
                 self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open(&self.app_state));
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
 
@@ -850,8 +857,7 @@ impl BattleCatsApp {
                     self.stage_state.sync_enemies(&self.enemy_state.data.enemies);
                 }
                 self.enemy_state.sync_state(&mut self.app_state.enemy);
-                let snapshot = editor::snapshot(self);
-                self.editor.sync(snapshot);
+                self.sync_editor();
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
                 self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open(&self.app_state));
 
