@@ -17,6 +17,7 @@ const FIELD_HEIGHT: f32 = INPUT_SIZE * 1.3 + PADDING * 2.0;
 const SYNC_HEIGHT: f32 = INPUT_SIZE * 1.3 + (PADDING + 1.0) * 2.0;
 
 const POPUP_WIDTH: f32 = 420.0;
+const NARROW_WIDTH: f32 = POPUP_WIDTH * 0.6;
 
 const EXPLANATION_LABELS: &[&str] = &[
     "Name...",
@@ -29,7 +30,6 @@ const EXPLANATION_LABELS: &[&str] = &[
 const ENEMY_NAME_LABELS: &[&str] = &["Name..."];
 
 const ENEMY_DESCRIPTION_LABELS: &[&str] = &[
-    "Name Format (%s)...",
     "Description Line 1...",
     "Description Line 2...",
     "Description Line 3...",
@@ -85,6 +85,20 @@ impl Subject {
     fn delimited(self) -> bool {
         !matches!(self, Self::EnemyName)
     }
+
+    fn skipped(self) -> usize {
+        match self {
+            Self::EnemyDescription => 1,
+            Self::Explanation | Self::EnemyName => 0,
+        }
+    }
+
+    fn width(self) -> f32 {
+        match self {
+            Self::EnemyName => NARROW_WIDTH,
+            Self::Explanation | Self::EnemyDescription => POPUP_WIDTH,
+        }
+    }
 }
 
 fn spec(subject: Subject) -> popup::Spec {
@@ -96,7 +110,7 @@ fn spec(subject: Subject) -> popup::Spec {
         + BODY_PADDING * 3.0
         + popup::CHROME_HEIGHT;
 
-    popup::Spec::new(subject.kind(), Size::new(POPUP_WIDTH, height))
+    popup::Spec::new(subject.kind(), Size::new(subject.width(), height))
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +168,7 @@ struct Draft {
     stamp: Stamp,
     delimiter: Option<char>,
     lines: Vec<String>,
+    head: Vec<String>,
     fields: Vec<String>,
     tail: Vec<String>,
     failed: bool,
@@ -251,10 +266,9 @@ impl Draft {
         let body = file::scrub(&bytes);
         let delimiter = plan.subject.delimited().then(|| separator(&body));
         let lines: Vec<String> = body.lines().map(str::to_owned).collect();
-        let source = lines.get(plan.row).map_or("", String::as_str);
-        let (fields, tail) = row(source, delimiter, plan.subject.labels().len());
+        let (head, fields, tail) = parse(&body, plan.row, delimiter, plan.subject);
 
-        Some(Draft { plan, read_from, stamp, delimiter, lines, fields, tail, failed: false })
+        Some(Draft { plan, read_from, stamp, delimiter, lines, head, fields, tail, failed: false })
     }
 
     fn edit(&mut self, index: usize, value: String) {
@@ -280,10 +294,8 @@ impl Draft {
 
         let body = file::scrub(&bytes);
         let delimiter = self.plan.subject.delimited().then(|| separator(&body));
-        let vanilla: Vec<&str> = body.lines().collect();
-        let source = vanilla.get(self.plan.row).copied().unwrap_or_default();
-
-        let (fields, tail) = row(source, delimiter, self.plan.subject.labels().len());
+        let (head, fields, tail) = parse(&body, self.plan.row, delimiter, self.plan.subject);
+        self.head = head;
         self.fields = fields;
         self.tail = tail;
         self.commit();
@@ -316,7 +328,7 @@ impl Draft {
             self.lines.push(String::new());
         }
 
-        let joined = join(&self.fields, &self.tail, self.delimiter);
+        let joined = join(&self.head, &self.fields, &self.tail, self.delimiter);
         let Some(slot) = self.lines.get_mut(self.plan.row) else {
             self.failed = true;
 
@@ -383,23 +395,45 @@ fn separator(body: &str) -> char {
     if body.contains('|') { '|' } else { file::detect_separator(body) }
 }
 
-fn row(line: &str, delimiter: Option<char>, count: usize) -> (Vec<String>, Vec<String>) {
+fn parse(body: &str, index: usize, delimiter: Option<char>, subject: Subject) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let skip = subject.skipped();
+    let source = body.lines().nth(index).unwrap_or_default();
+    let (head, fields, tail) = row(source, delimiter, skip, subject.labels().len());
+
+    if skip == 0 || filled(&head) {
+        return (head, fields, tail);
+    }
+
+    let borrowed = body
+        .lines()
+        .map(|line| row(line, delimiter, skip, 0).0)
+        .find(|candidate| filled(candidate));
+
+    (borrowed.unwrap_or(head), fields, tail)
+}
+
+fn filled(head: &[String]) -> bool {
+    head.iter().any(|field| !field.trim().is_empty())
+}
+
+fn row(line: &str, delimiter: Option<char>, skip: usize, count: usize) -> (Vec<String>, Vec<String>, Vec<String>) {
     let Some(delimiter) = delimiter else {
-        return (vec![line.trim().to_owned()], Vec::new());
+        return (Vec::new(), vec![line.trim().to_owned()], Vec::new());
     };
 
     let mut parts = line.split(delimiter);
+    let head = (0..skip).map(|_| parts.next().unwrap_or_default().to_owned()).collect();
     let fields = (0..count).map(|_| parts.next().unwrap_or_default().trim().to_owned()).collect();
 
-    (fields, parts.map(str::to_owned).collect())
+    (head, fields, parts.map(str::to_owned).collect())
 }
 
-fn join(fields: &[String], tail: &[String], delimiter: Option<char>) -> String {
+fn join(head: &[String], fields: &[String], tail: &[String], delimiter: Option<char>) -> String {
     let Some(delimiter) = delimiter else {
         return fields.first().cloned().unwrap_or_default();
     };
 
-    let parts: Vec<&str> = fields.iter().chain(tail).map(String::as_str).collect();
+    let parts: Vec<&str> = head.iter().chain(fields).chain(tail).map(String::as_str).collect();
 
     parts.join(&delimiter.to_string())
 }

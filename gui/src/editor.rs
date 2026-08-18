@@ -348,7 +348,7 @@ impl State {
 
     pub(crate) fn popup_view(&self, app: &BattleCatsApp, window: Size) -> Option<Element<'_, Message>> {
         for subject in prose::SUBJECTS {
-            if subject.page() != app.current_page {
+            if subject.page() != app.current_page || !prose_tab(app, subject) {
                 continue;
             }
 
@@ -474,6 +474,13 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
         enemy: matches!(target, Some(Target::EnemyAttributes)).then(|| enemy_subject(app)).flatten(),
         icon: icon_target(app, target),
         prose: prose_subject(target).and_then(|subject| prose_target(app, subject)),
+    }
+}
+
+fn prose_tab(app: &BattleCatsApp, subject: prose::Subject) -> bool {
+    match subject {
+        prose::Subject::EnemyDescription => app.enemy_state.selected_tab == EnemyTab::Details,
+        prose::Subject::Explanation | prose::Subject::EnemyName => true,
     }
 }
 
