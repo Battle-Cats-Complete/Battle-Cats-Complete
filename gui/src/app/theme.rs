@@ -6,6 +6,8 @@ use iced::widget::text::Text;
 use iced::widget::{button, container, pick_list, progress_bar, text, text_editor, text_input, toggler, Button};
 use iced::{font, Background, Border, Color, Length, Theme};
 
+pub const HEADER_SEPARATOR: &str = " :: ";
+
 pub const RADIUS_SM: f32 = 4.0;
 pub const RADIUS_MD: f32 = 6.0;
 pub const RADIUS_LG: f32 = 8.0;

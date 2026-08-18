@@ -39,7 +39,6 @@ const HEADER_PADDING: f32 = 10.0;
 const HEADER_TEXT_SIZE: f32 = 13.0;
 const HEADER_TOP_GAP: f32 = 3.0;
 const HEADER_BODY_GAP: f32 = 3.0;
-const HEADER_SEPARATOR: &str = " :: ";
 const HEADER_EMPTY: &str = "Please select a file";
 
 const PICKER_GAP: f32 = 4.0;
@@ -453,7 +452,7 @@ impl State {
         let mount = self.mount.as_deref()?;
         let name = self.selected.as_deref()?.file_name()?.to_str()?;
 
-        Some(format!("{}{}{}", mount, HEADER_SEPARATOR, name))
+        Some(format!("{}{}{}", mount, theme::HEADER_SEPARATOR, name))
     }
 
     pub(crate) fn view(&self) -> Element<'_, Message> {

@@ -1,17 +1,21 @@
 mod menu;
 mod registry;
+mod stats;
 mod target;
 mod watch;
 
 use std::fs;
 use std::path::PathBuf;
 
-use iced::{Point, Task};
+use iced::{Element, Point, Size, Task};
 use tracing::{info, trace, warn};
 
+use core::domains::cat::files as cat_files;
+use core::domains::import::architecture;
 use core::domains::mods;
 
-use crate::app::{BattleCatsApp, Page};
+use crate::app::{theme, BattleCatsApp, Page};
+use crate::domains::cat::DetailTab;
 use crate::common::feedback::Slot;
 
 pub(crate) use target::{suppress, target};
@@ -25,7 +29,32 @@ pub enum Target {
 pub(crate) struct Context {
     enabled: bool,
     page: Page,
+    abilities: bool,
     file: Option<FileTarget>,
+    cat: Option<CatTarget>,
+}
+
+const FORM_LABELS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
+
+struct CatTarget {
+    id: u32,
+    file: String,
+    name: Option<String>,
+    source: PathBuf,
+    form: usize,
+    unlocked: bool,
+    active_mod: Option<String>,
+}
+
+impl CatTarget {
+    fn title(&self) -> String {
+        let form = FORM_LABELS.get(self.form).copied().unwrap_or("Unknown");
+
+        match self.name.as_deref() {
+            Some(name) => [name, form, self.file.as_str()].join(theme::HEADER_SEPARATOR),
+            None => [self.file.as_str(), form].join(theme::HEADER_SEPARATOR),
+        }
+    }
 }
 
 struct FileTarget {
@@ -44,6 +73,7 @@ pub enum Message {
     Dismissed,
     Invoked(usize),
     ConfirmExpired,
+    Stats(stats::Message),
 }
 
 struct Item {
@@ -71,27 +101,14 @@ impl Item {
 enum Action {
     AddFileToMod { source: PathBuf, target_mod: String },
     DeleteFile { source: PathBuf },
-}
-
-impl Action {
-    fn run(&self) {
-        match self {
-            Self::AddFileToMod { source, target_mod } => match mods::adopt(target_mod, source) {
-                Ok(path) => info!(path = %path.display(), "Added a file to a mod"),
-                Err(err) => warn!(source = %source.display(), "Failed to add the file to the mod: {}", err),
-            },
-            Self::DeleteFile { source } => match fs::remove_file(source) {
-                Ok(()) => info!(path = %source.display(), "Deleted a mod file"),
-                Err(err) => warn!(path = %source.display(), "Failed to delete the file: {}", err),
-            },
-        }
-    }
+    ModifyStats(stats::Plan),
 }
 
 #[derive(Default)]
 pub(crate) struct State {
     open: Option<Open>,
     confirm: Slot<usize>,
+    stats: stats::State,
 }
 
 struct Open {
@@ -128,7 +145,34 @@ impl State {
                 self.confirm.expire();
                 Task::none()
             }
+            Message::Stats(msg) => self.stats.update(msg).map(Message::Stats),
             Message::Opened(..) => Task::none(),
+        }
+    }
+
+    pub(crate) fn popup_view(&self, page: Page, tab: DetailTab, window: Size) -> Option<Element<'_, Message>> {
+        if page != Page::Cats || tab != DetailTab::Abilities {
+            return None;
+        }
+
+        self.stats.view(window).map(|view| view.map(Message::Stats))
+    }
+
+    pub(crate) fn sync(&mut self, plan: Option<stats::Plan>) {
+        self.stats.sync(plan);
+    }
+
+    fn perform(&mut self, action: &Action) {
+        match action {
+            Action::AddFileToMod { source, target_mod } => match mods::adopt(target_mod, source) {
+                Ok(path) => info!(path = %path.display(), "Added a file to a mod"),
+                Err(err) => warn!(source = %source.display(), "Failed to add the file to the mod: {}", err),
+            },
+            Action::DeleteFile { source } => match fs::remove_file(source) {
+                Ok(()) => info!(path = %source.display(), "Deleted a mod file"),
+                Err(err) => warn!(path = %source.display(), "Failed to delete the file: {}", err),
+            },
+            Action::ModifyStats(plan) => self.stats.begin(plan.clone()),
         }
     }
 
@@ -157,7 +201,7 @@ impl State {
         };
 
         if let Some(action) = open.items.get(index).and_then(|item| item.action.as_ref()) {
-            action.run();
+            self.perform(action);
         }
 
         Task::none()
@@ -168,8 +212,45 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
     Context {
         enabled: app.settings.general.enable_nightly,
         page: app.current_page,
+        abilities: app.cat_state.selected_tab == DetailTab::Abilities,
         file: file_target(app, target),
+        cat: cat_target(app),
     }
+}
+
+fn cat_target(app: &BattleCatsApp) -> Option<CatTarget> {
+    if app.current_page != Page::Cats {
+        return None;
+    }
+
+    let id = app.app_state.cat.selected_cat?;
+    let file = cat_files::stats_file(id);
+    let source = app.vault.vfs.rooted_in(architecture::GAME, &file)?;
+    let form = app.app_state.cat.selected_form;
+
+    let name = app
+        .cat_state
+        .data
+        .cats
+        .iter()
+        .find(|cat| cat.id == id)
+        .and_then(|cat| cat.names.get(form).cloned().flatten());
+
+    Some(CatTarget {
+        id,
+        file,
+        name,
+        source,
+        form,
+        unlocked: app.settings.files.unlock_game_mount,
+        active_mod: app.mods_state.active_mod(),
+    })
+}
+
+pub(crate) fn cat_plan(app: &BattleCatsApp) -> Option<stats::Plan> {
+    let cat = cat_target(app)?;
+
+    Some(registry::stats_plan(&cat, cat.active_mod.clone()))
 }
 
 fn file_target(app: &BattleCatsApp, target: Option<Target>) -> Option<FileTarget> {

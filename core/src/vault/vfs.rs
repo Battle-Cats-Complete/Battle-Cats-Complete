@@ -409,6 +409,13 @@ impl Vfs {
         mounts.get(mount)?.files.get(name).map(|entry| entry.path.clone())
     }
 
+    pub fn rooted_in(&self, mount: &str, name: &str) -> Option<PathBuf> {
+        let mounts = self.mounts.read().ok()?;
+        let indexed = mounts.get(mount)?;
+
+        indexed.files.get(name).map(|entry| indexed.root.join(&entry.path))
+    }
+
     pub fn browse(&self, mount: &str, dir: &Path) -> Option<Listing> {
         let mounts = self.mounts.read().ok()?;
         let indexed = mounts.get(mount)?;

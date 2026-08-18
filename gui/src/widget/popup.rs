@@ -21,6 +21,32 @@ const GRIP_INSET: f32 = FRAME_BORDER_WIDTH;
 const GRIP_BAND: f32 = GRIP_OUTSET + GRIP_INSET;
 const GRIP_CORNER: f32 = 14.0;
 const HIGHLIGHT_CORNER: f32 = 26.0;
+const TITLE_SIZE: f32 = 14.0;
+const TITLE_RESERVE: f32 = 34.0;
+const TITLE_GLYPH_RATIO: f32 = 0.55;
+const ELLIPSIS: char = '…';
+
+fn fitted(title: &str, room: f32) -> String {
+    let budget = (room / (TITLE_SIZE * TITLE_GLYPH_RATIO)).floor() as usize;
+    let length = title.chars().count();
+
+    if length <= budget {
+        return title.to_owned();
+    }
+
+    if budget < 4 {
+        return String::from(ELLIPSIS);
+    }
+
+    let keep = budget - 1;
+    let head = keep.div_ceil(2);
+    let tail = keep - head;
+
+    let start: String = title.chars().take(head).collect();
+    let end: String = title.chars().skip(length - tail).collect();
+
+    format!("{start}{ELLIPSIS}{end}")
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
@@ -37,9 +63,10 @@ pub enum Kind {
     Notice,
     Updater,
     InitErrors,
+    CatStats,
 }
 
-const KIND_COUNT: usize = 13;
+const KIND_COUNT: usize = 14;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -55,6 +82,7 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::Notice,
     Kind::Updater,
     Kind::InitErrors,
+    Kind::CatStats,
 ];
 
 impl Kind {
@@ -73,6 +101,7 @@ impl Kind {
             Self::Notice => "notice",
             Self::Updater => "updater",
             Self::InitErrors => "init_errors",
+            Self::CatStats => "cat_stats",
         }
     }
 
@@ -286,7 +315,15 @@ impl State {
             .padding(2.0)
             .on_press(to_message(Message::Close));
 
-        let title_layer = container(text(title).size(14))
+        let room = (size.width - TITLE_RESERVE * 2.0).max(0.0);
+
+        let title_layer = container(text(fitted(title, room)).size(TITLE_SIZE).wrapping(text::Wrapping::None))
+            .width(Length::Fixed(room))
+            .height(Length::Fill)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center);
+
+        let title_layer = container(title_layer)
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(Alignment::Center)

@@ -17,6 +17,7 @@ const SHAPING: text::Shaping = text::Shaping::Advanced;
 const WRAPPING: text::Wrapping = text::Wrapping::None;
 const SAFETY: f32 = 1.0;
 const TOOLTIP_PADDING: f32 = 8.0;
+const TOOLTIP_GAP: f32 = FRAME_PADDING + BORDER_WIDTH + 4.0;
 
 type Paragraph = <iced::Renderer as text::Renderer>::Paragraph;
 
@@ -90,7 +91,7 @@ fn entry<'a, M: Clone + 'a>(
         .padding(TOOLTIP_PADDING)
         .style(container::bordered_box);
 
-    tooltip(entry, bubble, tooltip::Position::Right).into()
+    tooltip(entry, bubble, tooltip::Position::Top).gap(TOOLTIP_GAP).into()
 }
 
 fn frame(theme: &Theme) -> container::Style {

@@ -2,7 +2,7 @@ use core::domains::import::architecture;
 
 use crate::app::Page;
 
-use super::{Action, Context, FileTarget, Item};
+use super::{stats, Action, CatTarget, Context, FileTarget, Item};
 
 const NEEDS_MOD: &str = "This action requires a mod to be enabled";
 
@@ -19,7 +19,38 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
         files(&mut items, file);
     }
 
+    if context.page == Page::Cats
+        && context.abilities
+        && let Some(cat) = context.cat.as_ref()
+    {
+        cats(&mut items, cat);
+    }
+
     items
+}
+
+pub(super) fn stats_plan(cat: &CatTarget, target_mod: Option<String>) -> stats::Plan {
+    stats::plan(cat.id, cat.form, cat.title(), &cat.source, target_mod)
+}
+
+fn cats(items: &mut Vec<Item>, cat: &CatTarget) {
+    match cat.active_mod.as_deref() {
+        Some(active) => items.push(Item::new(
+            format!("Modify \"{}\" in \"{active}\"", cat.file),
+            Action::ModifyStats(stats_plan(cat, Some(active.to_owned()))),
+        )),
+        None => items.push(Item::disabled(format!("Modify \"{}\" in Mod", cat.file), NEEDS_MOD)),
+    }
+
+    if cat.unlocked && cat.active_mod.is_none() {
+        items.push(
+            Item::new(
+                format!("Modify \"{}\" in game", cat.file),
+                Action::ModifyStats(stats_plan(cat, None)),
+            )
+            .confirming(),
+        );
+    }
 }
 
 fn files(items: &mut Vec<Item>, file: &FileTarget) {
@@ -35,7 +66,7 @@ fn files(items: &mut Vec<Item>, file: &FileTarget) {
 
     items.push(adopt(file));
 
-    if file.unlocked {
+    if file.unlocked && file.active_mod.is_none() {
         items.push(delete(file));
     }
 }

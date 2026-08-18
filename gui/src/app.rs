@@ -794,7 +794,13 @@ impl BattleCatsApp {
                 info!("File watcher reported a bulk change, re-indexing everything");
                 self.rebuild_content()
             }
-            Message::FilesChanged(Change::Batch(paths)) => self.apply_changes(paths),
+            Message::FilesChanged(Change::Batch(paths)) => {
+                let task = self.apply_changes(paths);
+                let plan = editor::cat_plan(self);
+                self.editor.sync(plan);
+
+                task
+            }
             Message::IndexPersisted => {
                 self.index_persisting = false;
                 Task::none()
@@ -821,6 +827,8 @@ impl BattleCatsApp {
                 let loaded = matches!(msg, cat::Message::Loaded(..));
                 let task = self.cat_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
                 self.cat_state.sync_state(&mut self.app_state.cat);
+                let plan = editor::cat_plan(self);
+                self.editor.sync(plan);
                 self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open(&self.app_state));
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
 
@@ -971,6 +979,10 @@ impl BattleCatsApp {
             for popup in self.build_popups() {
                 layers = layers.push(popup);
             }
+        }
+
+        if let Some(view) = self.editor.popup_view(self.current_page, self.cat_state.selected_tab, self.window_size) {
+            layers = layers.push(view.map(Message::Editor));
         }
 
         layers = layers.push(sidebar_overlay);
