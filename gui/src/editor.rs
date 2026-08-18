@@ -1,6 +1,6 @@
 mod menu;
 mod registry;
-mod stats;
+mod attributes;
 mod target;
 mod watch;
 
@@ -11,11 +11,13 @@ use iced::{Element, Point, Size, Task};
 use tracing::{info, trace, warn};
 
 use core::domains::cat::files as cat_files;
+use core::domains::enemy::files as enemy_files;
 use core::domains::import::architecture;
 use core::domains::mods;
 
 use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;
+use crate::domains::enemy::DetailTab as EnemyTab;
 use crate::common::feedback::Slot;
 
 pub(crate) use target::{suppress, target};
@@ -32,12 +34,32 @@ pub(crate) struct Context {
     abilities: bool,
     file: Option<FileTarget>,
     cat: Option<CatTarget>,
+    enemy: Option<EnemyTarget>,
+}
+
+const ENEMY_HEADER_ROWS: usize = 2;
+
+struct EnemyTarget {
+    file: String,
+    name: Option<String>,
+    source: PathBuf,
+    row: usize,
+    unlocked: bool,
+    active_mod: Option<String>,
+}
+
+impl EnemyTarget {
+    fn title(&self) -> String {
+        match self.name.as_deref() {
+            Some(name) if !name.is_empty() => [name, self.file.as_str()].join(theme::HEADER_SEPARATOR),
+            _ => self.file.clone(),
+        }
+    }
 }
 
 const FORM_LABELS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
 
 struct CatTarget {
-    id: u32,
     file: String,
     name: Option<String>,
     source: PathBuf,
@@ -73,7 +95,7 @@ pub enum Message {
     Dismissed,
     Invoked(usize),
     ConfirmExpired,
-    Stats(stats::Message),
+    Attributes(attributes::Subject, attributes::Message),
 }
 
 struct Item {
@@ -101,14 +123,20 @@ impl Item {
 enum Action {
     AddFileToMod { source: PathBuf, target_mod: String },
     DeleteFile { source: PathBuf },
-    ModifyStats(stats::Plan),
+    ModifyAttributes(attributes::Plan),
 }
 
 #[derive(Default)]
 pub(crate) struct State {
     open: Option<Open>,
     confirm: Slot<usize>,
-    stats: stats::State,
+    cats: attributes::State,
+    enemies: attributes::State,
+}
+
+pub(crate) struct Snapshot {
+    page: Page,
+    plan: Option<attributes::Plan>,
 }
 
 struct Open {
@@ -145,21 +173,49 @@ impl State {
                 self.confirm.expire();
                 Task::none()
             }
-            Message::Stats(msg) => self.stats.update(msg).map(Message::Stats),
+            Message::Attributes(subject, msg) => self
+                .subject_mut(subject)
+                .update(msg)
+                .map(move |inner| Message::Attributes(subject, inner)),
             Message::Opened(..) => Task::none(),
         }
     }
 
-    pub(crate) fn popup_view(&self, page: Page, tab: DetailTab, window: Size) -> Option<Element<'_, Message>> {
-        if page != Page::Cats || tab != DetailTab::Abilities {
+    pub(crate) fn popup_view(&self, app: &BattleCatsApp, window: Size) -> Option<Element<'_, Message>> {
+        let visible = match app.current_page {
+            Page::Cats => app.cat_state.selected_tab == DetailTab::Abilities,
+            Page::Enemies => app.enemy_state.selected_tab == EnemyTab::Abilities,
+            _ => false,
+        };
+
+        let (state, subject) = match app.current_page {
+            Page::Cats => (&self.cats, attributes::Subject::Cat),
+            Page::Enemies => (&self.enemies, attributes::Subject::Enemy),
+            _ => return None,
+        };
+
+        if !visible {
             return None;
         }
 
-        self.stats.view(window).map(|view| view.map(Message::Stats))
+        state
+            .view(window)
+            .map(|view| view.map(move |inner| Message::Attributes(subject, inner)))
     }
 
-    pub(crate) fn sync(&mut self, plan: Option<stats::Plan>) {
-        self.stats.sync(plan);
+    pub(crate) fn sync(&mut self, snapshot: Snapshot) {
+        match snapshot.page {
+            Page::Cats => self.cats.sync(snapshot.plan),
+            Page::Enemies => self.enemies.sync(snapshot.plan),
+            _ => {}
+        }
+    }
+
+    fn subject_mut(&mut self, subject: attributes::Subject) -> &mut attributes::State {
+        match subject {
+            attributes::Subject::Cat => &mut self.cats,
+            attributes::Subject::Enemy => &mut self.enemies,
+        }
     }
 
     fn perform(&mut self, action: &Action) {
@@ -172,7 +228,7 @@ impl State {
                 Ok(()) => info!(path = %source.display(), "Deleted a mod file"),
                 Err(err) => warn!(path = %source.display(), "Failed to delete the file: {}", err),
             },
-            Action::ModifyStats(plan) => self.stats.begin(plan.clone()),
+            Action::ModifyAttributes(plan) => self.subject_mut(plan.subject()).begin(plan.clone()),
         }
     }
 
@@ -215,6 +271,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
         abilities: app.cat_state.selected_tab == DetailTab::Abilities,
         file: file_target(app, target),
         cat: cat_target(app),
+        enemy: enemy_target(app),
     }
 }
 
@@ -237,7 +294,6 @@ fn cat_target(app: &BattleCatsApp) -> Option<CatTarget> {
         .and_then(|cat| cat.names.get(form).cloned().flatten());
 
     Some(CatTarget {
-        id,
         file,
         name,
         source,
@@ -247,10 +303,48 @@ fn cat_target(app: &BattleCatsApp) -> Option<CatTarget> {
     })
 }
 
-pub(crate) fn cat_plan(app: &BattleCatsApp) -> Option<stats::Plan> {
-    let cat = cat_target(app)?;
+fn enemy_target(app: &BattleCatsApp) -> Option<EnemyTarget> {
+    if app.current_page != Page::Enemies {
+        return None;
+    }
 
-    Some(registry::stats_plan(&cat, cat.active_mod.clone()))
+    let id = app.app_state.enemy.selected_enemy?;
+    let file = enemy_files::STATS.to_owned();
+    let source = app.vault.vfs.rooted_in(architecture::GAME, &file)?;
+
+    let name = app
+        .enemy_state
+        .data
+        .enemies
+        .iter()
+        .find(|enemy| enemy.id == id)
+        .map(|enemy| enemy.name.clone());
+
+    Some(EnemyTarget {
+        file,
+        name,
+        source,
+        row: ENEMY_HEADER_ROWS + id as usize,
+        unlocked: app.settings.files.unlock_game_mount,
+        active_mod: app.mods_state.active_mod(),
+    })
+}
+
+pub(crate) fn snapshot(app: &BattleCatsApp) -> Snapshot {
+    Snapshot { page: app.current_page, plan: current_plan(app) }
+}
+
+fn current_plan(app: &BattleCatsApp) -> Option<attributes::Plan> {
+    if let Some(cat) = cat_target(app) {
+        let active = cat.active_mod.clone();
+
+        return Some(registry::cat_plan(&cat, active));
+    }
+
+    let enemy = enemy_target(app)?;
+    let active = enemy.active_mod.clone();
+
+    Some(registry::enemy_plan(&enemy, active))
 }
 
 fn file_target(app: &BattleCatsApp, target: Option<Target>) -> Option<FileTarget> {

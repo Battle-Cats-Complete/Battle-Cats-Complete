@@ -63,10 +63,11 @@ pub enum Kind {
     Notice,
     Updater,
     InitErrors,
-    CatStats,
+    CatAttributes,
+    EnemyAttributes,
 }
 
-const KIND_COUNT: usize = 14;
+const KIND_COUNT: usize = 15;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -82,7 +83,8 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::Notice,
     Kind::Updater,
     Kind::InitErrors,
-    Kind::CatStats,
+    Kind::CatAttributes,
+    Kind::EnemyAttributes,
 ];
 
 impl Kind {
@@ -101,7 +103,8 @@ impl Kind {
             Self::Notice => "notice",
             Self::Updater => "updater",
             Self::InitErrors => "init_errors",
-            Self::CatStats => "cat_stats",
+            Self::CatAttributes => "cat_attributes",
+            Self::EnemyAttributes => "enemy_attributes",
         }
     }
 

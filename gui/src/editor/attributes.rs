@@ -1,5 +1,7 @@
 mod schema;
 
+pub use schema::Subject;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -17,7 +19,15 @@ use crate::app::theme;
 use crate::common::feedback::{Slot, CONFIRM_LABEL};
 use crate::widget::{popup, smooth_scroll};
 
-const POPUP: popup::Spec = popup::Spec::new(popup::Kind::CatStats, Size::new(364.0, 376.0));
+const CAT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::CatAttributes, Size::new(364.0, 376.0));
+const ENEMY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnemyAttributes, Size::new(364.0, 376.0));
+
+fn spec(subject: schema::Subject) -> popup::Spec {
+    match subject {
+        schema::Subject::Cat => CAT_POPUP,
+        schema::Subject::Enemy => ENEMY_POPUP,
+    }
+}
 
 const CARD_WIDTH: f32 = 86.0;
 const CARD_GAP: f32 = 8.0;
@@ -36,15 +46,16 @@ static LABEL_HEIGHT: LazyLock<f32> = LazyLock::new(|| {
     let inner = CARD_WIDTH - CARD_PADDING * 2.0;
     let per_line = ((inner / (LABEL_SIZE * GLYPH_RATIO)).floor() as usize).max(1);
 
-    let lines = (0..schema::known())
-        .map(|index| wrapped_lines(&schema::label(index), per_line))
+    let lines = [&schema::CAT, &schema::ENEMY]
+        .into_iter()
+        .flat_map(|schema| (0..schema.known()).map(move |index| wrapped_lines(&schema.label(index), per_line)))
         .max()
         .unwrap_or(1);
 
     lines as f32 * LABEL_SIZE * LINE_RATIO
 });
 
-fn split_row(line: &str, delimiter: char) -> (Vec<i32>, String, String) {
+fn split_row(line: &str, delimiter: char, schema: &schema::Schema) -> (Vec<i32>, String, String) {
     let (numeric, gap, comment) = match line.find(COMMENT) {
         Some(at) => {
             let (head, tail) = line.split_at(at);
@@ -64,19 +75,19 @@ fn split_row(line: &str, delimiter: char) -> (Vec<i32>, String, String) {
 
     let mut cells: Vec<i32> = fields.iter().map(|field| field.trim().parse::<i32>().unwrap_or(0)).collect();
 
-    while cells.len() < schema::known() {
-        cells.push(schema::fallback(cells.len()));
+    while cells.len() < schema.known() {
+        cells.push(schema.fallback(cells.len()));
     }
 
     (cells, gap, comment)
 }
 
-fn shown(index: usize, raw: i32) -> String {
-    if raw == schema::fallback(index) {
+fn shown(schema: &schema::Schema, index: usize, raw: i32) -> String {
+    if raw == schema.fallback(index) {
         return String::new();
     }
 
-    schema::to_display(index, raw).to_string()
+    schema.to_display(index, raw).to_string()
 }
 
 fn search<'a>(query: &str, width: f32) -> Element<'a, Message> {
@@ -88,6 +99,16 @@ fn search<'a>(query: &str, width: f32) -> Element<'a, Message> {
         .style(theme::rounded_input);
 
     container(field).width(Length::Fill).center_x(Length::Fill).into()
+}
+
+fn footer<'a>(schema: &schema::Schema, value: &str, armed: bool) -> Element<'a, Message> {
+    let actions = column![sync(armed)].spacing(CARD_GAP).align_x(Horizontal::Center);
+
+    if !schema.comments() {
+        return actions.into();
+    }
+
+    column![comment(value), actions].spacing(CARD_GAP).align_x(Horizontal::Center).into()
 }
 
 fn comment<'a>(value: &str) -> Element<'a, Message> {
@@ -151,17 +172,21 @@ pub enum Message {
 
 #[derive(Clone)]
 pub(crate) struct Plan {
-    cat: u32,
-    form: usize,
+    row: usize,
     label: String,
     game: PathBuf,
     target_mod: Option<String>,
+    schema: &'static schema::Schema,
 }
 
 impl Plan {
+    pub(super) fn subject(&self) -> schema::Subject {
+        self.schema.subject()
+    }
+
     fn matches(&self, other: &Plan) -> bool {
-        self.cat == other.cat
-            && self.form == other.form
+        self.row == other.row
+            && self.game == other.game
             && self.target_mod == other.target_mod
             && self.label == other.label
     }
@@ -236,7 +261,11 @@ impl State {
     pub(super) fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
-                if self.frame.update(msg, POPUP) {
+                let Some(spec) = self.draft.as_ref().map(|draft| spec(draft.plan.subject())) else {
+                    return Task::none();
+                };
+
+                if self.frame.update(msg, spec) {
                     self.draft = None;
                     self.confirm.expire();
                 }
@@ -269,13 +298,14 @@ impl State {
 
     pub(super) fn view(&self, window: Size) -> Option<Element<'_, Message>> {
         let draft = self.draft.as_ref()?;
-        let width = self.frame.body_width(POPUP, window);
+        let spec = spec(draft.plan.subject());
+        let width = self.frame.body_width(spec, window);
         let armed = self.confirm.is_set();
         let query = self.query.as_str();
 
         Some(self.frame.view(
             &draft.plan.label,
-            POPUP,
+            spec,
             window,
             Message::Popup,
             move || draft.body(width, query, armed),
@@ -302,10 +332,10 @@ impl Draft {
         let delimiter = file::detect_separator(&body);
         let lines: Vec<String> = body.lines().map(str::to_owned).collect();
 
-        let Some(raw) = lines.get(plan.form) else {
+        let Some(raw) = lines.get(plan.row) else {
             warn!(
                 path = %read_from.display(),
-                form = plan.form,
+                row = plan.row,
                 rows = lines.len(),
                 "Stats editor found no row for this form"
             );
@@ -313,8 +343,8 @@ impl Draft {
             return None;
         };
 
-        let (cells, gap, comment) = split_row(raw, delimiter);
-        let inputs = (0..cells.len()).map(|index| shown(index, cells[index])).collect();
+        let (cells, gap, comment) = split_row(raw, delimiter, plan.schema);
+        let inputs = (0..cells.len()).map(|index| shown(plan.schema, index, cells[index])).collect();
 
         Some(Draft { plan, read_from, stamp, delimiter, lines, cells, gap, comment, inputs, failed: false })
     }
@@ -330,7 +360,7 @@ impl Draft {
 
         let raw = if value.is_empty() {
             *slot = String::new();
-            schema::fallback(index)
+            self.plan.schema.fallback(index)
         } else {
             let Ok(display) = value.parse::<i32>() else {
                 *slot = value.to_owned();
@@ -338,8 +368,8 @@ impl Draft {
                 return;
             };
 
-            let raw = schema::to_raw(index, display);
-            *slot = shown(index, raw);
+            let raw = self.plan.schema.to_raw(index, display);
+            *slot = shown(self.plan.schema, index, raw);
 
             raw
         };
@@ -377,18 +407,18 @@ impl Draft {
         self.delimiter = file::detect_separator(&body);
         self.lines = body.lines().map(str::to_owned).collect();
 
-        let Some(raw) = self.lines.get(self.plan.form) else {
+        let Some(raw) = self.lines.get(self.plan.row) else {
             self.failed = true;
 
             return;
         };
 
-        let (cells, gap, comment) = split_row(raw, self.delimiter);
+        let (cells, gap, comment) = split_row(raw, self.delimiter, self.plan.schema);
         self.cells = cells;
         self.gap = gap;
         self.comment = comment;
 
-        self.inputs = (0..self.cells.len()).map(|index| shown(index, self.cells[index])).collect();
+        self.inputs = (0..self.cells.len()).map(|index| shown(self.plan.schema, index, self.cells[index])).collect();
         self.commit();
     }
 
@@ -400,7 +430,7 @@ impl Draft {
         };
 
         let rebuilt: Vec<String> = self.cells.iter().map(i32::to_string).collect();
-        let Some(slot) = self.lines.get_mut(self.plan.form) else {
+        let Some(slot) = self.lines.get_mut(self.plan.row) else {
             self.failed = true;
 
             return;
@@ -457,7 +487,7 @@ impl Draft {
         let needle = query.trim().to_lowercase();
 
         let matches: Vec<usize> = (0..self.cells.len())
-            .filter(|index| needle.is_empty() || schema::label(*index).to_lowercase().contains(&needle))
+            .filter(|index| needle.is_empty() || self.plan.schema.label(*index).to_lowercase().contains(&needle))
             .collect();
 
         let mut grid = Column::new().spacing(CARD_GAP);
@@ -485,7 +515,7 @@ impl Draft {
             container(search(query, usable))
                 .padding(Padding::ZERO.top(BODY_PADDING).left(BODY_PADDING).right(BODY_PADDING).bottom(CARD_GAP)),
             list,
-            container(column![comment(&self.comment), sync(armed)].spacing(CARD_GAP).align_x(Horizontal::Center))
+            container(footer(self.plan.schema, &self.comment, armed))
                 .width(Length::Fill)
                 .center_x(Length::Fill)
                 .padding(Padding::ZERO.top(CARD_GAP).left(BODY_PADDING).right(BODY_PADDING).bottom(BODY_PADDING)),
@@ -496,7 +526,7 @@ impl Draft {
 
     fn card(&self, index: usize) -> Element<'_, Message> {
         let value = self.inputs.get(index).map_or("", String::as_str);
-        let hint = schema::to_display(index, schema::fallback(index)).to_string();
+        let hint = self.plan.schema.to_display(index, self.plan.schema.fallback(index)).to_string();
 
         let field = text_input(&hint, value)
             .on_input(move |entry| Message::Changed(index, entry))
@@ -506,7 +536,7 @@ impl Draft {
             .style(theme::rounded_input);
 
         let label = container(
-            text(schema::label(index))
+            text(self.plan.schema.label(index))
                 .size(LABEL_SIZE)
                 .align_x(Horizontal::Center)
                 .width(Length::Fill),
@@ -522,6 +552,10 @@ impl Draft {
     }
 }
 
-pub(super) fn plan(cat: u32, form: usize, label: String, game: &Path, target_mod: Option<String>) -> Plan {
-    Plan { cat, form, label, game: game.to_path_buf(), target_mod }
+pub(super) fn cat(row: usize, label: String, game: &Path, target_mod: Option<String>) -> Plan {
+    Plan { row, label, game: game.to_path_buf(), target_mod, schema: &schema::CAT }
+}
+
+pub(super) fn enemy(row: usize, label: String, game: &Path, target_mod: Option<String>) -> Plan {
+    Plan { row, label, game: game.to_path_buf(), target_mod, schema: &schema::ENEMY }
 }

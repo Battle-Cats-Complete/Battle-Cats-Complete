@@ -2,7 +2,7 @@ use core::domains::import::architecture;
 
 use crate::app::Page;
 
-use super::{stats, Action, CatTarget, Context, FileTarget, Item};
+use super::{attributes, Action, CatTarget, Context, EnemyTarget, FileTarget, Item};
 
 const NEEDS_MOD: &str = "This action requires a mod to be enabled";
 
@@ -26,18 +26,48 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
         cats(&mut items, cat);
     }
 
+    if context.page == Page::Enemies
+        && let Some(enemy) = context.enemy.as_ref()
+    {
+        enemies(&mut items, enemy);
+    }
+
     items
 }
 
-pub(super) fn stats_plan(cat: &CatTarget, target_mod: Option<String>) -> stats::Plan {
-    stats::plan(cat.id, cat.form, cat.title(), &cat.source, target_mod)
+pub(super) fn cat_plan(cat: &CatTarget, target_mod: Option<String>) -> attributes::Plan {
+    attributes::cat(cat.form, cat.title(), &cat.source, target_mod)
+}
+
+pub(super) fn enemy_plan(enemy: &EnemyTarget, target_mod: Option<String>) -> attributes::Plan {
+    attributes::enemy(enemy.row, enemy.title(), &enemy.source, target_mod)
+}
+
+fn enemies(items: &mut Vec<Item>, enemy: &EnemyTarget) {
+    match enemy.active_mod.as_deref() {
+        Some(active) => items.push(Item::new(
+            format!("Modify \"{}\" in \"{active}\"", enemy.file),
+            Action::ModifyAttributes(enemy_plan(enemy, Some(active.to_owned()))),
+        )),
+        None => items.push(Item::disabled(format!("Modify \"{}\" in Mod", enemy.file), NEEDS_MOD)),
+    }
+
+    if enemy.unlocked && enemy.active_mod.is_none() {
+        items.push(
+            Item::new(
+                format!("Modify \"{}\" in game", enemy.file),
+                Action::ModifyAttributes(enemy_plan(enemy, None)),
+            )
+            .confirming(),
+        );
+    }
 }
 
 fn cats(items: &mut Vec<Item>, cat: &CatTarget) {
     match cat.active_mod.as_deref() {
         Some(active) => items.push(Item::new(
             format!("Modify \"{}\" in \"{active}\"", cat.file),
-            Action::ModifyStats(stats_plan(cat, Some(active.to_owned()))),
+            Action::ModifyAttributes(cat_plan(cat, Some(active.to_owned()))),
         )),
         None => items.push(Item::disabled(format!("Modify \"{}\" in Mod", cat.file), NEEDS_MOD)),
     }
@@ -46,7 +76,7 @@ fn cats(items: &mut Vec<Item>, cat: &CatTarget) {
         items.push(
             Item::new(
                 format!("Modify \"{}\" in game", cat.file),
-                Action::ModifyStats(stats_plan(cat, None)),
+                Action::ModifyAttributes(cat_plan(cat, None)),
             )
             .confirming(),
         );
