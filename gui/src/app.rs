@@ -195,6 +195,7 @@ pub struct BattleCatsApp {
     rebuild_queued: bool,
     #[serde(skip)]
     index_persisting: bool,
+    watcher_live: bool,
     #[serde(skip)]
     validated_key: Option<u64>,
     #[serde(skip)]
@@ -272,6 +273,7 @@ impl Default for BattleCatsApp {
             rebuild_running: false,
             rebuild_queued: false,
             index_persisting: false,
+            watcher_live: true,
             validated_key: None,
             frames_painted: 0,
             window_shown: false,
@@ -548,18 +550,13 @@ impl BattleCatsApp {
     }
 
     fn sync_editor(&mut self, force: bool) {
-        if !self.editor.drafting() {
+        let force = force || !self.watcher_live;
+
+        let Some(update) = editor::refresh(self, &self.editor, force) else {
             return;
-        }
+        };
 
-        let key = editor::key(self);
-
-        if !force && !self.editor.stale(&key) {
-            return;
-        }
-
-        let snapshot = editor::snapshot(self, &self.editor);
-        self.editor.sync(snapshot, key);
+        self.editor.apply(update);
     }
 
     fn clear_indexing(&mut self) {
@@ -801,6 +798,7 @@ impl BattleCatsApp {
             Message::VaultValidated { vault, key, mounted } => self.finish_validation(vault, key, mounted),
             Message::FilesChanged(Change::Unavailable) => {
                 warn!("File watcher could not be initialized; reporting it as an initialization error");
+                self.watcher_live = false;
                 self.init_errors.report_watcher_failure(self.settings.general.ignore_watcher_failure);
                 self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
                 Task::none()

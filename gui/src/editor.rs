@@ -299,20 +299,25 @@ pub(crate) struct State {
     synced: Option<Key>,
 }
 
-pub(crate) struct Snapshot {
+struct Snapshot {
     page: Page,
     plan: Option<attributes::Plan>,
     prose: [Vec<prose::Plan>; prose::COUNT],
 }
 
 #[derive(PartialEq)]
-pub(crate) struct Key {
+struct Key {
     page: Page,
     cat: Option<u32>,
     form: usize,
     enemy: Option<u32>,
     unlocked: bool,
     active_mod: Option<String>,
+}
+
+pub(crate) struct Update {
+    snapshot: Snapshot,
+    key: Key,
 }
 
 struct Open {
@@ -396,7 +401,7 @@ impl State {
             .map(|view| view.map(move |inner| Message::Attributes(subject, inner)))
     }
 
-    pub(crate) fn drafting(&self) -> bool {
+    fn drafting(&self) -> bool {
         self.cats.drafting() || self.enemies.drafting() || self.prose.iter().any(prose::State::drafting)
     }
 
@@ -412,7 +417,7 @@ impl State {
         self.prose[subject.slot()].drafting()
     }
 
-    pub(crate) fn stale(&self, key: &Key) -> bool {
+    fn stale(&self, key: &Key) -> bool {
         self.synced.as_ref() != Some(key) || self.drifted()
     }
 
@@ -420,7 +425,8 @@ impl State {
         self.cats.drifted() || self.enemies.drifted() || self.prose.iter().any(prose::State::drifted)
     }
 
-    pub(crate) fn sync(&mut self, snapshot: Snapshot, key: Key) {
+    pub(crate) fn apply(&mut self, update: Update) {
+        let Update { snapshot, key } = update;
         self.synced = Some(key);
 
         for subject in prose::SUBJECTS {
@@ -738,7 +744,21 @@ fn enemy_subject(app: &BattleCatsApp) -> Option<EnemyTarget> {
     })
 }
 
-pub(crate) fn key(app: &BattleCatsApp) -> Key {
+pub(crate) fn refresh(app: &BattleCatsApp, editor: &State, force: bool) -> Option<Update> {
+    if !editor.drafting() {
+        return None;
+    }
+
+    let key = key(app);
+
+    if !force && !editor.stale(&key) {
+        return None;
+    }
+
+    Some(Update { snapshot: snapshot(app, editor), key })
+}
+
+fn key(app: &BattleCatsApp) -> Key {
     Key {
         page: app.current_page,
         cat: app.app_state.cat.selected_cat,
@@ -749,7 +769,7 @@ pub(crate) fn key(app: &BattleCatsApp) -> Key {
     }
 }
 
-pub(crate) fn snapshot(app: &BattleCatsApp, editor: &State) -> Snapshot {
+fn snapshot(app: &BattleCatsApp, editor: &State) -> Snapshot {
     Snapshot {
         page: app.current_page,
         plan: editor.attributes_drafting(app.current_page).then(|| current_plan(app)).flatten(),
