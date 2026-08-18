@@ -12,7 +12,6 @@ use std::time::Duration;
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::futures::channel::mpsc;
-use iced::widget::image::Handle;
 use iced::widget::{
     button, column, container, image as iced_image, row, rule,
     text, text_input, Id, Space,
@@ -23,7 +22,6 @@ use tracing::info;
 
 use core::common::context::GlobalContext;
 use core::common::formats::SpriteSheet as CoreSpriteSheet;
-use core::common::gfx::autocrop;
 use core::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
 use core::systems::combat::RenderContext;
 use core::domains::enemy::scanner::{self, EnemyEntry};
@@ -37,6 +35,7 @@ use crate::app::state::{AppState, EnemyListState};
 use crate::app::theme;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
+use crate::common::header_icon::{self, HeaderIcon};
 use crate::editor;
 use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
 
@@ -97,13 +96,6 @@ impl std::fmt::Debug for Message {
     }
 }
 
-#[derive(Clone)]
-struct HeaderIcon {
-    handle: Handle,
-    width: f32,
-    height: f32,
-}
-
 pub struct EnemyState {
     pub data: EnemyDataState,
     pub selected_enemy: Option<u32>,
@@ -133,11 +125,7 @@ pub struct EnemyState {
 
 impl Default for EnemyState {
     fn default() -> Self {
-        let header_icon_dummy = HeaderIcon {
-            handle: Handle::from_rgba(1, 1, vec![80, 80, 80, 255]),
-            width: 1.0,
-            height: 1.0,
-        };
+        let header_icon_dummy = HeaderIcon::dummy();
 
         Self {
             data: EnemyDataState::default(),
@@ -626,13 +614,13 @@ impl EnemyState {
 
     fn view_enemy_icon(&self, enemy: &EnemyEntry, vfs: &Vfs) -> Element<'_, Message> {
         let icon = self.enemy_icon(enemy.icon_path.as_ref(), vfs);
-        let scale = (ICON_BOX_WIDTH / icon.width).min(ICON_BOX_HEIGHT / icon.height);
+        let (width, height) = icon.scale(ICON_BOX_WIDTH, ICON_BOX_HEIGHT);
 
         editor::target(
             container(
                 iced_image(icon.handle)
-                    .width(Length::Fixed(icon.width * scale))
-                    .height(Length::Fixed(icon.height * scale))
+                    .width(Length::Fixed(width))
+                    .height(Length::Fixed(height))
             )
                 .width(Length::Fixed(ICON_BOX_WIDTH))
                 .height(Length::Fixed(ICON_BOX_HEIGHT))
@@ -644,41 +632,16 @@ impl EnemyState {
 
     fn enemy_icon(&self, path: Option<&PathBuf>, vfs: &Vfs) -> HeaderIcon {
         if let Some(path) = path
-            && let Some(icon) = self.load_icon(path)
+            && let Some(icon) = header_icon::load(&self.header_icon_cache, path)
         {
             return icon;
         }
 
         vfs.find(EMPTY_CAT_ICON)
-            .and_then(|fallback| self.load_icon(&fallback))
+            .and_then(|fallback| header_icon::load(&self.header_icon_cache, &fallback))
             .unwrap_or_else(|| self.header_icon_dummy.clone())
     }
 
-    fn load_icon(&self, path: &PathBuf) -> Option<HeaderIcon> {
-        if let Some(cached) = self.header_icon_cache.borrow().get(path) {
-            return Some(cached.clone());
-        }
-
-        if !path.exists() {
-            return None;
-        }
-
-        let img = image::open(path).ok()?;
-        let rgba = autocrop(img.to_rgba8());
-        let (width, height) = rgba.dimensions();
-
-        if width == 0 || height == 0 {
-            return None;
-        }
-
-        let icon = HeaderIcon {
-            handle: Handle::from_rgba(width, height, rgba.into_raw()),
-            width: width as f32,
-            height: height as f32,
-        };
-        self.header_icon_cache.borrow_mut().insert(path.clone(), icon.clone());
-        Some(icon)
-    }
 
     fn view_info_box<'a>(&'a self, enemy: &'a EnemyEntry) -> Element<'a, Message> {
         let disp_name = enemy.display_name();

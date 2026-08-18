@@ -16,7 +16,6 @@ use std::time::Duration;
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::futures::channel::mpsc;
-use iced::widget::image::Handle;
 use iced::widget::{
     button, column, container, image as iced_image, row, rule,
     text, text_input, Id, Space,
@@ -27,7 +26,6 @@ use tracing::info;
 
 use core::common::context::GlobalContext;
 use core::common::formats::SpriteSheet as CoreSpriteSheet;
-use core::common::gfx::autocrop;
 use core::domains::cat::game::stats::{get_final_stats, seeded_level};
 use core::domains::cat::scanner::{self, CatEntry};
 use core::domains::cat::waiter::unitid;
@@ -42,6 +40,7 @@ use crate::app::state::{AppState, CatListState};
 use crate::app::theme;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
+use crate::common::header_icon::{self, HeaderIcon};
 use crate::editor;
 use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
 
@@ -132,8 +131,8 @@ pub struct State {
     custom_assets: CustomAssets,
 
     dynamic_stats: StatsMemo,
-    header_icon_cache: RefCell<HashMap<PathBuf, Handle>>,
-    header_icon_dummy: Handle,
+    header_icon_cache: RefCell<HashMap<PathBuf, HeaderIcon>>,
+    header_icon_dummy: HeaderIcon,
 
     scan_progress: Option<(usize, usize)>,
     cached_key: Option<u64>,
@@ -150,7 +149,7 @@ pub struct State {
 
 impl Default for State {
     fn default() -> Self {
-        let header_icon_dummy = Handle::from_rgba(1, 1, vec![80, 80, 80, 255]);
+        let header_icon_dummy = HeaderIcon::dummy();
 
         Self {
             data: CatDataState::default(),
@@ -803,44 +802,27 @@ impl State {
 
     fn view_cat_icon(&self, cat: &CatEntry, vfs: &Vfs) -> Element<'_, Message> {
         let path = cat.deploy_icon_paths[self.selected_form].as_ref();
-        let handle = self.cat_icon_handle(path, vfs);
+        let icon = self.cat_icon_handle(path, vfs);
 
         editor::target(
-            container(iced_image(handle).height(Length::Fixed(ICON_BOX_HEIGHT)))
+            container(iced_image(icon.handle).height(Length::Fixed(ICON_BOX_HEIGHT)))
                 .width(Length::Fixed(ICON_BOX_WIDTH))
                 .height(Length::Fixed(ICON_BOX_HEIGHT))
-                .align_x(Horizontal::Center)
-                .align_y(Vertical::Bottom),
+                .align_x(Horizontal::Center),
             editor::Target::CatIcon,
         )
     }
 
-    fn cat_icon_handle(&self, path: Option<&PathBuf>, vfs: &Vfs) -> Handle {
+    fn cat_icon_handle(&self, path: Option<&PathBuf>, vfs: &Vfs) -> HeaderIcon {
         if let Some(path) = path
-            && let Some(handle) = self.load_icon(path)
+            && let Some(icon) = header_icon::load(&self.header_icon_cache, path)
         {
-            return handle;
+            return icon;
         }
 
         vfs.find(EMPTY_CAT_ICON)
-            .and_then(|fallback| self.load_icon(&fallback))
+            .and_then(|fallback| header_icon::load(&self.header_icon_cache, &fallback))
             .unwrap_or_else(|| self.header_icon_dummy.clone())
-    }
-
-    fn load_icon(&self, path: &PathBuf) -> Option<Handle> {
-        if let Some(cached) = self.header_icon_cache.borrow().get(path) {
-            return Some(cached.clone());
-        }
-
-        if !path.exists() {
-            return None;
-        }
-
-        let img = image::open(path).ok()?;
-        let rgba = autocrop(img.to_rgba8());
-        let handle = Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw());
-        self.header_icon_cache.borrow_mut().insert(path.clone(), handle.clone());
-        Some(handle)
     }
 
     fn view_info_box<'a>(&'a self, cat: &'a CatEntry) -> Element<'a, Message> {
