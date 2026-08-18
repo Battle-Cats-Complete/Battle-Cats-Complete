@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::Category;
@@ -9,6 +9,7 @@ use nyanko::chapter::map::{DropItemEntry, LockSkipDataEntry, MapOptionEntry, Rul
 use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, ScatCpuSetting, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
 use nyanko::common::tools::file;
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -33,8 +34,38 @@ const STORY_PREFIXES: [&str; 4] = [PREFIX_EC, "W", "Space", "Z"];
 const EC_CHAPTERS: [u32; 3] = [0, 1, 2];
 const INVASION: &str = "Invasion";
 
+type Names = Arc<[Box<str>]>;
+
+struct Globs<'a> {
+    vfs: &'a Vfs,
+    memo: RwLock<FxHashMap<Box<str>, Names>>,
+}
+
+impl<'a> Globs<'a> {
+    fn new(vfs: &'a Vfs) -> Self {
+        Self { vfs, memo: RwLock::new(FxHashMap::default()) }
+    }
+
+    fn get(&self, prefix: &str) -> Names {
+        if let Ok(memo) = self.memo.read()
+            && let Some(hit) = memo.get(prefix)
+        {
+            return Arc::clone(hit);
+        }
+
+        let names: Names = self.vfs.glob(prefix).into();
+
+        if let Ok(mut memo) = self.memo.write() {
+            memo.insert(prefix.into(), Arc::clone(&names));
+        }
+
+        names
+    }
+}
+
 struct ScanContext<'a> {
     pub vfs: &'a Vfs,
+    pub globs: Globs<'a>,
     pub map_names: Arc<HashMap<u32, String>>,
     pub map_options: Arc<HashMap<u32, MapOptionEntry>>,
     pub stage_options: Arc<HashMap<u32, Vec<StageOptionEntry>>>,
@@ -214,6 +245,7 @@ fn context(vault: &Vault) -> ScanContext<'_> {
 
     ScanContext {
         vfs,
+        globs: Globs::new(vfs),
         map_names: stages.map_names(vfs),
         map_options: stages.map_options(vfs),
         stage_options: stages.stage_options(vfs),
@@ -343,13 +375,15 @@ fn story_map_ids(vfs: &Vfs, prefix: &str) -> BTreeSet<u32> {
         .collect()
 }
 
-fn invasion_battleground(vfs: &Vfs, category: &Category, map_id: u32) -> Option<Box<str>> {
+fn invasion_battleground(globs: &Globs<'_>, category: &Category, map_id: u32) -> Option<Box<str>> {
     for prefix in category.stage_prefix() {
         if prefix.is_empty() {
             continue;
         }
 
-        let found = vfs.glob(&format!("{}{}", STAGE, prefix)).into_iter().find(|name| {
+        let names = globs.get(&format!("{}{}", STAGE, prefix));
+
+        let found = names.iter().find(|name| {
             let Some(body) = name
                 .strip_prefix(STAGE)
                 .and_then(|body| body.strip_prefix(prefix.as_str()))
@@ -366,31 +400,27 @@ fn invasion_battleground(vfs: &Vfs, category: &Category, map_id: u32) -> Option<
         });
 
         if found.is_some() {
-            return found;
+            return found.cloned();
         }
     }
 
     None
 }
 
-fn battlegrounds(vfs: &Vfs, category: &Category, map_id: u32) -> Vec<(u32, Box<str>)> {
+fn battlegrounds(globs: &Globs<'_>, category: &Category, map_id: u32) -> Vec<(u32, Box<str>)> {
     let mut found: Vec<(u32, Box<str>)> = Vec::new();
 
     for prefix in category.stage_prefix() {
         if prefix.is_empty() {
-            found.extend(
-                vfs.glob(STAGE)
-                    .into_iter()
-                    .filter_map(|name| Some((split_chapter_stage(&name)?, name))),
-            );
+            let names = globs.get(STAGE);
+
+            found.extend(names.iter().filter_map(|name| Some((split_chapter_stage(name)?, name.clone()))));
             continue;
         }
 
-        found.extend(
-            vfs.glob(&format!("{}{}", STAGE, prefix))
-                .into_iter()
-                .filter_map(|name| Some((split_stage(&name, &prefix, map_id)?, name))),
-        );
+        let names = globs.get(&format!("{}{}", STAGE, prefix));
+
+        found.extend(names.iter().filter_map(|name| Some((split_stage(name, &prefix, map_id)?, name.clone()))));
     }
 
     found.sort_unstable_by_key(|(stage_id, _)| *stage_id);
@@ -659,7 +689,7 @@ fn load_story_stages(
         }
     }
 
-    for (stage_id, file_name) in battlegrounds(ctx.vfs, category, map_id) {
+    for (stage_id, file_name) in battlegrounds(&ctx.globs, category, map_id) {
         let is_ec_group = category.map_prefix() == PREFIX_EC || (category.map_prefix() == "Z" && map_id <= 2);
 
         if is_ec_group {
@@ -691,7 +721,7 @@ fn load_story_stages(
         id_list.push(stage_id);
     }
 
-    if let Some(inv_file) = invasion_battleground(ctx.vfs, category, map_id) {
+    if let Some(inv_file) = invasion_battleground(&ctx.globs, category, map_id) {
         let inv_stage_id = id_list.iter().max().copied().unwrap_or(0) + 1;
 
         if let Some(raw_layout) = battleground(ctx.vfs, &inv_file) {
@@ -743,7 +773,7 @@ fn load_legend_stages(
         data_entries = mapstagedata(ctx.vfs, "stage.csv");
     }
 
-    for (stage_id, file_name) in battlegrounds(ctx.vfs, category, map_id) {
+    for (stage_id, file_name) in battlegrounds(&ctx.globs, category, map_id) {
         let Some(raw_layout) = battleground(ctx.vfs, &file_name) else {
             warn!(stage = %file_name, "Failed to parse legend battleground");
             continue;

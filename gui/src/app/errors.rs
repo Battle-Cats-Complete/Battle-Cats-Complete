@@ -44,6 +44,10 @@ impl State {
         self.watcher_shown = !ignored;
     }
 
+    pub(super) fn watcher_failed(&self) -> bool {
+        self.watcher_failed
+    }
+
     pub(super) fn refresh_watcher(&mut self, ignored: bool) {
         self.watcher_shown = self.watcher_failed && !ignored;
     }
