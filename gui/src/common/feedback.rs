@@ -6,6 +6,8 @@ const EXPIRY: Duration = Duration::from_secs(2);
 
 pub const CONFIRM_LABEL: &str = "Are You Sure?";
 
+pub const FAILURE_LABEL: &str = "Failed!";
+
 pub const LOCKED_NOTICE: &str =
     "Vanilla \"game\" mount is locked and cannot be written\nMake a Mod or unlock under Settings > Files > Editor";
 

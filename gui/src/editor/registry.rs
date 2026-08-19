@@ -5,8 +5,64 @@ use core::domains::import::architecture;
 use crate::app::{theme, Page};
 use crate::common::feedback::LOCKED_NOTICE;
 
-use super::{attributes, prose, Action, CatTarget, Context, EnemyTarget, Exception, FileTarget, IconTarget, Item, ProseTarget, Scope};
+use super::{attributes, classify, prose, Action, CatTarget, Context, EnemyTarget, FileTarget, Format, Item, ProseTarget, Scope};
 
+const BINARY_NOTICE: &str = "Cannot open binary format";
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Verb {
+    Edit,
+    Replace,
+    Open,
+    Find,
+    Add,
+    Sync,
+    Delete,
+}
+
+impl Verb {
+    fn nested(self) -> &'static str {
+        match self {
+            Verb::Edit => "Edit in app",
+            Verb::Replace => "Replace from disk",
+            Verb::Open => "Open in program",
+            Verb::Find => "Find in folder",
+            Verb::Add => "Add to mod",
+            Verb::Sync => "Sync from game",
+            Verb::Delete => "Delete from system",
+        }
+    }
+
+    fn flat(self, name: &str, mount: &str) -> String {
+        match self {
+            Verb::Edit => format!("Edit \"{name}\" in \"{mount}\""),
+            Verb::Replace => format!("Replace \"{name}\" in \"{mount}\""),
+            Verb::Open => format!("Open \"{name}\" in \"{mount}\""),
+            Verb::Find => format!("Find \"{name}\" in \"{mount}\""),
+            Verb::Add => format!("Add \"{name}\" to \"{mount}\""),
+            Verb::Sync => format!("Sync \"{name}\" with game in \"{mount}\""),
+            Verb::Delete => format!("Delete \"{name}\" from \"{mount}\""),
+        }
+    }
+
+    fn label(self, name: &str, mount: &Mount<'_>, labelling: Labelling) -> String {
+        match labelling {
+            Labelling::Verbose => self.flat(name, mount.name),
+            Labelling::Terse => self.nested().to_owned(),
+            Labelling::Named => name.to_owned(),
+        }
+    }
+}
+
+fn absent(mount: &Mount<'_>) -> String {
+    format!("File does not exist in \"{}\"", mount.name)
+}
+
+fn manage(subject: &str, mount: &Mount<'_>) -> String {
+    format!("Manage \"{subject}\" in \"{}\"", mount.name)
+}
+
+#[derive(Clone, Copy)]
 struct Mount<'a> {
     name: &'a str,
     target: Option<&'a str>,
@@ -20,16 +76,61 @@ fn mount<'a>(active_mod: Option<&'a str>, unlocked: bool) -> Mount<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Confirm {
+    Never,
+    Overwrite,
+}
+
+#[derive(Clone, Copy)]
+enum Style {
+    Flat,
+    Nested,
+}
+
+impl Style {
+    fn for_payloads(payloads: &[Payload<'_>]) -> Self {
+        let live = payloads.iter().filter(|payload| !payload.scopes.is_empty()).count();
+
+        if live > 1 { Style::Nested } else { Style::Flat }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Labelling {
+    Verbose,
+    Terse,
+    Named,
+}
+
 impl Mount<'_> {
-    fn item(&self, label: String, action: Action, destructive: bool) -> Item {
+    fn item(&self, label: String, action: Action, confirm: Confirm) -> Item {
         if self.locked {
             return Item::disabled(label, LOCKED_NOTICE);
         }
 
         let item = Item::new(label, action);
 
-        if destructive || self.target.is_none() { item.confirming() } else { item }
+        match confirm {
+            Confirm::Overwrite => item.confirming(),
+            Confirm::Never if self.target.is_none() => item.confirming(),
+            Confirm::Never => item,
+        }
     }
+}
+
+enum Primary<'a> {
+    Replace,
+    Cat(&'a CatTarget),
+    Enemy(&'a EnemyTarget),
+    Prose(&'a ProseTarget),
+}
+
+struct Payload<'a> {
+    key: &'a str,
+    mount: Mount<'a>,
+    scopes: Vec<Scope<'a>>,
+    primary: Primary<'a>,
 }
 
 pub(super) fn items(context: &Context) -> Vec<Item> {
@@ -43,33 +144,242 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
         && let Some(file) = context.file.as_ref()
     {
         files(&mut items, file);
+
+        return items;
     }
 
-    if context.page == Page::Cats
-        && let Some(cat) = context.cat.as_ref()
-    {
-        cats(&mut items, cat);
-    }
+    let payloads = payloads(context);
+    let style = Style::for_payloads(&payloads);
 
-    if context.page == Page::Enemies
-        && let Some(enemy) = context.enemy.as_ref()
-    {
-        enemies(&mut items, enemy);
-    }
-
-    if let Some(icon) = context.icon.as_ref() {
-        icons(&mut items, icon);
-    }
-
-    if let Some(target) = context.prose.as_ref() {
-        prose(&mut items, target);
+    for payload in &payloads {
+        items.extend(payload.render(style));
     }
 
     items
 }
 
-fn replace(scope: &Scope<'_>, mount: &Mount<'_>) -> Item {
-    let label = format!("Replace \"{}\" in \"{}\"", scope.name, mount.name);
+fn payloads(context: &Context) -> Vec<Payload<'_>> {
+    let mut payloads = Vec::new();
+
+    if context.page == Page::Cats {
+        for cat in &context.cats {
+            let mount = mount(cat.active_mod.as_deref(), cat.unlocked);
+            let present = present(&mount, cat.mod_copy.as_deref(), Some(&cat.source));
+
+            payloads.push(Payload {
+                key: &cat.file,
+                scopes: vec![Scope { name: &cat.file, source: Some(&cat.source), present }],
+                mount,
+                primary: Primary::Cat(cat),
+            });
+        }
+    }
+
+    if context.page == Page::Enemies {
+        for enemy in &context.enemies {
+            let mount = mount(enemy.active_mod.as_deref(), enemy.unlocked);
+            let present = present(&mount, enemy.mod_copy.as_deref(), Some(&enemy.source));
+
+            payloads.push(Payload {
+                key: &enemy.file,
+                scopes: vec![Scope { name: &enemy.file, source: Some(&enemy.source), present }],
+                mount,
+                primary: Primary::Enemy(enemy),
+            });
+        }
+    }
+
+    if let Some(icon) = context.icon.as_ref() {
+        let mount = mount(icon.active_mod.as_deref(), icon.unlocked);
+
+        payloads.push(Payload {
+            key: &icon.asset.internal,
+            scopes: icon.asset.scopes(mount.target.is_some()),
+            mount,
+            primary: Primary::Replace,
+        });
+    }
+
+    for target in &context.prose {
+        let mount = mount(target.active_mod.as_deref(), target.unlocked);
+
+        payloads.push(Payload {
+            key: target.asset.key(),
+            scopes: target.asset.scopes(mount.target.is_some()),
+            mount,
+            primary: Primary::Prose(target),
+        });
+    }
+
+    payloads
+}
+
+impl Payload<'_> {
+    fn render(&self, style: Style) -> Vec<Item> {
+        if self.scopes.is_empty() {
+            return Vec::new();
+        }
+
+        let mut plans = match self.primary {
+            Primary::Prose(target) => plans(target, &self.scopes, self.mount.target),
+            _ => Vec::new(),
+        };
+
+        match style {
+            Style::Flat => self.flat(&mut plans),
+            Style::Nested => vec![self.nested(&mut plans)],
+        }
+    }
+
+    fn flat(&self, plans: &mut [Option<prose::Plan>]) -> Vec<Item> {
+        if let [only] = self.scopes.as_slice() {
+            return self.bare(0, only, plans, Labelling::Verbose);
+        }
+
+        let mut columns: Vec<(Verb, Vec<Item>)> = Vec::new();
+
+        for (at, scope) in self.scopes.iter().enumerate() {
+            for (verb, item) in self.verbs(at, scope, plans, Labelling::Named) {
+                match columns.iter_mut().find(|(known, _)| *known == verb) {
+                    Some((_, listed)) => listed.push(item),
+                    None => columns.push((verb, vec![item])),
+                }
+            }
+        }
+
+        let subject = self.subject();
+
+        columns
+            .into_iter()
+            .filter_map(|(verb, mut listed)| {
+                if listed.len() > 1 {
+                    return Some(Item::list(verb.flat(&subject, self.mount.name), listed));
+                }
+
+                listed.pop().map(|only| {
+                    let named = verb.flat(&only.label, self.mount.name);
+
+                    only.relabel(named)
+                })
+            })
+            .collect()
+    }
+
+    fn nested(&self, plans: &mut [Option<prose::Plan>]) -> Item {
+        let children = match self.scopes.as_slice() {
+            [only] => self.bare(0, only, plans, Labelling::Terse),
+            scopes => {
+                let mut per_file = Vec::with_capacity(scopes.len());
+
+                for (at, scope) in scopes.iter().enumerate() {
+                    per_file.push(Item::list(
+                        scope.name.to_owned(),
+                        self.bare(at, scope, plans, Labelling::Terse),
+                    ));
+                }
+
+                per_file
+            }
+        };
+
+        Item::list(manage(&self.subject(), &self.mount), children)
+    }
+
+    fn bare(
+        &self,
+        at: usize,
+        scope: &Scope<'_>,
+        plans: &mut [Option<prose::Plan>],
+        labelling: Labelling,
+    ) -> Vec<Item> {
+        self.verbs(at, scope, plans, labelling).into_iter().map(|(_, item)| item).collect()
+    }
+
+    fn subject(&self) -> String {
+        match self.scopes.as_slice() {
+            [only] => only.name.to_owned(),
+            _ => Path::new(self.key)
+                .file_stem()
+                .map_or_else(|| self.key.to_owned(), |stem| stem.to_string_lossy().into_owned()),
+        }
+    }
+
+    fn verbs(
+        &self,
+        at: usize,
+        scope: &Scope<'_>,
+        plans: &mut [Option<prose::Plan>],
+        labelling: Labelling,
+    ) -> Vec<(Verb, Item)> {
+        let mut items = Vec::new();
+        let target_mod = self.mount.target.map(str::to_owned);
+
+        match self.primary {
+            Primary::Replace => items.push((Verb::Replace, replace(scope, &self.mount, labelling))),
+            Primary::Cat(cat) => items.push((
+                Verb::Edit,
+                self.mount.item(
+                    Verb::Edit.label(scope.name, &self.mount, labelling),
+                    Action::EditAttributes(cat_plan(cat, target_mod)),
+                    Confirm::Never,
+                ),
+            )),
+            Primary::Enemy(enemy) => items.push((
+                Verb::Edit,
+                self.mount.item(
+                    Verb::Edit.label(scope.name, &self.mount, labelling),
+                    Action::EditAttributes(enemy_plan(enemy, target_mod)),
+                    Confirm::Never,
+                ),
+            )),
+            Primary::Prose(_) => {
+                if let Some(plan) = plans.get_mut(at).and_then(Option::take) {
+                    items.push((
+                        Verb::Edit,
+                        self.mount.item(
+                            Verb::Edit.label(scope.name, &self.mount, labelling),
+                            Action::EditProse(plan),
+                            Confirm::Never,
+                        ),
+                    ));
+                }
+            }
+        }
+
+        items.push((Verb::Open, open(scope, &self.mount, labelling)));
+        items.push((Verb::Find, find(scope, &self.mount, labelling)));
+        items.extend(sync(scope, &self.mount, labelling).map(|item| (Verb::Sync, item)));
+        items.push((Verb::Delete, delete(scope, &self.mount, labelling)));
+
+        items
+    }
+}
+
+fn open(scope: &Scope<'_>, mount: &Mount<'_>, labelling: Labelling) -> Item {
+    let label = Verb::Open.label(scope.name, mount, labelling);
+
+    let Some(path) = scope.present else {
+        return Item::disabled(label, absent(mount));
+    };
+
+    match classify(path) {
+        Format::Binary => Item::disabled(label, BINARY_NOTICE),
+        Format::Text | Format::Image => Item::new(label, Action::Open { source: path.to_path_buf() }),
+    }
+}
+
+fn find(scope: &Scope<'_>, mount: &Mount<'_>, labelling: Labelling) -> Item {
+    let label = Verb::Find.label(scope.name, mount, labelling);
+
+    let Some(path) = scope.present else {
+        return Item::disabled(label, absent(mount));
+    };
+
+    Item::new(label, Action::Find { source: path.to_path_buf() })
+}
+
+fn replace(scope: &Scope<'_>, mount: &Mount<'_>, labelling: Labelling) -> Item {
+    let label = Verb::Replace.label(scope.name, mount, labelling);
 
     if mount.locked {
         return Item::disabled(label, LOCKED_NOTICE);
@@ -77,76 +387,64 @@ fn replace(scope: &Scope<'_>, mount: &Mount<'_>) -> Item {
 
     let Some(target_mod) = mount.target else {
         let Some(path) = scope.present else {
-            return Item::disabled(label, format!("File does not exist in \"{}\"", mount.name));
+            return Item::disabled(label, absent(mount));
         };
 
-        let action = Action::ReplaceIcon { file: scope.name.to_owned(), target_mod: None, game: Some(path.to_path_buf()) };
+        let action = Action::Replace { file: scope.name.to_owned(), target_mod: None, game: Some(path.to_path_buf()) };
 
         return Item::new(label, action).confirming();
     };
 
     let action =
-        Action::ReplaceIcon { file: scope.name.to_owned(), target_mod: Some(target_mod.to_owned()), game: None };
+        Action::Replace { file: scope.name.to_owned(), target_mod: Some(target_mod.to_owned()), game: None };
 
     let item = Item::new(label, action);
 
     if scope.present.is_some() { item.confirming() } else { item }
 }
 
-fn remove(file: &str, mount: &Mount<'_>, present: Option<&Path>) -> Item {
-    let label = format!("Remove \"{file}\" from \"{}\"", mount.name);
+fn sync(scope: &Scope<'_>, mount: &Mount<'_>, labelling: Labelling) -> Option<Item> {
+    let active = mount.target?;
+    let game = scope.source?;
 
-    if mount.locked {
-        return Item::disabled(label, LOCKED_NOTICE);
-    }
-
-    let Some(path) = present else {
-        return Item::disabled(label, format!("File does not exist in \"{}\"", mount.name));
-    };
-
-    Item::new(label, Action::DeleteFile { source: path.to_path_buf() }).confirming()
-}
-
-fn option(label: impl Fn(&str) -> String, targets: Vec<Item>) -> Option<Item> {
-    let mut targets = targets;
-
-    match targets.len() {
-        0 => None,
-        1 => targets.pop().map(|only| {
-            let named = label(&only.label);
-
-            only.relabel(named)
-        }),
-        _ => Some(Item::list(label("..."), targets)),
-    }
-}
-
-fn sync(file: &str, game: Option<&Path>, active_mod: Option<&str>, shadowed: bool) -> Option<Item> {
-    let active = active_mod?;
-    let game = game?;
+    let label = Verb::Sync.label(scope.name, mount, labelling);
 
     let item = Item::new(
-        format!("Sync \"{file}\" with game in \"{active}\""),
-        Action::SyncWithGame {
-            file: file.to_owned(),
+        label,
+        Action::Sync {
+            file: scope.name.to_owned(),
             target_mod: active.to_owned(),
             game: game.to_path_buf(),
         },
     );
 
-    Some(if shadowed { item.confirming() } else { item })
+    Some(if scope.present.is_some() { item.confirming() } else { item })
+}
+
+fn delete(scope: &Scope<'_>, mount: &Mount<'_>, labelling: Labelling) -> Item {
+    let label = Verb::Delete.label(scope.name, mount, labelling);
+
+    if mount.locked {
+        return Item::disabled(label, LOCKED_NOTICE);
+    }
+
+    let Some(path) = scope.present else {
+        return Item::disabled(label, absent(mount));
+    };
+
+    Item::new(label, Action::Delete { source: path.to_path_buf() }).confirming()
 }
 
 pub(super) fn prose_plans(target: &ProseTarget) -> Vec<prose::Plan> {
     let mount = mount(target.active_mod.as_deref(), target.unlocked);
 
-    plans(target, &target.asset.scopes(mount.target.is_some()), mount.target)
+    plans(target, &target.asset.scopes(mount.target.is_some()), mount.target).into_iter().flatten().collect()
 }
 
-fn plans(target: &ProseTarget, scopes: &[Scope<'_>], target_mod: Option<&str>) -> Vec<prose::Plan> {
+fn plans(target: &ProseTarget, scopes: &[Scope<'_>], target_mod: Option<&str>) -> Vec<Option<prose::Plan>> {
     scopes
         .iter()
-        .filter_map(|scope| {
+        .map(|scope| {
             let source = scope.source.or(scope.present)?;
 
             Some(prose::plan(
@@ -161,57 +459,6 @@ fn plans(target: &ProseTarget, scopes: &[Scope<'_>], target_mod: Option<&str>) -
         .collect()
 }
 
-fn prose(items: &mut Vec<Item>, target: &ProseTarget) {
-    let mount = mount(target.active_mod.as_deref(), target.unlocked);
-    let scopes = target.asset.scopes(mount.target.is_some());
-
-    let edits = plans(target, &scopes, mount.target)
-        .into_iter()
-        .map(|plan| {
-            let name = plan.file().to_owned();
-
-            mount.item(name, Action::EditProse(plan), false)
-        })
-        .collect();
-
-    items.extend(option(|name| format!("Edit \"{name}\" in \"{}\"", mount.name), edits));
-
-    upkeep(items, &scopes, &mount);
-}
-
-fn upkeep(items: &mut Vec<Item>, scopes: &[Scope<'_>], mount: &Mount<'_>) {
-    let syncs = scopes
-        .iter()
-        .filter_map(|scope| {
-            sync(scope.name, scope.source, mount.target, scope.present.is_some())
-                .map(|item| item.relabel(scope.name.to_owned()))
-        })
-        .collect();
-
-    items.extend(option(|name| format!("Sync \"{name}\" with game in \"{}\"", mount.name), syncs));
-
-    let removes =
-        scopes.iter().map(|scope| remove(scope.name, mount, scope.present).relabel(scope.name.to_owned())).collect();
-
-    items.extend(option(|name| format!("Remove \"{name}\" from \"{}\"", mount.name), removes));
-}
-
-fn icons(items: &mut Vec<Item>, icon: &IconTarget) {
-    let mount = mount(icon.active_mod.as_deref(), icon.unlocked);
-
-    entries(items, &icon.asset, &mount);
-}
-
-fn entries(items: &mut Vec<Item>, exception: &Exception, mount: &Mount<'_>) {
-    let scopes = exception.scopes(mount.target.is_some());
-
-    let replaces = scopes.iter().map(|scope| replace(scope, mount).relabel(scope.name.to_owned())).collect();
-
-    items.extend(option(|name| format!("Replace \"{name}\" in \"{}\"", mount.name), replaces));
-
-    upkeep(items, &scopes, mount);
-}
-
 fn present<'a>(mount: &Mount<'_>, mod_copy: Option<&'a Path>, game: Option<&'a Path>) -> Option<&'a Path> {
     if mount.target.is_some() { mod_copy } else { game }
 }
@@ -224,72 +471,51 @@ pub(super) fn enemy_plan(enemy: &EnemyTarget, target_mod: Option<String>) -> att
     attributes::enemy(enemy.row, enemy.title(), &enemy.source, target_mod)
 }
 
-fn cats(items: &mut Vec<Item>, cat: &CatTarget) {
-    let mount = mount(cat.active_mod.as_deref(), cat.unlocked);
-
-    items.push(mount.item(
-        format!("Edit \"{}\" in \"{}\"", cat.file, mount.name),
-        Action::ModifyAttributes(cat_plan(cat, mount.target.map(str::to_owned))),
-        false,
-    ));
-
-    items.extend(sync(&cat.file, Some(&cat.source), cat.active_mod.as_deref(), cat.mod_copy.is_some()));
-    items.push(remove(&cat.file, &mount, present(&mount, cat.mod_copy.as_deref(), Some(&cat.source))));
-}
-
-fn enemies(items: &mut Vec<Item>, enemy: &EnemyTarget) {
-    let mount = mount(enemy.active_mod.as_deref(), enemy.unlocked);
-
-    items.push(mount.item(
-        format!("Edit \"{}\" in \"{}\"", enemy.file, mount.name),
-        Action::ModifyAttributes(enemy_plan(enemy, mount.target.map(str::to_owned))),
-        false,
-    ));
-
-    items.extend(sync(&enemy.file, Some(&enemy.source), enemy.active_mod.as_deref(), enemy.mod_copy.is_some()));
-    items.push(remove(&enemy.file, &mount, present(&mount, enemy.mod_copy.as_deref(), Some(&enemy.source))));
-}
-
 fn files(items: &mut Vec<Item>, file: &FileTarget) {
     if file.folder {
         return;
     }
 
+    let mount = mount(file.active_mod.as_deref(), file.unlocked);
+    let browsing = Mount { name: &file.mount, target: None, locked: false };
+    let scope = Scope { name: &file.name, source: file.game.as_deref(), present: Some(&file.source) };
+
+    if file.mount == architecture::GAME
+        && let Some(active) = mount.target
+    {
+        let confirm = if file.mod_copy.is_some() { Confirm::Overwrite } else { Confirm::Never };
+
+        items.push(mount.item(
+            Verb::Add.flat(&file.name, active),
+            Action::Add { source: file.source.clone(), target_mod: active.to_owned() },
+            confirm,
+        ));
+    }
+
+    items.push(open(&scope, &browsing, Labelling::Verbose));
+    items.push(find(&scope, &browsing, Labelling::Verbose));
+
     if file.mount != architecture::GAME {
-        items.extend(sync(&file.name, file.game.as_deref(), file.active_mod.as_deref(), true));
-        items.push(delete(file));
+        items.extend(sync(&scope, &mount, Labelling::Verbose));
+        items.push(discard(file));
 
         return;
     }
 
-    let mount = mount(file.active_mod.as_deref(), file.unlocked);
-
-    if let Some(active) = mount.target {
-        items.push(mount.item(
-            format!("Add \"{}\" to \"{active}\"", file.name),
-            Action::AddFileToMod { source: file.source.clone(), target_mod: active.to_owned() },
-            file.mod_copy.is_some(),
-        ));
-
+    if mount.target.is_some() {
         return;
     }
 
     if mount.locked {
-        items.push(Item::disabled(
-            format!("Remove \"{}\" from \"{}\"", file.name, file.mount),
-            LOCKED_NOTICE,
-        ));
+        items.push(Item::disabled(Verb::Delete.flat(&file.name, &file.mount), LOCKED_NOTICE));
 
         return;
     }
 
-    items.push(delete(file));
+    items.push(discard(file));
 }
 
-fn delete(file: &FileTarget) -> Item {
-    Item::new(
-        format!("Remove \"{}\" from \"{}\"", file.name, file.mount),
-        Action::DeleteFile { source: file.source.clone() },
-    )
-    .confirming()
+fn discard(file: &FileTarget) -> Item {
+    Item::new(Verb::Delete.flat(&file.name, &file.mount), Action::Delete { source: file.source.clone() })
+        .confirming()
 }

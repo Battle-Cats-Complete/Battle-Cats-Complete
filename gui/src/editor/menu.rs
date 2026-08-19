@@ -4,26 +4,69 @@ use iced::widget::{button, container, mouse_area, row, text as text_widget, tool
 use iced::{Border, Element, Length, Padding, Pixels, Size, Theme};
 
 use crate::app::theme;
-use crate::common::feedback::CONFIRM_LABEL;
+use crate::common::feedback::{CONFIRM_LABEL, FAILURE_LABEL};
 use crate::common::fonts;
 
-use super::{Item, Message};
+use super::{Item, Message, Trail};
 
-const TEXT_SIZE: f32 = 13.0;
-const FRAME_PADDING: f32 = 4.0;
-const ITEM_PADDING_X: f32 = 10.0;
-const ITEM_PADDING_Y: f32 = 5.0;
+pub(super) const SCALE: f32 = 0.85;
+
+const TEXT_SIZE: f32 = 13.0 * SCALE;
+const FRAME_PADDING: f32 = 4.0 * SCALE;
+const ITEM_PADDING_X: f32 = 10.0 * SCALE;
+const ITEM_PADDING_Y: f32 = 5.0 * SCALE;
 const BORDER_WIDTH: f32 = 1.0;
 const SHAPING: text::Shaping = text::Shaping::Advanced;
 const WRAPPING: text::Wrapping = text::Wrapping::None;
 const SAFETY: f32 = 1.0;
-const TOOLTIP_PADDING: f32 = 8.0;
+const TOOLTIP_PADDING: f32 = 8.0 * SCALE;
 const TOOLTIP_GAP: f32 = FRAME_PADDING + BORDER_WIDTH;
 const FRAME_SHADE: f32 = 0.35;
 const ARROW: &str = "▶";
-const ARROW_GAP: f32 = 12.0;
+const ARROW_GAP: f32 = 12.0 * SCALE;
 
 type Paragraph = <iced::Renderer as text::Renderer>::Paragraph;
+
+#[derive(Clone, Copy)]
+pub(super) struct Marks<'a> {
+    pub(super) armed: Option<&'a [usize]>,
+    pub(super) failed: Option<&'a [usize]>,
+}
+
+#[derive(Clone, Copy)]
+enum Mark {
+    Idle,
+    Armed,
+    Failed,
+}
+
+impl Marks<'_> {
+    fn at(self, trail: &[usize]) -> Mark {
+        if self.armed.is_some_and(|slot| slot == trail) {
+            return Mark::Armed;
+        }
+
+        if self.failed.is_some_and(|slot| slot == trail) {
+            return Mark::Failed;
+        }
+
+        Mark::Idle
+    }
+}
+
+impl Mark {
+    fn label(self, idle: &str) -> &str {
+        match self {
+            Mark::Armed => CONFIRM_LABEL,
+            Mark::Failed => FAILURE_LABEL,
+            Mark::Idle => idle,
+        }
+    }
+
+    fn alerting(self) -> bool {
+        !matches!(self, Mark::Idle)
+    }
+}
 
 pub(super) fn measure(renderer: &iced::Renderer, items: &[Item]) -> Size {
     let frame = FRAME_PADDING * 2.0 + BORDER_WIDTH * 2.0;
@@ -31,9 +74,10 @@ pub(super) fn measure(renderer: &iced::Renderer, items: &[Item]) -> Size {
     let (width, height) = items.iter().fold((0.0_f32, 0.0_f32), |(width, height), item| {
         let bounds = label_bounds(renderer, &item.label);
         let armed = if item.confirm { label_bounds(renderer, CONFIRM_LABEL).width } else { 0.0 };
+        let failed = if item.action.is_some() { label_bounds(renderer, FAILURE_LABEL).width } else { 0.0 };
         let arrow = if item.opens() { ARROW_GAP + TEXT_SIZE } else { 0.0 };
 
-        (width.max(bounds.width + arrow).max(armed), height + row_height(bounds.height))
+        (width.max(bounds.width + arrow).max(armed).max(failed), height + row_height(bounds.height))
     });
 
     Size::new(width + ITEM_PADDING_X * 2.0 + frame + SAFETY, height + frame)
@@ -70,29 +114,33 @@ fn label_bounds(renderer: &iced::Renderer, label: &str) -> Size {
 
 pub(super) fn view<'a, M: Clone + 'a>(
     items: &'a [Item],
-    armed: Option<usize>,
-    parent: Option<usize>,
+    marks: Marks<'_>,
+    prefix: &[usize],
     to_message: fn(Message) -> M,
 ) -> Element<'a, M> {
     let mut column = Column::with_capacity(items.len()).width(Length::Fill);
 
     for (index, item) in items.iter().enumerate() {
-        column = column.push(entry(index, item, armed, parent, to_message));
+        let mut trail = Trail::with_capacity(prefix.len() + 1);
+
+        trail.extend_from_slice(prefix);
+        trail.push(index);
+
+        column = column.push(entry(item, trail, marks, to_message));
     }
 
     container(column).width(Length::Fill).padding(FRAME_PADDING).style(frame).into()
 }
 
 fn entry<'a, M: Clone + 'a>(
-    index: usize,
     item: &'a Item,
-    armed: Option<usize>,
-    parent: Option<usize>,
+    trail: Trail,
+    marks: Marks<'_>,
     to_message: fn(Message) -> M,
 ) -> Element<'a, M> {
-    let armed = armed == Some(super::arm_slot(parent.unwrap_or(index), parent.map(|_| index)));
+    let mark = marks.at(&trail);
 
-    let label = text_widget(if armed { CONFIRM_LABEL } else { item.label.as_str() })
+    let label = text_widget(mark.label(item.label.as_str()))
         .size(TEXT_SIZE)
         .shaping(SHAPING)
         .wrapping(WRAPPING);
@@ -115,12 +163,10 @@ fn entry<'a, M: Clone + 'a>(
     let mut entry = button(content)
         .width(Length::Fill)
         .padding(Padding::new(ITEM_PADDING_Y).left(ITEM_PADDING_X).right(ITEM_PADDING_X))
-        .style(if armed { armed_style } else { entry_style });
+        .style(if mark.alerting() { armed_style } else { entry_style });
 
     if item.live() {
-        let message = parent.map_or(Message::Invoked(index), |parent| Message::InvokedChild(parent, index));
-
-        entry = entry.on_press(to_message(message));
+        entry = entry.on_press(to_message(Message::Invoked(trail.clone())));
     }
 
     let wrapped: Element<'a, M> = match item.hint.as_deref() {
@@ -134,11 +180,7 @@ fn entry<'a, M: Clone + 'a>(
         None => entry.into(),
     };
 
-    if parent.is_some() {
-        return wrapped;
-    }
-
-    mouse_area(wrapped).on_enter(to_message(Message::Hovered(item.opens().then_some(index)))).into()
+    mouse_area(wrapped).on_enter(to_message(Message::Hovered(trail))).into()
 }
 
 fn frame(theme: &Theme) -> container::Style {

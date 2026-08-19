@@ -136,10 +136,6 @@ impl Plan {
         self.subject
     }
 
-    pub(super) fn file(&self) -> &str {
-        &self.file
-    }
-
     fn matches(&self, other: &Plan) -> bool {
         self.row == other.row
             && self.game == other.game

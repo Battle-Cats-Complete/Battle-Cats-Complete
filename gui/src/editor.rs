@@ -6,7 +6,7 @@ mod target;
 mod watch;
 
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use iced::{Element, Point, Size, Task};
@@ -44,10 +44,10 @@ pub(crate) struct Context {
     enabled: bool,
     page: Page,
     file: Option<FileTarget>,
-    cat: Option<CatTarget>,
-    enemy: Option<EnemyTarget>,
+    cats: Vec<CatTarget>,
+    enemies: Vec<EnemyTarget>,
     icon: Option<IconTarget>,
-    prose: Option<ProseTarget>,
+    prose: Vec<ProseTarget>,
 }
 
 struct AssetFile {
@@ -123,15 +123,22 @@ impl Exception {
 }
 
 enum Asset {
-    Variants(Vec<AssetFile>),
+    Variants { key: String, files: Vec<AssetFile> },
     Exception(Exception),
 }
 
 impl Asset {
+    fn key(&self) -> &str {
+        match self {
+            Asset::Exception(exception) => &exception.internal,
+            Asset::Variants { key, .. } => key,
+        }
+    }
+
     fn scopes(&self, in_mod: bool) -> Vec<Scope<'_>> {
         match self {
             Asset::Exception(exception) => exception.scopes(in_mod),
-            Asset::Variants(files) => files
+            Asset::Variants { files, .. } => files
                 .iter()
                 .map(|file| Scope {
                     name: &file.name,
@@ -213,14 +220,16 @@ struct FileTarget {
     mod_copy: Option<PathBuf>,
 }
 
+pub(super) type Trail = Vec<usize>;
+
 #[derive(Clone, Debug)]
 pub enum Message {
     Opened(Point, Option<Target>),
     Dismissed,
-    Invoked(usize),
-    InvokedChild(usize, usize),
-    Hovered(Option<usize>),
+    Invoked(Trail),
+    Hovered(Trail),
     ConfirmExpired,
+    FailureExpired,
     Attributes(attributes::Subject, attributes::Message),
     Prose(prose::Subject, prose::Message),
 }
@@ -243,7 +252,9 @@ impl Item {
     }
 
     fn list(label: impl Into<String>, children: Vec<Item>) -> Self {
-        Self { label: label.into(), hint: None, action: None, children, confirm: false }
+        let hint = shared_hint(&children);
+
+        Self { label: label.into(), hint, action: None, children, confirm: false }
     }
 
     fn opens(&self) -> bool {
@@ -251,7 +262,7 @@ impl Item {
     }
 
     fn live(&self) -> bool {
-        self.action.is_some() || self.children.iter().any(|child| child.action.is_some())
+        self.action.is_some() || self.children.iter().any(Item::live)
     }
 
     fn relabel(mut self, label: impl Into<String>) -> Self {
@@ -265,34 +276,100 @@ impl Item {
     }
 }
 
-enum Action {
-    AddFileToMod { source: PathBuf, target_mod: String },
-    DeleteFile { source: PathBuf },
-    ModifyAttributes(attributes::Plan),
-    EditProse(prose::Plan),
-    ReplaceIcon { file: String, target_mod: Option<String>, game: Option<PathBuf> },
-    SyncWithGame { file: String, target_mod: String, game: PathBuf },
-}
-
-const ARM_STRIDE: usize = 1024;
-
-fn arm_slot(index: usize, child: Option<usize>) -> usize {
-    child.map_or(index, |child| ARM_STRIDE + index * ARM_STRIDE + child)
-}
-
-fn pick(items: &[Item], index: usize, child: Option<usize>) -> Option<&Item> {
-    let item = items.get(index)?;
-
-    match child {
-        Some(child) => item.children.get(child),
-        None => Some(item),
+fn shared_hint(children: &[Item]) -> Option<String> {
+    if children.iter().any(Item::live) {
+        return None;
     }
+
+    let mut hints = children.iter().map(|child| child.hint.as_deref());
+    let first = hints.next().flatten()?;
+
+    hints.all(|hint| hint == Some(first)).then(|| first.to_owned())
+}
+
+enum Action {
+    Add { source: PathBuf, target_mod: String },
+    Delete { source: PathBuf },
+    EditAttributes(attributes::Plan),
+    EditProse(prose::Plan),
+    Replace { file: String, target_mod: Option<String>, game: Option<PathBuf> },
+    Sync { file: String, target_mod: String, game: PathBuf },
+    Open { source: PathBuf },
+    Find { source: PathBuf },
+}
+
+enum Outcome {
+    Done,
+    Failed,
+}
+
+const PNG_MAGIC: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+const PROBE_BYTES: u64 = 1024;
+
+pub(super) enum Format {
+    Text,
+    Image,
+    Binary,
+}
+
+pub(super) fn classify(path: &Path) -> Format {
+    let Ok(file) = fs::File::open(path) else {
+        return Format::Binary;
+    };
+
+    let mut probe = Vec::new();
+
+    if file.take(PROBE_BYTES).read_to_end(&mut probe).is_err() {
+        return Format::Binary;
+    }
+
+    if probe.starts_with(&PNG_MAGIC) {
+        return Format::Image;
+    }
+
+    if probe.contains(&0) {
+        return Format::Binary;
+    }
+
+    match std::str::from_utf8(&probe) {
+        Ok(_) => Format::Text,
+        Err(err) if err.error_len().is_none() => Format::Text,
+        Err(_) => Format::Binary,
+    }
+}
+
+fn pick<'a>(items: &'a [Item], trail: &[usize]) -> Option<&'a Item> {
+    let (last, parents) = trail.split_last()?;
+    let mut level = items;
+
+    for index in parents {
+        level = &level.get(*index)?.children;
+    }
+
+    level.get(*last)
+}
+
+fn panels<'a>(items: &'a [Item], trail: &[usize]) -> Vec<&'a [Item]> {
+    let mut open = Vec::with_capacity(trail.len());
+    let mut level = items;
+
+    for index in trail {
+        let Some(item) = level.get(*index).filter(|item| item.opens()) else {
+            break;
+        };
+
+        level = item.children.as_slice();
+        open.push(level);
+    }
+
+    open
 }
 
 #[derive(Default)]
 pub(crate) struct State {
     open: Option<Open>,
-    confirm: Slot<usize>,
+    confirm: Slot<Trail>,
+    failed: Slot<Trail>,
     cats: attributes::State,
     enemies: attributes::State,
     prose: [prose::State; prose::COUNT],
@@ -323,7 +400,7 @@ pub(crate) struct Update {
 struct Open {
     at: Point,
     items: Vec<Item>,
-    hovered: Option<usize>,
+    trail: Trail,
 }
 
 impl State {
@@ -340,16 +417,16 @@ impl State {
         }
 
         self.confirm.expire();
-        self.open = (!items.is_empty()).then_some(Open { at, items, hovered: None });
+        self.failed.expire();
+        self.open = (!items.is_empty()).then_some(Open { at, items, trail: Trail::new() });
     }
 
     pub(crate) fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Invoked(index) => self.invoke(index, None),
-            Message::InvokedChild(parent, index) => self.invoke(parent, Some(index)),
-            Message::Hovered(index) => {
+            Message::Invoked(trail) => self.invoke(trail),
+            Message::Hovered(trail) => {
                 if let Some(open) = self.open.as_mut() {
-                    open.hovered = index;
+                    open.trail = trail;
                 }
 
                 Task::none()
@@ -357,10 +434,15 @@ impl State {
             Message::Dismissed => {
                 self.open = None;
                 self.confirm.expire();
+                self.failed.expire();
                 Task::none()
             }
             Message::ConfirmExpired => {
                 self.confirm.expire();
+                Task::none()
+            }
+            Message::FailureExpired => {
+                self.failed.expire();
                 Task::none()
             }
             Message::Prose(subject, msg) => self
@@ -455,17 +537,69 @@ impl State {
         &mut self.prose[subject.slot()]
     }
 
-    fn perform(&mut self, action: &Action) {
+    fn perform(&mut self, action: &Action) -> Outcome {
         match action {
-            Action::AddFileToMod { source, target_mod } => match mods::adopt(target_mod, source) {
-                Ok(path) => info!(path = %path.display(), "Added a file to a mod"),
-                Err(err) => warn!(source = %source.display(), "Failed to add the file to the mod: {}", err),
+            Action::Add { source, target_mod } => match mods::adopt(target_mod, source) {
+                Ok(path) => {
+                    info!(path = %path.display(), "Added a file to a mod");
+
+                    Outcome::Done
+                }
+                Err(err) => {
+                    warn!(source = %source.display(), "Failed to add the file to the mod: {}", err);
+
+                    Outcome::Failed
+                }
             },
-            Action::DeleteFile { source } => match fs::remove_file(source) {
-                Ok(()) => info!(path = %source.display(), "Deleted a mod file"),
-                Err(err) => warn!(path = %source.display(), "Failed to delete the file: {}", err),
+            Action::Delete { source } => match fs::remove_file(source) {
+                Ok(()) => {
+                    info!(path = %source.display(), "Deleted a mod file");
+
+                    Outcome::Done
+                }
+                Err(err) => {
+                    warn!(path = %source.display(), "Failed to delete the file: {}", err);
+
+                    Outcome::Failed
+                }
             },
-            Action::ModifyAttributes(plan) => self.subject_mut(plan.subject()).begin(plan.clone()),
+            Action::Open { source } => match open::that(source) {
+                Ok(()) => {
+                    info!(path = %source.display(), "Opened a file in an external program");
+
+                    Outcome::Done
+                }
+                Err(err) => {
+                    warn!(path = %source.display(), "Failed to open the file: {}", err);
+
+                    Outcome::Failed
+                }
+            },
+            Action::Find { source } => {
+                let Some(folder) = source.parent() else {
+                    warn!(path = %source.display(), "The file has no containing folder to open");
+
+                    return Outcome::Failed;
+                };
+
+                match open::that(folder) {
+                    Ok(()) => {
+                        info!(path = %folder.display(), "Opened a containing folder");
+
+                        Outcome::Done
+                    }
+                    Err(err) => {
+                        warn!(path = %folder.display(), "Failed to open the containing folder: {}", err);
+
+                        Outcome::Failed
+                    }
+                }
+            }
+            Action::EditAttributes(plan) => {
+                self.subject_mut(plan.subject()).begin(plan.clone());
+
+                Outcome::Done
+            }
             Action::EditProse(plan) => {
                 let subject = plan.subject();
 
@@ -476,22 +610,32 @@ impl State {
                 }
 
                 self.prose_mut(subject).begin(plan.clone());
+
+                Outcome::Done
             }
-            Action::ReplaceIcon { file, target_mod, game } => {
-                replace_icon(file, target_mod.as_deref(), game.as_deref());
+            Action::Replace { file, target_mod, game } => {
+                replace_icon(file, target_mod.as_deref(), game.as_deref())
             }
-            Action::SyncWithGame { file, target_mod, game } => match mods::place(target_mod, game, file) {
-                Ok(path) => info!(path = %path.display(), "Synced a mod file with game"),
-                Err(err) => warn!(file, "Failed to sync the file with game: {}", err),
+            Action::Sync { file, target_mod, game } => match mods::place(target_mod, game, file) {
+                Ok(path) => {
+                    info!(path = %path.display(), "Synced a mod file with game");
+
+                    Outcome::Done
+                }
+                Err(err) => {
+                    warn!(file, "Failed to sync the file with game: {}", err);
+
+                    Outcome::Failed
+                }
             },
         }
     }
 
-    fn invoke(&mut self, index: usize, child: Option<usize>) -> Task<Message> {
+    fn invoke(&mut self, trail: Trail) -> Task<Message> {
         let Some((actionable, confirms)) = self
             .open
             .as_ref()
-            .and_then(|open| pick(&open.items, index, child))
+            .and_then(|open| pick(&open.items, &trail))
             .map(|item| (item.action.is_some(), item.confirm))
         else {
             return Task::none();
@@ -501,23 +645,28 @@ impl State {
             return Task::none();
         }
 
-        let slot = arm_slot(index, child);
-
-        if confirms && !self.confirm.armed_for(&slot) {
-            return self.confirm.set(slot, Message::ConfirmExpired);
+        if confirms && !self.confirm.armed_for(&trail) {
+            return self.confirm.set(trail, Message::ConfirmExpired);
         }
 
         self.confirm.expire();
+        self.failed.expire();
 
         let Some(open) = self.open.take() else {
             return Task::none();
         };
 
-        if let Some(action) = pick(&open.items, index, child).and_then(|item| item.action.as_ref()) {
-            self.perform(action);
+        let outcome = pick(&open.items, &trail)
+            .and_then(|item| item.action.as_ref())
+            .map_or(Outcome::Done, |action| self.perform(action));
+
+        if matches!(outcome, Outcome::Done) {
+            return Task::none();
         }
 
-        Task::none()
+        self.open = Some(open);
+
+        self.failed.set(trail, Message::FailureExpired)
     }
 }
 
@@ -526,11 +675,21 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
         enabled: app.settings.general.enable_nightly,
         page: app.current_page,
         file: file_target(app, target),
-        cat: matches!(target, Some(Target::CatAttributes)).then(|| cat_subject(app)).flatten(),
-        enemy: matches!(target, Some(Target::EnemyAttributes)).then(|| enemy_subject(app)).flatten(),
+        cats: matches!(target, Some(Target::CatAttributes)).then(|| cat_targets(app)).unwrap_or_default(),
+        enemies: matches!(target, Some(Target::EnemyAttributes))
+            .then(|| enemy_subject(app).into_iter().collect())
+            .unwrap_or_default(),
         icon: icon_target(app, target),
-        prose: prose_subject(target).and_then(|subject| prose_target(app, subject)),
+        prose: prose_subject(target).map(|subject| prose_targets(app, subject)).unwrap_or_default(),
     }
+}
+
+fn cat_targets(app: &BattleCatsApp) -> Vec<CatTarget> {
+    cat_subject(app).into_iter().collect()
+}
+
+fn prose_targets(app: &BattleCatsApp, subject: prose::Subject) -> Vec<ProseTarget> {
+    prose_target(app, subject).into_iter().collect()
 }
 
 fn prose_tab(app: &BattleCatsApp, subject: prose::Subject) -> bool {
@@ -551,7 +710,7 @@ fn prose_subject(target: Option<Target>) -> Option<prose::Subject> {
 
 fn prose_target(app: &BattleCatsApp, subject: prose::Subject) -> Option<ProseTarget> {
     match subject {
-        prose::Subject::Explanation => explanation_target(app),
+        prose::Subject::Explanation => explanation_target(app, app.app_state.cat.selected_cat?),
         prose::Subject::EnemyName => enemy_name_target(app),
         prose::Subject::EnemyDescription => enemy_description_target(app),
     }
@@ -585,7 +744,7 @@ fn enemy_description_target(app: &BattleCatsApp) -> Option<ProseTarget> {
 
     Some(ProseTarget {
         subject: prose::Subject::EnemyDescription,
-        asset: Asset::Variants(files),
+        asset: Asset::Variants { key: enemy_files::PICTURE_BOOK.to_owned(), files },
         label: enemy_label(app, id),
         row: id as usize,
         unlocked: app.settings.files.unlock_game_mount,
@@ -602,14 +761,14 @@ fn enemy_label(app: &BattleCatsApp, id: u32) -> String {
         .map_or_else(|| format!("{id:03}-E"), EnemyEntry::display_name)
 }
 
-fn explanation_target(app: &BattleCatsApp) -> Option<ProseTarget> {
-    let id = app.app_state.cat.selected_cat?;
+fn explanation_target(app: &BattleCatsApp, id: u32) -> Option<ProseTarget> {
     let form = app.app_state.cat.selected_form;
 
     let resolved = cat_waiter::unitexplanation_source(&app.vault.vfs, id, form)?;
     let file = resolved.file_name()?.to_string_lossy().into_owned();
 
-    let files = asset_files(app, &cat_files::explanation_file(id));
+    let key = cat_files::explanation_file(id);
+    let files = asset_files(app, &key);
 
     if files.is_empty() {
         return None;
@@ -632,7 +791,7 @@ fn explanation_target(app: &BattleCatsApp) -> Option<ProseTarget> {
 
     Some(ProseTarget {
         subject: prose::Subject::Explanation,
-        asset: Asset::Variants(files),
+        asset: Asset::Variants { key, files },
         label,
         row: form,
         unlocked: app.settings.files.unlock_game_mount,
@@ -664,9 +823,9 @@ fn icon_target(app: &BattleCatsApp, target: Option<Target>) -> Option<IconTarget
     })
 }
 
-fn replace_icon(file: &str, target_mod: Option<&str>, game: Option<&Path>) {
+fn replace_icon(file: &str, target_mod: Option<&str>, game: Option<&Path>) -> Outcome {
     let Some(source) = rfd::FileDialog::new().add_filter("PNG Image", &["png"]).pick_file() else {
-        return;
+        return Outcome::Done;
     };
 
     let placed = match target_mod {
@@ -678,17 +837,28 @@ fn replace_icon(file: &str, target_mod: Option<&str>, game: Option<&Path>) {
     };
 
     match placed {
-        Ok(path) => info!(path = %path.display(), "Replaced an icon"),
-        Err(err) => warn!(file, "Failed to replace the icon: {}", err),
+        Ok(path) => {
+            info!(path = %path.display(), "Replaced an icon");
+
+            Outcome::Done
+        }
+        Err(err) => {
+            warn!(file, "Failed to replace the icon: {}", err);
+
+            Outcome::Failed
+        }
     }
 }
 
 fn cat_subject(app: &BattleCatsApp) -> Option<CatTarget> {
+    cat_target(app, app.app_state.cat.selected_cat?)
+}
+
+fn cat_target(app: &BattleCatsApp, id: u32) -> Option<CatTarget> {
     if app.current_page != Page::Cats {
         return None;
     }
 
-    let id = app.app_state.cat.selected_cat?;
     let file = cat_files::stats_file(id);
     let source = app.vault.vfs.rooted_in(architecture::GAME, &file)?;
     let form = app.app_state.cat.selected_form;

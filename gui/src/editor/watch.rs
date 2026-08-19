@@ -3,12 +3,11 @@ use iced::keyboard::{self, key::Named};
 use iced::widget::Space;
 use iced::{Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
 
-use super::{menu, target, Item, Message, State};
+use super::{menu, panels, target, Item, Message, State};
 
 const CONTENT: usize = 0;
 const MENU: usize = 1;
-const SUB: usize = 2;
-const SUBMENU_GAP: f32 = 2.0;
+const SUBMENU_GAP: f32 = 2.0 * menu::SCALE;
 
 pub(crate) fn watch<'a, M: Clone + 'a>(
     content: impl Into<Element<'a, M>>,
@@ -16,29 +15,35 @@ pub(crate) fn watch<'a, M: Clone + 'a>(
     to_message: fn(Message) -> M,
 ) -> Element<'a, M> {
     let opened = state.open.as_ref();
-    let armed = state.confirm.get().copied();
-    let hovered = opened.and_then(|open| open.hovered);
+    let marks = menu::Marks {
+        armed: state.confirm.get().map(Vec::as_slice),
+        failed: state.failed.get().map(Vec::as_slice),
+    };
 
-    let overlay: Element<'a, M> = opened.map_or_else(
-        || Space::new().into(),
-        |open| menu::view(&open.items, armed, None, to_message),
-    );
+    let items = opened.map_or(&[][..], |open| open.items.as_slice());
+    let trail = opened.map_or(&[][..], |open| open.trail.as_slice());
+    let nested = panels(items, trail);
 
-    let nested = opened
-        .and_then(|open| open.hovered.and_then(|index| open.items.get(index)))
-        .map(|item| item.children.as_slice())
-        .filter(|kids| !kids.is_empty());
+    let mut layers: Vec<Element<'a, M>> = Vec::with_capacity(nested.len() + 2);
 
-    let sub: Element<'a, M> = nested.map_or_else(
-        || Space::new().into(),
-        |kids| menu::view(kids, armed, hovered, to_message),
-    );
+    layers.push(content.into());
+
+    match opened {
+        Some(_) => {
+            layers.push(menu::view(items, marks, &[], to_message));
+
+            for (level, rows) in nested.iter().enumerate() {
+                layers.push(menu::view(rows, marks, &trail[..=level], to_message));
+            }
+        }
+        None => layers.push(Space::new().into()),
+    }
 
     Element::new(Watch {
-        layers: vec![content.into(), overlay, sub],
-        items: opened.map_or(&[], |open| open.items.as_slice()),
-        children: nested.unwrap_or(&[]),
-        hovered,
+        layers,
+        items,
+        panels: nested,
+        trail,
         anchor: opened.map_or(Point::ORIGIN, |open| open.at),
         open: opened.is_some(),
         to_message,
@@ -48,8 +53,8 @@ pub(crate) fn watch<'a, M: Clone + 'a>(
 struct Watch<'a, M> {
     layers: Vec<Element<'a, M>>,
     items: &'a [Item],
-    children: &'a [Item],
-    hovered: Option<usize>,
+    panels: Vec<&'a [Item]>,
+    trail: &'a [usize],
     anchor: Point,
     open: bool,
     to_message: fn(Message) -> M,
@@ -70,33 +75,50 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
 
     fn layout(&mut self, tree: &mut widget::Tree, renderer: &iced::Renderer, limits: &layout::Limits) -> layout::Node {
         let bounds = limits.max();
+        let mut nodes = Vec::with_capacity(self.layers.len());
 
-        let content = self.layers[CONTENT]
-            .as_widget_mut()
-            .layout(&mut tree.children[CONTENT], renderer, limits);
+        nodes.push(self.layers[CONTENT].as_widget_mut().layout(&mut tree.children[CONTENT], renderer, limits));
 
         if !self.open {
-            let menu = collapsed(&mut self.layers[MENU], &mut tree.children[MENU], renderer);
-            let sub = collapsed(&mut self.layers[SUB], &mut tree.children[SUB], renderer);
+            for slot in MENU..self.layers.len() {
+                nodes.push(collapsed(&mut self.layers[slot], &mut tree.children[slot], renderer));
+            }
 
-            return layout::Node::with_children(bounds, vec![content, menu, sub]);
+            return layout::Node::with_children(bounds, nodes);
         }
 
         let main = clamped(menu::measure(renderer, self.items), bounds);
         let origin = anchored(self.anchor, main, bounds);
-        let menu = sized(&mut self.layers[MENU], &mut tree.children[MENU], renderer, main).move_to(origin);
 
-        let sub = if self.children.is_empty() {
-            collapsed(&mut self.layers[SUB], &mut tree.children[SUB], renderer)
-        } else {
-            let size = clamped(menu::measure(renderer, self.children), bounds);
-            let top = self.hovered.map_or(0.0, |index| menu::row_offset(renderer, self.items, index));
+        nodes.push(sized(&mut self.layers[MENU], &mut tree.children[MENU], renderer, main).move_to(origin));
 
-            sized(&mut self.layers[SUB], &mut tree.children[SUB], renderer, size)
-                .move_to(beside(origin, main, size, top, bounds))
-        };
+        let mut sizes = Vec::with_capacity(self.panels.len());
 
-        layout::Node::with_children(bounds, vec![content, menu, sub])
+        for rows in &self.panels {
+            sizes.push(clamped(menu::measure(renderer, rows), bounds));
+        }
+
+        let cascade = Cascade::choose(origin, main, &sizes, bounds);
+        let mut parent = (self.items, origin, main);
+
+        for level in 0..self.panels.len() {
+            let rows = self.panels[level];
+            let index = self.trail[level];
+            let (above, at, span) = parent;
+
+            let Some(size) = sizes.get(level).copied() else {
+                break;
+            };
+
+            let placed = beside(cascade, at, span, size, menu::row_offset(renderer, above, index), bounds);
+            let slot = MENU + 1 + level;
+
+            nodes.push(sized(&mut self.layers[slot], &mut tree.children[slot], renderer, size).move_to(placed));
+
+            parent = (rows, placed, size);
+        }
+
+        layout::Node::with_children(bounds, nodes)
     }
 
     fn operate(&mut self, tree: &mut widget::Tree, layout: Layout<'_>, renderer: &iced::Renderer, operation: &mut dyn widget::Operation) {
@@ -116,46 +138,30 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
         shell: &mut Shell<'_, M>,
         viewport: &Rectangle,
     ) {
-        let mut children = layout.children();
-        let (Some(content), Some(overlay), Some(nested)) = (children.next(), children.next(), children.next())
-        else {
+        let Some(content) = layout.children().next() else {
             return;
         };
 
-        let inside = cursor.is_over(overlay.bounds())
-            || (!self.children.is_empty()
-                && (cursor.is_over(nested.bounds()) || cursor.is_over(bridge(overlay.bounds(), nested.bounds()))));
+        let inside = self.open && hovering(layout, cursor);
         let right_press = matches!(event, Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)));
         let relocating = self.open && right_press && !inside;
 
         if self.open {
-            self.layers[SUB].as_widget_mut().update(
-                &mut tree.children[SUB],
-                event,
-                nested,
-                cursor,
-                renderer,
-                clipboard,
-                shell,
-                viewport,
-            );
+            for slot in (MENU..self.layers.len()).rev() {
+                let (Some(layer), Some(state), Some(region)) =
+                    (self.layers.get_mut(slot), tree.children.get_mut(slot), layout.children().nth(slot))
+                else {
+                    continue;
+                };
 
-            self.layers[MENU].as_widget_mut().update(
-                &mut tree.children[MENU],
-                event,
-                overlay,
-                cursor,
-                renderer,
-                clipboard,
-                shell,
-                viewport,
-            );
+                layer.as_widget_mut().update(state, event, region, cursor, renderer, clipboard, shell, viewport);
+            }
 
-            if self.hovered.is_some()
+            if !self.trail.is_empty()
                 && matches!(event, Event::Mouse(mouse::Event::CursorMoved { .. }))
                 && !inside
             {
-                shell.publish((self.to_message)(Message::Hovered(None)));
+                shell.publish((self.to_message)(Message::Hovered(Vec::new())));
             }
 
             if !relocating && dismisses(event, inside) {
@@ -217,15 +223,16 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
         viewport: &Rectangle,
         renderer: &iced::Renderer,
     ) -> mouse::Interaction {
-        let slots: &[usize] = if self.open { &[SUB, MENU] } else { &[CONTENT] };
+        let reach = if self.open { MENU..self.layers.len() } else { CONTENT..MENU };
 
-        slots
-            .iter()
-            .filter_map(|slot| layout.children().nth(*slot).map(|child| (*slot, child)))
-            .map(|(slot, child)| {
-                self.layers[slot]
-                    .as_widget()
-                    .mouse_interaction(&tree.children[slot], child, cursor, viewport, renderer)
+        reach
+            .rev()
+            .filter_map(|slot| {
+                let layer = self.layers.get(slot)?;
+                let state = tree.children.get(slot)?;
+                let child = layout.children().nth(slot)?;
+
+                Some(layer.as_widget().mouse_interaction(state, child, cursor, viewport, renderer))
             })
             .find(|interaction| *interaction != mouse::Interaction::None)
             .unwrap_or(mouse::Interaction::None)
@@ -241,9 +248,7 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let mut children = layout.children();
-        let (Some(content), Some(overlay), Some(nested)) = (children.next(), children.next(), children.next())
-        else {
+        let Some(content) = layout.children().next() else {
             return;
         };
 
@@ -258,13 +263,11 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
         }
 
         renderer.with_layer(*viewport, |renderer| {
-            self.layers[MENU]
-                .as_widget()
-                .draw(&tree.children[MENU], renderer, theme, style, overlay, cursor, viewport);
-
-            self.layers[SUB]
-                .as_widget()
-                .draw(&tree.children[SUB], renderer, theme, style, nested, cursor, viewport);
+            for ((layer, state), child) in
+                self.layers.iter().zip(&tree.children).zip(layout.children()).skip(MENU)
+            {
+                layer.as_widget().draw(state, renderer, theme, style, child, cursor, viewport);
+            }
         });
     }
 
@@ -278,6 +281,26 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
     ) -> Option<overlay::Element<'b, M, Theme, iced::Renderer>> {
         overlay::from_children(&mut self.layers, tree, layout, renderer, viewport, translation)
     }
+}
+
+fn hovering(layout: Layout<'_>, cursor: mouse::Cursor) -> bool {
+    if layout.children().skip(MENU).any(|child| cursor.is_over(child.bounds())) {
+        return true;
+    }
+
+    let mut previous = None;
+
+    for child in layout.children().skip(MENU) {
+        let bounds = child.bounds();
+
+        if let Some(before) = previous.replace(bounds)
+            && cursor.is_over(bridge(before, bounds))
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn is_input(event: &Event) -> bool {
@@ -323,13 +346,37 @@ fn sized<'a, M>(
         .layout(tree, renderer, &layout::Limits::new(Size::new(size.width, 0.0), size))
 }
 
-fn beside(origin: Point, main: Size, size: Size, top: f32, bounds: Size) -> Point {
-    let right = origin.x + main.width + SUBMENU_GAP;
-    let left = origin.x - size.width - SUBMENU_GAP;
-    let x = if right + size.width <= bounds.width || left < 0.0 { right } else { left };
-    let y = (origin.y + top).min((bounds.height - size.height).max(0.0));
+#[derive(Clone, Copy)]
+enum Cascade {
+    Right,
+    Left,
+}
 
-    Point::new(x, y)
+impl Cascade {
+    fn choose(origin: Point, main: Size, sizes: &[Size], bounds: Size) -> Self {
+        let span: f32 = sizes.iter().map(|size| size.width + SUBMENU_GAP).sum();
+
+        if origin.x + main.width + span <= bounds.width {
+            return Cascade::Right;
+        }
+
+        if origin.x - span >= 0.0 {
+            return Cascade::Left;
+        }
+
+        if origin.x + main.width / 2.0 <= bounds.width / 2.0 { Cascade::Right } else { Cascade::Left }
+    }
+}
+
+fn beside(cascade: Cascade, at: Point, span: Size, size: Size, top: f32, bounds: Size) -> Point {
+    let x = match cascade {
+        Cascade::Right => at.x + span.width + SUBMENU_GAP,
+        Cascade::Left => at.x - size.width - SUBMENU_GAP,
+    };
+
+    let y = (at.y + top).min((bounds.height - size.height).max(0.0));
+
+    Point::new(x.clamp(0.0, (bounds.width - size.width).max(0.0)), y)
 }
 
 fn anchored(anchor: Point, size: Size, bounds: Size) -> Point {
