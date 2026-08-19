@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 
 use nyanko::cat::unitid;
 use nyanko::combat::{Column, Scale};
+use nyanko::common::tools::columns::FromColumn;
 use nyanko::enemy::t_unit;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -135,13 +136,13 @@ impl Schema {
     }
 
     pub(super) fn fallback(&self, index: usize) -> i32 {
-        self.column(index).map_or(0, |column| column.default)
+        self.column(index).and_then(|column| i32::from_column(column.default)).unwrap_or(0)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CAT, CAT_NAMES, ENEMY, ENEMY_NAMES, Schema};
+    use super::{FromColumn, CAT, CAT_NAMES, ENEMY, ENEMY_NAMES, Schema};
 
     fn check(schema: &Schema, names: &[(&str, &str)], subject: &str) {
         for (field, _) in names {
@@ -150,6 +151,27 @@ mod tests {
                 "{subject}: override names {field}, which nyanko no longer publishes"
             );
         }
+    }
+
+    fn defaults_parse(schema: &Schema, subject: &str) {
+        for column in schema.order() {
+            assert!(
+                i32::from_column(column.default).is_some(),
+                "{subject}: {} declares default {:?}, which is not an integer and would silently fall back to 0",
+                column.field,
+                column.default
+            );
+        }
+    }
+
+    #[test]
+    fn cat_defaults_are_integers() {
+        defaults_parse(&CAT, "cat");
+    }
+
+    #[test]
+    fn enemy_defaults_are_integers() {
+        defaults_parse(&ENEMY, "enemy");
     }
 
     #[test]
