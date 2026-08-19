@@ -59,16 +59,14 @@ fn label_height(schema: &schema::Schema) -> f32 {
     lines as f32 * LABEL_SIZE * LINE_RATIO
 }
 
-fn split_row(line: &str, delimiter: char, schema: &schema::Schema) -> (Vec<i32>, String, String) {
-    let (numeric, gap, comment) = match line.find(COMMENT) {
+fn split_row(line: &str, delimiter: char, schema: &schema::Schema) -> (Vec<i32>, String) {
+    let (numeric, comment) = match line.find(COMMENT) {
         Some(at) => {
             let (head, tail) = line.split_at(at);
-            let trimmed = head.trim_end();
-            let gap = head[trimmed.len()..].to_owned();
 
-            (trimmed, gap, tail[COMMENT.len()..].trim().to_owned())
+            (head.trim_end(), tail[COMMENT.len()..].trim().to_owned())
         }
-        None => (line, String::from(" "), String::new()),
+        None => (line, String::new()),
     };
 
     let mut fields: Vec<&str> = numeric.split(delimiter).collect();
@@ -83,7 +81,7 @@ fn split_row(line: &str, delimiter: char, schema: &schema::Schema) -> (Vec<i32>,
         cells.push(schema.fallback(cells.len()));
     }
 
-    (cells, gap, comment)
+    (cells, comment)
 }
 
 fn shown(schema: &schema::Schema, index: usize, raw: i32) -> String {
@@ -172,7 +170,6 @@ struct Draft {
     delimiter: char,
     lines: Vec<String>,
     cells: Vec<i32>,
-    gap: String,
     comment: String,
     inputs: Vec<String>,
     failed: bool,
@@ -309,10 +306,10 @@ impl Draft {
             return None;
         };
 
-        let (cells, gap, comment) = split_row(raw, delimiter, plan.schema);
+        let (cells, comment) = split_row(raw, delimiter, plan.schema);
         let inputs = (0..cells.len()).map(|index| shown(plan.schema, index, cells[index])).collect();
 
-        Some(Draft { plan, read_from, stamp, delimiter, lines, cells, gap, comment, inputs, failed: false })
+        Some(Draft { plan, read_from, stamp, delimiter, lines, cells, comment, inputs, failed: false })
     }
 
     fn edit(&mut self, index: usize, value: &str) {
@@ -379,9 +376,8 @@ impl Draft {
             return;
         };
 
-        let (cells, gap, comment) = split_row(raw, delimiter, self.plan.schema);
+        let (cells, comment) = split_row(raw, delimiter, self.plan.schema);
         self.cells = cells;
-        self.gap = gap;
         self.comment = comment;
 
         self.inputs = (0..self.cells.len()).map(|index| shown(self.plan.schema, index, self.cells[index])).collect();
@@ -405,7 +401,8 @@ impl Draft {
         let mut line = rebuilt.join(&self.delimiter.to_string());
 
         if !self.comment.is_empty() {
-            line.push_str(&self.gap);
+            line.push(self.delimiter);
+            line.push(' ');
             line.push_str(COMMENT);
             line.push(' ');
             line.push_str(&self.comment);
