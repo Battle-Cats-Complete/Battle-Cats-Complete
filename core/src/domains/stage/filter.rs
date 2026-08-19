@@ -408,15 +408,10 @@ impl CompiledStageFilter {
         }
 
         let mut actual_hp = stage.base_hp as i64;
-        let target_crown = self.target_crowns.min.max(1) as u32;
+        let target_crown = self.target_crowns.min.clamp(1, i64::from(u8::MAX)) as u8;
 
         if stage.anim_base_id != 0 && target_crown > 1 {
-            let magnification = match target_crown {
-                2 => map.crown_2_mag.unwrap_or(100),
-                3 => map.crown_3_mag.unwrap_or(100),
-                4 => map.crown_4_mag.unwrap_or(100),
-                _ => 100,
-            };
+            let magnification = stage.crown_magnification(target_crown).unwrap_or(100);
             actual_hp = (actual_hp * magnification as i64) / 100;
         }
 
@@ -425,7 +420,7 @@ impl CompiledStageFilter {
         if !self.width.matches(stage.width as i64) { return false; }
         if !self.max_enemies.matches(stage.max_enemies as i64) { return false; }
         if !self.time_limit.matches(stage.time_limit as i64) { return false; }
-        if !self.energy.matches(stage.energy as i64) { return false; }
+        if !self.energy.matches(stage.cost as i64) { return false; }
         if !self.xp.matches(stage.xp as i64) { return false; }
         if !self.min_cost.matches(stage.min_cost as i64) { return false; }
         if !self.max_cost.matches(stage.max_cost as i64) { return false; }

@@ -264,12 +264,7 @@ impl State {
             return section("Battleground", Length::Fixed(super::CONTENT_WIDTH), content.push(text("No enemies defined for this stage.")));
         }
 
-        let crown_mag = match selected_crown {
-            1 => map.crown_2_mag.unwrap_or(100),
-            2 => map.crown_3_mag.unwrap_or(100),
-            3 => map.crown_4_mag.unwrap_or(100),
-            _ => map.crown_1_mag.unwrap_or(100),
-        };
+        let crown_mag = stage.crown_magnification(selected_crown.saturating_add(1)).unwrap_or(100);
 
         let show_score_column = stage.enemies.iter().any(|enemy| enemy.score > 0);
         let is_dojo_mechanic = stage.enemies.iter().any(|enemy| enemy.base_hp_perc > 100);

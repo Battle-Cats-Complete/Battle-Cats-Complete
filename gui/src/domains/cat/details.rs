@@ -107,8 +107,8 @@ impl State {
 
     fn view_evolve<'a>(&'a self, cat: &'a CatEntry, form: usize, vfs: &'a Vfs) -> Option<Element<'a, Message>> {
         let (materials, xp_cost) = match form {
-            2 => (&cat.unitbuy.true_form_materials, cat.unitbuy.true_form_xp_cost),
-            3 => (&cat.unitbuy.ultra_form_materials, cat.unitbuy.ultra_form_xp_cost),
+            2 => (cat.unitbuy.true_form_materials().collect::<Vec<_>>(), cat.unitbuy.true_form_xp_cost),
+            3 => (cat.unitbuy.ultra_form_materials().collect::<Vec<_>>(), cat.unitbuy.ultra_form_xp_cost),
             _ => return None,
         };
 
@@ -139,8 +139,8 @@ impl State {
 
         if !materials.is_empty() {
             let mut icon_row = row![].spacing(MATERIAL_SPACING);
-            for (item_id, amount) in materials {
-                icon_row = icon_row.push(self.view_material(*item_id, *amount, vfs));
+            for material in &materials {
+                icon_row = icon_row.push(self.view_material(material.item_id, material.quantity, vfs));
             }
             section = section.push(icon_row);
             section = section.push(Space::new().height(Length::Fixed(EVOLVE_ITEM_SPACING)));

@@ -3,8 +3,8 @@ use std::fs;
 
 use nyanko::chapter::map::{LockSkipData, LockSkipDataEntry};
 use nyanko::chapter::stage::{
-    Battleground, CertificationPreset, DropChara, MapStageData, MapStageDataEntry, ScatCpuSetting,
-    StageName, StageNameEntry,
+    Battleground, CertificationPreset, DropChara, MapStageData, ScatCpuSetting, StageName,
+    StageNameEntry,
 };
 
 use crate::Vfs;
@@ -35,10 +35,9 @@ pub(crate) fn lockskipdata(vfs: &Vfs, filename: &str) -> HashMap<u32, LockSkipDa
         .unwrap_or_default()
 }
 
-pub(crate) fn mapstagedata(vfs: &Vfs, filename: &str) -> Vec<MapStageDataEntry> {
+pub(crate) fn mapstagedata(vfs: &Vfs, filename: &str) -> MapStageData {
     read(vfs, filename)
         .and_then(|bytes| MapStageData::parse(&bytes).ok())
-        .map(|parsed| parsed.entries)
         .unwrap_or_default()
 }
 

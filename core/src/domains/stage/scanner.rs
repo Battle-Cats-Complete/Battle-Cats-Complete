@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::Category;
 use nyanko::chapter::map::{DropItemEntry, LockSkipDataEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
-use nyanko::chapter::stage::{CharaGroupEntry, FixedFormationEntry, ScatCpuSetting, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
+use nyanko::chapter::stage::{CharaGroupEntry, CostType, FixedFormationEntry, MapStageData, ScatCpuSetting, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
 use nyanko::common::tools::file;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -565,9 +565,9 @@ fn load_map(
         .unwrap_or(true);
 
     let (stage_ids, stage_structs) = if is_story {
-        load_story_stages(category, map_id, map_opt.max_crowns, stage_names, ctx, global_map_id)
+        load_story_stages(&map_struct, stage_names, ctx, global_map_id)
     } else {
-        load_legend_stages(info, category, map_id, map_opt.max_crowns, stage_names, ctx, global_map_id)
+        load_legend_stages(info, &map_struct, stage_names, ctx, global_map_id)
     };
 
     if stage_ids.is_empty() {
@@ -588,11 +588,8 @@ fn load_map(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn load_story_stages(
-    category: &Category,
-    map_id: u32,
-    max_crowns: u8,
+    map: &Map,
     stage_names: &HashMap<u32, StageNameEntry>,
     ctx: &ScanContext,
     global_map_id: Option<u32>,
@@ -602,7 +599,7 @@ fn load_story_stages(
     let mut story_data = HashMap::new();
     let mut inv_story_data = None;
 
-    let story_file = if category.map_prefix() == "Z" {
+    let story_file = if map.category.map_prefix() == "Z" {
         match global_map_id {
             Some(3000) => "stageNormal0_0_Z.csv",
             Some(3001) => "stageNormal0_1_Z.csv",
@@ -628,7 +625,7 @@ fn load_story_stages(
         }
     };
 
-    let inv_story_file = if category.map_prefix() == "Z" {
+    let inv_story_file = if map.category.map_prefix() == "Z" {
         match global_map_id {
             Some(3008) => "stageNormal2_2_Invasion_Z.csv",
             _ => "",
@@ -686,13 +683,13 @@ fn load_story_stages(
         }
     }
 
-    for (stage_id, file_name) in battlegrounds(&ctx.globs, category, map_id) {
-        let is_ec_group = category.map_prefix() == PREFIX_EC || (category.map_prefix() == "Z" && map_id <= 2);
+    for (stage_id, file_name) in battlegrounds(&ctx.globs, &map.category, map.map_id) {
+        let is_ec_group = map.category.map_prefix() == PREFIX_EC || (map.category.map_prefix() == "Z" && map.map_id <= 2);
 
         if is_ec_group {
-            if map_id == 0 && stage_id > 47 { continue; }
-            if map_id == 1 && (stage_id == 47 || stage_id == 48 || stage_id > 49) { continue; }
-            if map_id == 2 && (stage_id == 47 || stage_id == 48 || stage_id == 49 || stage_id > 50) { continue; }
+            if map.map_id == 0 && stage_id > 47 { continue; }
+            if map.map_id == 1 && (stage_id == 47 || stage_id == 48 || stage_id > 49) { continue; }
+            if map.map_id == 2 && (stage_id == 47 || stage_id == 48 || stage_id == 49 || stage_id > 50) { continue; }
         }
 
         let Some(raw_layout) = battleground(ctx.vfs, &file_name) else {
@@ -701,42 +698,42 @@ fn load_story_stages(
         };
 
         let mut stage_struct = build_base_stage(
-            category, map_id, stage_id, max_crowns, &raw_layout, stage_names, ctx, global_map_id
+            map, stage_id, CostType::Energy, &raw_layout, stage_names, ctx, global_map_id
         );
 
         stage_struct.base_id = stage_id as i32;
 
         if let Some((energy_val, init_track_val, boss_track_val)) = story_data.get(&stage_id) {
-            stage_struct.energy = *energy_val;
+            stage_struct.cost = *energy_val;
             stage_struct.xp = global_map_id.map(|id| get_hardcoded_xp(id, stage_id as usize)).unwrap_or(0);
             stage_struct.init_track = *init_track_val as u32;
             stage_struct.boss_track = *boss_track_val;
         }
 
-        let stage_key = GlobalStageId { category: category.clone(), map: map_id, stage: stage_id };
+        let stage_key = GlobalStageId { category: map.category.clone(), map: map.map_id, stage: stage_id };
         stage_list.push((stage_key, stage_struct));
         id_list.push(stage_id);
     }
 
-    if let Some(inv_file) = invasion_battleground(&ctx.globs, category, map_id) {
+    if let Some(inv_file) = invasion_battleground(&ctx.globs, &map.category, map.map_id) {
         let inv_stage_id = id_list.iter().max().copied().unwrap_or(0) + 1;
 
         if let Some(raw_layout) = battleground(ctx.vfs, &inv_file) {
             let mut stage_struct = build_base_stage(
-                category, map_id, inv_stage_id, max_crowns, &raw_layout, stage_names, ctx, global_map_id
+                map, inv_stage_id, CostType::Energy, &raw_layout, stage_names, ctx, global_map_id
             );
 
             stage_struct.name = "Invasion".to_string();
             stage_struct.base_id = inv_stage_id as i32;
 
             if let Some((energy_val, init_track_val, boss_track_val)) = inv_story_data {
-                stage_struct.energy = energy_val;
+                stage_struct.cost = energy_val;
                 stage_struct.xp = global_map_id.map(|id| get_hardcoded_xp(id, inv_stage_id as usize)).unwrap_or(0);
                 stage_struct.init_track = init_track_val as u32;
                 stage_struct.boss_track = boss_track_val;
             }
 
-            let stage_key = GlobalStageId { category: category.clone(), map: map_id, stage: inv_stage_id };
+            let stage_key = GlobalStageId { category: map.category.clone(), map: map.map_id, stage: inv_stage_id };
             stage_list.push((stage_key, stage_struct));
             id_list.push(inv_stage_id);
         } else {
@@ -747,41 +744,38 @@ fn load_story_stages(
     (id_list, stage_list)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn load_legend_stages(
     info: &CategoryInfo,
-    category: &Category,
-    map_id: u32,
-    max_crowns: u8,
+    map: &Map,
     stage_names: &HashMap<u32, StageNameEntry>,
     ctx: &ScanContext,
     global_map_id: Option<u32>,
 ) -> (Vec<u32>, Vec<(GlobalStageId, Stage)>) {
     let mut id_list = Vec::new();
     let mut stage_list = Vec::new();
-    let mut data_entries = Vec::new();
+    let mut map_data = MapStageData::default();
 
     for prefix in [info.data_prefix.as_str(), info.prefix.as_str()] {
-        data_entries = mapstagedata(ctx.vfs, &format!("{}{}_{:03}{}", MAP_STAGE_DATA, prefix, map_id, CSV));
-        if !data_entries.is_empty() { break; }
+        map_data = mapstagedata(ctx.vfs, &format!("{}{}_{:03}{}", MAP_STAGE_DATA, prefix, map.map_id, CSV));
+        if !map_data.entries.is_empty() { break; }
     }
 
-    if data_entries.is_empty() {
-        data_entries = mapstagedata(ctx.vfs, "stage.csv");
+    if map_data.entries.is_empty() {
+        map_data = mapstagedata(ctx.vfs, "stage.csv");
     }
 
-    for (stage_id, file_name) in battlegrounds(&ctx.globs, category, map_id) {
+    for (stage_id, file_name) in battlegrounds(&ctx.globs, &map.category, map.map_id) {
         let Some(raw_layout) = battleground(ctx.vfs, &file_name) else {
             warn!(stage = %file_name, "Failed to parse legend battleground");
             continue;
         };
 
         let mut stage_struct = build_base_stage(
-            category, map_id, stage_id, max_crowns, &raw_layout, stage_names, ctx, global_map_id
+            map, stage_id, map_data.header.cost_type, &raw_layout, stage_names, ctx, global_map_id
         );
 
-        if let Some(entry) = data_entries.get(stage_id as usize) {
-            stage_struct.energy = entry.energy;
+        if let Some(entry) = map_data.entries.get(stage_id as usize) {
+            stage_struct.cost = entry.cost;
             stage_struct.xp = entry.xp;
             stage_struct.init_track = entry.init_track;
             stage_struct.bgm_change_percent = entry.bgm_change_percent;
@@ -789,7 +783,7 @@ fn load_legend_stages(
             stage_struct.rewards = entry.rewards.clone();
         }
 
-        let stage_key = GlobalStageId { category: category.clone(), map: map_id, stage: stage_id };
+        let stage_key = GlobalStageId { category: map.category.clone(), map: map.map_id, stage: stage_id };
         stage_list.push((stage_key, stage_struct));
         id_list.push(stage_id);
     }
@@ -797,24 +791,22 @@ fn load_legend_stages(
     (id_list, stage_list)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_base_stage(
-    category: &Category,
-    map_id: u32,
+    map: &Map,
     stage_id: u32,
-    max_crowns: u8,
+    declared_cost_type: CostType,
     raw_layout: &nyanko::chapter::stage::Battleground,
     stage_names: &HashMap<u32, StageNameEntry>,
     ctx: &ScanContext,
     global_map_id: Option<u32>,
 ) -> Stage {
-    let is_story_name = matches!(category.map_prefix().as_str(), "EC" | "W" | "Space" | "Z");
+    let is_story_name = matches!(map.category.map_prefix().as_str(), "EC" | "W" | "Space" | "Z");
 
     let stage_display_name = if is_story_name {
         let mut lookup_id = stage_id;
 
-        let is_ec = category.map_prefix() == "EC";
-        let is_z_ec = category.map_prefix() == "Z" && map_id <= 2;
+        let is_ec = map.category.map_prefix() == "EC";
+        let is_z_ec = map.category.map_prefix() == "Z" && map.map_id <= 2;
 
         if (is_ec || is_z_ec) && matches!(stage_id, 48..=50) {
             lookup_id = 47;
@@ -826,7 +818,7 @@ fn build_base_stage(
             .cloned()
             .unwrap_or_else(|| format!("{:02}", stage_id))
     } else {
-        stage_names.get(&map_id)
+        stage_names.get(&map.map_id)
             .and_then(|entry| entry.names.get(stage_id as usize))
             .filter(|name| !name.is_empty())
             .cloned()
@@ -864,7 +856,7 @@ fn build_base_stage(
 
     let mut loaded_fixed_lineups = HashMap::new();
 
-    for crown_index in 0..max_crowns {
+    for crown_index in 0..map.max_crowns {
         let Some(map_id_val) = global_map_id else { continue; };
         let Some(formation_data) = ctx.fixed_formations.get(&(map_id_val, crown_index, stage_id)) else { continue; };
         let Some(preset_lineup_json) = certification_preset(
@@ -877,8 +869,8 @@ fn build_base_stage(
 
     Stage {
         name: stage_display_name,
-        category: category.clone(),
-        map_id,
+        category: map.category.clone(),
+        map_id: map.map_id,
         stage_id,
         base_id: raw_layout.base_id,
         anim_base_id: raw_layout.anim_base_id,
@@ -893,9 +885,14 @@ fn build_base_stage(
         is_base_indestructible: raw_layout.is_base_indestructible,
         unknown_value: raw_layout.unknown_value,
         enemies: raw_layout.entries.clone(),
+        declared_cost_type,
         difficulty: stage_diff,
-        max_crowns,
+        max_crowns: map.max_crowns,
         target_crowns: final_opt.target_crowns,
+        crown_1_mag: map.crown_1_mag,
+        crown_2_mag: map.crown_2_mag,
+        crown_3_mag: map.crown_3_mag,
+        crown_4_mag: map.crown_4_mag,
         rarity_mask: final_opt.rarity_mask,
         deploy_limit: final_opt.deploy_limit,
         allowed_rows: final_opt.allowed_rows,

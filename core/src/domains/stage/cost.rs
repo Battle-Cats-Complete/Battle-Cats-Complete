@@ -1,32 +1,22 @@
 use std::collections::HashMap;
 
-use nyanko::chapter::Category;
+use nyanko::chapter::Stage;
+use nyanko::chapter::stage::{CataminGrade, CostType};
 use tracing::debug;
 
 use crate::common::formats::GatyaItemBuy;
 use crate::common::formats::GatyaItemName;
 
-const CURRENCY_SCALE: u32 = 1000;
-
-pub struct ResolvedCost {
+pub struct CostDisplay {
     pub header: String,
     pub value: String,
 }
 
-fn plain(energy: u32) -> ResolvedCost {
-    ResolvedCost { header: "Energy".to_string(), value: energy.to_string() }
-}
-
-fn catamin(energy: u32) -> ResolvedCost {
-    let grade = match energy / CURRENCY_SCALE {
-        0 => "A",
-        1 => "B",
-        _ => "C",
-    };
-
-    ResolvedCost {
-        header: "Catamin".to_string(),
-        value: format!("{}{}", energy % CURRENCY_SCALE, grade),
+fn grade_label(grade: CataminGrade) -> &'static str {
+    match grade {
+        CataminGrade::B => "B",
+        CataminGrade::C => "C",
+        _ => "A",
     }
 }
 
@@ -42,35 +32,47 @@ fn short_label(name: &str) -> String {
     format!("{}s", last_word)
 }
 
-pub fn resolve_cost(
-    category: &Category,
-    energy: u32,
+fn item_label(
+    item_id: u32,
     item_buy_registry: &HashMap<u32, GatyaItemBuy>,
     item_name_registry: &HashMap<usize, GatyaItemName>,
-) -> ResolvedCost {
-    if *category == Category::CataminStages {
-        return catamin(energy);
-    }
+) -> Option<String> {
+    let item_buy = item_buy_registry.get(&item_id)?;
+    let item_name = item_name_registry.get(&item_buy.row_index)?;
 
-    let item_id = energy / CURRENCY_SCALE;
-    let amount = energy % CURRENCY_SCALE;
+    Some(short_label(&item_name.name))
+}
 
-    if item_id == 0 || amount == 0 {
-        return plain(energy);
-    }
+pub fn resolve_cost(
+    stage: &Stage,
+    item_buy_registry: &HashMap<u32, GatyaItemBuy>,
+    item_name_registry: &HashMap<usize, GatyaItemName>,
+) -> CostDisplay {
+    let resolved = stage.resolved_cost();
 
-    let Some(item_buy) = item_buy_registry.get(&item_id) else {
-        return plain(energy);
-    };
+    match stage.cost_type() {
+        CostType::Catamin => {
+            let grade = resolved.id.map_or(CataminGrade::A, CataminGrade::from_key);
 
-    let Some(item_name) = item_name_registry.get(&item_buy.row_index) else {
-        return plain(energy);
-    };
+            CostDisplay {
+                header: "Catamin".to_string(),
+                value: format!("{}{}", resolved.value, grade_label(grade)),
+            }
+        }
+        CostType::Item => {
+            let label = resolved.id
+                .and_then(|item_id| item_label(item_id, item_buy_registry, item_name_registry));
 
-    debug!(item_id, amount, name = %item_name.name, "Resolving stage cost as item currency");
+            debug!(item_id = ?resolved.id, amount = resolved.value, ?label, "Resolving stage cost as item currency");
 
-    ResolvedCost {
-        header: short_label(&item_name.name),
-        value: amount.to_string(),
+            CostDisplay {
+                header: label.unwrap_or_else(|| "Items".to_string()),
+                value: resolved.value.to_string(),
+            }
+        }
+        _ => CostDisplay {
+            header: "Energy".to_string(),
+            value: resolved.value.to_string(),
+        },
     }
 }

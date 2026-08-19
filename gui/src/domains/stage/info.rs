@@ -172,12 +172,7 @@ impl State {
 
         let crown_row = super::crowns::view(stage, selected_crown);
 
-        let crown_magnification = match selected_crown {
-            1 => map.crown_2_mag.unwrap_or(100),
-            2 => map.crown_3_mag.unwrap_or(100),
-            3 => map.crown_4_mag.unwrap_or(100),
-            _ => map.crown_1_mag.unwrap_or(100),
-        };
+        let crown_magnification = stage.crown_magnification(selected_crown.saturating_add(1)).unwrap_or(100);
 
         let final_hp = if stage.anim_base_id != 0 {
             (stage.base_hp * crown_magnification) / 100
@@ -190,7 +185,7 @@ impl State {
         let hp_header = if is_dojo { "Time Limit" } else { "Base HP" };
         let hp_value = if is_dojo { format_time(stage.time_limit) } else { final_hp.to_string() };
 
-        let cost = cost::resolve_cost(&stage.category, stage.energy, &data.item_buy_registry, &data.item_name_registry);
+        let cost = cost::resolve_cost(stage, &data.item_buy_registry, &data.item_name_registry);
         let energy_header = cost.header.as_str();
         let energy_value = cost.value;
 
