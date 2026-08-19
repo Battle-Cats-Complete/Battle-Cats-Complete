@@ -60,6 +60,15 @@ struct Watch<'a, M> {
     to_message: fn(Message) -> M,
 }
 
+impl<M> Watch<'_, M> {
+    fn branch(&self, renderer: &iced::Renderer, bounds: Size) -> f32 {
+        self.trail
+            .first()
+            .and_then(|index| self.items.get(*index))
+            .map_or(0.0, |item| reach(renderer, item, bounds))
+    }
+}
+
 impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
     fn children(&self) -> Vec<widget::Tree> {
         self.layers.iter().map(widget::Tree::new).collect()
@@ -98,7 +107,7 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
             sizes.push(clamped(menu::measure(renderer, rows), bounds));
         }
 
-        let cascade = Cascade::choose(origin, main, &sizes, bounds);
+        let cascade = Cascade::choose(origin, main, self.branch(renderer, bounds), bounds);
         let mut parent = (self.items, origin, main);
 
         for level in 0..self.panels.len() {
@@ -353,9 +362,7 @@ enum Cascade {
 }
 
 impl Cascade {
-    fn choose(origin: Point, main: Size, sizes: &[Size], bounds: Size) -> Self {
-        let span: f32 = sizes.iter().map(|size| size.width + SUBMENU_GAP).sum();
-
+    fn choose(origin: Point, main: Size, span: f32, bounds: Size) -> Self {
         if origin.x + main.width + span <= bounds.width {
             return Cascade::Right;
         }
@@ -368,6 +375,21 @@ impl Cascade {
     }
 }
 
+fn reach(renderer: &iced::Renderer, item: &Item, bounds: Size) -> f32 {
+    if item.children.is_empty() {
+        return 0.0;
+    }
+
+    let panel = clamped(menu::measure(renderer, &item.children), bounds);
+    let deepest = item
+        .children
+        .iter()
+        .map(|child| reach(renderer, child, bounds))
+        .fold(0.0_f32, f32::max);
+
+    panel.width + SUBMENU_GAP + deepest
+}
+
 fn beside(cascade: Cascade, at: Point, span: Size, size: Size, top: f32, bounds: Size) -> Point {
     let x = match cascade {
         Cascade::Right => at.x + span.width + SUBMENU_GAP,
@@ -376,7 +398,7 @@ fn beside(cascade: Cascade, at: Point, span: Size, size: Size, top: f32, bounds:
 
     let y = (at.y + top).min((bounds.height - size.height).max(0.0));
 
-    Point::new(x.clamp(0.0, (bounds.width - size.width).max(0.0)), y)
+    Point::new(x, y)
 }
 
 fn anchored(anchor: Point, size: Size, bounds: Size) -> Point {

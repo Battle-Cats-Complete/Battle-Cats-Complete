@@ -82,6 +82,34 @@ impl Default for WindowSettings {
 pub struct FilesSettings {
     pub unlock_game_mount: bool,
     pub editor_mode: EditorMode,
+    pub context_scope: ContextScope,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum ContextScope {
+    #[default]
+    Broad,
+    Specific,
+}
+
+impl ContextScope {
+    pub const ALL: [Self; 2] = [Self::Broad, Self::Specific];
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::Specific => "Only allows the editing of the assets and files related to areas you right click on",
+            Self::Broad => "Allows you to edit any file reachable from the current loaded context from right clicking anywhere",
+        }
+    }
+}
+
+impl std::fmt::Display for ContextScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Specific => "Specific",
+            Self::Broad => "Broad",
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]

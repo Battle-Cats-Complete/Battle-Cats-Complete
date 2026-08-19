@@ -1,4 +1,5 @@
 mod ability_fallback;
+mod combo;
 mod toggle;
 mod ability_grid;
 mod list_row;
@@ -19,6 +20,7 @@ pub mod roster_list;
 pub mod statblock_export;
 
 pub(crate) use ability_fallback::{fallback_icon, ICON_SIZE};
+pub(crate) use combo::combo_row;
 pub(crate) use toggle::{toggle_label, toggle_row};
 pub(crate) use ability_grid::{ability_spacer, icons_per_row};
 pub(crate) use list_row::list_row;

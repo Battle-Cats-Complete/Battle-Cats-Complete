@@ -19,6 +19,7 @@ use core::domains::enemy::files as enemy_files;
 use core::domains::enemy::scanner::EnemyEntry;
 use core::domains::import::architecture;
 use core::domains::mods;
+use core::domains::settings::ContextScope;
 
 use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;
@@ -685,22 +686,59 @@ impl State {
 }
 
 pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
+    let broad = app.settings.files.context_scope == ContextScope::Broad;
+    let reached = |wanted: Target| target == Some(wanted) || broad;
+
     Context {
         enabled: app.settings.general.enable_nightly,
         page: app.current_page,
         file: file_target(app, target),
-        cats: matches!(target, Some(Target::CatAttributes)).then(|| cat_targets(app)).unwrap_or_default(),
-        enemies: matches!(target, Some(Target::EnemyAttributes))
-            .then(|| enemy_subject(app).into_iter().collect())
-            .unwrap_or_default(),
-        icon: icon_target(app, target),
-        prose: prose_subject(target).map(|subject| prose_targets(app, subject)).unwrap_or_default(),
-        levels: matches!(target, Some(Target::CatLevels)).then(|| level_targets(app)).unwrap_or_default(),
+        cats: cat_payloads(app, reached(Target::CatAttributes)),
+        enemies: enemy_payloads(app, reached(Target::EnemyAttributes)),
+        icon: icon_target(app, icon_subject(app, target, broad)),
+        prose: prose_payloads(app, target, broad),
+        levels: level_payloads(app, reached(Target::CatLevels)),
     }
 }
 
-fn level_targets(app: &BattleCatsApp) -> Vec<LevelTarget> {
-    if app.current_page != Page::Cats {
+fn attributes_tab(app: &BattleCatsApp, page: Page) -> bool {
+    match page {
+        Page::Cats => app.cat_state.selected_tab == DetailTab::Abilities,
+        Page::Enemies => app.enemy_state.selected_tab == EnemyTab::Abilities,
+        _ => false,
+    }
+}
+
+fn icon_subject(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Option<Target> {
+    match target {
+        Some(icon @ (Target::CatIcon | Target::EnemyIcon)) => Some(icon),
+        _ if !broad => None,
+        _ => match app.current_page {
+            Page::Cats => Some(Target::CatIcon),
+            Page::Enemies => Some(Target::EnemyIcon),
+            _ => None,
+        },
+    }
+}
+
+fn prose_payloads(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Vec<ProseTarget> {
+    if let Some(subject) = prose_subject(target) {
+        return prose_targets(app, subject);
+    }
+
+    if !broad {
+        return Vec::new();
+    }
+
+    prose::SUBJECTS
+        .into_iter()
+        .filter(|subject| subject.page() == app.current_page && prose_tab(app, *subject))
+        .flat_map(|subject| prose_targets(app, subject))
+        .collect()
+}
+
+fn level_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
+    if !reached || app.current_page != Page::Cats {
         return Vec::new();
     }
 
@@ -722,8 +760,20 @@ fn level_targets(app: &BattleCatsApp) -> Vec<LevelTarget> {
         .collect()
 }
 
-fn cat_targets(app: &BattleCatsApp) -> Vec<CatTarget> {
+fn cat_payloads(app: &BattleCatsApp, reached: bool) -> Vec<CatTarget> {
+    if !reached || !attributes_tab(app, Page::Cats) {
+        return Vec::new();
+    }
+
     cat_subject(app).into_iter().collect()
+}
+
+fn enemy_payloads(app: &BattleCatsApp, reached: bool) -> Vec<EnemyTarget> {
+    if !reached || !attributes_tab(app, Page::Enemies) {
+        return Vec::new();
+    }
+
+    enemy_subject(app).into_iter().collect()
 }
 
 fn prose_targets(app: &BattleCatsApp, subject: prose::Subject) -> Vec<ProseTarget> {

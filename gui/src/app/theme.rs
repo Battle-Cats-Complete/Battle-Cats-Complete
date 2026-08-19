@@ -316,6 +316,16 @@ pub fn combo_box_stale(theme: &Theme, status: pick_list::Status) -> pick_list::S
     pick_list::Style { text_color: Color { a: STALE_TEXT_ALPHA, ..base.text_color }, ..base }
 }
 
+pub fn combo_box_idle(theme: &Theme) -> container::Style {
+    let base = pick_list::default(theme, pick_list::Status::Active);
+
+    container::Style {
+        background: base.background.into(),
+        border: Border { radius: Radius::from(RADIUS_SM), ..base.border },
+        ..container::Style::default()
+    }
+}
+
 pub fn combo_box_menu(theme: &Theme) -> menu::Style {
     let palette = theme.palette();
     let base = menu::default(theme);

@@ -29,7 +29,7 @@ impl Verb {
             Verb::Find => "Find in folder",
             Verb::Add => "Add to mod",
             Verb::Sync => "Sync from game",
-            Verb::Delete => "Delete from system",
+            Verb::Delete => "Delete from disk",
         }
     }
 

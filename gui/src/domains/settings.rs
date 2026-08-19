@@ -11,14 +11,15 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length, Size, Task};
 
-use core::domains::settings::{lang, nightly, EditorMode};
+use core::domains::settings::{lang, nightly, ContextScope, EditorMode};
 use core::domains::settings::{
     ExportBehavior, ImportStructure, Settings as CoreSettings, SidebarBehavior,
 };
 
 use crate::app::theme;
+use crate::common::feedback::NIGHTLY_ONLY_NOTICE;
 use crate::app::UpdateStatus;
-use crate::widget::{list_row, smooth_scroll, toggle_row};
+use crate::widget::{combo_row, list_row, smooth_scroll, toggle_row};
 
 const SECTION_SPACING: f32 = 20.0;
 
@@ -62,6 +63,7 @@ pub enum Message {
     ToggleDebugView(bool),
     ToggleUnlockGameMount(bool),
     EditorModeSelected(EditorMode),
+    ContextScopeSelected(ContextScope),
     ToggleTightBounds(bool),
     ToggleAutoCamera(bool),
     ShowcaseWalkChanged(String),
@@ -198,6 +200,10 @@ impl State {
 
             Message::EditorModeSelected(mode) => {
                 core_settings.files.editor_mode = mode;
+                Task::none()
+            }
+            Message::ContextScopeSelected(scope) => {
+                core_settings.files.context_scope = scope;
                 Task::none()
             }
             Message::ToggleUnlockGameMount(val) => {
@@ -506,7 +512,7 @@ impl State {
     }
 
     fn view_files<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
-        let editor_content = hover_hint(
+        let mount_row = hover_hint(
             toggle_row(
                 core_settings.files.unlock_game_mount,
                 text("Unlock \"game\" Mount"),
@@ -517,19 +523,29 @@ impl State {
 
         let mode = core_settings.files.editor_mode;
 
-        let mode_row = hover_hint(
-            row![
-                text("UTF-8 Mode"),
-                pick_list(EditorMode::ALL, Some(mode), Message::EditorModeSelected)
-                    .style(theme::combo_box)
-                    .menu_style(theme::combo_box_menu),
-            ].spacing(10).align_y(Alignment::Center),
+        let mode_row = combo_row(
+            "UTF-8 Mode",
             mode.hint(),
+            EditorMode::ALL,
+            Some(mode),
+            Some(Message::EditorModeSelected),
+        );
+
+        let nightly = core_settings.general.enable_nightly;
+        let scope = core_settings.files.context_scope;
+
+        let scope_row = combo_row(
+            "Context Scope",
+            if nightly { scope.hint() } else { NIGHTLY_ONLY_NOTICE },
+            ContextScope::ALL,
+            Some(scope),
+            nightly.then_some(Message::ContextScopeSelected),
         );
 
         column![
             header_section(text("Disk").size(24), self.disk.view().map(Message::Disk)),
-            header_section(text("Editor").size(24), column![mode_row, editor_content].spacing(10)),
+            header_section(text("Viewer").size(24), mode_row),
+            header_section(text("Editor").size(24), column![scope_row, mount_row].spacing(10)),
         ].spacing(SECTION_SPACING).into()
     }
 
