@@ -1,7 +1,9 @@
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, column, container, pick_list, row, scrollable, stack, text, text_input, Space};
 use iced::{Element, Length, Size, Theme};
+use nyanko::chapter::stage::{CataminGrade, CostType};
 
+use core::domains::stage::cost::grade_label;
 use core::domains::stage::filter::enemy::EnemyFilter;
 use core::domains::stage::filter::lineup::LineupFilter;
 use core::domains::stage::filter::material::MaterialFilter;
@@ -29,6 +31,7 @@ const REMOVE_BTN_WIDTH: f32 = 28.0;
 const LABEL_WIDTH: f32 = 90.0;
 const NAME_LABEL_WIDTH: f32 = 70.0;
 const NAME_INPUT_WIDTH: f32 = 320.0;
+const COST_LABEL_WIDTH: f32 = 110.0;
 const VALUE_INPUT_WIDTH: f32 = 260.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +67,9 @@ pub enum Range {
     MaxEnemies,
     TimeLimit,
     Energy,
+    ItemCost,
+    ItemId,
+    CataminCost,
     Xp,
     MinSpawn,
     MaxSpawn,
@@ -185,7 +191,10 @@ fn range_mut(state: &mut StageFilterState, range: Range) -> &mut StatRange {
         Range::BaseHp => &mut state.base_hp,
         Range::MaxEnemies => &mut state.max_enemies,
         Range::TimeLimit => &mut state.time_limit,
-        Range::Energy => &mut state.energy,
+        Range::Energy => &mut state.cost.energy,
+        Range::ItemCost => &mut state.cost.item_cost,
+        Range::ItemId => &mut state.cost.item_id,
+        Range::CataminCost => &mut state.cost.catamin_cost,
         Range::Xp => &mut state.xp,
         Range::MinSpawn => &mut state.min_spawn,
         Range::MaxSpawn => &mut state.max_spawn,
@@ -211,7 +220,10 @@ fn range_label(range: Range) -> &'static str {
         Range::BaseHp => "Base HP",
         Range::MaxEnemies => "Max Enemies",
         Range::TimeLimit => "Time Limit (f)",
-        Range::Energy => "Energy Cost",
+        Range::Energy => "Cost",
+        Range::ItemCost => "Cost",
+        Range::ItemId => "ID",
+        Range::CataminCost => "Cost",
         Range::Xp => "XP Reward",
         Range::MinSpawn => "Min Spawn",
         Range::MaxSpawn => "Max Spawn",
@@ -293,6 +305,9 @@ pub enum Message {
     RangeMinChanged(Range, String),
     RangeMaxChanged(Range, String),
 
+    CostTypeChanged(Option<CostType>),
+    CataminGradeChanged(Option<CataminGrade>),
+
     AddEnemy,
     RemoveEnemy(usize),
     EnemyModeChanged(usize, bool),
@@ -355,6 +370,9 @@ impl State {
             }
             Message::RangeMinChanged(range, value) => range_mut(state, range).min = value,
             Message::RangeMaxChanged(range, value) => range_mut(state, range).max = value,
+
+            Message::CostTypeChanged(cost_type) => state.cost.cost_type = cost_type,
+            Message::CataminGradeChanged(grade) => state.cost.catamin_grade = grade,
 
             Message::AddEnemy => state.enemies.push(EnemyFilter::default()),
             Message::RemoveEnemy(idx) => { if idx < state.enemies.len() { state.enemies.remove(idx); } }
@@ -455,7 +473,7 @@ impl State {
         ], &self.filter_state);
 
         let stats = range_pairs([
-            Range::BaseHp, Range::Width, Range::TimeLimit, Range::MaxEnemies, Range::Energy, Range::Xp,
+            Range::BaseHp, Range::Width, Range::TimeLimit, Range::MaxEnemies, Range::Xp,
             Range::Difficulty, Range::MaxCrowns, Range::TargetCrowns, Range::MinSpawn, Range::MaxSpawn,
         ], &self.filter_state);
 
@@ -496,6 +514,7 @@ impl State {
             section("General Rules", Length::Fill, general_rules),
             section("Special Map Rules", Length::Fill, special_rules),
             section("Score Bonuses", Length::Fill, score_bonuses),
+            section("Entry Cost", Length::Fill, cost_fields(&self.filter_state)),
             section("Stats", Length::Fill, stats),
             section("Restrictions", Length::Fill, restrictions),
             section("IDs & Audio", Length::Fill, ids_audio),
@@ -587,6 +606,73 @@ fn wrap_pairs<'a>(flags: impl IntoIterator<Item = Flag>, filter_state: &'a Stage
     col.into()
 }
 
+const COST_TYPES: [&str; 4] = ["Any", "Energy", "Item", "Catamin"];
+const GRADES: [&str; 4] = ["Any", "A", "B", "C"];
+
+fn cost_type_label(cost_type: Option<CostType>) -> &'static str {
+    match cost_type {
+        Some(CostType::Item) => "Item",
+        Some(CostType::Catamin) => "Catamin",
+        Some(_) => "Energy",
+        None => "Any",
+    }
+}
+
+fn labelled<'a>(label: &'a str, control: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    row![
+        text(label).width(Length::Fixed(COST_LABEL_WIDTH)),
+        control.into(),
+    ].spacing(FIELD_SPACING).align_y(Vertical::Center).into()
+}
+
+fn cost_fields(filter_state: &StageFilterState) -> Element<'_, Message> {
+    let cost = &filter_state.cost;
+
+    let type_row = labelled(
+        "Type:",
+        pick_list(COST_TYPES, Some(cost_type_label(cost.cost_type)), |choice| {
+            Message::CostTypeChanged(match choice {
+                "Energy" => Some(CostType::Energy),
+                "Item" => Some(CostType::Item),
+                "Catamin" => Some(CostType::Catamin),
+                _ => None,
+            })
+        })
+            .style(theme::combo_box)
+            .menu_style(theme::combo_box_menu),
+    );
+
+    let fields = match cost.cost_type {
+        None => None,
+        Some(CostType::Item) => Some(range_pairs([Range::ItemCost, Range::ItemId], filter_state)),
+        Some(CostType::Catamin) => Some(row![
+            range_field(Range::CataminCost, &cost.catamin_cost),
+            labelled(
+                "Grade:",
+                pick_list(GRADES, Some(cost.catamin_grade.map_or("Any", grade_label)), |choice| {
+                    Message::CataminGradeChanged(match choice {
+                        "A" => Some(CataminGrade::A),
+                        "B" => Some(CataminGrade::B),
+                        "C" => Some(CataminGrade::C),
+                        _ => None,
+                    })
+                })
+                    .style(theme::combo_box)
+                    .menu_style(theme::combo_box_menu),
+            ),
+        ].spacing(PAIR_SPACING).align_y(Vertical::Center).into()),
+        Some(_) => Some(range_pairs([Range::Energy], filter_state)),
+    };
+
+    let mut col = column![type_row].spacing(6);
+
+    if let Some(fields) = fields {
+        col = col.push(fields);
+    }
+
+    col.into()
+}
+
 fn range_field<'a>(range: Range, value: &'a StatRange) -> Element<'a, Message> {
     range_row(
         range_label(range),
@@ -625,7 +711,10 @@ fn range_ref(filter_state: &StageFilterState, range: Range) -> &StatRange {
         Range::BaseHp => &filter_state.base_hp,
         Range::MaxEnemies => &filter_state.max_enemies,
         Range::TimeLimit => &filter_state.time_limit,
-        Range::Energy => &filter_state.energy,
+        Range::Energy => &filter_state.cost.energy,
+        Range::ItemCost => &filter_state.cost.item_cost,
+        Range::ItemId => &filter_state.cost.item_id,
+        Range::CataminCost => &filter_state.cost.catamin_cost,
         Range::Xp => &filter_state.xp,
         Range::MinSpawn => &filter_state.min_spawn,
         Range::MaxSpawn => &filter_state.max_spawn,

@@ -1,3 +1,4 @@
+pub mod cost;
 pub mod enemy;
 pub mod lineup;
 pub mod material;
@@ -18,6 +19,7 @@ use crate::common::formats::GatyaItemName;
 
 use super::StageDataState;
 
+use self::cost::{CompiledCostFilter, CostFilter};
 use self::enemy::{CompiledEnemyFilter, EnemyFilter};
 use self::lineup::{CompiledLineupFilter, LineupFilter};
 use self::material::{CompiledMaterialFilter, MaterialFilter};
@@ -61,7 +63,6 @@ pub struct StageFilterState {
     pub base_hp: StatRange,
     pub max_enemies: StatRange,
     pub time_limit: StatRange,
-    pub energy: StatRange,
     pub xp: StatRange,
 
     pub min_spawn: StatRange,
@@ -86,6 +87,8 @@ pub struct StageFilterState {
     pub treasures: Vec<TreasureFilter>,
     pub materials: Vec<MaterialFilter>,
     pub lineup_cats: Vec<LineupFilter>,
+
+    pub cost: CostFilter,
 }
 
 pub struct CompiledStageFilter {
@@ -123,7 +126,6 @@ pub struct CompiledStageFilter {
     base_hp: CompiledStatRange,
     max_enemies: CompiledStatRange,
     time_limit: CompiledStatRange,
-    energy: CompiledStatRange,
     xp: CompiledStatRange,
     min_spawn: CompiledStatRange,
     max_spawn: CompiledStatRange,
@@ -145,6 +147,8 @@ pub struct CompiledStageFilter {
     treasures: Vec<CompiledTreasureFilter>,
     materials: Vec<CompiledMaterialFilter>,
     lineup_cats: Vec<CompiledLineupFilter>,
+
+    cost: CompiledCostFilter,
 }
 
 impl StageFilterState {
@@ -178,7 +182,6 @@ impl StageFilterState {
             || self.base_hp.is_active()
             || self.max_enemies.is_active()
             || self.time_limit.is_active()
-            || self.energy.is_active()
             || self.xp.is_active()
             || self.min_cost.is_active()
             || self.max_cost.is_active()
@@ -199,6 +202,7 @@ impl StageFilterState {
             || self.treasures.iter().any(|treasure| treasure.is_active())
             || self.materials.iter().any(|material| material.is_active())
             || self.lineup_cats.iter().any(|lineup| lineup.is_active())
+            || self.cost.is_active()
     }
 
     pub fn compile(&self) -> CompiledStageFilter {
@@ -238,7 +242,6 @@ impl StageFilterState {
             base_hp: self.base_hp.compile(0),
             max_enemies: self.max_enemies.compile(0),
             time_limit: self.time_limit.compile(0),
-            energy: self.energy.compile(0),
             xp: self.xp.compile(0),
             min_spawn: self.min_spawn.compile(0),
             max_spawn: self.max_spawn.compile(0),
@@ -260,6 +263,8 @@ impl StageFilterState {
             treasures: self.treasures.iter().filter(|treasure| treasure.is_active()).map(|treasure| treasure.compile()).collect(),
             materials: self.materials.iter().filter(|material| material.is_active()).map(|material| material.compile()).collect(),
             lineup_cats: self.lineup_cats.iter().filter(|lineup| lineup.is_active()).map(|lineup| lineup.compile()).collect(),
+
+            cost: self.cost.compile(),
         }
     }
 }
@@ -321,7 +326,6 @@ impl CompiledStageFilter {
             || self.base_hp.active
             || self.max_enemies.active
             || self.time_limit.active
-            || self.energy.active
             || self.xp.active
             || self.min_cost.active
             || self.max_cost.active
@@ -342,6 +346,7 @@ impl CompiledStageFilter {
             || !self.treasures.is_empty()
             || !self.materials.is_empty()
             || !self.lineup_cats.is_empty()
+            || self.cost.active
     }
 
     pub fn matches(&self, cat_name: &str, map: &Map, stage: &Stage, ctx: &StageLookupContext) -> bool {
@@ -420,7 +425,7 @@ impl CompiledStageFilter {
         if !self.width.matches(stage.width as i64) { return false; }
         if !self.max_enemies.matches(stage.max_enemies as i64) { return false; }
         if !self.time_limit.matches(stage.time_limit as i64) { return false; }
-        if !self.energy.matches(stage.cost as i64) { return false; }
+        if !self.cost.matches(stage) { return false; }
         if !self.xp.matches(stage.xp as i64) { return false; }
         if !self.min_cost.matches(stage.min_cost as i64) { return false; }
         if !self.max_cost.matches(stage.max_cost as i64) { return false; }

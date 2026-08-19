@@ -12,7 +12,7 @@ pub struct CostDisplay {
     pub value: String,
 }
 
-fn grade_label(grade: CataminGrade) -> &'static str {
+pub fn grade_label(grade: CataminGrade) -> &'static str {
     match grade {
         CataminGrade::B => "B",
         CataminGrade::C => "C",
