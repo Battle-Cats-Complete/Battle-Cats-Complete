@@ -1,6 +1,6 @@
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, column, container, scrollable, text, text_input, Column, Row};
-use iced::{Element, Length, Padding};
+use iced::{Element, Length, Padding, Theme};
 
 use crate::app::theme;
 use crate::common::feedback::CONFIRM_LABEL;
@@ -23,7 +23,12 @@ pub(super) fn usable(width: f32) -> f32 {
     (width - BODY_PADDING * 2.0).max(CARD_WIDTH)
 }
 
-pub(super) fn grid<'a>(draft: &'a Draft, width: f32, shown: &[usize]) -> Element<'a, Message> {
+pub(super) fn grid<'a>(
+    draft: &'a Draft,
+    width: f32,
+    shown: &[usize],
+    dim_from: Option<usize>,
+) -> Element<'a, Message> {
     let per_row = (((usable(width) + CARD_GAP) / (CARD_WIDTH + CARD_GAP)).floor() as usize).max(1);
 
     let mut rows = Column::new().spacing(CARD_GAP);
@@ -35,7 +40,7 @@ pub(super) fn grid<'a>(draft: &'a Draft, width: f32, shown: &[usize]) -> Element
             line = Row::new().spacing(CARD_GAP);
         }
 
-        line = line.push(card(draft, *index));
+        line = line.push(card(draft, *index, dim_from.is_some_and(|first| *index >= first)));
     }
 
     let centered = container(rows.push(line))
@@ -46,7 +51,7 @@ pub(super) fn grid<'a>(draft: &'a Draft, width: f32, shown: &[usize]) -> Element
     smooth_scroll(scrollable(centered).width(Length::Fill).height(Length::Fill)).into()
 }
 
-fn card(draft: &Draft, index: usize) -> Element<'_, Message> {
+fn card(draft: &Draft, index: usize, dimmed: bool) -> Element<'_, Message> {
     let schema = draft.schema();
     let hint = schema.to_display(index, schema.fallback(index)).to_string();
 
@@ -58,7 +63,13 @@ fn card(draft: &Draft, index: usize) -> Element<'_, Message> {
         .style(theme::rounded_input);
 
     let label = container(
-        text(schema.label(index)).size(LABEL_SIZE).align_x(Horizontal::Center).width(Length::Fill),
+        text(schema.label(index))
+            .size(LABEL_SIZE)
+            .align_x(Horizontal::Center)
+            .width(Length::Fill)
+            .style(move |theme: &Theme| text::Style {
+                color: dimmed.then(|| theme::weak_text_color(theme)),
+            }),
     )
     .height(Length::Fixed(LABEL_HEIGHTS[schema.subject().slot()]))
     .align_y(Vertical::Center);
@@ -66,7 +77,7 @@ fn card(draft: &Draft, index: usize) -> Element<'_, Message> {
     container(column![label, field].spacing(2))
         .width(Length::Fixed(CARD_WIDTH))
         .padding(CARD_PADDING)
-        .style(theme::card_container)
+        .style(if dimmed { theme::card_container_muted } else { theme::card_container })
         .into()
 }
 

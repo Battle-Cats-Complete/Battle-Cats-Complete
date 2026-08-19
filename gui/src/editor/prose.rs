@@ -171,8 +171,8 @@ struct Draft {
 }
 
 impl State {
-    pub(super) fn begin(&mut self, plan: Plan) {
-        self.frame = popup::State::default();
+    pub(super) fn begin(&mut self, plan: Plan, nudge: usize) {
+        self.frame = popup::cascaded(nudge);
         self.confirm.expire();
         self.draft = Draft::load(plan);
     }

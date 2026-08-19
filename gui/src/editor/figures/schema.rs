@@ -62,9 +62,11 @@ pub(super) fn of(subject: Subject) -> &'static Schema {
     }
 }
 
-const BRACKET: usize = 10;
+pub(super) const BRACKET: usize = 10;
 
 const BRACKETS: usize = 20;
+
+const FIRST_GROWTH_LEVEL: usize = 2;
 
 pub(super) struct Entry {
     pub(super) field: &'static str,
@@ -197,7 +199,9 @@ impl Schema {
 
     pub(super) fn label(&self, index: usize) -> Cow<'static, str> {
         if self.subject == Subject::Curve {
-            return Cow::Owned(format!("Levels {}-{}", index * BRACKET + 1, (index + 1) * BRACKET));
+            let first = (index * BRACKET + 1).max(FIRST_GROWTH_LEVEL);
+
+            return Cow::Owned(format!("Levels {first}-{}", (index + 1) * BRACKET));
         }
 
         let table = match self.subject {

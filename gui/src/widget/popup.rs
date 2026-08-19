@@ -244,8 +244,15 @@ pub(crate) fn restore(stored: &BTreeMap<String, StoredSize>) {
 #[derive(Default)]
 pub struct State {
     position: Option<Point>,
+    nudge: f32,
     drag: Drag,
     hovered: Option<Edge>,
+}
+
+const CASCADE_STEP: f32 = 26.0;
+
+pub fn cascaded(steps: usize) -> State {
+    State { nudge: steps as f32 * CASCADE_STEP, ..State::default() }
 }
 
 #[derive(Default, Clone, Copy)]
@@ -424,8 +431,8 @@ impl State {
         let size = Size::new(stored.width.max(spec.minimum.width), stored.height.max(spec.minimum.height));
 
         let centered = Point::new(
-            ((window.width - size.width) / 2.0).max(0.0),
-            ((window.height - size.height) / 2.0).max(0.0),
+            ((window.width - size.width) / 2.0).max(0.0) + self.nudge,
+            ((window.height - size.height) / 2.0).max(0.0) + self.nudge,
         );
 
         (clamp(self.position.unwrap_or(centered), size, window), size)

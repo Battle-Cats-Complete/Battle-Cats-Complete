@@ -179,14 +179,9 @@ struct Draft {
 }
 
 impl State {
-    pub(super) fn begin(&mut self, plan: Plan) {
-        self.frame = popup::State::default();
+    pub(super) fn begin(&mut self, plan: Plan, nudge: usize) {
+        self.frame = popup::cascaded(nudge);
         self.draft = Draft::load(plan);
-    }
-
-    pub(super) fn close(&mut self) {
-        self.draft = None;
-        self.confirm.expire();
     }
 
     fn reload(&mut self, plan: Plan) {
@@ -267,7 +262,7 @@ impl State {
         Task::none()
     }
 
-    pub(super) fn view(&self, window: Size) -> Option<Element<'_, Message>> {
+    pub(super) fn view(&self, window: Size, cap: Option<i32>) -> Option<Element<'_, Message>> {
         let draft = self.draft.as_ref()?;
         let spec = spec(draft.plan.subject());
         let width = self.frame.body_width(spec, window);
@@ -279,7 +274,7 @@ impl State {
             spec,
             window,
             Message::Popup,
-            move || draft.body(width, query, armed),
+            move || draft.body(width, query, armed, cap),
             None,
         ))
     }
@@ -468,11 +463,11 @@ impl Draft {
         &self.comment
     }
 
-    fn body<'a>(&'a self, width: f32, query: &'a str, armed: bool) -> Element<'a, Message> {
+    fn body<'a>(&'a self, width: f32, query: &'a str, armed: bool, cap: Option<i32>) -> Element<'a, Message> {
         match self.plan.subject() {
             Subject::Cat | Subject::Enemy => combat::view(self, width, query, armed),
             Subject::Buy => unitbuy::view(self, width, query, armed),
-            Subject::Curve => unitlevel::view(self, width, armed),
+            Subject::Curve => unitlevel::view(self, width, armed, cap),
         }
     }
 }

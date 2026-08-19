@@ -477,14 +477,17 @@ impl State {
         }
     }
 
-    pub(crate) fn popup_view(&self, app: &BattleCatsApp, window: Size) -> Option<Element<'_, Message>> {
+    pub(crate) fn popup_view(&self, app: &BattleCatsApp, window: Size) -> Vec<Element<'_, Message>> {
+        let mut views = Vec::new();
+        let cap = level_cap(app);
+
         for subject in prose::SUBJECTS {
             if subject.page() != app.current_page || !prose_tab(app, subject) {
                 continue;
             }
 
             if let Some(view) = self.prose[subject.slot()].view(window) {
-                return Some(view.map(move |inner| Message::Prose(subject, inner)));
+                views.push(view.map(move |inner| Message::Prose(subject, inner)));
             }
         }
 
@@ -493,12 +496,12 @@ impl State {
                 continue;
             }
 
-            if let Some(view) = self.figures[subject.slot()].view(window) {
-                return Some(view.map(move |inner| Message::Figures(subject, inner)));
+            if let Some(view) = self.figures[subject.slot()].view(window, cap) {
+                views.push(view.map(move |inner| Message::Figures(subject, inner)));
             }
         }
 
-        None
+        views
     }
 
     fn drafting(&self) -> bool {
@@ -544,14 +547,18 @@ impl State {
         }
     }
 
-    fn clear_page(&mut self, page: Page) {
-        for subject in prose::SUBJECTS.into_iter().filter(|subject| subject.page() == page) {
-            self.prose_mut(subject).close();
-        }
+    fn stacked(&self, page: Page) -> usize {
+        let prose = prose::SUBJECTS
+            .into_iter()
+            .filter(|subject| subject.page() == page && self.prose[subject.slot()].drafting())
+            .count();
 
-        for subject in figures::SUBJECTS.into_iter().filter(|subject| subject.page() == page) {
-            self.subject_mut(subject).close();
-        }
+        let figures = figures::SUBJECTS
+            .into_iter()
+            .filter(|subject| subject.page() == page && self.figures[subject.slot()].drafting())
+            .count();
+
+        prose + figures
     }
 
     fn subject_mut(&mut self, subject: figures::Subject) -> &mut figures::State {
@@ -622,17 +629,19 @@ impl State {
             }
             Action::EditFigures(plan) => {
                 let subject = plan.subject();
+                let already = self.figures[subject.slot()].drafting();
+                let nudge = self.stacked(subject.page()) - usize::from(already);
 
-                self.clear_page(subject.page());
-                self.subject_mut(subject).begin(plan.clone());
+                self.subject_mut(subject).begin(plan.clone(), nudge);
 
                 Outcome::Done
             }
             Action::EditProse(plan) => {
                 let subject = plan.subject();
+                let already = self.prose[subject.slot()].drafting();
+                let nudge = self.stacked(subject.page()) - usize::from(already);
 
-                self.clear_page(subject.page());
-                self.prose_mut(subject).begin(plan.clone());
+                self.prose_mut(subject).begin(plan.clone(), nudge);
 
                 Outcome::Done
             }
@@ -730,12 +739,12 @@ fn icon_subject(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Opt
 }
 
 fn prose_payloads(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Vec<ProseTarget> {
-    if let Some(subject) = prose_subject(target) {
-        return prose_targets(app, subject);
-    }
-
     if !broad {
-        return Vec::new();
+        let Some(subject) = prose_subject(target) else {
+            return Vec::new();
+        };
+
+        return prose_targets(app, subject);
     }
 
     prose::SUBJECTS
@@ -782,6 +791,13 @@ fn level_payloads(app: &BattleCatsApp, levels: bool, forms: bool) -> Vec<LevelTa
             })
         })
         .collect()
+}
+
+fn level_cap(app: &BattleCatsApp) -> Option<i32> {
+    let id = app.app_state.cat.selected_cat?;
+    let cat = app.cat_state.data.cats.iter().find(|cat| cat.id == id)?;
+
+    Some(cat.unitbuy.level_cap_catseye + cat.unitbuy.level_cap_plus)
 }
 
 fn cat_label(app: &BattleCatsApp, id: u32) -> String {

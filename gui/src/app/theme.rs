@@ -293,6 +293,20 @@ pub fn card_container(theme: &Theme) -> container::Style {
     }
 }
 
+const CARD_MUTED_ALPHA: f32 = 0.4;
+
+pub fn card_container_muted(theme: &Theme) -> container::Style {
+    let base = card_container(theme);
+    let faded = base
+        .background
+        .map(|background| match background {
+            Background::Color(color) => Background::Color(Color { a: color.a * CARD_MUTED_ALPHA, ..color }),
+            other => other,
+        });
+
+    container::Style { background: faded, ..base }
+}
+
 pub fn card_container_outlined(theme: &Theme) -> container::Style {
     let border_color = lighten_color(theme.palette().background, 0.4);
 

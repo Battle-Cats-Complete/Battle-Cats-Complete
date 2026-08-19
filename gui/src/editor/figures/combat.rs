@@ -20,7 +20,7 @@ pub(super) fn view<'a>(draft: &'a Draft, width: f32, query: &'a str, armed: bool
 
     cards::shell(
         Some(cards::search(query, width, "Search Attribute...")),
-        cards::grid(draft, width, &shown),
+        cards::grid(draft, width, &shown, None),
         cards::footer(footer),
     )
 }

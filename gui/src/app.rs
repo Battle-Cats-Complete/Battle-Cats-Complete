@@ -1010,7 +1010,7 @@ impl BattleCatsApp {
             }
         }
 
-        if let Some(view) = self.editor.popup_view(self, self.window_size) {
+        for view in self.editor.popup_view(self, self.window_size) {
             layers = layers.push(view.map(Message::Editor));
         }
 
