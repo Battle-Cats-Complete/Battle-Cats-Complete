@@ -738,6 +738,8 @@ impl State {
             form_row = form_row.push(btn);
         }
 
+        let form_row = editor::target(form_row, editor::Target::CatForms);
+
         let mut tab_row = row![].spacing(4);
         let tabs = [
             (DetailTab::Abilities, "Abilities"),

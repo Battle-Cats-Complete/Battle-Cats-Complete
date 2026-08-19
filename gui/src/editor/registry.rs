@@ -5,7 +5,7 @@ use core::domains::import::architecture;
 use crate::app::{theme, Page};
 use crate::common::feedback::LOCKED_NOTICE;
 
-use super::{attributes, classify, prose, Action, CatTarget, Context, EnemyTarget, FileTarget, Format, Item, ProseTarget, Scope};
+use super::{classify, figures, prose, Action, CatTarget, Context, EnemyTarget, FileTarget, Format, Item, LevelTarget, ProseTarget, Scope};
 
 const BINARY_NOTICE: &str = "Cannot open binary format";
 
@@ -119,11 +119,13 @@ impl Mount<'_> {
     }
 }
 
+#[allow(dead_code)]
 enum Primary<'a> {
     Replace,
     Cat(&'a CatTarget),
     Enemy(&'a EnemyTarget),
     Prose(&'a ProseTarget),
+    Level(&'a LevelTarget),
     Unsupported(Verb),
 }
 
@@ -208,7 +210,7 @@ fn payloads(context: &Context) -> Vec<Payload<'_>> {
             key: target.asset.key(),
             scopes: target.asset.scopes(mount.target.is_some()),
             mount,
-            primary: Primary::Unsupported(Verb::Edit),
+            primary: Primary::Level(target),
         });
     }
 
@@ -330,12 +332,24 @@ impl Payload<'_> {
             Primary::Unsupported(verb) => {
                 items.push((verb, Item::unsupported(verb.label(scope.name, &self.mount, labelling))));
             }
+            Primary::Level(level) => {
+                if let Some(plan) = level_plan(level, scope, target_mod) {
+                    items.push((
+                        Verb::Edit,
+                        self.mount.item(
+                            Verb::Edit.label(scope.name, &self.mount, labelling),
+                            Action::EditFigures(plan),
+                            Confirm::Never,
+                        ),
+                    ));
+                }
+            }
             Primary::Replace => items.push((Verb::Replace, replace(scope, &self.mount, labelling))),
             Primary::Cat(cat) => items.push((
                 Verb::Edit,
                 self.mount.item(
                     Verb::Edit.label(scope.name, &self.mount, labelling),
-                    Action::EditAttributes(cat_plan(cat, target_mod)),
+                    Action::EditFigures(cat_plan(cat, target_mod)),
                     Confirm::Never,
                 ),
             )),
@@ -343,7 +357,7 @@ impl Payload<'_> {
                 Verb::Edit,
                 self.mount.item(
                     Verb::Edit.label(scope.name, &self.mount, labelling),
-                    Action::EditAttributes(enemy_plan(enemy, target_mod)),
+                    Action::EditFigures(enemy_plan(enemy, target_mod)),
                     Confirm::Never,
                 ),
             )),
@@ -478,12 +492,18 @@ fn present<'a>(mount: &Mount<'_>, mod_copy: Option<&'a Path>, game: Option<&'a P
     if mount.target.is_some() { mod_copy } else { game }
 }
 
-pub(super) fn cat_plan(cat: &CatTarget, target_mod: Option<String>) -> attributes::Plan {
-    attributes::cat(cat.form, cat.title(), &cat.source, target_mod)
+pub(super) fn cat_plan(cat: &CatTarget, target_mod: Option<String>) -> figures::Plan {
+    figures::plan(figures::Subject::Cat, cat.form, cat.title(), &cat.source, target_mod)
 }
 
-pub(super) fn enemy_plan(enemy: &EnemyTarget, target_mod: Option<String>) -> attributes::Plan {
-    attributes::enemy(enemy.row, enemy.title(), &enemy.source, target_mod)
+pub(super) fn enemy_plan(enemy: &EnemyTarget, target_mod: Option<String>) -> figures::Plan {
+    figures::plan(figures::Subject::Enemy, enemy.row, enemy.title(), &enemy.source, target_mod)
+}
+
+pub(super) fn level_plan(level: &LevelTarget, scope: &Scope<'_>, target_mod: Option<String>) -> Option<figures::Plan> {
+    let source = scope.source.or(scope.present)?;
+
+    Some(figures::plan(level.subject, level.row, level.label.clone(), source, target_mod))
 }
 
 fn files(items: &mut Vec<Item>, file: &FileTarget) {

@@ -1,15 +1,43 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
+use nyanko::cat::unit::UnitBuy;
 use nyanko::cat::unitid;
-use nyanko::combat::{Column, Scale};
-use nyanko::common::tools::columns::FromColumn;
+use nyanko::combat::Scale;
+use nyanko::common::tools::columns::{Column, FromColumn};
 use nyanko::enemy::t_unit;
+
+use crate::app::Page;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Subject {
     Cat,
     Enemy,
+    Buy,
+    Curve,
+}
+
+pub(crate) const COUNT: usize = 4;
+
+pub(crate) const SUBJECTS: [Subject; COUNT] =
+    [Subject::Cat, Subject::Enemy, Subject::Buy, Subject::Curve];
+
+impl Subject {
+    pub(crate) fn slot(self) -> usize {
+        match self {
+            Subject::Cat => 0,
+            Subject::Enemy => 1,
+            Subject::Buy => 2,
+            Subject::Curve => 3,
+        }
+    }
+
+    pub(crate) fn page(self) -> Page {
+        match self {
+            Subject::Enemy => Page::Enemies,
+            Subject::Cat | Subject::Buy | Subject::Curve => Page::Cats,
+        }
+    }
 }
 
 pub(super) struct Schema {
@@ -20,6 +48,30 @@ pub(super) struct Schema {
 pub(super) static CAT: Schema = Schema { subject: Subject::Cat, comments: true };
 
 pub(super) static ENEMY: Schema = Schema { subject: Subject::Enemy, comments: false };
+
+pub(super) static BUY: Schema = Schema { subject: Subject::Buy, comments: false };
+
+pub(super) static CURVE: Schema = Schema { subject: Subject::Curve, comments: false };
+
+pub(super) fn of(subject: Subject) -> &'static Schema {
+    match subject {
+        Subject::Cat => &CAT,
+        Subject::Enemy => &ENEMY,
+        Subject::Buy => &BUY,
+        Subject::Curve => &CURVE,
+    }
+}
+
+const BRACKET: usize = 10;
+
+const BRACKETS: usize = 20;
+
+pub(super) struct Entry {
+    pub(super) field: &'static str,
+    index: usize,
+    scale: Scale,
+    pub(super) default: &'static str,
+}
 
 const CAT_NAMES: &[(&str, &str)] = &[
     ("hitpoints", "Base Hitpoints"),
@@ -49,29 +101,55 @@ const ENEMY_NAMES: &[(&str, &str)] = &[
     ("attack_3", "Attack 3 Base Damage"),
 ];
 
-static CAT_LABELS: LazyLock<Vec<String>> = LazyLock::new(|| labels(unitid::COLUMNS, CAT_NAMES));
+pub(crate) const FORMS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
 
-static ENEMY_LABELS: LazyLock<Vec<String>> = LazyLock::new(|| labels(t_unit::COLUMNS, ENEMY_NAMES));
+const BUY_NAMES: &[(&str, &str)] = &[
+    ("stage_unlock_requirement", "Stage Unlock"),
+    ("chapter_unlock_requirement", "Chapter Unlock"),
+    ("sell_xp_yield", "Sell XP"),
+    ("sell_np_yield", "Sell NP"),
+    ("level_cap_ch2", "Level Cap Ch2"),
+    ("evolve_level_xp", "Evolve Level XP"),
+    ("egg_id_normal", "Egg ID Normal"),
+    ("egg_id_evolved", "Egg ID Evolved"),
+];
 
-static CAT_ORDER: LazyLock<Vec<&'static Column>> = LazyLock::new(|| order(unitid::COLUMNS));
+static CAT_LABELS: LazyLock<Vec<String>> = LazyLock::new(|| labels(&CAT_ORDER, CAT_NAMES));
 
-static ENEMY_ORDER: LazyLock<Vec<&'static Column>> = LazyLock::new(|| order(t_unit::COLUMNS));
+static ENEMY_LABELS: LazyLock<Vec<String>> = LazyLock::new(|| labels(&ENEMY_ORDER, ENEMY_NAMES));
 
-fn order(columns: &'static [Column]) -> Vec<&'static Column> {
-    let mut sorted: Vec<&Column> = columns.iter().collect();
-    sorted.sort_by_key(|column| column.index);
+static BUY_LABELS: LazyLock<Vec<String>> = LazyLock::new(|| labels(&BUY_ORDER, BUY_NAMES));
+
+static CAT_ORDER: LazyLock<Vec<Entry>> = LazyLock::new(|| order(unitid::COLUMNS));
+
+static ENEMY_ORDER: LazyLock<Vec<Entry>> = LazyLock::new(|| order(t_unit::COLUMNS));
+
+static BUY_ORDER: LazyLock<Vec<Entry>> = LazyLock::new(|| order(UnitBuy::COLUMNS));
+
+fn order<T>(columns: &'static [Column<T>]) -> Vec<Entry> {
+    let mut sorted: Vec<Entry> = columns
+        .iter()
+        .map(|column| Entry {
+            field: column.field,
+            index: column.index,
+            scale: column.scale,
+            default: column.default,
+        })
+        .collect();
+
+    sorted.sort_by_key(|entry| entry.index);
 
     sorted
 }
 
-fn labels(columns: &'static [Column], names: &[(&str, &str)]) -> Vec<String> {
-    order(columns)
-        .into_iter()
-        .map(|column| {
+fn labels(order: &[Entry], names: &[(&str, &str)]) -> Vec<String> {
+    order
+        .iter()
+        .map(|entry| {
             names
                 .iter()
-                .find(|(field, _)| *field == column.field)
-                .map_or_else(|| prettify(column.field), |(_, label)| (*label).to_owned())
+                .find(|(field, _)| *field == entry.field)
+                .map_or_else(|| prettify(entry.field), |(_, label)| (*label).to_owned())
         })
         .collect()
 }
@@ -89,15 +167,17 @@ fn prettify(field: &str) -> String {
 }
 
 impl Schema {
-    fn order(&self) -> &'static [&'static Column] {
+    pub(super) fn order(&self) -> &'static [Entry] {
         match self.subject {
             Subject::Cat => &CAT_ORDER,
             Subject::Enemy => &ENEMY_ORDER,
+            Subject::Buy => &BUY_ORDER,
+            Subject::Curve => &[],
         }
     }
 
-    fn column(&self, index: usize) -> Option<&'static Column> {
-        self.order().get(index).copied()
+    fn column(&self, index: usize) -> Option<&'static Entry> {
+        self.order().get(index)
     }
 
     pub(super) fn subject(&self) -> Subject {
@@ -109,13 +189,21 @@ impl Schema {
     }
 
     pub(super) fn known(&self) -> usize {
-        self.order().len()
+        match self.subject {
+            Subject::Curve => BRACKETS,
+            _ => self.order().len(),
+        }
     }
 
     pub(super) fn label(&self, index: usize) -> Cow<'static, str> {
+        if self.subject == Subject::Curve {
+            return Cow::Owned(format!("Levels {}-{}", index * BRACKET + 1, (index + 1) * BRACKET));
+        }
+
         let table = match self.subject {
             Subject::Cat => &CAT_LABELS,
             Subject::Enemy => &ENEMY_LABELS,
+            _ => &BUY_LABELS,
         };
 
         table

@@ -1,59 +1,63 @@
+mod cards;
+mod combat;
 mod schema;
+mod unitbuy;
+mod unitlevel;
 
-pub use schema::Subject;
+pub(crate) use schema::{Subject, COUNT, FORMS, SUBJECTS};
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, column, container, scrollable, text, text_input, Column, Row};
-use iced::{Element, Length, Padding, Size, Task};
+use iced::{Element, Size, Task};
 use nyanko::common::tools::file;
 use tracing::warn;
 
 use core::common::preview::{self, Stamp};
 use core::domains::mods;
 
-use crate::app::theme;
-use crate::common::feedback::{Slot, CONFIRM_LABEL};
-use crate::widget::{popup, smooth_scroll};
+use crate::common::feedback::Slot;
+use crate::widget::popup;
 
-const CAT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::CatAttributes, Size::new(364.0, 376.0));
-const ENEMY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnemyAttributes, Size::new(364.0, 376.0));
+use cards::CARD_WIDTH;
 
-fn spec(subject: schema::Subject) -> popup::Spec {
+const POPUP_SIZE: Size = Size::new(364.0, 376.0);
+
+const CAT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::CatAttributes, POPUP_SIZE);
+const ENEMY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnemyAttributes, POPUP_SIZE);
+const BUY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::UnitBuy, POPUP_SIZE);
+const CURVE_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LevelCurve, POPUP_SIZE);
+
+fn spec(subject: Subject) -> popup::Spec {
     match subject {
-        schema::Subject::Cat => CAT_POPUP,
-        schema::Subject::Enemy => ENEMY_POPUP,
+        Subject::Cat => CAT_POPUP,
+        Subject::Enemy => ENEMY_POPUP,
+        Subject::Buy => BUY_POPUP,
+        Subject::Curve => CURVE_POPUP,
     }
 }
 
-const CARD_WIDTH: f32 = 86.0;
-const CARD_GAP: f32 = 8.0;
 const LABEL_SIZE: f32 = 12.0;
-const INPUT_SIZE: f32 = 13.0;
 const CARD_PADDING: f32 = 6.0;
-const BODY_PADDING: f32 = 12.0;
-const SYNC_WIDTH: f32 = 172.0;
-const SEARCH_PADDING: f32 = 4.0;
 const COMMENT: &str = "//";
-const SEARCH_FRACTION: f32 = 2.0 / 3.0;
 const LINE_RATIO: f32 = 1.3;
 const GLYPH_RATIO: f32 = 0.55;
 
-static LABEL_HEIGHT: LazyLock<f32> = LazyLock::new(|| {
+static LABEL_HEIGHTS: LazyLock<[f32; COUNT]> =
+    LazyLock::new(|| SUBJECTS.map(|subject| label_height(schema::of(subject))));
+
+fn label_height(schema: &schema::Schema) -> f32 {
     let inner = CARD_WIDTH - CARD_PADDING * 2.0;
     let per_line = ((inner / (LABEL_SIZE * GLYPH_RATIO)).floor() as usize).max(1);
 
-    let lines = [&schema::CAT, &schema::ENEMY]
-        .into_iter()
-        .flat_map(|schema| (0..schema.known()).map(move |index| wrapped_lines(&schema.label(index), per_line)))
+    let lines = (0..schema.known())
+        .map(|index| wrapped_lines(&schema.label(index), per_line))
         .max()
         .unwrap_or(1);
 
     lines as f32 * LABEL_SIZE * LINE_RATIO
-});
+}
 
 fn split_row(line: &str, delimiter: char, schema: &schema::Schema) -> (Vec<i32>, String, String) {
     let (numeric, gap, comment) = match line.find(COMMENT) {
@@ -88,52 +92,6 @@ fn shown(schema: &schema::Schema, index: usize, raw: i32) -> String {
     }
 
     schema.to_display(index, raw).to_string()
-}
-
-fn search<'a>(query: &str, width: f32) -> Element<'a, Message> {
-    let field = text_input("Search Attribute...", query)
-        .on_input(Message::SearchChanged)
-        .size(INPUT_SIZE)
-        .padding(SEARCH_PADDING)
-        .width(Length::Fixed((width * SEARCH_FRACTION).max(CARD_WIDTH)))
-        .style(theme::rounded_input);
-
-    container(field).width(Length::Fill).center_x(Length::Fill).into()
-}
-
-fn footer<'a>(schema: &schema::Schema, value: &str, armed: bool) -> Element<'a, Message> {
-    let actions = column![sync(armed)].spacing(CARD_GAP).align_x(Horizontal::Center);
-
-    if !schema.comments() {
-        return actions.into();
-    }
-
-    column![comment(value), actions].spacing(CARD_GAP).align_x(Horizontal::Center).into()
-}
-
-fn comment<'a>(value: &str) -> Element<'a, Message> {
-    text_input("Comment...", value)
-        .on_input(Message::CommentChanged)
-        .size(INPUT_SIZE)
-        .padding(SEARCH_PADDING)
-        .width(Length::Fill)
-        .style(theme::rounded_input)
-        .into()
-}
-
-fn sync<'a>(armed: bool) -> Element<'a, Message> {
-    let label = if armed { CONFIRM_LABEL } else { "Sync With \"game\"" };
-
-    let text = theme::centered_text(label)
-        .size(INPUT_SIZE)
-        .wrapping(iced::widget::text::Wrapping::None);
-
-    button(text)
-        .width(Length::Fixed(SYNC_WIDTH))
-        .padding([SEARCH_PADDING + 1.0, 10.0])
-        .style(theme::danger_button)
-        .on_press(Message::Sync)
-        .into()
 }
 
 fn wrapped_lines(label: &str, per_line: usize) -> usize {
@@ -224,6 +182,11 @@ impl State {
     pub(super) fn begin(&mut self, plan: Plan) {
         self.frame = popup::State::default();
         self.draft = Draft::load(plan);
+    }
+
+    pub(super) fn close(&mut self) {
+        self.draft = None;
+        self.confirm.expire();
     }
 
     fn reload(&mut self, plan: Plan) {
@@ -489,81 +452,37 @@ impl Draft {
         Some((path, stamp))
     }
 
-    fn body(&self, width: f32, query: &str, armed: bool) -> Element<'_, Message> {
-        let usable = (width - BODY_PADDING * 2.0).max(CARD_WIDTH);
-        let per_row = (((usable + CARD_GAP) / (CARD_WIDTH + CARD_GAP)).floor() as usize).max(1);
-        let needle = query.trim().to_lowercase();
+    fn schema(&self) -> &'static schema::Schema {
+        self.plan.schema
+    }
 
-        let matches: Vec<usize> = (0..self.cells.len())
-            .filter(|index| needle.is_empty() || self.plan.schema.label(*index).to_lowercase().contains(&needle))
-            .collect();
+    fn len(&self) -> usize {
+        self.cells.len()
+    }
 
-        let mut grid = Column::new().spacing(CARD_GAP);
-        let mut line = Row::new().spacing(CARD_GAP);
+    fn input(&self, index: usize) -> &str {
+        self.inputs.get(index).map_or("", String::as_str)
+    }
 
-        for (slot, index) in matches.into_iter().enumerate() {
-            if slot > 0 && slot % per_row == 0 {
-                grid = grid.push(line);
-                line = Row::new().spacing(CARD_GAP);
-            }
+    fn comment(&self) -> &str {
+        &self.comment
+    }
 
-            line = line.push(self.card(index));
+    fn body<'a>(&'a self, width: f32, query: &'a str, armed: bool) -> Element<'a, Message> {
+        match self.plan.subject() {
+            Subject::Cat | Subject::Enemy => combat::view(self, width, query, armed),
+            Subject::Buy => unitbuy::view(self, width, query, armed),
+            Subject::Curve => unitlevel::view(self, width, armed),
         }
-
-        grid = grid.push(line);
-
-        let centered = container(grid)
-            .width(Length::Fill)
-            .center_x(Length::Fill)
-            .padding(Padding::ZERO.left(BODY_PADDING).right(BODY_PADDING).bottom(BODY_PADDING));
-
-        let list = smooth_scroll(scrollable(centered).width(Length::Fill).height(Length::Fill));
-
-        column![
-            container(search(query, usable))
-                .padding(Padding::ZERO.top(BODY_PADDING).left(BODY_PADDING).right(BODY_PADDING).bottom(CARD_GAP)),
-            list,
-            container(footer(self.plan.schema, &self.comment, armed))
-                .width(Length::Fill)
-                .center_x(Length::Fill)
-                .padding(Padding::ZERO.top(CARD_GAP).left(BODY_PADDING).right(BODY_PADDING).bottom(BODY_PADDING)),
-        ]
-        .height(Length::Fill)
-        .into()
-    }
-
-    fn card(&self, index: usize) -> Element<'_, Message> {
-        let value = self.inputs.get(index).map_or("", String::as_str);
-        let hint = self.plan.schema.to_display(index, self.plan.schema.fallback(index)).to_string();
-
-        let field = text_input(&hint, value)
-            .on_input(move |entry| Message::Changed(index, entry))
-            .size(INPUT_SIZE)
-            .padding(2)
-            .align_x(Horizontal::Center)
-            .style(theme::rounded_input);
-
-        let label = container(
-            text(self.plan.schema.label(index))
-                .size(LABEL_SIZE)
-                .align_x(Horizontal::Center)
-                .width(Length::Fill),
-        )
-        .height(Length::Fixed(*LABEL_HEIGHT))
-        .align_y(Vertical::Center);
-
-        container(column![label, field].spacing(2))
-            .width(Length::Fixed(CARD_WIDTH))
-            .padding(CARD_PADDING)
-            .style(theme::card_container)
-            .into()
     }
 }
 
-pub(super) fn cat(row: usize, label: String, game: &Path, target_mod: Option<String>) -> Plan {
-    Plan { row, label, game: game.to_path_buf(), target_mod, schema: &schema::CAT }
-}
-
-pub(super) fn enemy(row: usize, label: String, game: &Path, target_mod: Option<String>) -> Plan {
-    Plan { row, label, game: game.to_path_buf(), target_mod, schema: &schema::ENEMY }
+pub(super) fn plan(
+    subject: Subject,
+    row: usize,
+    label: String,
+    game: &Path,
+    target_mod: Option<String>,
+) -> Plan {
+    Plan { row, label, game: game.to_path_buf(), target_mod, schema: schema::of(subject) }
 }

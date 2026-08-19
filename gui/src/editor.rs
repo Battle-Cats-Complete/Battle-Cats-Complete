@@ -1,6 +1,6 @@
 mod menu;
 mod registry;
-mod attributes;
+mod figures;
 mod prose;
 mod target;
 mod watch;
@@ -33,6 +33,7 @@ pub(crate) use watch::watch;
 pub enum Target {
     FileRow(usize),
     CatLevels,
+    CatForms,
     CatAttributes,
     EnemyAttributes,
     CatIcon,
@@ -54,12 +55,18 @@ pub(crate) struct Context {
 }
 
 struct LevelTarget {
+    subject: figures::Subject,
     asset: Asset,
+    label: String,
+    row: usize,
     unlocked: bool,
     active_mod: Option<String>,
 }
 
-const LEVEL_FILES: [&str; 2] = [cat_files::UNIT_BUY, cat_files::UNIT_LEVEL];
+const LEVEL_FILES: [(figures::Subject, &str); 2] =
+    [(figures::Subject::Buy, cat_files::UNIT_BUY), (figures::Subject::Curve, cat_files::UNIT_LEVEL)];
+
+const FORM_FILES: [(figures::Subject, &str); 1] = [(figures::Subject::Buy, cat_files::UNIT_BUY)];
 
 struct AssetFile {
     name: String,
@@ -197,8 +204,6 @@ impl EnemyTarget {
     }
 }
 
-const FORM_LABELS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
-
 struct CatTarget {
     file: String,
     mod_copy: Option<PathBuf>,
@@ -211,7 +216,7 @@ struct CatTarget {
 
 impl CatTarget {
     fn title(&self) -> String {
-        let form = FORM_LABELS.get(self.form).copied().unwrap_or("Unknown");
+        let form = figures::FORMS.get(self.form).copied().unwrap_or("Unknown");
 
         match self.name.as_deref() {
             Some(name) => [name, form, self.file.as_str()].join(theme::HEADER_SEPARATOR),
@@ -241,7 +246,7 @@ pub enum Message {
     Hovered(Trail),
     ConfirmExpired,
     FailureExpired,
-    Attributes(attributes::Subject, attributes::Message),
+    Figures(figures::Subject, figures::Message),
     Prose(prose::Subject, prose::Message),
 }
 
@@ -262,6 +267,7 @@ impl Item {
         Self { label: label.into(), hint: Some(hint.into()), action: None, children: Vec::new(), confirm: false }
     }
 
+    #[allow(dead_code)]
     fn unsupported(label: impl Into<String>) -> Self {
         Self::disabled(label, UNSUPPORTED_NOTICE)
     }
@@ -305,7 +311,7 @@ fn shared_hint(children: &[Item]) -> Option<String> {
 enum Action {
     Add { source: PathBuf, target_mod: String },
     Delete { source: PathBuf },
-    EditAttributes(attributes::Plan),
+    EditFigures(figures::Plan),
     EditProse(prose::Plan),
     Replace { file: String, target_mod: Option<String>, game: Option<PathBuf> },
     Sync { file: String, target_mod: String, game: PathBuf },
@@ -385,15 +391,14 @@ pub(crate) struct State {
     open: Option<Open>,
     confirm: Slot<Trail>,
     failed: Slot<Trail>,
-    cats: attributes::State,
-    enemies: attributes::State,
+    figures: [figures::State; figures::COUNT],
     prose: [prose::State; prose::COUNT],
     synced: Option<Key>,
 }
 
 struct Snapshot {
     page: Page,
-    plan: Option<attributes::Plan>,
+    figures: [Option<figures::Plan>; figures::COUNT],
     prose: [Vec<prose::Plan>; prose::COUNT],
 }
 
@@ -464,10 +469,10 @@ impl State {
                 .prose_mut(subject)
                 .update(msg)
                 .map(move |inner| Message::Prose(subject, inner)),
-            Message::Attributes(subject, msg) => self
+            Message::Figures(subject, msg) => self
                 .subject_mut(subject)
                 .update(msg)
-                .map(move |inner| Message::Attributes(subject, inner)),
+                .map(move |inner| Message::Figures(subject, inner)),
             Message::Opened(..) => Task::none(),
         }
     }
@@ -483,31 +488,26 @@ impl State {
             }
         }
 
-        let (state, subject) = match app.current_page {
-            Page::Cats if app.cat_state.selected_tab == DetailTab::Abilities => {
-                (&self.cats, attributes::Subject::Cat)
+        for subject in figures::SUBJECTS {
+            if subject.page() != app.current_page || !figures_tab(app, subject) {
+                continue;
             }
-            Page::Enemies if app.enemy_state.selected_tab == EnemyTab::Abilities => {
-                (&self.enemies, attributes::Subject::Enemy)
-            }
-            _ => return None,
-        };
 
-        state
-            .view(window)
-            .map(|view| view.map(move |inner| Message::Attributes(subject, inner)))
+            if let Some(view) = self.figures[subject.slot()].view(window) {
+                return Some(view.map(move |inner| Message::Figures(subject, inner)));
+            }
+        }
+
+        None
     }
 
     fn drafting(&self) -> bool {
-        self.cats.drafting() || self.enemies.drafting() || self.prose.iter().any(prose::State::drafting)
+        self.figures.iter().any(figures::State::drafting)
+            || self.prose.iter().any(prose::State::drafting)
     }
 
-    fn attributes_drafting(&self, page: Page) -> bool {
-        match page {
-            Page::Cats => self.cats.drafting(),
-            Page::Enemies => self.enemies.drafting(),
-            _ => false,
-        }
+    fn figures_drafting(&self, subject: figures::Subject) -> bool {
+        self.figures[subject.slot()].drafting()
     }
 
     fn prose_drafting(&self, subject: prose::Subject) -> bool {
@@ -519,7 +519,8 @@ impl State {
     }
 
     fn drifted(&self) -> bool {
-        self.cats.drifted() || self.enemies.drifted() || self.prose.iter().any(prose::State::drifted)
+        self.figures.iter().any(figures::State::drifted)
+            || self.prose.iter().any(prose::State::drifted)
     }
 
     pub(crate) fn apply(&mut self, update: Update) {
@@ -534,18 +535,27 @@ impl State {
             self.prose[subject.slot()].sync(&snapshot.prose[subject.slot()]);
         }
 
-        match snapshot.page {
-            Page::Cats => self.cats.sync(snapshot.plan),
-            Page::Enemies => self.enemies.sync(snapshot.plan),
-            _ => {}
+        for (slot, plan) in snapshot.figures.into_iter().enumerate() {
+            if figures::SUBJECTS[slot].page() != snapshot.page {
+                continue;
+            }
+
+            self.figures[slot].sync(plan);
         }
     }
 
-    fn subject_mut(&mut self, subject: attributes::Subject) -> &mut attributes::State {
-        match subject {
-            attributes::Subject::Cat => &mut self.cats,
-            attributes::Subject::Enemy => &mut self.enemies,
+    fn clear_page(&mut self, page: Page) {
+        for subject in prose::SUBJECTS.into_iter().filter(|subject| subject.page() == page) {
+            self.prose_mut(subject).close();
         }
+
+        for subject in figures::SUBJECTS.into_iter().filter(|subject| subject.page() == page) {
+            self.subject_mut(subject).close();
+        }
+    }
+
+    fn subject_mut(&mut self, subject: figures::Subject) -> &mut figures::State {
+        &mut self.figures[subject.slot()]
     }
 
     fn prose_mut(&mut self, subject: prose::Subject) -> &mut prose::State {
@@ -610,20 +620,18 @@ impl State {
                     }
                 }
             }
-            Action::EditAttributes(plan) => {
-                self.subject_mut(plan.subject()).begin(plan.clone());
+            Action::EditFigures(plan) => {
+                let subject = plan.subject();
+
+                self.clear_page(subject.page());
+                self.subject_mut(subject).begin(plan.clone());
 
                 Outcome::Done
             }
             Action::EditProse(plan) => {
                 let subject = plan.subject();
 
-                for other in prose::SUBJECTS {
-                    if other != subject && other.page() == subject.page() {
-                        self.prose_mut(other).close();
-                    }
-                }
-
+                self.clear_page(subject.page());
                 self.prose_mut(subject).begin(plan.clone());
 
                 Outcome::Done
@@ -697,15 +705,15 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
         enemies: enemy_payloads(app, reached(Target::EnemyAttributes)),
         icon: icon_target(app, icon_subject(app, target, broad)),
         prose: prose_payloads(app, target, broad),
-        levels: level_payloads(app, reached(Target::CatLevels)),
+        levels: level_payloads(app, reached(Target::CatLevels), reached(Target::CatForms)),
     }
 }
 
-fn attributes_tab(app: &BattleCatsApp, page: Page) -> bool {
-    match page {
-        Page::Cats => app.cat_state.selected_tab == DetailTab::Abilities,
-        Page::Enemies => app.enemy_state.selected_tab == EnemyTab::Abilities,
-        _ => false,
+fn figures_tab(app: &BattleCatsApp, subject: figures::Subject) -> bool {
+    match subject {
+        figures::Subject::Cat => app.cat_state.selected_tab == DetailTab::Abilities,
+        figures::Subject::Enemy => app.enemy_state.selected_tab == EnemyTab::Abilities,
+        figures::Subject::Buy | figures::Subject::Curve => true,
     }
 }
 
@@ -737,14 +745,27 @@ fn prose_payloads(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> V
         .collect()
 }
 
-fn level_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
-    if !reached || app.current_page != Page::Cats {
+fn level_payloads(app: &BattleCatsApp, levels: bool, forms: bool) -> Vec<LevelTarget> {
+    if app.current_page != Page::Cats {
         return Vec::new();
     }
 
-    LEVEL_FILES
-        .into_iter()
-        .filter_map(|name| {
+    let files: &[(figures::Subject, &str)] = match (levels, forms) {
+        (true, _) => &LEVEL_FILES,
+        (false, true) => &FORM_FILES,
+        (false, false) => return Vec::new(),
+    };
+
+    let Some(id) = app.app_state.cat.selected_cat else {
+        return Vec::new();
+    };
+
+    let label = cat_label(app, id);
+
+    files
+        .iter()
+        .copied()
+        .filter_map(|(subject, name)| {
             let files = asset_files(app, name);
 
             if files.is_empty() {
@@ -752,7 +773,10 @@ fn level_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
             }
 
             Some(LevelTarget {
+                subject,
                 asset: Asset::Variants { key: name.to_owned(), files },
+                label: [label.as_str(), name].join(theme::HEADER_SEPARATOR),
+                row: id as usize,
                 unlocked: app.settings.files.unlock_game_mount,
                 active_mod: app.mods_state.active_mod(),
             })
@@ -760,8 +784,19 @@ fn level_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
         .collect()
 }
 
+fn cat_label(app: &BattleCatsApp, id: u32) -> String {
+    app.cat_state
+        .data
+        .cats
+        .iter()
+        .find(|cat| cat.id == id)
+        .and_then(|cat| cat.names.first().cloned().flatten())
+        .unwrap_or_else(|| format!("{id:03}-C"))
+}
+
+
 fn cat_payloads(app: &BattleCatsApp, reached: bool) -> Vec<CatTarget> {
-    if !reached || !attributes_tab(app, Page::Cats) {
+    if !reached || !figures_tab(app, figures::Subject::Cat) {
         return Vec::new();
     }
 
@@ -769,7 +804,7 @@ fn cat_payloads(app: &BattleCatsApp, reached: bool) -> Vec<CatTarget> {
 }
 
 fn enemy_payloads(app: &BattleCatsApp, reached: bool) -> Vec<EnemyTarget> {
-    if !reached || !attributes_tab(app, Page::Enemies) {
+    if !reached || !figures_tab(app, figures::Subject::Enemy) {
         return Vec::new();
     }
 
@@ -870,7 +905,7 @@ fn explanation_target(app: &BattleCatsApp, id: u32) -> Option<ProseTarget> {
         .find(|cat| cat.id == id)
         .and_then(|cat| cat.names.get(form).cloned().flatten());
 
-    let form_label = FORM_LABELS.get(form).copied().unwrap_or("Unknown");
+    let form_label = figures::FORMS.get(form).copied().unwrap_or("Unknown");
 
     let label = match name.as_deref() {
         Some(name) if !name.is_empty() => [name, form_label, file.as_str()].join(theme::HEADER_SEPARATOR),
@@ -1030,7 +1065,13 @@ fn key(app: &BattleCatsApp) -> Key {
 fn snapshot(app: &BattleCatsApp, editor: &State) -> Snapshot {
     Snapshot {
         page: app.current_page,
-        plan: editor.attributes_drafting(app.current_page).then(|| current_plan(app)).flatten(),
+        figures: figures::SUBJECTS.map(|subject| {
+            if subject.page() != app.current_page || !editor.figures_drafting(subject) {
+                return None;
+            }
+
+            current_plan(app, subject)
+        }),
         prose: prose::SUBJECTS.map(|subject| {
             if subject.page() != app.current_page || !editor.prose_drafting(subject) {
                 return Vec::new();
@@ -1041,17 +1082,28 @@ fn snapshot(app: &BattleCatsApp, editor: &State) -> Snapshot {
     }
 }
 
-fn current_plan(app: &BattleCatsApp) -> Option<attributes::Plan> {
-    if let Some(cat) = cat_subject(app) {
-        let active = cat.active_mod.clone();
+fn current_plan(app: &BattleCatsApp, subject: figures::Subject) -> Option<figures::Plan> {
+    match subject {
+        figures::Subject::Cat => {
+            let cat = cat_subject(app)?;
+            let active = cat.active_mod.clone();
 
-        return Some(registry::cat_plan(&cat, active));
+            Some(registry::cat_plan(&cat, active))
+        }
+        figures::Subject::Enemy => {
+            let enemy = enemy_subject(app)?;
+            let active = enemy.active_mod.clone();
+
+            Some(registry::enemy_plan(&enemy, active))
+        }
+        figures::Subject::Buy | figures::Subject::Curve => {
+            let target = level_payloads(app, true, false).into_iter().find(|level| level.subject == subject)?;
+            let mount = target.active_mod.clone();
+            let scopes = target.asset.scopes(mount.is_some());
+
+            scopes.first().and_then(|scope| registry::level_plan(&target, scope, mount))
+        }
     }
-
-    let enemy = enemy_subject(app)?;
-    let active = enemy.active_mod.clone();
-
-    Some(registry::enemy_plan(&enemy, active))
 }
 
 fn file_target(app: &BattleCatsApp, target: Option<Target>) -> Option<FileTarget> {
