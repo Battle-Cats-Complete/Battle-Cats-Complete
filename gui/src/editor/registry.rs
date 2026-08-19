@@ -124,6 +124,7 @@ enum Primary<'a> {
     Cat(&'a CatTarget),
     Enemy(&'a EnemyTarget),
     Prose(&'a ProseTarget),
+    Unsupported(Verb),
 }
 
 struct Payload<'a> {
@@ -197,6 +198,17 @@ fn payloads(context: &Context) -> Vec<Payload<'_>> {
             scopes: icon.asset.scopes(mount.target.is_some()),
             mount,
             primary: Primary::Replace,
+        });
+    }
+
+    for target in &context.levels {
+        let mount = mount(target.active_mod.as_deref(), target.unlocked);
+
+        payloads.push(Payload {
+            key: target.asset.key(),
+            scopes: target.asset.scopes(mount.target.is_some()),
+            mount,
+            primary: Primary::Unsupported(Verb::Edit),
         });
     }
 
@@ -315,6 +327,9 @@ impl Payload<'_> {
         let target_mod = self.mount.target.map(str::to_owned);
 
         match self.primary {
+            Primary::Unsupported(verb) => {
+                items.push((verb, Item::unsupported(verb.label(scope.name, &self.mount, labelling))));
+            }
             Primary::Replace => items.push((Verb::Replace, replace(scope, &self.mount, labelling))),
             Primary::Cat(cat) => items.push((
                 Verb::Edit,

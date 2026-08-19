@@ -845,7 +845,7 @@ impl State {
         column![
             editor::target(name_box(disp_name, 123.0, 56.0, 145.0), editor::Target::CatExplanation),
             id_text,
-            level_row,
+            editor::target(level_row, editor::Target::CatLevels),
         ].spacing(0).into()
     }
 

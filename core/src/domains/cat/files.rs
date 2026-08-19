@@ -1,5 +1,5 @@
-pub(crate) const UNIT_BUY: &str = "unitbuy.csv";
-pub(crate) const UNIT_LEVEL: &str = "unitlevel.csv";
+pub const UNIT_BUY: &str = "unitbuy.csv";
+pub const UNIT_LEVEL: &str = "unitlevel.csv";
 pub(crate) const SKILL_ACQUISITION: &str = "SkillAcquisition.csv";
 pub(crate) const SKILL_LEVEL: &str = "SkillLevel.csv";
 pub(crate) const SKILL_DESCRIPTIONS: &str = "SkillDescriptions.csv";

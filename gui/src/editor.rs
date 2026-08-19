@@ -23,7 +23,7 @@ use core::domains::mods;
 use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;
 use crate::domains::enemy::DetailTab as EnemyTab;
-use crate::common::feedback::Slot;
+use crate::common::feedback::{Slot, UNSUPPORTED_NOTICE};
 
 pub(crate) use target::{suppress, target};
 pub(crate) use watch::watch;
@@ -31,6 +31,7 @@ pub(crate) use watch::watch;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Target {
     FileRow(usize),
+    CatLevels,
     CatAttributes,
     EnemyAttributes,
     CatIcon,
@@ -48,7 +49,16 @@ pub(crate) struct Context {
     enemies: Vec<EnemyTarget>,
     icon: Option<IconTarget>,
     prose: Vec<ProseTarget>,
+    levels: Vec<LevelTarget>,
 }
+
+struct LevelTarget {
+    asset: Asset,
+    unlocked: bool,
+    active_mod: Option<String>,
+}
+
+const LEVEL_FILES: [&str; 2] = [cat_files::UNIT_BUY, cat_files::UNIT_LEVEL];
 
 struct AssetFile {
     name: String,
@@ -249,6 +259,10 @@ impl Item {
 
     fn disabled(label: impl Into<String>, hint: impl Into<String>) -> Self {
         Self { label: label.into(), hint: Some(hint.into()), action: None, children: Vec::new(), confirm: false }
+    }
+
+    fn unsupported(label: impl Into<String>) -> Self {
+        Self::disabled(label, UNSUPPORTED_NOTICE)
     }
 
     fn list(label: impl Into<String>, children: Vec<Item>) -> Self {
@@ -681,7 +695,31 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
             .unwrap_or_default(),
         icon: icon_target(app, target),
         prose: prose_subject(target).map(|subject| prose_targets(app, subject)).unwrap_or_default(),
+        levels: matches!(target, Some(Target::CatLevels)).then(|| level_targets(app)).unwrap_or_default(),
     }
+}
+
+fn level_targets(app: &BattleCatsApp) -> Vec<LevelTarget> {
+    if app.current_page != Page::Cats {
+        return Vec::new();
+    }
+
+    LEVEL_FILES
+        .into_iter()
+        .filter_map(|name| {
+            let files = asset_files(app, name);
+
+            if files.is_empty() {
+                return None;
+            }
+
+            Some(LevelTarget {
+                asset: Asset::Variants { key: name.to_owned(), files },
+                unlocked: app.settings.files.unlock_game_mount,
+                active_mod: app.mods_state.active_mod(),
+            })
+        })
+        .collect()
 }
 
 fn cat_targets(app: &BattleCatsApp) -> Vec<CatTarget> {
