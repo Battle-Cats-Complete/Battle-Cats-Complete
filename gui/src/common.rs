@@ -17,13 +17,13 @@ use iced::widget::image::Handle;
 use iced::Task;
 use tracing::{debug, error, info, trace, warn};
 
-use core::common::assets::{
+use kore::common::assets::{
     BOSS_WAVE, BURROW, DEATH_TIMER, DOJO, GOD, KAMIKAZE, MULTIHIT, REVIVE, STARRED_ALIEN, STOP,
     UNKNOWN,
 };
-use core::common::formats::{imgcut, SpriteSheet as CoreSpriteSheet};
-use core::systems::combat::CustomIcon;
-use core::Vfs;
+use kore::common::formats::{imgcut, SpriteSheet as CoreSpriteSheet};
+use kore::systems::combat::CustomIcon;
+use kore::Vfs;
 
 #[derive(Clone)]
 pub struct CustomAssets {

@@ -9,8 +9,8 @@ use nyanko::chapter::map::LockSkipDataEntry;
 use nyanko::chapter::stage::ScatCpuSetting;
 use nyanko::chapter::Category;
 
-use core::domains::stage::{cost, Map, Stage, StageDataState};
-use core::Vfs;
+use kore::domains::stage::{cost, Map, Stage, StageDataState};
+use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::item_icon;

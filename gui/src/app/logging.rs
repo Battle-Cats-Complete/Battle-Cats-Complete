@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tracing::{debug, info, Level};
 use tracing_subscriber::{fmt, EnvFilter};
 
-use core::common::dirs;
+use kore::common::dirs;
 
 fn find_override_file(cwd: &Path, names: &[&str]) -> Option<PathBuf> {
     names.iter().map(|name| cwd.join(name)).find(|path| path.exists())
@@ -21,9 +21,9 @@ pub(crate) fn init_logging(enable_logging: bool) {
     let app_dir = dirs::data();
 
     let (log_level, filter_directive, file_path) = if let Some(path) = trace_file {
-        (Level::TRACE, "info,gui=trace,core=trace,nyanko=trace,zbus=error", path)
+        (Level::TRACE, "info,gui=trace,kore=trace,nyanko=trace,zbus=error", path)
     } else if let Some(path) = debug_file {
-        (Level::DEBUG, "info,gui=debug,core=debug,nyanko=debug,zbus=error", path)
+        (Level::DEBUG, "info,gui=debug,kore=debug,nyanko=debug,zbus=error", path)
     } else if enable_logging {
         let Some(dir) = app_dir else { return };
 

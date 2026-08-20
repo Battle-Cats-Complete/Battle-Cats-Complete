@@ -8,7 +8,7 @@ use image::RgbaImage;
 
 use nyanko::graphics::engine::{resolve_frame, FrameData};
 
-use core::systems::animation::multiply_mat3;
+use kore::systems::animation::multiply_mat3;
 
 use crate::widget::LINE_PIXELS;
 

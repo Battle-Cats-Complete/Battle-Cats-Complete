@@ -6,9 +6,9 @@ use iced::widget::{column, container, image as iced_image, row, scrollable, spac
 use iced::{Alignment, Border, Element, Length, Theme};
 use nyanko::chapter::stage::{AbilityType, CannonType, CertificationPreset, EvolutionForm, TreasureType};
 
-use core::domains::cat::waiter::unitexplanation;
-use core::domains::stage::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
-use core::Vfs;
+use kore::domains::cat::waiter::unitexplanation;
+use kore::domains::stage::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
+use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::item_icon;

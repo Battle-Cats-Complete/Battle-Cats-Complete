@@ -7,10 +7,10 @@ use iced::widget::image::Handle;
 use iced::widget::{column, container, image as iced_image, row, space, text, tooltip, Column};
 use iced::{Color, Element, Length, Theme};
 
-use core::common::formats::{GatyaItemBuy, GatyaItemName};
-use core::domains::stage::materials;
-use core::domains::stage::{Map, Stage};
-use core::Vfs;
+use kore::common::formats::{GatyaItemBuy, GatyaItemName};
+use kore::domains::stage::materials;
+use kore::domains::stage::{Map, Stage};
+use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::item_icon;

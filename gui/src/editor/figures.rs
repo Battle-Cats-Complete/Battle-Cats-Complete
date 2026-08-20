@@ -14,8 +14,8 @@ use iced::{Element, Size, Task};
 use nyanko::common::tools::file;
 use tracing::warn;
 
-use core::common::preview::{self, Stamp};
-use core::domains::{mods, settings::EditorValues};
+use kore::common::preview::{self, Stamp};
+use kore::domains::{mods, settings::EditorValues};
 
 use crate::common::feedback::Slot;
 use crate::widget::popup;

@@ -16,10 +16,10 @@ use iced::widget::{
 use iced::{Alignment, Element, Length, Size, Task, Theme};
 use tracing::{info, warn};
 
-use core::common::job::{JobEvent, JobOutcome};
-use core::domains::mods::{self, ModDataState};
-use core::domains::settings::Settings;
-use core::Vault;
+use kore::common::job::{JobEvent, JobOutcome};
+use kore::domains::mods::{self, ModDataState};
+use kore::domains::settings::Settings;
+use kore::Vault;
 
 use crate::app::state::ModsListState;
 use crate::app::theme;

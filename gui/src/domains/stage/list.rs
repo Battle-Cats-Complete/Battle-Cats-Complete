@@ -7,8 +7,8 @@ use iced::widget::{button, column, container, row, rule, scrollable, space, text
 use iced::{Element, Length, Padding, Theme};
 use nyanko::chapter::Category;
 
-use core::domains::stage::filter::{CompiledStageFilter, StageFilterState, StageLookupContext};
-use core::domains::stage::{navigate, GlobalMapId, GlobalStageId, StageDataState};
+use kore::domains::stage::filter::{CompiledStageFilter, StageFilterState, StageLookupContext};
+use kore::domains::stage::{navigate, GlobalMapId, GlobalStageId, StageDataState};
 
 use crate::app::theme;
 use crate::widget::{list_row, smooth_scroll};

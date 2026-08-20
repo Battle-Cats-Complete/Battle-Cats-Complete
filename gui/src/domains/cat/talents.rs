@@ -10,10 +10,10 @@ use nyanko::combat::{get_talent, Entity};
 use nyanko::cat::unit::{LevelCurve, Talent, TalentCost, TalentGroup};
 use nyanko::common::data::img022;
 
-use core::common::gfx::autocrop;
-use core::systems::combat::registry::{get_display_def, AbilityIcon};
-use core::domains::cat::game::talents as talent_logic;
-use core::Vfs;
+use kore::common::gfx::autocrop;
+use kore::systems::combat::registry::{get_display_def, AbilityIcon};
+use kore::domains::cat::game::talents as talent_logic;
+use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::ability_icon;

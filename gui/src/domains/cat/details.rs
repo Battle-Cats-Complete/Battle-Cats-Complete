@@ -6,9 +6,9 @@ use iced::widget::image::Handle;
 use iced::widget::{column, container, image as iced_image, row, scrollable, stack, text, Space};
 use iced::{font, Border, Color, Element, Font, Length, Padding, Theme};
 
-use core::common::io;
-use core::domains::cat::scanner::CatEntry;
-use core::Vfs;
+use kore::common::io;
+use kore::domains::cat::scanner::CatEntry;
+use kore::Vfs;
 
 use crate::common::item_icon;
 use crate::editor;

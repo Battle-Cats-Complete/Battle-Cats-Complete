@@ -1,7 +1,7 @@
 use iced::widget::{button, column, container, rule, scrollable, text, Space};
 use iced::{Alignment, Element, Length, Size};
 
-use core::Conflict;
+use kore::Conflict;
 
 use crate::widget::{popup, smooth_scroll};
 

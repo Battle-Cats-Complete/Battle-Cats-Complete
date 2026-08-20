@@ -8,9 +8,9 @@ use iced::widget::{button, column};
 use iced::{Background, Border, Color, Element, Length, Task, Theme};
 use tracing::{error, warn};
 
-use core::domains::settings::Settings;
-use core::systems::statblock::{self, StatblockData};
-use core::Vfs;
+use kore::domains::settings::Settings;
+use kore::systems::statblock::{self, StatblockData};
+use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::feedback::Slot;

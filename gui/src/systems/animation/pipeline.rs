@@ -7,7 +7,7 @@ use image::RgbaImage;
 
 use nyanko::graphics::engine::FrameData;
 
-use core::systems::animation::multiply_mat3;
+use kore::systems::animation::multiply_mat3;
 
 const VERTEX_STRIDE: u64 = 20;
 const VERTS_PER_PART: u32 = 6;

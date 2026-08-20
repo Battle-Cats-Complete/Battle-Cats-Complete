@@ -3,12 +3,12 @@ use iced::widget::{button, column, container, row, text, Space};
 use iced::{Alignment, Border, Element, Length, Theme};
 use nyanko::common::data::img015;
 
-use core::domains::cat::game::stats::get_final_stats;
-use core::domains::cat::waiter::unitid;
-use core::domains::settings::Settings;
-use core::systems::combat::abilities::collect_ability_data;
-use core::systems::combat::registry::Magnification;
-use core::systems::combat::{AbilityItem, RenderContext, ABILITY_Y, TRAIT_Y};
+use kore::domains::cat::game::stats::get_final_stats;
+use kore::domains::cat::waiter::unitid;
+use kore::domains::settings::Settings;
+use kore::systems::combat::abilities::collect_ability_data;
+use kore::systems::combat::registry::Magnification;
+use kore::systems::combat::{AbilityItem, RenderContext, ABILITY_Y, TRAIT_Y};
 
 use crate::app::theme;
 use crate::common::{CustomAssets, SpriteSheet};

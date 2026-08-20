@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use directories::{BaseDirs, ProjectDirs};
 
-use core::common::dirs;
+use kore::common::dirs;
 
 const LEGACY_APP_DIR: &str = "battle_cats_complete";
 const LEGACY_PROJECT_NAME: &str = "Battle_Cats_Complete";

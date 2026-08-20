@@ -13,9 +13,9 @@ use iced::{font, Alignment, Element, Font, Length, Padding, Task, Theme};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use core::domains::import::architecture;
-use core::domains::settings::{EditorMode, FilesSettings};
-use core::Vfs;
+use kore::domains::import::architecture;
+use kore::domains::settings::{EditorMode, FilesSettings};
+use kore::Vfs;
 
 use crate::app::state::FilesState;
 use crate::app::theme;

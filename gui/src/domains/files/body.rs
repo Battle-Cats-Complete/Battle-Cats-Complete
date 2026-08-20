@@ -7,9 +7,9 @@ use iced::widget::{button, column, container, operation, responsive, scrollable,
 use iced::{widget, Element, Font, Length, Padding, Size, Task, Theme};
 use tracing::warn;
 
-use core::common::preview::{self, Preview, Stamp};
-use core::domains::settings::EditorMode;
-use core::Vfs;
+use kore::common::preview::{self, Preview, Stamp};
+use kore::domains::settings::EditorMode;
+use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::fonts;

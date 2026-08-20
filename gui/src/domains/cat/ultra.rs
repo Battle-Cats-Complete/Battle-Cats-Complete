@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use core::domains::cat::scanner::CatEntry;
+use kore::domains::cat::scanner::CatEntry;
 
 pub struct Ctx<'a> {
     pub cat: Option<&'a CatEntry>,

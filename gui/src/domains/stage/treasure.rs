@@ -9,10 +9,10 @@ use iced::{Alignment, Element, Length, Theme};
 use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::stage::RewardStructure;
 
-use core::common::formats::{GatyaItemBuy, GatyaItemName};
-use core::domains::stage::treasure;
-use core::domains::stage::Stage;
-use core::Vfs;
+use kore::common::formats::{GatyaItemBuy, GatyaItemName};
+use kore::domains::stage::treasure;
+use kore::domains::stage::Stage;
+use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::item_icon;

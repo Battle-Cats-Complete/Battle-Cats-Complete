@@ -12,10 +12,10 @@ use tracing::trace;
 
 use nyanko::graphics::rig::Animation;
 
-use core::systems::addons::paths::{self, Presence};
-use core::systems::animation::export::{find_loop, leader, process, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
-use core::systems::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
-use core::domains::settings::Settings;
+use kore::systems::addons::paths::{self, Presence};
+use kore::systems::animation::export::{find_loop, leader, process, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
+use kore::systems::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
+use kore::domains::settings::Settings;
 
 use crate::app::state::AnimState;
 use crate::app::theme;

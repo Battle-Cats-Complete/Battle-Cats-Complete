@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use iced::Element;
 use image::{imageops, Pixel, RgbaImage};
 
-use core::domains::enemy::filter::evaluation::entity_passes_filter;
-use core::domains::enemy::filter::EnemyFilterState;
-use core::domains::enemy::scanner::EnemyEntry;
+use kore::domains::enemy::filter::evaluation::entity_passes_filter;
+use kore::domains::enemy::filter::EnemyFilterState;
+use kore::domains::enemy::scanner::EnemyEntry;
 
 use crate::common::udi_loader::Composite;
 use crate::widget::roster_list::{self, Roster};

@@ -13,7 +13,7 @@ use self_update::backends::github::{ReleaseList, Update as GithubUpdate};
 use self_update::update::Release;
 use tracing::{error, info};
 
-use core::common::process;
+use kore::common::process;
 
 use crate::widget::popup;
 
@@ -308,7 +308,7 @@ fn platform() -> &'static str {
 fn asset_candidates() -> [String; 2] {
     [
         format!("bcc_{}.zip", platform()),
-        format!("bcc_gui_{}={}_{}.zip", cargo_crate_version!(), core::VERSION, platform()),
+        format!("bcc_gui_{}={}_{}.zip", cargo_crate_version!(), kore::VERSION, platform()),
     ]
 }
 

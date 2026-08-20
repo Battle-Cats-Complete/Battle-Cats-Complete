@@ -4,8 +4,8 @@ use std::path::Path;
 use iced::widget::{button, column, container, mouse_area, opaque, pick_list, row, scrollable, stack, text, text_input, toggler, Space};
 use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 
-use core::common::io::APP_LANGUAGES;
-use core::domains::settings::{ExceptionList, ExceptionRule, RuleHandling};
+use kore::common::io::APP_LANGUAGES;
+use kore::domains::settings::{ExceptionList, ExceptionRule, RuleHandling};
 
 use crate::app::theme;
 use crate::common::feedback::Slot;

@@ -12,8 +12,8 @@ use iced::stream;
 use notify::{recommended_watcher, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tracing::{debug, trace, warn};
 
-use core::common::junk;
-use core::domains::import::architecture;
+use kore::common::junk;
+use kore::domains::import::architecture;
 
 const BATCH_BUFFER: usize = 8;
 const QUIET_WINDOW: Duration = Duration::from_millis(500);

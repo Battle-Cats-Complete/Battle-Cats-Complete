@@ -2,7 +2,7 @@ use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, container, row, space, text};
 use iced::{Element, Length, Theme};
 
-use core::domains::stage::Stage;
+use kore::domains::stage::Stage;
 
 use crate::app::theme;
 use crate::common::fonts;

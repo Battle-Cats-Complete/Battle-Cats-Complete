@@ -1,7 +1,7 @@
 use iced::widget::{column, scrollable, text};
 use iced::{Element, Length};
 
-use core::domains::enemy::scanner::EnemyEntry;
+use kore::domains::enemy::scanner::EnemyEntry;
 
 use crate::editor;
 use crate::widget::smooth_scroll;

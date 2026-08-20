@@ -10,9 +10,9 @@ use nyanko::chapter::stage::{BossType, EnemyAmount};
 use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
 use tracing::warn;
 
-use core::common::context::GlobalContext;
-use core::domains::enemy::scanner::EnemyEntry;
-use core::domains::stage::{restrictions, Map, Stage};
+use kore::common::context::GlobalContext;
+use kore::domains::enemy::scanner::EnemyEntry;
+use kore::domains::stage::{restrictions, Map, Stage};
 
 use crate::app::theme;
 use crate::common::item_icon;

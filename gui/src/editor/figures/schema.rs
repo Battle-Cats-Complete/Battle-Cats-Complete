@@ -7,7 +7,7 @@ use nyanko::combat::Scale;
 use nyanko::common::tools::columns::{Column, FromColumn};
 use nyanko::enemy::t_unit;
 
-use core::domains::settings::EditorValues;
+use kore::domains::settings::EditorValues;
 
 use crate::app::Page;
 

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use core::common::context::GlobalContext;
-use core::domains::cat::scanner::CatEntry;
-use core::domains::cat::statblock::{self, Subject};
-use core::domains::settings::Settings;
+use kore::common::context::GlobalContext;
+use kore::domains::cat::scanner::CatEntry;
+use kore::domains::cat::statblock::{self, Subject};
+use kore::domains::settings::Settings;
 
 use crate::common::SpriteSheet;
 use crate::widget::statblock_export::Request;

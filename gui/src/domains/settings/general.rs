@@ -5,8 +5,8 @@ use iced::widget::{column, container, mouse_area, pick_list, row, text};
 use iced::{Alignment, Border, Color, Element, Length, Point, Task, Theme};
 use tracing::debug;
 
-use core::domains::settings::{lang, nightly};
-use core::domains::settings::{Settings as CoreSettings, UpdateMode};
+use kore::domains::settings::{lang, nightly};
+use kore::domains::settings::{Settings as CoreSettings, UpdateMode};
 
 use crate::app::theme;
 use crate::app::UpdateStatus;
@@ -147,11 +147,11 @@ impl State {
             }
             #[cfg(target_os = "linux")]
             Message::ToggleDesktopData => {
-                let is_installed = core::domains::settings::desktop::is_desktop_data_present();
+                let is_installed = kore::domains::settings::desktop::is_desktop_data_present();
                 let (feedback, success) = if is_installed {
-                    (DesktopFeedback::Deleted, core::domains::settings::desktop::delete_desktop_data().is_ok())
+                    (DesktopFeedback::Deleted, kore::domains::settings::desktop::delete_desktop_data().is_ok())
                 } else {
-                    (DesktopFeedback::Created, core::domains::settings::desktop::create_desktop_data().is_ok())
+                    (DesktopFeedback::Created, kore::domains::settings::desktop::create_desktop_data().is_ok())
                 };
                 let kind = if success { feedback } else { DesktopFeedback::Failed };
                 self.desktop_feedback.set(kind, Message::DesktopFeedbackExpired)
@@ -191,7 +191,7 @@ impl State {
 
         #[cfg(target_os = "linux")]
         {
-            let is_installed = core::domains::settings::desktop::is_desktop_data_present();
+            let is_installed = kore::domains::settings::desktop::is_desktop_data_present();
             let (label, style): (&str, theme::ButtonStyleFn) = match self.desktop_feedback.get() {
                 Some(DesktopFeedback::Created) => ("Desktop Data Created!", theme::success_button),
                 Some(DesktopFeedback::Deleted) => ("Desktop Data Deleted!", theme::success_button),

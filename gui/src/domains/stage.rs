@@ -17,14 +17,14 @@ use iced::widget::{button, column, container, opaque, row, scrollable, space, st
 use iced::{Alignment, Element, Length, Padding, Size, Task};
 use tracing::{debug, info, warn};
 
-use core::common::context::GlobalContext;
-use core::domains::enemy::scanner::EnemyEntry;
-use core::domains::settings::{Settings, SidebarBehavior};
-use core::domains::stage::filter::enemy::EnemyFilter;
-use core::domains::stage::filter::StageFilterState;
-use core::domains::stage::scanner::{self, StageBundle};
-use core::domains::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
-use core::Vault;
+use kore::common::context::GlobalContext;
+use kore::domains::enemy::scanner::EnemyEntry;
+use kore::domains::settings::{Settings, SidebarBehavior};
+use kore::domains::stage::filter::enemy::EnemyFilter;
+use kore::domains::stage::filter::StageFilterState;
+use kore::domains::stage::scanner::{self, StageBundle};
+use kore::domains::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
+use kore::Vault;
 
 use crate::app::state::StageListState;
 use crate::app::theme;

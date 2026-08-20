@@ -3,7 +3,7 @@ use std::path::Path;
 use iced::widget::image::Handle;
 use image::imageops;
 
-use core::common::gfx::autocrop;
+use kore::common::gfx::autocrop;
 
 pub fn load_scaled(path: &Path, max_size: u32) -> Option<Handle> {
     let raw = image::open(path).ok()?;

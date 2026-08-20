@@ -1,9 +1,9 @@
 use iced::widget::{column, container, image as iced_image, responsive, row, scrollable, stack, tooltip};
 use iced::{Alignment, Element, Length, Size};
 
-use core::systems::combat::abilities::collect_ability_data;
-use core::systems::combat::registry::{get_fallback_by_icon, AbilityIcon};
-use core::systems::combat::{AbilityItem, CustomIcon, RenderContext, ABILITY_X, ABILITY_Y, TRAIT_Y};
+use kore::systems::combat::abilities::collect_ability_data;
+use kore::systems::combat::registry::{get_fallback_by_icon, AbilityIcon};
+use kore::systems::combat::{AbilityItem, CustomIcon, RenderContext, ABILITY_X, ABILITY_Y, TRAIT_Y};
 
 use crate::common::ability_icon;
 use crate::common::{CustomAssets, SpriteSheet};

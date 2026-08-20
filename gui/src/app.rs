@@ -14,12 +14,12 @@ use rustc_hash::FxHasher;
 use self_update::update::Release;
 use tracing::{info, trace, warn};
 
-use core::common::context::GlobalContext;
-use core::common::game::{localizable, param};
-use core::common::io::json;
-use core::domains::import::architecture;
-use core::domains::settings::{Settings, UpdateMode};
-use core::{ContentStore, Vault};
+use kore::common::context::GlobalContext;
+use kore::common::game::{localizable, param};
+use kore::common::io::json;
+use kore::domains::import::architecture;
+use kore::domains::settings::{Settings, UpdateMode};
+use kore::{ContentStore, Vault};
 
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
@@ -288,7 +288,7 @@ impl Default for BattleCatsApp {
             cat_state: cat::State::default(),
             enemy_state: enemy::EnemyState::default(),
             stage_state: stage::State::default(),
-            mods_state: mods::State::new(core::domains::mods::ModDataState::default()),
+            mods_state: mods::State::new(kore::domains::mods::ModDataState::default()),
             files_state: files::State::default(),
             import_state: import::State::default(),
             settings_state: gui_settings::State::default(),

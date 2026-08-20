@@ -5,10 +5,10 @@ use iced::Element;
 use nyanko::cat::unit::LevelCurve;
 use nyanko::common::data::img015;
 
-use core::common::context::GlobalContext;
-use core::domains::cat::scanner::CatEntry;
-use core::domains::settings::Settings;
-use core::systems::combat::{AbilityItem, CustomIcon, RenderContext, ABILITY_Y};
+use kore::common::context::GlobalContext;
+use kore::domains::cat::scanner::CatEntry;
+use kore::domains::settings::Settings;
+use kore::systems::combat::{AbilityItem, CustomIcon, RenderContext, ABILITY_Y};
 
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::systems::combat::abilities::{self as shared, ListLayout};

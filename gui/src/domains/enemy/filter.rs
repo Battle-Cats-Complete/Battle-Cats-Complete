@@ -5,11 +5,11 @@ use iced::widget::{button, column, container, image as iced_image, operation, pi
 use iced::{Element, Length, Size, Task};
 use nyanko::combat::{AttrUnit, Identity, REGISTRY};
 
-use core::domains::enemy::filter::evaluation::get_identity_name;
-use core::domains::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
-use core::domains::enemy::scanner::EnemyEntry;
-use core::systems::combat::present_identities;
-use core::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
+use kore::domains::enemy::filter::evaluation::get_identity_name;
+use kore::domains::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
+use kore::domains::enemy::scanner::EnemyEntry;
+use kore::systems::combat::present_identities;
+use kore::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
 
 use crate::app::theme;
 use crate::common::ability_icon;

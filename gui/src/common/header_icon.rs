@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use iced::widget::image::Handle;
 
-use core::common::gfx::autocrop;
+use kore::common::gfx::autocrop;
 
 #[derive(Clone)]
 pub(crate) struct HeaderIcon {

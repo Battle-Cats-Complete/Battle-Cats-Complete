@@ -24,16 +24,16 @@ use iced::{Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::combat::Entity;
 use tracing::info;
 
-use core::common::context::GlobalContext;
-use core::common::formats::SpriteSheet as CoreSpriteSheet;
-use core::domains::cat::game::stats::{get_final_stats, seeded_level};
-use core::domains::cat::scanner::{self, CatEntry};
-use core::domains::cat::waiter::unitid;
-use core::domains::cat::CatDataState;
-use core::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
-use core::systems::combat::RenderContext;
-use core::domains::settings::{ScannerConfig, Settings};
-use core::{Vfs, Vault};
+use kore::common::context::GlobalContext;
+use kore::common::formats::SpriteSheet as CoreSpriteSheet;
+use kore::domains::cat::game::stats::{get_final_stats, seeded_level};
+use kore::domains::cat::scanner::{self, CatEntry};
+use kore::domains::cat::waiter::unitid;
+use kore::domains::cat::CatDataState;
+use kore::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
+use kore::systems::combat::RenderContext;
+use kore::domains::settings::{ScannerConfig, Settings};
+use kore::{Vfs, Vault};
 
 use crate::systems::animation;
 use crate::app::state::{AppState, CatListState};

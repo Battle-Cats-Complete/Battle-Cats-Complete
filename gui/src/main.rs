@@ -13,9 +13,9 @@ use std::panic;
 use iced::window;
 use iced::Size;
 
-use core::common::assets;
+use kore::common::assets;
 #[cfg(target_os = "linux")]
-use core::common::dirs::APP_DIR;
+use kore::common::dirs::APP_DIR;
 
 pub fn main() -> iced::Result {
     #[cfg(windows)]

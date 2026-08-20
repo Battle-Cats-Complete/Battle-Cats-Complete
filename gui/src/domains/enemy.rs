@@ -20,14 +20,14 @@ use iced::{Color, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::combat::Entity;
 use tracing::info;
 
-use core::common::context::GlobalContext;
-use core::common::formats::SpriteSheet as CoreSpriteSheet;
-use core::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
-use core::systems::combat::RenderContext;
-use core::domains::enemy::scanner::{self, EnemyEntry};
-use core::domains::enemy::EnemyDataState;
-use core::domains::settings::Settings;
-use core::{Vfs, Vault};
+use kore::common::context::GlobalContext;
+use kore::common::formats::SpriteSheet as CoreSpriteSheet;
+use kore::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
+use kore::systems::combat::RenderContext;
+use kore::domains::enemy::scanner::{self, EnemyEntry};
+use kore::domains::enemy::EnemyDataState;
+use kore::domains::settings::Settings;
+use kore::{Vfs, Vault};
 
 use crate::systems::animation;
 use crate::systems::combat::abilities as combat_abilities;

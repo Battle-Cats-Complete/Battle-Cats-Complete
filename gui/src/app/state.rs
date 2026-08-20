@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use nyanko::chapter::Category;
 
-use core::systems::animation::export::ExportFormat;
-use core::domains::import::ImportSubTab;
-use core::domains::stage::{GlobalMapId, GlobalStageId};
+use kore::systems::animation::export::ExportFormat;
+use kore::domains::import::ImportSubTab;
+use kore::domains::stage::{GlobalMapId, GlobalStageId};
 
 use crate::domains::files::Mode;
 use crate::widget::popup::StoredSize;

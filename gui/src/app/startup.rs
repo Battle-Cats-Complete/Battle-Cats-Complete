@@ -9,14 +9,14 @@ use iced::{Size, Task};
 use smol::Timer;
 use tracing::{debug, error, info, warn};
 
-use core::common::dirs;
-use core::common::io::json;
-use core::domains::import::{self, architecture};
-use core::domains::mods;
-use core::domains::settings::{lang, nightly, ExceptionList, ScannerConfig, UpdateMode, WindowSettings};
+use kore::common::dirs;
+use kore::common::io::json;
+use kore::domains::import::{self, architecture};
+use kore::domains::mods;
+use kore::domains::settings::{lang, nightly, ExceptionList, ScannerConfig, UpdateMode, WindowSettings};
 #[cfg(target_os = "linux")]
-use core::domains::settings::desktop;
-use core::{ContentStore, Vault};
+use kore::domains::settings::desktop;
+use kore::{ContentStore, Vault};
 
 use crate::domains::home;
 use crate::widget::popup;

@@ -4,7 +4,7 @@ use std::path::Path;
 use iced::widget::{column, container, row, scrollable, text};
 use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 
-use core::domains::settings::pem;
+use kore::domains::settings::pem;
 
 use crate::app::theme;
 use crate::common::feedback::Slot;

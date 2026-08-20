@@ -10,10 +10,10 @@ mod pipeline;
 use iced::widget::{button, column, container, stack, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
 
-use core::domains::cat::scanner::CatEntry;
-use core::domains::enemy::scanner::EnemyEntry;
-use core::domains::settings::Settings;
-use core::Vfs;
+use kore::domains::cat::scanner::CatEntry;
+use kore::domains::enemy::scanner::EnemyEntry;
+use kore::domains::settings::Settings;
+use kore::Vfs;
 
 use crate::app::state::AnimState;
 use crate::app::theme;

@@ -13,13 +13,13 @@ use iced::{Element, Point, Size, Task};
 use rustc_hash::FxHashMap;
 use tracing::{info, trace, warn};
 
-use core::domains::cat::files as cat_files;
-use core::domains::cat::waiter as cat_waiter;
-use core::domains::enemy::files as enemy_files;
-use core::domains::enemy::scanner::EnemyEntry;
-use core::domains::import::architecture;
-use core::domains::mods;
-use core::domains::settings::{ContextScope, EditorValues};
+use kore::domains::cat::files as cat_files;
+use kore::domains::cat::waiter as cat_waiter;
+use kore::domains::enemy::files as enemy_files;
+use kore::domains::enemy::scanner::EnemyEntry;
+use kore::domains::import::architecture;
+use kore::domains::mods;
+use kore::domains::settings::{ContextScope, EditorValues};
 
 use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;

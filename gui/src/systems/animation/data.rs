@@ -5,15 +5,15 @@ use tracing::warn;
 
 use nyanko::graphics::rig::{Animation, Rig};
 
-use core::systems::animation::{
+use kore::systems::animation::{
     loop_frame, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT,
     IDX_SURFACE, IDX_WALK,
 };
-use core::domains::cat::files::{self, AnimType};
-use core::domains::cat::scanner::CatEntry;
-use core::domains::enemy::files::{self as enemy_files, AnimType as EnemyAnimType};
-use core::domains::enemy::scanner::EnemyEntry;
-use core::Vfs;
+use kore::domains::cat::files::{self, AnimType};
+use kore::domains::cat::scanner::CatEntry;
+use kore::domains::enemy::files::{self as enemy_files, AnimType as EnemyAnimType};
+use kore::domains::enemy::scanner::EnemyEntry;
+use kore::Vfs;
 
 const ANIM_SLOTS: [usize; 6] = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
 const FALLBACK_PRIORITY: [usize; 6] = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];

@@ -1,9 +1,9 @@
-use core::common::context::GlobalContext;
-use core::systems::combat::registry::Magnification;
-use core::domains::enemy::scanner::EnemyEntry;
-use core::domains::enemy::statblock::{self, Subject};
-use core::domains::settings::Settings;
-use core::Vault;
+use kore::common::context::GlobalContext;
+use kore::systems::combat::registry::Magnification;
+use kore::domains::enemy::scanner::EnemyEntry;
+use kore::domains::enemy::statblock::{self, Subject};
+use kore::domains::settings::Settings;
+use kore::Vault;
 
 use crate::common::SpriteSheet;
 use crate::widget::statblock_export::Request;

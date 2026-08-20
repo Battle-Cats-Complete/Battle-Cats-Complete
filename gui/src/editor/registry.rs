@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use core::domains::import::architecture;
-use core::domains::settings::EditorValues;
+use kore::domains::import::architecture;
+use kore::domains::settings::EditorValues;
 
 use crate::app::{theme, Page};
 use crate::common::feedback::LOCKED_NOTICE;

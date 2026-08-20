@@ -5,9 +5,9 @@ use std::time::Duration;
 use iced::Element;
 use image::{imageops, RgbaImage};
 
-use core::common::gfx;
-use core::domains::cat::filter::{evaluation, CatFilterState};
-use core::domains::cat::scanner::CatEntry;
+use kore::common::gfx;
+use kore::domains::cat::filter::{evaluation, CatFilterState};
+use kore::domains::cat::scanner::CatEntry;
 
 use crate::common::udi_loader::Composite;
 use crate::widget::roster_list::{self, Roster};

@@ -11,8 +11,8 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length, Size, Task};
 
-use core::domains::settings::{lang, nightly, ContextScope, EditorMode, EditorValues};
-use core::domains::settings::{
+use kore::domains::settings::{lang, nightly, ContextScope, EditorMode, EditorValues};
+use kore::domains::settings::{
     ExportBehavior, ImportStructure, Settings as CoreSettings, SidebarBehavior,
 };
 
@@ -592,7 +592,7 @@ impl State {
     }
 
     fn view_about<'a>(&'a self) -> Element<'a, Message> {
-        let license_text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../core/assets/licenses.txt"));
+        let license_text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../kore/assets/licenses.txt"));
 
         let header = column![
             text("About Battle Cats Complete").size(32),

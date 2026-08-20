@@ -6,8 +6,8 @@ use iced::{Element, Length, Padding, Size, Task};
 use nyanko::common::tools::file;
 use tracing::warn;
 
-use core::common::preview::{self, Stamp};
-use core::domains::mods;
+use kore::common::preview::{self, Stamp};
+use kore::domains::mods;
 
 use crate::app::{theme, Page};
 use crate::common::feedback::{Slot, CONFIRM_LABEL};
