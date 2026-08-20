@@ -198,6 +198,17 @@ pub fn neutral_button(theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+pub fn inert_button(theme: &Theme, _status: button::Status) -> button::Style {
+    let palette = theme.extended_palette();
+
+    button::Style {
+        background: Some(Background::Color(palette.background.weak.color)),
+        text_color: weak_text_color(theme),
+        border: Border { radius: Radius::from(RADIUS_SM), ..Border::default() },
+        ..button::Style::default()
+    }
+}
+
 pub fn solid_button(background: Color) -> button::Style {
     button::Style {
         background: Some(Background::Color(background)),

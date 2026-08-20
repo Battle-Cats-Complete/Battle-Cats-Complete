@@ -5,6 +5,9 @@ use iced::Element;
 
 use super::{cards, Draft, Message};
 
+
+
+
 pub(super) fn view<'a>(draft: &'a Draft, width: f32, query: &'a str, armed: bool) -> Element<'a, Message> {
     let schema = draft.schema();
     let needle = query.trim().to_lowercase();

@@ -11,6 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+use iced::widget::{operation, scrollable};
 use iced::{Element, Size, Task};
 use nyanko::common::tools::file;
 use tracing::warn;
@@ -22,7 +23,7 @@ use crate::common::feedback::Slot;
 use crate::widget::popup;
 
 use cards::CARD_WIDTH;
-use resolved::Rule;
+use resolved::{Face, Rule};
 
 const POPUP_SIZE: Size = Size::new(364.0, 376.0);
 
@@ -61,7 +62,14 @@ fn label_height(schema: &schema::Schema) -> f32 {
     lines as f32 * LABEL_SIZE * LINE_RATIO
 }
 
-fn split_row(line: &str, delimiter: char, schema: &schema::Schema) -> (Vec<i32>, String) {
+struct Row {
+    cells: Vec<i32>,
+    written: Vec<String>,
+    stored: usize,
+    comment: String,
+}
+
+fn split_row(line: &str, delimiter: char, schema: &schema::Schema) -> Row {
     let (numeric, comment) = match line.find(COMMENT) {
         Some(at) => {
             let (head, tail) = line.split_at(at);
@@ -77,21 +85,36 @@ fn split_row(line: &str, delimiter: char, schema: &schema::Schema) -> (Vec<i32>,
         fields.pop();
     }
 
+    let stored = fields.len();
+    let mut written: Vec<String> = fields.iter().map(|field| (*field).to_owned()).collect();
     let mut cells: Vec<i32> = fields.iter().map(|field| field.trim().parse::<i32>().unwrap_or(0)).collect();
 
     while cells.len() < schema.known() {
-        cells.push(schema.fallback(cells.len()));
+        let fallback = schema.fallback(cells.len());
+        written.push(fallback.to_string());
+        cells.push(fallback);
     }
 
-    (cells, comment)
+    Row { cells, written, stored, comment }
 }
 
-fn shown(schema: &schema::Schema, index: usize, raw: i32, values: EditorValues) -> String {
+fn shown(schema: &schema::Schema, index: usize, raw: i32, values: EditorValues, rule: Rule) -> String {
     if raw == schema.fallback(index) {
         return String::new();
     }
 
-    schema.to_display(index, raw, values).to_string()
+    rule.to_display(schema.to_display(index, raw, values), values).to_string()
+}
+
+fn typable(value: &str, signed: bool) -> bool {
+    let mut chars = value.chars();
+
+    match chars.next() {
+        None => true,
+        Some('-') => signed && chars.all(|digit| digit.is_ascii_digit()),
+        Some(first) if first.is_ascii_digit() => chars.all(|digit| digit.is_ascii_digit()),
+        Some(_) => false,
+    }
 }
 
 fn wrapped_lines(label: &str, per_line: usize) -> usize {
@@ -122,6 +145,8 @@ fn wrapped_lines(label: &str, per_line: usize) -> usize {
 pub enum Message {
     Popup(popup::Message),
     Changed(usize, String),
+    Picked(usize, i32),
+    Scrolled(f32),
     CommentChanged(String),
     SearchChanged(String),
     Sync,
@@ -164,6 +189,7 @@ pub(super) struct State {
     draft: Option<Draft>,
     frame: popup::State,
     query: String,
+    offset: f32,
     confirm: Slot<()>,
 }
 
@@ -174,6 +200,9 @@ struct Draft {
     delimiter: char,
     lines: Vec<String>,
     cells: Vec<i32>,
+    written: Vec<String>,
+    stored: usize,
+    touched: usize,
     rules: Vec<Rule>,
     comment: String,
     inputs: Vec<String>,
@@ -183,7 +212,15 @@ struct Draft {
 impl State {
     pub(super) fn begin(&mut self, plan: Plan, nudge: usize) {
         self.frame = popup::cascaded(nudge);
+        self.offset = 0.0;
         self.draft = Draft::load(plan);
+    }
+
+    pub(super) fn restore_scroll<M: Send + 'static>(&self) -> Option<Task<M>> {
+        let draft = self.draft.as_ref()?;
+        let target = scrollable::AbsoluteOffset { x: 0.0, y: self.offset };
+
+        Some(operation::scroll_to(cards::grid_id(draft.plan.subject()), target))
     }
 
     fn reload(&mut self, plan: Plan) {
@@ -192,6 +229,10 @@ impl State {
 
     pub(super) fn drafting(&self) -> bool {
         self.draft.is_some()
+    }
+
+    pub(super) fn raised(&self) -> u64 {
+        self.frame.raised()
     }
 
     pub(super) fn drifted(&self) -> bool {
@@ -235,6 +276,7 @@ impl State {
 
                 if self.frame.update(msg, spec) {
                     self.draft = None;
+                    self.offset = 0.0;
                     self.confirm.expire();
                 }
             }
@@ -243,6 +285,12 @@ impl State {
                     draft.edit(index, &value);
                 }
             }
+            Message::Picked(index, raw) => {
+                if let Some(draft) = self.draft.as_mut() {
+                    draft.pick(index, raw);
+                }
+            }
+            Message::Scrolled(offset) => self.offset = offset,
             Message::SearchChanged(query) => self.query = query,
             Message::CommentChanged(value) => {
                 if let Some(draft) = self.draft.as_mut() {
@@ -311,20 +359,38 @@ impl Draft {
             return None;
         };
 
-        let (cells, comment) = split_row(raw, delimiter, plan.schema);
-        let inputs =
-            (0..cells.len()).map(|index| shown(plan.schema, index, cells[index], plan.values)).collect();
-        let rules = (0..cells.len())
+        let Row { cells, written, stored, comment } = split_row(raw, delimiter, plan.schema);
+        let rules: Vec<Rule> = (0..cells.len())
             .map(|index| resolved::rule(plan.subject(), plan.schema.field(index)))
             .collect();
+        let inputs = (0..cells.len())
+            .map(|index| shown(plan.schema, index, cells[index], plan.values, rules[index]))
+            .collect();
 
-        Some(Draft { plan, read_from, stamp, delimiter, lines, cells, rules, comment, inputs, failed: false })
+        Some(Draft {
+            plan,
+            read_from,
+            stamp,
+            delimiter,
+            lines,
+            cells,
+            written,
+            stored,
+            touched: 0,
+            rules,
+            comment,
+            inputs,
+            failed: false,
+        })
     }
 
     fn edit(&mut self, index: usize, value: &str) {
-        if !value.is_empty() && value != "-" && value.parse::<i32>().is_err() {
+        if !typable(value, self.rule(index).signed(self.plan.values)) {
             return;
         }
+
+        let rule = self.rule(index);
+        let values = self.plan.values;
 
         let Some(slot) = self.inputs.get_mut(index) else {
             return;
@@ -340,8 +406,9 @@ impl Draft {
                 return;
             };
 
-            let raw = self.plan.schema.to_raw(index, display, self.plan.values);
-            *slot = shown(self.plan.schema, index, raw, self.plan.values);
+            let unshifted = rule.to_raw(rule.clamp(display, values), values);
+            let raw = self.plan.schema.to_raw(index, unshifted, values);
+            *slot = shown(self.plan.schema, index, raw, values, rule);
 
             raw
         };
@@ -355,6 +422,36 @@ impl Draft {
         }
 
         *cell = raw;
+        self.record(index, raw);
+        self.commit();
+    }
+
+    fn record(&mut self, index: usize, raw: i32) {
+        if let Some(slot) = self.written.get_mut(index) {
+            *slot = raw.to_string();
+        }
+
+        self.touched = self.touched.max(index + 1);
+    }
+
+    fn pick(&mut self, index: usize, raw: i32) {
+        if self.cells.get(index) == Some(&raw) {
+            return;
+        }
+
+        let Some(cell) = self.cells.get_mut(index) else {
+            return;
+        };
+
+        *cell = raw;
+        self.record(index, raw);
+
+        let display = shown(self.plan.schema, index, raw, self.plan.values, self.rule(index));
+
+        if let Some(slot) = self.inputs.get_mut(index) {
+            *slot = display;
+        }
+
         self.commit();
     }
 
@@ -385,12 +482,15 @@ impl Draft {
             return;
         };
 
-        let (cells, comment) = split_row(raw, delimiter, self.plan.schema);
+        let Row { cells, written, stored, comment } = split_row(raw, delimiter, self.plan.schema);
         self.cells = cells;
+        self.written = written;
+        self.stored = stored;
+        self.touched = 0;
         self.comment = comment;
 
         self.inputs = (0..self.cells.len())
-            .map(|index| shown(self.plan.schema, index, self.cells[index], self.plan.values))
+            .map(|index| shown(self.plan.schema, index, self.cells[index], self.plan.values, self.rule(index)))
             .collect();
         self.commit();
     }
@@ -402,14 +502,14 @@ impl Draft {
             return;
         };
 
-        let rebuilt: Vec<String> = self.cells.iter().map(i32::to_string).collect();
+        let width = self.stored.max(self.touched);
         let Some(slot) = self.lines.get_mut(self.plan.row) else {
             self.failed = true;
 
             return;
         };
 
-        let mut line = rebuilt.join(&self.delimiter.to_string());
+        let mut line = self.written[..width].join(&self.delimiter.to_string());
 
         if !self.comment.is_empty() {
             line.push(self.delimiter);
@@ -463,9 +563,30 @@ impl Draft {
         self.plan.values
     }
 
-    fn opaque(&self, index: usize) -> bool {
-        self.plan.values == EditorValues::Resolved
-            && self.rules.get(index).is_none_or(|rule| *rule == Rule::Opaque)
+    fn rule(&self, index: usize) -> Rule {
+        self.rules.get(index).copied().unwrap_or(Rule::Opaque)
+    }
+
+    fn note(&self, index: usize) -> Option<&'static str> {
+        resolved::note(self.plan.subject(), self.plan.schema.field(index))
+    }
+
+    fn face(&self, index: usize) -> Face {
+        let rule = self.rule(index);
+        let raw = self.cells.get(index).copied().unwrap_or_default();
+
+        if let Some(gate) = rule.gate()
+            && self.plan.values == EditorValues::Resolved
+            && self.reads(gate.field) == Some(gate.blocked)
+        {
+            return Face::Disabled(gate.reason);
+        }
+
+        rule.face(raw, self.plan.values)
+    }
+
+    fn reads(&self, field: &str) -> Option<i32> {
+        self.plan.schema.index_of(field).and_then(|index| self.cells.get(index).copied())
     }
 
     fn len(&self) -> usize {
@@ -498,4 +619,124 @@ pub(super) fn plan(
     values: EditorValues,
 ) -> Plan {
     Plan { row, label, game: game.to_path_buf(), target_mod, schema: schema::of(subject), values }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::schema::{self, Subject};
+    use super::{split_row, Row};
+
+    const VANILLA: &str = "100,3,10,8,15,140,50,75,0,320,0,0,0,8,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // \u{30cd}\u{30b3}";
+
+    fn rebuild(row: &Row, touched: usize) -> String {
+        let width = row.stored.max(touched);
+        let mut line = row.written[..width].join(",");
+
+        if !row.comment.is_empty() {
+            line.push_str(", // ");
+            line.push_str(&row.comment);
+        }
+
+        line
+    }
+
+    #[test]
+    fn typing_accepts_only_digits_and_a_leading_minus() {
+        for good in ["", "-", "0", "42", "-7"] {
+            assert!(super::typable(good, true), "{good:?} should be typable");
+        }
+
+        for bad in ["+5", " 5", "5 ", "5a", "1.5", "--1", "1-"] {
+            assert!(!super::typable(bad, true), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn an_unsigned_field_refuses_the_minus_key() {
+        assert!(!super::typable("-", false), "a non-negative column must not accept a lone minus");
+        assert!(!super::typable("-1", false), "a non-negative column must not accept a negative");
+        assert!(super::typable("1", false), "digits stay typable");
+    }
+
+    #[test]
+    fn resolved_leaves_a_value_it_cannot_represent_alone() {
+        use super::resolved::{self, Face, Rule};
+        use kore::domains::settings::EditorValues;
+
+        let schema = schema::of(Subject::Cat);
+        let Some(index) = schema.index_of("boss_wave_immune") else {
+            panic!("nyanko no longer publishes boss_wave_immune");
+        };
+
+        let rule = resolved::rule(Subject::Cat, schema.field(index));
+        assert_eq!(rule, Rule::Flag, "boss_wave_immune is a flag");
+
+        assert_eq!(
+            rule.face(-1, EditorValues::Resolved),
+            Face::Danger,
+            "-1 is not a flag state, so Resolved must fall back to the raw card",
+        );
+
+        assert_eq!(
+            super::shown(schema, index, -1, EditorValues::Resolved, rule),
+            "-1",
+            "the unrepresentable value is shown literally, not blanked or coerced",
+        );
+
+        let mut cells = vec!["0"; schema.known()];
+        cells[index] = "-1";
+        let line = cells.join(",");
+
+        let row = split_row(&line, ',', schema);
+        assert_eq!(row.written[index], "-1", "the stored text is kept verbatim");
+        assert_eq!(rebuild(&row, 0), line, "opening in Resolved must not rewrite the row");
+    }
+
+    #[test]
+    fn an_untouched_row_is_written_back_byte_for_byte() {
+        let row = split_row(VANILLA, ',', schema::of(Subject::Cat));
+
+        assert_eq!(rebuild(&row, 0), VANILLA, "a no-op commit must not rewrite the row");
+    }
+
+    #[test]
+    fn a_short_row_is_not_padded_to_the_full_column_table() {
+        let row = split_row(VANILLA, ',', schema::of(Subject::Cat));
+
+        assert_eq!(row.stored, 52, "vanilla cat 001 stores 52 columns");
+        assert_eq!(row.cells.len(), schema::of(Subject::Cat).known(), "cells pad for display");
+        assert_eq!(rebuild(&row, 0).matches(',').count(), VANILLA.matches(',').count());
+    }
+
+    #[test]
+    fn editing_one_column_leaves_every_other_column_verbatim() {
+        let mut row = split_row(VANILLA, ',', schema::of(Subject::Cat));
+        row.written[3] = "999".to_owned();
+
+        let before: Vec<&str> = VANILLA.split(" // ").next().unwrap_or_default().split(',').collect();
+        let after = rebuild(&row, 4);
+        let after: Vec<&str> = after.split(" // ").next().unwrap_or_default().split(',').collect();
+
+        assert_eq!(before.len(), after.len(), "editing must not change the column count");
+
+        for (index, (was, now)) in before.iter().zip(&after).enumerate() {
+            if index == 3 {
+                assert_eq!(*now, "999");
+                continue;
+            }
+
+            assert_eq!(was, now, "column {index} was rewritten by an unrelated edit");
+        }
+    }
+
+    #[test]
+    fn editing_past_the_stored_width_pads_only_that_far() {
+        let mut row = split_row(VANILLA, ',', schema::of(Subject::Cat));
+        row.written[90] = "1".to_owned();
+
+        let line = rebuild(&row, 91);
+        let head = line.strip_suffix(", // \u{30cd}\u{30b3}").unwrap_or(&line);
+
+        assert_eq!(head.split(',').count(), 91, "padding must stop at the edited column");
+    }
 }

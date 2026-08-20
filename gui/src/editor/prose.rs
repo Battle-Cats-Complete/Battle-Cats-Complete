@@ -186,6 +186,10 @@ impl State {
         self.draft.is_some()
     }
 
+    pub(super) fn raised(&self) -> u64 {
+        self.frame.raised()
+    }
+
     pub(super) fn drifted(&self) -> bool {
         self.draft.as_ref().is_some_and(|draft| preview::stamp(&draft.read_from) != Some(draft.stamp))
     }

@@ -356,7 +356,7 @@ impl BattleCatsApp {
 
         self.current_page = page;
 
-        match page {
+        let task = match page {
             Page::Home => {
                 self.sync_home_status();
                 Task::none()
@@ -390,7 +390,11 @@ impl BattleCatsApp {
                 Task::none()
             }
             _ => Task::none(),
-        }
+        };
+
+        self.sync_editor(false);
+
+        Task::batch([task, self.editor.restore_scroll()])
     }
 
     pub(crate) fn sync_home_status(&mut self) {
@@ -854,6 +858,7 @@ impl BattleCatsApp {
             Message::Cat(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault };
                 let loaded = matches!(msg, cat::Message::Loaded(..));
+                let retabbed = matches!(msg, cat::Message::SelectTab(..));
                 let task = self.cat_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
                 self.cat_state.sync_state(&mut self.app_state.cat);
                 self.sync_editor(loaded);
@@ -862,6 +867,10 @@ impl BattleCatsApp {
 
                 if loaded {
                     return Task::batch([task, self.reconcile_caches()]);
+                }
+
+                if retabbed {
+                    return Task::batch([task, self.editor.restore_scroll()]);
                 }
 
                 task
@@ -873,6 +882,7 @@ impl BattleCatsApp {
             Message::Enemy(msg) => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault };
                 let enemies_loaded = matches!(msg, enemy::Message::Loaded(..));
+                let retabbed = matches!(msg, enemy::Message::SelectTab(..));
                 let task = self.enemy_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Enemy);
                 if enemies_loaded {
                     self.stage_state.sync_enemies(&self.enemy_state.data.enemies);
@@ -884,6 +894,10 @@ impl BattleCatsApp {
 
                 if enemies_loaded {
                     return Task::batch([task, self.reconcile_caches()]);
+                }
+
+                if retabbed {
+                    return Task::batch([task, self.editor.restore_scroll()]);
                 }
 
                 task

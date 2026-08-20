@@ -77,6 +77,13 @@ pub(super) struct Entry {
     pub(super) default: &'static str,
 }
 
+impl Entry {
+    #[cfg(test)]
+    pub(super) fn scaled(&self) -> bool {
+        self.scale != Scale::Raw
+    }
+}
+
 const CAT_NAMES: &[(&str, &str)] = &[
     ("hitpoints", "Base Hitpoints"),
     ("attack_1", "Attack 1 Base Damage"),
@@ -215,6 +222,10 @@ impl Schema {
         table
             .get(index)
             .map_or_else(|| Cow::Owned(format!("Column {}", index + 1)), |label| Cow::Borrowed(label.as_str()))
+    }
+
+    pub(super) fn index_of(&self, field: &str) -> Option<usize> {
+        self.order().iter().position(|entry| entry.field == field)
     }
 
     pub(super) fn field(&self, index: usize) -> Option<&'static str> {

@@ -1,12 +1,14 @@
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, column, container, scrollable, text, text_input, Column, Row};
+use iced::widget::{button, column, container, pick_list, scrollable, text, text_input, Column, Id, Row};
 use iced::{Element, Length, Padding, Theme};
 
 use crate::app::theme;
 use crate::common::feedback::CONFIRM_LABEL;
 use crate::widget::{hover_hint, smooth_scroll};
 
-use super::{Draft, Message, LABEL_HEIGHTS};
+use super::resolved::{Choice, Face, Toggle};
+use super::schema::Subject;
+use super::{Draft, Message, GLYPH_RATIO, LABEL_HEIGHTS};
 
 pub(super) const CARD_WIDTH: f32 = 86.0;
 pub(super) const CARD_GAP: f32 = 8.0;
@@ -19,8 +21,22 @@ const SYNC_WIDTH: f32 = 172.0;
 const FIELD_PADDING: f32 = 4.0;
 const SEARCH_FRACTION: f32 = 2.0 / 3.0;
 
+const CARET_RESERVE: f32 = 18.0;
+const WIDE_SPAN: usize = 2;
+const DISABLED_LABEL: &str = "Disabled";
+const FIELD_INSET: f32 = 2.0;
+
 const OPAQUE_HINT: &str =
     "This value is not resolved and represents a raw data value\nEdit this attribute at your own risk";
+
+pub(super) fn grid_id(subject: Subject) -> Id {
+    Id::new(match subject {
+        Subject::Cat => "figures-grid-cat",
+        Subject::Enemy => "figures-grid-enemy",
+        Subject::Buy => "figures-grid-buy",
+        Subject::Curve => "figures-grid-curve",
+    })
+}
 
 pub(super) fn usable(width: f32) -> f32 {
     (width - BODY_PADDING * 2.0).max(CARD_WIDTH)
@@ -36,14 +52,19 @@ pub(super) fn grid<'a>(
 
     let mut rows = Column::new().spacing(CARD_GAP);
     let mut line = Row::new().spacing(CARD_GAP);
+    let mut used = 0;
 
-    for (slot, index) in shown.iter().enumerate() {
-        if slot > 0 && slot % per_row == 0 {
+    for index in shown {
+        let span = span(draft.face(*index)).min(per_row);
+
+        if used > 0 && used + span > per_row {
             rows = rows.push(line);
             line = Row::new().spacing(CARD_GAP);
+            used = 0;
         }
 
         line = line.push(card(draft, *index, dim_from.is_some_and(|first| *index >= first)));
+        used += span;
     }
 
     let centered = container(rows.push(line))
@@ -51,21 +72,38 @@ pub(super) fn grid<'a>(
         .center_x(Length::Fill)
         .padding(Padding::ZERO.left(BODY_PADDING).right(BODY_PADDING).bottom(BODY_PADDING));
 
-    smooth_scroll(scrollable(centered).width(Length::Fill).height(Length::Fill)).into()
+    let area = scrollable(centered)
+        .id(grid_id(draft.schema().subject()))
+        .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+    smooth_scroll(area).into()
+}
+
+fn span(face: Face) -> usize {
+    let Face::Choice(options, _) = face else {
+        return 1;
+    };
+
+    let inner = CARD_WIDTH - CARD_PADDING * 2.0 - CARET_RESERVE;
+    let widest = options.iter().map(|choice| choice.label().chars().count()).max().unwrap_or(0);
+
+    if widest as f32 * INPUT_SIZE * GLYPH_RATIO <= inner { 1 } else { WIDE_SPAN }
 }
 
 fn card(draft: &Draft, index: usize, dimmed: bool) -> Element<'_, Message> {
     let schema = draft.schema();
-    let hint = schema.to_display(index, schema.fallback(index), draft.values()).to_string();
+    let face = draft.face(index);
+    let opaque = face == Face::Danger;
+    let slots = span(face);
 
-    let field = text_input(&hint, draft.input(index))
-        .on_input(move |entry| Message::Changed(index, entry))
-        .size(INPUT_SIZE)
-        .padding(2)
-        .align_x(Horizontal::Center)
-        .style(theme::rounded_input);
-
-    let opaque = draft.opaque(index);
+    let field = match face {
+        Face::Toggle(current) => toggle_field(index, current),
+        Face::Choice(options, current) => choice_field(index, options, current),
+        Face::Disabled(reason) => disabled_field(reason),
+        Face::Number | Face::Danger => number_field(draft, index),
+    };
 
     let caption = text(schema.label(index))
         .size(LABEL_SIZE)
@@ -75,7 +113,12 @@ fn card(draft: &Draft, index: usize, dimmed: bool) -> Element<'_, Message> {
             color: dimmed.then(|| theme::weak_text_color(theme)),
         });
 
-    let caption = if opaque { hover_hint(caption, OPAQUE_HINT) } else { caption.into() };
+    let hint = if opaque { Some(OPAQUE_HINT) } else { draft.note(index) };
+
+    let caption = match hint {
+        Some(text) => hover_hint(caption, text),
+        None => caption.into(),
+    };
 
     let label = container(caption)
         .height(Length::Fixed(LABEL_HEIGHTS[schema.subject().slot()]))
@@ -89,10 +132,69 @@ fn card(draft: &Draft, index: usize, dimmed: bool) -> Element<'_, Message> {
         theme::card_container
     };
 
+    let width = CARD_WIDTH * slots as f32 + CARD_GAP * (slots - 1) as f32;
+
     container(column![label, field].spacing(2))
-        .width(Length::Fixed(CARD_WIDTH))
+        .width(Length::Fixed(width))
         .padding(CARD_PADDING)
         .style(style)
+        .into()
+}
+
+fn number_field(draft: &Draft, index: usize) -> Element<'_, Message> {
+    let schema = draft.schema();
+    let hint = schema.to_display(index, schema.fallback(index), draft.values()).to_string();
+
+    text_input(&hint, draft.input(index))
+        .on_input(move |entry| Message::Changed(index, entry))
+        .size(INPUT_SIZE)
+        .padding(FIELD_INSET)
+        .align_x(Horizontal::Center)
+        .style(theme::rounded_input)
+        .into()
+}
+
+fn toggle_field<'a>(index: usize, current: Toggle) -> Element<'a, Message> {
+    let style: theme::ButtonStyleFn = match current {
+        Toggle::Yes => theme::success_button,
+        Toggle::No => theme::neutral_button,
+    };
+
+    let label = theme::centered_text(current.to_string())
+        .size(INPUT_SIZE)
+        .width(Length::Fill)
+        .wrapping(text::Wrapping::None);
+
+    button(label)
+        .width(Length::Fill)
+        .padding(FIELD_INSET)
+        .style(style)
+        .on_press(Message::Picked(index, current.flip().raw()))
+        .into()
+}
+
+fn disabled_field<'a>(reason: &'a str) -> Element<'a, Message> {
+    let label = theme::centered_text(DISABLED_LABEL)
+        .size(INPUT_SIZE)
+        .width(Length::Fill)
+        .wrapping(text::Wrapping::None);
+
+    let inert = button(label).width(Length::Fill).padding(FIELD_INSET).style(theme::inert_button);
+
+    hover_hint(inert, reason)
+}
+
+fn choice_field<'a>(
+    index: usize,
+    options: &'static [Choice],
+    current: Choice,
+) -> Element<'a, Message> {
+    pick_list(options, Some(current), move |choice: Choice| Message::Picked(index, choice.raw()))
+        .width(Length::Fill)
+        .padding(FIELD_INSET)
+        .text_size(INPUT_SIZE)
+        .style(theme::combo_box)
+        .menu_style(theme::combo_box_menu)
         .into()
 }
 

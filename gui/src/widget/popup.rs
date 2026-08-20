@@ -206,6 +206,16 @@ pub(crate) struct StoredSize {
 
 thread_local! {
     static SIZES: Cell<[Option<Size>; KIND_COUNT]> = const { Cell::new([None; KIND_COUNT]) };
+    static RAISES: Cell<u64> = const { Cell::new(0) };
+}
+
+fn next_raise() -> u64 {
+    RAISES.with(|counter| {
+        let next = counter.get().saturating_add(1);
+        counter.set(next);
+
+        next
+    })
 }
 
 fn stored_size(kind: Kind) -> Option<Size> {
@@ -247,12 +257,13 @@ pub struct State {
     nudge: f32,
     drag: Drag,
     hovered: Option<Edge>,
+    raised: u64,
 }
 
 const CASCADE_STEP: f32 = 26.0;
 
 pub fn cascaded(steps: usize) -> State {
-    State { nudge: steps as f32 * CASCADE_STEP, ..State::default() }
+    State { nudge: steps as f32 * CASCADE_STEP, raised: next_raise(), ..State::default() }
 }
 
 #[derive(Default, Clone, Copy)]
@@ -276,6 +287,7 @@ enum Drag {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Raise,
     HeaderPressed,
     EdgePressed(Edge),
     EdgeEntered(Edge),
@@ -286,8 +298,13 @@ pub enum Message {
 }
 
 impl State {
+    pub(crate) fn raised(&self) -> u64 {
+        self.raised
+    }
+
     pub fn update(&mut self, message: Message, spec: Spec) -> bool {
         match message {
+            Message::Raise => self.raised = next_raise(),
             Message::HeaderPressed => self.drag = Drag::Pressed,
             Message::EdgePressed(edge) => self.drag = Drag::Grabbed { edge },
             Message::EdgeEntered(edge) => self.hovered = Some(edge),
@@ -377,13 +394,13 @@ impl State {
             .height(Length::Fill)
             .style(move |theme: &Theme| body_style(theme, body_alpha));
 
-        let frame = opaque(
-            container(column![header, body])
-                .width(Length::Fixed(size.width))
-                .height(Length::Fixed(size.height))
-                .padding(FRAME_BORDER_WIDTH)
-                .style(frame_style),
-        );
+        let framed = container(column![header, body])
+            .width(Length::Fixed(size.width))
+            .height(Length::Fixed(size.height))
+            .padding(FRAME_BORDER_WIDTH)
+            .style(frame_style);
+
+        let frame = opaque(mouse_area(framed).on_press(to_message(Message::Raise)));
 
         let mut layers = vec![anchored(frame, position)];
 

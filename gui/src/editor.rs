@@ -480,7 +480,7 @@ impl State {
     }
 
     pub(crate) fn popup_view(&self, app: &BattleCatsApp, window: Size) -> Vec<Element<'_, Message>> {
-        let mut views = Vec::new();
+        let mut views: Vec<(u64, Element<'_, Message>)> = Vec::new();
         let cap = level_cap(app);
 
         for subject in prose::SUBJECTS {
@@ -488,8 +488,10 @@ impl State {
                 continue;
             }
 
-            if let Some(view) = self.prose[subject.slot()].view(window) {
-                views.push(view.map(move |inner| Message::Prose(subject, inner)));
+            let slot = &self.prose[subject.slot()];
+
+            if let Some(view) = slot.view(window) {
+                views.push((slot.raised(), view.map(move |inner| Message::Prose(subject, inner))));
             }
         }
 
@@ -498,12 +500,23 @@ impl State {
                 continue;
             }
 
-            if let Some(view) = self.figures[subject.slot()].view(window, cap) {
-                views.push(view.map(move |inner| Message::Figures(subject, inner)));
+            let slot = &self.figures[subject.slot()];
+
+            if let Some(view) = slot.view(window, cap) {
+                views.push((slot.raised(), view.map(move |inner| Message::Figures(subject, inner))));
             }
         }
 
-        views
+        views.sort_by_key(|(raised, _)| *raised);
+
+        views.into_iter().map(|(_, view)| view).collect()
+    }
+
+    pub(crate) fn restore_scroll<M: Send + 'static>(&self) -> Task<M> {
+        let tasks: Vec<Task<M>> =
+            figures::SUBJECTS.iter().filter_map(|subject| self.figures[subject.slot()].restore_scroll()).collect();
+
+        Task::batch(tasks)
     }
 
     fn drafting(&self) -> bool {
