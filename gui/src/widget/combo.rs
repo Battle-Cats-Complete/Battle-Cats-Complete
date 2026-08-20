@@ -2,14 +2,15 @@ use std::borrow::Borrow;
 use std::fmt::Display;
 
 use iced::alignment::Vertical;
-use iced::widget::{container, pick_list, row, text, tooltip};
+use iced::widget::{container, pick_list, row, text};
 use iced::{Element, Length};
 
 use crate::app::theme;
 
+use super::hover_hint;
+
 const LABEL_SPACING: f32 = 10.0;
 const IDLE_PADDING: f32 = 5.0;
-const HINT_PADDING: f32 = 6.0;
 
 pub fn combo_row<'a, T, L, V, Message>(
     label: &'a str,
@@ -32,25 +33,17 @@ where
         .padding(IDLE_PADDING)
         .style(theme::combo_box_idle);
 
-        return explained(aligned(row![text(label), idle]), hint);
+        return hover_hint(aligned(row![text(label), idle]), hint);
     };
 
     let control = pick_list(options, selected, on_select)
         .style(theme::combo_box)
         .menu_style(theme::combo_box_menu);
 
-    aligned(row![explained(text(label), hint), control])
+    aligned(row![hover_hint(text(label), hint), control])
 }
 
 fn aligned<'a, Message: 'a>(content: iced::widget::Row<'a, Message>) -> Element<'a, Message> {
     content.spacing(LABEL_SPACING).align_y(Vertical::Center).width(Length::Shrink).into()
 }
 
-fn explained<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, hint: &'a str) -> Element<'a, Message> {
-    tooltip(
-        content,
-        container(text(hint)).padding(HINT_PADDING).style(container::bordered_box),
-        tooltip::Position::Top,
-    )
-    .into()
-}

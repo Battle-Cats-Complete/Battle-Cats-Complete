@@ -1,5 +1,6 @@
 mod cards;
 mod combat;
+mod resolved;
 mod schema;
 mod unitbuy;
 mod unitlevel;
@@ -21,6 +22,7 @@ use crate::common::feedback::Slot;
 use crate::widget::popup;
 
 use cards::CARD_WIDTH;
+use resolved::Rule;
 
 const POPUP_SIZE: Size = Size::new(364.0, 376.0);
 
@@ -172,6 +174,7 @@ struct Draft {
     delimiter: char,
     lines: Vec<String>,
     cells: Vec<i32>,
+    rules: Vec<Rule>,
     comment: String,
     inputs: Vec<String>,
     failed: bool,
@@ -311,8 +314,11 @@ impl Draft {
         let (cells, comment) = split_row(raw, delimiter, plan.schema);
         let inputs =
             (0..cells.len()).map(|index| shown(plan.schema, index, cells[index], plan.values)).collect();
+        let rules = (0..cells.len())
+            .map(|index| resolved::rule(plan.subject(), plan.schema.field(index)))
+            .collect();
 
-        Some(Draft { plan, read_from, stamp, delimiter, lines, cells, comment, inputs, failed: false })
+        Some(Draft { plan, read_from, stamp, delimiter, lines, cells, rules, comment, inputs, failed: false })
     }
 
     fn edit(&mut self, index: usize, value: &str) {
@@ -455,6 +461,11 @@ impl Draft {
 
     fn values(&self) -> EditorValues {
         self.plan.values
+    }
+
+    fn opaque(&self, index: usize) -> bool {
+        self.plan.values == EditorValues::Resolved
+            && self.rules.get(index).is_none_or(|rule| *rule == Rule::Opaque)
     }
 
     fn len(&self) -> usize {

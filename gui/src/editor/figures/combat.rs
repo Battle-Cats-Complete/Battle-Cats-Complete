@@ -1,3 +1,6 @@
+pub(super) mod cats;
+pub(super) mod enemies;
+
 use iced::Element;
 
 use super::{cards, Draft, Message};

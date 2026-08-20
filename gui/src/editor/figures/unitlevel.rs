@@ -2,8 +2,9 @@ use iced::alignment::Horizontal;
 use iced::widget::{container, text};
 use iced::{Element, Length};
 
-use super::{cards, Draft, Message};
+use super::resolved::Rule;
 use super::schema::BRACKET;
+use super::{cards, Draft, Message};
 
 const NOTICE: &str =
     "Each bracket is the percentage of the base stat added per level within it, and the last one carries past its own range";
@@ -33,4 +34,21 @@ pub(super) fn view<'a>(draft: &'a Draft, width: f32, armed: bool, cap: Option<i3
         cards::grid(draft, width, &shown, reachable),
         cards::footer(vec![cards::sync(armed)]),
     )
+}
+
+pub(super) fn rule() -> Rule {
+    Rule::Plain
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::editor::figures::schema::{self, Subject};
+
+    #[test]
+    fn level_brackets_publish_no_columns() {
+        assert!(
+            schema::of(Subject::Curve).order().is_empty(),
+            "unitlevel: nyanko now publishes named curve columns, so the blanket rule must become a table"
+        );
+    }
 }

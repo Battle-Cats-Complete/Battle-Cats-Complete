@@ -7,7 +7,7 @@ mod pem;
 
 use iced::mouse::Interaction;
 use iced::widget::{
-    column, container, mouse_area, pick_list, row, rule, scrollable, text, text_input, tooltip, Space, Stack,
+    column, container, mouse_area, pick_list, row, rule, scrollable, text, text_input, Space, Stack,
 };
 use iced::{Alignment, Element, Length, Size, Task};
 
@@ -19,7 +19,7 @@ use kore::domains::settings::{
 use crate::app::theme;
 use crate::common::feedback::NIGHTLY_ONLY_NOTICE;
 use crate::app::UpdateStatus;
-use crate::widget::{combo_row, list_row, smooth_scroll, toggle_row};
+use crate::widget::{combo_row, hover_hint, list_row, smooth_scroll, toggle_row};
 
 const SECTION_SPACING: f32 = 20.0;
 
@@ -619,11 +619,3 @@ fn header_section<'a, M: 'a>(header: impl Into<Element<'a, M>>, content: impl In
     column![header.into(), content.into()].spacing(10).into()
 }
 
-fn hover_hint<'a, M: 'a>(content: impl Into<Element<'a, M>>, hint: &'a str) -> Element<'a, M> {
-    tooltip(
-        content,
-        container(text(hint)).padding(6).style(container::bordered_box),
-        tooltip::Position::Top,
-    )
-    .into()
-}

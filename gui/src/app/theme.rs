@@ -307,6 +307,18 @@ pub fn card_container_muted(theme: &Theme) -> container::Style {
     container::Style { background: faded, ..base }
 }
 
+const CARD_DANGER_SHADE: f32 = 0.55;
+const CARD_DANGER_ALPHA: f32 = 0.5;
+
+pub fn card_container_danger(theme: &Theme) -> container::Style {
+    let base = darken_color(theme.palette().danger, CARD_DANGER_SHADE);
+
+    container::Style {
+        background: Some(Background::Color(Color { a: CARD_DANGER_ALPHA, ..base })),
+        ..card_container(theme)
+    }
+}
+
 pub fn card_container_outlined(theme: &Theme) -> container::Style {
     let border_color = lighten_color(theme.palette().background, 0.4);
 

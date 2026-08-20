@@ -217,6 +217,10 @@ impl Schema {
             .map_or_else(|| Cow::Owned(format!("Column {}", index + 1)), |label| Cow::Borrowed(label.as_str()))
     }
 
+    pub(super) fn field(&self, index: usize) -> Option<&'static str> {
+        self.column(index).map(|column| column.field)
+    }
+
     pub(super) fn to_display(&self, index: usize, raw: i32, values: EditorValues) -> i32 {
         if values == EditorValues::Raw {
             return raw;

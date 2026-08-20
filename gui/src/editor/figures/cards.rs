@@ -4,7 +4,7 @@ use iced::{Element, Length, Padding, Theme};
 
 use crate::app::theme;
 use crate::common::feedback::CONFIRM_LABEL;
-use crate::widget::smooth_scroll;
+use crate::widget::{hover_hint, smooth_scroll};
 
 use super::{Draft, Message, LABEL_HEIGHTS};
 
@@ -18,6 +18,9 @@ const CARD_PADDING: f32 = 6.0;
 const SYNC_WIDTH: f32 = 172.0;
 const FIELD_PADDING: f32 = 4.0;
 const SEARCH_FRACTION: f32 = 2.0 / 3.0;
+
+const OPAQUE_HINT: &str =
+    "This value is not resolved and represents a raw data value\nEdit this attribute at your own risk";
 
 pub(super) fn usable(width: f32) -> f32 {
     (width - BODY_PADDING * 2.0).max(CARD_WIDTH)
@@ -62,22 +65,34 @@ fn card(draft: &Draft, index: usize, dimmed: bool) -> Element<'_, Message> {
         .align_x(Horizontal::Center)
         .style(theme::rounded_input);
 
-    let label = container(
-        text(schema.label(index))
-            .size(LABEL_SIZE)
-            .align_x(Horizontal::Center)
-            .width(Length::Fill)
-            .style(move |theme: &Theme| text::Style {
-                color: dimmed.then(|| theme::weak_text_color(theme)),
-            }),
-    )
-    .height(Length::Fixed(LABEL_HEIGHTS[schema.subject().slot()]))
-    .align_y(Vertical::Center);
+    let opaque = draft.opaque(index);
+
+    let caption = text(schema.label(index))
+        .size(LABEL_SIZE)
+        .align_x(Horizontal::Center)
+        .width(Length::Fill)
+        .style(move |theme: &Theme| text::Style {
+            color: dimmed.then(|| theme::weak_text_color(theme)),
+        });
+
+    let caption = if opaque { hover_hint(caption, OPAQUE_HINT) } else { caption.into() };
+
+    let label = container(caption)
+        .height(Length::Fixed(LABEL_HEIGHTS[schema.subject().slot()]))
+        .align_y(Vertical::Center);
+
+    let style = if opaque {
+        theme::card_container_danger
+    } else if dimmed {
+        theme::card_container_muted
+    } else {
+        theme::card_container
+    };
 
     container(column![label, field].spacing(2))
         .width(Length::Fixed(CARD_WIDTH))
         .padding(CARD_PADDING)
-        .style(if dimmed { theme::card_container_muted } else { theme::card_container })
+        .style(style)
         .into()
 }
 
