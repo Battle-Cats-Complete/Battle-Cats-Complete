@@ -35,7 +35,9 @@ pub(in crate::editor::figures) fn rule(field: &str) -> Option<Rule> {
         "knockback_chance" | "freeze_chance" | "slow_chance" | "critical_chance" | "wave_chance"
         | "weaken_chance" | "weaken_to" | "strengthen_threshold" | "survive" | "warp_chance"
         | "curse_chance" | "savage_blow_chance" | "dodge_chance" | "toxic_chance" | "surge_chance"
-        | "death_surge_chance" | "explosion_chance" | "drain_chance" => Some(Rule::Percent),
+        | "death_surge_chance" | "explosion_chance" | "drain_chance" | "drain_percent" => {
+            Some(Rule::Percent)
+        }
 
         "hitpoints" | "knockbacks" | "speed" | "attack_1" | "attack_cooldown" | "time_until_attack_1"
         | "freeze_duration" | "slow_duration" | "weaken_duration" | "attack_2" | "attack_3"
@@ -51,7 +53,7 @@ pub(in crate::editor::figures) fn rule(field: &str) -> Option<Rule> {
         | "surge_spawn_anchor" | "surge_spawn_span" | "surge_level" | "shield_hitpoints" | "shield_regen"
         | "death_surge_spawn_anchor" | "death_surge_spawn_span" | "death_surge_level"
         | "long_distance_2_anchor" | "long_distance_2_span" | "long_distance_3_anchor"
-        | "long_distance_3_span" | "explosion_spawn_anchor" | "explosion_spawn_span" | "drain_percent" => Some(Rule::Plain),
+        | "long_distance_3_span" | "explosion_spawn_anchor" | "explosion_spawn_span" => Some(Rule::Plain),
 
         _ => None,
     }
