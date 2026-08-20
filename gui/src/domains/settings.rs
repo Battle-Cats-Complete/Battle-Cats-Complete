@@ -11,7 +11,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length, Size, Task};
 
-use core::domains::settings::{lang, nightly, ContextScope, EditorMode};
+use core::domains::settings::{lang, nightly, ContextScope, EditorMode, EditorValues};
 use core::domains::settings::{
     ExportBehavior, ImportStructure, Settings as CoreSettings, SidebarBehavior,
 };
@@ -64,6 +64,7 @@ pub enum Message {
     ToggleUnlockGameMount(bool),
     EditorModeSelected(EditorMode),
     ContextScopeSelected(ContextScope),
+    EditorValuesSelected(EditorValues),
     ToggleTightBounds(bool),
     ToggleAutoCamera(bool),
     ShowcaseWalkChanged(String),
@@ -204,6 +205,10 @@ impl State {
             }
             Message::ContextScopeSelected(scope) => {
                 core_settings.files.context_scope = scope;
+                Task::none()
+            }
+            Message::EditorValuesSelected(values) => {
+                core_settings.files.editor_values = values;
                 Task::none()
             }
             Message::ToggleUnlockGameMount(val) => {
@@ -542,10 +547,20 @@ impl State {
             nightly.then_some(Message::ContextScopeSelected),
         );
 
+        let values = core_settings.files.editor_values;
+
+        let values_row = combo_row(
+            "Editor Values",
+            if nightly { values.hint() } else { NIGHTLY_ONLY_NOTICE },
+            EditorValues::ALL,
+            Some(values),
+            nightly.then_some(Message::EditorValuesSelected),
+        );
+
         column![
             header_section(text("Disk").size(24), self.disk.view().map(Message::Disk)),
             header_section(text("Viewer").size(24), mode_row),
-            header_section(text("Editor").size(24), column![scope_row, mount_row].spacing(10)),
+            header_section(text("Editor").size(24), column![scope_row, values_row, mount_row].spacing(10)),
         ].spacing(SECTION_SPACING).into()
     }
 

@@ -83,6 +83,7 @@ pub struct FilesSettings {
     pub unlock_game_mount: bool,
     pub editor_mode: EditorMode,
     pub context_scope: ContextScope,
+    pub editor_values: EditorValues,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -108,6 +109,33 @@ impl std::fmt::Display for ContextScope {
         f.write_str(match self {
             Self::Specific => "Specific",
             Self::Broad => "Broad",
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum EditorValues {
+    #[default]
+    Resolved,
+    Raw,
+}
+
+impl EditorValues {
+    pub const ALL: [Self; 2] = [Self::Resolved, Self::Raw];
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::Resolved => "Presents each attribute the way the game means it, converting the columns the engine stores at a different scale",
+            Self::Raw => "Presents every attribute exactly as it is written in the file, which is the only way to edit a value the conversion cannot represent",
+        }
+    }
+}
+
+impl std::fmt::Display for EditorValues {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Resolved => "Resolved",
+            Self::Raw => "Raw",
         })
     }
 }

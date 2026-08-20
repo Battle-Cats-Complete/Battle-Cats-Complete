@@ -966,6 +966,8 @@ impl BattleCatsApp {
                     self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
                 }
 
+                self.sync_editor(false);
+
                 let relocalize = self.settings_state.take_language_change().then(|| self.relocalize());
                 let left_nightly = (self.current_page.nightly() && !self.settings.general.enable_nightly)
                     .then(|| self.navigate(Page::Home));

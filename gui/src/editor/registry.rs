@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use core::domains::import::architecture;
+use core::domains::settings::EditorValues;
 
 use crate::app::{theme, Page};
 use crate::common::feedback::LOCKED_NOTICE;
@@ -134,6 +135,7 @@ struct Payload<'a> {
     mount: Mount<'a>,
     scopes: Vec<Scope<'a>>,
     primary: Primary<'a>,
+    values: EditorValues,
 }
 
 pub(super) fn items(context: &Context) -> Vec<Item> {
@@ -174,6 +176,7 @@ fn payloads(context: &Context) -> Vec<Payload<'_>> {
                 scopes: vec![Scope { name: &cat.file, source: Some(&cat.source), present }],
                 mount,
                 primary: Primary::Cat(cat),
+                values: context.values,
             });
         }
     }
@@ -188,6 +191,7 @@ fn payloads(context: &Context) -> Vec<Payload<'_>> {
                 scopes: vec![Scope { name: &enemy.file, source: Some(&enemy.source), present }],
                 mount,
                 primary: Primary::Enemy(enemy),
+                values: context.values,
             });
         }
     }
@@ -200,6 +204,7 @@ fn payloads(context: &Context) -> Vec<Payload<'_>> {
             scopes: icon.asset.scopes(mount.target.is_some()),
             mount,
             primary: Primary::Replace,
+            values: context.values,
         });
     }
 
@@ -211,6 +216,7 @@ fn payloads(context: &Context) -> Vec<Payload<'_>> {
             scopes: target.asset.scopes(mount.target.is_some()),
             mount,
             primary: Primary::Level(target),
+            values: context.values,
         });
     }
 
@@ -222,6 +228,7 @@ fn payloads(context: &Context) -> Vec<Payload<'_>> {
             scopes: target.asset.scopes(mount.target.is_some()),
             mount,
             primary: Primary::Prose(target),
+            values: context.values,
         });
     }
 
@@ -333,7 +340,7 @@ impl Payload<'_> {
                 items.push((verb, Item::unsupported(verb.label(scope.name, &self.mount, labelling))));
             }
             Primary::Level(level) => {
-                if let Some(plan) = level_plan(level, scope, target_mod) {
+                if let Some(plan) = level_plan(level, scope, target_mod, self.values) {
                     items.push((
                         Verb::Edit,
                         self.mount.item(
@@ -349,7 +356,7 @@ impl Payload<'_> {
                 Verb::Edit,
                 self.mount.item(
                     Verb::Edit.label(scope.name, &self.mount, labelling),
-                    Action::EditFigures(cat_plan(cat, target_mod)),
+                    Action::EditFigures(cat_plan(cat, target_mod, self.values)),
                     Confirm::Never,
                 ),
             )),
@@ -357,7 +364,7 @@ impl Payload<'_> {
                 Verb::Edit,
                 self.mount.item(
                     Verb::Edit.label(scope.name, &self.mount, labelling),
-                    Action::EditFigures(enemy_plan(enemy, target_mod)),
+                    Action::EditFigures(enemy_plan(enemy, target_mod, self.values)),
                     Confirm::Never,
                 ),
             )),
@@ -492,18 +499,23 @@ fn present<'a>(mount: &Mount<'_>, mod_copy: Option<&'a Path>, game: Option<&'a P
     if mount.target.is_some() { mod_copy } else { game }
 }
 
-pub(super) fn cat_plan(cat: &CatTarget, target_mod: Option<String>) -> figures::Plan {
-    figures::plan(figures::Subject::Cat, cat.form, cat.title(), &cat.source, target_mod)
+pub(super) fn cat_plan(cat: &CatTarget, target_mod: Option<String>, values: EditorValues) -> figures::Plan {
+    figures::plan(figures::Subject::Cat, cat.form, cat.title(), &cat.source, target_mod, values)
 }
 
-pub(super) fn enemy_plan(enemy: &EnemyTarget, target_mod: Option<String>) -> figures::Plan {
-    figures::plan(figures::Subject::Enemy, enemy.row, enemy.title(), &enemy.source, target_mod)
+pub(super) fn enemy_plan(enemy: &EnemyTarget, target_mod: Option<String>, values: EditorValues) -> figures::Plan {
+    figures::plan(figures::Subject::Enemy, enemy.row, enemy.title(), &enemy.source, target_mod, values)
 }
 
-pub(super) fn level_plan(level: &LevelTarget, scope: &Scope<'_>, target_mod: Option<String>) -> Option<figures::Plan> {
+pub(super) fn level_plan(
+    level: &LevelTarget,
+    scope: &Scope<'_>,
+    target_mod: Option<String>,
+    values: EditorValues,
+) -> Option<figures::Plan> {
     let source = scope.source.or(scope.present)?;
 
-    Some(figures::plan(level.subject, level.row, level.label.clone(), source, target_mod))
+    Some(figures::plan(level.subject, level.row, level.label.clone(), source, target_mod, values))
 }
 
 fn files(items: &mut Vec<Item>, file: &FileTarget) {

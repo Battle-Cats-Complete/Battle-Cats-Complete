@@ -7,6 +7,8 @@ use nyanko::combat::Scale;
 use nyanko::common::tools::columns::{Column, FromColumn};
 use nyanko::enemy::t_unit;
 
+use core::domains::settings::EditorValues;
+
 use crate::app::Page;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -215,11 +217,19 @@ impl Schema {
             .map_or_else(|| Cow::Owned(format!("Column {}", index + 1)), |label| Cow::Borrowed(label.as_str()))
     }
 
-    pub(super) fn to_display(&self, index: usize, raw: i32) -> i32 {
+    pub(super) fn to_display(&self, index: usize, raw: i32, values: EditorValues) -> i32 {
+        if values == EditorValues::Raw {
+            return raw;
+        }
+
         self.column(index).map_or(raw, |column| column.scale.apply(raw))
     }
 
-    pub(super) fn to_raw(&self, index: usize, display: i32) -> i32 {
+    pub(super) fn to_raw(&self, index: usize, display: i32, values: EditorValues) -> i32 {
+        if values == EditorValues::Raw {
+            return display;
+        }
+
         match self.column(index).map(|column| column.scale) {
             Some(Scale::Double) => display / 2,
             Some(Scale::Quarter) => display * 4,

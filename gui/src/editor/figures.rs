@@ -15,7 +15,7 @@ use nyanko::common::tools::file;
 use tracing::warn;
 
 use core::common::preview::{self, Stamp};
-use core::domains::mods;
+use core::domains::{mods, settings::EditorValues};
 
 use crate::common::feedback::Slot;
 use crate::widget::popup;
@@ -84,12 +84,12 @@ fn split_row(line: &str, delimiter: char, schema: &schema::Schema) -> (Vec<i32>,
     (cells, comment)
 }
 
-fn shown(schema: &schema::Schema, index: usize, raw: i32) -> String {
+fn shown(schema: &schema::Schema, index: usize, raw: i32, values: EditorValues) -> String {
     if raw == schema.fallback(index) {
         return String::new();
     }
 
-    schema.to_display(index, raw).to_string()
+    schema.to_display(index, raw, values).to_string()
 }
 
 fn wrapped_lines(label: &str, per_line: usize) -> usize {
@@ -133,6 +133,7 @@ pub(crate) struct Plan {
     game: PathBuf,
     target_mod: Option<String>,
     schema: &'static schema::Schema,
+    values: EditorValues,
 }
 
 impl Plan {
@@ -145,6 +146,7 @@ impl Plan {
             && self.game == other.game
             && self.target_mod == other.target_mod
             && self.label == other.label
+            && self.values == other.values
     }
 
     fn source(&self) -> PathBuf {
@@ -307,7 +309,8 @@ impl Draft {
         };
 
         let (cells, comment) = split_row(raw, delimiter, plan.schema);
-        let inputs = (0..cells.len()).map(|index| shown(plan.schema, index, cells[index])).collect();
+        let inputs =
+            (0..cells.len()).map(|index| shown(plan.schema, index, cells[index], plan.values)).collect();
 
         Some(Draft { plan, read_from, stamp, delimiter, lines, cells, comment, inputs, failed: false })
     }
@@ -331,8 +334,8 @@ impl Draft {
                 return;
             };
 
-            let raw = self.plan.schema.to_raw(index, display);
-            *slot = shown(self.plan.schema, index, raw);
+            let raw = self.plan.schema.to_raw(index, display, self.plan.values);
+            *slot = shown(self.plan.schema, index, raw, self.plan.values);
 
             raw
         };
@@ -380,7 +383,9 @@ impl Draft {
         self.cells = cells;
         self.comment = comment;
 
-        self.inputs = (0..self.cells.len()).map(|index| shown(self.plan.schema, index, self.cells[index])).collect();
+        self.inputs = (0..self.cells.len())
+            .map(|index| shown(self.plan.schema, index, self.cells[index], self.plan.values))
+            .collect();
         self.commit();
     }
 
@@ -448,6 +453,10 @@ impl Draft {
         self.plan.schema
     }
 
+    fn values(&self) -> EditorValues {
+        self.plan.values
+    }
+
     fn len(&self) -> usize {
         self.cells.len()
     }
@@ -475,6 +484,7 @@ pub(super) fn plan(
     label: String,
     game: &Path,
     target_mod: Option<String>,
+    values: EditorValues,
 ) -> Plan {
-    Plan { row, label, game: game.to_path_buf(), target_mod, schema: schema::of(subject) }
+    Plan { row, label, game: game.to_path_buf(), target_mod, schema: schema::of(subject), values }
 }

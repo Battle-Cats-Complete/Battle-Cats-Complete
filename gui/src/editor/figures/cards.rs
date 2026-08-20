@@ -53,7 +53,7 @@ pub(super) fn grid<'a>(
 
 fn card(draft: &Draft, index: usize, dimmed: bool) -> Element<'_, Message> {
     let schema = draft.schema();
-    let hint = schema.to_display(index, schema.fallback(index)).to_string();
+    let hint = schema.to_display(index, schema.fallback(index), draft.values()).to_string();
 
     let field = text_input(&hint, draft.input(index))
         .on_input(move |entry| Message::Changed(index, entry))

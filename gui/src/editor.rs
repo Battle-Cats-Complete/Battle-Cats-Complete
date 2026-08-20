@@ -19,7 +19,7 @@ use core::domains::enemy::files as enemy_files;
 use core::domains::enemy::scanner::EnemyEntry;
 use core::domains::import::architecture;
 use core::domains::mods;
-use core::domains::settings::ContextScope;
+use core::domains::settings::{ContextScope, EditorValues};
 
 use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;
@@ -45,6 +45,7 @@ pub enum Target {
 
 pub(crate) struct Context {
     enabled: bool,
+    values: EditorValues,
     page: Page,
     file: Option<FileTarget>,
     cats: Vec<CatTarget>,
@@ -405,6 +406,7 @@ struct Snapshot {
 #[derive(PartialEq)]
 struct Key {
     page: Page,
+    values: EditorValues,
     cat: Option<u32>,
     form: usize,
     enemy: Option<u32>,
@@ -708,6 +710,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
 
     Context {
         enabled: app.settings.general.enable_nightly,
+        values: app.settings.files.editor_values,
         page: app.current_page,
         file: file_target(app, target),
         cats: cat_payloads(app, reached(Target::CatAttributes)),
@@ -1070,6 +1073,7 @@ pub(crate) fn refresh(app: &BattleCatsApp, editor: &State, force: bool) -> Optio
 fn key(app: &BattleCatsApp) -> Key {
     Key {
         page: app.current_page,
+        values: app.settings.files.editor_values,
         cat: app.app_state.cat.selected_cat,
         form: app.app_state.cat.selected_form,
         enemy: app.app_state.enemy.selected_enemy,
@@ -1099,25 +1103,27 @@ fn snapshot(app: &BattleCatsApp, editor: &State) -> Snapshot {
 }
 
 fn current_plan(app: &BattleCatsApp, subject: figures::Subject) -> Option<figures::Plan> {
+    let values = app.settings.files.editor_values;
+
     match subject {
         figures::Subject::Cat => {
             let cat = cat_subject(app)?;
             let active = cat.active_mod.clone();
 
-            Some(registry::cat_plan(&cat, active))
+            Some(registry::cat_plan(&cat, active, values))
         }
         figures::Subject::Enemy => {
             let enemy = enemy_subject(app)?;
             let active = enemy.active_mod.clone();
 
-            Some(registry::enemy_plan(&enemy, active))
+            Some(registry::enemy_plan(&enemy, active, values))
         }
         figures::Subject::Buy | figures::Subject::Curve => {
             let target = level_payloads(app, true, false).into_iter().find(|level| level.subject == subject)?;
             let mount = target.active_mod.clone();
             let scopes = target.asset.scopes(mount.is_some());
 
-            scopes.first().and_then(|scope| registry::level_plan(&target, scope, mount))
+            scopes.first().and_then(|scope| registry::level_plan(&target, scope, mount, values))
         }
     }
 }
