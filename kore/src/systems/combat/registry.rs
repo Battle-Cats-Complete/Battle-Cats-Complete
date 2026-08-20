@@ -62,8 +62,8 @@ fn unmapped() -> AbilityDisplayDef {
         group: DisplayGroup::Body2,
         formatter: |ctx| side(
             ctx,
-            "This Cat has an ability Battle Cats Complete does not recognize\nBattle Cats Complete may need to be updated",
-            "This Enemy has an ability Battle Cats Complete does not recognize\nBattle Cats Complete may need to be updated",
+            "This Cat has an ability this application does not recognize\nA newer version of this tool may support it",
+            "This Enemy has an ability this application does not recognize\nA newer version of this tool may support it",
         ),
     }
 }
@@ -848,8 +848,8 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             group: DisplayGroup::Body2,
             formatter: |ctx| side(
                 ctx,
-                "This Cat may have an undefined ability\nBattle Cats Complete may need to be updated",
-                "This Enemy may have an undefined ability\nBattle Cats Complete may need to be updated",
+                "This Cat may have an unrecognized ability\nA newer version of this tool may support it",
+                "This Enemy may have an unrecognized ability\nA newer version of this tool may support it",
             ),
         },
 
