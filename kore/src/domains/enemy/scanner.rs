@@ -138,8 +138,7 @@ fn process_enemy_entry(id: u32, vfs: &Vfs, stats: Entity, name: String, descript
     if let Some(resolved_atk) = vfs.find(&files::maanim_file(id, 2))
         && let Ok(bytes) = fs::read(&resolved_atk) {
         let content = String::from_utf8_lossy(&bytes);
-        atk_anim_frames = Animation::scan_duration(content.as_bytes())
-            .map_or(0, |duration| if duration > 0 { duration + 1 } else { 0 });
+        atk_anim_frames = Animation::scan_length(content.as_bytes()).unwrap_or(0).max(0);
     }
 
     Some(EnemyEntry { id, name, description, stats, icon_path: resolved_icon, atk_anim_frames })

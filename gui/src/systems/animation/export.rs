@@ -14,7 +14,7 @@ use nyanko::graphics::rig::Animation;
 
 use kore::systems::addons::paths::{self, Presence};
 use kore::systems::animation::export::{find_loop, leader, process, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
-use kore::systems::animation::{IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
+use kore::systems::animation::{frame_count, last_frame, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
 use kore::domains::settings::Settings;
 
 use crate::app::state::AnimState;
@@ -295,9 +295,9 @@ impl State {
             if self.exporter.export_mode != ExportMode::Showcase {
                 match &data.current_anim {
                     Some(anim) => {
-                        self.exporter.max_frame = anim.max_frame;
+                        self.exporter.max_frame = last_frame(anim);
                         self.exporter.frame_start = 0;
-                        self.exporter.frame_end = anim.max_frame;
+                        self.exporter.frame_end = self.exporter.max_frame;
                     }
                     None => {
                         self.exporter.max_frame = 0;
@@ -359,7 +359,7 @@ impl State {
         };
 
         if let Some(attack) = parse_anim(IDX_ATTACK) {
-            let total_attack_frames = attack.max_frame + 1;
+            let total_attack_frames = frame_count(&attack);
             self.exporter.detected_attack_len = total_attack_frames;
             if self.exporter.showcase_attack_str.is_empty() {
                 self.exporter.showcase_attack_len = total_attack_frames;
@@ -367,7 +367,7 @@ impl State {
         }
 
         if let Some(walk) = parse_anim(IDX_WALK) {
-            let walk_loop = walk.calculate_true_loop().unwrap_or(walk.max_frame);
+            let walk_loop = frame_count(&walk);
             let new_walk_length = if walk_loop <= 1 { 0 } else { settings.animation.default_showcase_walk };
             self.exporter.detected_walk_len = new_walk_length;
 
@@ -378,7 +378,7 @@ impl State {
         }
 
         if let Some(idle) = parse_anim(IDX_IDLE) {
-            let idle_loop = idle.calculate_true_loop().unwrap_or(idle.max_frame);
+            let idle_loop = frame_count(&idle);
             let new_idle_length = if idle_loop <= 1 { 0 } else { settings.animation.default_showcase_idle };
             self.exporter.detected_idle_len = new_idle_length;
 

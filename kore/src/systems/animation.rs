@@ -13,9 +13,17 @@ pub const IDX_MODEL: usize = 99;
 pub const IDX_NONE: usize = 999;
 
 pub fn loop_frame(animation: &Animation, frame: f32) -> f32 {
-    let boundary = animation.calculate_true_loop().unwrap_or(animation.max_frame);
+    let boundary = frame_count(animation);
 
-    if boundary > 0 { frame.rem_euclid(boundary as f32 + 1.0) } else { frame }
+    if boundary > 0 { frame.rem_euclid(boundary as f32) } else { frame }
+}
+
+pub fn frame_count(animation: &Animation) -> i32 {
+    animation.playback_frames()
+}
+
+pub fn last_frame(animation: &Animation) -> i32 {
+    frame_count(animation).saturating_sub(1).max(0)
 }
 
 #[inline(always)]

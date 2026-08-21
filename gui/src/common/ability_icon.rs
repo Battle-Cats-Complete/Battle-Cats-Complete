@@ -32,10 +32,8 @@ impl Cache {
             let width = image_data.width();
             let height = image_data.height();
 
-            let px = (cut.uv_coordinates.min.x * width as f32).round() as u32;
-            let py = (cut.uv_coordinates.min.y * height as f32).round() as u32;
-            let pw = cut.original_size.x.round() as u32;
-            let ph = cut.original_size.y.round() as u32;
+            let (px, py) = (cut.x.max(0) as u32, cut.y.max(0) as u32);
+            let (pw, ph) = (cut.width.max(0) as u32, cut.height.max(0) as u32);
 
             if pw == 0 || ph == 0 || px + pw > width || py + ph > height {
                 continue;

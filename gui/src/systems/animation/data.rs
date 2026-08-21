@@ -6,8 +6,8 @@ use tracing::warn;
 use nyanko::graphics::rig::{Animation, Rig};
 
 use kore::systems::animation::{
-    loop_frame, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT,
-    IDX_SURFACE, IDX_WALK,
+    last_frame, loop_frame, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE,
+    IDX_SPIRIT, IDX_SURFACE, IDX_WALK,
 };
 use kore::domains::cat::files::{self, AnimType};
 use kore::domains::cat::scanner::CatEntry;
@@ -66,9 +66,7 @@ impl State {
     }
 
     pub fn loop_bound(&self) -> Option<i32> {
-        self.current_anim.as_ref().map_or(Some(0), |anim| {
-            if self.current_anim_index <= IDX_IDLE { anim.calculate_true_loop() } else { Some(anim.max_frame) }
-        })
+        self.current_anim.as_ref().map_or(Some(0), |anim| Some(last_frame(anim)))
     }
 
     pub fn active_index(&self) -> usize {

@@ -6,7 +6,7 @@ use iced::widget::shader::{self, Shader};
 use iced::{Element, Event, Length, Point, Rectangle, Vector};
 use image::RgbaImage;
 
-use nyanko::graphics::engine::{resolve_frame, FrameData};
+use nyanko::graphics::animate::{resolve_frame, FrameData};
 
 use kore::systems::animation::multiply_mat3;
 
@@ -151,7 +151,7 @@ impl<'a> shader::Program<Message> for Viewport<'a> {
     }
 
     fn draw(&self, _interaction: &Interaction, _cursor: mouse::Cursor, _bounds: Rectangle) -> Scene {
-        let frame = self.data.playback_frame(self.state.current_frame);
+        let frame = self.data.playback_frame(self.state.current_frame).floor() as i32;
 
         let (parts, image) = self.data.held_unit.as_ref().map_or((Vec::new(), None), |unit| {
             (resolve_frame(unit, self.data.current_anim.as_deref(), frame), unit.sheet.image_data.clone())

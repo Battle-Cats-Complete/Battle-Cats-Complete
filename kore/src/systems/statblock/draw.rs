@@ -163,10 +163,8 @@ pub(super) fn get_icon_image(
         cuts_map.get(&icon_id).map_or_else(
             || RgbaImage::new(export_size, export_size),
             |cut| {
-                let px = (cut.uv_coordinates.min.x * img015_base.width() as f32).round() as u32;
-                let py = (cut.uv_coordinates.min.y * img015_base.height() as f32).round() as u32;
-                let pw = cut.original_size.x.round() as u32;
-                let ph = cut.original_size.y.round() as u32;
+                let (px, py) = (cut.x.max(0) as u32, cut.y.max(0) as u32);
+                let (pw, ph) = (cut.width.max(0) as u32, cut.height.max(0) as u32);
 
                 if px + pw <= img015_base.width() && py + ph <= img015_base.height() {
                     image::imageops::crop_imm(img015_base, px, py, pw, ph).to_image()
@@ -185,10 +183,8 @@ pub(super) fn get_icon_image(
 
     if let Some(border_id) = item.border_id
         && let Some(cut) = cuts_map.get(&border_id) {
-        let px = (cut.uv_coordinates.min.x * img015_base.width() as f32).round() as u32;
-        let py = (cut.uv_coordinates.min.y * img015_base.height() as f32).round() as u32;
-        let pw = cut.original_size.x.round() as u32;
-        let ph = cut.original_size.y.round() as u32;
+        let (px, py) = (cut.x.max(0) as u32, cut.y.max(0) as u32);
+        let (pw, ph) = (cut.width.max(0) as u32, cut.height.max(0) as u32);
 
         if px + pw <= img015_base.width() && py + ph <= img015_base.height() {
             let mut border = image::imageops::crop_imm(img015_base, px, py, pw, ph).to_image();

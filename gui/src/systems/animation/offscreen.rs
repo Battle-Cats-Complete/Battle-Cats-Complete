@@ -9,7 +9,7 @@ use iced::wgpu;
 use image::RgbaImage;
 use tracing::{error, warn};
 
-use nyanko::graphics::engine::{resolve_frame, FrameData};
+use nyanko::graphics::animate::{resolve_frame, FrameData};
 use nyanko::graphics::rig::{Animation, Rig};
 
 use kore::systems::animation::export::process::calculate_export_time;
@@ -102,7 +102,7 @@ impl Renderer {
         camera: Camera,
         background: [u8; 4],
     ) -> Result<Vec<u8>, String> {
-        let mut parts = resolve_frame(unit, animation, frame_time);
+        let mut parts = resolve_frame(unit, animation, frame_time.floor() as i32);
         remap_glow(&mut parts);
         self.render_parts(unit.sheet.image_data.as_ref(), &parts, camera, background)
     }
@@ -280,7 +280,7 @@ fn run(job: Job) {
                 let (slot, time) = showcase_segment(job.lengths, progress);
                 let animation = clips.get(slot);
                 let time = match animation {
-                    Some(anim) if anim.max_frame != 0 => time,
+                    Some(anim) if anim.playback_frames() > 1 => time,
                     _ => 0.0,
                 };
                 (animation, time)

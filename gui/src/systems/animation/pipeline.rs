@@ -5,7 +5,7 @@ use iced::wgpu;
 use iced::widget::shader;
 use image::RgbaImage;
 
-use nyanko::graphics::engine::FrameData;
+use nyanko::graphics::animate::FrameData;
 
 use kore::systems::animation::multiply_mat3;
 
@@ -283,46 +283,40 @@ fn blend_variant(glow: u8) -> usize {
 }
 
 fn blend_modes() -> [wgpu::BlendState; 4] {
-    let keep_dst_alpha = wgpu::BlendComponent {
-        src_factor: wgpu::BlendFactor::Zero,
-        dst_factor: wgpu::BlendFactor::One,
-        operation: wgpu::BlendOperation::Add,
-    };
-
     let premultiplied = wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
         dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
         operation: wgpu::BlendOperation::Add,
     };
 
+    let carried_alpha = wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+    };
+
+    let color = |src_factor, dst_factor| wgpu::BlendComponent {
+        src_factor,
+        dst_factor,
+        operation: wgpu::BlendOperation::Add,
+    };
+
     [
         wgpu::BlendState {
             color: premultiplied,
-            alpha: premultiplied,
+            alpha: premultiplied
         },
         wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: keep_dst_alpha,
+            color: color(wgpu::BlendFactor::One, wgpu::BlendFactor::One),
+            alpha: carried_alpha,
         },
         wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Dst,
-                dst_factor: wgpu::BlendFactor::Zero,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: keep_dst_alpha,
+            color: color(wgpu::BlendFactor::Dst, wgpu::BlendFactor::Zero),
+            alpha: carried_alpha,
         },
         wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::OneMinusSrc,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: keep_dst_alpha,
+            color: color(wgpu::BlendFactor::One, wgpu::BlendFactor::OneMinusSrc),
+            alpha: carried_alpha,
         },
     ]
 }

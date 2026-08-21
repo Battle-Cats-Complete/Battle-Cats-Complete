@@ -107,7 +107,7 @@ pub fn calculate_export_time(
     };
 
     let natively_loops = if is_showcase {
-        animation.curves.iter().any(|c| c.loop_count != 1)
+        animation.modifications.iter().any(|modification| modification.loop_count == -1)
     } else {
         timing.loop_supported
     };

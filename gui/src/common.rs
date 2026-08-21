@@ -150,7 +150,7 @@ impl SpriteSheet {
 
             let result = parsed.map(|sheet| CoreSpriteSheet {
                 image_data: sheet.image_data,
-                cuts_map: sheet.cuts_map,
+                cuts_map: sheet.cuts.into_iter().enumerate().collect(),
                 sheet_name: id_str,
             });
             let _ = tx.unbounded_send(result);

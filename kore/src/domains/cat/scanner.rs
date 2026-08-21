@@ -254,8 +254,7 @@ fn process_cat_entry(
         if let Some(resolved) = vfs.find(&anim_name)
             && let Ok(bytes) = fs::read(&resolved) {
             let content = String::from_utf8_lossy(&bytes);
-            attack_anim_frames[i] = Animation::scan_duration(content.as_bytes())
-                .map_or(0, |duration| if duration > 0 { duration + 1 } else { 0 });
+            attack_anim_frames[i] = Animation::scan_length(content.as_bytes()).unwrap_or(0).max(0);
         }
     }
 
