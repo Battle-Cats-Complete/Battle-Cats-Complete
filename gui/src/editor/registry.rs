@@ -208,6 +208,18 @@ fn payloads(context: &Context) -> Vec<Payload<'_>> {
         });
     }
 
+    if let Some(banner) = context.banner.as_ref() {
+        let mount = mount(banner.active_mod.as_deref(), banner.unlocked);
+
+        payloads.push(Payload {
+            key: &banner.key,
+            scopes: banner.scopes(mount.target.is_some()),
+            mount,
+            primary: Primary::Replace,
+            values: context.values,
+        });
+    }
+
     for target in &context.levels {
         let mount = mount(target.active_mod.as_deref(), target.unlocked);
 

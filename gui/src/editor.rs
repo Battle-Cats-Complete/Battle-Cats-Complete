@@ -32,6 +32,8 @@ pub(crate) use watch::watch;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Target {
     FileRow(usize),
+    CatRow(u32),
+    EnemyRow(u32),
     CatLevels,
     CatForms,
     CatAttributes,
@@ -51,6 +53,7 @@ pub(crate) struct Context {
     cats: Vec<CatTarget>,
     enemies: Vec<EnemyTarget>,
     icon: Option<IconTarget>,
+    banner: Option<BannerTarget>,
     prose: Vec<ProseTarget>,
     levels: Vec<LevelTarget>,
 }
@@ -79,7 +82,7 @@ fn asset_files(app: &BattleCatsApp, base: &str) -> Vec<AssetFile> {
     let names = app.vault.vfs.variants(base);
 
     let copies: Vec<Option<PathBuf>> = {
-        let located = mod_copies(app, &names);
+        let located = mod_copies(app, names.iter().map(String::as_str));
 
         names.iter().map(|name| located.get(name.as_str()).cloned()).collect()
     };
@@ -95,10 +98,13 @@ fn asset_files(app: &BattleCatsApp, base: &str) -> Vec<AssetFile> {
         .collect()
 }
 
-fn mod_copies<'a>(app: &BattleCatsApp, names: &'a [String]) -> FxHashMap<&'a str, PathBuf> {
-    app.mods_state.active_mod().map_or_else(FxHashMap::default, |active| {
-        mods::find_all(&active, names.iter().map(String::as_str))
-    })
+fn mod_copies<'a>(
+    app: &BattleCatsApp,
+    names: impl IntoIterator<Item = &'a str>,
+) -> FxHashMap<&'a str, PathBuf> {
+    app.mods_state
+        .active_mod()
+        .map_or_else(FxHashMap::default, |active| mods::find_all(&active, names))
 }
 
 struct Exception {
@@ -114,18 +120,58 @@ struct Scope<'a> {
     present: Option<&'a Path>,
 }
 
-fn exception(app: &BattleCatsApp, resolved: &Path) -> Option<Exception> {
-    let visible = resolved.file_name()?.to_string_lossy().into_owned();
-    let internal = app.vault.vfs.base_name(&visible).unwrap_or_else(|| visible.clone());
-    let variants = asset_files(app, &internal);
+fn exception(app: &BattleCatsApp, wanted: String) -> Option<Exception> {
+    exceptions(app, vec![wanted]).pop()
+}
 
-    let vanilla = app
-        .vault
+fn exceptions(app: &BattleCatsApp, wanted: Vec<String>) -> Vec<Exception> {
+    let visible: Vec<String> = wanted.iter().map(|name| visible_name(app, name)).collect();
+
+    let internal: Vec<String> = visible
+        .iter()
+        .map(|name| app.vault.vfs.base_name(name).unwrap_or_else(|| name.clone()))
+        .collect();
+
+    let groups: Vec<Vec<String>> = internal.iter().map(|name| app.vault.vfs.variants(name)).collect();
+
+    let located: FxHashMap<String, PathBuf> = {
+        let names = internal.iter().map(String::as_str).chain(groups.iter().flatten().map(String::as_str));
+
+        mod_copies(app, names).into_iter().map(|(name, path)| (name.to_owned(), path)).collect()
+    };
+
+    visible
+        .into_iter()
+        .zip(internal)
+        .zip(groups)
+        .map(|((seen, internal), group)| {
+            let variants: Vec<AssetFile> = group
+                .into_iter()
+                .map(|name| AssetFile {
+                    game: app.vault.vfs.rooted_in(architecture::GAME, &name),
+                    mod_copy: located.get(&name).cloned(),
+                    name,
+                })
+                .collect();
+
+            let vanilla = app
+                .vault
+                .vfs
+                .rooted_in(architecture::GAME, &seen)
+                .or_else(|| variants.iter().find_map(|file| file.game.clone()));
+
+            Exception { mod_copy: located.get(&internal).cloned(), variants, vanilla, internal }
+        })
+        .collect()
+}
+
+fn visible_name(app: &BattleCatsApp, wanted: &str) -> String {
+    app.vault
         .vfs
-        .rooted_in(architecture::GAME, &visible)
-        .or_else(|| variants.iter().find_map(|file| file.game.clone()));
-
-    Some(Exception { mod_copy: mod_copy(app, &internal), variants, vanilla, internal })
+        .find(wanted)
+        .as_deref()
+        .and_then(Path::file_name)
+        .map_or_else(|| wanted.to_owned(), |name| name.to_string_lossy().into_owned())
 }
 
 impl Exception {
@@ -184,7 +230,22 @@ struct IconTarget {
     active_mod: Option<String>,
 }
 
+struct BannerTarget {
+    key: String,
+    forms: Vec<Exception>,
+    unlocked: bool,
+    active_mod: Option<String>,
+}
+
+impl BannerTarget {
+    fn scopes(&self, in_mod: bool) -> Vec<Scope<'_>> {
+        self.forms.iter().flat_map(|form| form.scopes(in_mod)).collect()
+    }
+}
+
 const ENEMY_HEADER_ROWS: usize = 2;
+const NORMAL_FORM: usize = 0;
+const NO_EGGS: (i32, i32) = (-1, -1);
 
 struct EnemyTarget {
     file: String,
@@ -729,6 +790,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
         cats: cat_payloads(app, reached(Target::CatAttributes)),
         enemies: enemy_payloads(app, reached(Target::EnemyAttributes)),
         icon: icon_target(app, icon_subject(app, target, broad)),
+        banner: banner_subject(app, target, broad).and_then(|id| banner_target(app, id)),
         prose: prose_payloads(app, target, broad),
         levels: level_payloads(app, reached(Target::CatLevels), reached(Target::CatForms)),
     }
@@ -742,13 +804,20 @@ fn figures_tab(app: &BattleCatsApp, subject: figures::Subject) -> bool {
     }
 }
 
-fn icon_subject(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Option<Target> {
+enum IconSubject {
+    Cat(u32),
+    Enemy(u32),
+}
+
+fn icon_subject(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Option<IconSubject> {
     match target {
-        Some(icon @ (Target::CatIcon | Target::EnemyIcon)) => Some(icon),
+        Some(Target::EnemyRow(id)) => Some(IconSubject::Enemy(id)),
+        Some(Target::CatIcon) => app.app_state.cat.selected_cat.map(IconSubject::Cat),
+        Some(Target::EnemyIcon) => app.app_state.enemy.selected_enemy.map(IconSubject::Enemy),
         _ if !broad => None,
         _ => match app.current_page {
-            Page::Cats => Some(Target::CatIcon),
-            Page::Enemies => Some(Target::EnemyIcon),
+            Page::Cats => app.app_state.cat.selected_cat.map(IconSubject::Cat),
+            Page::Enemies => app.app_state.enemy.selected_enemy.map(IconSubject::Enemy),
             _ => None,
         },
     }
@@ -877,11 +946,10 @@ fn mod_copy(app: &BattleCatsApp, file: &str) -> Option<PathBuf> {
 
 fn enemy_name_target(app: &BattleCatsApp) -> Option<ProseTarget> {
     let id = app.app_state.enemy.selected_enemy?;
-    let resolved = app.vault.vfs.find(enemy_files::NAMES)?;
 
     Some(ProseTarget {
         subject: prose::Subject::EnemyName,
-        asset: Asset::Exception(exception(app, &resolved)?),
+        asset: Asset::Exception(exception(app, enemy_files::NAMES.to_owned())?),
         label: enemy_label(app, id),
         row: id as usize,
         unlocked: app.settings.files.unlock_game_mount,
@@ -954,25 +1022,61 @@ fn explanation_target(app: &BattleCatsApp, id: u32) -> Option<ProseTarget> {
     })
 }
 
-fn icon_target(app: &BattleCatsApp, target: Option<Target>) -> Option<IconTarget> {
-    let resolved = match target? {
-        Target::CatIcon => {
-            let id = app.app_state.cat.selected_cat?;
+fn icon_target(app: &BattleCatsApp, subject: Option<IconSubject>) -> Option<IconTarget> {
+    let resolved = match subject? {
+        IconSubject::Cat(id) => {
             let cat = app.cat_state.data.cats.iter().find(|cat| cat.id == id)?;
 
             cat.deploy_icon_paths[app.app_state.cat.selected_form].as_ref()?
         }
-        Target::EnemyIcon => {
-            let id = app.app_state.enemy.selected_enemy?;
+        IconSubject::Enemy(id) => {
             let enemy = app.enemy_state.data.enemies.iter().find(|enemy| enemy.id == id)?;
 
             enemy.icon_path.as_ref()?
         }
-        _ => return None,
     };
 
+    let name = resolved.file_name()?.to_string_lossy().into_owned();
+
     Some(IconTarget {
-        asset: exception(app, resolved)?,
+        asset: exception(app, name)?,
+        unlocked: app.settings.files.unlock_game_mount,
+        active_mod: app.mods_state.active_mod(),
+    })
+}
+
+fn banner_subject(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Option<u32> {
+    match target {
+        Some(Target::CatRow(id)) => Some(id),
+        _ if !broad => None,
+        _ => app.app_state.cat.selected_cat,
+    }
+}
+
+fn banner_target(app: &BattleCatsApp, id: u32) -> Option<BannerTarget> {
+    if app.current_page != Page::Cats {
+        return None;
+    }
+
+    let cat = app.cat_state.data.cats.iter().find(|cat| cat.id == id)?;
+    let egg_ids = cat.egg_ids.unwrap_or(NO_EGGS);
+
+    let wanted: Vec<String> =
+        (0..cat.forms.len()).map(|form| cat_files::banner_file(id, form, egg_ids)).collect();
+
+    let forms: Vec<Exception> = exceptions(app, wanted)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(form, asset)| {
+            let offered = form == NORMAL_FORM || cat.forms[form] || !asset.variants.is_empty();
+
+            offered.then_some(asset)
+        })
+        .collect();
+
+    Some(BannerTarget {
+        key: cat_files::banner_base(id),
+        forms,
         unlocked: app.settings.files.unlock_game_mount,
         active_mod: app.mods_state.active_mod(),
     })

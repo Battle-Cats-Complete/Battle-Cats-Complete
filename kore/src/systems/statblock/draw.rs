@@ -153,15 +153,19 @@ pub(super) fn draw_bottom_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i
     imageproc::drawing::draw_filled_circle_mut(img, (x + w - 1 - r, y + h - 1 - r), r, color);
 }
 
+fn unknown_icon(custom_assets: &HashMap<CustomIcon, RgbaImage>, export_size: u32) -> RgbaImage {
+    custom_assets.get(&CustomIcon::Unknown).cloned().unwrap_or_else(|| RgbaImage::new(export_size, export_size))
+}
+
 pub(super) fn get_icon_image(
     item: &AbilityItem, cuts_map: &HashMap<usize, SpriteCut>,
     img015_base: &RgbaImage, custom_assets: &HashMap<CustomIcon, RgbaImage>, export_size: u32,
 ) -> RgbaImage {
     let mut icon = if item.custom_icon != CustomIcon::None {
-        custom_assets.get(&item.custom_icon).cloned().unwrap_or_else(|| RgbaImage::new(export_size, export_size))
+        custom_assets.get(&item.custom_icon).cloned().unwrap_or_else(|| unknown_icon(custom_assets, export_size))
     } else if let Some(icon_id) = item.icon_id {
         cuts_map.get(&icon_id).map_or_else(
-            || RgbaImage::new(export_size, export_size),
+            || unknown_icon(custom_assets, export_size),
             |cut| {
                 let (px, py) = (cut.x.max(0) as u32, cut.y.max(0) as u32);
                 let (pw, ph) = (cut.width.max(0) as u32, cut.height.max(0) as u32);
@@ -169,12 +173,12 @@ pub(super) fn get_icon_image(
                 if px + pw <= img015_base.width() && py + ph <= img015_base.height() {
                     image::imageops::crop_imm(img015_base, px, py, pw, ph).to_image()
                 } else {
-                    RgbaImage::new(export_size, export_size)
+                    unknown_icon(custom_assets, export_size)
                 }
             },
         )
     } else {
-        RgbaImage::new(export_size, export_size)
+        unknown_icon(custom_assets, export_size)
     };
 
     if icon.width() != export_size || icon.height() != export_size {

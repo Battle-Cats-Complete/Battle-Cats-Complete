@@ -10,6 +10,7 @@ use kore::domains::cat::filter::{evaluation, CatFilterState};
 use kore::domains::cat::scanner::CatEntry;
 
 use crate::common::udi_loader::Composite;
+use crate::editor::Target;
 use crate::widget::roster_list::{self, Roster};
 
 pub(super) type State = roster_list::State<CatRoster>;
@@ -43,6 +44,10 @@ impl Roster for CatRoster {
     fn matches_query(entry: &CatEntry, query: &str) -> bool {
         entry.base_id_str().contains(query)
             || entry.names.iter().flatten().any(|name| name.to_lowercase().contains(query))
+    }
+
+    fn target(entry: &CatEntry) -> Option<Target> {
+        Some(Target::CatRow(entry.id))
     }
 
     fn tooltip<'a>(entry: &CatEntry) -> Element<'a, Message> {

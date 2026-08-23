@@ -17,6 +17,7 @@ use tracing::{info, trace, warn};
 use kore::common::context::GlobalContext;
 use kore::common::game::{localizable, param};
 use kore::common::io::json;
+use kore::domains::cat::files as cat_files;
 use kore::domains::import::architecture;
 use kore::domains::settings::{Settings, UpdateMode};
 use kore::{ContentStore, Vault};
@@ -411,6 +412,7 @@ impl BattleCatsApp {
         }
 
         let mut units = HashSet::new();
+        let mut stats = HashSet::new();
         let mut enemies = HashSet::new();
         let mut items = HashSet::new();
         let mut stage_coarse = false;
@@ -441,6 +443,10 @@ impl BattleCatsApp {
             }
 
             let is_image = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
+
+            if let Some(id) = cat_files::stats_id(name) {
+                stats.insert(id);
+            }
 
             match watcher::asset(name) {
                 Some(Asset::Unit(id)) => { units.insert(id); }
@@ -483,11 +489,15 @@ impl BattleCatsApp {
             return self.rebuild_content();
         }
 
-        self.cat_state.invalidate_assets(&units, &items);
-        self.enemy_state.invalidate_assets(&enemies);
+        let cat_config = self.settings.scanner_config(None);
+
+        let changed = cat::CatChanges { images: &units, stats: &stats, items: &items };
+
+        self.cat_state.invalidate_assets(&changed, &self.vault, &cat_config);
+        self.enemy_state.invalidate_assets(&enemies, &self.vault, self.settings.show_invalid_enemies());
         self.stage_state.invalidate_assets(&items, &enemies, stage_coarse);
 
-        self.cat_state.reload_selected(&self.vault, &self.settings.scanner_config(None));
+        self.cat_state.reload_selected(&self.vault, &cat_config);
         self.enemy_state.reload_selected(&self.vault, self.settings.show_invalid_enemies());
         self.stage_state.reload_selected(&self.vault);
 
@@ -642,6 +652,14 @@ impl BattleCatsApp {
         info!(priority = ?self.settings.general.language_priority, "Language priority settled, dropping every resolved file");
         self.vault.priority(&self.settings.general.language_priority);
         self.rescan_units()
+    }
+
+    fn scanner_fingerprint(&self) -> u64 {
+        let mut hasher = FxHasher::default();
+
+        self.settings.scanner_config(self.mods_state.active_mod()).hash(&mut hasher);
+
+        hasher.finish()
     }
 
     fn rescan_units(&mut self) -> Task<Message> {
@@ -969,6 +987,7 @@ impl BattleCatsApp {
                 let watcher_toggled =
                     matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ToggleIgnoreWatcherFailure(_)));
 
+                let scanned_with = self.scanner_fingerprint();
                 let task = self.settings_state.update(msg, &mut self.settings).map(Message::Settings);
 
                 if conflicts_toggled && !self.rebuild_running {
@@ -983,13 +1002,19 @@ impl BattleCatsApp {
                 self.sync_editor(false);
 
                 let relocalize = self.settings_state.take_language_change().then(|| self.relocalize());
+
+                let rescan = (relocalize.is_none() && self.scanner_fingerprint() != scanned_with).then(|| {
+                    info!("A scanner setting changed, rescanning every module");
+                    self.rescan_units()
+                });
+
                 let left_nightly = (self.current_page.nightly() && !self.settings.general.enable_nightly)
                     .then(|| self.navigate(Page::Home));
                 self.sync_popup(ActivePopup::SettingsKeys, self.settings_state.keys_popup_open());
                 self.sync_popup(ActivePopup::SettingsExceptions, self.settings_state.exceptions_popup_open());
                 self.sync_popup(ActivePopup::SettingsPem, self.settings_state.pem_popup_open());
 
-                Task::batch(iter::once(task).chain(relocalize).chain(left_nightly))
+                Task::batch(iter::once(task).chain(relocalize).chain(rescan).chain(left_nightly))
             }
         }
     }

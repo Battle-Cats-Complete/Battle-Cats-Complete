@@ -11,6 +11,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length, Size, Task};
 
+use kore::domains::cat::files as cat_files;
 use kore::domains::settings::{lang, nightly, ContextScope, EditorMode, EditorValues};
 use kore::domains::settings::{
     ExportBehavior, ImportStructure, Settings as CoreSettings, SidebarBehavior,
@@ -22,6 +23,15 @@ use crate::app::UpdateStatus;
 use crate::widget::{combo_row, hover_hint, list_row, smooth_scroll, toggle_row};
 
 const SECTION_SPACING: f32 = 20.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BannerForm(usize);
+
+impl std::fmt::Display for BannerForm {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(cat_files::form_name(self.0))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -359,15 +369,15 @@ impl State {
     }
 
     fn view_cats<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
-        let banner_options: Vec<usize> = vec![0, 1, 2, 3];
+        let banner_options: Vec<BannerForm> = (0..cat_files::FORM_COUNT).map(BannerForm).collect();
 
         let list_content = column![
             row![
                 text("Preferred Banner Form"),
                 pick_list(
                     banner_options,
-                    Some(core_settings.cat_data.preferred_banner_form),
-                    Message::PreferredBannerSelected,
+                    Some(BannerForm(core_settings.cat_data.preferred_banner_form)),
+                    |form| Message::PreferredBannerSelected(form.0),
                 ).style(theme::combo_box).menu_style(theme::combo_box_menu),
             ].spacing(10).align_y(Alignment::Center),
 

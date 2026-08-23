@@ -43,6 +43,25 @@ fn is_placeholder_png(path: &Path) -> bool {
     buffer[24] < 4
 }
 
+fn resolve_icon(vfs: &Vfs, id: u32, show_invalid: bool) -> Option<PathBuf> {
+    let resolved = vfs.find(&files::icon_file(id))?;
+
+    (show_invalid || !is_placeholder_png(&resolved)).then_some(resolved)
+}
+
+fn valid_icon(icon: Option<&PathBuf>, show_invalid: bool) -> bool {
+    show_invalid || icon.is_some()
+}
+
+pub fn revalidate(vfs: &Vfs, entry: &mut EnemyEntry, show_invalid: bool) -> bool {
+    let icon = resolve_icon(vfs, entry.id, show_invalid);
+    let listable = valid_icon(icon.as_ref(), show_invalid);
+
+    entry.icon_path = icon;
+
+    listable
+}
+
 struct EnemyCache;
 
 impl cache::CacheSpec for EnemyCache {
@@ -123,14 +142,9 @@ pub fn scan_single(id: u32, vault: &Vault, show_invalid: bool) -> Option<EnemyEn
 }
 
 fn process_enemy_entry(id: u32, vfs: &Vfs, stats: Entity, name: String, description: Vec<String>, show_invalid: bool) -> Option<EnemyEntry> {
-    let mut resolved_icon = vfs.find(&files::icon_file(id));
+    let resolved_icon = resolve_icon(vfs, id, show_invalid);
 
-    if let Some(ref p) = resolved_icon
-        && is_placeholder_png(p) && !show_invalid {
-        resolved_icon = None;
-    }
-
-    if resolved_icon.is_none() && !show_invalid {
+    if !valid_icon(resolved_icon.as_ref(), show_invalid) {
         return None;
     }
 

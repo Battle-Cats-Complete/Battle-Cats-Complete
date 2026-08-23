@@ -53,6 +53,12 @@ const EMPTY_CAT_ICON: &str = "uni.png";
 const ICON_BOX_WIDTH: f32 = 110.0;
 const ICON_BOX_HEIGHT: f32 = 96.0;
 
+pub(crate) struct CatChanges<'a> {
+    pub(crate) images: &'a HashSet<u32>,
+    pub(crate) stats: &'a HashSet<u32>,
+    pub(crate) items: &'a HashSet<u32>,
+}
+
 type StatsMemo = RefCell<Option<(u32, Option<Arc<Vec<Entity>>>)>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,19 +245,46 @@ impl State {
         stats
     }
 
-    pub(crate) fn invalidate_assets(&mut self, units: &HashSet<u32>, items: &HashSet<u32>) {
+    pub(crate) fn invalidate_assets(&mut self, changed: &CatChanges<'_>, vault: &Vault, config: &ScannerConfig) {
         self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
 
-        for id in units {
+        for id in changed.images {
             self.list.forget(*id);
         }
 
-        for id in items {
+        let mut dropped: Vec<u32> = Vec::new();
+        let mut restored: Vec<CatEntry> = Vec::new();
+
+        for id in changed.images.union(changed.stats).copied() {
+            let Some(entry) = self.data.cats.iter_mut().find(|entry| entry.id == id) else {
+                restored.extend(scanner::scan_single(id, vault, config));
+                continue;
+            };
+
+            if !scanner::revalidate(&vault.vfs, entry, config) {
+                dropped.push(id);
+            }
+        }
+
+        if !dropped.is_empty() {
+            info!(count = dropped.len(), "Dropping cats that no longer have listable data");
+            self.data.cats.retain(|entry| !dropped.contains(&entry.id));
+        }
+
+        for entry in restored {
+            info!(id = entry.id, "Restoring a cat that became listable again");
+
+            let at = self.data.cats.partition_point(|existing| existing.id < entry.id);
+            self.data.cats.insert(at, entry);
+        }
+
+        for id in changed.items {
             self.details.forget(*id as i32);
         }
 
         self.header_icon_cache.borrow_mut().clear();
+        self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
     }
 
     pub(crate) fn reload_selected(&mut self, vault: &Vault, config: &ScannerConfig) {

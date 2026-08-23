@@ -17,6 +17,7 @@ use kore::common::assets;
 use crate::app::theme;
 use crate::common::row_window::{self, RowWindow};
 use crate::common::udi_loader::{self, Composite, Dispatcher, LoadRequest, LoadResult};
+use crate::editor::{self, Target};
 use crate::widget::{roster_row, smooth_scroll};
 
 const BANNER_ASPECT: f32 = 318.0 / 133.0;
@@ -63,6 +64,10 @@ pub(crate) trait Roster {
     fn matches_query(entry: &Self::Entry, query: &str) -> bool;
 
     fn tooltip<'a>(entry: &Self::Entry) -> Element<'a, Message>;
+
+    fn target(_entry: &Self::Entry) -> Option<Target> {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -93,6 +98,7 @@ pub(crate) struct State<R: Roster> {
     last_unit_count: usize,
     last_filter_state: R::Filter,
     cached_indices: Vec<usize>,
+    dirty: bool,
     scroll_offset: f32,
     last_focus_row: usize,
     generation: u64,
@@ -126,6 +132,7 @@ impl<R: Roster> Default for State<R> {
             last_unit_count: usize::MAX,
             last_filter_state: R::Filter::default(),
             cached_indices: Vec::new(),
+            dirty: false,
             scroll_offset: 0.0,
             last_focus_row: 0,
             generation: 0,
@@ -191,6 +198,7 @@ impl<R: Roster> State<R> {
 
         self.missing_ids.remove(&id);
         self.pending_requests.remove(&id);
+        self.dirty = true;
     }
 
     pub(crate) fn invalidate(&mut self) {
@@ -202,7 +210,19 @@ impl<R: Roster> State<R> {
     }
 
     pub(crate) fn refresh(&mut self, entries: &[R::Entry], query: &str, filter_state: &R::Filter) {
-        if query == self.last_search_query && entries.len() == self.last_unit_count && filter_state == &self.last_filter_state {
+        let listing = query != self.last_search_query
+            || entries.len() != self.last_unit_count
+            || filter_state != &self.last_filter_state;
+
+        if !listing && !self.dirty {
+            return;
+        }
+
+        self.dirty = false;
+
+        if !listing {
+            self.dispatch_requests(entries);
+
             return;
         }
 
@@ -246,6 +266,7 @@ impl<R: Roster> State<R> {
             }
 
             let Some(path) = R::image_path(entry) else {
+                self.stale.remove(&id);
                 self.missing_ids.insert(id);
                 continue;
             };
@@ -307,6 +328,11 @@ impl<R: Roster> State<R> {
             .cloned()
             .unwrap_or_else(|| self.placeholder.clone());
 
-        roster_row(handle, is_selected, Message::Select(id), R::tooltip(entry))
+        let row = roster_row(handle, is_selected, Message::Select(id), R::tooltip(entry));
+
+        match R::target(entry) {
+            Some(marker) => editor::target(row, marker),
+            None => row,
+        }
     }
 }

@@ -8,6 +8,7 @@ use kore::domains::enemy::filter::EnemyFilterState;
 use kore::domains::enemy::scanner::EnemyEntry;
 
 use crate::common::udi_loader::Composite;
+use crate::editor::Target;
 use crate::widget::roster_list::{self, Roster};
 
 const ENEMY_ICON_SCALE_FACTOR: f32 = 2.6;
@@ -34,6 +35,10 @@ impl Roster for EnemyRoster {
 
     fn image_path(entry: &EnemyEntry) -> Option<PathBuf> {
         entry.icon_path.clone()
+    }
+
+    fn target(entry: &EnemyEntry) -> Option<Target> {
+        Some(Target::EnemyRow(entry.id))
     }
 
     fn passes_filter(entry: &EnemyEntry, filter: &EnemyFilterState) -> bool {

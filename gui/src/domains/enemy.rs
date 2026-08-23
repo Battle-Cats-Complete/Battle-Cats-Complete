@@ -191,15 +191,40 @@ impl EnemyState {
         stats
     }
 
-    pub(crate) fn invalidate_assets(&mut self, enemies: &HashSet<u32>) {
+    pub(crate) fn invalidate_assets(&mut self, enemies: &HashSet<u32>, vault: &Vault, show_invalid: bool) {
         self.dynamic_stats.replace(None);
         self.animation.invalidate_paths();
 
-        for id in enemies {
-            self.list.forget(*id);
+        let mut dropped: Vec<u32> = Vec::new();
+        let mut restored: Vec<EnemyEntry> = Vec::new();
+
+        for id in enemies.iter().copied() {
+            self.list.forget(id);
+
+            let Some(entry) = self.data.enemies.iter_mut().find(|entry| entry.id == id) else {
+                restored.extend(scanner::scan_single(id, vault, show_invalid));
+                continue;
+            };
+
+            if !scanner::revalidate(&vault.vfs, entry, show_invalid) {
+                dropped.push(id);
+            }
+        }
+
+        if !dropped.is_empty() {
+            info!(count = dropped.len(), "Dropping enemies that no longer have a listable icon");
+            self.data.enemies.retain(|entry| !dropped.contains(&entry.id));
+        }
+
+        for entry in restored {
+            info!(id = entry.id, "Restoring an enemy that became listable again");
+
+            let at = self.data.enemies.partition_point(|existing| existing.id < entry.id);
+            self.data.enemies.insert(at, entry);
         }
 
         self.header_icon_cache.borrow_mut().clear();
+        self.list.refresh(&self.data.enemies, &self.search_query, &self.filter.filter_state);
     }
 
     pub(crate) fn reload_selected(&mut self, vault: &Vault, show_invalid: bool) {
