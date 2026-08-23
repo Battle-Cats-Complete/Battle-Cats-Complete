@@ -40,7 +40,7 @@ fn variant(filename: &str, code: &str) -> Option<String> {
         return Some(filename.to_string());
     }
 
-    if form_excluded(filename) {
+    if unlocalized(filename) {
         return None;
     }
 
@@ -59,7 +59,7 @@ fn suffixed(filename: &str, code: &str) -> Option<String> {
     Some(format!("{}_{}.{}", stem, code, extension))
 }
 
-fn form_excluded(filename: &str) -> bool {
+fn unlocalized(filename: &str) -> bool {
     let Some(stem) = Path::new(filename).file_stem().and_then(OsStr::to_str) else {
         return false;
     };

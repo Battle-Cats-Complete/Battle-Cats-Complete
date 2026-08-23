@@ -134,7 +134,7 @@ impl State {
         let target = self.rows.get(index)?;
 
         if mode == Mode::Flat {
-            return vfs.locate_in(mount, target.name.as_ref()).map(|path| (target.folder, path));
+            return vfs.stored(mount, target.name.as_ref()).map(|path| (target.folder, path));
         }
 
         self.path_of(index).map(|path| (target.folder, path))
@@ -348,7 +348,7 @@ impl Flatten<'_> {
         for folder in listing.folders {
             let path = dir.join(folder.as_ref());
 
-            if !self.vfs.any_file(self.mount, &path, |name| matches(name, query)) {
+            if !self.vfs.any(self.mount, &path, |name| matches(name, query)) {
                 continue;
             }
 

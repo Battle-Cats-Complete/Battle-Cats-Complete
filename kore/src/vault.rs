@@ -49,7 +49,7 @@ impl Vault {
         self.vfs.evict(key);
         self.vds.evict(key);
 
-        if let Some(base) = self.vfs.base_name(key) {
+        if let Some(base) = self.vfs.stripped(key) {
             self.vfs.evict(&base);
             self.vds.evict(&base);
         }
@@ -59,7 +59,7 @@ impl Vault {
         let expanded: Vec<Box<str>> = keys
             .iter()
             .flat_map(|key| {
-                let base = self.vfs.base_name(key).map(Box::<str>::from);
+                let base = self.vfs.stripped(key).map(Box::<str>::from);
                 iter::once(key.clone()).chain(base)
             })
             .collect();

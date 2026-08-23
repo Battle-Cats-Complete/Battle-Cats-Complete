@@ -91,7 +91,7 @@ fn asset_files(app: &BattleCatsApp, base: &str) -> Vec<AssetFile> {
         .into_iter()
         .zip(copies)
         .map(|(name, mod_copy)| {
-            let game = app.vault.vfs.rooted_in(architecture::GAME, &name);
+            let game = app.vault.vfs.rooted(architecture::GAME, &name);
 
             AssetFile { name, game, mod_copy }
         })
@@ -129,7 +129,7 @@ fn exceptions(app: &BattleCatsApp, wanted: Vec<String>) -> Vec<Exception> {
 
     let internal: Vec<String> = visible
         .iter()
-        .map(|name| app.vault.vfs.base_name(name).unwrap_or_else(|| name.clone()))
+        .map(|name| app.vault.vfs.stripped(name).unwrap_or_else(|| name.clone()))
         .collect();
 
     let groups: Vec<Vec<String>> = internal.iter().map(|name| app.vault.vfs.variants(name)).collect();
@@ -148,7 +148,7 @@ fn exceptions(app: &BattleCatsApp, wanted: Vec<String>) -> Vec<Exception> {
             let variants: Vec<AssetFile> = group
                 .into_iter()
                 .map(|name| AssetFile {
-                    game: app.vault.vfs.rooted_in(architecture::GAME, &name),
+                    game: app.vault.vfs.rooted(architecture::GAME, &name),
                     mod_copy: located.get(&name).cloned(),
                     name,
                 })
@@ -157,7 +157,7 @@ fn exceptions(app: &BattleCatsApp, wanted: Vec<String>) -> Vec<Exception> {
             let vanilla = app
                 .vault
                 .vfs
-                .rooted_in(architecture::GAME, &seen)
+                .rooted(architecture::GAME, &seen)
                 .or_else(|| variants.iter().find_map(|file| file.game.clone()));
 
             Exception { mod_copy: located.get(&internal).cloned(), variants, vanilla, internal }
@@ -1119,7 +1119,7 @@ fn cat_target(app: &BattleCatsApp, id: u32) -> Option<CatTarget> {
     }
 
     let file = cat_files::stats_file(id);
-    let source = app.vault.vfs.rooted_in(architecture::GAME, &file)?;
+    let source = app.vault.vfs.rooted(architecture::GAME, &file)?;
     let form = app.app_state.cat.selected_form;
 
     let mod_copy = mod_copy(app, &file);
@@ -1150,7 +1150,7 @@ fn enemy_subject(app: &BattleCatsApp) -> Option<EnemyTarget> {
 
     let id = app.app_state.enemy.selected_enemy?;
     let file = enemy_files::STATS.to_owned();
-    let source = app.vault.vfs.rooted_in(architecture::GAME, &file)?;
+    let source = app.vault.vfs.rooted(architecture::GAME, &file)?;
 
     let mod_copy = mod_copy(app, &file);
 
@@ -1258,7 +1258,7 @@ fn file_target(app: &BattleCatsApp, target: Option<Target>) -> Option<FileTarget
 
     let mod_copy = active_mod.as_deref().and_then(|active| mods::find(active, Path::new(&name)));
 
-    let game = app.vault.vfs.rooted_in(architecture::GAME, &name);
+    let game = app.vault.vfs.rooted(architecture::GAME, &name);
 
     Some(FileTarget {
         source,

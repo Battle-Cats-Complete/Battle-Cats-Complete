@@ -204,7 +204,7 @@ impl State {
         self.entered = true;
         self.body.invalidate();
 
-        let keys: Vec<String> = vfs.mount_keys().iter().map(|key| key.to_string()).collect();
+        let keys: Vec<String> = vfs.mounted().iter().map(|key| key.to_string()).collect();
 
         if keys != self.mounts {
             self.mounts = keys;

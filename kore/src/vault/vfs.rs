@@ -269,8 +269,8 @@ impl Vfs {
         };
 
         regional::interleaved(filenames, &order)
-            .find_map(|candidate| from_mods(&mounts, &candidate))
-            .or_else(|| regional::interleaved(filenames, &order).find_map(|candidate| from_game(&mounts, &candidate)))
+            .find_map(|candidate| modded(&mounts, &candidate))
+            .or_else(|| regional::interleaved(filenames, &order).find_map(|candidate| vanilla(&mounts, &candidate)))
     }
 
     fn collect(&self, filenames: &[&str]) -> Vec<PathBuf> {
@@ -282,23 +282,23 @@ impl Vfs {
             return Vec::new();
         };
 
-        let mut modded = Vec::new();
-        let mut vanilla = Vec::new();
+        let mut overrides = Vec::new();
+        let mut originals = Vec::new();
 
         for candidate in regional::interleaved(filenames, &order) {
-            if let Some(path) = from_mods(&mounts, &candidate) {
-                modded.push(path);
+            if let Some(path) = modded(&mounts, &candidate) {
+                overrides.push(path);
                 continue;
             }
 
-            if let Some(path) = from_game(&mounts, &candidate) {
-                vanilla.push(path);
+            if let Some(path) = vanilla(&mounts, &candidate) {
+                originals.push(path);
             }
         }
 
-        modded.append(&mut vanilla);
-        modded.dedup();
-        modded
+        overrides.append(&mut originals);
+        overrides.dedup();
+        overrides
     }
 
     pub fn load(&self, filename: &str) -> Option<Arc<[u8]>> {
@@ -327,7 +327,7 @@ impl Vfs {
         self.load(filename)
     }
 
-    pub fn base_name(&self, filename: &str) -> Option<String> {
+    pub fn stripped(&self, filename: &str) -> Option<String> {
         let order = self.priority.read().ok()?;
 
         regional::stripped(filename, &order)
@@ -356,7 +356,7 @@ impl Vfs {
             return Vec::new();
         };
 
-        let Some(relative) = relative_to(&indexed.root, path) else {
+        let Some(relative) = within(&indexed.root, path) else {
             return Vec::new();
         };
 
@@ -410,13 +410,13 @@ impl Vfs {
     }
 
     pub fn glob(&self, prefix: &str) -> Vec<Box<str>> {
-        let sorted = self.sorted_keys();
+        let sorted = self.catalog();
         let start = sorted.partition_point(|name| name.as_ref() < prefix);
 
         sorted[start..].iter().take_while(|name| name.starts_with(prefix)).cloned().collect()
     }
 
-    fn sorted_keys(&self) -> Arc<[MountKey]> {
+    fn catalog(&self) -> Arc<[MountKey]> {
         let generation = self.generation.load(Ordering::Relaxed);
 
         if let Ok(cached) = self.sorted.read()
@@ -453,7 +453,7 @@ impl Vfs {
         collisions
     }
 
-    pub fn mount_keys(&self) -> Vec<Box<str>> {
+    pub fn mounted(&self) -> Vec<Box<str>> {
         let Ok(mounts) = self.mounts.read() else {
             return Vec::new();
         };
@@ -471,7 +471,7 @@ impl Vfs {
         let mounts = self.mounts.read().ok()?;
         let indexed = mounts.get(mount)?;
 
-        relative_to(&indexed.root, path)
+        within(&indexed.root, path)
     }
 
     pub fn contains(&self, mount: &str, dir: &Path, name: &str) -> bool {
@@ -485,7 +485,7 @@ impl Vfs {
             .is_some_and(|names| names.iter().any(|entry| entry.as_ref() == name))
     }
 
-    pub fn any_file(&self, mount: &str, dir: &Path, keep: impl Fn(&str) -> bool) -> bool {
+    pub fn any(&self, mount: &str, dir: &Path, keep: impl Fn(&str) -> bool) -> bool {
         let Ok(mounts) = self.mounts.read() else {
             return false;
         };
@@ -499,13 +499,13 @@ impl Vfs {
         mounts.get(mount).map(|indexed| indexed.root.clone())
     }
 
-    pub fn locate_in(&self, mount: &str, name: &str) -> Option<PathBuf> {
+    pub fn stored(&self, mount: &str, name: &str) -> Option<PathBuf> {
         let mounts = self.mounts.read().ok()?;
 
         mounts.get(mount)?.files.get(name).map(|entry| entry.path.clone())
     }
 
-    pub fn rooted_in(&self, mount: &str, name: &str) -> Option<PathBuf> {
+    pub fn rooted(&self, mount: &str, name: &str) -> Option<PathBuf> {
         let mounts = self.mounts.read().ok()?;
         let indexed = mounts.get(mount)?;
 
@@ -623,7 +623,7 @@ impl Mount for &Path {
             return Err(VfsError::InvalidPath(self.to_path_buf()));
         };
 
-        if key == MOUNT_GAME && !is_canonical_game(self) {
+        if key == MOUNT_GAME && !canonical(self) {
             warn!(
                 path = %self.display(),
                 "refusing to index a directory claiming the reserved '{}' mount key",
@@ -671,7 +671,7 @@ impl Mount for (&str, &Path) {
             return Err(VfsError::UnknownMount(key.into()));
         };
 
-        let Some(relative) = relative_to(&mount.root, file) else {
+        let Some(relative) = within(&mount.root, file) else {
             return Err(VfsError::Unrooted { root: mount.root.clone(), path: file.to_path_buf() });
         };
 
@@ -684,7 +684,7 @@ impl Mount for (&str, &Path) {
                 listing.push(name.into());
             }
 
-            link_ancestors(mount, parent);
+            link(mount, parent);
         }
 
         mount.files.insert(name.into(), Entry { path: relative, mtime, len });
@@ -707,7 +707,7 @@ impl Mount for (&str, &Path) {
                 return;
             };
 
-            let Some(relative) = relative_to(&mount.root, file) else {
+            let Some(relative) = within(&mount.root, file) else {
                 return;
             };
 
@@ -742,7 +742,7 @@ fn descends(indexed: &MountedDir, dir: &Path, keep: &impl Fn(&str) -> bool) -> b
         .is_some_and(|names| names.iter().any(|name| descends(indexed, &dir.join(name.as_ref()), keep)))
 }
 
-fn link_ancestors(mount: &mut MountedDir, dir: &Path) {
+fn link(mount: &mut MountedDir, dir: &Path) {
     let mut current = Some(dir);
 
     while let Some(branch) = current {
@@ -764,7 +764,7 @@ fn link_ancestors(mount: &mut MountedDir, dir: &Path) {
     }
 }
 
-fn relative_to(root: &Path, file: &Path) -> Option<PathBuf> {
+fn within(root: &Path, file: &Path) -> Option<PathBuf> {
     if let Ok(relative) = file.strip_prefix(root) {
         return Some(relative.to_path_buf());
     }
@@ -779,23 +779,23 @@ fn relative_to(root: &Path, file: &Path) -> Option<PathBuf> {
 }
 
 fn resolve(mounts: &Index, name: &str) -> Option<PathBuf> {
-    from_mods(mounts, name).or_else(|| from_game(mounts, name))
+    modded(mounts, name).or_else(|| vanilla(mounts, name))
 }
 
-fn from_mods(mounts: &Index, name: &str) -> Option<PathBuf> {
+fn modded(mounts: &Index, name: &str) -> Option<PathBuf> {
     mounts
         .iter()
         .filter(|(key, _)| key.as_ref() != MOUNT_GAME)
         .find_map(|(_, mount)| mount.files.get(name).map(|entry| mount.root.join(&entry.path)))
 }
 
-fn from_game(mounts: &Index, name: &str) -> Option<PathBuf> {
+fn vanilla(mounts: &Index, name: &str) -> Option<PathBuf> {
     mounts
         .iter()
         .filter(|(key, _)| key.as_ref() == MOUNT_GAME)
         .find_map(|(_, mount)| mount.files.get(name).map(|entry| mount.root.join(&entry.path)))
 }
 
-fn is_canonical_game(path: &Path) -> bool {
+fn canonical(path: &Path) -> bool {
     path.components().count() == 1 && path.file_name() == Some(OsStr::new(MOUNT_GAME))
 }
