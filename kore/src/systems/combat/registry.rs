@@ -122,7 +122,7 @@ fn fmt_spawn_range(anchor: i32, span: i32) -> String {
 fn fmt_attack_timing(stats: &Entity) -> String {
     let attack_cooldown = fmt_time(stats.attack_cooldown);
 
-    if stats.attack_2 > 0 {
+    if stats.attack_2_damage > 0 {
         return format!("Attack cooldown {}", attack_cooldown);
     }
 
@@ -150,8 +150,8 @@ fn fmt_effective_range(stats: &Entity) -> String {
     if has_ld_or_omni {
         let hit_data = [
             (true, stats.long_distance_1_anchor, stats.long_distance_1_span, 1),
-            (stats.attack_2 > 0, stats.long_distance_2_anchor, stats.long_distance_2_span, stats.long_distance_2_flag),
-            (stats.attack_3 > 0, stats.long_distance_3_anchor, stats.long_distance_3_span, stats.long_distance_3_flag),
+            (stats.attack_2_damage > 0, stats.long_distance_2_anchor, stats.long_distance_2_span, stats.long_distance_2_flag),
+            (stats.attack_3_damage > 0, stats.long_distance_3_anchor, stats.long_distance_3_span, stats.long_distance_3_flag),
         ];
 
         for (is_active, anchor, span, flag) in hit_data {
@@ -192,7 +192,7 @@ fn fmt_multihit(stats: &Entity, magnification: Magnification) -> String {
 
     let ability_flag_1 = if stats.attack_1_abilities > 0 { "True" } else { "False" };
     let ability_flag_2 = if stats.attack_2_abilities > 0 { "True" } else { "False" };
-    let ability_flag_3 = if stats.attack_3 == 0 {
+    let ability_flag_3 = if stats.attack_3_damage == 0 {
         ""
     } else if stats.attack_3_abilities > 0 {
         " / True"
@@ -200,13 +200,13 @@ fn fmt_multihit(stats: &Entity, magnification: Magnification) -> String {
         " / False"
     };
 
-    let damage_string = if stats.attack_3 > 0 {
-        format!("{} / {} / {}", scale(stats.attack_1), scale(stats.attack_2), scale(stats.attack_3))
+    let damage_string = if stats.attack_3_damage > 0 {
+        format!("{} / {} / {}", scale(stats.attack_1_damage), scale(stats.attack_2_damage), scale(stats.attack_3_damage))
     } else {
-        format!("{} / {}", scale(stats.attack_1), scale(stats.attack_2))
+        format!("{} / {}", scale(stats.attack_1_damage), scale(stats.attack_2_damage))
     };
 
-    let timing_string = if stats.attack_3 > 0 {
+    let timing_string = if stats.attack_3_damage > 0 {
         format!("{} / {} / {}", fmt_time(stats.time_until_attack_1), fmt_time(stats.time_until_attack_2), fmt_time(stats.time_until_attack_3))
     } else {
         format!("{} / {}", fmt_time(stats.time_until_attack_1), fmt_time(stats.time_until_attack_2))
@@ -837,7 +837,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
                 "{}% Chance to Warp {}\n{} Range for {}",
                 finite(ctx.value),
                 ctx.target,
-                fmt_compress(ctx.stats.warp_distance_minimum, ctx.stats.warp_distance_maximum),
+                fmt_compress(ctx.stats.warp_distance_anchor, ctx.stats.warp_distance_span),
                 fmt_time(ctx.duration)
             ),
         },
@@ -1076,7 +1076,7 @@ impl<'a> StatContext<'a> {
         let magnification_factor = self.magnification.attack as f32 / 100.0;
         let scale = |damage: i32| (damage as f32 * magnification_factor).round() as i32;
 
-        scale(self.stats.attack_1) + scale(self.stats.attack_2) + scale(self.stats.attack_3)
+        scale(self.stats.attack_1_damage) + scale(self.stats.attack_2_damage) + scale(self.stats.attack_3_damage)
     }
 }
 

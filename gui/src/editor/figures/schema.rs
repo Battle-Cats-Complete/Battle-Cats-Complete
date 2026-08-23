@@ -86,7 +86,7 @@ impl Entry {
 
 const CAT_NAMES: &[(&str, &str)] = &[
     ("hitpoints", "Base Hitpoints"),
-    ("attack_1", "Attack 1 Base Damage"),
+    ("attack_1_damage", "Attack 1 Base Damage"),
     ("eoc1_cost", "EoC1 Cost"),
     ("trait_red", "Target Red"),
     ("trait_floating", "Target Floating"),
@@ -98,8 +98,8 @@ const CAT_NAMES: &[(&str, &str)] = &[
     ("trait_zombie", "Target Zombie"),
     ("is_metal", "Metal"),
     ("trait_witch", "Target Witch"),
-    ("attack_2", "Attack 2 Base Damage"),
-    ("attack_3", "Attack 3 Base Damage"),
+    ("attack_2_damage", "Attack 2 Base Damage"),
+    ("attack_3_damage", "Attack 3 Base Damage"),
     ("trait_eva", "Target Eva"),
     ("trait_relic", "Target Relic"),
     ("trait_aku", "Target Aku"),
@@ -107,9 +107,9 @@ const CAT_NAMES: &[(&str, &str)] = &[
 
 const ENEMY_NAMES: &[(&str, &str)] = &[
     ("hitpoints", "Base Hitpoints"),
-    ("attack_1", "Attack 1 Base Damage"),
-    ("attack_2", "Attack 2 Base Damage"),
-    ("attack_3", "Attack 3 Base Damage"),
+    ("attack_1_damage", "Attack 1 Base Damage"),
+    ("attack_2_damage", "Attack 2 Base Damage"),
+    ("attack_3_damage", "Attack 3 Base Damage"),
 ];
 
 pub(crate) const FORMS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];

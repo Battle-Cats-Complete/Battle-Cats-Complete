@@ -81,7 +81,7 @@ impl State {
 
         let dmg_row = row![
             self.shared.raw_icon(img015::ICON_AREA_ATTACK, sheets),
-            text(format!("Damage {}\nRange {}", conjure_final.attack_1, conjure_final.standing_range)).size(DESCRIPTION_TEXT_SIZE)
+            text(format!("Damage {}\nRange {}", conjure_final.attack_1_damage, conjure_final.standing_range)).size(DESCRIPTION_TEXT_SIZE)
         ].spacing(ICON_TEXT_GAP).align_y(Alignment::Center);
 
         let (s_traits, s_h1, s_h2, s_b1, s_b2, s_footer) = collect_ability_data(&spirit_ctx);

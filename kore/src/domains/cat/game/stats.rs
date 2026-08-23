@@ -40,9 +40,9 @@ pub(crate) fn apply_level(base_stats: &Entity, curve: Option<&LevelCurve>, level
     let mut s = base_stats.clone();
     if let Some(c) = curve {
         s.hitpoints = c.calculate_stat(s.hitpoints, level);
-        s.attack_1 = c.calculate_stat(s.attack_1, level);
-        s.attack_2 = c.calculate_stat(s.attack_2, level);
-        s.attack_3 = c.calculate_stat(s.attack_3, level);
+        s.attack_1_damage = c.calculate_stat(s.attack_1_damage, level);
+        s.attack_2_damage = c.calculate_stat(s.attack_2_damage, level);
+        s.attack_3_damage = c.calculate_stat(s.attack_3_damage, level);
     }
     s
 }

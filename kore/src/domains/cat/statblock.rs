@@ -135,7 +135,7 @@ fn build_spirit_data(ctx: &RenderContext<'_>) -> Option<SpiritData> {
     let (s_traits, s_h1, s_h2, s_b1, s_b2, s_footer) = collect_ability_data(&spirit_ctx);
 
     Some(SpiritData {
-        dmg_text: format!("Damage {}\nRange {}", conjure_final.attack_1, conjure_final.standing_range),
+        dmg_text: format!("Damage {}\nRange {}", conjure_final.attack_1_damage, conjure_final.standing_range),
         traits: s_traits,
         h1: s_h1,
         h2: s_h2,
