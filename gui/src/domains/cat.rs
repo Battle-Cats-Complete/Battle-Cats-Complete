@@ -978,7 +978,7 @@ impl State {
         let dynamic_stats = self.dynamic_stats(&global_ctx.vault.vfs, cat.id);
         let base_stats = dynamic_stats.as_ref().and_then(|v| v.get(self.selected_form));
 
-        self.talents.view(talents::ViewCtx {
+        let section = self.talents.view(talents::ViewCtx {
             cat_id: cat.id,
             talent_data,
             talent_levels: self.talent_levels.get(&cat.id),
@@ -992,7 +992,10 @@ impl State {
             img022_sheets: &self.img022_sheets,
             assets: &self.custom_assets,
             vfs: &global_ctx.vault.vfs,
-        }).map(Message::Talents)
+        }).map(Message::Talents);
+
+        editor::target(section, editor::Target::CatTalents)
+
     }
 
     fn view_details<'a>(&'a self, cat: &'a CatEntry, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {

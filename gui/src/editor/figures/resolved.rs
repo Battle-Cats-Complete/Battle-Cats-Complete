@@ -3,7 +3,7 @@ use std::fmt;
 use kore::domains::settings::EditorValues;
 
 use super::combat::{cats, enemies};
-use super::{schema::Subject, unitbuy, unitlevel};
+use super::{schema::Subject, talents, unitbuy, unitlevel};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Rule {
@@ -170,16 +170,17 @@ pub(super) fn note(subject: Subject, field: Option<&str>) -> Option<&'static str
     match subject {
         Subject::Cat => cats::note(field),
         Subject::Enemy => enemies::note(field),
-        Subject::Buy | Subject::Curve => None,
+        Subject::Buy | Subject::Curve | Subject::Talents => None,
     }
 }
 
-pub(super) fn rule(subject: Subject, field: Option<&str>) -> Rule {
+pub(super) fn rule(subject: Subject, index: usize, field: Option<&str>) -> Rule {
     match subject {
         Subject::Cat => lookup(field, cats::rule),
         Subject::Enemy => lookup(field, enemies::rule),
         Subject::Buy => lookup(field, unitbuy::rule),
         Subject::Curve => unitlevel::rule(),
+        Subject::Talents => talents::rule(index),
     }
 }
 
@@ -207,13 +208,13 @@ mod tests {
     #[test]
     fn no_scaled_column_is_a_flag() {
         for subject in SUBJECTS {
-            for entry in schema::of(subject).order() {
+            for (index, entry) in schema::of(subject).order().iter().enumerate() {
                 if !entry.scaled() {
                     continue;
                 }
 
                 assert_ne!(
-                    rule(subject, Some(entry.field)),
+                    rule(subject, index, Some(entry.field)),
                     Rule::Flag,
                     "{subject:?}: {} carries a nyanko Scale, so it is a magnitude and never a flag",
                     entry.field,

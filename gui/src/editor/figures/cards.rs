@@ -35,6 +35,7 @@ pub(super) fn grid_id(subject: Subject) -> Id {
         Subject::Enemy => "figures-grid-enemy",
         Subject::Buy => "figures-grid-buy",
         Subject::Curve => "figures-grid-curve",
+        Subject::Talents => "figures-grid-talents",
     })
 }
 
@@ -138,6 +139,27 @@ fn card(draft: &Draft, index: usize, dimmed: bool) -> Element<'_, Message> {
         .width(Length::Fixed(width))
         .padding(CARD_PADDING)
         .style(style)
+        .into()
+}
+
+pub(super) fn number(draft: &Draft, index: usize) -> Element<'_, Message> {
+    number_field(draft, index)
+}
+
+pub(super) fn options<'a, T>(
+    values: Vec<T>,
+    current: T,
+    picked: impl Fn(T) -> Message + 'a,
+) -> Element<'a, Message>
+where
+    T: ToString + PartialEq + Clone + 'a,
+{
+    pick_list(values, Some(current), picked)
+        .width(Length::Fill)
+        .padding(FIELD_INSET)
+        .text_size(INPUT_SIZE)
+        .style(theme::combo_box)
+        .menu_style(theme::combo_box_menu)
         .into()
 }
 

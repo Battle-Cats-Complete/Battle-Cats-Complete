@@ -2,6 +2,7 @@ mod cards;
 mod combat;
 mod resolved;
 mod schema;
+mod talents;
 mod unitbuy;
 mod unitlevel;
 
@@ -18,6 +19,7 @@ use tracing::warn;
 
 use kore::common::preview::{self, Stamp};
 use kore::domains::{mods, settings::EditorValues};
+use kore::Vfs;
 
 use crate::common::feedback::Slot;
 use crate::widget::popup;
@@ -31,6 +33,8 @@ const CAT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::CatAttributes, POPU
 const ENEMY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnemyAttributes, POPUP_SIZE);
 const BUY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::UnitBuy, POPUP_SIZE);
 const CURVE_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LevelCurve, POPUP_SIZE);
+const TALENT_SIZE: Size = Size::new(612.0, 420.0);
+const TALENT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Talents, TALENT_SIZE);
 
 fn spec(subject: Subject) -> popup::Spec {
     match subject {
@@ -38,6 +42,7 @@ fn spec(subject: Subject) -> popup::Spec {
         Subject::Enemy => ENEMY_POPUP,
         Subject::Buy => BUY_POPUP,
         Subject::Curve => CURVE_POPUP,
+        Subject::Talents => TALENT_POPUP,
     }
 }
 
@@ -147,15 +152,35 @@ pub enum Message {
     Changed(usize, String),
     Picked(usize, i32),
     Scrolled(f32),
+    Picker(Option<usize>),
     CommentChanged(String),
     SearchChanged(String),
     Sync,
     SyncExpired,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Address {
+    Line(usize),
+    Keyed(u32),
+}
+
+impl Address {
+    fn locate(self, lines: &[String], delimiter: char) -> Option<usize> {
+        match self {
+            Address::Line(row) => Some(row),
+            Address::Keyed(id) => lines.iter().position(|line| leading(line, delimiter) == Some(id)),
+        }
+    }
+}
+
+fn leading(line: &str, delimiter: char) -> Option<u32> {
+    line.split(delimiter).next()?.trim().parse().ok()
+}
+
 #[derive(Clone)]
 pub(crate) struct Plan {
-    row: usize,
+    address: Address,
     label: String,
     game: PathBuf,
     target_mod: Option<String>,
@@ -169,7 +194,7 @@ impl Plan {
     }
 
     fn matches(&self, other: &Plan) -> bool {
-        self.row == other.row
+        self.address == other.address
             && self.game == other.game
             && self.target_mod == other.target_mod
             && self.label == other.label
@@ -184,6 +209,17 @@ impl Plan {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct Frame<'a> {
+    width: f32,
+    query: &'a str,
+    armed: bool,
+    cap: Option<i32>,
+    names: &'a talents::Names,
+    vfs: &'a Vfs,
+    picker: Option<usize>,
+}
+
 #[derive(Default)]
 pub(super) struct State {
     draft: Option<Draft>,
@@ -191,10 +227,13 @@ pub(super) struct State {
     query: String,
     offset: f32,
     confirm: Slot<()>,
+    names: talents::Names,
+    picker: Option<usize>,
 }
 
 struct Draft {
     plan: Plan,
+    row: usize,
     read_from: PathBuf,
     stamp: Stamp,
     delimiter: char,
@@ -213,6 +252,7 @@ impl State {
     pub(super) fn begin(&mut self, plan: Plan, nudge: usize) {
         self.frame = popup::cascaded(nudge);
         self.offset = 0.0;
+        self.picker = None;
         self.draft = Draft::load(plan);
     }
 
@@ -277,6 +317,7 @@ impl State {
                 if self.frame.update(msg, spec) {
                     self.draft = None;
                     self.offset = 0.0;
+                    self.picker = None;
                     self.confirm.expire();
                 }
             }
@@ -286,10 +327,13 @@ impl State {
                 }
             }
             Message::Picked(index, raw) => {
+                self.picker = None;
+
                 if let Some(draft) = self.draft.as_mut() {
                     draft.pick(index, raw);
                 }
             }
+            Message::Picker(index) => self.picker = index,
             Message::Scrolled(offset) => self.offset = offset,
             Message::SearchChanged(query) => self.query = query,
             Message::CommentChanged(value) => {
@@ -312,19 +356,33 @@ impl State {
         Task::none()
     }
 
-    pub(super) fn view(&self, window: Size, cap: Option<i32>) -> Option<Element<'_, Message>> {
+    pub(super) fn view<'a>(
+        &'a self,
+        window: Size,
+        cap: Option<i32>,
+        vfs: &'a Vfs,
+    ) -> Option<Element<'a, Message>> {
         let draft = self.draft.as_ref()?;
         let spec = spec(draft.plan.subject());
         let width = self.frame.body_width(spec, window);
         let armed = self.confirm.is_set();
         let query = self.query.as_str();
+        let frame = Frame {
+            width,
+            query,
+            armed,
+            cap,
+            names: &self.names,
+            vfs,
+            picker: self.picker,
+        };
 
         Some(self.frame.view(
             &draft.plan.label,
             spec,
             window,
             Message::Popup,
-            move || draft.body(width, query, armed, cap),
+            move || draft.body(frame),
             None,
         ))
     }
@@ -348,10 +406,16 @@ impl Draft {
         let delimiter = file::detect_separator(&body);
         let lines: Vec<String> = body.lines().map(str::to_owned).collect();
 
-        let Some(raw) = lines.get(plan.row) else {
+        let Some(row) = plan.address.locate(&lines, delimiter) else {
+            warn!(path = %read_from.display(), rows = lines.len(), "Stats editor found no row for this subject");
+
+            return None;
+        };
+
+        let Some(raw) = lines.get(row) else {
             warn!(
                 path = %read_from.display(),
-                row = plan.row,
+                row,
                 rows = lines.len(),
                 "Stats editor found no row for this form"
             );
@@ -361,7 +425,7 @@ impl Draft {
 
         let Row { cells, written, stored, comment } = split_row(raw, delimiter, plan.schema);
         let rules: Vec<Rule> = (0..cells.len())
-            .map(|index| resolved::rule(plan.subject(), plan.schema.field(index)))
+            .map(|index| resolved::rule(plan.subject(), index, plan.schema.field(index)))
             .collect();
         let inputs = (0..cells.len())
             .map(|index| shown(plan.schema, index, cells[index], plan.values, rules[index]))
@@ -369,6 +433,7 @@ impl Draft {
 
         Some(Draft {
             plan,
+            row,
             read_from,
             stamp,
             delimiter,
@@ -474,9 +539,9 @@ impl Draft {
 
         let body = file::scrub(&bytes);
         let delimiter = file::detect_separator(&body);
-        let vanilla: Vec<&str> = body.lines().collect();
+        let vanilla: Vec<String> = body.lines().map(str::to_owned).collect();
 
-        let Some(raw) = vanilla.get(self.plan.row) else {
+        let Some(raw) = self.plan.address.locate(&vanilla, delimiter).and_then(|row| vanilla.get(row)) else {
             self.failed = true;
 
             return;
@@ -503,7 +568,7 @@ impl Draft {
         };
 
         let width = self.stored.max(self.touched);
-        let Some(slot) = self.lines.get_mut(self.plan.row) else {
+        let Some(slot) = self.lines.get_mut(self.row) else {
             self.failed = true;
 
             return;
@@ -589,6 +654,10 @@ impl Draft {
         self.plan.schema.index_of(field).and_then(|index| self.cells.get(index).copied())
     }
 
+    fn reads_at(&self, index: usize) -> Option<i32> {
+        self.cells.get(index).copied()
+    }
+
     fn len(&self) -> usize {
         self.cells.len()
     }
@@ -601,24 +670,27 @@ impl Draft {
         &self.comment
     }
 
-    fn body<'a>(&'a self, width: f32, query: &'a str, armed: bool, cap: Option<i32>) -> Element<'a, Message> {
+    fn body<'a>(&'a self, frame: Frame<'a>) -> Element<'a, Message> {
+        let Frame { width, query, armed, cap, names, vfs, picker } = frame;
+
         match self.plan.subject() {
             Subject::Cat | Subject::Enemy => combat::view(self, width, query, armed),
             Subject::Buy => unitbuy::view(self, width, query, armed),
             Subject::Curve => unitlevel::view(self, width, armed, cap),
+            Subject::Talents => talents::view(self, width, query, armed, names, vfs, picker),
         }
     }
 }
 
 pub(super) fn plan(
     subject: Subject,
-    row: usize,
+    address: Address,
     label: String,
     game: &Path,
     target_mod: Option<String>,
     values: EditorValues,
 ) -> Plan {
-    Plan { row, label, game: game.to_path_buf(), target_mod, schema: schema::of(subject), values }
+    Plan { address, label, game: game.to_path_buf(), target_mod, schema: schema::of(subject), values }
 }
 
 #[cfg(test)]
@@ -668,7 +740,7 @@ mod tests {
             panic!("nyanko no longer publishes boss_wave_immune");
         };
 
-        let rule = resolved::rule(Subject::Cat, schema.field(index));
+        let rule = resolved::rule(Subject::Cat, index, schema.field(index));
         assert_eq!(rule, Rule::Flag, "boss_wave_immune is a flag");
 
         assert_eq!(

@@ -120,7 +120,6 @@ impl Mount<'_> {
     }
 }
 
-#[allow(dead_code)]
 enum Primary<'a> {
     Replace,
     Cat(&'a CatTarget),
@@ -228,6 +227,18 @@ fn payloads(context: &Context) -> Vec<Payload<'_>> {
             scopes: target.asset.scopes(mount.target.is_some()),
             mount,
             primary: Primary::Level(target),
+            values: context.values,
+        });
+    }
+
+    for target in &context.assets {
+        let mount = mount(target.active_mod.as_deref(), target.unlocked);
+
+        payloads.push(Payload {
+            key: target.asset.key(),
+            scopes: target.asset.scopes(mount.target.is_some()),
+            mount,
+            primary: Primary::Unsupported(Verb::Edit),
             values: context.values,
         });
     }
@@ -512,11 +523,11 @@ fn present<'a>(mount: &Mount<'_>, mod_copy: Option<&'a Path>, game: Option<&'a P
 }
 
 pub(super) fn cat_plan(cat: &CatTarget, target_mod: Option<String>, values: EditorValues) -> figures::Plan {
-    figures::plan(figures::Subject::Cat, cat.form, cat.title(), &cat.source, target_mod, values)
+    figures::plan(figures::Subject::Cat, figures::Address::Line(cat.form), cat.title(), &cat.source, target_mod, values)
 }
 
 pub(super) fn enemy_plan(enemy: &EnemyTarget, target_mod: Option<String>, values: EditorValues) -> figures::Plan {
-    figures::plan(figures::Subject::Enemy, enemy.row, enemy.title(), &enemy.source, target_mod, values)
+    figures::plan(figures::Subject::Enemy, figures::Address::Line(enemy.row), enemy.title(), &enemy.source, target_mod, values)
 }
 
 pub(super) fn level_plan(
@@ -527,7 +538,7 @@ pub(super) fn level_plan(
 ) -> Option<figures::Plan> {
     let source = scope.source.or(scope.present)?;
 
-    Some(figures::plan(level.subject, level.row, level.label.clone(), source, target_mod, values))
+    Some(figures::plan(level.subject, level.address, level.label.clone(), source, target_mod, values))
 }
 
 fn files(items: &mut Vec<Item>, file: &FileTarget) {

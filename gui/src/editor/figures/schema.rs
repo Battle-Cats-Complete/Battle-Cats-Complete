@@ -17,12 +17,13 @@ pub enum Subject {
     Enemy,
     Buy,
     Curve,
+    Talents,
 }
 
-pub(crate) const COUNT: usize = 4;
+pub(crate) const COUNT: usize = 5;
 
 pub(crate) const SUBJECTS: [Subject; COUNT] =
-    [Subject::Cat, Subject::Enemy, Subject::Buy, Subject::Curve];
+    [Subject::Cat, Subject::Enemy, Subject::Buy, Subject::Curve, Subject::Talents];
 
 impl Subject {
     pub(crate) fn slot(self) -> usize {
@@ -31,13 +32,14 @@ impl Subject {
             Subject::Enemy => 1,
             Subject::Buy => 2,
             Subject::Curve => 3,
+            Subject::Talents => 4,
         }
     }
 
     pub(crate) fn page(self) -> Page {
         match self {
             Subject::Enemy => Page::Enemies,
-            Subject::Cat | Subject::Buy | Subject::Curve => Page::Cats,
+            Subject::Cat | Subject::Buy | Subject::Curve | Subject::Talents => Page::Cats,
         }
     }
 }
@@ -55,16 +57,62 @@ pub(super) static BUY: Schema = Schema { subject: Subject::Buy, comments: false 
 
 pub(super) static CURVE: Schema = Schema { subject: Subject::Curve, comments: false };
 
+pub(super) static TALENTS: Schema = Schema { subject: Subject::Talents, comments: false };
+
 pub(super) fn of(subject: Subject) -> &'static Schema {
     match subject {
         Subject::Cat => &CAT,
         Subject::Enemy => &ENEMY,
         Subject::Buy => &BUY,
         Subject::Curve => &CURVE,
+        Subject::Talents => &TALENTS,
     }
 }
 
 pub(super) const BRACKET: usize = 10;
+
+pub(super) const TALENT_HEAD: usize = 2;
+pub(super) const TALENT_STRIDE: usize = 14;
+pub(super) const TALENT_SLOTS: usize = 8;
+
+const TALENT_WIDTH: usize = TALENT_HEAD + TALENT_STRIDE * TALENT_SLOTS;
+
+const TALENT_HEADINGS: [&str; TALENT_HEAD] = ["Unit ID", "Type ID"];
+
+const TALENT_FIELDS: [&str; TALENT_STRIDE] = [
+    "Ability ID",
+    "Max Level",
+    "Min 1",
+    "Max 1",
+    "Min 2",
+    "Max 2",
+    "Min 3",
+    "Max 3",
+    "Min 4",
+    "Max 4",
+    "Text ID",
+    "Cost ID",
+    "Name ID",
+    "Limit",
+];
+
+const NAME_ID: usize = 12;
+
+pub(super) fn slot_of(index: usize) -> Option<usize> {
+    index.checked_sub(TALENT_HEAD).map(|offset| offset / TALENT_STRIDE)
+}
+
+fn talent_label(index: usize) -> String {
+    let Some(offset) = index.checked_sub(TALENT_HEAD) else {
+        return TALENT_HEADINGS[index].to_owned();
+    };
+
+    let slot = offset / TALENT_STRIDE;
+    let field = TALENT_FIELDS[offset % TALENT_STRIDE];
+    let letter = char::from(b'A' + slot as u8);
+
+    format!("{field} ({letter})")
+}
 
 const BRACKETS: usize = 20;
 
@@ -183,7 +231,7 @@ impl Schema {
             Subject::Cat => &CAT_ORDER,
             Subject::Enemy => &ENEMY_ORDER,
             Subject::Buy => &BUY_ORDER,
-            Subject::Curve => &[],
+            Subject::Curve | Subject::Talents => &[],
         }
     }
 
@@ -202,11 +250,16 @@ impl Schema {
     pub(super) fn known(&self) -> usize {
         match self.subject {
             Subject::Curve => BRACKETS,
+            Subject::Talents => TALENT_WIDTH,
             _ => self.order().len(),
         }
     }
 
     pub(super) fn label(&self, index: usize) -> Cow<'static, str> {
+        if self.subject == Subject::Talents {
+            return Cow::Owned(talent_label(index));
+        }
+
         if self.subject == Subject::Curve {
             let first = (index * BRACKET + 1).max(FIRST_GROWTH_LEVEL);
 
@@ -253,6 +306,13 @@ impl Schema {
     }
 
     pub(super) fn fallback(&self, index: usize) -> i32 {
+        if self.subject == Subject::Talents {
+            return match slot_of(index) {
+                Some(_) if (index - TALENT_HEAD) % TALENT_STRIDE == NAME_ID => -1,
+                _ => 0,
+            };
+        }
+
         self.column(index).and_then(|column| i32::from_column(column.default)).unwrap_or(0)
     }
 }

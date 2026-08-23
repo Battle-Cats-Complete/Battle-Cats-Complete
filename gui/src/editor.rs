@@ -36,6 +36,7 @@ pub enum Target {
     EnemyRow(u32),
     CatLevels,
     CatForms,
+    CatTalents,
     CatAttributes,
     EnemyAttributes,
     CatIcon,
@@ -54,6 +55,7 @@ pub(crate) struct Context {
     enemies: Vec<EnemyTarget>,
     icon: Option<IconTarget>,
     banner: Option<BannerTarget>,
+    assets: Vec<AssetTarget>,
     prose: Vec<ProseTarget>,
     levels: Vec<LevelTarget>,
 }
@@ -62,7 +64,13 @@ struct LevelTarget {
     subject: figures::Subject,
     asset: Asset,
     label: String,
-    row: usize,
+    address: figures::Address,
+    unlocked: bool,
+    active_mod: Option<String>,
+}
+
+struct AssetTarget {
+    asset: Asset,
     unlocked: bool,
     active_mod: Option<String>,
 }
@@ -71,6 +79,11 @@ const LEVEL_FILES: [(figures::Subject, &str); 2] =
     [(figures::Subject::Buy, cat_files::UNIT_BUY), (figures::Subject::Curve, cat_files::UNIT_LEVEL)];
 
 const FORM_FILES: [(figures::Subject, &str); 1] = [(figures::Subject::Buy, cat_files::UNIT_BUY)];
+
+const TALENT_FILES: [(figures::Subject, &str); 1] =
+    [(figures::Subject::Talents, cat_files::SKILL_ACQUISITION)];
+
+const TALENT_ASSETS: [&str; 1] = [cat_files::SKILL_LEVEL];
 
 struct AssetFile {
     name: String,
@@ -329,7 +342,6 @@ impl Item {
         Self { label: label.into(), hint: Some(hint.into()), action: None, children: Vec::new(), confirm: false }
     }
 
-    #[allow(dead_code)]
     fn unsupported(label: impl Into<String>) -> Self {
         Self::disabled(label, UNSUPPORTED_NOTICE)
     }
@@ -540,7 +552,11 @@ impl State {
         }
     }
 
-    pub(crate) fn popup_view(&self, app: &BattleCatsApp, window: Size) -> Vec<Element<'_, Message>> {
+    pub(crate) fn popup_view<'a>(
+        &'a self,
+        app: &'a BattleCatsApp,
+        window: Size,
+    ) -> Vec<Element<'a, Message>> {
         let mut views: Vec<(u64, Element<'_, Message>)> = Vec::new();
         let cap = level_cap(app);
 
@@ -563,7 +579,7 @@ impl State {
 
             let slot = &self.figures[subject.slot()];
 
-            if let Some(view) = slot.view(window, cap) {
+            if let Some(view) = slot.view(window, cap, &app.vault.vfs) {
                 views.push((slot.raised(), view.map(move |inner| Message::Figures(subject, inner))));
             }
         }
@@ -791,8 +807,12 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
         enemies: enemy_payloads(app, reached(Target::EnemyAttributes)),
         icon: icon_target(app, icon_subject(app, target, broad)),
         banner: banner_subject(app, target, broad).and_then(|id| banner_target(app, id)),
+        assets: talent_assets(app, reached(Target::CatTalents)),
         prose: prose_payloads(app, target, broad),
-        levels: level_payloads(app, reached(Target::CatLevels), reached(Target::CatForms)),
+        levels: level_payloads(app, reached(Target::CatLevels), reached(Target::CatForms))
+            .into_iter()
+            .chain(talent_payloads(app, reached(Target::CatTalents)))
+            .collect(),
     }
 }
 
@@ -800,6 +820,7 @@ fn figures_tab(app: &BattleCatsApp, subject: figures::Subject) -> bool {
     match subject {
         figures::Subject::Cat => app.cat_state.selected_tab == DetailTab::Abilities,
         figures::Subject::Enemy => app.enemy_state.selected_tab == EnemyTab::Abilities,
+        figures::Subject::Talents => app.cat_state.selected_tab == DetailTab::Talents,
         figures::Subject::Buy | figures::Subject::Curve => true,
     }
 }
@@ -840,15 +861,44 @@ fn prose_payloads(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> V
 }
 
 fn level_payloads(app: &BattleCatsApp, levels: bool, forms: bool) -> Vec<LevelTarget> {
-    if app.current_page != Page::Cats {
-        return Vec::new();
-    }
-
     let files: &[(figures::Subject, &str)] = match (levels, forms) {
         (true, _) => &LEVEL_FILES,
         (false, true) => &FORM_FILES,
         (false, false) => return Vec::new(),
     };
+
+    roster_payloads(app, files)
+}
+
+fn talent_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
+    if !reached || !talented(app) {
+        return Vec::new();
+    }
+
+    roster_payloads(app, &TALENT_FILES)
+}
+
+fn talented(app: &BattleCatsApp) -> bool {
+    if !figures_tab(app, figures::Subject::Talents) {
+        return false;
+    }
+
+    app.app_state.cat.selected_cat.is_some_and(|id| {
+        app.cat_state.data.cats.iter().any(|cat| cat.id == id && cat.talent_data.is_some())
+    })
+}
+
+fn address(subject: figures::Subject, id: u32) -> figures::Address {
+    match subject {
+        figures::Subject::Talents => figures::Address::Keyed(id),
+        _ => figures::Address::Line(id as usize),
+    }
+}
+
+fn roster_payloads(app: &BattleCatsApp, files: &[(figures::Subject, &str)]) -> Vec<LevelTarget> {
+    if app.current_page != Page::Cats {
+        return Vec::new();
+    }
 
     let Some(id) = app.app_state.cat.selected_cat else {
         return Vec::new();
@@ -870,12 +920,44 @@ fn level_payloads(app: &BattleCatsApp, levels: bool, forms: bool) -> Vec<LevelTa
                 subject,
                 asset: Asset::Variants { key: name.to_owned(), files },
                 label: [label.as_str(), name].join(theme::HEADER_SEPARATOR),
-                row: id as usize,
+                address: address(subject, id),
                 unlocked: app.settings.files.unlock_game_mount,
                 active_mod: app.mods_state.active_mod(),
             })
         })
         .collect()
+}
+
+fn talent_assets(app: &BattleCatsApp, reached: bool) -> Vec<AssetTarget> {
+    if !reached || app.current_page != Page::Cats || !talented(app) {
+        return Vec::new();
+    }
+
+    let unlocked = app.settings.files.unlock_game_mount;
+    let active_mod = app.mods_state.active_mod();
+
+    let mut targets: Vec<AssetTarget> = TALENT_ASSETS
+        .into_iter()
+        .filter_map(|name| {
+            let files = asset_files(app, name);
+
+            if files.is_empty() {
+                return None;
+            }
+
+            Some(AssetTarget {
+                asset: Asset::Variants { key: name.to_owned(), files },
+                unlocked,
+                active_mod: active_mod.clone(),
+            })
+        })
+        .collect();
+
+    if let Some(described) = exception(app, cat_files::SKILL_DESCRIPTIONS.to_owned()) {
+        targets.push(AssetTarget { asset: Asset::Exception(described), unlocked, active_mod });
+    }
+
+    targets
 }
 
 fn level_cap(app: &BattleCatsApp) -> Option<i32> {
@@ -1235,8 +1317,13 @@ fn current_plan(app: &BattleCatsApp, subject: figures::Subject) -> Option<figure
 
             Some(registry::enemy_plan(&enemy, active, values))
         }
-        figures::Subject::Buy | figures::Subject::Curve => {
-            let target = level_payloads(app, true, false).into_iter().find(|level| level.subject == subject)?;
+        figures::Subject::Buy | figures::Subject::Curve | figures::Subject::Talents => {
+            let sources = match subject {
+                figures::Subject::Talents => talent_payloads(app, true),
+                _ => level_payloads(app, true, false),
+            };
+
+            let target = sources.into_iter().find(|level| level.subject == subject)?;
             let mount = target.active_mod.clone();
             let scopes = target.asset.scopes(mount.is_some());
 
