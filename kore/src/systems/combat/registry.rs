@@ -558,6 +558,13 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
                 attacks => format!("Unit disappears after {} attacks", attacks),
             },
         },
+        Identity::TimeBeforeDeath => AbilityDisplayDef {
+            name: "Time Before Death",
+            fallback: "TBDth",
+            icon: AbilityIcon::Custom(CustomIcon::DeathTimer),
+            group: DisplayGroup::Headline2,
+            formatter: |ctx| format!("Dies after {} when spawned", fmt_time(finite(ctx.value))),
+        },
         Identity::Stop => AbilityDisplayDef {
             name: "Stop",
             fallback: "Stop",

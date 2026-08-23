@@ -186,7 +186,12 @@ impl State {
                 Task::none()
             }
             Message::Import(msg) => self.import.update(msg, &mut self.data, settings).map(Message::Import),
-            Message::Export(msg) => self.export.update(msg, &mut self.data, settings).map(Message::Export),
+            Message::Export(msg) => {
+                if matches!(msg, export::Message::Open) {
+                    self.populate_export_metadata();
+                }
+                self.export.update(msg, &mut self.data, settings).map(Message::Export)
+            }
 
             Message::SearchChanged(query) => {
                 self.data.search_query = query;
@@ -213,7 +218,6 @@ impl State {
 
                 if is_edit {
                     self.update_metadata(MetadataField::Description, self.description.text());
-                    self.commit_metadata();
                 }
                 Task::none()
             }
@@ -380,6 +384,8 @@ impl State {
             MetadataField::Package => meta.package = value,
             MetadataField::Description => meta.description = value,
         }
+
+        self.commit_metadata();
     }
 
     fn commit_metadata(&mut self) {

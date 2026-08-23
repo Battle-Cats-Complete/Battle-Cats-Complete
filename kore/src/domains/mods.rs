@@ -226,7 +226,7 @@ impl ModMetadata {
 
     pub fn save<P: AsRef<Path>>(&self, mod_folder_path: P) -> Result<(), std::io::Error> {
         let root = mod_folder_path.as_ref();
-        let meta_path = locate(root, METADATA).unwrap_or_else(|| root.join(PATCH).join(METADATA));
+        let meta_path = locate(root, METADATA).unwrap_or_else(|| root.join(METADATA));
 
         if let Some(parent) = meta_path.parent()
             && !parent.exists()
