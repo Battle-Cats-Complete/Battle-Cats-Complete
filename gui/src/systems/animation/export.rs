@@ -10,7 +10,7 @@ use iced::widget::{button, column, container, pick_list, progress_bar, row, rule
 use iced::{task, Alignment, Element, Length, Size, Task, Theme};
 use tracing::trace;
 
-use nyanko::graphics::rig::Animation;
+use nyanko::graphics::rig::{Animation, BoundingBox};
 
 use kore::systems::addons::paths::{self, Presence};
 use kore::systems::animation::export::{find_loop, leader, process, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
@@ -263,6 +263,7 @@ pub enum Message {
     Encoder(JobKey, EncoderStatus),
     SetCamera,
     UseBounds,
+    BoundsCalculated(Option<BoundingBox>),
     FindLoop,
     AbortLoopSearch,
     LoopSearch(JobKey, LoopStatus),
@@ -816,44 +817,55 @@ impl State {
             }
             Message::SetCamera => {}
             Message::UseBounds => {
-                let tolerance = if settings.animation.use_tight_bounds { 1.0 } else { 0.0 };
-                let mut calculated = false;
+                let Some(unit) = data.held_unit.clone() else {
+                    return Task::none();
+                };
 
-                if let Some(unit) = &data.held_unit {
+                let tolerance = if settings.animation.use_tight_bounds { 1.0 } else { 0.0 };
+                let export_mode = self.exporter.export_mode.clone();
+                let current_anim = data.current_anim.clone();
+                let available_anims = data.available_anims.clone();
+
+                let (tx, rx) = unbounded();
+
+                thread::spawn(move || {
                     let mut showcase_clips = Vec::new();
                     let mut anim_refs: Vec<&Animation> = Vec::new();
 
-                    if self.exporter.export_mode == ExportMode::Showcase {
+                    if export_mode == ExportMode::Showcase {
                         for slot in [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB] {
-                            if let Some((_, path)) = data.available_anims.iter().find(|(idx, _)| *idx == slot)
+                            if let Some((_, path)) = available_anims.iter().find(|(idx, _)| *idx == slot)
                                 && let Ok(bytes) = fs::read(path)
                                 && let Ok(anim) = Animation::parse(&bytes) {
                                 showcase_clips.push(anim);
                             }
                         }
                         anim_refs.extend(showcase_clips.iter());
-                    } else if let Some(anim) = &data.current_anim {
+                    } else if let Some(anim) = &current_anim {
                         anim_refs.push(anim.as_ref());
                     }
 
-                    if !anim_refs.is_empty()
-                        && let Some(bounds) = unit.calculate_bounds(&anim_refs, tolerance) {
-                        self.exporter.region_x = bounds.min_x;
-                        self.exporter.region_y = bounds.min_y;
-                        self.exporter.region_w = bounds.width();
-                        self.exporter.region_h = bounds.height();
-                        self.exporter.zoom = 1.0;
-                        calculated = true;
-                    }
-                }
+                    let bounds =
+                        (!anim_refs.is_empty()).then(|| unit.calculate_bounds(&anim_refs, tolerance)).flatten();
+                    let _ = tx.unbounded_send(bounds);
+                });
 
-                if !calculated {
+                return Task::stream(rx).map(Message::BoundsCalculated);
+            }
+            Message::BoundsCalculated(bounds) => {
+                if let Some(bounds) = bounds {
+                    self.exporter.region_x = bounds.min_x;
+                    self.exporter.region_y = bounds.min_y;
+                    self.exporter.region_w = bounds.width();
+                    self.exporter.region_h = bounds.height();
+                } else {
                     self.exporter.region_x = 0.0;
                     self.exporter.region_y = 0.0;
                     self.exporter.region_w = 0.0;
                     self.exporter.region_h = 0.0;
-                    self.exporter.zoom = 1.0;
                 }
+
+                self.exporter.zoom = 1.0;
             }
         }
 

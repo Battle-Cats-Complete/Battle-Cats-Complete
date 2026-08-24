@@ -372,8 +372,24 @@ fn story_map_ids(vfs: &Vfs, prefix: &str) -> BTreeSet<u32> {
         .collect()
 }
 
+fn stage_prefixes(category: &Category) -> Vec<String> {
+    let mut prefixes = category.stage_prefix();
+
+    if let Category::Unknown(prefix) = category
+        && !prefix.to_uppercase().starts_with('R')
+    {
+        let restricted = format!("R{prefix}");
+
+        if !prefixes.iter().any(|candidate| candidate.eq_ignore_ascii_case(&restricted)) {
+            prefixes.push(restricted);
+        }
+    }
+
+    prefixes
+}
+
 fn invasion_battleground(globs: &Globs<'_>, category: &Category, map_id: u32) -> Option<Box<str>> {
-    for prefix in category.stage_prefix() {
+    for prefix in stage_prefixes(category) {
         if prefix.is_empty() {
             continue;
         }
@@ -407,7 +423,7 @@ fn invasion_battleground(globs: &Globs<'_>, category: &Category, map_id: u32) ->
 fn battlegrounds(globs: &Globs<'_>, category: &Category, map_id: u32) -> Vec<(u32, Box<str>)> {
     let mut found: Vec<(u32, Box<str>)> = Vec::new();
 
-    for prefix in category.stage_prefix() {
+    for prefix in stage_prefixes(category) {
         if prefix.is_empty() {
             let names = globs.get(STAGE);
 
@@ -901,5 +917,31 @@ fn build_base_stage(
         charagroup: current_charagroup,
         fixed_lineups: loaded_fixed_lineups,
         ..Default::default()
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::stage_prefixes;
+    use nyanko::chapter::Category;
+
+    #[test]
+    fn an_unknown_category_gets_the_restricted_variant_added() {
+        let category = Category::Unknown("PR".to_string());
+
+        assert_eq!(stage_prefixes(&category), vec!["PR".to_string(), "RPR".to_string()]);
+    }
+
+    #[test]
+    fn an_unknown_category_already_carrying_r_is_left_alone() {
+        let category = Category::Unknown("RPR".to_string());
+
+        assert_eq!(stage_prefixes(&category), category.stage_prefix());
+    }
+
+    #[test]
+    fn a_named_category_is_left_exactly_as_nyanko_declares_it() {
+        let category = Category::TowersAndCitadels;
+
+        assert_eq!(stage_prefixes(&category), category.stage_prefix());
     }
 }
