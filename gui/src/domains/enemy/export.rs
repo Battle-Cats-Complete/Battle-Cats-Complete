@@ -26,5 +26,5 @@ pub(super) fn request(ctx: Ctx<'_>) -> Option<Request<'_>> {
         vault: ctx.vault,
     });
 
-    Some(Request { data, sheets: ctx.sheets, settings: ctx.settings, vfs: &ctx.global.vault.vfs })
+    Some(Request { data, sheets: ctx.sheets, settings: ctx.settings })
 }

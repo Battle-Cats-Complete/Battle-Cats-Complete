@@ -83,12 +83,20 @@ fn parsed<T, E>(vfs: &Vfs, filename: &str, parse: impl FnOnce(Arc<[u8]>) -> Resu
 }
 
 fn layered(vfs: &Vfs, filename: &str) -> Vec<Vec<u8>> {
+    named(vfs, filename).into_iter().map(|(_, bytes)| bytes).collect()
+}
+
+fn named(vfs: &Vfs, filename: &str) -> Vec<(String, Vec<u8>)> {
     vfs.list(filename)
         .iter()
         .filter_map(|path| {
-            fs::read(path)
+            let bytes = fs::read(path)
                 .inspect_err(|err| warn!(path = %path.display(), "vds layered read failed: {}", err))
-                .ok()
+                .ok()?;
+
+            let name = path.file_name()?.to_string_lossy().into_owned();
+
+            Some((name, bytes))
         })
         .collect()
 }

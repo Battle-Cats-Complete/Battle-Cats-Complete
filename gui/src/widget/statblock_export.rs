@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 
 use arboard::{Clipboard, ImageData};
 use image::RgbaImage;
@@ -8,9 +7,9 @@ use iced::widget::{button, column};
 use iced::{Background, Border, Color, Element, Length, Task, Theme};
 use tracing::{error, warn};
 
+use kore::common::formats::SpriteSheet as CoreSpriteSheet;
 use kore::domains::settings::Settings;
 use kore::systems::statblock::{self, StatblockData};
-use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::feedback::Slot;
@@ -71,7 +70,6 @@ pub(crate) struct Request<'a> {
     pub(crate) data: StatblockData,
     pub(crate) sheets: &'a [SpriteSheet],
     pub(crate) settings: &'a Settings,
-    pub(crate) vfs: &'a Vfs,
 }
 
 pub(crate) struct State {
@@ -126,18 +124,14 @@ impl State {
         let id_str = data.id_str.clone();
         let top_value = data.top_value.clone();
 
-        let mut cuts_map = HashMap::new();
-        for sheet in request.sheets.iter().rev() {
-            cuts_map.extend(sheet.core.cuts_map.clone());
-        }
+        let layers: Vec<CoreSpriteSheet> = request.sheets.iter().map(|sheet| sheet.core.clone()).collect();
         let priority = request.settings.general.language_priority.clone();
-        let sheet_path = request.vfs.find("img015.png");
         let kind = self.kind;
 
         self.pending = Some(action);
 
         Task::perform(async move {
-            let build_result = statblock::build_statblock_image(&priority, sheet_path.as_deref(), data, cuts_map);
+            let build_result = statblock::build_statblock_image(&priority, &layers, data);
 
             match action {
                 ExportAction::Copy => JobResult::Copy(build_result),

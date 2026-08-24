@@ -65,8 +65,10 @@ impl EnemyStore {
         super::cached(&self.descriptions, || {
             let mut merged: Vec<Vec<String>> = Vec::new();
 
-            for bytes in super::layered(vfs, ENEMY_PICTURE_BOOK) {
-                let Ok(parsed) = EnemyPictureBook::parse(bytes, None) else {
+            for (name, bytes) in super::named(vfs, ENEMY_PICTURE_BOOK) {
+                let separator = crate::common::region::text_separator(&name);
+
+                let Ok(parsed) = EnemyPictureBook::parse(bytes, Some(separator)) else {
                     continue;
                 };
 

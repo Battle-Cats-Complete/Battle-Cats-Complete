@@ -10,9 +10,9 @@ use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use imageproc::rect::Rect;
 use nyanko::combat::Identity;
 use nyanko::common::data::img015;
-use nyanko::graphics::rig::SpriteCut;
 
 use crate::common::assets;
+use crate::common::formats::SpriteSheet;
 use crate::systems::combat::{AbilityItem, CustomIcon};
 use crate::common::gfx::autocrop;
 
@@ -123,9 +123,8 @@ const RENDER_SCALE: i32 = 2;
 
 pub fn build_statblock_image(
     priority: &[String],
-    sheet_path: Option<&Path>,
+    layers: &[SpriteSheet],
     data: StatblockData,
-    cuts_map: HashMap<usize, SpriteCut>,
 ) -> Result<RgbaImage, String> {
     let scale = RENDER_SCALE;
     let scale_f = scale as f32;
@@ -277,10 +276,6 @@ pub fn build_statblock_image(
     let canvas_width = (max_needed_width.ceil() as i32) * scale;
     let mut target_image = RgbaImage::from_pixel(canvas_width as u32, 4000 * scale as u32, COLOR_BACKGROUND);
 
-    let mut img015_base = RgbaImage::new(1024, 1024);
-    if let Some(resolved_path) = sheet_path
-        && let Ok(loaded) = image::open(resolved_path) { img015_base = loaded.to_rgba8(); }
-
     let mut custom_assets = HashMap::new();
     for (variant, bytes) in assets::CUSTOM_ICON_DATA {
         if let Ok(loaded_img) = image::load_from_memory(bytes) {
@@ -408,7 +403,7 @@ pub fn build_statblock_image(
                 current_x = start_x;
                 current_y += icon_size + icon_gap_y;
             }
-            let icon_surface = get_icon_image(ability_item, &cuts_map, &img015_base, &custom_assets, icon_size as u32);
+            let icon_surface = get_icon_image(ability_item, layers, &custom_assets, icon_size as u32);
             image::imageops::overlay(canvas_image, &icon_surface, current_x as i64, current_y as i64);
             current_x += icon_size + icon_gap_x;
         }
@@ -438,7 +433,7 @@ pub fn build_statblock_image(
         if spirit_items.is_empty() { return start_y; }
         let mut current_x = start_x_absolute;
         for spirit_item in spirit_items {
-            let icon_surface = get_icon_image(spirit_item, &cuts_map, &img015_base, &custom_assets, icon_size as u32);
+            let icon_surface = get_icon_image(spirit_item, layers, &custom_assets, icon_size as u32);
             image::imageops::overlay(spirit_image, &icon_surface, current_x as i64, start_y as i64);
             current_x += icon_size + icon_gap_x;
         }
@@ -449,7 +444,7 @@ pub fn build_statblock_image(
         if spirit_items.is_empty() { return start_y; }
         let mut current_y = start_y;
         for (index, spirit_item) in spirit_items.iter().enumerate() {
-            let icon_surface = get_icon_image(spirit_item, &cuts_map, &img015_base, &custom_assets, icon_size as u32);
+            let icon_surface = get_icon_image(spirit_item, layers, &custom_assets, icon_size as u32);
             let icon_y = current_y + overflow_padding(&spirit_item.text);
             image::imageops::overlay(spirit_image, &icon_surface, start_x_absolute as i64, icon_y as i64);
 
@@ -501,7 +496,7 @@ pub fn build_statblock_image(
 
         let mut current_y_offset = card_inner_y + card_padding;
         let area_item = AbilityItem { identity: Identity::AreaAttack, icon_id: Some(img015::ICON_AREA_ATTACK), border_id: None, custom_icon: CustomIcon::None, text: String::new() };
-        let area_icon = get_icon_image(&area_item, &cuts_map, &img015_base, &custom_assets, icon_size as u32);
+        let area_icon = get_icon_image(&area_item, layers, &custom_assets, icon_size as u32);
         let area_icon_y = current_y_offset + overflow_padding(&spirit.dmg_text);
         image::imageops::overlay(canvas_image, &area_icon, start_x_absolute as i64, area_icon_y as i64);
 
@@ -531,7 +526,7 @@ pub fn build_statblock_image(
         if items.is_empty() { return start_y; }
         let mut current_y = start_y;
         for (index, item) in items.iter().enumerate() {
-            let icon_surface = get_icon_image(item, &cuts_map, &img015_base, &custom_assets, icon_size as u32);
+            let icon_surface = get_icon_image(item, layers, &custom_assets, icon_size as u32);
             let icon_y = current_y + overflow_padding(&item.text);
             image::imageops::overlay(canvas_image, &icon_surface, padding as i64, icon_y as i64);
 

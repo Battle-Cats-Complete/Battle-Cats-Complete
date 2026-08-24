@@ -26,7 +26,8 @@ pub(in crate::editor::figures) fn rule(field: &str) -> Option<Rule> {
         | "warp_immune" | "trait_eva" | "eva_killer" | "trait_relic" | "curse_immune" | "insanely_tough"
         | "insane_damage" | "toxic_immune" | "surge_immune" | "mini_wave_flag" | "trait_aku"
         | "colossus_slayer" | "soulstrike" | "long_distance_2_flag" | "long_distance_3_flag"
-        | "behemoth_slayer" | "mini_surge_flag" | "counter_surge" | "sage_slayer" | "explosion_immune" => Some(Rule::Flag),
+        | "behemoth_slayer" | "mini_surge_flag" | "counter_surge" | "sage_slayer" | "explosion_immune"
+        | "drain_immune" => Some(Rule::Flag),
 
         "knockback_chance" | "freeze_chance" | "slow_chance" | "critical_chance" | "wave_chance"
         | "weaken_chance" | "weaken_to" | "strengthen_threshold" | "survive" | "barrier_breaker_chance"

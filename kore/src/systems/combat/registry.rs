@@ -916,6 +916,13 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             group: DisplayGroup::Footer,
             formatter: |_| "Immune to Curse".into(),
         },
+        Identity::ImmuneDrain => AbilityDisplayDef {
+            name: "Immune Drain",
+            fallback: "NoDrn",
+            icon: AbilityIcon::Standard(img015::ICON_IMMUNE_DRAIN),
+            group: DisplayGroup::Footer,
+            formatter: |_| "Immune to Drain".into(),
+        },
         Identity::ImmuneWarp => AbilityDisplayDef {
             name: "Immune Warp",
             fallback: "NoWrp",
@@ -1251,14 +1258,14 @@ pub fn format_stat(definition: &StatsDef, ctx: &StatContext<'_>) -> String {
 mod tests {
     use nyanko::combat::REGISTRY;
 
-    use super::{get_display_def, AbilityIcon};
+    use super::get_display_def;
 
     #[test]
     fn every_registry_ability_has_a_display_def() {
         let unmapped: Vec<_> = REGISTRY
             .iter()
             .map(|ability| ability.identity)
-            .filter(|identity| get_display_def(*identity).icon == AbilityIcon::None)
+            .filter(|identity| get_display_def(*identity).name == "Unsupported")
             .collect();
 
         assert!(

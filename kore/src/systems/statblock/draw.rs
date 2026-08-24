@@ -4,8 +4,8 @@ use ab_glyph::{point, Font, PxScale, ScaleFont};
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size, Canvas};
 use imageproc::rect::Rect;
-use nyanko::graphics::rig::SpriteCut;
 
+use crate::common::formats::SpriteSheet;
 use crate::systems::combat::{AbilityItem, CustomIcon};
 
 const SUPERSCRIPT_SHRINK: f32 = 3.0;
@@ -157,26 +157,42 @@ fn unknown_icon(custom_assets: &HashMap<CustomIcon, RgbaImage>, export_size: u32
     custom_assets.get(&CustomIcon::Unknown).cloned().unwrap_or_else(|| RgbaImage::new(export_size, export_size))
 }
 
+/// Crops `icon_id` out of whichever layer actually defines it.
+///
+/// A sprite atlas and its cut coordinates are a matched pair — a mod overriding one
+/// necessarily overrides both together, since cut coordinates from one atlas image mean
+/// nothing against another. So this walks `layers` in priority order and, for each one,
+/// looks up `icon_id` and crops from *that same layer's* image, never mixing a coordinate
+/// from one layer with pixels from another. Falls through to the next layer when the
+/// current one lacks the id or the crop would run outside its image — mirroring
+/// `gui`'s live `ability_icon::Cache::handle`, which this must stay behaviorally identical
+/// to, or the exported statblock disagrees with what the app already shows on screen.
+fn cropped_from(layers: &[SpriteSheet], icon_id: usize) -> Option<RgbaImage> {
+    for layer in layers {
+        let Some(cut) = layer.cuts_map.get(&icon_id) else { continue };
+        let Some(image_data) = &layer.image_data else { continue };
+
+        let (px, py) = (cut.x.max(0) as u32, cut.y.max(0) as u32);
+        let (pw, ph) = (cut.width.max(0) as u32, cut.height.max(0) as u32);
+
+        if pw == 0 || ph == 0 || px + pw > image_data.width() || py + ph > image_data.height() {
+            continue;
+        }
+
+        return Some(image::imageops::crop_imm(image_data.as_ref(), px, py, pw, ph).to_image());
+    }
+
+    None
+}
+
 pub(super) fn get_icon_image(
-    item: &AbilityItem, cuts_map: &HashMap<usize, SpriteCut>,
-    img015_base: &RgbaImage, custom_assets: &HashMap<CustomIcon, RgbaImage>, export_size: u32,
+    item: &AbilityItem, layers: &[SpriteSheet],
+    custom_assets: &HashMap<CustomIcon, RgbaImage>, export_size: u32,
 ) -> RgbaImage {
     let mut icon = if item.custom_icon != CustomIcon::None {
         custom_assets.get(&item.custom_icon).cloned().unwrap_or_else(|| unknown_icon(custom_assets, export_size))
     } else if let Some(icon_id) = item.icon_id {
-        cuts_map.get(&icon_id).map_or_else(
-            || unknown_icon(custom_assets, export_size),
-            |cut| {
-                let (px, py) = (cut.x.max(0) as u32, cut.y.max(0) as u32);
-                let (pw, ph) = (cut.width.max(0) as u32, cut.height.max(0) as u32);
-
-                if px + pw <= img015_base.width() && py + ph <= img015_base.height() {
-                    image::imageops::crop_imm(img015_base, px, py, pw, ph).to_image()
-                } else {
-                    unknown_icon(custom_assets, export_size)
-                }
-            },
-        )
+        cropped_from(layers, icon_id).unwrap_or_else(|| unknown_icon(custom_assets, export_size))
     } else {
         unknown_icon(custom_assets, export_size)
     };
@@ -186,17 +202,11 @@ pub(super) fn get_icon_image(
     }
 
     if let Some(border_id) = item.border_id
-        && let Some(cut) = cuts_map.get(&border_id) {
-        let (px, py) = (cut.x.max(0) as u32, cut.y.max(0) as u32);
-        let (pw, ph) = (cut.width.max(0) as u32, cut.height.max(0) as u32);
-
-        if px + pw <= img015_base.width() && py + ph <= img015_base.height() {
-            let mut border = image::imageops::crop_imm(img015_base, px, py, pw, ph).to_image();
-            if border.width() != export_size || border.height() != export_size {
-                border = safe_resize(border, export_size, export_size);
-            }
-            image::imageops::overlay(&mut icon, &border, 0, 0);
+        && let Some(mut border) = cropped_from(layers, border_id) {
+        if border.width() != export_size || border.height() != export_size {
+            border = safe_resize(border, export_size, export_size);
         }
+        image::imageops::overlay(&mut icon, &border, 0, 0);
     }
     icon
 }
@@ -401,4 +411,84 @@ fn safe_resize(mut img: RgbaImage, width: u32, height: u32) -> RgbaImage {
         }
     }
     resized
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use image::{Rgba, RgbaImage};
+    use nyanko::graphics::rig::SpriteCut;
+
+    use super::cropped_from;
+    use crate::common::formats::SpriteSheet;
+
+    const ICON_ID: usize = 391;
+
+    fn solid(width: u32, height: u32, color: Rgba<u8>) -> RgbaImage {
+        RgbaImage::from_pixel(width, height, color)
+    }
+
+    fn cut(width: i32, height: i32) -> SpriteCut {
+        SpriteCut { x: 0, y: 0, width, height, name: String::new() }
+    }
+
+    fn layer(cuts: HashMap<usize, SpriteCut>, image: Option<RgbaImage>) -> SpriteSheet {
+        SpriteSheet { image_data: image.map(Arc::new), cuts_map: cuts, sheet_name: String::new() }
+    }
+
+    #[test]
+    fn a_cut_and_its_image_are_read_from_the_same_layer() {
+        let mod_layer = layer(HashMap::from([(ICON_ID, cut(4, 4))]), Some(solid(4, 4, Rgba([1, 0, 0, 255]))));
+        let base_layer = layer(HashMap::from([(ICON_ID, cut(4, 4))]), Some(solid(4, 4, Rgba([2, 0, 0, 255]))));
+
+        let cropped = cropped_from(&[mod_layer, base_layer], ICON_ID)
+            .expect("a matching cut and image exist in the top layer");
+
+        assert_eq!(cropped.get_pixel(0, 0), &Rgba([1, 0, 0, 255]), "the higher-priority layer must win");
+    }
+
+    #[test]
+    fn a_layer_with_no_cut_for_the_icon_falls_through() {
+        let mod_layer = layer(HashMap::new(), Some(solid(4, 4, Rgba([1, 0, 0, 255]))));
+        let base_layer = layer(HashMap::from([(ICON_ID, cut(4, 4))]), Some(solid(4, 4, Rgba([2, 0, 0, 255]))));
+
+        let cropped = cropped_from(&[mod_layer, base_layer], ICON_ID)
+            .expect("the base layer defines the icon even though the mod layer does not");
+
+        assert_eq!(cropped.get_pixel(0, 0), &Rgba([2, 0, 0, 255]));
+    }
+
+    #[test]
+    fn a_cut_that_does_not_fit_its_own_layers_image_falls_through_instead_of_reading_another_layer() {
+        let stale_layer = layer(HashMap::from([(ICON_ID, cut(64, 64))]), Some(solid(4, 4, Rgba([1, 0, 0, 255]))));
+        let good_layer = layer(HashMap::from([(ICON_ID, cut(4, 4))]), Some(solid(4, 4, Rgba([2, 0, 0, 255]))));
+
+        let cropped = cropped_from(&[stale_layer, good_layer], ICON_ID)
+            .expect("the second layer's matched cut and image must still be reachable");
+
+        assert_eq!(
+            cropped.get_pixel(0, 0), &Rgba([2, 0, 0, 255]),
+            "a coordinate that overruns its own layer's image must never be applied to a different layer's pixels",
+        );
+    }
+
+    #[test]
+    fn a_layer_missing_its_image_falls_through_even_when_it_has_the_cut() {
+        let loading_layer = layer(HashMap::from([(ICON_ID, cut(4, 4))]), None);
+        let settled_layer = layer(HashMap::from([(ICON_ID, cut(4, 4))]), Some(solid(4, 4, Rgba([2, 0, 0, 255]))));
+
+        let cropped = cropped_from(&[loading_layer, settled_layer], ICON_ID)
+            .expect("a settled lower layer must still be reachable");
+
+        assert_eq!(cropped.get_pixel(0, 0), &Rgba([2, 0, 0, 255]));
+    }
+
+    #[test]
+    fn no_layer_defining_the_icon_yields_none() {
+        let layer = layer(HashMap::new(), Some(solid(4, 4, Rgba([1, 0, 0, 255]))));
+
+        assert!(cropped_from(&[layer], ICON_ID).is_none());
+    }
 }
