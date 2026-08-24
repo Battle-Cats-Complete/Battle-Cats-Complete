@@ -83,6 +83,7 @@ impl BattleCatsApp {
         app.stage_state.restore_state(&app.app_state.stage);
         app.mods_state.restore_state(&app.app_state.mods);
         app.files_state.restore_state(&app.app_state.files);
+        app.help_state.restore_state(&app.app_state.help);
         popup::restore(&app.app_state.popups);
 
         if notice::should_show(&app.app_state.notice.acknowledged) {

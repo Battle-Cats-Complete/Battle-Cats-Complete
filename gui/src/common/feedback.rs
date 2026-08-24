@@ -15,6 +15,10 @@ pub const NIGHTLY_ONLY_NOTICE: &str = "Requires Nightly Features, enable it unde
 pub const LOCKED_NOTICE: &str =
     "Vanilla \"game\" mount is locked and cannot be written\nMake a Mod or unlock under Settings > Files > Editor";
 
+pub const NO_FILES_LABEL: &str = "No files available";
+
+pub const NO_FILES_NOTICE: &str = "Couldn't find any files within this Context Scope";
+
 pub struct Slot<T> {
     value: Option<T>,
     handle: Option<task::Handle>,

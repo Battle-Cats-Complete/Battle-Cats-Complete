@@ -156,17 +156,6 @@ pub(super) fn draw_bottom_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i
 fn unknown_icon(custom_assets: &HashMap<CustomIcon, RgbaImage>, export_size: u32) -> RgbaImage {
     custom_assets.get(&CustomIcon::Unknown).cloned().unwrap_or_else(|| RgbaImage::new(export_size, export_size))
 }
-
-/// Crops `icon_id` out of whichever layer actually defines it.
-///
-/// A sprite atlas and its cut coordinates are a matched pair — a mod overriding one
-/// necessarily overrides both together, since cut coordinates from one atlas image mean
-/// nothing against another. So this walks `layers` in priority order and, for each one,
-/// looks up `icon_id` and crops from *that same layer's* image, never mixing a coordinate
-/// from one layer with pixels from another. Falls through to the next layer when the
-/// current one lacks the id or the crop would run outside its image — mirroring
-/// `gui`'s live `ability_icon::Cache::handle`, which this must stay behaviorally identical
-/// to, or the exported statblock disagrees with what the app already shows on screen.
 fn cropped_from(layers: &[SpriteSheet], icon_id: usize) -> Option<RgbaImage> {
     for layer in layers {
         let Some(cut) = layer.cuts_map.get(&icon_id) else { continue };

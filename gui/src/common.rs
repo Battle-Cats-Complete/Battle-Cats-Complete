@@ -5,6 +5,7 @@ pub mod header_icon;
 pub mod img015;
 pub mod img022;
 pub mod item_icon;
+pub(crate) mod markdown;
 pub mod row_window;
 pub mod udi_loader;
 pub mod watcher;

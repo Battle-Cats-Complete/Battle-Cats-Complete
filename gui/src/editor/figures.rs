@@ -19,7 +19,7 @@ use nyanko::common::tools::file;
 use tracing::warn;
 
 use kore::common::preview::{self, Stamp};
-use kore::domains::{mods, settings::EditorValues};
+use kore::domains::{mods, settings::EditorMode};
 use kore::Vault;
 
 use crate::common::feedback::Slot;
@@ -118,7 +118,7 @@ fn vacant(plan: &Plan, delimiter: char) -> String {
     fields.join(&delimiter.to_string())
 }
 
-fn shown(schema: &schema::Schema, index: usize, raw: i32, values: EditorValues, rule: Rule) -> String {
+fn shown(schema: &schema::Schema, index: usize, raw: i32, values: EditorMode, rule: Rule) -> String {
     if raw == schema.fallback(index) {
         return String::new();
     }
@@ -225,7 +225,7 @@ pub(crate) struct Plan {
     game: PathBuf,
     target_mod: Option<String>,
     schema: &'static schema::Schema,
-    values: EditorValues,
+    values: EditorMode,
 }
 
 impl Plan {
@@ -327,11 +327,6 @@ impl State {
         self.draft.as_ref().is_some_and(|draft| preview::stamp(&draft.read_from) != Some(draft.stamp))
     }
 
-    /// Resolves whichever field is mid-buffer, as if it had just lost focus.
-    ///
-    /// Called from outside any `figures::Message` entirely, ahead of page navigation — the one
-    /// path a buffered edit can be abandoned through without ever producing a message this
-    /// popup's own `update` would see.
     pub(super) fn flush(&mut self) {
         if let Some(draft) = self.draft.as_mut() {
             draft.flush();
@@ -543,12 +538,6 @@ impl Draft {
 
         self.commit();
     }
-
-    /// Commits whichever field is mid-buffer, as if it had just lost focus.
-    ///
-    /// Called ahead of every message that is not another keystroke into the same buffered
-    /// field, so a buffered edit resolves on the next click, pick, tab switch, sync, or popup
-    /// close — without a dedicated confirm step.
     fn flush(&mut self) {
         let Some(index) = self.buffer.take() else {
             return;
@@ -569,7 +558,7 @@ impl Draft {
     }
 
     fn mirror(&self, index: usize) -> Option<usize> {
-        if self.plan.values != EditorValues::Resolved
+        if self.plan.values != EditorMode::Resolved
             || self.plan.subject() != Subject::Talents
         {
             return None;
@@ -804,7 +793,7 @@ impl Draft {
         self.plan.schema
     }
 
-    fn values(&self) -> EditorValues {
+    fn values(&self) -> EditorMode {
         self.plan.values
     }
 
@@ -821,7 +810,7 @@ impl Draft {
         let raw = self.cells.get(index).copied().unwrap_or_default();
 
         if let Some(gate) = rule.gate()
-            && self.plan.values == EditorValues::Resolved
+            && self.plan.values == EditorMode::Resolved
             && self.reads(gate.field) == Some(gate.blocked)
         {
             return Face::Disabled(gate.reason);
@@ -868,7 +857,7 @@ pub(super) fn plan(
     label: String,
     game: &Path,
     target_mod: Option<String>,
-    values: EditorValues,
+    values: EditorMode,
 ) -> Plan {
     Plan { address, label, game: game.to_path_buf(), target_mod, schema: schema::of(subject), values }
 }
@@ -878,7 +867,7 @@ mod tests {
     use std::path::Path;
 
     use kore::common::preview::Stamp;
-    use kore::domains::settings::EditorValues;
+    use kore::domains::settings::EditorMode;
 
     use super::resolved::{self, Rule};
     use super::schema::{self, Subject};
@@ -966,7 +955,7 @@ mod tests {
     #[test]
     fn resolved_leaves_a_value_it_cannot_represent_alone() {
         use super::resolved::{self, Face, Rule};
-        use kore::domains::settings::EditorValues;
+        use kore::domains::settings::EditorMode;
 
         let schema = schema::of(Subject::Cat);
         let Some(index) = schema.index_of("boss_wave_immune") else {
@@ -977,13 +966,13 @@ mod tests {
         assert_eq!(rule, Rule::Flag, "boss_wave_immune is a flag");
 
         assert_eq!(
-            rule.face(-1, EditorValues::Resolved),
+            rule.face(-1, EditorMode::Resolved),
             Face::Danger,
             "-1 is not a flag state, so Resolved must fall back to the raw card",
         );
 
         assert_eq!(
-            super::shown(schema, index, -1, EditorValues::Resolved, rule),
+            super::shown(schema, index, -1, EditorMode::Resolved, rule),
             "-1",
             "the unrepresentable value is shown literally, not blanked or coerced",
         );
@@ -1129,7 +1118,7 @@ mod tests {
             panic!("nyanko no longer publishes stage_unlock_requirement");
         };
 
-        let seed = plan(Subject::Buy, Address::Line(0), "test".to_owned(), &path, None, EditorValues::Resolved);
+        let seed = plan(Subject::Buy, Address::Line(0), "test".to_owned(), &path, None, EditorMode::Resolved);
         std::fs::write(&path, format!("{}\n", super::vacant(&seed, ',')))
             .expect("failed to seed the temp fixture file");
 
@@ -1160,7 +1149,7 @@ mod tests {
             panic!("nyanko no longer publishes stage_unlock_requirement");
         };
 
-        let seed = plan(Subject::Buy, Address::Line(0), "test".to_owned(), &path, None, EditorValues::Resolved);
+        let seed = plan(Subject::Buy, Address::Line(0), "test".to_owned(), &path, None, EditorMode::Resolved);
         std::fs::write(&path, format!("{}
 ", super::vacant(&seed, ',')))
             .expect("failed to seed the temp fixture file");
@@ -1210,7 +1199,7 @@ mod tests {
 
     fn draft_with(subject: Subject, cells: Vec<i32>, rules: Vec<Rule>) -> Draft {
         let width = cells.len();
-        let plan = plan(subject, Address::Line(0), "test".to_owned(), Path::new("test.csv"), None, EditorValues::Resolved);
+        let plan = plan(subject, Address::Line(0), "test".to_owned(), Path::new("test.csv"), None, EditorMode::Resolved);
 
         Draft {
             plan,

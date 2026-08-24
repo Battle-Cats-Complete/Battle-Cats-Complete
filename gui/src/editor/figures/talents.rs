@@ -12,7 +12,7 @@ use nyanko::combat::get_talent;
 use rustc_hash::FxHashMap;
 
 use kore::common::gfx::autocrop;
-use kore::domains::settings::EditorValues;
+use kore::domains::settings::EditorMode;
 use kore::systems::combat::registry::get_display_def;
 use kore::{Vault, Vfs};
 
@@ -131,7 +131,7 @@ fn columns() -> f32 {
 pub(super) fn view<'a>(draft: &'a Draft, frame: Frame<'a>) -> Element<'a, Message> {
     let Frame { width, query, armed, names, vault, picker, hunt, .. } = frame;
 
-    if draft.values() == EditorValues::Resolved {
+    if draft.values() == EditorMode::Resolved {
         return resolved(draft, width, armed, names, vault, picker, hunt);
     }
 

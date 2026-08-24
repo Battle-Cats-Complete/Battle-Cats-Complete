@@ -19,12 +19,12 @@ use kore::domains::enemy::files as enemy_files;
 use kore::domains::enemy::scanner::EnemyEntry;
 use kore::common::architecture;
 use kore::domains::mods;
-use kore::domains::settings::{ContextScope, EditorValues};
+use kore::domains::settings::{ContextScope, EditorMode};
 
 use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;
 use crate::domains::enemy::DetailTab as EnemyTab;
-use crate::common::feedback::{Slot, UNSUPPORTED_NOTICE};
+use crate::common::feedback::{Slot, NO_FILES_LABEL, NO_FILES_NOTICE, UNSUPPORTED_NOTICE};
 
 pub(crate) use target::{suppress, target};
 pub(crate) use watch::watch;
@@ -48,7 +48,7 @@ pub enum Target {
 
 pub(crate) struct Context {
     enabled: bool,
-    values: EditorValues,
+    values: EditorMode,
     page: Page,
     file: Option<FileTarget>,
     cats: Vec<CatTarget>,
@@ -479,7 +479,7 @@ struct Snapshot {
 #[derive(PartialEq)]
 struct Key {
     page: Page,
-    values: EditorValues,
+    values: EditorMode,
     cat: Option<u32>,
     form: usize,
     enemy: Option<u32>,
@@ -500,7 +500,7 @@ struct Open {
 
 impl State {
     pub(crate) fn open(&mut self, at: Point, context: &Context) {
-        let items = registry::items(context);
+        let mut items = registry::items(context);
 
         if items.is_empty() {
             trace!(
@@ -509,6 +509,10 @@ impl State {
                 nightly = context.enabled,
                 "Right click produced no context menu actions"
             );
+
+            if context.enabled {
+                items.push(Item::disabled(NO_FILES_LABEL, NO_FILES_NOTICE));
+            }
         }
 
         self.confirm.expire();
@@ -602,9 +606,6 @@ impl State {
         }
     }
 
-    /// Resolves whichever figures field is mid-buffer, across every subject, as if it had just
-    /// lost focus. Call ahead of anything that can abandon an open popup without routing a
-    /// `figures::Message` through it first — page navigation is the only such path today.
     pub(crate) fn flush_drafts(&mut self) {
         for slot in &mut self.figures {
             slot.flush();
@@ -815,7 +816,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
 
     Context {
         enabled: app.settings.general.enable_nightly,
-        values: app.settings.files.editor_values,
+        values: app.settings.files.editor_mode,
         page: app.current_page,
         file: file_target(app, target),
         cats: cat_payloads(app, reached(Target::CatAttributes)),
@@ -1283,7 +1284,7 @@ pub(crate) fn refresh(app: &BattleCatsApp, editor: &State, force: bool) -> Optio
 fn key(app: &BattleCatsApp) -> Key {
     Key {
         page: app.current_page,
-        values: app.settings.files.editor_values,
+        values: app.settings.files.editor_mode,
         cat: app.app_state.cat.selected_cat,
         form: app.app_state.cat.selected_form,
         enemy: app.app_state.enemy.selected_enemy,
@@ -1313,7 +1314,7 @@ fn snapshot(app: &BattleCatsApp, editor: &State) -> Snapshot {
 }
 
 fn current_plan(app: &BattleCatsApp, subject: figures::Subject) -> Option<figures::Plan> {
-    let values = app.settings.files.editor_values;
+    let values = app.settings.files.editor_mode;
 
     match subject {
         figures::Subject::Cat => {

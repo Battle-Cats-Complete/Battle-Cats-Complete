@@ -7,7 +7,7 @@ use nyanko::combat::Scale;
 use nyanko::common::tools::columns::{Column, FromColumn};
 use nyanko::enemy::t_unit;
 
-use kore::domains::settings::EditorValues;
+use kore::domains::settings::EditorMode;
 
 use crate::app::Page;
 
@@ -298,16 +298,16 @@ impl Schema {
         self.column(index).map(|column| column.field)
     }
 
-    pub(super) fn to_display(&self, index: usize, raw: i32, values: EditorValues) -> i32 {
-        if values == EditorValues::Raw {
+    pub(super) fn to_display(&self, index: usize, raw: i32, values: EditorMode) -> i32 {
+        if values == EditorMode::Raw {
             return raw;
         }
 
         self.column(index).map_or(raw, |column| column.scale.apply(raw))
     }
 
-    pub(super) fn to_raw(&self, index: usize, display: i32, values: EditorValues) -> i32 {
-        if values == EditorValues::Raw {
+    pub(super) fn to_raw(&self, index: usize, display: i32, values: EditorMode) -> i32 {
+        if values == EditorMode::Raw {
             return display;
         }
 

@@ -12,7 +12,7 @@ use iced::widget::{
 use iced::{Alignment, Element, Length, Size, Task};
 
 use kore::domains::cat::files as cat_files;
-use kore::domains::settings::{lang, nightly, ContextScope, EditorMode, EditorValues};
+use kore::domains::settings::{lang, nightly, ContextScope, EditorMode, Utf8Mode};
 use kore::domains::settings::{
     ExportBehavior, ImportStructure, Settings as CoreSettings, SidebarBehavior,
 };
@@ -71,9 +71,9 @@ pub enum Message {
     Addons(addons::Message),
     ToggleDebugView(bool),
     ToggleUnlockGameMount(bool),
-    EditorModeSelected(EditorMode),
+    Utf8ModeSelected(Utf8Mode),
     ContextScopeSelected(ContextScope),
-    EditorValuesSelected(EditorValues),
+    EditorModeSelected(EditorMode),
     ToggleTightBounds(bool),
     ToggleAutoCamera(bool),
     ShowcaseWalkChanged(String),
@@ -204,16 +204,16 @@ impl State {
 
             Message::Addons(msg) => self.addons.update(msg).map(Message::Addons),
 
-            Message::EditorModeSelected(mode) => {
-                core_settings.files.editor_mode = mode;
+            Message::Utf8ModeSelected(mode) => {
+                core_settings.files.utf8_mode = mode;
                 Task::none()
             }
             Message::ContextScopeSelected(scope) => {
                 core_settings.files.context_scope = scope;
                 Task::none()
             }
-            Message::EditorValuesSelected(values) => {
-                core_settings.files.editor_values = values;
+            Message::EditorModeSelected(mode) => {
+                core_settings.files.editor_mode = mode;
                 Task::none()
             }
             Message::ToggleUnlockGameMount(val) => {
@@ -523,14 +523,14 @@ impl State {
             "Allows editing vanilla game files in place\nPrefer creating a Mod so the original data stays intact",
         );
 
-        let mode = core_settings.files.editor_mode;
+        let utf8_mode = core_settings.files.utf8_mode;
 
-        let mode_row = combo_row(
+        let utf8_mode_row = combo_row(
             "UTF-8 Mode",
-            mode.hint(),
-            EditorMode::ALL,
-            Some(mode),
-            Some(Message::EditorModeSelected),
+            utf8_mode.hint(),
+            Utf8Mode::ALL,
+            Some(utf8_mode),
+            Some(Message::Utf8ModeSelected),
         );
 
         let nightly = core_settings.general.enable_nightly;
@@ -544,20 +544,20 @@ impl State {
             nightly.then_some(Message::ContextScopeSelected),
         );
 
-        let values = core_settings.files.editor_values;
+        let editor_mode = core_settings.files.editor_mode;
 
-        let values_row = combo_row(
-            "Editor Values",
-            if nightly { values.hint() } else { NIGHTLY_ONLY_NOTICE },
-            EditorValues::ALL,
-            Some(values),
-            nightly.then_some(Message::EditorValuesSelected),
+        let editor_mode_row = combo_row(
+            "Editor Mode",
+            if nightly { editor_mode.hint() } else { NIGHTLY_ONLY_NOTICE },
+            EditorMode::ALL,
+            Some(editor_mode),
+            nightly.then_some(Message::EditorModeSelected),
         );
 
         column![
             header_section(text("Disk").size(24), self.disk.view().map(Message::Disk)),
-            header_section(text("Viewer").size(24), mode_row),
-            header_section(text("Editor").size(24), column![scope_row, values_row, mount_row].spacing(10)),
+            header_section(text("Viewer").size(24), utf8_mode_row),
+            header_section(text("Editor").size(24), column![scope_row, editor_mode_row, mount_row].spacing(10)),
         ].spacing(SECTION_SPACING).into()
     }
 

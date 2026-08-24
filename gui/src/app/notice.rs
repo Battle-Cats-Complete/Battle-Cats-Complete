@@ -17,7 +17,7 @@ pub(super) const NOTICE_CONTENT: &str = r#"
 "#;
 
 pub(super) fn parse_content() -> Vec<markdown::Item> {
-    markdown::parse(NOTICE_CONTENT).collect()
+    crate::common::markdown::parse(NOTICE_CONTENT)
 }
 
 fn digest(title: &str, content: &str) -> String {
@@ -51,7 +51,7 @@ pub(super) fn view<'a>(state: &'a popup::State, window: Size, theme: Theme, item
         column![
             smooth_scroll(
                 scrollable(
-                    markdown::view(items, markdown::Settings::with_text_size(14.0, &theme))
+                    markdown::view(items, markdown::Settings::with_text_size(14.0, super::theme::markdown_style(&theme)))
                         .map(Message::OpenUrl)
                 )
                     .height(Length::Fill)

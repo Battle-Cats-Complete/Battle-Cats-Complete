@@ -3,8 +3,8 @@ use iced::border::Radius;
 use iced::theme::Palette;
 use iced::widget::overlay::menu;
 use iced::widget::text::Text;
-use iced::widget::{button, container, pick_list, progress_bar, text, text_editor, text_input, toggler, Button};
-use iced::{font, Background, Border, Color, Length, Theme};
+use iced::widget::{button, container, markdown, pick_list, progress_bar, text, text_editor, text_input, toggler, Button};
+use iced::{font, Background, Border, Color, Length, Padding, Theme};
 
 pub const HEADER_SEPARATOR: &str = " :: ";
 
@@ -534,4 +534,10 @@ pub fn rounded_input(theme: &Theme, status: text_input::Status) -> text_input::S
         border: Border { radius: Radius::from(RADIUS_SM), ..style.border },
         ..style
     }
+}
+
+const INLINE_CODE_PADDING: Padding = Padding { top: 1.2, right: 3.0, bottom: 1.2, left: 3.0 };
+
+pub fn markdown_style(theme: &Theme) -> markdown::Style {
+    markdown::Style { inline_code_padding: INLINE_CODE_PADDING, ..markdown::Style::from(theme) }
 }

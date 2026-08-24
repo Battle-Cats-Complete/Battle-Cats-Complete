@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use kore::common::architecture;
-use kore::domains::settings::{EditorMode, FilesSettings};
+use kore::domains::settings::{FilesSettings, Utf8Mode};
 use kore::Vfs;
 
 use crate::app::state::FilesState;
@@ -135,7 +135,7 @@ pub struct State {
     entered: bool,
     verify: bool,
     unlocked: bool,
-    editor_mode: EditorMode,
+    utf8_mode: Utf8Mode,
     tree: tree::State,
     body: body::State,
     notice: Slot<()>,
@@ -154,7 +154,7 @@ impl Default for State {
             entered: true,
             verify: false,
             unlocked: false,
-            editor_mode: EditorMode::default(),
+            utf8_mode: Utf8Mode::default(),
             tree: tree::State::default(),
             body: body::State::default(),
             notice: Slot::default(),
@@ -370,7 +370,7 @@ impl State {
     fn refresh(&mut self, vfs: &Vfs) -> Task<Message> {
         self.content = self.rebuild(vfs);
 
-        self.body.refresh(vfs, self.mount.as_deref(), self.selected.as_deref(), self.writable(), self.editor_mode);
+        self.body.refresh(vfs, self.mount.as_deref(), self.selected.as_deref(), self.writable(), self.utf8_mode);
 
         Task::none()
     }
@@ -437,7 +437,7 @@ impl State {
 
     fn adopt(&mut self, files: &FilesSettings) {
         self.unlocked = files.unlock_game_mount;
-        self.editor_mode = files.editor_mode;
+        self.utf8_mode = files.utf8_mode;
     }
 
     fn writable(&self) -> bool {

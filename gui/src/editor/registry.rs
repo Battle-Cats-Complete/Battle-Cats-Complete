@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use kore::common::architecture;
-use kore::domains::settings::EditorValues;
+use kore::domains::settings::EditorMode;
 
 use crate::app::{theme, Page};
 use crate::common::feedback::LOCKED_NOTICE;
@@ -134,7 +134,7 @@ struct Payload<'a> {
     mount: Mount<'a>,
     scopes: Vec<Scope<'a>>,
     primary: Primary<'a>,
-    values: EditorValues,
+    values: EditorMode,
 }
 
 pub(super) fn items(context: &Context) -> Vec<Item> {
@@ -522,11 +522,11 @@ fn present<'a>(mount: &Mount<'_>, mod_copy: Option<&'a Path>, game: Option<&'a P
     if mount.target.is_some() { mod_copy } else { game }
 }
 
-pub(super) fn cat_plan(cat: &CatTarget, target_mod: Option<String>, values: EditorValues) -> figures::Plan {
+pub(super) fn cat_plan(cat: &CatTarget, target_mod: Option<String>, values: EditorMode) -> figures::Plan {
     figures::plan(figures::Subject::Cat, figures::Address::Line(cat.form), cat.title(), &cat.source, target_mod, values)
 }
 
-pub(super) fn enemy_plan(enemy: &EnemyTarget, target_mod: Option<String>, values: EditorValues) -> figures::Plan {
+pub(super) fn enemy_plan(enemy: &EnemyTarget, target_mod: Option<String>, values: EditorMode) -> figures::Plan {
     figures::plan(figures::Subject::Enemy, figures::Address::Line(enemy.row), enemy.title(), &enemy.source, target_mod, values)
 }
 
@@ -534,7 +534,7 @@ pub(super) fn level_plan(
     level: &LevelTarget,
     scope: &Scope<'_>,
     target_mod: Option<String>,
-    values: EditorValues,
+    values: EditorMode,
 ) -> Option<figures::Plan> {
     let source = scope.source.or(scope.present)?;
 

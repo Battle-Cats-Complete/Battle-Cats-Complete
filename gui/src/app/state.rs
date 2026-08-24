@@ -23,6 +23,7 @@ pub struct AppState {
     pub(crate) data: GameDataState,
     pub(crate) animation: AnimState,
     pub(crate) notice: NoticeState,
+    pub(crate) help: HelpState,
     pub(crate) popups: BTreeMap<String, StoredSize>,
 }
 
@@ -30,6 +31,13 @@ pub struct AppState {
 #[serde(default)]
 pub(crate) struct NoticeState {
     pub acknowledged: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub(crate) struct HelpState {
+    pub active_page: usize,
+    pub scroll_offset: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]

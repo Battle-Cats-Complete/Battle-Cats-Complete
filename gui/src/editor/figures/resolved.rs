@@ -1,6 +1,6 @@
 use std::fmt;
 
-use kore::domains::settings::EditorValues;
+use kore::domains::settings::EditorMode;
 
 use super::combat::{cats, enemies};
 use super::{schema::Subject, talents, unitbuy, unitlevel};
@@ -111,8 +111,8 @@ impl Rule {
         }
     }
 
-    pub(super) fn to_display(self, raw: i32, values: EditorValues) -> i32 {
-        if values == EditorValues::Raw {
+    pub(super) fn to_display(self, raw: i32, values: EditorMode) -> i32 {
+        if values == EditorMode::Raw {
             return raw;
         }
 
@@ -124,8 +124,8 @@ impl Rule {
         }
     }
 
-    pub(super) fn to_raw(self, display: i32, values: EditorValues) -> i32 {
-        if values == EditorValues::Raw {
+    pub(super) fn to_raw(self, display: i32, values: EditorMode) -> i32 {
+        if values == EditorMode::Raw {
             return display;
         }
 
@@ -137,8 +137,8 @@ impl Rule {
         }
     }
 
-    pub(super) fn signed(self, values: EditorValues) -> bool {
-        if values == EditorValues::Raw {
+    pub(super) fn signed(self, values: EditorMode) -> bool {
+        if values == EditorMode::Raw {
             return true;
         }
 
@@ -149,8 +149,8 @@ impl Rule {
         }
     }
 
-    pub(super) fn clamp(self, raw: i32, values: EditorValues) -> i32 {
-        if values == EditorValues::Raw {
+    pub(super) fn clamp(self, raw: i32, values: EditorMode) -> i32 {
+        if values == EditorMode::Raw {
             return raw;
         }
 
@@ -163,8 +163,8 @@ impl Rule {
         }
     }
 
-    pub(super) fn face(self, raw: i32, values: EditorValues) -> Face {
-        if values == EditorValues::Raw {
+    pub(super) fn face(self, raw: i32, values: EditorMode) -> Face {
+        if values == EditorMode::Raw {
             return Face::Number;
         }
 
@@ -217,7 +217,7 @@ fn lookup(field: Option<&str>, find: fn(&str) -> Option<Rule>) -> Rule {
 
 #[cfg(test)]
 mod tests {
-    use kore::domains::settings::EditorValues;
+    use kore::domains::settings::EditorMode;
 
     use super::{rule, Rule};
     use crate::editor::figures::combat::{cats, enemies};
@@ -227,26 +227,26 @@ mod tests {
     fn a_quartered_range_is_typed_at_the_distance_it_shows() {
         let rule = Rule::Ratio(1, 4);
 
-        assert_eq!(rule.to_display(1000, EditorValues::Resolved), 250);
-        assert_eq!(rule.to_raw(250, EditorValues::Resolved), 1000);
-        assert_eq!(rule.to_display(1000, EditorValues::Raw), 1000, "raw stays raw");
+        assert_eq!(rule.to_display(1000, EditorMode::Resolved), 250);
+        assert_eq!(rule.to_raw(250, EditorMode::Resolved), 1000);
+        assert_eq!(rule.to_display(1000, EditorMode::Raw), 1000, "raw stays raw");
     }
 
     #[test]
     fn a_cost_is_typed_in_the_money_it_is_worth() {
         let rule = Rule::Ratio(3, 2);
 
-        assert_eq!(rule.to_display(50, EditorValues::Resolved), 75);
-        assert_eq!(rule.to_raw(75, EditorValues::Resolved), 50);
+        assert_eq!(rule.to_display(50, EditorMode::Resolved), 75);
+        assert_eq!(rule.to_raw(75, EditorMode::Resolved), 50);
     }
 
     #[test]
     fn an_inverted_percent_reverses_in_both_directions() {
         let rule = Rule::Inverted(100);
 
-        assert_eq!(rule.to_display(30, EditorValues::Resolved), 70);
-        assert_eq!(rule.to_raw(70, EditorValues::Resolved), 30);
-        assert_eq!(rule.clamp(140, EditorValues::Resolved), 100, "a percent cannot exceed its base");
+        assert_eq!(rule.to_display(30, EditorMode::Resolved), 70);
+        assert_eq!(rule.to_raw(70, EditorMode::Resolved), 30);
+        assert_eq!(rule.clamp(140, EditorMode::Resolved), 100, "a percent cannot exceed its base");
     }
 
     #[test]

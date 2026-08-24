@@ -24,7 +24,7 @@ use kore::{ContentStore, Vault};
 
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
-use crate::domains::{cat, enemy, files, home, import, mods, settings as gui_settings, stage};
+use crate::domains::{cat, enemy, files, help, home, import, mods, settings as gui_settings, stage};
 use crate::editor;
 use crate::widget::{nightly_label, popup, slide, Slide};
 
@@ -50,6 +50,7 @@ pub enum Page {
     Mods,
     Files,
     Import,
+    Help,
     Settings,
 }
 
@@ -63,6 +64,7 @@ impl Page {
             Self::Mods => "Mods",
             Self::Files => "Files",
             Self::Import => "Import",
+            Self::Help => "Help",
             Self::Settings => "Settings",
         }
     }
@@ -88,6 +90,7 @@ const ALL_PAGES: &[Page] = &[
     Page::Mods,
     Page::Files,
     Page::Import,
+    Page::Help,
     Page::Settings,
 ];
 
@@ -169,6 +172,7 @@ pub enum Message {
     Mod(mods::Message),
     Files(files::Message),
     Import(import::Message),
+    Help(help::Message),
     Settings(gui_settings::Message),
     Editor(editor::Message),
 }
@@ -225,6 +229,8 @@ pub struct BattleCatsApp {
     pub files_state: files::State,
     #[serde(skip)]
     pub import_state: import::State,
+    #[serde(skip)]
+    pub help_state: help::State,
     #[serde(skip)]
     pub settings_state: gui_settings::State,
     #[serde(skip)]
@@ -292,6 +298,7 @@ impl Default for BattleCatsApp {
             mods_state: mods::State::new(kore::domains::mods::ModDataState::default()),
             files_state: files::State::default(),
             import_state: import::State::default(),
+            help_state: help::State::default(),
             settings_state: gui_settings::State::default(),
             editor: editor::State::default(),
             settings: Settings::default(),
@@ -392,6 +399,10 @@ impl BattleCatsApp {
                 self.stage_state.enter();
                 Task::none()
             }
+            Page::Help => operation::scroll_to(
+                help::State::content_scrollable_id(),
+                scrollable::AbsoluteOffset { x: 0.0, y: self.help_state.scroll_offset() },
+            ),
             _ => Task::none(),
         };
 
@@ -979,6 +990,11 @@ impl BattleCatsApp {
                 self.files_state.sync_state(&mut self.app_state.files);
                 task
             }
+            Message::Help(msg) => {
+                let task = self.help_state.update(msg).map(Message::Help);
+                self.help_state.sync_state(&mut self.app_state.help);
+                task
+            }
             Message::Editor(editor::Message::Opened(at, target)) => {
                 let context = editor::context(self, target);
                 self.editor.open(at, &context);
@@ -1040,6 +1056,10 @@ impl BattleCatsApp {
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Files => self.files_state.view().map(Message::Files),
             Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
+            Page::Help => {
+                let ui_theme = self.theme();
+                self.help_state.view(&ui_theme).map(Message::Help)
+            }
             Page::Settings => self.settings_state.view(&self.settings, &self.updater_status).map(Message::Settings),
         };
 

@@ -8,7 +8,7 @@ use iced::{widget, Element, Font, Length, Padding, Size, Task, Theme};
 use tracing::warn;
 
 use kore::common::preview::{self, Preview, Stamp};
-use kore::domains::settings::EditorMode;
+use kore::domains::settings::Utf8Mode;
 use kore::Vfs;
 
 use crate::app::theme;
@@ -49,7 +49,7 @@ pub(super) enum Outcome {
 }
 
 struct Draft {
-    mode: EditorMode,
+    mode: Utf8Mode,
     body: String,
     starts: Vec<usize>,
     window: Range<usize>,
@@ -61,13 +61,13 @@ struct Draft {
 }
 
 impl Draft {
-    fn new(body: String, stamp: Stamp, mode: EditorMode) -> Self {
+    fn new(body: String, stamp: Stamp, mode: Utf8Mode) -> Self {
         let starts = Self::index(&body);
         let widest = Self::measure(&body);
 
         let opening = match mode {
-            EditorMode::Virtual => OPENING_LINES.min(starts.len()),
-            EditorMode::Fill => starts.len(),
+            Utf8Mode::Virtual => OPENING_LINES.min(starts.len()),
+            Utf8Mode::Fill => starts.len(),
         };
 
         let window = 0..opening;
@@ -160,7 +160,7 @@ impl Draft {
     }
 
     fn reopen(&mut self, anchor: usize) {
-        if self.mode == EditorMode::Fill {
+        if self.mode == Utf8Mode::Fill {
             return;
         }
 
@@ -171,7 +171,7 @@ impl Draft {
     }
 
     fn scrolled(&mut self, offset: f32, height: f32) {
-        if self.mode == EditorMode::Fill {
+        if self.mode == Utf8Mode::Fill {
             return;
         }
 
@@ -406,7 +406,7 @@ impl State {
         mount: Option<&str>,
         selected: Option<&Path>,
         writable: bool,
-        mode: EditorMode,
+        mode: Utf8Mode,
     ) {
         let Some(relative) = selected else {
             let previous = self.loaded.take();

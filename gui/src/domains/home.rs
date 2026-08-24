@@ -196,7 +196,7 @@ impl State {
             .map(|(_, body)| body.as_str())
             .unwrap_or("No notes available.");
 
-        self.changelog_items = markdown::parse(body_text).collect();
+        self.changelog_items = crate::common::markdown::parse(body_text);
     }
 
     fn view_setup_guide(&self) -> Element<'_, Message> {
@@ -265,7 +265,7 @@ impl State {
 
             text("Other").size(18.0),
             Space::new().height(10.0),
-            nav_row(&[("Settings", Page::Settings)]),
+            nav_row(&[("Help", Page::Help), ("Settings", Page::Settings)]),
         ]
             .align_x(Alignment::Center)
             .into()
@@ -308,7 +308,7 @@ impl State {
             Space::new().height(15.0),
             smooth_scroll(
                 scrollable(
-                    markdown::view(&self.changelog_items, markdown::Settings::with_text_size(14.0, theme))
+                    markdown::view(&self.changelog_items, markdown::Settings::with_text_size(14.0, crate::app::theme::markdown_style(theme)))
                         .map(Message::OpenUrl)
                 )
                     .height(Length::Fill)

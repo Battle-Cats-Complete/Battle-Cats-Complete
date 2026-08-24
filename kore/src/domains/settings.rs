@@ -81,9 +81,9 @@ impl Default for WindowSettings {
 #[serde(default)]
 pub struct FilesSettings {
     pub unlock_game_mount: bool,
-    pub editor_mode: EditorMode,
+    pub utf8_mode: Utf8Mode,
     pub context_scope: ContextScope,
-    pub editor_values: EditorValues,
+    pub editor_mode: EditorMode,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -114,13 +114,13 @@ impl std::fmt::Display for ContextScope {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub enum EditorValues {
+pub enum EditorMode {
     #[default]
     Resolved,
     Raw,
 }
 
-impl EditorValues {
+impl EditorMode {
     pub const ALL: [Self; 2] = [Self::Resolved, Self::Raw];
 
     pub fn hint(self) -> &'static str {
@@ -131,7 +131,7 @@ impl EditorValues {
     }
 }
 
-impl std::fmt::Display for EditorValues {
+impl std::fmt::Display for EditorMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Resolved => "Resolved",
@@ -141,13 +141,13 @@ impl std::fmt::Display for EditorValues {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub enum EditorMode {
+pub enum Utf8Mode {
     #[default]
     Fill,
     Virtual,
 }
 
-impl EditorMode {
+impl Utf8Mode {
     pub const ALL: [Self; 2] = [Self::Fill, Self::Virtual];
 
     pub fn hint(self) -> &'static str {
@@ -158,7 +158,7 @@ impl EditorMode {
     }
 }
 
-impl std::fmt::Display for EditorMode {
+impl std::fmt::Display for Utf8Mode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Fill => "Fill",
