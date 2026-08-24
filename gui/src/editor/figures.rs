@@ -10,6 +10,7 @@ pub(crate) use schema::{Subject, COUNT, FORMS, SUBJECTS};
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 
 use iced::widget::{operation, scrollable};
@@ -53,6 +54,12 @@ const COMMENT: &str = "//";
 const BUFFER_MARK: char = '!';
 const LINE_RATIO: f32 = 1.3;
 const GLYPH_RATIO: f32 = 0.55;
+
+static NEXT_TOKEN: AtomicU64 = AtomicU64::new(0);
+
+fn next_token() -> u64 {
+    NEXT_TOKEN.fetch_add(1, Ordering::Relaxed)
+}
 
 static LABEL_HEIGHTS: LazyLock<[f32; COUNT]> =
     LazyLock::new(|| SUBJECTS.map(|subject| label_height(schema::of(subject))));
@@ -177,6 +184,7 @@ pub enum Message {
     HuntChanged(String),
     Sync,
     SyncExpired,
+    Persisted(u64, PathBuf, Option<Stamp>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -290,6 +298,9 @@ struct Draft {
     inputs: Vec<String>,
     failed: bool,
     buffer: Option<usize>,
+    dirty: bool,
+    writing: bool,
+    token: u64,
 }
 
 impl State {
@@ -327,16 +338,32 @@ impl State {
         self.draft.as_ref().is_some_and(|draft| preview::stamp(&draft.read_from) != Some(draft.stamp))
     }
 
-    pub(super) fn flush(&mut self) {
-        if let Some(draft) = self.draft.as_mut() {
-            draft.flush();
-        }
+    pub(super) fn flush(&mut self) -> Task<Message> {
+        let Some(draft) = self.draft.as_mut() else {
+            return Task::none();
+        };
+
+        draft.resolve_buffer();
+        draft.persist_if_dirty()
+    }
+
+    pub(super) fn flush_now(&mut self) {
+        let Some(draft) = self.draft.as_mut() else {
+            return;
+        };
+
+        draft.resolve_buffer();
+        draft.persist_now();
     }
 
     pub(super) fn sync(&mut self, plan: Option<Plan>) {
         let Some(current) = self.draft.as_ref() else {
             return;
         };
+
+        if current.dirty || current.writing {
+            return;
+        }
 
         let Some(plan) = plan else {
             self.draft = None;
@@ -366,7 +393,7 @@ impl State {
             let still_typing = matches!(&message, Message::Changed(index, _) if draft.buffering(*index));
 
             if !still_typing {
-                draft.flush();
+                draft.resolve_buffer();
             }
         }
 
@@ -377,10 +404,14 @@ impl State {
                 };
 
                 if self.frame.update(msg, spec) {
+                    let task = self.draft.as_mut().map_or(Task::none(), Draft::persist_if_dirty);
+
                     self.draft = None;
                     self.offset = 0.0;
                     self.picker = None;
                     self.confirm.expire();
+
+                    return task;
                 }
             }
             Message::Changed(index, value) => {
@@ -418,9 +449,25 @@ impl State {
                     draft.sync();
                 }
             }
+            Message::Persisted(token, path, stamp) => {
+                if let Some(draft) = self.draft.as_mut()
+                    && draft.token == token
+                {
+                    draft.writing = false;
+
+                    match stamp {
+                        Some(stamp) => {
+                            draft.read_from = path;
+                            draft.stamp = stamp;
+                            draft.failed = false;
+                        }
+                        None => draft.failed = true,
+                    }
+                }
+            }
         }
 
-        Task::none()
+        self.draft.as_mut().map_or(Task::none(), Draft::persist_if_dirty)
     }
 
     pub(super) fn view<'a>(
@@ -454,6 +501,12 @@ impl State {
             None,
         ))
     }
+}
+
+fn write_now(path: &Path, body: &[u8], stamp: Stamp) -> Option<Stamp> {
+    preview::save(path, body, stamp)
+        .inspect_err(|err| warn!(path = %path.display(), "Stats editor could not write the file: {}", err))
+        .ok()
 }
 
 impl Draft {
@@ -524,6 +577,9 @@ impl Draft {
             inputs,
             failed: false,
             buffer: None,
+            dirty: false,
+            writing: false,
+            token: next_token(),
         })
     }
 
@@ -536,9 +592,10 @@ impl Draft {
             self.write(twin, value);
         }
 
-        self.commit();
+        self.stage();
     }
-    fn flush(&mut self) {
+
+    fn resolve_buffer(&mut self) {
         let Some(index) = self.buffer.take() else {
             return;
         };
@@ -649,7 +706,7 @@ impl Draft {
             *slot = display;
         }
 
-        self.commit();
+        self.stage();
     }
 
     fn set_comment(&mut self, value: String) {
@@ -658,7 +715,7 @@ impl Draft {
         }
 
         self.comment = value;
-        self.commit();
+        self.stage();
     }
 
     fn sync(&mut self) {
@@ -697,16 +754,10 @@ impl Draft {
             .map(|index| shown(self.plan.schema, index, self.cells[index], self.plan.values, self.rule(index)))
             .collect();
         self.buffer = None;
-        self.commit();
+        self.stage();
     }
 
-    fn commit(&mut self) {
-        let Some((path, stamp)) = self.destination() else {
-            self.failed = true;
-
-            return;
-        };
-
+    fn stage(&mut self) {
         let width = self.stored.max(self.touched);
         let mut line = self.written[..width].join(&self.delimiter.to_string());
 
@@ -743,20 +794,65 @@ impl Draft {
             *slot = line;
         }
 
+        self.dirty = true;
+    }
+
+    fn persist_if_dirty(&mut self) -> Task<Message> {
+        if !self.dirty || self.writing {
+            return Task::none();
+        }
+
+        self.persist()
+    }
+
+    fn prepare_write(&mut self) -> Option<(PathBuf, Vec<u8>, Stamp, u64)> {
+        let Some((path, stamp)) = self.destination() else {
+            self.failed = true;
+
+            return None;
+        };
+
         let mut body = self.lines.join("\n");
         body.push('\n');
 
-        match preview::save(&path, body.as_bytes(), stamp) {
-            Ok(stamp) => {
+        self.dirty = false;
+        self.writing = true;
+
+        Some((path, body.into_bytes(), stamp, self.token))
+    }
+
+    fn persist(&mut self) -> Task<Message> {
+        let Some((path, body, stamp, token)) = self.prepare_write() else {
+            return Task::none();
+        };
+
+        let reported = path.clone();
+
+        Task::perform(
+            smol::unblock(move || write_now(&path, &body, stamp)),
+            move |stamp| Message::Persisted(token, reported.clone(), stamp),
+        )
+    }
+
+    fn persist_now(&mut self) {
+        if !self.dirty && !self.writing {
+            return;
+        }
+
+        let Some((path, body, stamp, _)) = self.prepare_write() else {
+            return;
+        };
+
+        match write_now(&path, &body, stamp) {
+            Some(stamp) => {
                 self.read_from = path;
                 self.stamp = stamp;
                 self.failed = false;
             }
-            Err(err) => {
-                warn!(path = %path.display(), "Stats editor could not write the file: {}", err);
-                self.failed = true;
-            }
+            None => self.failed = true,
         }
+
+        self.writing = false;
     }
 
     fn restate(&mut self) {
@@ -871,7 +967,7 @@ mod tests {
 
     use super::resolved::{self, Rule};
     use super::schema::{self, Subject};
-    use super::{plan, split_row, Address, Draft, Message, Row, State};
+    use super::{plan, split_row, write_now, Address, Draft, Message, Row, State};
 
     const VANILLA: &str = "100,3,10,8,15,140,50,75,0,320,0,0,0,8,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // \u{30cd}\u{30b3}";
 
@@ -1110,7 +1206,47 @@ mod tests {
     }
 
     #[test]
-    fn state_flush_resolves_a_buffered_field_without_any_message_at_all() {
+    fn rapid_keystrokes_never_write_synchronously_and_coalesce_into_one_task() {
+        let dir = scratch_dir("keystrokes-defer-disk");
+        let path = dir.join("unitbuy.csv");
+        let schema = schema::of(Subject::Buy);
+        let Some(index) = schema.index_of("stage_unlock_requirement") else {
+            panic!("nyanko no longer publishes stage_unlock_requirement");
+        };
+
+        let seed = plan(Subject::Buy, Address::Line(0), "test".to_owned(), &path, None, EditorMode::Resolved);
+        std::fs::write(&path, format!("{}\n", super::vacant(&seed, ',')))
+            .expect("failed to seed the temp fixture file");
+        let seeded = std::fs::read(&path).expect("seeded fixture should be readable");
+
+        let mut state = State { draft: Draft::load(seed), ..State::default() };
+        assert!(state.draft.is_some(), "the draft should load from the temp fixture");
+
+        for typed in ["1", "12", "123"] {
+            let _ = state.update(Message::Changed(index, typed.to_owned()));
+        }
+
+        let untouched = std::fs::read(&path).expect("fixture should still be readable");
+        assert_eq!(
+            untouched, seeded,
+            "no keystroke may block `update` on disk I/O — the write only happens once the async task the first keystroke started is driven to completion",
+        );
+
+        let draft = state.draft.as_ref().expect("the draft survives typing");
+        assert!(draft.writing, "the first keystroke must have started the async write immediately, no delay");
+        assert!(draft.dirty, "later keystrokes coalesce behind the in-flight write instead of starting a second one");
+        assert_eq!(draft.input(index), "123");
+
+        complete_write(&mut state);
+
+        let body = std::fs::read_to_string(&path).expect("the completed write should have landed on disk");
+        assert!(body.contains("123"), "the completion must persist the latest coalesced value");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn state_flush_resolves_a_buffered_field_and_starts_the_write_without_any_message_at_all() {
         let dir = scratch_dir("flush-on-navigate");
         let path = dir.join("unitbuy.csv");
         let schema = schema::of(Subject::Buy);
@@ -1130,18 +1266,25 @@ mod tests {
 
         // No `Message` at all here — this is what page navigation calls directly, ahead of
         // switching `current_page`, since a page change never routes through `figures::Message`.
-        state.flush();
+        let _ = state.flush();
 
         let draft = state.draft.as_ref().expect("the draft survives a flush with no message");
         assert_eq!(draft.buffer, None, "flush() alone must resolve the buffered field");
         assert_eq!(draft.input(index), "7");
+        assert!(draft.writing, "flush() must have started the write, not just staged it");
+        assert!(!draft.failed);
+
+        complete_write(&mut state);
+
+        let draft = state.draft.as_ref().expect("the draft survives the completed write");
         assert!(!draft.failed, "the flush should have committed cleanly to the temp file");
+        assert!(!draft.writing && !draft.dirty, "nothing left pending once the write completes");
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn state_update_flushes_a_buffered_field_once_a_different_message_arrives() {
+    fn state_update_resolves_a_buffered_field_once_a_different_message_arrives() {
         let dir = scratch_dir("flush-on-deselect");
         let path = dir.join("unitbuy.csv");
         let schema = schema::of(Subject::Buy);
@@ -1171,9 +1314,18 @@ mod tests {
         let draft = state.draft.as_ref().expect("the draft survives an unrelated message");
         assert_eq!(draft.buffer, None, "any other message flushes the buffered field");
         assert_eq!(draft.input(index), "123", "the bang is gone and the value is written plain");
-        assert!(!draft.failed, "the flush should have committed cleanly to the temp file");
+        assert!(draft.writing, "the resolved value's write starts immediately, no debounce");
+        assert!(!draft.failed);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn complete_write(state: &mut State) {
+        let draft = state.draft.as_mut().expect("a write can only complete on a live draft");
+        let (path, body, stamp, token) = draft.prepare_write().expect("destination must resolve in these fixtures");
+
+        let result = write_now(&path, &body, stamp);
+        let _ = state.update(Message::Persisted(token, path, result));
     }
 
     fn scratch_dir(label: &str) -> std::path::PathBuf {
@@ -1210,6 +1362,8 @@ mod tests {
             delimiter: ',',
             lines: Vec::new(),
             cells,
+            writing: false,
+            token: 0,
             written: vec![String::new(); width],
             stored: width,
             touched: 0,
@@ -1218,6 +1372,7 @@ mod tests {
             inputs: vec![String::new(); width],
             failed: false,
             buffer: None,
+            dirty: false,
         }
     }
 }

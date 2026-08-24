@@ -358,7 +358,7 @@ impl BattleCatsApp {
     }
 
     fn navigate(&mut self, page: Page) -> Task<Message> {
-        self.editor.flush_drafts();
+        let flush_task = self.editor.flush_drafts().map(Message::Editor);
 
         if self.current_page == Page::Files && page != Page::Files {
             self.files_state.leave(&self.vault.vfs);
@@ -408,7 +408,7 @@ impl BattleCatsApp {
 
         self.sync_editor(false);
 
-        Task::batch([task, self.editor.restore_scroll()])
+        Task::batch([task, flush_task, self.editor.restore_scroll()])
     }
 
     pub(crate) fn sync_home_status(&mut self) {
@@ -785,6 +785,7 @@ impl BattleCatsApp {
                 Task::none()
             }
             Message::CloseRequested(id) => {
+                self.editor.flush_now();
                 self.files_state.leave(&self.vault.vfs);
                 self.check_auto_save();
                 self.check_auto_save_state();

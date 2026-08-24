@@ -606,10 +606,26 @@ impl State {
         }
     }
 
-    pub(crate) fn flush_drafts(&mut self) {
+    pub(crate) fn flush_now(&mut self) {
         for slot in &mut self.figures {
-            slot.flush();
+            slot.flush_now();
         }
+
+        for slot in &mut self.prose {
+            slot.flush_now();
+        }
+    }
+
+    pub(crate) fn flush_drafts(&mut self) -> Task<Message> {
+        let figures = figures::SUBJECTS
+            .into_iter()
+            .map(|subject| self.figures[subject.slot()].flush().map(move |inner| Message::Figures(subject, inner)));
+
+        let prose = prose::SUBJECTS
+            .into_iter()
+            .map(|subject| self.prose[subject.slot()].flush().map(move |inner| Message::Prose(subject, inner)));
+
+        Task::batch(figures.chain(prose))
     }
 
     fn drafting(&self) -> bool {

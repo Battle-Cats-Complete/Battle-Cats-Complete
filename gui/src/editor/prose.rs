@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use iced::widget::{button, column, container, scrollable, text_input};
 use iced::{Element, Length, Padding, Size, Task};
@@ -42,6 +43,12 @@ const PADDING: f32 = 4.0;
 const GAP: f32 = 8.0;
 const BODY_PADDING: f32 = 12.0;
 const SYNC_WIDTH: f32 = 172.0;
+
+static NEXT_TOKEN: AtomicU64 = AtomicU64::new(0);
+
+fn next_token() -> u64 {
+    NEXT_TOKEN.fetch_add(1, Ordering::Relaxed)
+}
 
 pub(super) const COUNT: usize = 3;
 
@@ -120,6 +127,7 @@ pub enum Message {
     Changed(usize, String),
     Sync,
     SyncExpired,
+    Persisted(u64, PathBuf, Option<Stamp>),
 }
 
 #[derive(Clone)]
@@ -169,6 +177,9 @@ struct Draft {
     fields: Vec<String>,
     tail: Vec<String>,
     failed: bool,
+    dirty: bool,
+    writing: bool,
+    token: u64,
 }
 
 impl State {
@@ -178,9 +189,14 @@ impl State {
         self.draft = Draft::load(plan);
     }
 
-    pub(super) fn close(&mut self) {
-        self.draft = None;
-        self.confirm.expire();
+    pub(super) fn flush(&mut self) -> Task<Message> {
+        self.draft.as_mut().map_or(Task::none(), Draft::persist_if_dirty)
+    }
+
+    pub(super) fn flush_now(&mut self) {
+        if let Some(draft) = self.draft.as_mut() {
+            draft.persist_now();
+        }
     }
 
     pub(super) fn drafting(&self) -> bool {
@@ -199,6 +215,10 @@ impl State {
         let Some(current) = self.draft.as_ref() else {
             return;
         };
+
+        if current.dirty || current.writing {
+            return;
+        }
 
         let Some(plan) = plans.iter().find(|plan| plan.file == current.plan.file).or_else(|| plans.first()) else {
             self.draft = None;
@@ -225,7 +245,12 @@ impl State {
                 };
 
                 if self.frame.update(msg, spec(subject)) {
-                    self.close();
+                    let task = self.draft.as_mut().map_or(Task::none(), Draft::persist_if_dirty);
+
+                    self.draft = None;
+                    self.confirm.expire();
+
+                    return task;
                 }
             }
             Message::Changed(index, value) => {
@@ -243,9 +268,25 @@ impl State {
                     draft.restore();
                 }
             }
+            Message::Persisted(token, path, stamp) => {
+                if let Some(draft) = self.draft.as_mut()
+                    && draft.token == token
+                {
+                    draft.writing = false;
+
+                    match stamp {
+                        Some(stamp) => {
+                            draft.read_from = path;
+                            draft.stamp = stamp;
+                            draft.failed = false;
+                        }
+                        None => draft.failed = true,
+                    }
+                }
+            }
         }
 
-        Task::none()
+        self.draft.as_mut().map_or(Task::none(), Draft::persist_if_dirty)
     }
 
     pub(super) fn view(&self, window: Size) -> Option<Element<'_, Message>> {
@@ -263,6 +304,12 @@ impl State {
     }
 }
 
+fn write_now(path: &Path, body: &[u8], stamp: Stamp) -> Option<Stamp> {
+    preview::save(path, body, stamp)
+        .inspect_err(|err| warn!(path = %path.display(), "Prose editor could not write the file: {}", err))
+        .ok()
+}
+
 impl Draft {
     fn load(plan: Plan) -> Option<Draft> {
         let read_from = plan.source();
@@ -277,7 +324,20 @@ impl Draft {
         let lines: Vec<String> = body.lines().map(str::to_owned).collect();
         let (head, fields, tail) = parse(&body, plan.row, delimiter, plan.subject);
 
-        Some(Draft { plan, read_from, stamp, delimiter, lines, head, fields, tail, failed: false })
+        Some(Draft {
+            plan,
+            read_from,
+            stamp,
+            delimiter,
+            lines,
+            head,
+            fields,
+            tail,
+            failed: false,
+            dirty: false,
+            writing: false,
+            token: next_token(),
+        })
     }
 
     fn edit(&mut self, index: usize, value: String) {
@@ -290,7 +350,7 @@ impl Draft {
         }
 
         *slot = value;
-        self.commit();
+        self.stage();
     }
 
     fn restore(&mut self) {
@@ -307,7 +367,7 @@ impl Draft {
         self.head = head;
         self.fields = fields;
         self.tail = tail;
-        self.commit();
+        self.stage();
     }
 
     fn destination(&self) -> Option<(PathBuf, Stamp)> {
@@ -326,13 +386,7 @@ impl Draft {
         preview::stamp(&path).map(|stamp| (path, stamp))
     }
 
-    fn commit(&mut self) {
-        let Some((path, stamp)) = self.destination() else {
-            self.failed = true;
-
-            return;
-        };
-
+    fn stage(&mut self) {
         while self.lines.len() <= self.plan.row {
             self.lines.push(String::new());
         }
@@ -345,21 +399,65 @@ impl Draft {
         };
 
         *slot = joined;
+        self.dirty = true;
+    }
+
+    fn persist_if_dirty(&mut self) -> Task<Message> {
+        if !self.dirty || self.writing {
+            return Task::none();
+        }
+
+        self.persist()
+    }
+
+    fn prepare_write(&mut self) -> Option<(PathBuf, Vec<u8>, Stamp, u64)> {
+        let Some((path, stamp)) = self.destination() else {
+            self.failed = true;
+
+            return None;
+        };
 
         let mut body = self.lines.join("\n");
         body.push('\n');
 
-        match preview::save(&path, body.as_bytes(), stamp) {
-            Ok(stamp) => {
+        self.dirty = false;
+        self.writing = true;
+
+        Some((path, body.into_bytes(), stamp, self.token))
+    }
+
+    fn persist(&mut self) -> Task<Message> {
+        let Some((path, body, stamp, token)) = self.prepare_write() else {
+            return Task::none();
+        };
+
+        let reported = path.clone();
+
+        Task::perform(
+            smol::unblock(move || write_now(&path, &body, stamp)),
+            move |stamp| Message::Persisted(token, reported.clone(), stamp),
+        )
+    }
+
+    fn persist_now(&mut self) {
+        if !self.dirty && !self.writing {
+            return;
+        }
+
+        let Some((path, body, stamp, _)) = self.prepare_write() else {
+            return;
+        };
+
+        match write_now(&path, &body, stamp) {
+            Some(stamp) => {
                 self.read_from = path;
                 self.stamp = stamp;
                 self.failed = false;
             }
-            Err(err) => {
-                warn!(path = %path.display(), "Prose editor could not write the file: {}", err);
-                self.failed = true;
-            }
+            None => self.failed = true,
         }
+
+        self.writing = false;
     }
 
     fn body(&self, armed: bool) -> Element<'_, Message> {
