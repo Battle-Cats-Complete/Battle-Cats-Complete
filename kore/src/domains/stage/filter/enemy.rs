@@ -116,6 +116,7 @@ impl CompiledEnemyFilter {
 
         if self.name_or_id.is_empty() { return true; }
         if self.parsed_id == Some(enemy.enemy_id) { return true; }
+        if self.parsed_id.is_some() { return false; }
 
         enemy_name_registry
             .get(enemy.enemy_id as usize)

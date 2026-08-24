@@ -274,7 +274,7 @@ impl State {
             }
             Message::ShowEnemyAppearances(id) => {
                 self.is_sidebar_open = true;
-                let filter = EnemyFilter { name_or_id: id.to_string(), ..Default::default() };
+                let filter = EnemyFilter { name_or_id: format!("{:03}", id), ..Default::default() };
                 self.filter.filter_state = StageFilterState { enemies: vec![filter], ..Default::default() };
                 Task::none()
             }
