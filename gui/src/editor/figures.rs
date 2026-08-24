@@ -14,12 +14,13 @@ use std::sync::LazyLock;
 
 use iced::widget::{operation, scrollable};
 use iced::{Element, Size, Task};
+use nyanko::combat::Separator;
 use nyanko::common::tools::file;
 use tracing::warn;
 
 use kore::common::preview::{self, Stamp};
 use kore::domains::{mods, settings::EditorValues};
-use kore::Vfs;
+use kore::Vault;
 
 use crate::common::feedback::Slot;
 use crate::widget::popup;
@@ -33,7 +34,7 @@ const CAT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::CatAttributes, POPU
 const ENEMY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnemyAttributes, POPUP_SIZE);
 const BUY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::UnitBuy, POPUP_SIZE);
 const CURVE_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LevelCurve, POPUP_SIZE);
-const TALENT_SIZE: Size = Size::new(612.0, 420.0);
+const TALENT_SIZE: Size = Size::new(760.0, 540.0);
 const TALENT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Talents, TALENT_SIZE);
 
 fn spec(subject: Subject) -> popup::Spec {
@@ -103,6 +104,19 @@ fn split_row(line: &str, delimiter: char, schema: &schema::Schema) -> Row {
     Row { cells, written, stored, comment }
 }
 
+fn vacant(plan: &Plan, delimiter: char) -> String {
+    let mut fields: Vec<String> =
+        (0..plan.schema.known()).map(|index| plan.schema.fallback(index).to_string()).collect();
+
+    if let Some(id) = plan.address.key()
+        && let Some(first) = fields.first_mut()
+    {
+        *first = id.to_string();
+    }
+
+    fields.join(&delimiter.to_string())
+}
+
 fn shown(schema: &schema::Schema, index: usize, raw: i32, values: EditorValues, rule: Rule) -> String {
     if raw == schema.fallback(index) {
         return String::new();
@@ -155,6 +169,7 @@ pub enum Message {
     Picker(Option<usize>),
     CommentChanged(String),
     SearchChanged(String),
+    HuntChanged(String),
     Sync,
     SyncExpired,
 }
@@ -170,6 +185,26 @@ impl Address {
         match self {
             Address::Line(row) => Some(row),
             Address::Keyed(id) => lines.iter().position(|line| leading(line, delimiter) == Some(id)),
+        }
+    }
+
+    fn insertion(self, lines: &[String], delimiter: char) -> Option<usize> {
+        let Address::Keyed(id) = self else {
+            return None;
+        };
+
+        let at = lines
+            .iter()
+            .position(|line| leading(line, delimiter).is_some_and(|other| other > id))
+            .unwrap_or(lines.len());
+
+        Some(at)
+    }
+
+    fn key(self) -> Option<u32> {
+        match self {
+            Address::Keyed(id) => Some(id),
+            Address::Line(_) => None,
         }
     }
 }
@@ -216,8 +251,9 @@ pub(super) struct Frame<'a> {
     armed: bool,
     cap: Option<i32>,
     names: &'a talents::Names,
-    vfs: &'a Vfs,
+    vault: &'a Vault,
     picker: Option<usize>,
+    hunt: &'a str,
 }
 
 #[derive(Default)]
@@ -229,10 +265,12 @@ pub(super) struct State {
     confirm: Slot<()>,
     names: talents::Names,
     picker: Option<usize>,
+    hunt: String,
 }
 
 struct Draft {
     plan: Plan,
+    absent: bool,
     row: usize,
     read_from: PathBuf,
     stamp: Stamp,
@@ -265,6 +303,10 @@ impl State {
 
     fn reload(&mut self, plan: Plan) {
         self.draft = Draft::load(plan);
+    }
+
+    pub(super) fn relocalize(&self) {
+        self.names.forget();
     }
 
     pub(super) fn drafting(&self) -> bool {
@@ -328,14 +370,19 @@ impl State {
             }
             Message::Picked(index, raw) => {
                 self.picker = None;
+                self.hunt.clear();
 
                 if let Some(draft) = self.draft.as_mut() {
                     draft.pick(index, raw);
                 }
             }
-            Message::Picker(index) => self.picker = index,
+            Message::Picker(index) => {
+                self.picker = index;
+                self.hunt.clear();
+            }
             Message::Scrolled(offset) => self.offset = offset,
             Message::SearchChanged(query) => self.query = query,
+            Message::HuntChanged(query) => self.hunt = query,
             Message::CommentChanged(value) => {
                 if let Some(draft) = self.draft.as_mut() {
                     draft.set_comment(value);
@@ -360,7 +407,7 @@ impl State {
         &'a self,
         window: Size,
         cap: Option<i32>,
-        vfs: &'a Vfs,
+        vault: &'a Vault,
     ) -> Option<Element<'a, Message>> {
         let draft = self.draft.as_ref()?;
         let spec = spec(draft.plan.subject());
@@ -373,8 +420,9 @@ impl State {
             armed,
             cap,
             names: &self.names,
-            vfs,
+            vault,
             picker: self.picker,
+            hunt: &self.hunt,
         };
 
         Some(self.frame.view(
@@ -403,29 +451,37 @@ impl Draft {
         };
 
         let body = file::scrub(&bytes);
-        let delimiter = file::detect_separator(&body);
+        let delimiter = Separator::detect(&body).unwrap_or(Separator::Comma).char();
         let lines: Vec<String> = body.lines().map(str::to_owned).collect();
 
-        let Some(row) = plan.address.locate(&lines, delimiter) else {
+        let found = plan.address.locate(&lines, delimiter);
+        let absent = found.is_none();
+
+        let Some(row) = found.or_else(|| plan.address.insertion(&lines, delimiter)) else {
             warn!(path = %read_from.display(), rows = lines.len(), "Stats editor found no row for this subject");
 
             return None;
         };
 
-        let Some(raw) = lines.get(row) else {
-            warn!(
-                path = %read_from.display(),
-                row,
-                rows = lines.len(),
-                "Stats editor found no row for this form"
-            );
+        let blank = vacant(&plan, delimiter);
+        let raw = match lines.get(row).filter(|_| !absent) {
+            Some(line) => line.as_str(),
+            None if plan.schema.creates() => blank.as_str(),
+            None => {
+                warn!(
+                    path = %read_from.display(),
+                    row,
+                    rows = lines.len(),
+                    "Stats editor found no row for this form"
+                );
 
-            return None;
+                return None;
+            }
         };
 
         let Row { cells, written, stored, comment } = split_row(raw, delimiter, plan.schema);
         let rules: Vec<Rule> = (0..cells.len())
-            .map(|index| resolved::rule(plan.subject(), index, plan.schema.field(index)))
+            .map(|index| resolved::rule(plan.subject(), index, plan.schema.field(index), &cells))
             .collect();
         let inputs = (0..cells.len())
             .map(|index| shown(plan.schema, index, cells[index], plan.values, rules[index]))
@@ -433,6 +489,7 @@ impl Draft {
 
         Some(Draft {
             plan,
+            absent,
             row,
             read_from,
             stamp,
@@ -538,13 +595,20 @@ impl Draft {
         };
 
         let body = file::scrub(&bytes);
-        let delimiter = file::detect_separator(&body);
+        let delimiter = Separator::detect(&body).unwrap_or(Separator::Comma).char();
         let vanilla: Vec<String> = body.lines().map(str::to_owned).collect();
 
-        let Some(raw) = self.plan.address.locate(&vanilla, delimiter).and_then(|row| vanilla.get(row)) else {
-            self.failed = true;
+        let blank = vacant(&self.plan, delimiter);
+        let located = self.plan.address.locate(&vanilla, delimiter).and_then(|row| vanilla.get(row));
 
-            return;
+        let raw = match located {
+            Some(line) => line.as_str(),
+            None if self.plan.schema.creates() => blank.as_str(),
+            None => {
+                self.failed = true;
+
+                return;
+            }
         };
 
         let Row { cells, written, stored, comment } = split_row(raw, delimiter, self.plan.schema);
@@ -568,12 +632,6 @@ impl Draft {
         };
 
         let width = self.stored.max(self.touched);
-        let Some(slot) = self.lines.get_mut(self.row) else {
-            self.failed = true;
-
-            return;
-        };
-
         let mut line = self.written[..width].join(&self.delimiter.to_string());
 
         if !self.comment.is_empty() {
@@ -584,7 +642,30 @@ impl Draft {
             line.push_str(&self.comment);
         }
 
-        *slot = line;
+        self.restate();
+
+        let empty = self.plan.schema.vacant(&self.cells);
+
+        if self.absent {
+            if empty {
+                return;
+            }
+
+            self.row = self.plan.address.insertion(&self.lines, self.delimiter).unwrap_or(self.row);
+            self.lines.insert(self.row, line);
+            self.absent = false;
+        } else if empty && self.plan.schema.creates() {
+            self.lines.remove(self.row);
+            self.absent = true;
+        } else {
+            let Some(slot) = self.lines.get_mut(self.row) else {
+                self.failed = true;
+
+                return;
+            };
+
+            *slot = line;
+        }
 
         let mut body = self.lines.join("\n");
         body.push('\n');
@@ -600,6 +681,18 @@ impl Draft {
                 self.failed = true;
             }
         }
+    }
+
+    fn restate(&mut self) {
+        if !self.plan.schema.creates() {
+            return;
+        }
+
+        self.rules = (0..self.cells.len())
+            .map(|index| {
+                resolved::rule(self.plan.subject(), index, self.plan.schema.field(index), &self.cells)
+            })
+            .collect();
     }
 
     fn destination(&self) -> Option<(PathBuf, Stamp)> {
@@ -671,13 +764,13 @@ impl Draft {
     }
 
     fn body<'a>(&'a self, frame: Frame<'a>) -> Element<'a, Message> {
-        let Frame { width, query, armed, cap, names, vfs, picker } = frame;
+        let Frame { width, query, armed, cap, .. } = frame;
 
         match self.plan.subject() {
             Subject::Cat | Subject::Enemy => combat::view(self, width, query, armed),
             Subject::Buy => unitbuy::view(self, width, query, armed),
             Subject::Curve => unitlevel::view(self, width, armed, cap),
-            Subject::Talents => talents::view(self, width, query, armed, names, vfs, picker),
+            Subject::Talents => talents::view(self, frame),
         }
     }
 }
@@ -712,6 +805,53 @@ mod tests {
         line
     }
 
+    fn rows(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|id| format!("{id},0,0")).collect()
+    }
+
+    #[test]
+    fn a_new_keyed_row_lands_in_id_order() {
+        let lines = rows(&["ID", "677", "678", "705", "709"]);
+
+        let at = super::Address::Keyed(680).insertion(&lines, ',');
+
+        assert_eq!(at, Some(3), "680 belongs between 678 and 705, not appended");
+    }
+
+    #[test]
+    fn a_new_keyed_row_past_the_end_appends() {
+        let lines = rows(&["ID", "677", "678"]);
+
+        assert_eq!(super::Address::Keyed(900).insertion(&lines, ','), Some(3));
+    }
+
+    #[test]
+    fn a_header_never_captures_the_insertion_point() {
+        let lines = rows(&["ID", "9"]);
+
+        assert_eq!(
+            super::Address::Keyed(1).insertion(&lines, ','),
+            Some(1),
+            "the header parses to no id, so it must never be treated as a larger one",
+        );
+    }
+
+    #[test]
+    fn a_talent_row_is_vacant_only_when_every_slot_is_empty() {
+        let talents = schema::of(Subject::Talents);
+        let mut cells = vec![0; talents.known()];
+
+        assert!(talents.vacant(&cells), "no ability ids means the row carries nothing");
+
+        cells[super::schema::TALENT_HEAD] = 1;
+        assert!(!talents.vacant(&cells), "slot A holds an ability, so the row must survive");
+
+        assert!(
+            !schema::of(Subject::Cat).vacant(&[0; 8]),
+            "only talents may delete their own row",
+        );
+    }
+
     #[test]
     fn typing_accepts_only_digits_and_a_leading_minus() {
         for good in ["", "-", "0", "42", "-7"] {
@@ -740,7 +880,7 @@ mod tests {
             panic!("nyanko no longer publishes boss_wave_immune");
         };
 
-        let rule = resolved::rule(Subject::Cat, index, schema.field(index));
+        let rule = resolved::rule(Subject::Cat, index, schema.field(index), &[]);
         assert_eq!(rule, Rule::Flag, "boss_wave_immune is a flag");
 
         assert_eq!(

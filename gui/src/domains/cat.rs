@@ -73,8 +73,8 @@ pub enum DetailTab {
 pub enum Message {
     AnimationTick,
     SheetsCheck,
-    ScanProgress(usize, usize),
-    Loaded(Vec<CatEntry>, Option<u64>),
+    ScanProgress(u64, usize, usize),
+    Loaded(u64, Vec<CatEntry>, Option<u64>),
     Img015Loaded(u64, usize, Option<CoreSpriteSheet>),
     Img022Loaded(u64, usize, Option<CoreSpriteSheet>),
     SearchChanged(String),
@@ -97,8 +97,8 @@ impl std::fmt::Debug for Message {
         match self {
             Self::AnimationTick => write!(f, "AnimationTick"),
             Self::SheetsCheck => write!(f, "SheetsCheck"),
-            Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
-            Self::Loaded(cats, _) => write!(f, "Loaded({})", cats.len()),
+            Self::ScanProgress(_, done, total) => write!(f, "ScanProgress({}/{})", done, total),
+            Self::Loaded(_, cats, _) => write!(f, "Loaded({})", cats.len()),
             Self::Img015Loaded(_, i, _) => write!(f, "Img015Loaded({})", i),
             Self::Img022Loaded(_, i, _) => write!(f, "Img022Loaded({})", i),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
@@ -134,6 +134,7 @@ pub struct State {
     img015_sheets: Vec<SpriteSheet>,
     img022_sheets: Vec<SpriteSheet>,
     sheet_generation: u64,
+    scan_generation: u64,
     custom_assets: CustomAssets,
 
     dynamic_stats: StatsMemo,
@@ -172,6 +173,7 @@ impl Default for State {
             img015_sheets: Vec::new(),
             img022_sheets: Vec::new(),
             sheet_generation: 0,
+            scan_generation: 0,
             custom_assets: CustomAssets::new(),
 
             dynamic_stats: RefCell::new(None),
@@ -321,18 +323,21 @@ impl State {
         let scan_store = Arc::clone(vault);
         let (tx, rx) = mpsc::unbounded();
 
+        self.scan_generation = self.scan_generation.wrapping_add(1);
+        let generation = self.scan_generation;
+
         thread::spawn(move || {
             if cached && let Some((key, cats)) = scanner::hydrate(&scan_store) {
-                let _ = tx.unbounded_send(Message::Loaded(cats, Some(key)));
+                let _ = tx.unbounded_send(Message::Loaded(generation, cats, Some(key)));
                 return;
             }
 
             let scan = scanner::load(config, scan_store, |done, total| {
-                let _ = tx.unbounded_send(Message::ScanProgress(done, total));
+                let _ = tx.unbounded_send(Message::ScanProgress(generation, done, total));
             });
 
             let payload = scan.payload;
-            let _ = tx.unbounded_send(Message::Loaded(scan.data, scan.key));
+            let _ = tx.unbounded_send(Message::Loaded(generation, scan.data, scan.key));
 
             if let Some(bytes) = payload {
                 scanner::persist(&bytes);
@@ -359,10 +364,6 @@ impl State {
         for sheet in self.img015_sheets.iter_mut().chain(self.img022_sheets.iter_mut()) {
             sheet.mark_stale();
         }
-        self.details.clear_icons();
-        self.filter.clear_icons();
-        self.abilities.clear_icons();
-        self.talents.clear_icons();
         self.header_icon_cache.borrow_mut().clear();
     }
 
@@ -395,6 +396,23 @@ impl State {
                 self.talent_levels.remove(&evicted);
             }
         }
+    }
+
+    pub(crate) fn relocalize(&mut self, vfs: &Vfs) -> Task<Message> {
+        self.sheet_generation = self.sheet_generation.wrapping_add(1);
+
+        for sheet in self.img015_sheets.iter_mut().chain(self.img022_sheets.iter_mut()) {
+            sheet.mark_stale();
+        }
+
+        self.check_sheets(vfs)
+    }
+
+    fn recut(&self) {
+        self.abilities.clear_icons();
+        self.talents.clear_icons();
+        self.details.clear_icons();
+        self.filter.clear_icons();
     }
 
     fn check_sheets(&mut self, vfs: &Vfs) -> Task<Message> {
@@ -436,6 +454,7 @@ impl State {
                     && let Some(slot) = self.img015_sheets.get_mut(index)
                 {
                     slot.apply(sheet);
+                    self.recut();
                 }
                 Task::none()
             }
@@ -444,16 +463,25 @@ impl State {
                     && let Some(slot) = self.img022_sheets.get_mut(index)
                 {
                     slot.apply(sheet);
+                    self.recut();
                 }
                 Task::none()
             }
-            Message::ScanProgress(done, total) => {
+            Message::ScanProgress(generation, done, total) => {
+                if generation != self.scan_generation {
+                    return Task::none();
+                }
+
                 if self.scan_progress.is_none_or(|(prev, _)| done > prev) {
                     self.scan_progress = Some((done, total));
                 }
                 Task::none()
             }
-            Message::Loaded(cats, key) => {
+            Message::Loaded(generation, cats, key) => {
+                if generation != self.scan_generation {
+                    return Task::none();
+                }
+
                 info!("Cat load finished with {} entries", cats.len());
                 self.cached_key = key;
                 self.scan_progress = None;
@@ -796,7 +824,10 @@ impl State {
                 .on_press_maybe(available.then_some(Message::SelectTab(tab_enum)))
                 .style(move |theme: &Theme, status| theme::header_toggle_button(theme, status, is_selected, available));
 
-            tab_row = tab_row.push(btn);
+            tab_row = match is_talents {
+                true => tab_row.push(editor::target(btn, editor::Target::CatTalents)),
+                false => tab_row.push(btn),
+            };
         }
 
         let mut detail_row = row![
@@ -972,7 +1003,10 @@ impl State {
 
     fn view_talents<'a>(&'a self, cat: &'a CatEntry, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let Some(talent_data) = &cat.talent_data else {
-            return container(text("No Talents Available")).into();
+            let empty: Element<'a, Message> =
+                container(text("No Talents Available")).width(Length::Fill).height(Length::Fill).into();
+
+            return editor::target(empty, editor::Target::CatTalents);
         };
 
         let dynamic_stats = self.dynamic_stats(&global_ctx.vault.vfs, cat.id);

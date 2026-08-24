@@ -30,7 +30,7 @@ impl Clone for EnemyStore {
 impl EnemyStore {
     pub fn stats(&self, vfs: &Vfs) -> Arc<Vec<Entity>> {
         super::cached(&self.stats, || {
-            super::parsed(vfs, ENEMY_STATS, t_unit::parse).unwrap_or_default()
+            super::parsed(vfs, ENEMY_STATS, |bytes| t_unit::parse(bytes, None)).unwrap_or_default()
         })
     }
 
@@ -66,7 +66,7 @@ impl EnemyStore {
             let mut merged: Vec<Vec<String>> = Vec::new();
 
             for bytes in super::layered(vfs, ENEMY_PICTURE_BOOK) {
-                let Ok(parsed) = EnemyPictureBook::parse(bytes) else {
+                let Ok(parsed) = EnemyPictureBook::parse(bytes, None) else {
                     continue;
                 };
 

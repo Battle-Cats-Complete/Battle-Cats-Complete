@@ -221,12 +221,21 @@ fn choice_field<'a>(
 }
 
 pub(super) fn search<'a>(query: &str, width: f32, placeholder: &'a str) -> Element<'a, Message> {
-    header(search_field(query, width, placeholder))
+    header(search_field(query, width, placeholder, Message::SearchChanged))
 }
 
-fn search_field<'a>(query: &str, width: f32, placeholder: &'a str) -> Element<'a, Message> {
+pub(super) fn hunt<'a>(query: &str, width: f32, placeholder: &'a str) -> Element<'a, Message> {
+    header(search_field(query, width, placeholder, Message::HuntChanged))
+}
+
+fn search_field<'a>(
+    query: &str,
+    width: f32,
+    placeholder: &'a str,
+    typed: impl Fn(String) -> Message + 'a,
+) -> Element<'a, Message> {
     let field = text_input(placeholder, query)
-        .on_input(Message::SearchChanged)
+        .on_input(typed)
         .size(INPUT_SIZE)
         .padding(FIELD_PADDING)
         .width(Length::Fixed((usable(width) * SEARCH_FRACTION).max(CARD_WIDTH)))

@@ -277,6 +277,19 @@ impl Schema {
             .map_or_else(|| Cow::Owned(format!("Column {}", index + 1)), |label| Cow::Borrowed(label.as_str()))
     }
 
+    pub(super) fn creates(&self) -> bool {
+        self.subject == Subject::Talents
+    }
+
+    pub(super) fn vacant(&self, cells: &[i32]) -> bool {
+        if !self.creates() {
+            return false;
+        }
+
+        (0..TALENT_SLOTS)
+            .all(|slot| cells.get(TALENT_HEAD + slot * TALENT_STRIDE).copied().unwrap_or_default() == 0)
+    }
+
     pub(super) fn index_of(&self, field: &str) -> Option<usize> {
         self.order().iter().position(|entry| entry.field == field)
     }

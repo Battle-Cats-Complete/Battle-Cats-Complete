@@ -38,19 +38,19 @@ impl Clone for CatStore {
 impl CatStore {
     pub fn talents(&self, vfs: &Vfs) -> Arc<HashMap<u32, Talent>> {
         super::cached(&self.talents, || {
-            super::parsed(vfs, files::SKILL_ACQUISITION, Talent::parse).unwrap_or_default()
+            super::parsed(vfs, files::SKILL_ACQUISITION, |bytes| Talent::parse(bytes, None)).unwrap_or_default()
         })
     }
 
     pub fn talent_costs(&self, vfs: &Vfs) -> Arc<HashMap<u8, TalentCost>> {
         super::cached(&self.talent_costs, || {
-            super::parsed(vfs, files::SKILL_LEVEL, TalentCost::parse).unwrap_or_default()
+            super::parsed(vfs, files::SKILL_LEVEL, |bytes| TalentCost::parse(bytes, None)).unwrap_or_default()
         })
     }
 
     pub fn descriptions(&self, vfs: &Vfs) -> Arc<Vec<String>> {
         super::cached(&self.descriptions, || {
-            super::parsed(vfs, SKILL_DESCRIPTIONS, SkillDescriptions::parse)
+            super::parsed(vfs, SKILL_DESCRIPTIONS, |bytes| SkillDescriptions::parse(bytes, None))
                 .map(|parsed| parsed.texts)
                 .unwrap_or_default()
         })
@@ -58,13 +58,13 @@ impl CatStore {
 
     pub fn unitbuy(&self, vfs: &Vfs) -> Arc<HashMap<u32, UnitBuy>> {
         super::cached(&self.unitbuy, || {
-            super::parsed(vfs, files::UNIT_BUY, UnitBuy::parse).unwrap_or_default()
+            super::parsed(vfs, files::UNIT_BUY, |bytes| UnitBuy::parse(bytes, None)).unwrap_or_default()
         })
     }
 
     pub fn curves(&self, vfs: &Vfs) -> Arc<HashMap<u32, LevelCurve>> {
         super::cached(&self.curves, || {
-            super::parsed(vfs, files::UNIT_LEVEL, LevelCurve::parse).unwrap_or_default()
+            super::parsed(vfs, files::UNIT_LEVEL, |bytes| LevelCurve::parse(bytes, None)).unwrap_or_default()
         })
     }
 
@@ -73,7 +73,7 @@ impl CatStore {
             let mut merged: HashMap<u32, UnitEvolve> = HashMap::new();
 
             for bytes in super::layered(vfs, UNIT_EVOLVE) {
-                let Ok(parsed) = UnitEvolve::parse(bytes) else {
+                let Ok(parsed) = UnitEvolve::parse(bytes, None) else {
                     continue;
                 };
 

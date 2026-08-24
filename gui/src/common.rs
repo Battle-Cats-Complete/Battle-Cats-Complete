@@ -162,6 +162,7 @@ impl SpriteSheet {
     pub fn apply(&mut self, result: Option<CoreSpriteSheet>) {
         self.loading = false;
         self.stale = false;
+        self.failed = false;
 
         let Some(core) = result else {
             self.failed = true;

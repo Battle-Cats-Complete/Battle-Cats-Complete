@@ -12,7 +12,7 @@ use crate::Vfs;
 pub fn battleground(vfs: &Vfs, filename: &str) -> Option<Battleground> {
     let bytes = read(vfs, filename)?;
 
-    Battleground::parse(&bytes).ok()
+    Battleground::parse(&bytes, None).ok()
 }
 
 pub(crate) fn certification_preset(vfs: &Vfs, filename: &str) -> Option<CertificationPreset> {
@@ -23,27 +23,27 @@ pub(crate) fn certification_preset(vfs: &Vfs, filename: &str) -> Option<Certific
 
 pub(crate) fn drop_chara(vfs: &Vfs, filename: &str) -> HashMap<u32, u32> {
     read(vfs, filename)
-        .and_then(|bytes| DropChara::parse(&bytes).ok())
+        .and_then(|bytes| DropChara::parse(&bytes, None).ok())
         .map(|parsed| parsed.character_drops)
         .unwrap_or_default()
 }
 
 pub(crate) fn lockskipdata(vfs: &Vfs, filename: &str) -> HashMap<u32, LockSkipDataEntry> {
     read(vfs, filename)
-        .and_then(|bytes| LockSkipData::parse(&bytes).ok())
+        .and_then(|bytes| LockSkipData::parse(&bytes, None).ok())
         .map(|parsed| parsed.entries)
         .unwrap_or_default()
 }
 
 pub(crate) fn mapstagedata(vfs: &Vfs, filename: &str) -> MapStageData {
     read(vfs, filename)
-        .and_then(|bytes| MapStageData::parse(&bytes).ok())
+        .and_then(|bytes| MapStageData::parse(&bytes, None).ok())
         .unwrap_or_default()
 }
 
 pub(crate) fn scatcpusetting(vfs: &Vfs, filename: &str) -> ScatCpuSetting {
     read(vfs, filename)
-        .and_then(|bytes| ScatCpuSetting::parse(&bytes).ok())
+        .and_then(|bytes| ScatCpuSetting::parse(&bytes, None).ok())
         .unwrap_or_default()
 }
 
@@ -53,7 +53,7 @@ pub(crate) fn stagename(vfs: &Vfs, filename: &str) -> HashMap<u32, StageNameEntr
 
     for path in paths.iter().rev() {
         let Ok(bytes) = fs::read(path) else { continue; };
-        let Ok(parsed) = StageName::parse(&bytes) else { continue; };
+        let Ok(parsed) = StageName::parse(&bytes, None) else { continue; };
 
         for (map_id, entry) in parsed.entries {
             let existing = final_map.entry(map_id).or_insert(StageNameEntry { names: Vec::new() });

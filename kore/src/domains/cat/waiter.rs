@@ -19,7 +19,7 @@ pub fn unitexplanation(vfs: &Vfs, cat_id: u32) -> UnitExplanation {
             continue;
         };
 
-        let Ok(parsed_explanation) = UnitExplanation::parse(&bytes) else {
+        let Ok(parsed_explanation) = UnitExplanation::parse(&bytes, Some(delimiter(&file_path))) else {
             continue;
         };
 
@@ -43,7 +43,7 @@ pub fn unitexplanation_source(vfs: &Vfs, cat_id: u32, form: usize) -> Option<Pat
             continue;
         };
 
-        let Ok(parsed) = UnitExplanation::parse(&bytes) else {
+        let Ok(parsed) = UnitExplanation::parse(&bytes, Some(delimiter(&file_path))) else {
             continue;
         };
 
@@ -69,5 +69,11 @@ pub fn unitid(vfs: &Vfs, cat_id: i32) -> Option<Vec<Entity>> {
 
     let bytes = fs::read(resolved_path).ok()?;
 
-    unitid::parse(&bytes).ok()
+    unitid::parse(&bytes, None).ok()
+}
+
+fn delimiter(path: &std::path::Path) -> nyanko::combat::Separator {
+    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+
+    crate::common::region::text_separator(&name)
 }

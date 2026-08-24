@@ -297,7 +297,7 @@ fn process_cat_entry(
     if let Some(resolved) = resolved_stats
         && let Ok(bytes) = fs::read(&resolved) {
 
-        if let Ok(parsed_profiles) = unitid::parse(&bytes) {
+        if let Ok(parsed_profiles) = unitid::parse(&bytes, None) {
             for (line_index, profile) in parsed_profiles.into_iter().enumerate().take(4) {
                 cat_stats[line_index] = Some(profile);
             }

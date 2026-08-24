@@ -7,7 +7,7 @@ use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::Category;
 use nyanko::chapter::map::{DropItemEntry, LockSkipDataEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
 use nyanko::chapter::stage::{CharaGroupEntry, CostType, FixedFormationEntry, MapStageData, ScatCpuSetting, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
-use nyanko::common::tools::file;
+use nyanko::combat::Separator;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -641,7 +641,7 @@ fn load_story_stages(
         let resolved_paths = ctx.vfs.list(story_file);
         if let Some(story_path) = resolved_paths.first() {
             if let Ok(content) = fs::read_to_string(story_path) {
-                let sep = file::detect_separator(&content);
+                let sep = Separator::detect(&content).unwrap_or(Separator::Comma).char();
                 for (idx, line) in content.lines().skip(2).enumerate() {
                     let clean = line.split("//").next().unwrap_or("").trim();
                     if clean.is_empty() { continue; }
@@ -666,7 +666,7 @@ fn load_story_stages(
         let resolved_paths = ctx.vfs.list(inv_story_file);
         if let Some(inv_story_path) = resolved_paths.first()
             && let Ok(content) = fs::read_to_string(inv_story_path) {
-            let sep = file::detect_separator(&content);
+            let sep = Separator::detect(&content).unwrap_or(Separator::Comma).char();
             for line in content.lines().skip(2) {
                 let clean = line.split("//").next().unwrap_or("").trim();
                 if clean.is_empty() { continue; }

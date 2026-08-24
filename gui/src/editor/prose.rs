@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use iced::widget::{button, column, container, scrollable, text_input};
 use iced::{Element, Length, Padding, Size, Task};
+use nyanko::combat::Separator;
 use nyanko::common::tools::file;
 use tracing::warn;
 
@@ -272,7 +273,7 @@ impl Draft {
 
         let stamp = preview::stamp(&read_from)?;
         let body = file::scrub(&bytes);
-        let delimiter = plan.subject.delimited().then(|| separator(&body));
+        let delimiter = plan.subject.delimited().then(|| separator(&plan.file));
         let lines: Vec<String> = body.lines().map(str::to_owned).collect();
         let (head, fields, tail) = parse(&body, plan.row, delimiter, plan.subject);
 
@@ -301,7 +302,7 @@ impl Draft {
         };
 
         let body = file::scrub(&bytes);
-        let delimiter = self.plan.subject.delimited().then(|| separator(&body));
+        let delimiter = self.plan.subject.delimited().then(|| separator(&self.plan.file));
         let (head, fields, tail) = parse(&body, self.plan.row, delimiter, self.plan.subject);
         self.head = head;
         self.fields = fields;
@@ -399,8 +400,16 @@ impl Draft {
     }
 }
 
-fn separator(body: &str) -> char {
-    if body.contains('|') { '|' } else { file::detect_separator(body) }
+const JAPANESE: &str = "ja";
+
+fn separator(name: &str) -> char {
+    localized(name).char()
+}
+
+fn localized(name: &str) -> Separator {
+    let japanese = name.rsplit_once('_').is_some_and(|(_, tail)| tail.starts_with(JAPANESE));
+
+    if japanese { Separator::Comma } else { Separator::Pipe }
 }
 
 fn parse(body: &str, index: usize, delimiter: Option<char>, subject: Subject) -> (Vec<String>, Vec<String>, Vec<String>) {

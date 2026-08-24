@@ -651,13 +651,22 @@ impl BattleCatsApp {
     fn relocalize(&mut self) -> Task<Message> {
         info!(priority = ?self.settings.general.language_priority, "Language priority settled, dropping every resolved file");
         self.vault.priority(&self.settings.general.language_priority);
-        self.rescan_units()
+        self.editor.relocalize();
+
+        let sheets = Task::batch([
+            self.cat_state.relocalize(&self.vault.vfs).map(Message::Cat),
+            self.enemy_state.relocalize(&self.vault.vfs).map(Message::Enemy),
+        ]);
+
+        Task::batch([sheets, self.rescan_units()])
     }
 
     fn scanner_fingerprint(&self) -> u64 {
+        let mut config = self.settings.scanner_config(self.mods_state.active_mod());
         let mut hasher = FxHasher::default();
 
-        self.settings.scanner_config(self.mods_state.active_mod()).hash(&mut hasher);
+        config.language_priority.clear();
+        config.hash(&mut hasher);
 
         hasher.finish()
     }

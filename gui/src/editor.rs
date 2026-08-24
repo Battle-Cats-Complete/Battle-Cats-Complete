@@ -579,7 +579,7 @@ impl State {
 
             let slot = &self.figures[subject.slot()];
 
-            if let Some(view) = slot.view(window, cap, &app.vault.vfs) {
+            if let Some(view) = slot.view(window, cap, &app.vault) {
                 views.push((slot.raised(), view.map(move |inner| Message::Figures(subject, inner))));
             }
         }
@@ -594,6 +594,12 @@ impl State {
             figures::SUBJECTS.iter().filter_map(|subject| self.figures[subject.slot()].restore_scroll()).collect();
 
         Task::batch(tasks)
+    }
+
+    pub(crate) fn relocalize(&self) {
+        for slot in &self.figures {
+            slot.relocalize();
+        }
     }
 
     fn drafting(&self) -> bool {
@@ -820,8 +826,7 @@ fn figures_tab(app: &BattleCatsApp, subject: figures::Subject) -> bool {
     match subject {
         figures::Subject::Cat => app.cat_state.selected_tab == DetailTab::Abilities,
         figures::Subject::Enemy => app.enemy_state.selected_tab == EnemyTab::Abilities,
-        figures::Subject::Talents => app.cat_state.selected_tab == DetailTab::Talents,
-        figures::Subject::Buy | figures::Subject::Curve => true,
+        figures::Subject::Buy | figures::Subject::Curve | figures::Subject::Talents => true,
     }
 }
 
@@ -879,13 +884,7 @@ fn talent_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
 }
 
 fn talented(app: &BattleCatsApp) -> bool {
-    if !figures_tab(app, figures::Subject::Talents) {
-        return false;
-    }
-
-    app.app_state.cat.selected_cat.is_some_and(|id| {
-        app.cat_state.data.cats.iter().any(|cat| cat.id == id && cat.talent_data.is_some())
-    })
+    app.app_state.cat.selected_cat.is_some()
 }
 
 fn address(subject: figures::Subject, id: u32) -> figures::Address {
@@ -968,12 +967,15 @@ fn level_cap(app: &BattleCatsApp) -> Option<i32> {
 }
 
 fn cat_label(app: &BattleCatsApp, id: u32) -> String {
+    let form = app.app_state.cat.selected_form;
+
     app.cat_state
         .data
         .cats
         .iter()
         .find(|cat| cat.id == id)
-        .and_then(|cat| cat.names.first().cloned().flatten())
+        .and_then(|cat| cat.names.get(form).cloned().flatten())
+        .filter(|name| !name.is_empty())
         .unwrap_or_else(|| format!("{id:03}-C"))
 }
 

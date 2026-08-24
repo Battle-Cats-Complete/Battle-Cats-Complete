@@ -45,8 +45,8 @@ pub(super) const CONTENT_WIDTH: f32 = MIN_WINDOW_WIDTH - CONTENT_PADDING * 2.0;
 
 #[derive(Clone)]
 pub enum Message {
-    ScanProgress(usize, usize),
-    Loaded(Box<StageBundle>, Option<u64>),
+    ScanProgress(u64, usize, usize),
+    Loaded(u64, Box<StageBundle>, Option<u64>),
     ToggleSidebar,
     SelectCrown(u8),
     ShowEnemyAppearances(u32),
@@ -57,8 +57,8 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ScanProgress(done, total) => write!(f, "ScanProgress({}/{})", done, total),
-            Self::Loaded(bundle, _) => write!(f, "Loaded({} maps, {} stages)", bundle.registry.maps.len(), bundle.registry.stages.len()),
+            Self::ScanProgress(_, done, total) => write!(f, "ScanProgress({}/{})", done, total),
+            Self::Loaded(_, bundle, _) => write!(f, "Loaded({} maps, {} stages)", bundle.registry.maps.len(), bundle.registry.stages.len()),
             Self::ToggleSidebar => write!(f, "ToggleSidebar"),
             Self::SelectCrown(crown) => write!(f, "SelectCrown({})", crown),
             Self::ShowEnemyAppearances(id) => write!(f, "ShowEnemyAppearances({})", id),
@@ -75,6 +75,7 @@ pub struct State {
     entered: bool,
     scan_progress: Option<(usize, usize)>,
     cached_key: Option<u64>,
+    scan_generation: u64,
     filter: filter::State,
     list: list::State,
     info: info::State,
@@ -93,6 +94,7 @@ impl Default for State {
             entered: true,
             scan_progress: None,
             cached_key: None,
+            scan_generation: 0,
             filter: filter::State::default(),
             list: list::State::default(),
             info: info::State::default(),
@@ -153,18 +155,21 @@ impl State {
         let vault = Arc::clone(vault);
         let (tx, rx) = mpsc::unbounded();
 
+        self.scan_generation = self.scan_generation.wrapping_add(1);
+        let generation = self.scan_generation;
+
         thread::spawn(move || {
             if cached && let Some((key, bundle)) = scanner::hydrate() {
-                let _ = tx.unbounded_send(Message::Loaded(Box::new(bundle), Some(key)));
+                let _ = tx.unbounded_send(Message::Loaded(generation, Box::new(bundle), Some(key)));
                 return;
             }
 
             let scan = scanner::load(config, vault, |done, total| {
-                let _ = tx.unbounded_send(Message::ScanProgress(done, total));
+                let _ = tx.unbounded_send(Message::ScanProgress(generation, done, total));
             });
 
             let payload = scan.payload;
-            let _ = tx.unbounded_send(Message::Loaded(Box::new(scan.data), scan.key));
+            let _ = tx.unbounded_send(Message::Loaded(generation, Box::new(scan.data), scan.key));
 
             if let Some(bytes) = payload {
                 scanner::persist(&bytes);
@@ -220,13 +225,21 @@ impl State {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         let task = match message {
-            Message::ScanProgress(done, total) => {
+            Message::ScanProgress(generation, done, total) => {
+                if generation != self.scan_generation {
+                    return Task::none();
+                }
+
                 if self.scan_progress.is_none_or(|(prev, _)| done > prev) {
                     self.scan_progress = Some((done, total));
                 }
                 Task::none()
             }
-            Message::Loaded(bundle, key) => {
+            Message::Loaded(generation, bundle, key) => {
+                if generation != self.scan_generation {
+                    return Task::none();
+                }
+
                 self.cached_key = key;
                 info!("Stage load finished with {} maps and {} stages", bundle.registry.maps.len(), bundle.registry.stages.len());
                 self.scan_progress = None;

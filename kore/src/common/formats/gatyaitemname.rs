@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 
-use nyanko::common::tools::file;
+use nyanko::combat::Separator;
 
 use crate::Vfs;
 
@@ -19,7 +19,7 @@ pub(crate) fn load(vfs: &Vfs, filename: &str) -> HashMap<usize, GatyaItemName> {
         return item_name_map;
     };
 
-    let csv_separator = file::detect_separator(&file_content);
+    let csv_separator = Separator::detect(&file_content).unwrap_or(Separator::Comma).char();
 
     for (current_row_index, line_string) in file_content.lines().enumerate() {
         let clean_line = line_string.split("//").next().unwrap_or("").trim();

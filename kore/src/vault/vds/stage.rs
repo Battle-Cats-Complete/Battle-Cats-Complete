@@ -67,7 +67,7 @@ impl StageStore {
             let mut merged = HashMap::new();
 
             for bytes in super::layered(vfs, MAP_NAME).into_iter().rev() {
-                if let Ok(parsed) = MapName::parse(bytes) {
+                if let Ok(parsed) = MapName::parse(bytes, None) {
                     merged.extend(parsed.names);
                 }
             }
@@ -78,7 +78,7 @@ impl StageStore {
 
     pub fn map_options(&self, vfs: &Vfs) -> Arc<HashMap<u32, MapOptionEntry>> {
         super::cached(&self.map_options, || {
-            super::parsed(vfs, MAP_OPTION, MapOption::parse)
+            super::parsed(vfs, MAP_OPTION, |bytes| MapOption::parse(bytes, None))
                 .map(|parsed| parsed.entries)
                 .unwrap_or_default()
         })
@@ -86,7 +86,7 @@ impl StageStore {
 
     pub fn stage_options(&self, vfs: &Vfs) -> Arc<HashMap<u32, Vec<StageOptionEntry>>> {
         super::cached(&self.stage_options, || {
-            super::parsed(vfs, STAGE_OPTION, StageOption::parse)
+            super::parsed(vfs, STAGE_OPTION, |bytes| StageOption::parse(bytes, None))
                 .map(|parsed| parsed.entries)
                 .unwrap_or_default()
         })
@@ -94,7 +94,7 @@ impl StageStore {
 
     pub fn charagroups(&self, vfs: &Vfs) -> Arc<HashMap<u32, CharaGroupEntry>> {
         super::cached(&self.charagroups, || {
-            super::parsed(vfs, CHARA_GROUP, CharaGroup::parse)
+            super::parsed(vfs, CHARA_GROUP, |bytes| CharaGroup::parse(bytes, None))
                 .map(|parsed| parsed.groups)
                 .unwrap_or_default()
         })
@@ -102,7 +102,7 @@ impl StageStore {
 
     pub fn drop_items(&self, vfs: &Vfs) -> Arc<HashMap<u32, DropItemEntry>> {
         super::cached(&self.drop_items, || {
-            super::parsed(vfs, DROP_ITEM, DropItem::parse)
+            super::parsed(vfs, DROP_ITEM, |bytes| DropItem::parse(bytes, None))
                 .map(|parsed| parsed.map_drops)
                 .unwrap_or_default()
         })
@@ -134,7 +134,7 @@ impl StageStore {
 
     pub fn ex_options(&self, vfs: &Vfs) -> Arc<HashMap<u32, u32>> {
         super::cached(&self.ex_options, || {
-            super::parsed(vfs, EX_OPTION, ExOption::parse)
+            super::parsed(vfs, EX_OPTION, |bytes| ExOption::parse(bytes, None))
                 .map(|parsed| parsed.map_to_ex_map)
                 .unwrap_or_default()
         })
@@ -142,7 +142,7 @@ impl StageStore {
 
     pub fn difficulties(&self, vfs: &Vfs) -> Arc<HashMap<u32, Vec<u16>>> {
         super::cached(&self.difficulties, || {
-            super::parsed(vfs, DIFFICULTY, DifficultyLevel::parse)
+            super::parsed(vfs, DIFFICULTY, |bytes| DifficultyLevel::parse(bytes, None))
                 .map(|parsed| parsed.map_difficulties)
                 .unwrap_or_default()
         })
@@ -150,7 +150,7 @@ impl StageStore {
 
     pub fn fixed_formations(&self, vfs: &Vfs) -> Arc<HashMap<(u32, u8, u32), FixedFormationEntry>> {
         super::cached(&self.fixed_formations, || {
-            super::parsed(vfs, FIXED_FORMATION, FixedFormation::parse)
+            super::parsed(vfs, FIXED_FORMATION, |bytes| FixedFormation::parse(bytes, None))
                 .map(|parsed| parsed.formations)
                 .unwrap_or_default()
         })

@@ -174,13 +174,13 @@ pub(super) fn note(subject: Subject, field: Option<&str>) -> Option<&'static str
     }
 }
 
-pub(super) fn rule(subject: Subject, index: usize, field: Option<&str>) -> Rule {
+pub(super) fn rule(subject: Subject, index: usize, field: Option<&str>, cells: &[i32]) -> Rule {
     match subject {
         Subject::Cat => lookup(field, cats::rule),
         Subject::Enemy => lookup(field, enemies::rule),
         Subject::Buy => lookup(field, unitbuy::rule),
         Subject::Curve => unitlevel::rule(),
-        Subject::Talents => talents::rule(index),
+        Subject::Talents => talents::rule(index, cells),
     }
 }
 
@@ -214,7 +214,7 @@ mod tests {
                 }
 
                 assert_ne!(
-                    rule(subject, index, Some(entry.field)),
+                    rule(subject, index, Some(entry.field), &[]),
                     Rule::Flag,
                     "{subject:?}: {} carries a nyanko Scale, so it is a magnitude and never a flag",
                     entry.field,
