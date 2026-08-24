@@ -1,10 +1,12 @@
 pub mod encoding;
+pub mod find_bounds;
 pub mod find_loop;
 pub mod leader;
 pub mod process;
 
 use std::path::PathBuf;
 
+use nyanko::graphics::rig::BoundingBox;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Debug)]
@@ -19,6 +21,13 @@ pub enum LoopStatus {
     Searching(usize),
     Found(i32, i32),
     Error(String),
+}
+
+#[derive(Clone, Debug)]
+pub enum BoundsOutcome {
+    Found(BoundingBox),
+    Empty,
+    Aborted,
 }
 
 #[derive(Clone, Copy, Debug)]

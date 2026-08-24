@@ -3,15 +3,17 @@ name: Draft Action Notification
 on:
   push:
     branches:
-      - '**'
+      - nightly
   pull_request:
     types: [closed]
+    branches:
+      - nightly
 
 jobs:
   notify-commits:
     name: Notify Commits
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.event.commits != null && github.event.commits[0] != null
+    if: github.event_name == 'push' && !github.event.forced && github.event.commits != null && github.event.commits[0] != null
     steps:
       - name: Send commit summary to Discord
         env:
@@ -60,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
-      (github.event_name == 'push' && contains(toJSON(github.event.commits.*.message), 'Merge '))
+      (github.event_name == 'push' && !github.event.forced && contains(toJSON(github.event.commits.*.message), 'Merge '))
     steps:
       - name: Send merge summary to Discord
         env:

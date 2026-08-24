@@ -10,11 +10,12 @@ use iced::widget::{button, column, container, pick_list, progress_bar, row, rule
 use iced::{task, Alignment, Element, Length, Size, Task, Theme};
 use tracing::trace;
 
-use nyanko::graphics::rig::{Animation, BoundingBox};
+use nyanko::graphics::rig::Animation;
 
+use kore::common::job::ProgressCounter;
 use kore::systems::addons::paths::{self, Presence};
-use kore::systems::animation::export::{find_loop, leader, process, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
-use kore::systems::animation::{frame_count, last_frame, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
+use kore::systems::animation::export::{find_bounds, find_loop, leader, process, BoundsOutcome, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
+use kore::systems::animation::{furthest_frame, true_loop, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
 use kore::domains::settings::Settings;
 
 use crate::app::state::AnimState;
@@ -72,21 +73,22 @@ struct JobState {
     encoder_handle: task::Handle,
 }
 
-enum LoopResult {
+enum SearchResult {
     Found,
     Terminated,
     Error(String),
 }
 
-enum LoopPhase {
+enum SearchPhase {
     Running,
     Aborting,
-    Done { result: LoopResult, shown_at: Option<Instant> },
+    Done { result: SearchResult, shown_at: Option<Instant> },
 }
 
-struct LoopJob {
-    phase: LoopPhase,
+struct SearchJob {
+    phase: SearchPhase,
     abort: Arc<AtomicBool>,
+    progress: Arc<ProgressCounter>,
     frames_searched: usize,
     start_time: Instant,
     task_handle: task::Handle,
@@ -231,7 +233,8 @@ pub struct State {
     popup: popup::State,
     exporter: ExportForm,
     jobs: HashMap<JobKey, JobState>,
-    loop_job: Option<(JobKey, LoopJob)>,
+    loop_job: Option<(JobKey, SearchJob)>,
+    bounds_job: Option<(JobKey, SearchJob)>,
     synced_key: Option<JobKey>,
     scanned_showcase: Option<String>,
 }
@@ -263,7 +266,8 @@ pub enum Message {
     Encoder(JobKey, EncoderStatus),
     SetCamera,
     UseBounds,
-    BoundsCalculated(Option<BoundingBox>),
+    AbortBounds,
+    BoundsCalculated(JobKey, BoundsOutcome),
     FindLoop,
     AbortLoopSearch,
     LoopSearch(JobKey, LoopStatus),
@@ -296,7 +300,7 @@ impl State {
             if self.exporter.export_mode != ExportMode::Showcase {
                 match &data.current_anim {
                     Some(anim) => {
-                        self.exporter.max_frame = last_frame(anim);
+                        self.exporter.max_frame = furthest_frame(anim);
                         self.exporter.frame_start = 0;
                         self.exporter.frame_end = self.exporter.max_frame;
                     }
@@ -360,7 +364,7 @@ impl State {
         };
 
         if let Some(attack) = parse_anim(IDX_ATTACK) {
-            let total_attack_frames = frame_count(&attack);
+            let total_attack_frames = furthest_frame(&attack) + 1;
             self.exporter.detected_attack_len = total_attack_frames;
             if self.exporter.showcase_attack_str.is_empty() {
                 self.exporter.showcase_attack_len = total_attack_frames;
@@ -368,7 +372,7 @@ impl State {
         }
 
         if let Some(walk) = parse_anim(IDX_WALK) {
-            let walk_loop = frame_count(&walk);
+            let walk_loop = true_loop(&walk).unwrap_or_else(|| furthest_frame(&walk));
             let new_walk_length = if walk_loop <= 1 { 0 } else { settings.animation.default_showcase_walk };
             self.exporter.detected_walk_len = new_walk_length;
 
@@ -379,7 +383,7 @@ impl State {
         }
 
         if let Some(idle) = parse_anim(IDX_IDLE) {
-            let idle_loop = frame_count(&idle);
+            let idle_loop = true_loop(&idle).unwrap_or_else(|| furthest_frame(&idle));
             let new_idle_length = if idle_loop <= 1 { 0 } else { settings.animation.default_showcase_idle };
             self.exporter.detected_idle_len = new_idle_length;
 
@@ -442,27 +446,12 @@ impl State {
             true
         });
 
-        if let Some((_, job)) = &mut self.loop_job
-            && matches!(job.phase, LoopPhase::Aborting) {
-            job.phase = LoopPhase::Done { result: LoopResult::Terminated, shown_at: None };
+        if let Some((_, job)) = &mut self.bounds_job {
+            job.frames_searched = job.progress.current();
         }
 
-        if let Some(key) = &self.synced_key
-            && let Some((job_key, job)) = &mut self.loop_job
-            && job_key == key
-            && let LoopPhase::Done { shown_at, .. } = &mut job.phase
-            && shown_at.is_none() {
-            *shown_at = Some(Instant::now());
-        }
-
-        let loop_expired = self.loop_job.as_ref().is_some_and(|(_, job)| {
-            matches!(&job.phase, LoopPhase::Done { shown_at: Some(at), .. } if at.elapsed().as_secs_f32() > 3.0)
-        });
-
-        if loop_expired
-            && let Some((_, job)) = self.loop_job.take() {
-            job.task_handle.abort();
-        }
+        advance_search(&mut self.loop_job, self.synced_key.as_ref());
+        advance_search(&mut self.bounds_job, self.synced_key.as_ref());
     }
 
     pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings, anim_state: &mut AnimState) -> Task<Message> {
@@ -706,7 +695,7 @@ impl State {
                 }
 
                 if self.loop_job.as_ref().is_some_and(|(job_key, job)| {
-                    *job_key == key && matches!(job.phase, LoopPhase::Running | LoopPhase::Aborting)
+                    *job_key == key && matches!(job.phase, SearchPhase::Running | SearchPhase::Aborting)
                 }) {
                     return Task::none();
                 }
@@ -742,9 +731,10 @@ impl State {
                     previous.task_handle.abort();
                 }
 
-                self.loop_job = Some((key, LoopJob {
-                    phase: LoopPhase::Running,
+                self.loop_job = Some((key, SearchJob {
+                    phase: SearchPhase::Running,
                     abort,
+                    progress: Arc::new(ProgressCounter::default()),
                     frames_searched: 0,
                     start_time: Instant::now(),
                     task_handle: handle,
@@ -756,9 +746,9 @@ impl State {
                 if let Some(key) = &self.synced_key
                     && let Some((job_key, job)) = &mut self.loop_job
                     && job_key == key
-                    && matches!(job.phase, LoopPhase::Running) {
+                    && matches!(job.phase, SearchPhase::Running) {
                     job.abort.store(true, Ordering::Relaxed);
-                    job.phase = LoopPhase::Aborting;
+                    job.phase = SearchPhase::Aborting;
                 }
             }
             Message::LoopSearch(key, status) => {
@@ -775,9 +765,9 @@ impl State {
                 match status {
                     LoopStatus::Searching(frames) => job.frames_searched = frames,
                     LoopStatus::Found(start, end) => {
-                        let was_aborting = matches!(job.phase, LoopPhase::Aborting);
-                        job.phase = LoopPhase::Done {
-                            result: if was_aborting { LoopResult::Terminated } else { LoopResult::Found },
+                        let was_aborting = matches!(job.phase, SearchPhase::Aborting);
+                        job.phase = SearchPhase::Done {
+                            result: if was_aborting { SearchResult::Terminated } else { SearchResult::Found },
                             shown_at: None,
                         };
 
@@ -789,9 +779,9 @@ impl State {
                         }
                     }
                     LoopStatus::Error(message) => {
-                        let was_aborting = matches!(job.phase, LoopPhase::Aborting);
-                        job.phase = LoopPhase::Done {
-                            result: if was_aborting { LoopResult::Terminated } else { LoopResult::Error(message) },
+                        let was_aborting = matches!(job.phase, SearchPhase::Aborting);
+                        job.phase = SearchPhase::Done {
+                            result: if was_aborting { SearchResult::Terminated } else { SearchResult::Error(message) },
                             shown_at: None,
                         };
                     }
@@ -817,55 +807,140 @@ impl State {
             }
             Message::SetCamera => {}
             Message::UseBounds => {
+                let Some(key) = self.synced_key.clone() else {
+                    return Task::none();
+                };
+
+                if matches!(
+                    self.jobs.get(&key).map(|job| &job.phase),
+                    Some(JobPhase::Running | JobPhase::Aborting)
+                ) {
+                    return Task::none();
+                }
+
+                if self.bounds_job.as_ref().is_some_and(|(job_key, job)| {
+                    *job_key == key && matches!(job.phase, SearchPhase::Running | SearchPhase::Aborting)
+                }) {
+                    return Task::none();
+                }
+
                 let Some(unit) = data.held_unit.clone() else {
                     return Task::none();
                 };
 
                 let tolerance = if settings.animation.use_tight_bounds { 1.0 } else { 0.0 };
-                let export_mode = self.exporter.export_mode.clone();
+                let is_showcase = self.exporter.export_mode == ExportMode::Showcase;
+                let scan_limit = self.exporter.frame_end.max(self.exporter.frame_start).max(0);
                 let current_anim = data.current_anim.clone();
                 let available_anims = data.available_anims.clone();
+                let showcase_slots = [
+                    (IDX_WALK, self.exporter.showcase_walk_len),
+                    (IDX_IDLE, self.exporter.showcase_idle_len),
+                    (IDX_ATTACK, self.exporter.showcase_attack_len),
+                    (IDX_KB, self.exporter.showcase_kb_len),
+                ];
 
+                let abort = Arc::new(AtomicBool::new(false));
+                let progress = Arc::new(ProgressCounter::default());
                 let (tx, rx) = unbounded();
 
+                let worker_abort = abort.clone();
+                let worker_progress = progress.clone();
                 thread::spawn(move || {
                     let mut showcase_clips = Vec::new();
-                    let mut anim_refs: Vec<&Animation> = Vec::new();
 
-                    if export_mode == ExportMode::Showcase {
-                        for slot in [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB] {
+                    if is_showcase {
+                        for (slot, length) in showcase_slots {
+                            if length <= 0 {
+                                continue;
+                            }
+
                             if let Some((_, path)) = available_anims.iter().find(|(idx, _)| *idx == slot)
                                 && let Ok(bytes) = fs::read(path)
                                 && let Ok(anim) = Animation::parse(&bytes) {
-                                showcase_clips.push(anim);
+                                showcase_clips.push((anim, length));
                             }
                         }
-                        anim_refs.extend(showcase_clips.iter());
-                    } else if let Some(anim) = &current_anim {
-                        anim_refs.push(anim.as_ref());
                     }
 
-                    let bounds =
-                        (!anim_refs.is_empty()).then(|| unit.calculate_bounds(&anim_refs, tolerance)).flatten();
-                    let _ = tx.unbounded_send(bounds);
+                    let clips: Vec<(&Animation, Option<i32>)> = if is_showcase {
+                        showcase_clips.iter().map(|(anim, length)| (anim, Some(*length))).collect()
+                    } else {
+                        current_anim.iter().map(|anim| (anim.as_ref(), Some(scan_limit))).collect()
+                    };
+
+                    let outcome = find_bounds::search(&unit, &clips, tolerance, &worker_progress, &worker_abort);
+                    let _ = tx.unbounded_send(outcome);
                 });
 
-                return Task::stream(rx).map(Message::BoundsCalculated);
-            }
-            Message::BoundsCalculated(bounds) => {
-                if let Some(bounds) = bounds {
-                    self.exporter.region_x = bounds.min_x;
-                    self.exporter.region_y = bounds.min_y;
-                    self.exporter.region_w = bounds.width();
-                    self.exporter.region_h = bounds.height();
-                } else {
-                    self.exporter.region_x = 0.0;
-                    self.exporter.region_y = 0.0;
-                    self.exporter.region_w = 0.0;
-                    self.exporter.region_h = 0.0;
+                let map_key = key.clone();
+                let (bounds_task, handle) = Task::stream(rx)
+                    .map(move |outcome| Message::BoundsCalculated(map_key.clone(), outcome))
+                    .abortable();
+
+                if let Some((_, previous)) = self.bounds_job.take() {
+                    previous.abort.store(true, Ordering::Relaxed);
+                    previous.task_handle.abort();
                 }
 
-                self.exporter.zoom = 1.0;
+                self.bounds_job = Some((key, SearchJob {
+                    phase: SearchPhase::Running,
+                    abort,
+                    progress,
+                    frames_searched: 0,
+                    start_time: Instant::now(),
+                    task_handle: handle,
+                }));
+
+                return bounds_task;
+            }
+            Message::AbortBounds => {
+                if let Some(key) = &self.synced_key
+                    && let Some((job_key, job)) = &mut self.bounds_job
+                    && job_key == key
+                    && matches!(job.phase, SearchPhase::Running) {
+                    job.abort.store(true, Ordering::Relaxed);
+                    job.phase = SearchPhase::Aborting;
+                }
+            }
+            Message::BoundsCalculated(key, outcome) => {
+                let Some((job_key, job)) = &mut self.bounds_job else {
+                    trace!("Dropping bounds event for missing job {:?}", key);
+                    return Task::none();
+                };
+
+                if *job_key != key {
+                    trace!("Dropping stale bounds event for {:?}", key);
+                    return Task::none();
+                }
+
+                let terminated = matches!(outcome, BoundsOutcome::Aborted)
+                    || matches!(job.phase, SearchPhase::Aborting | SearchPhase::Done { result: SearchResult::Terminated, .. });
+                let applies = !terminated && self.synced_key.as_ref() == Some(&key);
+
+                let result = if terminated {
+                    SearchResult::Terminated
+                } else if let BoundsOutcome::Found(bounds) = outcome {
+                    if applies {
+                        self.exporter.region_x = bounds.min_x;
+                        self.exporter.region_y = bounds.min_y;
+                        self.exporter.region_w = bounds.width();
+                        self.exporter.region_h = bounds.height();
+                        self.exporter.zoom = 1.0;
+                    }
+                    SearchResult::Found
+                } else {
+                    if applies {
+                        self.exporter.region_x = 0.0;
+                        self.exporter.region_y = 0.0;
+                        self.exporter.region_w = 0.0;
+                        self.exporter.region_h = 0.0;
+                        self.exporter.zoom = 1.0;
+                    }
+                    SearchResult::Error("Nothing to measure".to_string())
+                };
+
+                job.phase = SearchPhase::Done { result, shown_at: None };
             }
         }
 
@@ -891,7 +966,15 @@ impl State {
             .map(|(_, job)| job);
         let loop_active = matches!(
             current_loop.map(|job| &job.phase),
-            Some(LoopPhase::Running | LoopPhase::Aborting)
+            Some(SearchPhase::Running | SearchPhase::Aborting)
+        );
+
+        let current_bounds = self.bounds_job.as_ref()
+            .filter(|(key, _)| Some(key) == self.synced_key.as_ref())
+            .map(|(_, job)| job);
+        let bounds_active = matches!(
+            current_bounds.map(|job| &job.phase),
+            Some(SearchPhase::Running | SearchPhase::Aborting)
         );
 
         let selected_mode = match self.exporter.export_mode {
@@ -968,11 +1051,11 @@ impl State {
             ),
             ExportMode::Loop => {
                 let find_loop_button: Element<'_, Message> = match current_loop.map(|job| &job.phase) {
-                    Some(LoopPhase::Running | LoopPhase::Aborting) => {
+                    Some(SearchPhase::Running | SearchPhase::Aborting) => {
                         action_button("Abort Loop", theme::danger_button, Some(Message::AbortLoopSearch))
                     }
                     phase => {
-                        let is_terminated = matches!(phase, Some(LoopPhase::Done { result: LoopResult::Terminated, .. }));
+                        let is_terminated = matches!(phase, Some(SearchPhase::Done { result: SearchResult::Terminated, .. }));
                         let label = if is_terminated { "Loop Terminated!" } else { "Find Loop" };
                         let style = if is_terminated { theme::danger_button } else { theme::neutral_button };
                         action_button(label, style, (!job_active).then_some(Message::FindLoop))
@@ -1012,9 +1095,21 @@ impl State {
             }
         };
 
+        let bounds_button: Element<'_, Message> = match current_bounds.map(|job| &job.phase) {
+            Some(SearchPhase::Running | SearchPhase::Aborting) => {
+                action_button("Abort Bounds", theme::danger_button, Some(Message::AbortBounds))
+            }
+            phase => {
+                let is_terminated = matches!(phase, Some(SearchPhase::Done { result: SearchResult::Terminated, .. }));
+                let label = if is_terminated { "Terminated!" } else { "Use Bounds" };
+                let style = if is_terminated { theme::danger_button } else { theme::neutral_button };
+                action_button(label, style, (!is_locked).then_some(Message::UseBounds))
+            }
+        };
+
         let camera_buttons = row![
-            action_button("Set Camera", theme::neutral_button, (!is_locked).then_some(Message::SetCamera)),
-            action_button("Use Bounds", theme::neutral_button, (!is_locked).then_some(Message::UseBounds)),
+            action_button("Set Camera", theme::neutral_button, (!is_locked && !bounds_active).then_some(Message::SetCamera)),
+            bounds_button,
         ].spacing(FIELD_SPACING);
 
         let camera_section = section(
@@ -1099,7 +1194,9 @@ impl State {
             ].spacing(FIELD_SPACING),
         );
 
-        let (ratio, status_label) = if let Some(job) = current_loop.filter(|job| matches!(job.phase, LoopPhase::Running | LoopPhase::Aborting)) {
+        let (ratio, status_label) = if let Some(job) = current_bounds.filter(|job| matches!(job.phase, SearchPhase::Running | SearchPhase::Aborting)) {
+            (job.progress.fraction(), format!("Searching | {} frames", job.frames_searched))
+        } else if let Some(job) = current_loop.filter(|job| matches!(job.phase, SearchPhase::Running | SearchPhase::Aborting)) {
             let pulse = job.start_time.elapsed().as_secs_f32() % 1.0;
             (pulse, format!("Searching | {} frames", job.frames_searched))
         } else if let Some(job) = current_job {
@@ -1119,11 +1216,18 @@ impl State {
                 JobPhase::Done { result: JobResult::Completed, .. } => (1.0, "Done".to_string()),
                 JobPhase::Done { result: JobResult::Terminated, .. } => (1.0, "Ready".to_string()),
             }
-        } else if let Some(LoopPhase::Done { result, .. }) = current_loop.map(|job| &job.phase) {
+        } else if let Some(SearchPhase::Done { result, .. }) = current_loop.map(|job| &job.phase) {
             let label = match result {
-                LoopResult::Found => "Done".to_string(),
-                LoopResult::Terminated => "Loop Terminated!".to_string(),
-                LoopResult::Error(message) => message.clone(),
+                SearchResult::Found => "Done".to_string(),
+                SearchResult::Terminated => "Loop Terminated!".to_string(),
+                SearchResult::Error(message) => message.clone(),
+            };
+            (1.0, label)
+        } else if let Some(SearchPhase::Done { result, .. }) = current_bounds.map(|job| &job.phase) {
+            let label = match result {
+                SearchResult::Found => "Done".to_string(),
+                SearchResult::Terminated => "Bounds Terminated!".to_string(),
+                SearchResult::Error(message) => message.clone(),
             };
             (1.0, label)
         } else {
@@ -1150,7 +1254,7 @@ impl State {
                     (false, true) => theme::primary_button,
                     (false, false) => theme::neutral_button,
                 };
-                let press = (is_valid && !is_locked && !loop_active).then_some(Message::BeginExport);
+                let press = (is_valid && !is_locked && !loop_active && !bounds_active).then_some(Message::BeginExport);
 
                 action_button(label, style, press)
             }
@@ -1184,6 +1288,29 @@ impl State {
             .height(Length::Fill)
             .padding(CONTENT_PADDING)
             .into()
+    }
+}
+
+fn advance_search(slot: &mut Option<(JobKey, SearchJob)>, synced_key: Option<&JobKey>) {
+    if let Some((job_key, job)) = slot {
+        if matches!(job.phase, SearchPhase::Aborting) {
+            job.phase = SearchPhase::Done { result: SearchResult::Terminated, shown_at: None };
+        }
+
+        if Some(&*job_key) == synced_key
+            && let SearchPhase::Done { shown_at, .. } = &mut job.phase
+            && shown_at.is_none() {
+            *shown_at = Some(Instant::now());
+        }
+    }
+
+    let expired = slot.as_ref().is_some_and(|(_, job)| {
+        matches!(&job.phase, SearchPhase::Done { shown_at: Some(at), .. } if at.elapsed().as_secs_f32() > 3.0)
+    });
+
+    if expired
+        && let Some((_, job)) = slot.take() {
+        job.task_handle.abort();
     }
 }
 

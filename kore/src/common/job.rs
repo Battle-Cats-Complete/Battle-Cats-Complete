@@ -56,6 +56,10 @@ impl ProgressCounter {
         self.current.fetch_add(1, Ordering::Relaxed) + 1
     }
 
+    pub fn current(&self) -> usize {
+        self.current.load(Ordering::Relaxed)
+    }
+
     pub fn total(&self) -> usize {
         self.total.load(Ordering::Relaxed)
     }
@@ -66,7 +70,7 @@ impl ProgressCounter {
             return 0.0;
         }
 
-        self.current.load(Ordering::Relaxed) as f32 / total as f32
+        self.current() as f32 / total as f32
     }
 }
 
