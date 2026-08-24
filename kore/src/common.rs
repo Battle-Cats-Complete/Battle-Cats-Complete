@@ -1,3 +1,4 @@
+pub mod architecture;
 pub mod assets;
 pub mod context;
 pub mod dirs;

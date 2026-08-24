@@ -558,8 +558,6 @@ impl State {
                     3 => AdbTarget::Specific(Region::Ko),
                     _ => AdbTarget::All,
                 };
-                let emulator_config = settings.emulator_config();
-
                 let thread_tx = tx.clone();
                 let spawn_result = thread::Builder::new()
                     .name("android_import_worker".to_string())
@@ -568,8 +566,7 @@ impl State {
                         let emit = |event: JobEvent| {
                             let _ = thread_tx.unbounded_send(event);
                         };
-                        let result =
-                            android::run(mode, region, emulator_config, import_config, emit, &abort, &progress_counter);
+                        let result = android::run(mode, region, import_config, emit, &abort, &progress_counter);
                         emit(JobEvent::Finished(job_outcome(result, &abort)));
                     });
 

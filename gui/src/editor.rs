@@ -17,7 +17,7 @@ use kore::domains::cat::files as cat_files;
 use kore::domains::cat::waiter as cat_waiter;
 use kore::domains::enemy::files as enemy_files;
 use kore::domains::enemy::scanner::EnemyEntry;
-use kore::domains::import::architecture;
+use kore::common::architecture;
 use kore::domains::mods;
 use kore::domains::settings::{ContextScope, EditorValues};
 

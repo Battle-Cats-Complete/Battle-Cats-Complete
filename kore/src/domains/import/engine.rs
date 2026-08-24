@@ -18,7 +18,7 @@ use nyanko::pack::chronology;
 use nyanko::pack::cryptology;
 use rayon::prelude::*;
 
-use super::architecture;
+use crate::common::architecture;
 use crate::common::io;
 use crate::common::job::{JobEvent, ProgressCounter};
 use crate::domains::settings::ImportStructure;

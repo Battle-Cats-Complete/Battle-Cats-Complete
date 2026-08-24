@@ -1,12 +1,11 @@
-use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::systems::addons::adb::bridge;
+use crate::common::architecture;
 use crate::common::job::{JobEvent, ProgressCounter};
-use crate::domains::settings::{EmulatorConfig, ImportConfig};
+use crate::domains::settings::ImportConfig;
+use crate::systems::addons::adb::bridge;
 
-use super::architecture;
 use super::engine;
 use super::engine::keys;
 use super::{AdbImportType, AdbTarget};
@@ -14,7 +13,6 @@ use super::{AdbImportType, AdbTarget};
 pub fn run(
     import_mode: AdbImportType,
     target_region: AdbTarget,
-    emulator_config: EmulatorConfig,
     import_config: ImportConfig,
     emit: impl Fn(JobEvent) + Sync,
     abort_flag: &AtomicBool,
@@ -24,7 +22,8 @@ pub fn run(
 
     keys::verify(import_config.enforce_validation, &emit_log)?;
 
-    let app_repository = PathBuf::from(architecture::APP);
+    let _work = architecture::Scratch::claim();
+    let app_repository = Path::new(architecture::WORK).join("import");
 
     let pull_options = bridge::PullOptions {
         import_mode,
@@ -48,13 +47,6 @@ pub fn run(
 
     engine::run_universal_import(&pulled_directories, import_config.structure, &emit, abort_flag, progress)
         .map_err(|engine_error| format!("Universal Import Failed: {}", engine_error))?;
-
-    if !emulator_config.keep_app_folder {
-        emit(JobEvent::Log("Cleaning up app package files...".to_string()));
-        for directory in pulled_directories {
-            let _ = fs::remove_dir_all(directory);
-        }
-    }
 
     emit(JobEvent::Log("All Operations Complete!".to_string()));
     Ok(())

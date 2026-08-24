@@ -1,5 +1,4 @@
 pub mod android;
-pub mod architecture;
 pub mod engine;
 pub mod pack;
 pub mod raw;

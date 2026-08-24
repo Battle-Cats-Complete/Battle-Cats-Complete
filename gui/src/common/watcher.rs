@@ -12,8 +12,8 @@ use iced::stream;
 use notify::{recommended_watcher, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tracing::{debug, trace, warn};
 
+use kore::common::architecture;
 use kore::common::junk;
-use kore::domains::import::architecture;
 
 const BATCH_BUFFER: usize = 8;
 const QUIET_WINDOW: Duration = Duration::from_millis(500);
@@ -145,20 +145,10 @@ fn is_relevant(path: &Path) -> bool {
     }
 
     if parts[root] == architecture::GAME {
-        return parts.get(root + 1).is_none_or(|name| !architecture::TRANSIENT.contains(&name.as_str()));
+        return true;
     }
 
-    let Some(folder) = parts.get(root + 1) else {
-        return false;
-    };
-
-    if folder == architecture::PACKAGES {
-        return false;
-    }
-
-    parts
-        .get(root + 2)
-        .is_none_or(|nested| !architecture::MOD_TRANSIENT.contains(&nested.as_str()))
+    parts.len() > root + 1
 }
 
 fn debounce(events: &Receiver<PathBuf>, batches: &async_mpsc::UnboundedSender<Change>) {

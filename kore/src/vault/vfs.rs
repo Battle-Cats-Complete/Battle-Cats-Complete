@@ -15,7 +15,6 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::domains::import::architecture;
 use crate::domains::settings::{Settings, lang};
 
 const MOUNT_GAME: &str = "game";
@@ -632,8 +631,7 @@ impl Mount for &Path {
             return Err(VfsError::ReservedMount(self.to_path_buf()));
         }
 
-        let skip: &[&str] = if key == MOUNT_GAME { &[] } else { &architecture::MOD_TRANSIENT };
-        let mount = walk::walk(self, skip)?;
+        let mount = walk::walk(self)?;
         let conflicts = mount.conflicts.clone();
 
         let Some(mut mounts) = vfs.mutate() else {

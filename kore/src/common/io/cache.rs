@@ -12,10 +12,9 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::domains::settings::ScannerConfig;
-
+use crate::common::architecture;
 use crate::common::dirs;
-use crate::domains::import::architecture;
+use crate::domains::settings::ScannerConfig;
 
 fn hash_directory_parallel(directory_path: &Path) -> u64 {
     if !directory_path.exists() {
@@ -28,10 +27,8 @@ fn hash_directory_parallel(directory_path: &Path) -> u64 {
         return 0;
     };
 
-    let mut file_entries = Vec::new();
-    for directory_entry in read_directory.flatten() {
-        file_entries.push(directory_entry.path());
-    }
+    let mut file_entries: Vec<PathBuf> = read_directory.flatten().map(|entry| entry.path()).collect();
+    file_entries.sort_unstable();
 
     let child_hashes: Vec<u64> = file_entries.par_iter().map(|child_path| {
         let mut local_hasher = FxHasher::default();
@@ -56,57 +53,12 @@ fn hash_directory_parallel(directory_path: &Path) -> u64 {
     final_hasher.finish()
 }
 
-fn hash_game_data() -> u64 {
-    let root = Path::new(architecture::GAME);
-
-    let Ok(entries) = fs::read_dir(root) else {
-        tracing::trace!("Game directory {:?} does not exist, skipping hash", root);
-        return 0;
-    };
-
-    let mut targets: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_none_or(|name| !architecture::TRANSIENT.contains(&name))
-        })
-        .collect();
-
-    targets.sort_unstable();
-
-    let child_hashes: Vec<u64> = targets
-        .par_iter()
-        .map(|path| {
-            let mut hasher = FxHasher::default();
-
-            if path.is_dir() {
-                hash_directory_parallel(path).hash(&mut hasher);
-            } else if let Ok(metadata) = path.metadata()
-                && let Ok(modified) = metadata.modified() {
-                modified.hash(&mut hasher);
-            }
-
-            hasher.finish()
-        })
-        .collect();
-
-    let mut hasher = FxHasher::default();
-    for child_hash in child_hashes {
-        child_hash.hash(&mut hasher);
-    }
-
-    targets.len().hash(&mut hasher);
-    hasher.finish()
-}
-
 #[tracing::instrument(level = "debug", skip(active_mod))]
 pub(crate) fn get_game_hash(active_mod: Option<&str>) -> u64 {
     tracing::trace!("Calculating global game hash across assets and tables...");
     let mut final_game_hasher = FxHasher::default();
 
-    hash_game_data().hash(&mut final_game_hasher);
+    hash_directory_parallel(Path::new(architecture::GAME)).hash(&mut final_game_hasher);
     hash_directory_parallel(Path::new(architecture::MODS)).hash(&mut final_game_hasher);
 
     if let Some(mod_name) = active_mod {

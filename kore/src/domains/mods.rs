@@ -10,7 +10,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::domains::import::architecture;
+use crate::common::architecture;
 use crate::{Conflict, Vault, VfsError};
 
 use super::mods::export::ExportState;
@@ -18,14 +18,12 @@ use super::mods::import::ModImportState;
 
 const MODS_ROOT: &str = "mods";
 
-const RESERVED_NAMES: [&str; 2] = ["game", architecture::PACKAGES];
-
 pub const METADATA: &str = "metadata.json";
 
 pub const PATCH: &str = "patch";
 
 pub fn taken(mods_root: &Path, candidate: &str) -> bool {
-    if RESERVED_NAMES.iter().any(|reserved| candidate.eq_ignore_ascii_case(reserved)) {
+    if candidate.eq_ignore_ascii_case(architecture::GAME) {
         return true;
     }
 
@@ -55,7 +53,6 @@ pub fn locate_many<'a>(mod_dir: &Path, names: impl IntoIterator<Item = &'a str>)
     let mut wanted: FxHashSet<&str> = names.into_iter().collect();
     let mut found: FxHashMap<&str, PathBuf> = FxHashMap::default();
     let mut level = vec![mod_dir.to_path_buf()];
-    let mut top = true;
 
     while !level.is_empty() && !wanted.is_empty() {
         let scanned: Vec<Sweep<'_>> = level
@@ -71,9 +68,7 @@ pub fn locate_many<'a>(mod_dir: &Path, names: impl IntoIterator<Item = &'a str>)
                     let Some(name) = path.file_name().and_then(OsStr::to_str) else { continue };
 
                     if descends(&entry, &path) {
-                        if !top || !architecture::MOD_TRANSIENT.contains(&name) {
-                            next.push(path);
-                        }
+                        next.push(path);
                         continue;
                     }
 
@@ -105,7 +100,6 @@ pub fn locate_many<'a>(mod_dir: &Path, names: impl IntoIterator<Item = &'a str>)
         }
 
         level = next;
-        top = false;
     }
 
     found
@@ -266,7 +260,7 @@ impl ModDataState {
 
         if let Ok(entries) = fs::read_dir(mods_dir) {
             for entry in entries.flatten() {
-                if entry.path().is_dir() && entry.file_name() != architecture::PACKAGES {
+                if entry.path().is_dir() {
                     let folder_name = entry.file_name().to_string_lossy().to_string();
                     current_folders.insert(folder_name.clone());
 

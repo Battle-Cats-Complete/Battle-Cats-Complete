@@ -259,7 +259,6 @@ impl std::fmt::Display for ImportStructure {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct GameDataSettings {
-    pub app_folder_persistence: bool,
     pub enforce_key_validation: bool,
     pub ignore_modified_app: bool,
     pub import_structure: ImportStructure,
@@ -268,7 +267,6 @@ pub struct GameDataSettings {
 impl Default for GameDataSettings {
     fn default() -> Self {
         Self {
-            app_folder_persistence: false,
             enforce_key_validation: true,
             ignore_modified_app: false,
             import_structure: ImportStructure::default(),
@@ -309,11 +307,6 @@ pub struct ScannerConfig {
     pub show_invalid_enemies: bool,
 }
 
-#[derive(Clone, Debug)]
-pub struct EmulatorConfig {
-    pub keep_app_folder: bool,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct ImportConfig {
     pub structure: ImportStructure,
@@ -334,12 +327,6 @@ impl Settings {
 
     pub fn show_invalid_enemies(&self) -> bool {
         self.enemy_data.show_invalid_enemies
-    }
-
-    pub fn emulator_config(&self) -> EmulatorConfig {
-        EmulatorConfig {
-            keep_app_folder: self.game_data.app_folder_persistence,
-        }
     }
 
     pub fn import_config(&self) -> ImportConfig {

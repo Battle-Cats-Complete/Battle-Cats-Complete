@@ -1,7 +1,7 @@
-use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
+use crate::common::architecture;
 use crate::common::job::{JobEvent, ProgressCounter};
 use crate::domains::settings::ImportConfig;
 
@@ -23,21 +23,17 @@ pub fn run(
         return Err("Decryption blocked: Invalid signature keys detected.".to_string());
     }
 
+    let _work = (import_mode == ImportMode::Zip).then(architecture::Scratch::claim);
+
     let source_directory = match import_mode {
         ImportMode::Folder => PathBuf::from(source_path_string),
         ImportMode::Zip => {
             emit(JobEvent::Log("Extracting archive to temporary workspace...".to_string()));
-            PathBuf::from("temp_workspace")
+            Path::new(architecture::WORK).join("import").join("archive")
         }
     };
 
-    let directories_to_process = vec![source_directory.clone()];
+    let directories_to_process = vec![source_directory];
 
-    let engine_result = engine::run_universal_import(&directories_to_process, import_config.structure, &emit, abort_flag, progress);
-
-    if import_mode == ImportMode::Zip {
-        let _ = fs::remove_dir_all(source_directory);
-    }
-
-    engine_result
+    engine::run_universal_import(&directories_to_process, import_config.structure, &emit, abort_flag, progress)
 }

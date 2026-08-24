@@ -45,6 +45,13 @@ fn format_enemy_amount(spawn_amount: &EnemyAmount) -> String {
     }
 }
 
+fn format_spawn_timer(time_flag: u32, start_frame: u32, base_hp_perc: u32) -> String {
+    if base_hp_perc != 100 && time_flag == 0 {
+        return "-".to_string();
+    }
+    format!("{}f", start_frame)
+}
+
 fn format_enemy_respawn(spawn_amount: &EnemyAmount, respawn_min_frames: u32, respawn_max_frames: u32) -> String {
     if spawn_amount == &EnemyAmount::Limit(1) {
         return "-".to_string();
@@ -332,7 +339,7 @@ impl State {
                 value_cell(format_enemy_amount(&spawn.amount), COUNT_COLUMN),
                 value_cell(formatted_mag, mag_column),
                 value_cell(format_base_hp_percentage(spawn.base_hp_perc, is_dojo_mechanic), BASE_COLUMN),
-                value_cell(format!("{}f", spawn.start_frame), SPAWN_COLUMN),
+                value_cell(format_spawn_timer(spawn.time_flag, spawn.start_frame, spawn.base_hp_perc), SPAWN_COLUMN),
                 value_cell(format_enemy_respawn(&spawn.amount, spawn.respawn_min, spawn.respawn_max), RESPAWN_COLUMN),
                 value_cell(format_layer(spawn.layer_min, spawn.layer_max), LAYER_COLUMN),
                 value_cell(format_boss_type(&spawn.boss_type), BOSS_COLUMN),

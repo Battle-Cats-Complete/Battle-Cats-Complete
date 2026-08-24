@@ -18,7 +18,7 @@ use kore::common::context::GlobalContext;
 use kore::common::game::{localizable, param};
 use kore::common::io::json;
 use kore::domains::cat::files as cat_files;
-use kore::domains::import::architecture;
+use kore::common::architecture;
 use kore::domains::settings::{Settings, UpdateMode};
 use kore::{ContentStore, Vault};
 
@@ -775,6 +775,7 @@ impl BattleCatsApp {
                 self.files_state.leave(&self.vault.vfs);
                 self.check_auto_save();
                 self.check_auto_save_state();
+                architecture::work_cleanup();
 
                 window::close(id)
             }

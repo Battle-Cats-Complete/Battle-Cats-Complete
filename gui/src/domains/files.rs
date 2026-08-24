@@ -13,7 +13,7 @@ use iced::{font, Alignment, Element, Font, Length, Padding, Task, Theme};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use kore::domains::import::architecture;
+use kore::common::architecture;
 use kore::domains::settings::{EditorMode, FilesSettings};
 use kore::Vfs;
 

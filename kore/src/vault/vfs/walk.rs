@@ -18,14 +18,14 @@ struct Collected {
     conflicts: FxHashMap<MountKey, Vec<PathBuf>>,
 }
 
-pub(super) fn walk(root: &Path, skip: &[&str]) -> Result<MountedDir, VfsError> {
+pub(super) fn walk(root: &Path) -> Result<MountedDir, VfsError> {
     if !root.is_dir() {
         return Err(VfsError::NotADirectory(root.to_path_buf()));
     }
 
     fs::read_dir(root).map_err(|source| VfsError::Walk { path: root.to_path_buf(), source })?;
 
-    let collected = scan(root, root, skip);
+    let collected = scan(root, root);
 
     let mut conflicts: Vec<Conflict> = collected
         .conflicts
@@ -61,7 +61,7 @@ fn modified(meta: &fs::Metadata) -> u64 {
         .map_or(0, |since| since.as_secs())
 }
 
-fn scan(root: &Path, dir: &Path, skip: &[&str]) -> Collected {
+fn scan(root: &Path, dir: &Path) -> Collected {
     let mut collected = Collected::default();
     let mut listing = Vec::new();
     let mut nested = Vec::new();
@@ -70,8 +70,6 @@ fn scan(root: &Path, dir: &Path, skip: &[&str]) -> Collected {
     let Ok(entries) = fs::read_dir(dir).inspect_err(|err| warn!(path = %dir.display(), "vfs walk skipped a directory: {}", err)) else {
         return collected;
     };
-
-    let top = dir == root;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -83,11 +81,6 @@ fn scan(root: &Path, dir: &Path, skip: &[&str]) -> Collected {
 
         if path.is_dir() {
             if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-                if top && skip.contains(&name) {
-                    trace!(path = %path.display(), "vfs walk skipped a transient directory");
-                    continue;
-                }
-
                 nested.push(Box::<str>::from(name));
             }
 
@@ -118,7 +111,7 @@ fn scan(root: &Path, dir: &Path, skip: &[&str]) -> Collected {
         collected.folders.insert(key, nested);
     }
 
-    let branches: Vec<Collected> = subdirs.par_iter().map(|sub| scan(root, sub, skip)).collect();
+    let branches: Vec<Collected> = subdirs.par_iter().map(|sub| scan(root, sub)).collect();
 
     for branch in branches {
         merge(&mut collected, branch);

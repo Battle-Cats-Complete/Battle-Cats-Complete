@@ -62,7 +62,6 @@ pub enum Message {
     ExportBehaviorSelected(ExportBehavior),
     ToggleKeyValidation(bool),
     ToggleIgnoreModifiedApp(bool),
-    ToggleAppPersistence(bool),
     ImportStructureSelected(ImportStructure),
     Keys(keys::Message),
     OpenKeysPopup,
@@ -192,10 +191,6 @@ impl State {
             }
             Message::ToggleIgnoreModifiedApp(val) => {
                 core_settings.game_data.ignore_modified_app = val;
-                Task::none()
-            }
-            Message::ToggleAppPersistence(val) => {
-                core_settings.game_data.app_folder_persistence = val;
                 Task::none()
             }
             Message::ImportStructureSelected(structure) => {
@@ -515,15 +510,7 @@ impl State {
             ),
         ].spacing(10);
 
-        let android_content = hover_hint(
-            toggle_row(core_settings.game_data.app_folder_persistence, text("App Folder Persistence"), Some(Message::ToggleAppPersistence)),
-            "Skip the deletion of the \"game/app\" directory after android import",
-        );
-
-        column![
-            header_section(text("Management").size(24), management_content),
-            header_section(text("Android").size(24), android_content),
-        ].spacing(SECTION_SPACING).into()
+        header_section(text("Management").size(24), management_content)
     }
 
     fn view_files<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {

@@ -5,11 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use rayon::prelude::*;
 
-use super::architecture;
+use crate::common::architecture;
 use crate::common::job::{JobEvent, ProgressCounter};
+use crate::domains::settings::{ImportConfig, ImportStructure};
 
 use super::engine::{audit, manifest, router, sort};
-use crate::domains::settings::{ImportConfig, ImportStructure};
 
 pub fn run(
     source_path_string: &str,
@@ -182,7 +182,7 @@ fn flatten_to_raw(
     progress: &ProgressCounter,
 ) -> Result<(), String> {
     let mut all_files = Vec::new();
-    let meta_directories = ["raw", "app", "meta"];
+    let meta_directories = ["raw", "meta"];
 
     if let Ok(directory_entries) = fs::read_dir(game_root_path) {
         for entry in directory_entries.flatten() {

@@ -6,10 +6,12 @@ use iced::widget::{column, container, text, tooltip};
 use iced::{task, Element, Task};
 use tracing::{debug, error};
 
-use kore::domains::import::architecture;
+use kore::common::architecture;
 
 use crate::app::theme;
 use crate::common::feedback::{Slot as Confirm, CONFIRM_LABEL};
+
+const RAW: &str = "game/raw";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
@@ -83,7 +85,7 @@ fn size_hint<'a>(content: impl Into<Element<'a, Message>>, size: u64) -> Element
 fn measure() -> Sizes {
     Sizes {
         game: folder_size(Path::new(architecture::GAME)),
-        raw: folder_size(Path::new(architecture::RAW)),
+        raw: folder_size(Path::new(RAW)),
         cache: kore::common::dirs::cache_path().map_or(0, |dir| folder_size(&dir)),
     }
 }
@@ -144,7 +146,7 @@ impl State {
                         self.raw.reset();
                         PathBuf::from(architecture::GAME)
                     }
-                    Target::Raw => PathBuf::from(architecture::RAW),
+                    Target::Raw => PathBuf::from(RAW),
                     Target::Cache => {
                         let Some(cache_dir) = kore::common::dirs::cache_path() else {
                             return Task::none();
@@ -246,7 +248,7 @@ impl State {
 
     pub fn view<'a>(&'a self) -> Element<'a, Message> {
         let game_exists = architecture::game_present();
-        let raw_exists = architecture::has_content(Path::new(architecture::RAW));
+        let raw_exists = architecture::has_content(Path::new(RAW));
         let cache_present = kore::common::dirs::cache_path()
             .is_some_and(|dir| architecture::has_content(&dir));
 

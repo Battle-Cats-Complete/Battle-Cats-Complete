@@ -9,9 +9,10 @@ use iced::{Size, Task};
 use smol::Timer;
 use tracing::{debug, error, info, warn};
 
+use kore::common::architecture;
 use kore::common::dirs;
 use kore::common::io::json;
-use kore::domains::import::{self, architecture};
+use kore::domains::import;
 use kore::domains::mods;
 use kore::domains::settings::{lang, nightly, ExceptionList, ScannerConfig, UpdateMode, WindowSettings};
 #[cfg(target_os = "linux")]
@@ -40,6 +41,15 @@ pub(crate) fn saved_window_size() -> Size {
     Size::new(config.settings.window.width.max(800.0), config.settings.window.height.max(600.0))
 }
 
+fn report(notes: Vec<migrate::Note>) {
+    for note in notes {
+        match note {
+            migrate::Note::Info(message) => info!("{}", message),
+            migrate::Note::Warn(message) => warn!("{}", message),
+        }
+    }
+}
+
 fn split(phase: &mut Instant) -> u128 {
     let elapsed = phase.elapsed().as_millis();
     *phase = Instant::now();
@@ -60,12 +70,10 @@ impl BattleCatsApp {
 
         logging::init_logging(app.settings.general.enable_logging);
 
-        for note in migration_notes {
-            match note {
-                migrate::Note::Info(message) => info!("{}", message),
-                migrate::Note::Warn(message) => warn!("{}", message),
-            }
-        }
+        report(migration_notes);
+
+        architecture::work_cleanup();
+        report(migrate::transient());
 
         info!(migrate_ms, settings_ms, "Starting initialization sequence...");
         app.boot = Some(boot);

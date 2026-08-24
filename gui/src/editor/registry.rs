@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use kore::domains::import::architecture;
+use kore::common::architecture;
 use kore::domains::settings::EditorValues;
 
 use crate::app::{theme, Page};

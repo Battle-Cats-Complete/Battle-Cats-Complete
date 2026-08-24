@@ -6,12 +6,19 @@ use std::path::{Path, PathBuf};
 
 use directories::{BaseDirs, ProjectDirs};
 
+use kore::common::architecture;
 use kore::common::dirs;
 
 const LEGACY_APP_DIR: &str = "battle_cats_complete";
 const LEGACY_PROJECT_NAME: &str = "Battle_Cats_Complete";
 
 const LEGACY_LEFTOVER_FILES: &[&str] = &["logs.txt", "logs.prev.txt", "app.ron"];
+
+const LEGACY_TRANSIENT: &str = "app";
+const EXPORT_SCRATCH: &[&str] = &["binaries", "xapk", "unsigned_final.apk", "normalized_final.apk"];
+
+const LEGACY_PACKAGES: &str = "packages";
+const PULLED_PACKAGE: &str = "jp.co.ponos.battlecats";
 
 enum Destination {
     Config,
@@ -111,6 +118,81 @@ fn migrate_entry(from: &Path, to: &Path, label: &str, notes: &mut Vec<Note>) {
         |err| Note::Warn(format!("Failed to migrate {}: {}", label, err)),
         |()| Note::Info(format!("Migrated {} to {:?}", label, to)),
     ));
+}
+
+fn is_export_scratch(path: &Path) -> bool {
+    fs::read_dir(path).is_ok_and(|mut entries| {
+        entries.any(|entry| {
+            entry.is_ok_and(|entry| entry.file_name().to_str().is_some_and(|name| EXPORT_SCRATCH.contains(&name)))
+        })
+    })
+}
+
+fn relocate_pulled_packages(notes: &mut Vec<Note>) {
+    let legacy = Path::new(architecture::GAME).join(LEGACY_TRANSIENT);
+
+    if !legacy.is_dir() {
+        return;
+    }
+
+    let _ = fs::create_dir_all(architecture::WORK);
+
+    let destination = Path::new(architecture::WORK).join("import");
+
+    migrate_entry(&legacy, &destination, "pulled android packages", notes);
+}
+
+fn drop_export_scratch(notes: &mut Vec<Note>) {
+    let Ok(entries) = fs::read_dir(architecture::MODS) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let scratch = entry.path().join(LEGACY_TRANSIENT);
+
+        if !scratch.is_dir() || !is_export_scratch(&scratch) {
+            continue;
+        }
+
+        notes.push(fs::remove_dir_all(&scratch).map_or_else(
+            |err| Note::Warn(format!("Failed to remove leftover export scratch {:?}: {}", scratch, err)),
+            |()| Note::Info(format!("Removed leftover export scratch {:?}", scratch)),
+        ));
+    }
+}
+
+fn drop_extract_scratch(notes: &mut Vec<Note>) {
+    let leftover = Path::new(architecture::MODS).join(LEGACY_PACKAGES);
+
+    if !leftover.is_dir() {
+        return;
+    }
+
+    let scratch = fs::read_dir(&leftover).is_ok_and(|entries| {
+        entries.flatten().all(|entry| {
+            entry.file_name().to_str().is_some_and(|name| name.starts_with(PULLED_PACKAGE))
+        })
+    });
+
+    if !scratch {
+        notes.push(Note::Warn(format!("{:?} holds unrecognised content and is now listed as a mod", leftover)));
+        return;
+    }
+
+    notes.push(fs::remove_dir_all(&leftover).map_or_else(
+        |err| Note::Warn(format!("Failed to remove leftover extract scratch {:?}: {}", leftover, err)),
+        |()| Note::Info(format!("Removed leftover extract scratch {:?}", leftover)),
+    ));
+}
+
+pub(crate) fn transient() -> Vec<Note> {
+    let mut notes = Vec::new();
+
+    relocate_pulled_packages(&mut notes);
+    drop_export_scratch(&mut notes);
+    drop_extract_scratch(&mut notes);
+
+    notes
 }
 
 pub(crate) fn run() -> Vec<Note> {

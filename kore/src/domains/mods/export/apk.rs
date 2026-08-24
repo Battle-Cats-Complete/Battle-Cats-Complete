@@ -7,9 +7,10 @@ use resand::res_value::ResValueType;
 use tracing::{debug, error, info, info_span, trace, warn};
 use zip::ZipArchive;
 
-use crate::systems::addons::apkeditor::xapk;
+use crate::common::architecture;
 use crate::common::job::JobEvent;
 use crate::common::region::Region;
+use crate::systems::addons::apkeditor::xapk;
 use crate::domains::import::engine::keys;
 use crate::domains::mods::METADATA;
 use crate::domains::settings::ExportBehavior;
@@ -95,7 +96,8 @@ pub fn run(
     let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("../../../../../../../../.."));
     let mod_dir = base_dir.join("mods").join(&mod_folder);
     let export_dir = base_dir.join("exports");
-    let app_dir = mod_dir.join("app");
+    let _work = architecture::Scratch::claim();
+    let app_dir = base_dir.join(architecture::WORK).join("apk");
     let temp_bin_dir = app_dir.join("binaries");
     let assets_dir = app_dir.join("assets");
     let xapk_dir = app_dir.join("xapk");
@@ -328,8 +330,6 @@ pub fn run(
         error!("Failed copying final APK to destination: {}", error);
         return Err(format!("Filesystem Error: {}", error));
     }
-
-    let _ = fs::remove_dir_all(&app_dir);
 
     let final_filename = final_apk_path.file_name().unwrap_or_default().to_string_lossy();
     let success_message = match export_behavior {
