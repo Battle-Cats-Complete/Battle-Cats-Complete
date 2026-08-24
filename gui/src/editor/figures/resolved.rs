@@ -15,6 +15,8 @@ pub(super) enum Rule {
     Percent,
     Floor(i32),
     Offset(i32),
+    Ratio(i32, i32),
+    Inverted(i32),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -110,15 +112,27 @@ impl Rule {
     }
 
     pub(super) fn to_display(self, raw: i32, values: EditorValues) -> i32 {
+        if values == EditorValues::Raw {
+            return raw;
+        }
+
         match self {
-            Rule::Offset(by) if values == EditorValues::Resolved => raw.saturating_add(by),
+            Rule::Offset(by) => raw.saturating_add(by),
+            Rule::Ratio(numerator, denominator) => ratio(raw, numerator, denominator),
+            Rule::Inverted(base) => base.saturating_sub(raw),
             _ => raw,
         }
     }
 
     pub(super) fn to_raw(self, display: i32, values: EditorValues) -> i32 {
+        if values == EditorValues::Raw {
+            return display;
+        }
+
         match self {
-            Rule::Offset(by) if values == EditorValues::Resolved => display.saturating_sub(by),
+            Rule::Offset(by) => display.saturating_sub(by),
+            Rule::Ratio(numerator, denominator) => ratio(display, denominator, numerator),
+            Rule::Inverted(base) => base.saturating_sub(display),
             _ => display,
         }
     }
@@ -129,7 +143,7 @@ impl Rule {
         }
 
         match self {
-            Rule::Percent => false,
+            Rule::Percent | Rule::Ratio(_, _) | Rule::Inverted(_) => false,
             Rule::Floor(least) => least < 0,
             _ => true,
         }
@@ -142,6 +156,8 @@ impl Rule {
 
         match self {
             Rule::Percent => raw.clamp(PERCENT_FLOOR, PERCENT_CEILING),
+            Rule::Inverted(base) => raw.clamp(PERCENT_FLOOR, base),
+            Rule::Ratio(_, _) => raw.max(PERCENT_FLOOR),
             Rule::Floor(least) => raw.max(least),
             _ => raw,
         }
@@ -153,7 +169,12 @@ impl Rule {
         }
 
         match self {
-            Rule::Plain | Rule::Percent | Rule::Floor(_) | Rule::Offset(_) => Face::Number,
+            Rule::Plain
+            | Rule::Percent
+            | Rule::Floor(_)
+            | Rule::Offset(_)
+            | Rule::Ratio(_, _)
+            | Rule::Inverted(_) => Face::Number,
             Rule::Opaque => Face::Danger,
             Rule::Flag => Toggle::of(raw).map_or(Face::Danger, Face::Toggle),
             Rule::Choice(options) | Rule::Gated(options, _) => options
@@ -162,6 +183,12 @@ impl Rule {
                 .map_or(Face::Danger, |choice| Face::Choice(options, *choice)),
         }
     }
+}
+
+fn ratio(value: i32, numerator: i32, denominator: i32) -> i32 {
+    let scaled = f64::from(value) * f64::from(numerator) / f64::from(denominator);
+
+    scaled.round() as i32
 }
 
 pub(super) fn note(subject: Subject, field: Option<&str>) -> Option<&'static str> {
@@ -190,9 +217,37 @@ fn lookup(field: Option<&str>, find: fn(&str) -> Option<Rule>) -> Rule {
 
 #[cfg(test)]
 mod tests {
+    use kore::domains::settings::EditorValues;
+
     use super::{rule, Rule};
     use crate::editor::figures::combat::{cats, enemies};
     use crate::editor::figures::schema::{self, SUBJECTS};
+
+    #[test]
+    fn a_quartered_range_is_typed_at_the_distance_it_shows() {
+        let rule = Rule::Ratio(1, 4);
+
+        assert_eq!(rule.to_display(1000, EditorValues::Resolved), 250);
+        assert_eq!(rule.to_raw(250, EditorValues::Resolved), 1000);
+        assert_eq!(rule.to_display(1000, EditorValues::Raw), 1000, "raw stays raw");
+    }
+
+    #[test]
+    fn a_cost_is_typed_in_the_money_it_is_worth() {
+        let rule = Rule::Ratio(3, 2);
+
+        assert_eq!(rule.to_display(50, EditorValues::Resolved), 75);
+        assert_eq!(rule.to_raw(75, EditorValues::Resolved), 50);
+    }
+
+    #[test]
+    fn an_inverted_percent_reverses_in_both_directions() {
+        let rule = Rule::Inverted(100);
+
+        assert_eq!(rule.to_display(30, EditorValues::Resolved), 70);
+        assert_eq!(rule.to_raw(70, EditorValues::Resolved), 30);
+        assert_eq!(rule.clamp(140, EditorValues::Resolved), 100, "a percent cannot exceed its base");
+    }
 
     #[test]
     fn cats_and_enemies_agree_on_the_columns_they_share() {

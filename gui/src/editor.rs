@@ -602,6 +602,15 @@ impl State {
         }
     }
 
+    /// Resolves whichever figures field is mid-buffer, across every subject, as if it had just
+    /// lost focus. Call ahead of anything that can abandon an open popup without routing a
+    /// `figures::Message` through it first — page navigation is the only such path today.
+    pub(crate) fn flush_drafts(&mut self) {
+        for slot in &mut self.figures {
+            slot.flush();
+        }
+    }
+
     fn drafting(&self) -> bool {
         self.figures.iter().any(figures::State::drafting)
             || self.prose.iter().any(prose::State::drafting)

@@ -50,6 +50,7 @@ fn spec(subject: Subject) -> popup::Spec {
 const LABEL_SIZE: f32 = 12.0;
 const CARD_PADDING: f32 = 6.0;
 const COMMENT: &str = "//";
+const BUFFER_MARK: char = '!';
 const LINE_RATIO: f32 = 1.3;
 const GLYPH_RATIO: f32 = 0.55;
 
@@ -126,6 +127,10 @@ fn shown(schema: &schema::Schema, index: usize, raw: i32, values: EditorValues, 
 }
 
 fn typable(value: &str, signed: bool) -> bool {
+    typable_digits(value.strip_prefix(BUFFER_MARK).unwrap_or(value), signed)
+}
+
+fn typable_digits(value: &str, signed: bool) -> bool {
     let mut chars = value.chars();
 
     match chars.next() {
@@ -284,6 +289,7 @@ struct Draft {
     comment: String,
     inputs: Vec<String>,
     failed: bool,
+    buffer: Option<usize>,
 }
 
 impl State {
@@ -321,6 +327,17 @@ impl State {
         self.draft.as_ref().is_some_and(|draft| preview::stamp(&draft.read_from) != Some(draft.stamp))
     }
 
+    /// Resolves whichever field is mid-buffer, as if it had just lost focus.
+    ///
+    /// Called from outside any `figures::Message` entirely, ahead of page navigation — the one
+    /// path a buffered edit can be abandoned through without ever producing a message this
+    /// popup's own `update` would see.
+    pub(super) fn flush(&mut self) {
+        if let Some(draft) = self.draft.as_mut() {
+            draft.flush();
+        }
+    }
+
     pub(super) fn sync(&mut self, plan: Option<Plan>) {
         let Some(current) = self.draft.as_ref() else {
             return;
@@ -350,6 +367,14 @@ impl State {
     }
 
     pub(super) fn update(&mut self, message: Message) -> Task<Message> {
+        if let Some(draft) = self.draft.as_mut() {
+            let still_typing = matches!(&message, Message::Changed(index, _) if draft.buffering(*index));
+
+            if !still_typing {
+                draft.flush();
+            }
+        }
+
         match message {
             Message::Popup(msg) => {
                 let Some(spec) = self.draft.as_ref().map(|draft| spec(draft.plan.subject())) else {
@@ -503,20 +528,80 @@ impl Draft {
             comment,
             inputs,
             failed: false,
+            buffer: None,
         })
     }
 
     fn edit(&mut self, index: usize, value: &str) {
-        if !typable(value, self.rule(index).signed(self.plan.values)) {
+        if !self.write(index, value) {
             return;
         }
 
+        if let Some(twin) = self.mirror(index) {
+            self.write(twin, value);
+        }
+
+        self.commit();
+    }
+
+    /// Commits whichever field is mid-buffer, as if it had just lost focus.
+    ///
+    /// Called ahead of every message that is not another keystroke into the same buffered
+    /// field, so a buffered edit resolves on the next click, pick, tab switch, sync, or popup
+    /// close — without a dedicated confirm step.
+    fn flush(&mut self) {
+        let Some(index) = self.buffer.take() else {
+            return;
+        };
+
+        let Some(typed) = self.inputs.get(index).and_then(|slot| slot.strip_prefix(BUFFER_MARK))
+        else {
+            return;
+        };
+
+        let typed = typed.to_owned();
+
+        self.edit(index, &typed);
+    }
+
+    fn buffering(&self, index: usize) -> bool {
+        self.buffer == Some(index)
+    }
+
+    fn mirror(&self, index: usize) -> Option<usize> {
+        if self.plan.values != EditorValues::Resolved
+            || self.plan.subject() != Subject::Talents
+        {
+            return None;
+        }
+
+        talents::mirror(index, &self.cells)
+    }
+
+    fn write(&mut self, index: usize, value: &str) -> bool {
         let rule = self.rule(index);
         let values = self.plan.values;
 
+        if !typable(value, rule.signed(values)) {
+            return false;
+        }
+
+        let buffering = value.starts_with(BUFFER_MARK);
+
         let Some(slot) = self.inputs.get_mut(index) else {
-            return;
+            return false;
         };
+
+        if buffering {
+            *slot = value.to_owned();
+            self.buffer = Some(index);
+
+            return false;
+        }
+
+        if self.buffer == Some(index) {
+            self.buffer = None;
+        }
 
         let raw = if value.is_empty() {
             *slot = String::new();
@@ -525,7 +610,7 @@ impl Draft {
             let Ok(display) = value.parse::<i32>() else {
                 *slot = value.to_owned();
 
-                return;
+                return false;
             };
 
             let unshifted = rule.to_raw(rule.clamp(display, values), values);
@@ -536,16 +621,17 @@ impl Draft {
         };
 
         let Some(cell) = self.cells.get_mut(index) else {
-            return;
+            return false;
         };
 
         if *cell == raw {
-            return;
+            return false;
         }
 
         *cell = raw;
         self.record(index, raw);
-        self.commit();
+
+        true
     }
 
     fn record(&mut self, index: usize, raw: i32) {
@@ -621,6 +707,7 @@ impl Draft {
         self.inputs = (0..self.cells.len())
             .map(|index| shown(self.plan.schema, index, self.cells[index], self.plan.values, self.rule(index)))
             .collect();
+        self.buffer = None;
         self.commit();
     }
 
@@ -788,8 +875,14 @@ pub(super) fn plan(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
+    use kore::common::preview::Stamp;
+    use kore::domains::settings::EditorValues;
+
+    use super::resolved::{self, Rule};
     use super::schema::{self, Subject};
-    use super::{split_row, Row};
+    use super::{plan, split_row, Address, Draft, Message, Row, State};
 
     const VANILLA: &str = "100,3,10,8,15,140,50,75,0,320,0,0,0,8,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // \u{30cd}\u{30b3}";
 
@@ -950,5 +1043,192 @@ mod tests {
         let head = line.strip_suffix(", // \u{30cd}\u{30b3}").unwrap_or(&line);
 
         assert_eq!(head.split(',').count(), 91, "padding must stop at the edited column");
+    }
+
+    #[test]
+    fn typing_below_a_floor_without_buffering_snaps_immediately() {
+        let schema = schema::of(Subject::Cat);
+        let Some(index) = schema.index_of("cooldown") else {
+            panic!("nyanko no longer publishes cooldown");
+        };
+
+        let mut draft = bare_draft(Subject::Cat, index, 100);
+
+        assert!(draft.write(index, "1"), "the floor clamp still counts as a change");
+        assert_eq!(
+            draft.reads_at(index), Some(30),
+            "1 frame clamps up to the 60-frame floor, then halves back into raw units",
+        );
+        assert_eq!(
+            draft.input(index), "60",
+            "without a buffer mark the field snaps to 60 on the very first digit",
+        );
+    }
+
+    #[test]
+    fn a_buffer_marked_cooldown_edit_defers_the_floor_and_the_scale() {
+        let schema = schema::of(Subject::Cat);
+        let Some(index) = schema.index_of("cooldown") else {
+            panic!("nyanko no longer publishes cooldown");
+        };
+
+        let mut draft = bare_draft(Subject::Cat, index, 100);
+
+        for partial in ["!1", "!15", "!150"] {
+            assert!(!draft.write(index, partial), "a buffered keystroke never touches the cell");
+            assert_eq!(draft.input(index), partial, "the field must echo exactly what was typed");
+            assert_eq!(draft.reads_at(index), Some(100), "the cell stays untouched while buffering");
+        }
+
+        assert!(draft.write(index, "150"), "the debanged value commits a real change");
+        assert_eq!(draft.reads_at(index), Some(75), "150 frames halves into 75 raw units");
+        assert_eq!(draft.input(index), "150", "150 clears the floor, so the field shows it verbatim");
+    }
+
+    #[test]
+    fn a_buffer_marked_money_value_stays_literal_until_flushed() {
+        const COST_DOWN: i32 = 25;
+
+        let schema = schema::of(Subject::Talents);
+        let index = schema::TALENT_HEAD + 2;
+
+        let mut cells = vec![0; schema.known()];
+        cells[schema::TALENT_HEAD] = COST_DOWN;
+
+        let rules: Vec<Rule> = (0..cells.len())
+            .map(|position| resolved::rule(Subject::Talents, position, schema.field(position), &cells))
+            .collect();
+
+        assert_eq!(
+            rules[index], Rule::Ratio(3, 2),
+            "ability 25's first value pair should resolve as a 1.5x-money cost reduction",
+        );
+
+        let mut draft = draft_with(Subject::Talents, cells, rules);
+
+        for partial in ["!1", "!15", "!150"] {
+            assert!(!draft.write(index, partial), "a buffered keystroke never touches the cell");
+            assert_eq!(draft.input(index), partial);
+            assert_eq!(draft.reads_at(index), Some(0));
+        }
+
+        assert!(draft.write(index, "150"), "the debanged value commits a real change");
+        assert_eq!(
+            draft.reads_at(index), Some(100),
+            "150 resolved money divides by the 1.5x ratio into 100 raw cost units",
+        );
+        assert_eq!(draft.input(index), "150");
+    }
+
+    #[test]
+    fn state_flush_resolves_a_buffered_field_without_any_message_at_all() {
+        let dir = scratch_dir("flush-on-navigate");
+        let path = dir.join("unitbuy.csv");
+        let schema = schema::of(Subject::Buy);
+        let Some(index) = schema.index_of("stage_unlock_requirement") else {
+            panic!("nyanko no longer publishes stage_unlock_requirement");
+        };
+
+        let seed = plan(Subject::Buy, Address::Line(0), "test".to_owned(), &path, None, EditorValues::Resolved);
+        std::fs::write(&path, format!("{}\n", super::vacant(&seed, ',')))
+            .expect("failed to seed the temp fixture file");
+
+        let mut state = State { draft: Draft::load(seed), ..State::default() };
+        assert!(state.draft.is_some(), "the draft should load from the temp fixture");
+
+        let _ = state.update(Message::Changed(index, "!7".to_owned()));
+        assert_eq!(state.draft.as_ref().and_then(|draft| draft.buffer), Some(index));
+
+        // No `Message` at all here — this is what page navigation calls directly, ahead of
+        // switching `current_page`, since a page change never routes through `figures::Message`.
+        state.flush();
+
+        let draft = state.draft.as_ref().expect("the draft survives a flush with no message");
+        assert_eq!(draft.buffer, None, "flush() alone must resolve the buffered field");
+        assert_eq!(draft.input(index), "7");
+        assert!(!draft.failed, "the flush should have committed cleanly to the temp file");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn state_update_flushes_a_buffered_field_once_a_different_message_arrives() {
+        let dir = scratch_dir("flush-on-deselect");
+        let path = dir.join("unitbuy.csv");
+        let schema = schema::of(Subject::Buy);
+        let Some(index) = schema.index_of("stage_unlock_requirement") else {
+            panic!("nyanko no longer publishes stage_unlock_requirement");
+        };
+
+        let seed = plan(Subject::Buy, Address::Line(0), "test".to_owned(), &path, None, EditorValues::Resolved);
+        std::fs::write(&path, format!("{}
+", super::vacant(&seed, ',')))
+            .expect("failed to seed the temp fixture file");
+
+        let mut state = State { draft: Draft::load(seed), ..State::default() };
+        assert!(state.draft.is_some(), "the draft should load from the temp fixture");
+
+        let _ = state.update(Message::Changed(index, "!12".to_owned()));
+        assert_eq!(state.draft.as_ref().and_then(|draft| draft.buffer), Some(index));
+
+        let _ = state.update(Message::Changed(index, "!123".to_owned()));
+        assert_eq!(
+            state.draft.as_ref().map(|draft| draft.input(index)), Some("!123"),
+            "typing on into the same buffered field must not flush it",
+        );
+
+        let _ = state.update(Message::Scrolled(4.0));
+
+        let draft = state.draft.as_ref().expect("the draft survives an unrelated message");
+        assert_eq!(draft.buffer, None, "any other message flushes the buffered field");
+        assert_eq!(draft.input(index), "123", "the bang is gone and the value is written plain");
+        assert!(!draft.failed, "the flush should have committed cleanly to the temp file");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn scratch_dir(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("bcc-figures-test-{label}-{}", std::process::id()));
+
+        std::fs::create_dir_all(&dir).expect("failed to create the temp fixture dir");
+
+        dir
+    }
+
+    fn bare_draft(subject: Subject, index: usize, seed: i32) -> Draft {
+        let schema = schema::of(subject);
+        let mut cells = vec![0; schema.known()];
+        cells[index] = seed;
+
+        let rules: Vec<Rule> = (0..cells.len())
+            .map(|position| resolved::rule(subject, position, schema.field(position), &cells))
+            .collect();
+
+        draft_with(subject, cells, rules)
+    }
+
+    fn draft_with(subject: Subject, cells: Vec<i32>, rules: Vec<Rule>) -> Draft {
+        let width = cells.len();
+        let plan = plan(subject, Address::Line(0), "test".to_owned(), Path::new("test.csv"), None, EditorValues::Resolved);
+
+        Draft {
+            plan,
+            absent: false,
+            row: 0,
+            read_from: std::path::PathBuf::new(),
+            stamp: Stamp::default(),
+            delimiter: ',',
+            lines: Vec::new(),
+            cells,
+            written: vec![String::new(); width],
+            stored: width,
+            touched: 0,
+            rules,
+            comment: String::new(),
+            inputs: vec![String::new(); width],
+            failed: false,
+            buffer: None,
+        }
     }
 }

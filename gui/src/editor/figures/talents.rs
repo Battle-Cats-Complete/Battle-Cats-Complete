@@ -19,9 +19,10 @@ use kore::{Vault, Vfs};
 use crate::app::theme;
 use crate::widget::smooth_scroll;
 
-use super::resolved::Rule;
+use super::resolved::{Rule, PERCENT_CEILING};
 use super::schema::{slot_of, TALENT_HEAD, TALENT_SLOTS, TALENT_STRIDE};
 use super::{cards, Draft, Frame, Message, GLYPH_RATIO};
+use values::{Unit, Value};
 
 const ABILITY: usize = 0;
 const MAX_LEVEL: usize = 1;
@@ -62,6 +63,10 @@ const HEADINGS: [Heading; 6 + VALUES * 2] = [
 ];
 
 const ULTRA: i32 = 1;
+
+const RANGE_STEP: i32 = 4;
+const MONEY_NUMERATOR: i32 = 3;
+const MONEY_DENOMINATOR: i32 = 2;
 
 const HEADER_LINES: usize = 3;
 
@@ -304,15 +309,12 @@ fn ultra<'a>(current: i32, index: usize) -> Element<'a, Message> {
         .into()
 }
 
-fn explained<'a>(
-    field: Element<'a, Message>,
-    meaning: Option<values::Value>,
-) -> Element<'a, Message> {
+fn explained<'a>(field: Element<'a, Message>, meaning: Option<Value>) -> Element<'a, Message> {
     let Some(value) = meaning else {
         return field;
     };
 
-    let bubble = container(text(value.hint()).size(TRAIT_SIZE))
+    let bubble = container(text(value.label()).size(TRAIT_SIZE))
         .padding(HINT_PADDING)
         .style(container::bordered_box);
 
@@ -613,33 +615,87 @@ fn available(vfs: &Vfs) -> Vec<i32> {
 }
 
 pub(super) fn rule(index: usize, cells: &[i32]) -> Rule {
-    let Some(slot) = slot_of(index) else {
+    if slot_of(index).is_none() {
         return Rule::Plain;
-    };
+    }
 
-    let position = offset(index);
-
-    if position == NAME_ID {
+    if offset(index) == NAME_ID {
         return Rule::Floor(-1);
     }
 
-    let Some(pair) = position.checked_sub(MIN_1).map(|span| span / 2).filter(|pair| *pair < VALUES)
-    else {
-        return Rule::Plain;
-    };
+    meaning(index, cells).map_or(Rule::Plain, |value| shape(value.unit()))
+}
 
+fn shape(unit: Unit) -> Rule {
+    match unit {
+        Unit::Percent => Rule::Percent,
+        Unit::Inverted => Rule::Inverted(PERCENT_CEILING),
+        Unit::Range => Rule::Ratio(1, RANGE_STEP),
+        Unit::Money => Rule::Ratio(MONEY_NUMERATOR, MONEY_DENOMINATOR),
+        Unit::Multiplier | Unit::Frames | Unit::Count => Rule::Plain,
+    }
+}
+
+fn meaning(index: usize, cells: &[i32]) -> Option<Value> {
+    let slot = slot_of(index)?;
+    let pair =
+        offset(index).checked_sub(MIN_1).map(|span| span / 2).filter(|pair| *pair < VALUES)?;
     let ability = cells.get(TALENT_HEAD + slot * TALENT_STRIDE).copied().unwrap_or_default();
 
-    match values::value(ability, pair) {
-        Some(meaning) if meaning.unit().percent() => Rule::Percent,
-        _ => Rule::Plain,
+    values::value(ability, pair)
+}
+
+pub(super) fn mirror(index: usize, cells: &[i32]) -> Option<usize> {
+    if !meaning(index, cells)?.is_fixed() {
+        return None;
     }
+
+    let least = offset(index).saturating_sub(MIN_1).is_multiple_of(2);
+
+    Some(if least { index + 1 } else { index - 1 })
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{TALENT_HEAD, TALENT_STRIDE};
     use crate::editor::figures::schema::{self, Subject};
     use crate::editor::figures::TALENT_SIZE;
+
+    const SURGE_ATTACK: i32 = 56;
+
+    fn surging() -> Vec<i32> {
+        let mut cells = vec![0; TALENT_HEAD + TALENT_STRIDE];
+        cells[TALENT_HEAD] = SURGE_ATTACK;
+
+        cells
+    }
+
+    fn pair_at(pair: usize) -> usize {
+        TALENT_HEAD + super::MIN_1 + pair * 2
+    }
+
+    #[test]
+    fn a_pair_the_engine_reads_whole_mirrors_between_its_halves() {
+        let cells = surging();
+
+        for pair in 1..super::VALUES {
+            let least = pair_at(pair);
+
+            assert_eq!(super::mirror(least, &cells), Some(least + 1), "pair {pair} minimum");
+            assert_eq!(super::mirror(least + 1, &cells), Some(least), "pair {pair} maximum");
+        }
+    }
+
+    #[test]
+    fn an_interpolated_pair_keeps_its_halves_apart() {
+        let cells = surging();
+
+        assert_eq!(
+            super::mirror(pair_at(0), &cells),
+            None,
+            "a surge chance climbs with the talent level, so its two halves differ",
+        );
+    }
 
     #[test]
     fn talents_publish_no_columns() {

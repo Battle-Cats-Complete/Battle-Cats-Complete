@@ -165,7 +165,9 @@ where
 
 fn number_field(draft: &Draft, index: usize) -> Element<'_, Message> {
     let schema = draft.schema();
-    let hint = schema.to_display(index, schema.fallback(index), draft.values()).to_string();
+    let values = draft.values();
+    let scaled = schema.to_display(index, schema.fallback(index), values);
+    let hint = draft.rule(index).to_display(scaled, values).to_string();
 
     text_input(&hint, draft.input(index))
         .on_input(move |entry| Message::Changed(index, entry))

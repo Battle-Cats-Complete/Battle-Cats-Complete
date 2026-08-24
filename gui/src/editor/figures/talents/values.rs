@@ -6,23 +6,7 @@ pub(super) enum Unit {
     Count,
     Range,
     Money,
-}
-
-impl Unit {
-    fn name(self) -> &'static str {
-        match self {
-            Unit::Percent => "percent, capped at 100",
-            Unit::Multiplier => "percent of the base, uncapped",
-            Unit::Frames => "frames",
-            Unit::Count => "count",
-            Unit::Range => "range units, stored at four times the shown distance",
-            Unit::Money => "cost units, worth 1.5 money each",
-        }
-    }
-
-    pub(super) fn percent(self) -> bool {
-        self == Unit::Percent
-    }
+    Inverted,
 }
 
 #[derive(Clone, Copy)]
@@ -30,55 +14,41 @@ pub(super) struct Value {
     label: &'static str,
     unit: Unit,
     fixed: bool,
-    note: Option<&'static str>,
 }
 
 impl Value {
     const fn new(label: &'static str, unit: Unit) -> Value {
-        Value { label, unit, fixed: false, note: None }
+        Value { label, unit, fixed: false }
     }
 
-    const fn fixed(label: &'static str, unit: Unit) -> Value {
-        Value { label, unit, fixed: true, note: None }
+    const fn fixed(mut self) -> Value {
+        self.fixed = true;
+
+        self
     }
 
-    const fn noted(label: &'static str, unit: Unit, note: &'static str) -> Value {
-        Value { label, unit, fixed: false, note: Some(note) }
+    pub(super) fn label(self) -> &'static str {
+        self.label
     }
 
     pub(super) fn unit(self) -> Unit {
         self.unit
     }
 
-    pub(super) fn hint(self) -> String {
-        let mut hint = format!("{} ({})", self.label, self.unit.name());
-
-        if self.fixed {
-            hint.push_str("\nOnly the Minimum is read; the Maximum is ignored");
-        }
-
-        if let Some(note) = self.note {
-            hint.push('\n');
-            hint.push_str(note);
-        }
-
-        hint
+    pub(super) fn is_fixed(self) -> bool {
+        self.fixed
     }
 }
 
 const CHANCE: Value = Value::new("Chance", Unit::Percent);
 const DURATION: Value = Value::new("Duration", Unit::Frames);
-const LEVEL: Value = Value::new("Level", Unit::Count);
+const LEVEL: Value = Value::new("Level", Unit::Count).fixed();
 const RESIST: Value = Value::new("Resistance", Unit::Percent);
+const BOOST: Value = Value::new("Boost", Unit::Multiplier);
+const ANCHOR: Value = Value::new("Spawn Anchor", Unit::Range).fixed();
+const SPAN: Value = Value::new("Spawn Span", Unit::Range).fixed();
 
-const SURGE: &[Value] = &const {
-    [
-        CHANCE,
-        LEVEL,
-        Value::fixed("Spawn Anchor", Unit::Range),
-        Value::fixed("Spawn Span", Unit::Range),
-    ]
-};
+const SURGE: &[Value] = &const { [CHANCE, LEVEL, ANCHOR, SPAN] };
 
 const WAVE: &[Value] = &const { [CHANCE, LEVEL] };
 
@@ -90,36 +60,25 @@ const AILMENT: &[Value] = &const { [CHANCE, DURATION] };
 
 pub(super) fn values(ability: i32) -> Option<&'static [Value]> {
     let listed: &'static [Value] = match ability {
-        1 => &const {
-            [
-                CHANCE,
-                DURATION,
-                Value::noted("Reduced From", Unit::Percent, "Stored inverted: the game reads 100 minus this"),
-            ]
-        },
+        1 => &const { [CHANCE, DURATION, Value::new("Reduced To", Unit::Inverted).fixed()] },
         2 | 3 | 60 => AILMENT,
         8 | 11 | 13 | 15 | 58 => CHANCE_ONLY,
-        10 => &const {
-            [
-                Value::noted("Health Threshold", Unit::Percent, "Stored inverted: the game reads 100 minus this"),
-                Value::new("Boost", Unit::Multiplier),
-            ]
-        },
+        10 => &const { [Value::new("Health Threshold", Unit::Inverted), BOOST] },
         17 | 62 => WAVE,
         18..=22 | 30 | 52 | 54 => RESIST_ONLY,
-        25 => &const { [Value::new("Cost Reduction", Unit::Money)] },
-        26 => &const { [Value::new("Cooldown Reduction", Unit::Frames)] },
-        27 => &const { [Value::new("Speed Increase", Unit::Count)] },
-        28 => &const { [Value::new("Knockback Increase", Unit::Count)] },
+        25 => &const { [Value::new("Reduction", Unit::Money)] },
+        26 => &const { [Value::new("Reduction", Unit::Frames)] },
+        27 | 28 => &const { [Value::new("Increase", Unit::Count)] },
         31 | 32 => &const { [Value::new("Increase", Unit::Percent)] },
-        50 => &const { [CHANCE, Value::new("Boost", Unit::Multiplier)] },
+        50 => &const { [CHANCE, BOOST] },
         51 => AILMENT,
         56 | 65 => SURGE,
-        64 => &const { [Value::new("Dodge Chance", Unit::Percent), Value::new("Dodge Duration", Unit::Frames)] },
-        67 => &const {
-            [CHANCE, Value::fixed("Spawn Anchor", Unit::Range), Value::fixed("Spawn Span", Unit::Range)]
+        61 => &const { [Value::new("Reduction", Unit::Percent)] },
+        64 => &const {
+            [Value::new("Dodge Chance", Unit::Percent), Value::new("Dodge Duration", Unit::Frames)]
         },
-        4..=7 | 9 | 12 | 14 | 16 | 23 | 24 | 29 | 33..=49 | 53 | 55 | 57 | 59 | 61 | 63 | 66 | 68 | 69 => &[],
+        67 => &const { [CHANCE, ANCHOR, SPAN] },
+        4..=7 | 9 | 12 | 14 | 16 | 23 | 24 | 29 | 33..=49 | 53 | 55 | 57 | 59 | 63 | 66 | 68 | 69 => &[],
         _ => return None,
     };
 
@@ -165,6 +124,25 @@ mod tests {
                 "talent {id} declares {} value pairs, but a row only stores {}",
                 listed.len(),
                 super::super::VALUES,
+            );
+        }
+    }
+
+    #[test]
+    fn every_pair_nyanko_publishes_is_named_here() {
+        for id in 1..=u8::MAX {
+            let Some(ability) = get_talent(id) else {
+                continue;
+            };
+
+            let listed = values(i32::from(id)).unwrap_or_default();
+
+            assert!(
+                listed.len() >= ability.talent_values.len(),
+                "nyanko gives talent {id} ({:?}) {} value pairs, but only {} are named here",
+                ability.identity,
+                ability.talent_values.len(),
+                listed.len(),
             );
         }
     }

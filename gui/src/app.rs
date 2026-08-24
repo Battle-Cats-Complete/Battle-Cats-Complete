@@ -351,6 +351,8 @@ impl BattleCatsApp {
     }
 
     fn navigate(&mut self, page: Page) -> Task<Message> {
+        self.editor.flush_drafts();
+
         if self.current_page == Page::Files && page != Page::Files {
             self.files_state.leave(&self.vault.vfs);
         }
