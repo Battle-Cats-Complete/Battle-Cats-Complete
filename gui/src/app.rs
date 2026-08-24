@@ -790,6 +790,7 @@ impl BattleCatsApp {
                 self.check_auto_save();
                 self.check_auto_save_state();
                 architecture::work_cleanup();
+                updater::cleanup_replace_artifacts();
 
                 window::close(id)
             }

@@ -11,7 +11,7 @@ use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 use self_update::{cargo_crate_version, version};
 use self_update::backends::github::{ReleaseList, Update as GithubUpdate};
 use self_update::update::Release;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use kore::common::process;
 
@@ -250,6 +250,44 @@ pub(crate) fn cleanup_temp_files() {
 
     for file in temp_files {
         let _ = fs::remove_file(file);
+    }
+}
+
+pub(crate) fn cleanup_replace_artifacts() {
+    let Ok(exe) = env::current_exe() else {
+        return;
+    };
+
+    let Some(stem) = exe.file_stem().and_then(|stem| stem.to_str()) else {
+        return;
+    };
+
+    let Some(dir) = exe.parent() else {
+        return;
+    };
+
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+
+    let prefix = format!(".{stem}.");
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+
+        if !name.starts_with(&prefix) {
+            continue;
+        }
+
+        let path = entry.path();
+
+        match fs::remove_file(&path) {
+            Ok(()) => info!(path = %path.display(), "Removed a leftover update artifact"),
+            Err(err) => warn!(path = %path.display(), "Failed to remove a leftover update artifact: {}", err),
+        }
     }
 }
 
