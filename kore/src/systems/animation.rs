@@ -40,6 +40,7 @@ pub enum Loop {
     Exact,
     Frames,
     Auto,
+    Continuous,
 }
 
 pub struct Rigging {

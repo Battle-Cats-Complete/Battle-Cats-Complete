@@ -61,7 +61,21 @@ pub struct Settings {
     pub mods: ModsSettings,
     pub stages: StageDataSettings,
     pub files: FilesSettings,
+    pub utilities: UtilitiesSettings,
     pub window: WindowSettings,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum FrameCount {
+    #[default]
+    Automatic,
+    Continuous,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct UtilitiesSettings {
+    pub frame_count: FrameCount,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]

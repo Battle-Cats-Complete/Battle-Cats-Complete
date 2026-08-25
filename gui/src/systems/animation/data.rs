@@ -60,7 +60,7 @@ impl State {
         match self.looping() {
             Loop::Exact => true,
             Loop::Auto => self.current_anim.as_ref().is_some_and(|anim| true_loop(anim).is_some()),
-            Loop::Frames => false,
+            Loop::Frames | Loop::Continuous => false,
         }
     }
 
@@ -83,11 +83,12 @@ impl State {
             Loop::Exact => true_loop(anim),
             Loop::Frames => Some(furthest_frame(anim)),
             Loop::Auto => Some(true_loop(anim).unwrap_or_else(|| furthest_frame(anim))),
+            Loop::Continuous => None,
         })
     }
 
     pub fn playback_frame(&self, frame: f32) -> f32 {
-        if matches!(self.looping(), Loop::Exact) {
+        if matches!(self.looping(), Loop::Exact | Loop::Continuous) {
             return frame;
         }
 

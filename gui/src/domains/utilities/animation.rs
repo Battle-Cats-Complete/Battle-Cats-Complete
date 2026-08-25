@@ -161,10 +161,12 @@ impl State {
             return;
         };
 
-        let key = builder::key(png, cut, model, &self.anims);
+        let key = builder::key(png, cut, model, &self.anims, settings.utilities.frame_count);
         let anims = &self.anims;
 
-        self.viewer.sync(&key, || builder::clips(png, cut, model, anims), settings, anim_state);
+        let frames = settings.utilities.frame_count;
+
+        self.viewer.sync(&key, || builder::clips(png, cut, model, anims, frames), settings, anim_state);
     }
 
     pub fn export_popup_visible(&self) -> bool {

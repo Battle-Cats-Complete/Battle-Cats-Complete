@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::domains::settings::FrameCount;
 use crate::systems::animation::{Clip, ClipSet, Loop, Rigging};
 
-pub fn key(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf]) -> String {
-    let mut key = rig_id(png, cut, model);
+pub fn key(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf], frames: FrameCount) -> String {
+    let mut key = format!("{:?}|{}", frames, rig_id(png, cut, model));
 
     for anim in anims {
         key.push('|');
@@ -14,7 +15,7 @@ pub fn key(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf]) -> String {
     key
 }
 
-pub fn clips(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf]) -> ClipSet {
+pub fn clips(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf], frames: FrameCount) -> ClipSet {
     let rig = Arc::new(Rigging {
         id: rig_id(png, cut, model),
         png: png.to_path_buf(),
@@ -28,7 +29,7 @@ pub fn clips(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf]) -> ClipSet
             name: None,
             slot: None,
             role: None,
-            looping: Loop::Auto,
+            looping: looping(frames),
             rig: rig.clone(),
             anim: Some(anim.clone()),
         })
@@ -37,6 +38,13 @@ pub fn clips(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf]) -> ClipSet
     clips.push(Clip::model(rig));
 
     ClipSet { name: stem_of(model), clips }
+}
+
+fn looping(frames: FrameCount) -> Loop {
+    match frames {
+        FrameCount::Automatic => Loop::Auto,
+        FrameCount::Continuous => Loop::Continuous,
+    }
 }
 
 fn rig_id(png: &Path, cut: &Path, model: &Path) -> String {

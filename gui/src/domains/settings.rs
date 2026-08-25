@@ -14,7 +14,7 @@ use iced::{Alignment, Element, Length, Size, Task};
 use kore::domains::cat::files as cat_files;
 use kore::domains::settings::{lang, nightly, ContextScope, EditorMode, Utf8Mode};
 use kore::domains::settings::{
-    ExportBehavior, ImportStructure, Settings as CoreSettings, SidebarBehavior,
+    ExportBehavior, FrameCount, ImportStructure, Settings as CoreSettings, SidebarBehavior,
 };
 
 use crate::app::theme;
@@ -42,6 +42,7 @@ pub enum Tab {
     Mods,
     Files,
     Import,
+    Utilities,
     Animation,
     AddOns,
     About,
@@ -63,6 +64,7 @@ pub enum Message {
     ToggleKeyValidation(bool),
     ToggleIgnoreModifiedApp(bool),
     ImportStructureSelected(ImportStructure),
+    FrameCountSelected(FrameCount),
     Keys(keys::Message),
     OpenKeysPopup,
     Exceptions(exceptions::Message),
@@ -171,6 +173,11 @@ impl State {
 
             Message::ToggleInvalidEnemies(val) => {
                 core_settings.enemy_data.show_invalid_enemies = val;
+                Task::none()
+            }
+
+            Message::FrameCountSelected(val) => {
+                core_settings.utilities.frame_count = val;
                 Task::none()
             }
 
@@ -323,6 +330,7 @@ impl State {
             (Tab::Mods, "Mods"),
             (Tab::Files, "Files"),
             (Tab::Import, "Import"),
+            (Tab::Utilities, "Utilities"),
             (Tab::Animation, "Animation"),
             (Tab::AddOns, "Add-Ons"),
             (Tab::About, "About"),
@@ -357,6 +365,7 @@ impl State {
             Tab::Mods => self.view_mods(core_settings),
             Tab::Files => self.view_files(core_settings),
             Tab::Import => self.view_import(core_settings),
+            Tab::Utilities => self.view_utilities(core_settings),
             Tab::Animation => self.view_animation(core_settings),
             Tab::AddOns => self.addons.view().map(Message::Addons),
             Tab::About => self.view_about(),
@@ -559,6 +568,36 @@ impl State {
             header_section(text("Viewer").size(24), utf8_mode_row),
             header_section(text("Editor").size(24), column![scope_row, editor_mode_row, mount_row].spacing(10)),
         ].spacing(SECTION_SPACING).into()
+    }
+
+    fn view_utilities<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
+        let frame_options = vec!["Automatic", "Continuous"];
+        let current_frames = match core_settings.utilities.frame_count {
+            FrameCount::Automatic => "Automatic",
+            FrameCount::Continuous => "Continuous",
+        };
+
+        let animation_content = hover_hint(
+            row![
+                text("Frame Count Handling"),
+                pick_list(frame_options, Some(current_frames), |val| {
+                    let frames = match val {
+                        "Continuous" => FrameCount::Continuous,
+                        _ => FrameCount::Automatic,
+                    };
+                    Message::FrameCountSelected(frames)
+                })
+                .style(theme::combo_box)
+                .menu_style(theme::combo_box_menu),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+            "Automatic bounds each animation by its own looping data\nContinuous leaves every animation unbounded, as the game itself plays them",
+        );
+
+        column![header_section(text("Animation").size(24), animation_content)]
+            .spacing(SECTION_SPACING)
+            .into()
     }
 
     fn view_animation<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
