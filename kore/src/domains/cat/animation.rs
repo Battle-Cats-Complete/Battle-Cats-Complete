@@ -1,4 +1,4 @@
-use crate::systems::animation::{self, Clip, ClipSet};
+use crate::systems::animation::{self, Clip, ClipSet, Loop};
 use crate::Vfs;
 
 use super::files;
@@ -33,7 +33,7 @@ pub fn clips(cat: &CatEntry, form: usize, vfs: &Vfs) -> ClipSet {
                 name: named.map(|(name, _, _)| name.to_string()),
                 slot: named.map(|(_, slot, _)| slot),
                 role: named.map(|(_, _, role)| role),
-                loops: named.is_some_and(|(_, _, role)| role.loops()),
+                looping: if named.is_some_and(|(_, _, role)| role.loops()) { Loop::Exact } else { Loop::Frames },
                 rig: rig.clone(),
                 anim: Some(path),
             });
@@ -65,7 +65,7 @@ fn spirit_clip(cat: &CatEntry, form: usize, vfs: &Vfs) -> Option<Clip> {
         name: Some("Spirit".to_string()),
         slot: None,
         role: None,
-        loops: false,
+        looping: Loop::Frames,
         rig,
         anim: Some(anim),
     })

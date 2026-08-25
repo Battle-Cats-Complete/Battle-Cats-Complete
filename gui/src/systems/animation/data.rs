@@ -5,7 +5,7 @@ use tracing::warn;
 
 use nyanko::graphics::rig::{Animation, Rig};
 
-use kore::systems::animation::{furthest_frame, loop_frame, true_loop, Clip, ClipSet, Role};
+use kore::systems::animation::{furthest_frame, loop_frame, true_loop, Clip, ClipSet, Loop, Role};
 
 pub(super) const COLUMNS: usize = 4;
 const DEFAULT_SLOTS: usize = 8;
@@ -52,8 +52,16 @@ impl State {
         self.current_clip().is_some_and(|clip| clip.anim.is_none())
     }
 
-    pub fn current_loops(&self) -> bool {
-        self.current_clip().is_some_and(|clip| clip.loops)
+    fn looping(&self) -> Loop {
+        self.current_clip().map_or(Loop::Frames, |clip| clip.looping)
+    }
+
+    pub fn loop_supported(&self) -> bool {
+        match self.looping() {
+            Loop::Exact => true,
+            Loop::Auto => self.current_anim.as_ref().is_some_and(|anim| true_loop(anim).is_some()),
+            Loop::Frames => false,
+        }
     }
 
     pub fn role_paths(&self) -> Vec<(Role, PathBuf)> {
@@ -71,13 +79,15 @@ impl State {
     }
 
     pub fn loop_bound(&self) -> Option<i32> {
-        self.current_anim.as_ref().map_or(Some(0), |anim| {
-            if self.current_loops() { true_loop(anim) } else { Some(furthest_frame(anim)) }
+        self.current_anim.as_ref().map_or(Some(0), |anim| match self.looping() {
+            Loop::Exact => true_loop(anim),
+            Loop::Frames => Some(furthest_frame(anim)),
+            Loop::Auto => Some(true_loop(anim).unwrap_or_else(|| furthest_frame(anim))),
         })
     }
 
     pub fn playback_frame(&self, frame: f32) -> f32 {
-        if self.current_loops() {
+        if matches!(self.looping(), Loop::Exact) {
             return frame;
         }
 

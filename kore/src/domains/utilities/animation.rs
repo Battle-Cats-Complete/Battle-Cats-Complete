@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::systems::animation::{Clip, ClipSet, Rigging};
+use crate::systems::animation::{Clip, ClipSet, Loop, Rigging};
 
 pub fn key(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf]) -> String {
     let mut key = rig_id(png, cut, model);
@@ -28,7 +28,7 @@ pub fn clips(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf]) -> ClipSet
             name: None,
             slot: None,
             role: None,
-            loops: true,
+            looping: Loop::Auto,
             rig: rig.clone(),
             anim: Some(anim.clone()),
         })

@@ -300,7 +300,7 @@ impl State {
                 self.reset(settings, anim_state);
             }
 
-            self.exporter.loop_supported = data.current_loops();
+            self.exporter.loop_supported = data.loop_supported();
 
             if self.exporter.export_mode == ExportMode::Loop && !self.exporter.loop_supported {
                 self.exporter.export_mode = ExportMode::Manual;

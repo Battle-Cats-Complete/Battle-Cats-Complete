@@ -1,4 +1,4 @@
-use crate::systems::animation::{self, Clip, ClipSet};
+use crate::systems::animation::{self, Clip, ClipSet, Loop};
 use crate::Vfs;
 
 use super::files;
@@ -32,7 +32,7 @@ pub fn clips(enemy: &EnemyEntry, vfs: &Vfs) -> ClipSet {
                 .or_else(|| zombie.and(index).and_then(zombie_name).map(str::to_string)),
             slot: named.map(|(_, slot, _)| slot),
             role: named.map(|(_, _, role)| role),
-            loops: named.is_some_and(|(_, _, role)| role.loops()),
+            looping: if named.is_some_and(|(_, _, role)| role.loops()) { Loop::Exact } else { Loop::Frames },
             rig: rig.clone(),
             anim: Some(path),
         });

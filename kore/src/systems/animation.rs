@@ -35,6 +35,13 @@ impl Role {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Loop {
+    Exact,
+    Frames,
+    Auto,
+}
+
 pub struct Rigging {
     pub id: String,
     pub png: PathBuf,
@@ -46,7 +53,7 @@ pub struct Clip {
     pub name: Option<String>,
     pub slot: Option<usize>,
     pub role: Option<Role>,
-    pub loops: bool,
+    pub looping: Loop,
     pub rig: Arc<Rigging>,
     pub anim: Option<PathBuf>,
 }
@@ -63,7 +70,7 @@ impl Clip {
             name: Some(MODEL_NAME.to_string()),
             slot: Some(SLOT_MODEL),
             role: None,
-            loops: false,
+            looping: Loop::Frames,
             rig,
             anim: None,
         }
@@ -209,7 +216,50 @@ pub fn multiply_mat3(matrix_a: &[f32; 9], matrix_b: &[f32; 9]) -> [f32; 9] {
 
 #[cfg(test)]
 mod tests {
-    use super::owns;
+    use nyanko::graphics::rig::{AnimModification, Animation, Keyframe};
+
+    use super::{furthest_frame, owns, true_loop};
+
+    fn curve(loop_count: i32, first: i32, last: i32) -> AnimModification {
+        AnimModification {
+            part: 0,
+            kind: 0,
+            loop_count,
+            min_value: 0,
+            max_value: 0,
+            name: String::new(),
+            keyframes: vec![
+                Keyframe { frame: first, value: 0, ease: 0, ease_power: 0 },
+                Keyframe { frame: last, value: 0, ease: 0, ease_power: 0 },
+            ],
+        }
+    }
+
+    fn animation(curves: Vec<AnimModification>) -> Animation {
+        Animation { version: 1, modifications: curves }
+    }
+
+    // What `Loop::Auto` resolves to: true_loop when it lands, furthest_frame otherwise.
+    fn auto_bound(anim: &Animation) -> i32 {
+        true_loop(anim).unwrap_or_else(|| furthest_frame(anim))
+    }
+
+    #[test]
+    fn a_play_once_curve_leaves_true_loop_unbounded() {
+        // An attack holds a loop_count of one, which is what makes the viewer show "???".
+        let attack = animation(vec![curve(1, 0, 129)]);
+
+        assert_eq!(true_loop(&attack), None);
+        assert_eq!(auto_bound(&attack), 129);
+    }
+
+    #[test]
+    fn a_repeating_curve_keeps_its_true_loop() {
+        let walk = animation(vec![curve(-1, 0, 8), curve(-1, 0, 12)]);
+
+        assert_eq!(true_loop(&walk), Some(24));
+        assert_eq!(auto_bound(&walk), 24);
+    }
 
     #[test]
     fn a_longer_name_sharing_the_prefix_is_not_ours() {
