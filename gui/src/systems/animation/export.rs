@@ -15,7 +15,7 @@ use nyanko::graphics::rig::Animation;
 use kore::common::job::ProgressCounter;
 use kore::systems::addons::paths::{self, Presence};
 use kore::systems::animation::export::{find_bounds, find_loop, leader, process, BoundsOutcome, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
-use kore::systems::animation::{furthest_frame, true_loop, Role};
+use kore::systems::animation::{playback_frames, Role};
 use kore::domains::settings::Settings;
 
 use crate::app::state::AnimState;
@@ -321,7 +321,7 @@ impl State {
             if self.exporter.export_mode != ExportMode::Showcase {
                 match &data.current_anim {
                     Some(anim) => {
-                        self.exporter.max_frame = furthest_frame(anim);
+                        self.exporter.max_frame = anim.last_frame();
                         self.exporter.frame_start = 0;
                         self.exporter.frame_end = self.exporter.max_frame;
                     }
@@ -385,7 +385,7 @@ impl State {
         };
 
         if let Some(attack) = parse_anim(Role::Attack) {
-            let total_attack_frames = furthest_frame(&attack) + 1;
+            let total_attack_frames = attack.declared_frames();
             self.exporter.detected_attack_len = total_attack_frames;
             if self.exporter.showcase_attack_str.is_empty() {
                 self.exporter.showcase_attack_len = total_attack_frames;
@@ -393,8 +393,8 @@ impl State {
         }
 
         if let Some(walk) = parse_anim(Role::Walk) {
-            let walk_loop = true_loop(&walk).unwrap_or_else(|| furthest_frame(&walk));
-            let new_walk_length = if walk_loop <= 1 { 0 } else { settings.animation.default_showcase_walk };
+            let walk_loop = playback_frames(&walk);
+            let new_walk_length = if walk_loop <= 2 { 0 } else { settings.animation.default_showcase_walk };
             self.exporter.detected_walk_len = new_walk_length;
 
             if self.exporter.showcase_walk_str.is_empty()
@@ -404,8 +404,8 @@ impl State {
         }
 
         if let Some(idle) = parse_anim(Role::Idle) {
-            let idle_loop = true_loop(&idle).unwrap_or_else(|| furthest_frame(&idle));
-            let new_idle_length = if idle_loop <= 1 { 0 } else { settings.animation.default_showcase_idle };
+            let idle_loop = playback_frames(&idle);
+            let new_idle_length = if idle_loop <= 2 { 0 } else { settings.animation.default_showcase_idle };
             self.exporter.detected_idle_len = new_idle_length;
 
             if self.exporter.showcase_idle_str.is_empty()

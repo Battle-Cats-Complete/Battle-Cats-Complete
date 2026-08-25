@@ -53,17 +53,26 @@ pub(crate) enum Asset {
 pub enum Change {
     Batch(Vec<PathBuf>),
     Bulk,
-    Unavailable,
+    Unavailable(Lapse),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Lapse {
+    Crowded,
+    Broken,
 }
 
 pub(crate) fn changes() -> impl Stream<Item = Change> {
     stream::channel(BATCH_BUFFER, |mut output: async_mpsc::Sender<Change>| async move {
         let (raw_tx, raw_rx) = channel();
 
-        let Some(_watcher) = spawn_watcher(raw_tx) else {
-            warn!("File watcher unavailable; live reload is disabled for this session");
-            let _ = output.send(Change::Unavailable).await;
-            return;
+        let _watcher = match spawn_watcher(raw_tx) {
+            Ok(watcher) => watcher,
+            Err(lapse) => {
+                warn!(?lapse, "File watcher unavailable; live reload is disabled for this session");
+                let _ = output.send(Change::Unavailable(lapse)).await;
+                return;
+            }
         };
 
         let (batch_tx, mut batch_rx) = async_mpsc::unbounded();
@@ -77,13 +86,16 @@ pub(crate) fn changes() -> impl Stream<Item = Change> {
     })
 }
 
-fn spawn_watcher(sender: Sender<Hit>) -> Option<RecommendedWatcher> {
+fn spawn_watcher(sender: Sender<Hit>) -> Result<RecommendedWatcher, Lapse> {
     let mut watcher = recommended_watcher(move |result: notify::Result<Event>| match result {
         Ok(event) => forward(event, &sender),
         Err(err) => warn!("File watcher reported an error: {}", err),
     })
-    .inspect_err(|err| warn!("Failed to create the file watcher: {}", err))
-    .ok()?;
+    .map_err(|err| {
+        warn!("Failed to create the file watcher: {}", err);
+
+        Lapse::Broken
+    })?;
 
     for root in [architecture::MODS, architecture::GAME] {
         let path = Path::new(root);
@@ -93,29 +105,30 @@ fn spawn_watcher(sender: Sender<Hit>) -> Option<RecommendedWatcher> {
             continue;
         }
 
-        if !watch(&mut watcher, path, RecursiveMode::Recursive) {
-            return None;
-        }
+        watch(&mut watcher, path, RecursiveMode::Recursive)?;
     }
 
-    Some(watcher)
+    Ok(watcher)
 }
 
-fn watch(watcher: &mut RecommendedWatcher, path: &Path, mode: RecursiveMode) -> bool {
-    match watcher.watch(path, mode) {
-        Ok(()) => true,
-        Err(err) if matches!(err.kind, ErrorKind::MaxFilesWatch) => {
-            warn!(
-                path = %path.display(),
-                "OS file-watch limit reached. Simplify the directory structure or raise fs.inotify.max_user_watches"
-            );
-            false
-        }
-        Err(err) => {
-            warn!(path = %path.display(), "Failed to watch directory: {}", err);
-            false
-        }
+fn watch(watcher: &mut RecommendedWatcher, path: &Path, mode: RecursiveMode) -> Result<(), Lapse> {
+    let Err(err) = watcher.watch(path, mode) else {
+        return Ok(());
+    };
+
+    if matches!(err.kind, ErrorKind::MaxFilesWatch) {
+        warn!(
+            path = %path.display(),
+            "This system has no free watch slots left. Another copy of the app, an IDE or a search \
+             indexer is likely holding them; on Linux, raise fs.inotify.max_user_watches"
+        );
+
+        return Err(Lapse::Crowded);
     }
+
+    warn!(path = %path.display(), "Failed to watch directory: {}", err);
+
+    Err(Lapse::Broken)
 }
 
 fn forward(event: Event, sender: &Sender<Hit>) {

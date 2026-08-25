@@ -5,7 +5,7 @@ use tracing::warn;
 
 use nyanko::graphics::rig::{Animation, Rig};
 
-use kore::systems::animation::{furthest_frame, loop_frame, true_loop, Clip, ClipSet, Loop, Role, RAW_OFFSET};
+use kore::systems::animation::{cycle, loop_frame, playback_frames, Clip, ClipSet, Loop, Role, RAW_OFFSET};
 
 pub(super) const COLUMNS: usize = 4;
 const DEFAULT_SLOTS: usize = 8;
@@ -99,7 +99,7 @@ impl State {
     pub fn loop_supported(&self) -> bool {
         match self.looping() {
             Loop::Exact => true,
-            Loop::Auto => self.current_anim.as_ref().is_some_and(|anim| true_loop(anim).is_some()),
+            Loop::Auto => self.current_anim.as_ref().is_some_and(|anim| cycle(anim).is_some()),
             Loop::Frames | Loop::Continuous => false,
         }
     }
@@ -120,9 +120,9 @@ impl State {
 
     pub fn loop_bound(&self) -> Option<i32> {
         self.current_anim.as_ref().map_or(Some(0), |anim| match self.looping() {
-            Loop::Exact => true_loop(anim),
-            Loop::Frames => Some(furthest_frame(anim)),
-            Loop::Auto => Some(true_loop(anim).unwrap_or_else(|| furthest_frame(anim))),
+            Loop::Exact => cycle(anim).map(|frames| frames - 1),
+            Loop::Frames => Some(anim.declared_frames() - 1),
+            Loop::Auto => Some(playback_frames(anim) - 1),
             Loop::Continuous => None,
         })
     }

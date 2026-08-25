@@ -285,7 +285,7 @@ fn run(job: Job) {
                 let (role, time) = showcase_segment(job.lengths, progress);
                 let animation = clips.get(role);
                 let time = match animation {
-                    Some(anim) if anim.playback_frames() > 1 => time,
+                    Some(anim) if anim.declared_frames() > 1 => time,
                     _ => 0.0,
                 };
                 (animation, time)

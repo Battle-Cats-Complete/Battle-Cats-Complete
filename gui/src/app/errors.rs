@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use kore::Conflict;
 
+use crate::common::watcher::Lapse;
 use crate::widget::{popup, smooth_scroll};
 
 use super::{theme, Message};
@@ -25,8 +26,13 @@ const ACKNOWLEDGE_SIZE: f32 = 16.0;
 const CONFLICT_INTRO: &str = "Found conflicting file names in the following directories. \
 The files listed below were not loaded into the Virtual File System and won't be read by the app this session.";
 
-const WATCHER_INTRO: &str = "Failed to initialize file Watcher due to complex directory structure. \
-File Watcher has been disabled for this session. Please simplify your directory structure.";
+const WATCHER_CROWDED: &str = "Failed to start the File Watcher because this system has no free watch \
+slots left. Live reload has been disabled for this session.";
+
+const WATCHER_CROWDED_CAUSE: &str = "Close other watching applications or Battle Cats Complete instances and restart, or raise the system's watch limit.";
+
+const WATCHER_BROKEN: &str = "Failed to start the File Watcher. Live reload has been disabled for this \
+session, so edits made to game/ or mods/ outside the app will not be picked up until you restart it.";
 
 const VOLATILE_INTRO: &str = "Battle Cats Complete is running from a temporary folder. This usually means \
 the program was opened from inside its .zip instead of being extracted first.";
@@ -39,7 +45,7 @@ and run it from there.";
 pub(super) struct State {
     popup: popup::State,
     conflicts: Vec<Conflict>,
-    watcher_failed: bool,
+    watcher_failed: Option<Lapse>,
     watcher_shown: bool,
     volatile: Option<PathBuf>,
 }
@@ -53,17 +59,17 @@ impl State {
         self.conflicts = if ignored { Vec::new() } else { conflicts };
     }
 
-    pub(super) fn report_watcher_failure(&mut self, ignored: bool) {
-        self.watcher_failed = true;
+    pub(super) fn report_watcher_failure(&mut self, lapse: Lapse, ignored: bool) {
+        self.watcher_failed = Some(lapse);
         self.watcher_shown = !ignored;
     }
 
     pub(super) fn watcher_failed(&self) -> bool {
-        self.watcher_failed
+        self.watcher_failed.is_some()
     }
 
     pub(super) fn refresh_watcher(&mut self, ignored: bool) {
-        self.watcher_shown = self.watcher_failed && !ignored;
+        self.watcher_shown = self.watcher_failed.is_some() && !ignored;
     }
 
     pub(super) fn is_open(&self) -> bool {
@@ -97,7 +103,7 @@ impl State {
         Some(self.popup.view(POPUP_TITLE, POPUP, window, Message::InitErrorPopup, move || {
             let body = match (self.volatile.as_deref(), self.conflicts.is_empty()) {
                 (Some(home), _) => volatile_body(home),
-                (None, true) => watcher_body(),
+                (None, true) => watcher_body(self.watcher_failed),
                 (None, false) => self.conflict_body(),
             };
 
@@ -164,8 +170,18 @@ fn volatile_body(home: &Path) -> Element<'_, Message> {
     .into()
 }
 
-fn watcher_body<'a>() -> Element<'a, Message> {
-    container(text(WATCHER_INTRO).size(BODY_SIZE))
+fn watcher_body<'a>(lapse: Option<Lapse>) -> Element<'a, Message> {
+    let body = match lapse {
+        Some(Lapse::Crowded) => column![
+            text(WATCHER_CROWDED).size(BODY_SIZE),
+            text(WATCHER_CROWDED_CAUSE).size(BODY_SIZE),
+        ]
+        .spacing(BODY_SPACING)
+        .into(),
+        _ => Element::from(text(WATCHER_BROKEN).size(BODY_SIZE)),
+    };
+
+    container(body)
         .width(Length::Fill)
         .height(Length::Fill)
         .align_y(Alignment::Center)

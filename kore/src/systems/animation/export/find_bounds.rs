@@ -7,6 +7,7 @@ use nyanko::graphics::tools::boundary::scan_bounds;
 use tracing::{info, warn};
 
 use crate::common::job::ProgressCounter;
+use crate::systems::animation::playback_frames;
 
 use super::BoundsOutcome;
 
@@ -22,7 +23,7 @@ pub fn search(
 ) -> BoundsOutcome {
     let limits: Vec<i32> = clips.iter()
         .map(|(animation, to_frame)| {
-            let last = animation.playback_frames().saturating_sub(1);
+            let last = playback_frames(animation).saturating_sub(1);
             to_frame.map_or(last, |to| last.min(to))
         })
         .collect();

@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use nyanko::graphics::rig::Animation;
-use nyanko::graphics::tools::math;
 
 use crate::Vfs;
 
@@ -162,41 +161,17 @@ pub(crate) fn maanims(vfs: &Vfs, bases: &[String]) -> Vec<(String, PathBuf)> {
 }
 
 pub fn loop_frame(animation: &Animation, frame: f32) -> f32 {
-    let boundary = true_loop(animation).unwrap_or_else(|| furthest_frame(animation));
+    let frames = playback_frames(animation);
 
-    if boundary > 0 { frame.rem_euclid(boundary as f32 + 1.0) } else { frame }
+    if frames > 0 { frame.rem_euclid(frames as f32) } else { frame }
 }
 
-pub fn furthest_frame(animation: &Animation) -> i32 {
-    animation.modifications.iter()
-        .filter_map(|modification| modification.keyframes.last())
-        .fold(0, |furthest, keyframe| furthest.max(keyframe.frame))
+pub fn playback_frames(animation: &Animation) -> i32 {
+    cycle(animation).unwrap_or_else(|| animation.declared_frames())
 }
 
-pub fn true_loop(animation: &Animation) -> Option<i32> {
-    let furthest = furthest_frame(animation);
-    let mut combined: i32 = 1;
-    let mut looping = false;
-
-    for modification in &animation.modifications {
-        if modification.loop_count == 1 { return None; }
-
-        let (Some(first), Some(last)) = (modification.keyframes.first(), modification.keyframes.last()) else {
-            continue;
-        };
-
-        let span = last.frame - first.frame;
-        if span <= 0 { continue; }
-
-        combined = (combined / math::gcd(combined, span)).checked_mul(span)?;
-        if combined > LOOP_CEILING { return None; }
-
-        looping = true;
-    }
-
-    if !looping { return Some(furthest); }
-
-    (combined >= furthest).then_some(combined)
+pub fn cycle(animation: &Animation) -> Option<i32> {
+    animation.loop_frames().filter(|frames| *frames <= LOOP_CEILING)
 }
 
 #[inline(always)]
@@ -222,7 +197,7 @@ pub fn multiply_mat3(matrix_a: &[f32; 9], matrix_b: &[f32; 9]) -> [f32; 9] {
 mod tests {
     use nyanko::graphics::rig::{AnimModification, Animation, Keyframe};
 
-    use super::{furthest_frame, owns, true_loop};
+    use super::{cycle, owns, playback_frames};
 
     fn curve(loop_count: i32, first: i32, last: i32) -> AnimModification {
         AnimModification {
@@ -243,26 +218,43 @@ mod tests {
         Animation { version: 1, modifications: curves }
     }
 
-    // What `Loop::Auto` resolves to: true_loop when it lands, furthest_frame otherwise.
-    fn auto_bound(anim: &Animation) -> i32 {
-        true_loop(anim).unwrap_or_else(|| furthest_frame(anim))
-    }
-
     #[test]
-    fn a_play_once_curve_leaves_true_loop_unbounded() {
+    fn a_play_once_curve_has_no_cycle_and_plays_its_declared_frames() {
         // An attack holds a loop_count of one, which is what makes the viewer show "???".
         let attack = animation(vec![curve(1, 0, 129)]);
 
-        assert_eq!(true_loop(&attack), None);
-        assert_eq!(auto_bound(&attack), 129);
+        assert_eq!(cycle(&attack), None);
+        assert_eq!(playback_frames(&attack), 130);
     }
 
     #[test]
-    fn a_repeating_curve_keeps_its_true_loop() {
+    fn a_repeating_curve_keeps_its_cycle_as_a_frame_count() {
+        // Spans 8 and 12 realign after 24 frames, and frame 24 is frame 0 again,
+        // so the cycle is 24 frames rather than 25.
         let walk = animation(vec![curve(-1, 0, 8), curve(-1, 0, 12)]);
 
-        assert_eq!(true_loop(&walk), Some(24));
-        assert_eq!(auto_bound(&walk), 24);
+        assert_eq!(cycle(&walk), Some(24));
+        assert_eq!(playback_frames(&walk), 24);
+    }
+
+    #[test]
+    fn a_cycle_past_the_display_ceiling_falls_back_to_the_declared_frames() {
+        // 9973 and 9967 are coprime, so the crate reports 99,400,891 frames. The
+        // ceiling is ours: six digits is what the viewer's frame field can show.
+        let absurd = animation(vec![curve(-1, 0, 9_973), curve(-1, 0, 9_967)]);
+
+        assert_eq!(absurd.loop_frames(), Some(99_400_891));
+        assert_eq!(cycle(&absurd), None);
+        assert_eq!(playback_frames(&absurd), absurd.declared_frames());
+    }
+
+    #[test]
+    fn a_looping_animation_no_longer_replays_its_first_frame() {
+        let walk = animation(vec![curve(-1, 0, 16)]);
+
+        // 0..=15 are distinct; frame 16 renders as frame 0, so it must wrap there.
+        assert_eq!(super::loop_frame(&walk, 15.0), 15.0);
+        assert_eq!(super::loop_frame(&walk, 16.0), 0.0);
     }
 
     #[test]

@@ -935,9 +935,9 @@ impl BattleCatsApp {
                 Task::none()
             }
             Message::VaultValidated { vault, key, mounted } => self.finish_validation(vault, key, mounted),
-            Message::FilesChanged(Change::Unavailable) => {
-                warn!("File watcher could not be initialized; reporting it as an initialization error");
-                self.init_errors.report_watcher_failure(self.settings.general.ignore_watcher_failure);
+            Message::FilesChanged(Change::Unavailable(lapse)) => {
+                warn!(?lapse, "File watcher could not be initialized; reporting it as an initialization error");
+                self.init_errors.report_watcher_failure(lapse, self.settings.general.ignore_watcher_failure);
                 self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
                 Task::none()
             }
