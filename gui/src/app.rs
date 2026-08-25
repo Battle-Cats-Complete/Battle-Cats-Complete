@@ -18,6 +18,7 @@ use kore::common::context::GlobalContext;
 use kore::common::game::{localizable, param};
 use kore::common::io::json;
 use kore::domains::cat::files as cat_files;
+use kore::domains::mods as kore_mods;
 use kore::common::architecture;
 use kore::domains::settings::{Settings, UpdateMode};
 use kore::{ContentStore, Vault};
@@ -366,7 +367,7 @@ impl BattleCatsApp {
     }
 
     fn navigate(&mut self, page: Page) -> Task<Message> {
-        let flush_task = self.editor.flush_drafts().map(Message::Editor);
+        let flush_task = self.editor.flush_drafts(&self.vault.vfs).map(Message::Editor);
 
         if self.current_page == Page::Files && page != Page::Files {
             self.files_state.leave(&self.vault.vfs);
@@ -437,7 +438,8 @@ impl BattleCatsApp {
         let mut enemies = HashSet::new();
         let mut items = HashSet::new();
         let mut stage_coarse = false;
-        let mut touched_mods = HashSet::new();
+        let mut remounted_mods = HashSet::new();
+        let mut restyled_mods = HashSet::new();
         let mut pruned = false;
 
         for path in &paths {
@@ -446,7 +448,22 @@ impl BattleCatsApp {
 
             if mount != architecture::GAME {
                 self.vault.evict(name);
-                touched_mods.insert(mount);
+
+                let reindexed = self.vault.vfs.indexed(mount.as_str(), path.as_path())
+                    && self
+                        .vault
+                        .vfs
+                        .create((mount.as_str(), path.as_path()))
+                        .inspect_err(|err| warn!(path = %path.display(), "Failed to re-index a changed mod file: {}", err))
+                        .is_ok();
+
+                if name.eq_ignore_ascii_case(kore_mods::ICON) {
+                    restyled_mods.insert(mount.clone());
+                }
+
+                if !reindexed {
+                    remounted_mods.insert(mount);
+                }
             } else if path.is_file() {
                 if let Err(err) = self.vault.vfs.create((mount.as_str(), path.as_path())) {
                     warn!(path = %path.display(), "Failed to index a changed file: {}", err);
@@ -492,9 +509,12 @@ impl BattleCatsApp {
             self.sync_home_status();
         }
 
-        if !touched_mods.is_empty() {
-            self.mods_state.resync(&self.vault, &touched_mods);
-            self.mods_state.invalidate_assets(&touched_mods);
+        if !remounted_mods.is_empty() {
+            self.mods_state.resync(&self.vault, &remounted_mods);
+        }
+
+        if !restyled_mods.is_empty() {
+            self.mods_state.invalidate_assets(&restyled_mods);
         }
 
         let files_task = if self.current_page == Page::Files {
@@ -597,7 +617,7 @@ impl BattleCatsApp {
             return;
         };
 
-        self.editor.apply(update);
+        self.editor.apply(update, &self.vault.vfs);
     }
 
     fn clear_indexing(&mut self) {
@@ -793,7 +813,8 @@ impl BattleCatsApp {
                 Task::none()
             }
             Message::CloseRequested(id) => {
-                self.editor.flush_now();
+                self.editor.flush_now(&self.vault.vfs);
+                self.mods_state.flush_metadata();
                 self.files_state.leave(&self.vault.vfs);
                 self.check_auto_save();
                 self.check_auto_save_state();
@@ -1015,7 +1036,7 @@ impl BattleCatsApp {
                 self.editor.open(at, &context);
                 Task::none()
             }
-            Message::Editor(msg) => self.editor.update(msg).map(Message::Editor),
+            Message::Editor(msg) => self.editor.update(msg, &self.vault.vfs).map(Message::Editor),
             Message::Settings(msg) => {
                 if matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ManualUpdateCheck)) {
                     info!("Manual update check requested from Settings");

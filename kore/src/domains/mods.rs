@@ -6,12 +6,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::common::architecture;
-use crate::{Conflict, Vault, VfsError};
+use crate::{Conflict, Vault, Vfs, VfsError};
 
 use super::mods::export::ExportState;
 use super::mods::import::ModImportState;
@@ -19,6 +19,8 @@ use super::mods::import::ModImportState;
 const MODS_ROOT: &str = "mods";
 
 pub const METADATA: &str = "metadata.json";
+
+pub const ICON: &str = "icon.png";
 
 pub const PATCH: &str = "patch";
 
@@ -36,7 +38,7 @@ pub fn taken(mods_root: &Path, candidate: &str) -> bool {
     })
 }
 
-type Sweep<'a> = (Vec<(&'a str, PathBuf)>, Vec<PathBuf>);
+type Sweep = (Option<PathBuf>, Vec<PathBuf>);
 
 fn descends(entry: &fs::DirEntry, path: &Path) -> bool {
     entry.file_type().map_or_else(
@@ -45,64 +47,56 @@ fn descends(entry: &fs::DirEntry, path: &Path) -> bool {
     )
 }
 
-pub fn locate(mod_dir: &Path, filename: &str) -> Option<PathBuf> {
-    locate_many(mod_dir, [filename]).remove(filename)
+fn sweep(dir: &Path, filename: &str) -> Sweep {
+    let mut hit = None;
+    let mut next = Vec::new();
+
+    let Ok(entries) = fs::read_dir(dir) else { return (hit, next) };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(OsStr::to_str) else { continue };
+
+        if descends(&entry, &path) {
+            next.push(path);
+            continue;
+        }
+
+        if name == filename {
+            hit = Some(path);
+        }
+    }
+
+    (hit, next)
 }
 
-pub fn locate_many<'a>(mod_dir: &Path, names: impl IntoIterator<Item = &'a str>) -> FxHashMap<&'a str, PathBuf> {
-    let mut wanted: FxHashSet<&str> = names.into_iter().collect();
-    let mut found: FxHashMap<&str, PathBuf> = FxHashMap::default();
+pub fn locate(mod_dir: &Path, filename: &str) -> Option<PathBuf> {
     let mut level = vec![mod_dir.to_path_buf()];
 
-    while !level.is_empty() && !wanted.is_empty() {
-        let scanned: Vec<Sweep<'_>> = level
-            .par_iter()
-            .map(|dir| {
-                let mut hits = Vec::new();
-                let mut next = Vec::new();
+    while !level.is_empty() {
+        let scanned: Vec<Sweep> = level.par_iter().map(|dir| sweep(dir, filename)).collect();
 
-                let Ok(entries) = fs::read_dir(dir) else { return (hits, next) };
-
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let Some(name) = path.file_name().and_then(OsStr::to_str) else { continue };
-
-                    if descends(&entry, &path) {
-                        next.push(path);
-                        continue;
-                    }
-
-                    if let Some(&target) = wanted.get(name) {
-                        hits.push((target, path));
-                    }
-                }
-
-                (hits, next)
-            })
-            .collect();
-
-        let mut hits: FxHashMap<&str, PathBuf> = FxHashMap::default();
+        let mut found: Option<PathBuf> = None;
         let mut next = Vec::new();
 
-        for (found_here, descend_into) in scanned {
-            for (target, path) in found_here {
-                if hits.get(target).is_none_or(|existing| path < *existing) {
-                    hits.insert(target, path);
-                }
+        for (hit, descend_into) in scanned {
+            if let Some(path) = hit
+                && found.as_ref().is_none_or(|existing| path < *existing)
+            {
+                found = Some(path);
             }
 
             next.extend(descend_into);
         }
 
-        for (name, path) in hits {
-            wanted.remove(name);
-            found.insert(name, path);
+        if found.is_some() {
+            return found;
         }
 
         level = next;
     }
 
-    found
+    None
 }
 
 pub fn enable(vault: &Vault, name: &str) -> Result<Vec<Conflict>, VfsError> {
@@ -128,38 +122,48 @@ pub fn disable(vault: &Vault, name: &str) {
     vault.purge(&keys);
 }
 
-pub fn find(mod_name: &str, source: &Path) -> Option<PathBuf> {
+pub fn find(vfs: &Vfs, mod_name: &str, source: &Path) -> Option<PathBuf> {
     let name = source.file_name().and_then(OsStr::to_str)?;
 
-    locate(&Path::new(MODS_ROOT).join(mod_name), name)
+    vfs.rooted(mod_name, name)
 }
 
-pub fn find_all<'a>(mod_name: &str, names: impl IntoIterator<Item = &'a str>) -> FxHashMap<&'a str, PathBuf> {
-    locate_many(&Path::new(MODS_ROOT).join(mod_name), names)
+pub fn find_all<'a>(vfs: &Vfs, mod_name: &str, names: impl IntoIterator<Item = &'a str>) -> FxHashMap<&'a str, PathBuf> {
+    names
+        .into_iter()
+        .filter_map(|name| Some((name, vfs.rooted(mod_name, name)?)))
+        .collect()
 }
 
-pub fn place(mod_name: &str, source: &Path, name: &str) -> Result<PathBuf, std::io::Error> {
+fn slot(mod_name: &str, name: &OsStr) -> PathBuf {
     let root = Path::new(MODS_ROOT).join(mod_name);
+    let patch = root.join(PATCH);
 
-    let destination = locate(&root, name).unwrap_or_else(|| {
-        let patch = root.join(PATCH);
+    if patch.is_dir() { patch.join(name) } else { root.join(name) }
+}
 
-        if patch.is_dir() { patch.join(name) } else { root.join(name) }
-    });
-
+fn copy_into(mod_name: &str, source: &Path, destination: PathBuf) -> Result<PathBuf, std::io::Error> {
     fs::copy(source, &destination)?;
 
-    debug!(mod_name, path = %destination.display(), "Placed a file into a mod");
+    debug!(mod_name, path = %destination.display(), "Copied a file into a mod");
 
     Ok(destination)
 }
 
-pub fn ensure(mod_name: &str, source: &Path) -> Result<PathBuf, std::io::Error> {
-    find(mod_name, source).map_or_else(|| adopt(mod_name, source), Ok)
+pub fn place(mod_name: &str, source: &Path, name: &str) -> Result<PathBuf, std::io::Error> {
+    let root = Path::new(MODS_ROOT).join(mod_name);
+    let destination = locate(&root, name).unwrap_or_else(|| slot(mod_name, OsStr::new(name)));
+
+    copy_into(mod_name, source, destination)
 }
 
-pub fn ensure_as(mod_name: &str, source: &Path, name: &str) -> Result<PathBuf, std::io::Error> {
-    locate(&Path::new(MODS_ROOT).join(mod_name), name).map_or_else(|| place(mod_name, source, name), Ok)
+pub fn ensure(vfs: &Vfs, mod_name: &str, source: &Path) -> Result<PathBuf, std::io::Error> {
+    find(vfs, mod_name, source).map_or_else(|| adopt(mod_name, source), Ok)
+}
+
+pub fn ensure_as(vfs: &Vfs, mod_name: &str, source: &Path, name: &str) -> Result<PathBuf, std::io::Error> {
+    vfs.rooted(mod_name, name)
+        .map_or_else(|| copy_into(mod_name, source, slot(mod_name, OsStr::new(name))), Ok)
 }
 
 pub fn adopt(mod_name: &str, source: &Path) -> Result<PathBuf, std::io::Error> {
@@ -167,15 +171,7 @@ pub fn adopt(mod_name: &str, source: &Path) -> Result<PathBuf, std::io::Error> {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "the source path has no file name"));
     };
 
-    let root = Path::new(MODS_ROOT).join(mod_name);
-    let patch = root.join(PATCH);
-    let destination = if patch.is_dir() { patch.join(name) } else { root.join(name) };
-
-    fs::copy(source, &destination)?;
-
-    debug!(mod_name, path = %destination.display(), "Copied a file into a mod");
-
-    Ok(destination)
+    copy_into(mod_name, source, slot(mod_name, name))
 }
 
 fn default_source() -> String {
@@ -218,10 +214,13 @@ impl ModMetadata {
         fs::read_to_string(meta_path).map_or_else(|_| Self::default(), |data| serde_json::from_str(&data).unwrap_or_default())
     }
 
-    pub fn save<P: AsRef<Path>>(&self, mod_folder_path: P) -> Result<(), std::io::Error> {
+    pub fn destination<P: AsRef<Path>>(mod_folder_path: P) -> PathBuf {
         let root = mod_folder_path.as_ref();
-        let meta_path = locate(root, METADATA).unwrap_or_else(|| root.join(METADATA));
 
+        locate(root, METADATA).unwrap_or_else(|| root.join(METADATA))
+    }
+
+    pub fn write(&self, meta_path: &Path) -> Result<(), std::io::Error> {
         if let Some(parent) = meta_path.parent()
             && !parent.exists()
         {
@@ -230,6 +229,10 @@ impl ModMetadata {
 
         let data = serde_json::to_string_pretty(self)?;
         fs::write(meta_path, data)
+    }
+
+    pub fn save<P: AsRef<Path>>(&self, mod_folder_path: P) -> Result<(), std::io::Error> {
+        self.write(&Self::destination(mod_folder_path))
     }
 }
 

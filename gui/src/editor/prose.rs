@@ -9,6 +9,7 @@ use nyanko::common::tools::file;
 use tracing::warn;
 
 use kore::common::preview::{self, Stamp};
+use kore::Vfs;
 use kore::domains::mods;
 
 use crate::app::{theme, Page};
@@ -152,10 +153,10 @@ impl Plan {
             && self.label == other.label
     }
 
-    fn source(&self) -> PathBuf {
+    fn source(&self, vfs: &Vfs) -> PathBuf {
         self.target_mod
             .as_deref()
-            .and_then(|name| mods::find(name, Path::new(&self.file)))
+            .and_then(|name| mods::find(vfs, name, Path::new(&self.file)))
             .unwrap_or_else(|| self.game.clone())
     }
 }
@@ -183,19 +184,19 @@ struct Draft {
 }
 
 impl State {
-    pub(super) fn begin(&mut self, plan: Plan, nudge: usize) {
+    pub(super) fn begin(&mut self, plan: Plan, nudge: usize, vfs: &Vfs) {
         self.frame = popup::cascaded(nudge);
         self.confirm.expire();
-        self.draft = Draft::load(plan);
+        self.draft = Draft::load(plan, vfs);
     }
 
-    pub(super) fn flush(&mut self) -> Task<Message> {
-        self.draft.as_mut().map_or(Task::none(), Draft::persist_if_dirty)
+    pub(super) fn flush(&mut self, vfs: &Vfs) -> Task<Message> {
+        self.draft.as_mut().map_or(Task::none(), |draft| draft.persist_if_dirty(vfs))
     }
 
-    pub(super) fn flush_now(&mut self) {
+    pub(super) fn flush_now(&mut self, vfs: &Vfs) {
         if let Some(draft) = self.draft.as_mut() {
-            draft.persist_now();
+            draft.persist_now(vfs);
         }
     }
 
@@ -211,7 +212,7 @@ impl State {
         self.draft.as_ref().is_some_and(|draft| preview::stamp(&draft.read_from) != Some(draft.stamp))
     }
 
-    pub(super) fn sync(&mut self, plans: &[Plan]) {
+    pub(super) fn sync(&mut self, plans: &[Plan], vfs: &Vfs) {
         let Some(current) = self.draft.as_ref() else {
             return;
         };
@@ -233,11 +234,11 @@ impl State {
         }
 
         if !current.plan.matches(plan) || preview::stamp(&current.read_from) != Some(current.stamp) {
-            self.draft = Draft::load(plan.clone());
+            self.draft = Draft::load(plan.clone(), vfs);
         }
     }
 
-    pub(super) fn update(&mut self, message: Message) -> Task<Message> {
+    pub(super) fn update(&mut self, message: Message, vfs: &Vfs) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
                 let Some(subject) = self.draft.as_ref().map(|draft| draft.plan.subject) else {
@@ -245,7 +246,7 @@ impl State {
                 };
 
                 if self.frame.update(msg, spec(subject)) {
-                    let task = self.draft.as_mut().map_or(Task::none(), Draft::persist_if_dirty);
+                    let task = self.draft.as_mut().map_or(Task::none(), |draft| draft.persist_if_dirty(vfs));
 
                     self.draft = None;
                     self.confirm.expire();
@@ -286,7 +287,7 @@ impl State {
             }
         }
 
-        self.draft.as_mut().map_or(Task::none(), Draft::persist_if_dirty)
+        self.draft.as_mut().map_or(Task::none(), |draft| draft.persist_if_dirty(vfs))
     }
 
     pub(super) fn view(&self, window: Size) -> Option<Element<'_, Message>> {
@@ -311,8 +312,8 @@ fn write_now(path: &Path, body: &[u8], stamp: Stamp) -> Option<Stamp> {
 }
 
 impl Draft {
-    fn load(plan: Plan) -> Option<Draft> {
-        let read_from = plan.source();
+    fn load(plan: Plan, vfs: &Vfs) -> Option<Draft> {
+        let read_from = plan.source(vfs);
 
         let bytes = fs::read(&read_from)
             .inspect_err(|err| warn!(path = %read_from.display(), "Prose editor could not read the file: {}", err))
@@ -370,18 +371,18 @@ impl Draft {
         self.stage();
     }
 
-    fn destination(&self) -> Option<(PathBuf, Stamp)> {
+    fn destination(&self, vfs: &Vfs) -> Option<(PathBuf, Stamp)> {
         let Some(name) = self.plan.target_mod.as_deref() else {
             return Some((self.plan.game.clone(), self.stamp));
         };
 
-        let path = mods::ensure_as(name, &self.plan.game, &self.plan.file)
+        if self.read_from != self.plan.game {
+            return Some((self.read_from.clone(), self.stamp));
+        }
+
+        let path = mods::ensure_as(vfs, name, &self.plan.game, &self.plan.file)
             .inspect_err(|err| warn!(source = %self.plan.game.display(), "Prose editor could not stage the file: {}", err))
             .ok()?;
-
-        if path == self.read_from {
-            return Some((path, self.stamp));
-        }
 
         preview::stamp(&path).map(|stamp| (path, stamp))
     }
@@ -402,16 +403,16 @@ impl Draft {
         self.dirty = true;
     }
 
-    fn persist_if_dirty(&mut self) -> Task<Message> {
+    fn persist_if_dirty(&mut self, vfs: &Vfs) -> Task<Message> {
         if !self.dirty || self.writing {
             return Task::none();
         }
 
-        self.persist()
+        self.persist(vfs)
     }
 
-    fn prepare_write(&mut self) -> Option<(PathBuf, Vec<u8>, Stamp, u64)> {
-        let Some((path, stamp)) = self.destination() else {
+    fn prepare_write(&mut self, vfs: &Vfs) -> Option<(PathBuf, Vec<u8>, Stamp, u64)> {
+        let Some((path, stamp)) = self.destination(vfs) else {
             self.failed = true;
 
             return None;
@@ -426,8 +427,8 @@ impl Draft {
         Some((path, body.into_bytes(), stamp, self.token))
     }
 
-    fn persist(&mut self) -> Task<Message> {
-        let Some((path, body, stamp, token)) = self.prepare_write() else {
+    fn persist(&mut self, vfs: &Vfs) -> Task<Message> {
+        let Some((path, body, stamp, token)) = self.prepare_write(vfs) else {
             return Task::none();
         };
 
@@ -439,12 +440,12 @@ impl Draft {
         )
     }
 
-    fn persist_now(&mut self) {
+    fn persist_now(&mut self, vfs: &Vfs) {
         if !self.dirty && !self.writing {
             return;
         }
 
-        let Some((path, body, stamp, _)) = self.prepare_write() else {
+        let Some((path, body, stamp, _)) = self.prepare_write(vfs) else {
             return;
         };
 

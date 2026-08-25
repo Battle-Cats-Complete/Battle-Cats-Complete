@@ -4,7 +4,7 @@ mod list;
 
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 
@@ -69,6 +69,7 @@ pub enum Message {
     UpdateMetadata(MetadataField, String),
     DescriptionAction(text_editor::Action),
     CommitMetadata,
+    MetadataPersisted,
     DeleteRequested,
     DeleteExpired,
     DeleteFinished(Result<(), String>),
@@ -84,6 +85,9 @@ pub struct State {
     confirm_delete: Slot<()>,
     mounting: bool,
     mount_target: Option<String>,
+    metadata_path: Option<PathBuf>,
+    metadata_dirty: bool,
+    metadata_writing: bool,
 }
 
 impl State {
@@ -102,6 +106,9 @@ impl State {
             confirm_delete: Slot::default(),
             mounting: false,
             mount_target: None,
+            metadata_path: None,
+            metadata_dirty: false,
+            metadata_writing: false,
         }
     }
 
@@ -208,22 +215,22 @@ impl State {
                 let _ = open::that(mod_path);
                 Task::none()
             }
-            Message::UpdateMetadata(field, value) => {
-                self.update_metadata(field, value);
-                Task::none()
-            }
+            Message::UpdateMetadata(field, value) => self.update_metadata(field, value),
             Message::DescriptionAction(action) => {
                 let is_edit = action.is_edit();
                 self.description.perform(action);
 
-                if is_edit {
-                    self.update_metadata(MetadataField::Description, self.description.text());
+                if !is_edit {
+                    return Task::none();
                 }
-                Task::none()
+
+                self.update_metadata(MetadataField::Description, self.description.text())
             }
-            Message::CommitMetadata => {
-                self.commit_metadata();
-                Task::none()
+            Message::CommitMetadata => self.commit_metadata(),
+            Message::MetadataPersisted => {
+                self.metadata_writing = false;
+
+                self.persist_metadata()
             }
             Message::DeleteRequested => {
                 if self.confirm_delete.is_set() {
@@ -266,6 +273,8 @@ impl State {
     }
 
     fn select_mod(&mut self, folder: String) {
+        self.flush_metadata();
+        self.metadata_path = None;
         self.confirm_delete.clear();
         self.data.selected_mod = Some(folder.clone());
         self.data.rename_buffer = folder;
@@ -345,6 +354,9 @@ impl State {
             return Task::none();
         }
 
+        self.flush_metadata();
+        self.metadata_path = None;
+
         let mods_root = Path::new("mods");
         let old_path = mods_root.join(&old_name);
         let new_path = mods_root.join(&new_name);
@@ -374,8 +386,8 @@ impl State {
         self.spawn_mount(vault, Some(old_name), Some(new_name.clone()), new_name)
     }
 
-    fn update_metadata(&mut self, field: MetadataField, value: String) {
-        let Some(idx) = self.get_selected_mod_idx() else { return; };
+    fn update_metadata(&mut self, field: MetadataField, value: String) -> Task<Message> {
+        let Some(idx) = self.get_selected_mod_idx() else { return Task::none(); };
         let meta = &mut self.data.loaded_mods[idx].metadata;
 
         match field {
@@ -385,17 +397,59 @@ impl State {
             MetadataField::Description => meta.description = value,
         }
 
-        self.commit_metadata();
+        self.commit_metadata()
     }
 
-    fn commit_metadata(&mut self) {
-        let Some(idx) = self.get_selected_mod_idx() else { return; };
-        let mod_folder = self.data.loaded_mods[idx].folder_name.clone();
-        let mod_path = Path::new("mods").join(&mod_folder);
+    fn commit_metadata(&mut self) -> Task<Message> {
+        self.metadata_dirty = true;
 
-        self.data.loaded_mods[idx].metadata.title = mod_folder;
-        if let Err(e) = self.data.loaded_mods[idx].metadata.save(&mod_path) {
-            tracing::error!("Failed to commit metadata: {}", e);
+        self.persist_metadata()
+    }
+
+    fn prepare_metadata(&mut self) -> Option<(PathBuf, mods::ModMetadata)> {
+        let idx = self.get_selected_mod_idx()?;
+        let folder = self.data.loaded_mods[idx].folder_name.clone();
+
+        self.data.loaded_mods[idx].metadata.title = folder.clone();
+
+        let path = self
+            .metadata_path
+            .get_or_insert_with(|| mods::ModMetadata::destination(Path::new("mods").join(&folder)))
+            .clone();
+
+        self.metadata_dirty = false;
+
+        Some((path, self.data.loaded_mods[idx].metadata.clone()))
+    }
+
+    fn persist_metadata(&mut self) -> Task<Message> {
+        if !self.metadata_dirty || self.metadata_writing {
+            return Task::none();
+        }
+
+        let Some((path, metadata)) = self.prepare_metadata() else { return Task::none(); };
+
+        self.metadata_writing = true;
+
+        Task::perform(
+            smol::unblock(move || {
+                if let Err(err) = metadata.write(&path) {
+                    tracing::error!(path = %path.display(), "Failed to commit metadata: {}", err);
+                }
+            }),
+            |()| Message::MetadataPersisted,
+        )
+    }
+
+    pub(crate) fn flush_metadata(&mut self) {
+        if !self.metadata_dirty {
+            return;
+        }
+
+        let Some((path, metadata)) = self.prepare_metadata() else { return; };
+
+        if let Err(err) = metadata.write(&path) {
+            tracing::error!(path = %path.display(), "Failed to commit metadata: {}", err);
         }
     }
 

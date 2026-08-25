@@ -1,7 +1,8 @@
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::thread;
+use std::time::{Duration, UNIX_EPOCH};
 
 use tracing::{error, warn};
 
@@ -13,7 +14,10 @@ const IHDR_WIDTH: usize = 16;
 const IHDR_HEIGHT: usize = 20;
 const IHDR_END: usize = 24;
 
-const DRAFT_EXTENSION: &str = "bcc";
+const DRAFT_EXTENSION: &str = "tmp";
+
+const REPLACE_ATTEMPTS: u32 = 12;
+const REPLACE_BACKOFF: Duration = Duration::from_millis(15);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Stamp {
@@ -27,8 +31,6 @@ pub enum SaveError {
     Conflict(PathBuf),
     #[error("failed to stage {path}: {source}")]
     Staging { path: PathBuf, source: std::io::Error },
-    #[error("staged copy of {0} did not match the edited text")]
-    Corrupt(PathBuf),
     #[error("failed to replace {path}: {source}")]
     Replace { path: PathBuf, source: std::io::Error },
 }
@@ -114,22 +116,41 @@ pub fn save(path: &Path, body: &[u8], expected: Stamp) -> Result<Stamp, SaveErro
         return Err(SaveError::Staging { path: draft, source });
     }
 
-    if fs::read(&draft).is_ok_and(|written| written == body) {
-        return fs::rename(&draft, path)
-            .map_err(|source| SaveError::Replace { path: path.to_path_buf(), source })
-            .and_then(|()| stamp(path).ok_or_else(|| SaveError::Conflict(path.to_path_buf())));
+    if let Err(source) = replace(&draft, path) {
+        discard(&draft);
+
+        return Err(SaveError::Replace { path: path.to_path_buf(), source });
     }
 
-    discard(&draft);
-
-    Err(SaveError::Corrupt(path.to_path_buf()))
+    stamp(path).ok_or_else(|| SaveError::Conflict(path.to_path_buf()))
 }
 
 fn stage(draft: &Path, body: &[u8]) -> std::io::Result<()> {
     let mut file = File::create(draft)?;
 
-    file.write_all(body)?;
-    file.sync_all()
+    file.write_all(body)
+}
+
+fn replace(draft: &Path, path: &Path) -> std::io::Result<()> {
+    for attempt in 1..=REPLACE_ATTEMPTS {
+        let Err(err) = fs::rename(draft, path) else {
+            return Ok(());
+        };
+
+        if attempt == REPLACE_ATTEMPTS || !contended(&err) {
+            return Err(err);
+        }
+
+        warn!(path = %path.display(), attempt, "the destination is held by another process, retrying the replace");
+
+        thread::sleep(REPLACE_BACKOFF * attempt);
+    }
+
+    Ok(())
+}
+
+fn contended(err: &std::io::Error) -> bool {
+    matches!(err.kind(), ErrorKind::PermissionDenied | ErrorKind::ResourceBusy)
 }
 
 fn discard(draft: &Path) {

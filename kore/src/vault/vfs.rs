@@ -473,6 +473,22 @@ impl Vfs {
         within(&indexed.root, path)
     }
 
+    pub fn indexed(&self, mount: &str, path: &Path) -> bool {
+        let Ok(mounts) = self.mounts.read() else {
+            return false;
+        };
+
+        let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+            return false;
+        };
+
+        mounts.get(mount).is_some_and(|indexed| {
+            within(&indexed.root, path)
+                .zip(indexed.files.get(name))
+                .is_some_and(|(relative, entry)| entry.path == relative)
+        })
+    }
+
     pub fn contains(&self, mount: &str, dir: &Path, name: &str) -> bool {
         let Ok(mounts) = self.mounts.read() else {
             return false;
@@ -508,7 +524,16 @@ impl Vfs {
         let mounts = self.mounts.read().ok()?;
         let indexed = mounts.get(mount)?;
 
-        indexed.files.get(name).map(|entry| indexed.root.join(&entry.path))
+        if let Some(entry) = indexed.files.get(name) {
+            return Some(indexed.root.join(&entry.path));
+        }
+
+        indexed
+            .conflicts
+            .iter()
+            .find(|conflict| conflict.key.as_ref() == name)
+            .and_then(|conflict| conflict.paths.iter().min_by_key(|path| (path.components().count(), *path)))
+            .cloned()
     }
 
     pub fn browse(&self, mount: &str, dir: &Path) -> Option<Listing> {
@@ -796,4 +821,79 @@ fn vanilla(mounts: &Index, name: &str) -> Option<PathBuf> {
 
 fn canonical(path: &Path) -> bool {
     path.components().count() == 1 && path.file_name() == Some(OsStr::new(MOUNT_GAME))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+
+    use super::*;
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let root = env::temp_dir().join(format!("bcc-vfs-{name}-{}", std::process::id()));
+
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(root.join("patch")).expect("scratch mount");
+
+            Self(root)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn indexed_separates_a_modified_file_from_a_brand_new_one() {
+        let scratch = Scratch::new("indexed");
+        let root = &scratch.0;
+        let known = root.join("patch").join("unit044.csv");
+
+        fs::write(&known, "0,1,2\n").expect("seed file");
+
+        let vfs = Vfs::with_priority(&[]);
+        vfs.create(root.as_path()).expect("mount the scratch dir");
+
+        let mount = root.file_name().and_then(OsStr::to_str).expect("mount key");
+
+        // An edit to an already-indexed file takes the O(1) path.
+        assert!(vfs.indexed(mount, &known));
+
+        // A file that appeared after the walk is unknown, so it must force a remount.
+        let fresh = root.join("patch").join("unit045.csv");
+        fs::write(&fresh, "0\n").expect("seed a late arrival");
+        assert!(!vfs.indexed(mount, &fresh));
+
+        // Same name, different directory: still not what the index holds.
+        assert!(!vfs.indexed(mount, &root.join("unit044.csv")));
+
+        // Unknown mounts never claim a file.
+        assert!(!vfs.indexed("nope", &known));
+    }
+
+    #[test]
+    fn rooted_falls_back_to_the_shallowest_conflicting_copy() {
+        let scratch = Scratch::new("rooted");
+        let root = &scratch.0;
+
+        fs::write(root.join("unit044.csv"), "shallow\n").expect("seed the shallow copy");
+        fs::write(root.join("patch").join("unit044.csv"), "deep\n").expect("seed the deep copy");
+
+        let vfs = Vfs::with_priority(&[]);
+        vfs.create(root.as_path()).expect("mount the scratch dir");
+
+        let mount = root.file_name().and_then(OsStr::to_str).expect("mount key");
+
+        // A duplicated name is dropped from `files` and recorded as a conflict, so the
+        // editor would resolve nothing and adopt a third copy without this fallback.
+        assert_eq!(vfs.rooted(mount, "unit044.csv"), Some(root.join("unit044.csv")));
+
+        // A conflicted name is still not a single indexed entry, so edits to it force a remount.
+        assert!(!vfs.indexed(mount, &root.join("unit044.csv")));
+    }
 }

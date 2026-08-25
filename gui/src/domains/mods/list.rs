@@ -26,7 +26,6 @@ const ROW_TEXT_SIZE: f32 = 12.0;
 
 const EDGE_GAP: f32 = 4.0;
 const ICON_RENDER_SIZE: u32 = 64;
-const ICON_FILE: &str = "icon.png";
 
 #[derive(Clone)]
 pub enum Message {
@@ -234,7 +233,7 @@ impl State {
 }
 
 fn process_icon(mod_path: &Path) -> Option<(u32, u32, Vec<u8>)> {
-    let icon_path = mods::locate(mod_path, ICON_FILE)?;
+    let icon_path = mods::locate(mod_path, mods::ICON)?;
     let opened = image::open(&icon_path).ok()?;
 
     let cropped = gfx::autocrop(opened.to_rgba8());

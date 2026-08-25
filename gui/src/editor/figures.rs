@@ -21,7 +21,7 @@ use tracing::warn;
 
 use kore::common::preview::{self, Stamp};
 use kore::domains::{mods, settings::EditorMode};
-use kore::Vault;
+use kore::{Vault, Vfs};
 
 use crate::common::feedback::Slot;
 use crate::widget::popup;
@@ -249,10 +249,10 @@ impl Plan {
             && self.values == other.values
     }
 
-    fn source(&self) -> PathBuf {
+    fn source(&self, vfs: &Vfs) -> PathBuf {
         self.target_mod
             .as_deref()
-            .and_then(|name| mods::find(name, &self.game))
+            .and_then(|name| mods::find(vfs, name, &self.game))
             .unwrap_or_else(|| self.game.clone())
     }
 }
@@ -304,11 +304,11 @@ struct Draft {
 }
 
 impl State {
-    pub(super) fn begin(&mut self, plan: Plan, nudge: usize) {
+    pub(super) fn begin(&mut self, plan: Plan, nudge: usize, vfs: &Vfs) {
         self.frame = popup::cascaded(nudge);
         self.offset = 0.0;
         self.picker = None;
-        self.draft = Draft::load(plan);
+        self.draft = Draft::load(plan, vfs);
     }
 
     pub(super) fn restore_scroll<M: Send + 'static>(&self) -> Option<Task<M>> {
@@ -318,8 +318,8 @@ impl State {
         Some(operation::scroll_to(cards::grid_id(draft.plan.subject()), target))
     }
 
-    fn reload(&mut self, plan: Plan) {
-        self.draft = Draft::load(plan);
+    fn reload(&mut self, plan: Plan, vfs: &Vfs) {
+        self.draft = Draft::load(plan, vfs);
     }
 
     pub(super) fn relocalize(&self) {
@@ -338,25 +338,25 @@ impl State {
         self.draft.as_ref().is_some_and(|draft| preview::stamp(&draft.read_from) != Some(draft.stamp))
     }
 
-    pub(super) fn flush(&mut self) -> Task<Message> {
+    pub(super) fn flush(&mut self, vfs: &Vfs) -> Task<Message> {
         let Some(draft) = self.draft.as_mut() else {
             return Task::none();
         };
 
         draft.resolve_buffer();
-        draft.persist_if_dirty()
+        draft.persist_if_dirty(vfs)
     }
 
-    pub(super) fn flush_now(&mut self) {
+    pub(super) fn flush_now(&mut self, vfs: &Vfs) {
         let Some(draft) = self.draft.as_mut() else {
             return;
         };
 
         draft.resolve_buffer();
-        draft.persist_now();
+        draft.persist_now(vfs);
     }
 
-    pub(super) fn sync(&mut self, plan: Option<Plan>) {
+    pub(super) fn sync(&mut self, plan: Option<Plan>, vfs: &Vfs) {
         let Some(current) = self.draft.as_ref() else {
             return;
         };
@@ -378,17 +378,17 @@ impl State {
         }
 
         if !current.plan.matches(&plan) {
-            self.reload(plan);
+            self.reload(plan, vfs);
 
             return;
         }
 
         if preview::stamp(&current.read_from) != Some(current.stamp) {
-            self.reload(plan);
+            self.reload(plan, vfs);
         }
     }
 
-    pub(super) fn update(&mut self, message: Message) -> Task<Message> {
+    pub(super) fn update(&mut self, message: Message, vfs: &Vfs) -> Task<Message> {
         if let Some(draft) = self.draft.as_mut() {
             let still_typing = matches!(&message, Message::Changed(index, _) if draft.buffering(*index));
 
@@ -404,7 +404,7 @@ impl State {
                 };
 
                 if self.frame.update(msg, spec) {
-                    let task = self.draft.as_mut().map_or(Task::none(), Draft::persist_if_dirty);
+                    let task = self.draft.as_mut().map_or(Task::none(), |draft| draft.persist_if_dirty(vfs));
 
                     self.draft = None;
                     self.offset = 0.0;
@@ -467,7 +467,7 @@ impl State {
             }
         }
 
-        self.draft.as_mut().map_or(Task::none(), Draft::persist_if_dirty)
+        self.draft.as_mut().map_or(Task::none(), |draft| draft.persist_if_dirty(vfs))
     }
 
     pub(super) fn view<'a>(
@@ -510,8 +510,8 @@ fn write_now(path: &Path, body: &[u8], stamp: Stamp) -> Option<Stamp> {
 }
 
 impl Draft {
-    fn load(plan: Plan) -> Option<Draft> {
-        let read_from = plan.source();
+    fn load(plan: Plan, vfs: &Vfs) -> Option<Draft> {
+        let read_from = plan.source(vfs);
 
         let bytes = fs::read(&read_from)
             .inspect_err(|err| warn!(path = %read_from.display(), "Stats editor could not read the file: {}", err))
@@ -797,16 +797,16 @@ impl Draft {
         self.dirty = true;
     }
 
-    fn persist_if_dirty(&mut self) -> Task<Message> {
+    fn persist_if_dirty(&mut self, vfs: &Vfs) -> Task<Message> {
         if !self.dirty || self.writing {
             return Task::none();
         }
 
-        self.persist()
+        self.persist(vfs)
     }
 
-    fn prepare_write(&mut self) -> Option<(PathBuf, Vec<u8>, Stamp, u64)> {
-        let Some((path, stamp)) = self.destination() else {
+    fn prepare_write(&mut self, vfs: &Vfs) -> Option<(PathBuf, Vec<u8>, Stamp, u64)> {
+        let Some((path, stamp)) = self.destination(vfs) else {
             self.failed = true;
 
             return None;
@@ -821,8 +821,8 @@ impl Draft {
         Some((path, body.into_bytes(), stamp, self.token))
     }
 
-    fn persist(&mut self) -> Task<Message> {
-        let Some((path, body, stamp, token)) = self.prepare_write() else {
+    fn persist(&mut self, vfs: &Vfs) -> Task<Message> {
+        let Some((path, body, stamp, token)) = self.prepare_write(vfs) else {
             return Task::none();
         };
 
@@ -834,12 +834,12 @@ impl Draft {
         )
     }
 
-    fn persist_now(&mut self) {
+    fn persist_now(&mut self, vfs: &Vfs) {
         if !self.dirty && !self.writing {
             return;
         }
 
-        let Some((path, body, stamp, _)) = self.prepare_write() else {
+        let Some((path, body, stamp, _)) = self.prepare_write(vfs) else {
             return;
         };
 
@@ -867,18 +867,18 @@ impl Draft {
             .collect();
     }
 
-    fn destination(&self) -> Option<(PathBuf, Stamp)> {
+    fn destination(&self, vfs: &Vfs) -> Option<(PathBuf, Stamp)> {
         let Some(name) = self.plan.target_mod.as_deref() else {
             return Some((self.plan.game.clone(), self.stamp));
         };
 
-        let path = mods::ensure(name, &self.plan.game)
+        if self.read_from != self.plan.game {
+            return Some((self.read_from.clone(), self.stamp));
+        }
+
+        let path = mods::ensure(vfs, name, &self.plan.game)
             .inspect_err(|err| warn!(source = %self.plan.game.display(), "Stats editor could not stage the file: {}", err))
             .ok()?;
-
-        if path == self.read_from {
-            return Some((path, self.stamp));
-        }
 
         let stamp = preview::stamp(&path)?;
 
@@ -964,6 +964,7 @@ mod tests {
 
     use kore::common::preview::Stamp;
     use kore::domains::settings::EditorMode;
+    use kore::Vfs;
 
     use super::resolved::{self, Rule};
     use super::schema::{self, Subject};
@@ -1219,11 +1220,12 @@ mod tests {
             .expect("failed to seed the temp fixture file");
         let seeded = std::fs::read(&path).expect("seeded fixture should be readable");
 
-        let mut state = State { draft: Draft::load(seed), ..State::default() };
+        let vfs = Vfs::with_priority(&[]);
+        let mut state = State { draft: Draft::load(seed, &vfs), ..State::default() };
         assert!(state.draft.is_some(), "the draft should load from the temp fixture");
 
         for typed in ["1", "12", "123"] {
-            let _ = state.update(Message::Changed(index, typed.to_owned()));
+            let _ = state.update(Message::Changed(index, typed.to_owned()), &vfs);
         }
 
         let untouched = std::fs::read(&path).expect("fixture should still be readable");
@@ -1237,7 +1239,7 @@ mod tests {
         assert!(draft.dirty, "later keystrokes coalesce behind the in-flight write instead of starting a second one");
         assert_eq!(draft.input(index), "123");
 
-        complete_write(&mut state);
+        complete_write(&mut state, &vfs);
 
         let body = std::fs::read_to_string(&path).expect("the completed write should have landed on disk");
         assert!(body.contains("123"), "the completion must persist the latest coalesced value");
@@ -1258,15 +1260,16 @@ mod tests {
         std::fs::write(&path, format!("{}\n", super::vacant(&seed, ',')))
             .expect("failed to seed the temp fixture file");
 
-        let mut state = State { draft: Draft::load(seed), ..State::default() };
+        let vfs = Vfs::with_priority(&[]);
+        let mut state = State { draft: Draft::load(seed, &vfs), ..State::default() };
         assert!(state.draft.is_some(), "the draft should load from the temp fixture");
 
-        let _ = state.update(Message::Changed(index, "!7".to_owned()));
+        let _ = state.update(Message::Changed(index, "!7".to_owned()), &vfs);
         assert_eq!(state.draft.as_ref().and_then(|draft| draft.buffer), Some(index));
 
         // No `Message` at all here — this is what page navigation calls directly, ahead of
         // switching `current_page`, since a page change never routes through `figures::Message`.
-        let _ = state.flush();
+        let _ = state.flush(&vfs);
 
         let draft = state.draft.as_ref().expect("the draft survives a flush with no message");
         assert_eq!(draft.buffer, None, "flush() alone must resolve the buffered field");
@@ -1274,7 +1277,7 @@ mod tests {
         assert!(draft.writing, "flush() must have started the write, not just staged it");
         assert!(!draft.failed);
 
-        complete_write(&mut state);
+        complete_write(&mut state, &vfs);
 
         let draft = state.draft.as_ref().expect("the draft survives the completed write");
         assert!(!draft.failed, "the flush should have committed cleanly to the temp file");
@@ -1297,19 +1300,20 @@ mod tests {
 ", super::vacant(&seed, ',')))
             .expect("failed to seed the temp fixture file");
 
-        let mut state = State { draft: Draft::load(seed), ..State::default() };
+        let vfs = Vfs::with_priority(&[]);
+        let mut state = State { draft: Draft::load(seed, &vfs), ..State::default() };
         assert!(state.draft.is_some(), "the draft should load from the temp fixture");
 
-        let _ = state.update(Message::Changed(index, "!12".to_owned()));
+        let _ = state.update(Message::Changed(index, "!12".to_owned()), &vfs);
         assert_eq!(state.draft.as_ref().and_then(|draft| draft.buffer), Some(index));
 
-        let _ = state.update(Message::Changed(index, "!123".to_owned()));
+        let _ = state.update(Message::Changed(index, "!123".to_owned()), &vfs);
         assert_eq!(
             state.draft.as_ref().map(|draft| draft.input(index)), Some("!123"),
             "typing on into the same buffered field must not flush it",
         );
 
-        let _ = state.update(Message::Scrolled(4.0));
+        let _ = state.update(Message::Scrolled(4.0), &vfs);
 
         let draft = state.draft.as_ref().expect("the draft survives an unrelated message");
         assert_eq!(draft.buffer, None, "any other message flushes the buffered field");
@@ -1320,12 +1324,12 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    fn complete_write(state: &mut State) {
+    fn complete_write(state: &mut State, vfs: &Vfs) {
         let draft = state.draft.as_mut().expect("a write can only complete on a live draft");
-        let (path, body, stamp, token) = draft.prepare_write().expect("destination must resolve in these fixtures");
+        let (path, body, stamp, token) = draft.prepare_write(vfs).expect("destination must resolve in these fixtures");
 
         let result = write_now(&path, &body, stamp);
-        let _ = state.update(Message::Persisted(token, path, result));
+        let _ = state.update(Message::Persisted(token, path, result), vfs);
     }
 
     fn scratch_dir(label: &str) -> std::path::PathBuf {

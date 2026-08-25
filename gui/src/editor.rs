@@ -20,6 +20,7 @@ use kore::domains::enemy::scanner::EnemyEntry;
 use kore::common::architecture;
 use kore::domains::mods;
 use kore::domains::settings::{ContextScope, EditorMode};
+use kore::Vfs;
 
 use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;
@@ -117,7 +118,7 @@ fn mod_copies<'a>(
 ) -> FxHashMap<&'a str, PathBuf> {
     app.mods_state
         .active_mod()
-        .map_or_else(FxHashMap::default, |active| mods::find_all(&active, names))
+        .map_or_else(FxHashMap::default, |active| mods::find_all(&app.vault.vfs, &active, names))
 }
 
 struct Exception {
@@ -520,9 +521,9 @@ impl State {
         self.open = (!items.is_empty()).then_some(Open { at, items, trail: Trail::new() });
     }
 
-    pub(crate) fn update(&mut self, message: Message) -> Task<Message> {
+    pub(crate) fn update(&mut self, message: Message, vfs: &Vfs) -> Task<Message> {
         match message {
-            Message::Invoked(trail) => self.invoke(trail),
+            Message::Invoked(trail) => self.invoke(trail, vfs),
             Message::Hovered(trail) => {
                 if let Some(open) = self.open.as_mut() {
                     open.trail = trail;
@@ -546,11 +547,11 @@ impl State {
             }
             Message::Prose(subject, msg) => self
                 .prose_mut(subject)
-                .update(msg)
+                .update(msg, vfs)
                 .map(move |inner| Message::Prose(subject, inner)),
             Message::Figures(subject, msg) => self
                 .subject_mut(subject)
-                .update(msg)
+                .update(msg, vfs)
                 .map(move |inner| Message::Figures(subject, inner)),
             Message::Opened(..) => Task::none(),
         }
@@ -606,24 +607,24 @@ impl State {
         }
     }
 
-    pub(crate) fn flush_now(&mut self) {
+    pub(crate) fn flush_now(&mut self, vfs: &Vfs) {
         for slot in &mut self.figures {
-            slot.flush_now();
+            slot.flush_now(vfs);
         }
 
         for slot in &mut self.prose {
-            slot.flush_now();
+            slot.flush_now(vfs);
         }
     }
 
-    pub(crate) fn flush_drafts(&mut self) -> Task<Message> {
+    pub(crate) fn flush_drafts(&mut self, vfs: &Vfs) -> Task<Message> {
         let figures = figures::SUBJECTS
             .into_iter()
-            .map(|subject| self.figures[subject.slot()].flush().map(move |inner| Message::Figures(subject, inner)));
+            .map(|subject| self.figures[subject.slot()].flush(vfs).map(move |inner| Message::Figures(subject, inner)));
 
         let prose = prose::SUBJECTS
             .into_iter()
-            .map(|subject| self.prose[subject.slot()].flush().map(move |inner| Message::Prose(subject, inner)));
+            .map(|subject| self.prose[subject.slot()].flush(vfs).map(move |inner| Message::Prose(subject, inner)));
 
         Task::batch(figures.chain(prose))
     }
@@ -650,7 +651,7 @@ impl State {
             || self.prose.iter().any(prose::State::drifted)
     }
 
-    pub(crate) fn apply(&mut self, update: Update) {
+    pub(crate) fn apply(&mut self, update: Update, vfs: &Vfs) {
         let Update { snapshot, key } = update;
         self.synced = Some(key);
 
@@ -659,7 +660,7 @@ impl State {
                 continue;
             }
 
-            self.prose[subject.slot()].sync(&snapshot.prose[subject.slot()]);
+            self.prose[subject.slot()].sync(&snapshot.prose[subject.slot()], vfs);
         }
 
         for (slot, plan) in snapshot.figures.into_iter().enumerate() {
@@ -667,7 +668,7 @@ impl State {
                 continue;
             }
 
-            self.figures[slot].sync(plan);
+            self.figures[slot].sync(plan, vfs);
         }
     }
 
@@ -693,7 +694,7 @@ impl State {
         &mut self.prose[subject.slot()]
     }
 
-    fn perform(&mut self, action: &Action) -> Outcome {
+    fn perform(&mut self, action: &Action, vfs: &Vfs) -> Outcome {
         match action {
             Action::Add { source, target_mod } => match mods::adopt(target_mod, source) {
                 Ok(path) => {
@@ -756,7 +757,7 @@ impl State {
                 let already = self.figures[subject.slot()].drafting();
                 let nudge = self.stacked(subject.page()) - usize::from(already);
 
-                self.subject_mut(subject).begin(plan.clone(), nudge);
+                self.subject_mut(subject).begin(plan.clone(), nudge, vfs);
 
                 Outcome::Done
             }
@@ -765,7 +766,7 @@ impl State {
                 let already = self.prose[subject.slot()].drafting();
                 let nudge = self.stacked(subject.page()) - usize::from(already);
 
-                self.prose_mut(subject).begin(plan.clone(), nudge);
+                self.prose_mut(subject).begin(plan.clone(), nudge, vfs);
 
                 Outcome::Done
             }
@@ -787,7 +788,7 @@ impl State {
         }
     }
 
-    fn invoke(&mut self, trail: Trail) -> Task<Message> {
+    fn invoke(&mut self, trail: Trail, vfs: &Vfs) -> Task<Message> {
         let Some((actionable, confirms)) = self
             .open
             .as_ref()
@@ -814,7 +815,7 @@ impl State {
 
         let outcome = pick(&open.items, &trail)
             .and_then(|item| item.action.as_ref())
-            .map_or(Outcome::Done, |action| self.perform(action));
+            .map_or(Outcome::Done, |action| self.perform(action, vfs));
 
         if matches!(outcome, Outcome::Done) {
             return Task::none();
@@ -1051,7 +1052,7 @@ fn prose_target(app: &BattleCatsApp, subject: prose::Subject) -> Option<ProseTar
 }
 
 fn mod_copy(app: &BattleCatsApp, file: &str) -> Option<PathBuf> {
-    mods::find(app.mods_state.active_mod().as_deref()?, Path::new(file))
+    mods::find(&app.vault.vfs, app.mods_state.active_mod().as_deref()?, Path::new(file))
 }
 
 fn enemy_name_target(app: &BattleCatsApp) -> Option<ProseTarget> {
@@ -1371,7 +1372,7 @@ fn file_target(app: &BattleCatsApp, target: Option<Target>) -> Option<FileTarget
     let name = relative.file_name()?.to_string_lossy().into_owned();
     let active_mod = app.mods_state.active_mod();
 
-    let mod_copy = active_mod.as_deref().and_then(|active| mods::find(active, Path::new(&name)));
+    let mod_copy = active_mod.as_deref().and_then(|active| mods::find(&app.vault.vfs, active, Path::new(&name)));
 
     let game = app.vault.vfs.rooted(architecture::GAME, &name);
 
