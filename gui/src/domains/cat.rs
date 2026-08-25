@@ -43,7 +43,7 @@ use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 use crate::common::header_icon::{self, HeaderIcon};
 use crate::editor;
-use crate::widget::{grid_frames, grid_header, grid_value, name_box, roster_list, statblock_export, status};
+use crate::widget::{grid_frames, grid_header, grid_value, name_box, popup, roster_list, statblock_export, status};
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
@@ -197,7 +197,7 @@ impl Default for State {
             talents: talents::State::default(),
             export: statblock_export::State::new("Cat"),
             ultra: ultra::State::default(),
-            animation: animation::State::default(),
+            animation: animation::State::with_popup(popup::Kind::CatAnimationExport),
         }
     }
 }
@@ -648,8 +648,8 @@ impl State {
         self.animation.expanded_view(settings, &app_state.animation).map(|view| view.map(Message::Animation))
     }
 
-    pub fn export_popup_open(&self, app_state: &AppState) -> bool {
-        self.animation.export_popup_open(&app_state.animation)
+    pub fn export_popup_open(&self) -> bool {
+        self.animation.export_popup_open()
     }
 
     pub fn export_popup_visible(&self) -> bool {
@@ -671,8 +671,8 @@ impl State {
             .then(|| self.filter.view(&self.img015_sheets, &self.custom_assets, window).map(Message::Filter))
     }
 
-    pub fn export_popup_view(&self, window: Size, app_state: &AppState) -> Option<Element<'_, Message>> {
-        self.animation.export_popup_view(window, &app_state.animation).map(|view| view.map(Message::Animation))
+    pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.animation.export_popup_view(window).map(|view| view.map(Message::Animation))
     }
 
     pub fn view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {

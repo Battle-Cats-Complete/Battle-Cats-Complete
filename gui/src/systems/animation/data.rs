@@ -5,7 +5,7 @@ use tracing::warn;
 
 use nyanko::graphics::rig::{Animation, Rig};
 
-use kore::systems::animation::{furthest_frame, loop_frame, true_loop, Clip, Role};
+use kore::systems::animation::{furthest_frame, loop_frame, true_loop, Clip, ClipSet, Role};
 
 pub(super) const COLUMNS: usize = 4;
 const DEFAULT_SLOTS: usize = 8;
@@ -19,7 +19,8 @@ pub struct State {
     slots: Vec<Option<usize>>,
     selected: Option<usize>,
 
-    set_id: String,
+    set_key: String,
+    set_name: String,
     loaded_rig: String,
     failed_rig: String,
     loaded_clip: Option<usize>,
@@ -27,8 +28,8 @@ pub struct State {
 }
 
 impl State {
-    pub fn set_id(&self) -> &str {
-        &self.set_id
+    pub fn export_name(&self) -> &str {
+        &self.set_name
     }
 
     pub fn slots(&self) -> &[Option<usize>] {
@@ -97,28 +98,31 @@ impl State {
     }
 
     pub fn invalidate_paths(&mut self) {
-        self.set_id.clear();
+        self.set_key.clear();
         self.loaded_rig.clear();
         self.failed_rig.clear();
         self.cache.clear();
     }
 
-    pub fn sync(&mut self, key: &str, build: impl FnOnce() -> Vec<Clip>) {
+    pub fn sync(&mut self, key: &str, build: impl FnOnce() -> ClipSet) {
         self.prepare(key, build);
         self.load_active();
     }
 
-    pub fn preload_request(&mut self, key: &str, build: impl FnOnce() -> Vec<Clip>) -> Option<PreloadRequest> {
+    pub fn preload_request(&mut self, key: &str, build: impl FnOnce() -> ClipSet) -> Option<PreloadRequest> {
         self.prepare(key, build);
         self.build_request()
     }
 
-    fn prepare(&mut self, key: &str, build: impl FnOnce() -> Vec<Clip>) {
-        if self.set_id != key {
+    fn prepare(&mut self, key: &str, build: impl FnOnce() -> ClipSet) {
+        if self.set_key != key {
             let previous = self.current_clip().map(Clip::label);
+            let set = build();
 
-            self.set_id = key.to_string();
-            self.clips = build();
+            self.set_key = key.to_string();
+            self.set_name = set.name;
+            self.clips = set.clips;
+            self.loaded_clip = None;
             let requests: Vec<Request> = self
                 .clips
                 .iter()

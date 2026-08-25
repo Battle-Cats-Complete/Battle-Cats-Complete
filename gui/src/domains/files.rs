@@ -1,5 +1,4 @@
 mod body;
-mod picture;
 mod tree;
 
 use std::ffi::OsStr;

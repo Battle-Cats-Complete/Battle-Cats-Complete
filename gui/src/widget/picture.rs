@@ -1,10 +1,10 @@
 use iced::advanced::image::{FilterMethod, Handle, Image, Renderer as _};
-use iced::advanced::{layout, mouse, renderer, widget, Clipboard, Layout, Shell, Widget};
+use iced::advanced::{layout, mouse, renderer, widget, Clipboard, Layout, Renderer as _, Shell, Widget};
 use iced::time::Instant;
-use iced::{window, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
+use iced::{window, Border, Color, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
 use image::RgbaImage;
 
-use crate::widget::{BOOTSTRAP_DT, DECAY_RATE, EPSILON, LINE_PIXELS};
+use super::{BOOTSTRAP_DT, DECAY_RATE, EPSILON, LINE_PIXELS};
 
 const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 10.0;
@@ -13,6 +13,11 @@ const WORLD_PADDING: f32 = 0.75;
 const CRISP_MAGNIFICATION: f32 = 1.8;
 const MIN_LEVEL: u32 = 128;
 const DILATE_PASSES: usize = 2;
+
+const OUTLINE_COLOR: Color = Color::from_rgb(0.9, 0.16, 0.16);
+const OUTLINE_THICKNESS: f32 = 0.5;
+const OUTLINE_MIN_THICKNESS: f32 = 1.0;
+const OUTLINE_MAX_THICKNESS: f32 = 3.0;
 
 fn dilate(pixels: &mut RgbaImage) {
     let (width, height) = (pixels.width(), pixels.height());
@@ -136,12 +141,12 @@ fn straighten(pixels: &mut RgbaImage) {
     }
 }
 
-pub(super) struct Source {
+pub(crate) struct Source {
     levels: Vec<(Size, Handle)>,
 }
 
 impl Source {
-    pub(super) fn new(bytes: Vec<u8>, width: u32, height: u32) -> Self {
+    pub(crate) fn new(bytes: Vec<u8>, width: u32, height: u32) -> Self {
         let Ok(decoded) = image::load_from_memory(&bytes) else {
             let size = Size::new(width as f32, height as f32);
 
@@ -191,7 +196,7 @@ pub enum Message {
     Moved { center: Vector, zoom: f32 },
 }
 
-pub(super) struct State {
+pub(crate) struct State {
     center: Vector,
     zoom: f32,
 }
@@ -203,27 +208,40 @@ impl Default for State {
 }
 
 impl State {
-    pub(super) fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.center = Vector::ZERO;
         self.zoom = 1.0;
     }
 
-    pub(super) fn update(&mut self, message: Message) {
+    pub(crate) fn update(&mut self, message: Message) {
         let Message::Moved { center, zoom } = message;
 
         self.center = center;
         self.zoom = zoom;
     }
 
-    pub(super) fn view<'a>(&self, source: &'a Source) -> Element<'a, Message> {
-        Canvas { source, center: self.center, zoom: self.zoom }.into()
+    pub(crate) fn view<'a>(&self, source: &'a Source) -> Element<'a, Message> {
+        self.view_outlined(source, &[])
     }
+
+    pub(crate) fn view_outlined<'a>(&self, source: &'a Source, outlines: &'a [Outline]) -> Element<'a, Message> {
+        Canvas { source, center: self.center, zoom: self.zoom, outlines }.into()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Outline {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
 struct Canvas<'a> {
     source: &'a Source,
     center: Vector,
     zoom: f32,
+    outlines: &'a [Outline],
 }
 
 #[derive(Default)]
@@ -424,6 +442,43 @@ impl Widget<Message, Theme, iced::Renderer> for Canvas<'_> {
         };
 
         renderer.draw_image(Image::new(handle.clone()).filter_method(filter), frame, clip);
+
+        if self.outlines.is_empty() {
+            return;
+        }
+
+        let native = self.source.size();
+
+        if native.width <= 0.0 || native.height <= 0.0 {
+            return;
+        }
+
+        let scale = frame.width / native.width;
+        let thickness = (scale * OUTLINE_THICKNESS).clamp(OUTLINE_MIN_THICKNESS, OUTLINE_MAX_THICKNESS);
+
+        renderer.with_layer(clip, |renderer| {
+            for outline in self.outlines {
+                let placed = Rectangle {
+                    x: frame.x + outline.x * scale,
+                    y: frame.y + outline.y * scale,
+                    width: outline.width * scale,
+                    height: outline.height * scale,
+                };
+
+                if placed.width <= 0.0 || placed.height <= 0.0 {
+                    continue;
+                }
+
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: placed,
+                        border: Border { color: OUTLINE_COLOR, width: thickness, radius: 0.0.into() },
+                        ..renderer::Quad::default()
+                    },
+                    Color::TRANSPARENT,
+                );
+            }
+        });
     }
 
     fn mouse_interaction(

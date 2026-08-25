@@ -31,7 +31,7 @@ const FORMAT_OPTIONS: [&str; 8] = ["GIF", "WebP", "AVIF", "PNG", "MP4", "MKV", "
 
 const CONTENT_PADDING: f32 = 20.0;
 const SECTION_SPACING: f32 = 14.0;
-const POPUP: popup::Spec = popup::Spec::new(popup::Kind::AnimationExport, Size::new(320.0, 500.0 - SECTION_SPACING));
+const POPUP_SIZE: Size = Size::new(320.0, 500.0 - SECTION_SPACING);
 const ROW_SPACING: f32 = 6.0;
 const FIELD_SPACING: f32 = 8.0;
 const FIELD_LABEL_WIDTH: f32 = 82.0;
@@ -228,8 +228,8 @@ impl ExportForm {
     }
 }
 
-#[derive(Default)]
 pub struct State {
+    spec: popup::Spec,
     popup: popup::State,
     exporter: ExportForm,
     jobs: HashMap<JobKey, JobState>,
@@ -274,10 +274,23 @@ pub enum Message {
 }
 
 impl State {
+    pub(super) fn new(kind: popup::Kind) -> Self {
+        Self {
+            spec: popup::Spec::new(kind, POPUP_SIZE),
+            popup: popup::State::default(),
+            exporter: ExportForm::default(),
+            jobs: HashMap::new(),
+            loop_job: None,
+            bounds_job: None,
+            synced_key: None,
+            scanned_showcase: None,
+        }
+    }
+
     pub fn sync(&mut self, data: &data::State, settings: &Settings, anim_state: &AnimState) {
         self.check_settings_defaults(settings);
 
-        let key = (data.set_id().to_string(), data.selected());
+        let key = (data.export_name().to_string(), data.selected());
 
         if self.synced_key.as_ref() != Some(&key) {
             let unit_changed = self.synced_key.as_ref().is_none_or(|(id, _)| *id != key.0);
@@ -315,7 +328,7 @@ impl State {
             }
 
             let slug = data.current_clip().map_or_else(|| "anim".to_string(), |clip| clip.slug());
-            self.exporter.name_prefix = derive_name_prefix(data.set_id(), &slug);
+            self.exporter.name_prefix = derive_name_prefix(data.export_name(), &slug);
         }
 
         self.maybe_scan_showcase(data, settings);
@@ -352,11 +365,11 @@ impl State {
             return;
         }
 
-        let set_id = data.set_id();
-        if self.scanned_showcase.as_deref() == Some(set_id) {
+        let export_name = data.export_name();
+        if self.scanned_showcase.as_deref() == Some(export_name) {
             return;
         }
-        self.scanned_showcase = Some(set_id.to_string());
+        self.scanned_showcase = Some(export_name.to_string());
 
         let parse_anim = |role: Role| -> Option<Animation> {
             let bytes = fs::read(data.role_path(role)?).ok()?;
@@ -413,8 +426,8 @@ impl State {
         self.exporter.zoom = 1.0;
     }
 
-    pub fn camera_region(&self, anim_state: &AnimState) -> Option<Region> {
-        if anim_state.export_popup_open && self.exporter.region_w > 0.1 && self.exporter.region_h > 0.1 {
+    pub fn camera_region(&self, open: bool) -> Option<Region> {
+        if open && self.exporter.region_w > 0.1 && self.exporter.region_h > 0.1 {
             Some(Region {
                 x: self.exporter.region_x,
                 y: self.exporter.region_y,
@@ -454,11 +467,11 @@ impl State {
         advance_search(&mut self.bounds_job, self.synced_key.as_ref());
     }
 
-    pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings, anim_state: &mut AnimState) -> Task<Message> {
+    pub fn update(&mut self, message: Message, data: &data::State, settings: &mut Settings, anim_state: &mut AnimState, open: &mut bool) -> Task<Message> {
         match message {
             Message::Popup(msg) => {
-                if self.popup.update(msg, POPUP) {
-                    anim_state.export_popup_open = false;
+                if self.popup.update(msg, self.spec) {
+                    *open = false;
                 }
             }
             Message::SetMode(mode) => {
@@ -948,7 +961,7 @@ impl State {
     }
 
     pub fn view(&self, window: Size) -> Element<'_, Message> {
-        self.popup.view("Export Animation", POPUP, window, Message::Popup, move || self.content_view(), Some(POPUP_BODY_ALPHA))
+        self.popup.view("Export Animation", self.spec, window, Message::Popup, move || self.content_view(), Some(POPUP_BODY_ALPHA))
     }
 
     fn content_view(&self) -> Element<'_, Message> {

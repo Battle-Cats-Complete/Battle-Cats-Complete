@@ -99,7 +99,7 @@ impl State {
     }
 
     fn view_sidebar<'a>(&'a self) -> Element<'a, Message> {
-        const SIDEBAR_WIDTH: f32 = 150.0;
+        const SIDEBAR_WIDTH: f32 = 110.0;
 
         let mut page_list = column![].spacing(4);
 

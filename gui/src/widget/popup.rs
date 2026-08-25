@@ -57,7 +57,9 @@ pub enum Kind {
     StageFilter,
     ModImport,
     ModExport,
-    AnimationExport,
+    CatAnimationExport,
+    EnemyAnimationExport,
+    UtilityAnimationExport,
     Keys,
     Pem,
     Exceptions,
@@ -75,7 +77,7 @@ pub enum Kind {
     EnemyDescription,
 }
 
-const KIND_COUNT: usize = 21;
+const KIND_COUNT: usize = 23;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -83,7 +85,9 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::StageFilter,
     Kind::ModImport,
     Kind::ModExport,
-    Kind::AnimationExport,
+    Kind::CatAnimationExport,
+    Kind::EnemyAnimationExport,
+    Kind::UtilityAnimationExport,
     Kind::Keys,
     Kind::Pem,
     Kind::Exceptions,
@@ -107,9 +111,11 @@ impl Kind {
             Self::CatFilter => "cat_filter",
             Self::EnemyFilter => "enemy_filter",
             Self::StageFilter => "stage_filter",
+            Self::UtilityAnimationExport => "utility_animation_export",
             Self::ModImport => "mod_import",
             Self::ModExport => "mod_export",
-            Self::AnimationExport => "animation_export",
+            Self::CatAnimationExport => "cat_animation_export",
+            Self::EnemyAnimationExport => "enemy_animation_export",
             Self::Keys => "keys",
             Self::Pem => "pem",
             Self::Exceptions => "exceptions",

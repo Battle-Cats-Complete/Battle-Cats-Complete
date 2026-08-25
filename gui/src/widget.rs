@@ -6,6 +6,7 @@ mod ability_grid;
 mod list_row;
 mod mock_console;
 mod name_box;
+pub(crate) mod picture;
 mod nightly;
 mod range_row;
 mod roster_row;

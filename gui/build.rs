@@ -10,9 +10,11 @@ fn generate_help_pages() -> std::io::Result<()> {
 
     println!("cargo::rerun-if-changed={}", pages_dir.display());
 
-    let mut stems: Vec<String> = fs::read_dir(&pages_dir)
-        .into_iter()
-        .flatten()
+    let entries = fs::read_dir(&pages_dir).map_err(|error| {
+        std::io::Error::new(error.kind(), format!("help pages missing at {}: {}", pages_dir.display(), error))
+    })?;
+
+    let mut stems: Vec<String> = entries
         .filter_map(Result::ok)
         .filter_map(|entry| {
             let path = entry.path();

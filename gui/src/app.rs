@@ -24,7 +24,7 @@ use kore::{ContentStore, Vault};
 
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
-use crate::domains::{cat, enemy, files, help, home, import, mods, settings as gui_settings, stage};
+use crate::domains::{cat, enemy, files, help, home, import, mods, settings as gui_settings, stage, utilities};
 use crate::editor;
 use crate::widget::{nightly_label, popup, slide, Slide};
 
@@ -50,6 +50,7 @@ pub enum Page {
     Mods,
     Files,
     Import,
+    Utilities,
     Help,
     Settings,
 }
@@ -64,6 +65,7 @@ impl Page {
             Self::Mods => "Mods",
             Self::Files => "Files",
             Self::Import => "Import",
+            Self::Utilities => "Utilities",
             Self::Help => "Help",
             Self::Settings => "Settings",
         }
@@ -90,6 +92,7 @@ const ALL_PAGES: &[Page] = &[
     Page::Mods,
     Page::Files,
     Page::Import,
+    Page::Utilities,
     Page::Help,
     Page::Settings,
 ];
@@ -139,6 +142,7 @@ enum ActivePopup {
     SettingsKeys,
     SettingsExceptions,
     SettingsPem,
+    UtilityExport,
 }
 
 #[derive(Clone, Debug)]
@@ -173,6 +177,7 @@ pub enum Message {
     Files(files::Message),
     Import(import::Message),
     Help(help::Message),
+    Utilities(utilities::Message),
     Settings(gui_settings::Message),
     Editor(editor::Message),
 }
@@ -231,6 +236,8 @@ pub struct BattleCatsApp {
     pub import_state: import::State,
     #[serde(skip)]
     pub help_state: help::State,
+    #[serde(skip)]
+    pub utilities_state: utilities::State,
     #[serde(skip)]
     pub settings_state: gui_settings::State,
     #[serde(skip)]
@@ -299,6 +306,7 @@ impl Default for BattleCatsApp {
             files_state: files::State::default(),
             import_state: import::State::default(),
             help_state: help::State::default(),
+            utilities_state: utilities::State::default(),
             settings_state: gui_settings::State::default(),
             editor: editor::State::default(),
             settings: Settings::default(),
@@ -332,6 +340,7 @@ impl BattleCatsApp {
             self.cat_state.subscription().map(Message::Cat),
             self.enemy_state.subscription().map(Message::Enemy),
             self.import_state.subscription().map(Message::Import),
+            self.utilities_state.subscription().map(Message::Utilities),
             Subscription::run(watcher::changes).map(Message::FilesChanged),
             window::close_requests().map(Message::CloseRequested),
         ];
@@ -905,7 +914,7 @@ impl BattleCatsApp {
                 let task = self.cat_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
                 self.cat_state.sync_state(&mut self.app_state.cat);
                 self.sync_editor(loaded);
-                self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open(&self.app_state));
+                self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open());
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
 
                 if loaded {
@@ -933,7 +942,7 @@ impl BattleCatsApp {
                 self.enemy_state.sync_state(&mut self.app_state.enemy);
                 self.sync_editor(enemies_loaded);
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
-                self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open(&self.app_state));
+                self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open());
 
                 if enemies_loaded {
                     return Task::batch([task, self.reconcile_caches()]);
@@ -997,6 +1006,11 @@ impl BattleCatsApp {
                 self.help_state.sync_state(&mut self.app_state.help);
                 task
             }
+            Message::Utilities(msg) => {
+                let task = self.utilities_state.update(msg, &mut self.settings, &mut self.app_state).map(Message::Utilities);
+                self.sync_popup(ActivePopup::UtilityExport, self.utilities_state.export_popup_visible());
+                task
+            }
             Message::Editor(editor::Message::Opened(at, target)) => {
                 let context = editor::context(self, target);
                 self.editor.open(at, &context);
@@ -1058,6 +1072,7 @@ impl BattleCatsApp {
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Files => self.files_state.view().map(Message::Files),
             Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
+            Page::Utilities => self.utilities_state.view(&self.settings, &self.app_state).map(Message::Utilities),
             Page::Help => {
                 let ui_theme = self.theme();
                 self.help_state.view(&ui_theme).map(Message::Help)
@@ -1074,6 +1089,7 @@ impl BattleCatsApp {
         let expanded: Option<Element<'_, Message>> = match self.current_page {
             Page::Cats => self.cat_state.expanded_animation_view(&self.settings, &self.app_state).map(|view| view.map(Message::Cat)),
             Page::Enemies => self.enemy_state.expanded_animation_view(&self.settings, &self.app_state).map(|view| view.map(Message::Enemy)),
+            Page::Utilities => self.utilities_state.expanded_view(&self.settings, &self.app_state).map(|view| view.map(Message::Utilities)),
             _ => None,
         };
 
@@ -1144,7 +1160,7 @@ impl BattleCatsApp {
                         return None;
                     }
 
-                    self.cat_state.export_popup_view(self.window_size, &self.app_state).map(|view| view.map(Message::Cat))
+                    self.cat_state.export_popup_view(self.window_size).map(|view| view.map(Message::Cat))
                 }
                 ActivePopup::CatFilter => {
                     if !matches!(self.current_page, Page::Cats) {
@@ -1158,7 +1174,7 @@ impl BattleCatsApp {
                         return None;
                     }
 
-                    self.enemy_state.export_popup_view(self.window_size, &self.app_state).map(|view| view.map(Message::Enemy))
+                    self.enemy_state.export_popup_view(self.window_size).map(|view| view.map(Message::Enemy))
                 }
                 ActivePopup::EnemyFilter => {
                     if !matches!(self.current_page, Page::Enemies) {
@@ -1201,6 +1217,13 @@ impl BattleCatsApp {
                     }
 
                     self.settings_state.exceptions_popup_view(self.window_size).map(|view| view.map(Message::Settings))
+                }
+                ActivePopup::UtilityExport => {
+                    if !matches!(self.current_page, Page::Utilities) || !self.utilities_state.export_popup_visible() {
+                        return None;
+                    }
+
+                    self.utilities_state.export_popup_view(self.window_size).map(|view| view.map(Message::Utilities))
                 }
                 ActivePopup::SettingsPem => {
                     if !matches!(self.current_page, Page::Settings) {

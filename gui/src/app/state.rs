@@ -126,7 +126,6 @@ pub(crate) struct AnimState {
     pub last_export_quality: Option<i32>,
     pub last_export_compression: Option<i32>,
     pub controls_expanded: bool,
-    pub export_popup_open: bool,
 }
 
 impl Default for AnimState {
@@ -136,7 +135,6 @@ impl Default for AnimState {
             last_export_quality: None,
             last_export_compression: None,
             controls_expanded: true,
-            export_popup_open: false,
         }
     }
 }

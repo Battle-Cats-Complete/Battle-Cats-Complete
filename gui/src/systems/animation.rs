@@ -11,7 +11,7 @@ use iced::widget::{button, column, container, stack, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
 
 use kore::domains::settings::Settings;
-use kore::systems::animation::Clip;
+use kore::systems::animation::ClipSet;
 
 use crate::app::state::AnimState;
 use crate::app::theme;
@@ -46,13 +46,13 @@ fn frame_border<'a>() -> Element<'a, Message> {
         .into()
 }
 
-#[derive(Default)]
 pub struct State {
     data: data::State,
     canvas: canvas::State,
     controls: controls::State,
     export: export::State,
     overlay: overlay::State,
+    export_open: bool,
     is_expanded: bool,
     playhead_rig: String,
     playhead_clip: Option<usize>,
@@ -70,7 +70,22 @@ pub enum Message {
 }
 
 impl State {
-    pub fn sync(&mut self, key: &str, build: impl FnOnce() -> Vec<Clip>, settings: &Settings, anim_state: &AnimState) {
+    pub fn with_popup(kind: crate::widget::popup::Kind) -> Self {
+        Self {
+            data: data::State::default(),
+            canvas: canvas::State::default(),
+            controls: controls::State::default(),
+            export: export::State::new(kind),
+            overlay: overlay::State::default(),
+            export_open: false,
+            is_expanded: false,
+            playhead_rig: String::new(),
+            playhead_clip: None,
+            playhead_reset: false,
+        }
+    }
+
+    pub fn sync(&mut self, key: &str, build: impl FnOnce() -> ClipSet, settings: &Settings, anim_state: &AnimState) {
         self.data.sync(key, build);
         self.export.sync(&self.data, settings, anim_state);
         self.sync_playhead();
@@ -97,7 +112,7 @@ impl State {
         controls::clamp_frame(&mut self.canvas, &self.data);
     }
 
-    pub fn preload(&mut self, key: &str, build: impl FnOnce() -> Vec<Clip>) -> Task<Message> {
+    pub fn preload(&mut self, key: &str, build: impl FnOnce() -> ClipSet) -> Task<Message> {
         Self::preload_task(self.data.preload_request(key, build))
     }
 
@@ -122,10 +137,13 @@ impl State {
                 Task::none()
             }
             Message::Controls(controls::Message::OpenExport) => {
-                let was_open = anim_state.export_popup_open;
-                anim_state.export_popup_open = true;
+                let was_open = self.export_open;
+                self.export_open = true;
                 if settings.animation.auto_set_camera_region && !was_open && !self.overlay.selecting {
-                    return self.export.update(export::Message::UseBounds, &self.data, settings, anim_state).map(Message::Export);
+                    return self
+                        .export
+                        .update(export::Message::UseBounds, &self.data, settings, anim_state, &mut self.export_open)
+                        .map(Message::Export);
                 }
                 Task::none()
             }
@@ -135,18 +153,20 @@ impl State {
                 Task::none()
             }
             Message::Export(export::Message::SetCamera) => {
-                anim_state.export_popup_open = false;
+                self.export_open = false;
                 self.overlay.selecting = true;
                 Task::none()
             }
-            Message::Export(msg) => self.export.update(msg, &self.data, settings, anim_state).map(Message::Export),
+            Message::Export(msg) => {
+                self.export.update(msg, &self.data, settings, anim_state, &mut self.export_open).map(Message::Export)
+            }
             Message::Overlay(msg) => {
                 match msg {
                     overlay::Message::Selected(region) => self.export.set_region(region),
                     overlay::Message::Cancelled => {}
                 }
                 self.overlay.selecting = false;
-                anim_state.export_popup_open = true;
+                self.export_open = true;
                 Task::none()
             }
             Message::Preloaded(result) => {
@@ -204,12 +224,12 @@ impl State {
         self.viewer_view(settings, anim_state)
     }
 
-    pub fn export_popup_open(&self, anim_state: &AnimState) -> bool {
-        anim_state.export_popup_open
+    pub fn export_popup_open(&self) -> bool {
+        self.export_open
     }
 
-    pub fn export_popup_view(&self, window: Size, anim_state: &AnimState) -> Option<Element<'_, Message>> {
-        (anim_state.export_popup_open && self.data.held_unit.is_some())
+    pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        (self.export_open && self.data.held_unit.is_some())
             .then(|| self.export.view(window).map(Message::Export))
     }
 
@@ -234,7 +254,7 @@ impl State {
         let viewport = smooth_scroll(self.canvas.view(&self.data).map(Message::Canvas)).strength(ZOOM_SCROLL_STRENGTH);
 
         let selection_overlay = self.overlay
-            .view(&self.canvas, self.export.camera_region(anim_state), settings.animation.debug_view)
+            .view(&self.canvas, self.export.camera_region(self.export_open), settings.animation.debug_view)
             .map(Message::Overlay);
 
         let controls_overlay = container(self.controls.view(&self.canvas, &self.data, anim_state).map(Message::Controls))

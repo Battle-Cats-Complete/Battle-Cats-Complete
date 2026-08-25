@@ -1,4 +1,4 @@
-use crate::systems::animation::{self, Clip};
+use crate::systems::animation::{self, Clip, ClipSet};
 use crate::Vfs;
 
 use super::files;
@@ -10,12 +10,12 @@ pub fn set_id(enemy: &EnemyEntry) -> String {
     enemy.id_str()
 }
 
-pub fn clips(enemy: &EnemyEntry, vfs: &Vfs) -> Vec<Clip> {
+pub fn clips(enemy: &EnemyEntry, vfs: &Vfs) -> ClipSet {
     let plain = files::anim_base_filename(enemy.id);
     let bases = vec![plain.clone(), format!("i{}", plain)];
 
     let Some(rig) = animation::rigging(vfs, &plain, &bases) else {
-        return Vec::new();
+        return ClipSet::default();
     };
 
     let mut clips = Vec::new();
@@ -39,7 +39,8 @@ pub fn clips(enemy: &EnemyEntry, vfs: &Vfs) -> Vec<Clip> {
     }
 
     clips.push(Clip::model(rig));
-    clips
+
+    ClipSet { name: set_id(enemy), clips }
 }
 
 fn zombie_name(index: usize) -> Option<&'static str> {

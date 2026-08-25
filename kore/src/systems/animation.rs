@@ -51,8 +51,14 @@ pub struct Clip {
     pub anim: Option<PathBuf>,
 }
 
+#[derive(Default)]
+pub struct ClipSet {
+    pub name: String,
+    pub clips: Vec<Clip>,
+}
+
 impl Clip {
-    pub(crate) fn model(rig: Arc<Rigging>) -> Self {
+    pub fn model(rig: Arc<Rigging>) -> Self {
         Self {
             name: Some(MODEL_NAME.to_string()),
             slot: Some(SLOT_MODEL),

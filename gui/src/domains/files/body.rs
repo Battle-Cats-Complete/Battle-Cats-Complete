@@ -14,7 +14,7 @@ use kore::Vfs;
 use crate::app::theme;
 use crate::common::fonts;
 
-use super::picture;
+use crate::widget::picture;
 use super::{both_ways, EMPTY_TEXT_SIZE, TEXT_SIZE};
 
 const OVERSIZED_LABEL: &str = "File Too Large to Preview";
