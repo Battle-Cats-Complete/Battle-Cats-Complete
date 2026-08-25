@@ -16,6 +16,7 @@ pub fn search(
     unit: &Rig,
     clips: &[(&Animation, Option<i32>)],
     tolerance: f32,
+    offset: Option<usize>,
     progress: &ProgressCounter,
     abort_signal: &AtomicBool,
 ) -> BoundsOutcome {
@@ -41,7 +42,7 @@ pub fn search(
                 return BoundsOutcome::Aborted;
             }
 
-            if let Some(measured) = scan_bounds(unit, Some(animation), strictness, Some((frame, frame))) {
+            if let Some(measured) = scan_bounds(unit, Some(animation), strictness, Some((frame, frame)), offset) {
                 bounds = Some(bounds.map_or(measured, |bounds| bounds.union(&measured)));
             }
 

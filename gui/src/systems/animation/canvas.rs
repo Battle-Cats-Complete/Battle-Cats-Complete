@@ -39,7 +39,6 @@ pub struct State {
     pub zoom: f32,
     pub current_frame: f32,
     pub is_playing: bool,
-    pub playback_speed: f32,
     pub loop_start: Option<f32>,
     pub loop_end: Option<f32>,
 }
@@ -51,7 +50,6 @@ impl Default for State {
             zoom: 1.0,
             current_frame: 0.0,
             is_playing: true,
-            playback_speed: 1.0,
             loop_start: None,
             loop_end: None,
         }
@@ -70,7 +68,7 @@ impl State {
             }
             Message::Tick => {
                 if self.is_playing && data.held_unit.is_some() {
-                    self.current_frame += FRAME_ADVANCE_PER_TICK * self.playback_speed;
+                    self.current_frame += FRAME_ADVANCE_PER_TICK;
 
                     let range_start = self.loop_start.unwrap_or(0.0);
                     let range_end = self.loop_end.or_else(|| data.loop_bound().map(|v| v.max(0) as f32));
@@ -154,7 +152,7 @@ impl<'a> shader::Program<Message> for Viewport<'a> {
         let frame = self.data.playback_frame(self.state.current_frame).floor() as i32;
 
         let (parts, image) = self.data.held_unit.as_ref().map_or((Vec::new(), None), |unit| {
-            (resolve_frame(unit, self.data.current_anim.as_deref(), frame), unit.sheet.image_data.clone())
+            (resolve_frame(unit, self.data.current_anim.as_deref(), frame, self.data.offset()), unit.sheet.image_data.clone())
         });
 
         Scene {
@@ -243,9 +241,10 @@ impl shader::Primitive for Scene {
 
         let view_proj = multiply_mat3(&projection, &camera);
 
-        let (vertex_data, batches) = build_vertices(&self.parts, &view_proj);
+        let (vertex_data, index_data, batches) = build_vertices(&self.parts, &view_proj);
         pipeline.batches = batches;
         pipeline.upload_vertices(device, queue, &vertex_data);
+        pipeline.upload_indices(device, queue, &index_data);
     }
 
     fn render(
@@ -264,6 +263,10 @@ impl shader::Primitive for Scene {
         };
 
         let Some(vertices) = &pipeline.vertices else {
+            return;
+        };
+
+        let Some(indices) = &pipeline.indices else {
             return;
         };
 
@@ -286,10 +289,11 @@ impl shader::Primitive for Scene {
         pass.set_scissor_rect(clip_bounds.x, clip_bounds.y, clip_bounds.width, clip_bounds.height);
         pass.set_bind_group(0, &atlas.bind_group, &[]);
         pass.set_vertex_buffer(0, vertices.slice(..));
+        pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
 
         for batch in &pipeline.batches {
             pass.set_pipeline(&pipeline.pipelines[batch.variant]);
-            pass.draw(batch.range.clone(), 0..1);
+            pass.draw_indexed(batch.range.clone(), 0, 0..1);
         }
     }
 }

@@ -101,8 +101,9 @@ impl Renderer {
         frame_time: f32,
         camera: Camera,
         background: [u8; 4],
+        offset: Option<usize>,
     ) -> Result<Vec<u8>, String> {
-        let mut parts = resolve_frame(unit, animation, frame_time.floor() as i32);
+        let mut parts = resolve_frame(unit, animation, frame_time.floor() as i32, offset);
         remap_glow(&mut parts);
         self.render_parts(unit.sheet.image_data.as_ref(), &parts, camera, background)
     }
@@ -123,9 +124,10 @@ impl Renderer {
             && !parts.is_empty() {
             self.pipeline.upload_atlas(&self.device, &self.queue, image);
 
-            let (vertex_data, batches) = build_vertices(parts, &view_proj);
+            let (vertex_data, index_data, batches) = build_vertices(parts, &view_proj);
             self.pipeline.batches = batches;
             self.pipeline.upload_vertices(&self.device, &self.queue, &vertex_data);
+            self.pipeline.upload_indices(&self.device, &self.queue, &index_data);
             can_draw = true;
         }
 
@@ -159,13 +161,15 @@ impl Renderer {
             });
 
             if can_draw
-                && let (Some(atlas), Some(vertices)) = (&self.pipeline.atlas, &self.pipeline.vertices) {
+                && let (Some(atlas), Some(vertices), Some(indices)) =
+                    (&self.pipeline.atlas, &self.pipeline.vertices, &self.pipeline.indices) {
                 pass.set_bind_group(0, &atlas.bind_group, &[]);
                 pass.set_vertex_buffer(0, vertices.slice(..));
+                pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
 
                 for batch in &self.pipeline.batches {
                     pass.set_pipeline(&self.pipeline.pipelines[batch.variant]);
-                    pass.draw(batch.range.clone(), 0..1);
+                    pass.draw_indexed(batch.range.clone(), 0, 0..1);
                 }
             }
         }
@@ -234,6 +238,7 @@ pub struct Job {
     pub unit: Arc<Rig>,
     pub animation: Option<Arc<Animation>>,
     pub role_paths: Vec<(Role, PathBuf)>,
+    pub offset: Option<usize>,
     pub timing: FrameTiming,
     pub lengths: ShowcaseLengths,
     pub camera: Camera,
@@ -290,7 +295,7 @@ fn run(job: Job) {
 
         let frame_time = calculate_export_time(&job.timing, animation, local_time, progress);
 
-        match renderer.render_frame(&job.unit, animation, frame_time, job.camera, background) {
+        match renderer.render_frame(&job.unit, animation, frame_time, job.camera, background, job.offset) {
             Ok(pixels) => {
                 let frame = EncoderMessage::Frame(pixels, renderer.width(), renderer.height(), delay_ms);
                 if job.tx.send(frame).is_err() {

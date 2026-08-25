@@ -10,8 +10,9 @@ use nyanko::graphics::animate::FrameData;
 use kore::systems::animation::multiply_mat3;
 
 const VERTEX_STRIDE: u64 = 20;
-const VERTS_PER_PART: u32 = 6;
-const FLOATS_PER_PART: usize = 30;
+const VERTS_PER_PART: u32 = 4;
+const INDICES_PER_PART: u32 = FrameData::INDICES.len() as u32;
+const FLOATS_PER_PART: usize = 20;
 
 const SHADER_SOURCE: &str = r#"
 struct VertexInput {
@@ -61,6 +62,8 @@ pub struct Pipeline {
     pub atlas: Option<AtlasBinding>,
     pub vertices: Option<wgpu::Buffer>,
     pub vertex_capacity: u64,
+    pub indices: Option<wgpu::Buffer>,
+    pub index_capacity: u64,
     pub batches: Vec<Batch>,
 }
 
@@ -157,6 +160,8 @@ impl Pipeline {
             atlas: None,
             vertices: None,
             vertex_capacity: 0,
+            indices: None,
+            index_capacity: 0,
             batches: Vec::new(),
         }
     }
@@ -241,36 +246,63 @@ impl Pipeline {
             queue.write_buffer(buffer, 0, bytes);
         }
     }
+
+    pub fn upload_indices(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, index_data: &[u32]) {
+        let bytes: &[u8] = bytemuck::cast_slice(index_data);
+        let needed = bytes.len() as u64;
+
+        if needed == 0 {
+            return;
+        }
+
+        if self.indices.is_none() || self.index_capacity < needed {
+            self.indices = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("animation_viewer_indices"),
+                size: needed,
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+            self.index_capacity = needed;
+        }
+
+        if let Some(buffer) = &self.indices {
+            queue.write_buffer(buffer, 0, bytes);
+        }
+    }
 }
 
-pub fn build_vertices(parts: &[FrameData], view_proj: &[f32; 9]) -> (Vec<f32>, Vec<Batch>) {
+pub fn build_vertices(parts: &[FrameData], view_proj: &[f32; 9]) -> (Vec<f32>, Vec<u32>, Vec<Batch>) {
     let mut vertex_data = Vec::with_capacity(parts.len() * FLOATS_PER_PART);
+    let mut index_data = Vec::with_capacity(parts.len() * INDICES_PER_PART as usize);
     let mut batches: Vec<Batch> = Vec::new();
 
     for (part_index, part) in parts.iter().enumerate() {
         let mvp = multiply_mat3(view_proj, &part.final_matrix);
 
-        for i in 0..VERTS_PER_PART as usize {
-            let x = part.vertices[2 * i];
-            let y = part.vertices[2 * i + 1];
+        for corner in 0..VERTS_PER_PART as usize {
+            let x = part.vertices[2 * corner];
+            let y = part.vertices[2 * corner + 1];
 
             vertex_data.push(mvp[0] * x + mvp[3] * y + mvp[6]);
             vertex_data.push(mvp[1] * x + mvp[4] * y + mvp[7]);
-            vertex_data.push(part.uvs[2 * i]);
-            vertex_data.push(part.uvs[2 * i + 1]);
+            vertex_data.push(part.uvs[2 * corner]);
+            vertex_data.push(part.uvs[2 * corner + 1]);
             vertex_data.push(part.opacity);
         }
 
+        let base = part_index as u32 * VERTS_PER_PART;
+        index_data.extend(FrameData::INDICES.iter().map(|index| base + u32::from(*index)));
+
         let variant = blend_variant(part.glow);
-        let start = part_index as u32 * VERTS_PER_PART;
+        let start = part_index as u32 * INDICES_PER_PART;
 
         match batches.last_mut() {
-            Some(batch) if batch.variant == variant => batch.range.end = start + VERTS_PER_PART,
-            _ => batches.push(Batch { variant, range: start..start + VERTS_PER_PART }),
+            Some(batch) if batch.variant == variant => batch.range.end = start + INDICES_PER_PART,
+            _ => batches.push(Batch { variant, range: start..start + INDICES_PER_PART }),
         }
     }
 
-    (vertex_data, batches)
+    (vertex_data, index_data, batches)
 }
 
 fn blend_variant(glow: u8) -> usize {

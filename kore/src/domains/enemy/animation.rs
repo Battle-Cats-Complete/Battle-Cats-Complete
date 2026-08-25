@@ -40,7 +40,7 @@ pub fn clips(enemy: &EnemyEntry, vfs: &Vfs) -> ClipSet {
 
     clips.push(Clip::model(rig));
 
-    ClipSet { name: set_id(enemy), clips }
+    ClipSet { name: set_id(enemy), clips, offsets: vec!["Combat", "Castle HP"] }
 }
 
 fn zombie_name(index: usize) -> Option<&'static str> {

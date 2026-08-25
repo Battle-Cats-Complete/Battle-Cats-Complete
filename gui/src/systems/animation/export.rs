@@ -652,6 +652,7 @@ impl State {
                     unit,
                     animation: data.current_anim.clone(),
                     role_paths: data.role_paths(),
+                    offset: data.offset(),
                     timing,
                     lengths: request.showcase,
                     camera: Camera {
@@ -845,6 +846,7 @@ impl State {
                 let is_showcase = self.exporter.export_mode == ExportMode::Showcase;
                 let scan_limit = self.exporter.frame_end.max(self.exporter.frame_start).max(0);
                 let current_anim = data.current_anim.clone();
+                let offset = data.offset();
                 let role_paths = data.role_paths();
                 let showcase_slots = [
                     (Role::Walk, self.exporter.showcase_walk_len),
@@ -882,7 +884,7 @@ impl State {
                         current_anim.iter().map(|anim| (anim.as_ref(), Some(scan_limit))).collect()
                     };
 
-                    let outcome = find_bounds::search(&unit, &clips, tolerance, &worker_progress, &worker_abort);
+                    let outcome = find_bounds::search(&unit, &clips, tolerance, offset, &worker_progress, &worker_abort);
                     let _ = tx.unbounded_send(outcome);
                 });
 

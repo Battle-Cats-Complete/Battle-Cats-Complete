@@ -46,7 +46,7 @@ pub fn clips(cat: &CatEntry, form: usize, vfs: &Vfs) -> ClipSet {
         clips.push(spirit);
     }
 
-    ClipSet { name: id, clips }
+    ClipSet { name: id, clips, offsets: vec!["Combat", "Gacha"] }
 }
 
 fn spirit_clip(cat: &CatEntry, form: usize, vfs: &Vfs) -> Option<Clip> {

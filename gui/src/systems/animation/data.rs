@@ -5,7 +5,7 @@ use tracing::warn;
 
 use nyanko::graphics::rig::{Animation, Rig};
 
-use kore::systems::animation::{furthest_frame, loop_frame, true_loop, Clip, ClipSet, Loop, Role};
+use kore::systems::animation::{furthest_frame, loop_frame, true_loop, Clip, ClipSet, Loop, Role, RAW_OFFSET};
 
 pub(super) const COLUMNS: usize = 4;
 const DEFAULT_SLOTS: usize = 8;
@@ -21,6 +21,8 @@ pub struct State {
 
     set_key: String,
     set_name: String,
+    offsets: Vec<&'static str>,
+    offset: Option<usize>,
     loaded_rig: String,
     failed_rig: String,
     loaded_clip: Option<usize>,
@@ -30,6 +32,31 @@ pub struct State {
 impl State {
     pub fn export_name(&self) -> &str {
         &self.set_name
+    }
+
+    pub fn offset(&self) -> Option<usize> {
+        self.offset
+    }
+
+    pub fn offset_label(&self) -> &'static str {
+        self.offset
+            .filter(|row| *row < self.available_rows())
+            .and_then(|row| self.offsets.get(row).copied())
+            .unwrap_or(RAW_OFFSET)
+    }
+
+    fn available_rows(&self) -> usize {
+        self.held_unit.as_ref().map_or(0, |unit| unit.model.alignment.len())
+    }
+
+    pub fn offset_choices(&self) -> Vec<&'static str> {
+        std::iter::once(RAW_OFFSET)
+            .chain(self.offsets.iter().take(self.available_rows()).copied())
+            .collect()
+    }
+
+    pub fn select_offset(&mut self, label: &str) {
+        self.offset = self.offsets.iter().position(|known| *known == label);
     }
 
     pub fn slots(&self) -> &[Option<usize>] {
@@ -133,6 +160,8 @@ impl State {
             self.set_key = key.to_string();
             self.set_name = set.name;
             self.clips = set.clips;
+            self.offsets = set.offsets;
+            self.offset = self.offset.or(Some(0));
             self.loaded_clip = None;
             let requests: Vec<Request> = self
                 .clips

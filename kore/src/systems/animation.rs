@@ -63,7 +63,10 @@ pub struct Clip {
 pub struct ClipSet {
     pub name: String,
     pub clips: Vec<Clip>,
+    pub offsets: Vec<&'static str>,
 }
+
+pub const RAW_OFFSET: &str = "Raw";
 
 impl Clip {
     pub fn model(rig: Arc<Rigging>) -> Self {

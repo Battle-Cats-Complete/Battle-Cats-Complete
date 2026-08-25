@@ -1,4 +1,4 @@
-use iced::widget::{button, column, container, mouse_area, opaque, row, rule, scrollable, text, text_input, Button, Container, TextInput};
+use iced::widget::{button, column, container, mouse_area, opaque, pick_list, row, rule, scrollable, text, text_input, Button, Container, TextInput};
 use iced::border::Radius;
 use iced::{alignment, border, font, Background, Border, Color, Element, Font, Length, Padding, Theme, Vector};
 
@@ -22,7 +22,7 @@ const RANGE_W: f32 = 60.0;
 const TILDE_W: f32 = 20.0;
 const COL2_W: f32 = NAV_W * 2.0 + FRAME_INPUT_W + GAP * 2.0;
 const COL3_W: f32 = 100.0;
-const SPEED_LABEL_W: f32 = 50.0;
+const OFFSET_PADDING: [f32; 2] = [4.0, 6.0];
 const DIVIDER_W: f32 = 10.0;
 const PANEL_WIDTH: f32 = ICON_W + COL2_W + COL3_W + DIVIDER_W * 2.0 + GAP * 4.0;
 
@@ -54,7 +54,6 @@ const PAUSE_GLYPH: &str = "\u{25AE}\u{25AE}";
 
 #[derive(Default)]
 pub struct State {
-    speed_input: String,
     range_start_input: String,
     range_end_input: String,
     hold_dir: i8,
@@ -69,7 +68,7 @@ pub enum Message {
     HoldEnd,
     HoldCancel,
     FrameInputChanged(String),
-    SpeedInputChanged(String),
+    OffsetSelected(String),
     RangeStartChanged(String),
     RangeEndChanged(String),
     SelectAnimation(usize),
@@ -382,14 +381,7 @@ impl State {
                     clamp_frame(canvas, data);
                 }
             }
-            Message::SpeedInputChanged(value) => {
-                self.speed_input = value.clone();
-                if value.is_empty() {
-                    canvas.playback_speed = 1.0;
-                } else if let Ok(parsed) = value.parse::<f32>() {
-                    canvas.playback_speed = parsed;
-                }
-            }
+            Message::OffsetSelected(label) => data.select_offset(&label),
             Message::RangeStartChanged(value) => {
                 if value.is_empty() {
                     canvas.loop_start = None;
@@ -447,8 +439,7 @@ impl State {
             return;
         }
 
-        let speed_factor = if canvas.playback_speed.abs() < 0.05 { 1.0 } else { canvas.playback_speed.abs() };
-        let delta = self.hold_dir as f32 * TICK_SECS * 30.0 * speed_factor;
+        let delta = self.hold_dir as f32 * TICK_SECS * 30.0;
         self.step(canvas, data, delta);
     }
 
@@ -532,18 +523,17 @@ impl State {
 
         let playback = column![frame_row, counter_row].spacing(GAP);
 
-        let speed_row = row![
-            label_tile(SPEED_LABEL_W, "Speed"),
-            tile(
-                COL3_W - SPEED_LABEL_W - GAP,
-                tile_input("1.0", &self.speed_input, base_available, Message::SpeedInputChanged),
-            ),
-        ]
-        .spacing(GAP);
+        let choices = data.offset_choices();
+        let offset_row = pick_list(choices, Some(data.offset_label()), |label| Message::OffsetSelected(label.to_string()))
+            .width(Length::Fixed(COL3_W))
+            .padding(OFFSET_PADDING)
+            .text_size(TILE_TEXT_SIZE)
+            .style(theme::combo_box)
+            .menu_style(theme::combo_box_menu);
 
         let output = column![
             control_button("Export", Font::DEFAULT, TILE_TEXT_SIZE, COL3_W, base_available.then_some(Message::OpenExport)),
-            speed_row,
+            offset_row,
         ]
         .spacing(GAP);
 
