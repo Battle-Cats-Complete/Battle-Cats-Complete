@@ -18,6 +18,7 @@ const HINT_WIDTH: f32 = 260.0;
 const HINT_HEIGHT: f32 = 28.0;
 const HINT_ALPHA: f32 = 160.0 / 255.0;
 const HINT_SHADE: f32 = 0.15;
+const DIM_ALPHA: f32 = 125.0 / 255.0;
 
 #[derive(Default)]
 pub struct State {
@@ -86,6 +87,26 @@ fn hint_style(theme: &Theme) -> container::Style {
             radius: Radius { top_left: 0.0, top_right: 0.0, bottom_left: theme::RADIUS_LG, bottom_right: theme::RADIUS_LG },
         },
         ..container::Style::default()
+    }
+}
+
+fn dim_outside(frame: &mut canvas::Frame, size: Size, top_left: Point, box_size: Size, color: Color) {
+    let left = top_left.x.clamp(0.0, size.width);
+    let top = top_left.y.clamp(0.0, size.height);
+    let right = (top_left.x + box_size.width).clamp(0.0, size.width);
+    let bottom = (top_left.y + box_size.height).clamp(0.0, size.height);
+
+    if top > 0.0 {
+        frame.fill_rectangle(Point::ORIGIN, Size::new(size.width, top), color);
+    }
+    if bottom < size.height {
+        frame.fill_rectangle(Point::new(0.0, bottom), Size::new(size.width, size.height - bottom), color);
+    }
+    if left > 0.0 {
+        frame.fill_rectangle(Point::new(0.0, top), Size::new(left, bottom - top), color);
+    }
+    if right < size.width {
+        frame.fill_rectangle(Point::new(right, top), Size::new(size.width - right, bottom - top), color);
     }
 }
 
@@ -174,19 +195,21 @@ impl canvas::Program<Message> for Selector {
 
         let mut frame = canvas::Frame::new(renderer, bounds.size());
         let yellow = Color::from_rgb8(255, 255, 0);
+        let dim = Color::from_rgba8(0, 0, 0, DIM_ALPHA);
 
         if self.selecting {
-            frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color::from_rgba8(0, 0, 0, 50.0 / 255.0));
-
             if let Some((start, end)) = drag.anchor {
                 let top_left = Point::new(start.x.min(end.x), start.y.min(end.y));
                 let size = Size::new((end.x - start.x).abs(), (end.y - start.y).abs());
 
+                dim_outside(&mut frame, bounds.size(), top_left, size, dim);
                 frame.fill_rectangle(top_left, size, Color::from_rgba8(255, 255, 0, 30.0 / 255.0));
                 frame.stroke(
                     &Path::rectangle(top_left, size),
                     Stroke::default().with_color(yellow).with_width(2.0),
                 );
+            } else {
+                frame.fill_rectangle(Point::ORIGIN, bounds.size(), dim);
             }
 
         } else if let Some(region) = self.region {
@@ -198,9 +221,11 @@ impl canvas::Program<Message> for Selector {
 
             let min = to_screen(region.x, region.y);
             let max = to_screen(region.x + region.w, region.y + region.h);
+            let size = Size::new(max.x - min.x, max.y - min.y);
 
+            dim_outside(&mut frame, bounds.size(), min, size, dim);
             frame.stroke(
-                &Path::rectangle(min, Size::new(max.x - min.x, max.y - min.y)),
+                &Path::rectangle(min, size),
                 Stroke::default().with_color(yellow).with_width(1.0),
             );
         }

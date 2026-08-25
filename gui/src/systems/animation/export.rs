@@ -128,6 +128,10 @@ struct ExportForm {
     region_y: f32,
     region_w: f32,
     region_h: f32,
+    region_x_str: String,
+    region_y_str: String,
+    region_w_str: String,
+    region_h_str: String,
     file_name: String,
     name_prefix: String,
     format: ExportFormat,
@@ -175,6 +179,10 @@ impl Default for ExportForm {
             region_y: 0.0,
             region_w: 0.0,
             region_h: 0.0,
+            region_x_str: String::new(),
+            region_y_str: String::new(),
+            region_w_str: String::new(),
+            region_h_str: String::new(),
             file_name: String::new(),
             name_prefix: String::new(),
             format: ExportFormat::Gif,
@@ -423,6 +431,10 @@ impl State {
         self.exporter.region_y = region.y;
         self.exporter.region_w = region.w;
         self.exporter.region_h = region.h;
+        self.exporter.region_x_str = region.x.to_string();
+        self.exporter.region_y_str = region.y.to_string();
+        self.exporter.region_w_str = region.w.to_string();
+        self.exporter.region_h_str = region.h.to_string();
         self.exporter.zoom = 1.0;
     }
 
@@ -559,26 +571,53 @@ impl State {
                 }
             }
             Message::SetRegionX(value) => {
-                if let Ok(parsed) = value.parse::<f32>() {
+                if !is_typable_number(&value, true, true) {
+                    return Task::none();
+                }
+                self.exporter.region_x_str = value.clone();
+                if value.trim().is_empty() {
+                    self.exporter.region_x = 0.0;
+                } else if let Ok(parsed) = value.parse::<f32>() {
                     self.exporter.region_x = parsed;
                 }
             }
             Message::SetRegionY(value) => {
-                if let Ok(parsed) = value.parse::<f32>() {
+                if !is_typable_number(&value, true, true) {
+                    return Task::none();
+                }
+                self.exporter.region_y_str = value.clone();
+                if value.trim().is_empty() {
+                    self.exporter.region_y = 0.0;
+                } else if let Ok(parsed) = value.parse::<f32>() {
                     self.exporter.region_y = parsed;
                 }
             }
             Message::SetRegionW(value) => {
-                if let Ok(parsed) = value.parse::<f32>() {
+                if !is_typable_number(&value, false, true) {
+                    return Task::none();
+                }
+                self.exporter.region_w_str = value.clone();
+                if value.trim().is_empty() {
+                    self.exporter.region_w = 0.0;
+                } else if let Ok(parsed) = value.parse::<f32>() {
                     self.exporter.region_w = parsed;
                 }
             }
             Message::SetRegionH(value) => {
-                if let Ok(parsed) = value.parse::<f32>() {
+                if !is_typable_number(&value, false, true) {
+                    return Task::none();
+                }
+                self.exporter.region_h_str = value.clone();
+                if value.trim().is_empty() {
+                    self.exporter.region_h = 0.0;
+                } else if let Ok(parsed) = value.parse::<f32>() {
                     self.exporter.region_h = parsed;
                 }
             }
             Message::SetQuality(value) => {
+                if !is_typable_number(&value, false, false) {
+                    return Task::none();
+                }
                 self.exporter.quality_percent_str = value.clone();
                 if value.trim().is_empty() {
                     self.exporter.quality_percent = 100;
@@ -589,6 +628,9 @@ impl State {
                 }
             }
             Message::SetCompression(value) => {
+                if !is_typable_number(&value, false, false) {
+                    return Task::none();
+                }
                 self.exporter.compression_percent_str = value.clone();
                 if value.trim().is_empty() {
                     self.exporter.compression_percent = 0;
@@ -941,6 +983,10 @@ impl State {
                         self.exporter.region_y = bounds.min_y;
                         self.exporter.region_w = bounds.width();
                         self.exporter.region_h = bounds.height();
+                        self.exporter.region_x_str = bounds.min_x.to_string();
+                        self.exporter.region_y_str = bounds.min_y.to_string();
+                        self.exporter.region_w_str = bounds.width().to_string();
+                        self.exporter.region_h_str = bounds.height().to_string();
                         self.exporter.zoom = 1.0;
                     }
                     SearchResult::Found
@@ -950,6 +996,10 @@ impl State {
                         self.exporter.region_y = 0.0;
                         self.exporter.region_w = 0.0;
                         self.exporter.region_h = 0.0;
+                        self.exporter.region_x_str = String::new();
+                        self.exporter.region_y_str = String::new();
+                        self.exporter.region_w_str = String::new();
+                        self.exporter.region_h_str = String::new();
                         self.exporter.zoom = 1.0;
                     }
                     SearchResult::Error("Nothing to measure".to_string())
@@ -1133,12 +1183,12 @@ impl State {
             column![
                 camera_buttons,
                 row![
-                    axis_input("X", self.exporter.region_x, Message::SetRegionX),
-                    axis_input("Y", self.exporter.region_y, Message::SetRegionY),
+                    axis_input("X", &self.exporter.region_x_str, Message::SetRegionX),
+                    axis_input("Y", &self.exporter.region_y_str, Message::SetRegionY),
                 ].spacing(FIELD_SPACING),
                 row![
-                    axis_input("W", self.exporter.region_w, Message::SetRegionW),
-                    axis_input("H", self.exporter.region_h, Message::SetRegionH),
+                    axis_input("W", &self.exporter.region_w_str, Message::SetRegionW),
+                    axis_input("H", &self.exporter.region_h_str, Message::SetRegionH),
                 ].spacing(FIELD_SPACING),
             ].spacing(ROW_SPACING),
         );
@@ -1333,6 +1383,27 @@ fn field_row<'a>(label: &'a str, control: impl Into<Element<'a, Message>>) -> El
         .into()
 }
 
+fn is_typable_number(value: &str, allow_negative: bool, allow_decimal: bool) -> bool {
+    let body = if allow_negative { value.strip_prefix('-').unwrap_or(value) } else { value };
+
+    if !allow_decimal {
+        return body.chars().all(|c| c.is_ascii_digit());
+    }
+
+    let mut dot_seen = false;
+    for c in body.chars() {
+        if c == '.' {
+            if dot_seen {
+                return false;
+            }
+            dot_seen = true;
+        } else if !c.is_ascii_digit() {
+            return false;
+        }
+    }
+    true
+}
+
 fn small_input<'a>(hint: &str, value: &'a str, on_input: impl Fn(String) -> Message + 'a) -> Element<'a, Message> {
     text_input(hint, value)
         .on_input(on_input)
@@ -1341,10 +1412,10 @@ fn small_input<'a>(hint: &str, value: &'a str, on_input: impl Fn(String) -> Mess
         .into()
 }
 
-fn axis_input<'a>(label: &'a str, value: f32, on_input: impl Fn(String) -> Message + 'a) -> Element<'a, Message> {
+fn axis_input<'a>(label: &'a str, value: &'a str, on_input: impl Fn(String) -> Message + 'a) -> Element<'a, Message> {
     row![
         text(label).size(CONTROL_TEXT_SIZE).width(Length::Fixed(AXIS_LABEL_WIDTH)),
-        text_input("0", &value.to_string())
+        text_input("0", value)
             .on_input(on_input)
             .width(Length::Fixed(AXIS_INPUT_WIDTH))
             .style(theme::rounded_input),
