@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use iced::widget::{column, container, row, scrollable, text_input};
 use iced::{Alignment, Element, Length, Size, Task, Theme};
@@ -8,6 +8,7 @@ use kore::common::keys::sanitize;
 use kore::domains::settings::UserKeys;
 
 use crate::app::theme;
+use crate::common::dialog;
 use crate::common::feedback::Slot;
 use crate::widget::{popup, smooth_scroll};
 
@@ -42,6 +43,7 @@ pub enum Message {
     KeyChanged(RegionSlot, String),
     IvChanged(RegionSlot, String),
     Import,
+    ImportPicked(Option<PathBuf>),
     ImportExpired,
     Export,
     ExportExpired,
@@ -120,23 +122,23 @@ impl State {
                 self.keys.save();
                 Task::none()
             }
-            Message::Import => {
-                if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
-                    let success = fs::read_to_string(&path).ok()
-                        .and_then(|data| serde_json::from_str::<UserKeys>(&data).ok())
-                        .map(|mut parsed| {
-                            for region in [&mut parsed.ja, &mut parsed.en, &mut parsed.tw, &mut parsed.ko] {
-                                region.key = sanitize(&region.key);
-                                region.iv = sanitize(&region.iv);
-                            }
-                            self.keys = parsed;
-                            self.validation_status = None;
-                            self.keys.save();
-                        })
-                        .is_some();
-                    return self.import_feedback.set(success, Message::ImportExpired);
-                }
-                Task::none()
+            Message::Import => Task::perform(dialog::file("JSON", &["json"]), Message::ImportPicked),
+            Message::ImportPicked(None) => Task::none(),
+            Message::ImportPicked(Some(path)) => {
+                let success = fs::read_to_string(&path).ok()
+                    .and_then(|data| serde_json::from_str::<UserKeys>(&data).ok())
+                    .map(|mut parsed| {
+                        for region in [&mut parsed.ja, &mut parsed.en, &mut parsed.tw, &mut parsed.ko] {
+                            region.key = sanitize(&region.key);
+                            region.iv = sanitize(&region.iv);
+                        }
+                        self.keys = parsed;
+                        self.validation_status = None;
+                        self.keys.save();
+                    })
+                    .is_some();
+
+                self.import_feedback.set(success, Message::ImportExpired)
             }
             Message::ImportExpired => {
                 self.import_feedback.expire();

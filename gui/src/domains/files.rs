@@ -3,7 +3,7 @@ mod tree;
 
 use std::ffi::OsStr;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use iced::alignment::{Horizontal, Vertical};
@@ -18,6 +18,7 @@ use kore::Vfs;
 
 use crate::app::state::FilesState;
 use crate::app::theme;
+use crate::common::dialog;
 use crate::common::feedback::LOCKED_NOTICE;
 use crate::common::feedback::Slot;
 use crate::common::fonts;
@@ -79,6 +80,7 @@ pub enum Message {
     SearchChanged(String),
     ToggleSidebar,
     Deselect,
+    Uploaded(Option<PathBuf>),
     NoticeExpired,
     Tree(tree::Message),
     Body(body::Message),
@@ -303,6 +305,11 @@ impl State {
 
                 self.refresh(vfs)
             }
+            Message::Uploaded(source) => {
+                let Some(source) = source else { return Task::none(); };
+
+                self.upload(vfs, &source)
+            }
             Message::NoticeExpired => {
                 self.notice.expire();
                 Task::none()
@@ -321,8 +328,7 @@ impl State {
                     body::Outcome::Idle => task.map(Message::Body),
                     body::Outcome::Refused => self.notice.set_after((), Message::NoticeExpired, NOTICE_EXPIRY),
                     body::Outcome::Upload => {
-                        self.upload(vfs);
-                        Task::none()
+                        Task::perform(dialog::file("PNG Image", &["png"]), Message::Uploaded)
                     }
                 }
             }
@@ -417,17 +423,14 @@ impl State {
         if populated { Content::Rows } else { Content::NoFiles }
     }
 
-    fn upload(&mut self, vfs: &Vfs) {
-        let Some(source) = rfd::FileDialog::new().add_filter("PNG Image", &["png"]).pick_file() else {
-            return;
-        };
-
-        if !self.body.replace(vfs, self.mount.as_deref(), self.selected.as_deref(), &source) {
-            return;
+    fn upload(&mut self, vfs: &Vfs, source: &Path) -> Task<Message> {
+        if !self.body.replace(vfs, self.mount.as_deref(), self.selected.as_deref(), source) {
+            return Task::none();
         }
 
         self.body.invalidate();
-        drop(self.refresh(vfs));
+
+        self.refresh(vfs)
     }
 
     pub(crate) fn leave(&mut self, vfs: &Vfs) {

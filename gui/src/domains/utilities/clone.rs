@@ -12,6 +12,7 @@ use kore::systems::addons::apkeditor;
 use kore::systems::apk::clone::{self, CloneConfig};
 
 use crate::app::theme;
+use crate::common::dialog;
 use crate::widget::ConsoleState;
 
 use super::picker;
@@ -53,8 +54,8 @@ pub struct State {
 impl State {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::PickApk => Task::perform(picker::ask("Android App", apk_filters()), Message::ApkPicked),
-            Message::PickIcon => Task::perform(picker::ask("PNG Image", &["png"]), Message::IconPicked),
+            Message::PickApk => Task::perform(dialog::file("Android App", apk_filters()), Message::ApkPicked),
+            Message::PickIcon => Task::perform(dialog::file("PNG Image", &["png"]), Message::IconPicked),
             Message::ApkPicked(picked) => {
                 if picked.is_some() {
                     self.apk = picked;

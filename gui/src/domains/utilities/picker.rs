@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use iced::advanced::text::{self, Paragraph as _};
 use iced::alignment;
@@ -18,23 +18,6 @@ const INSET: f32 = 10.0;
 const ELLIPSIS: char = '\u{2026}';
 
 type Paragraph = <iced::Renderer as text::Renderer>::Paragraph;
-
-pub(super) async fn ask(label: &'static str, extensions: &'static [&'static str]) -> Option<PathBuf> {
-    rfd::AsyncFileDialog::new()
-        .add_filter(label, extensions)
-        .pick_file()
-        .await
-        .map(|handle| handle.path().to_path_buf())
-}
-
-pub(super) async fn ask_many(label: &'static str, extensions: &'static [&'static str]) -> Vec<PathBuf> {
-    rfd::AsyncFileDialog::new()
-        .add_filter(label, extensions)
-        .pick_files()
-        .await
-        .map(|handles| handles.iter().map(|handle| handle.path().to_path_buf()).collect())
-        .unwrap_or_default()
-}
 
 pub(super) fn slot<'a, M: Clone + 'a>(idle: &'a str, chosen: Option<&Path>, on_press: M) -> Button<'a, M> {
     let filled = chosen.is_some();

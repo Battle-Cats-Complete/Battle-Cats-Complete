@@ -25,6 +25,7 @@ use kore::Vfs;
 use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;
 use crate::domains::enemy::DetailTab as EnemyTab;
+use crate::common::dialog;
 use crate::common::feedback::{Slot, NO_FILES_LABEL, NO_FILES_NOTICE, UNSUPPORTED_NOTICE};
 
 pub(crate) use target::{suppress, target};
@@ -322,6 +323,7 @@ pub enum Message {
     Hovered(Trail),
     ConfirmExpired,
     FailureExpired,
+    Replaced(bool),
     Figures(figures::Subject, figures::Message),
     Prose(prose::Subject, prose::Message),
 }
@@ -396,6 +398,7 @@ enum Action {
 
 enum Outcome {
     Done,
+    Deferred(Task<Message>),
     Failed,
 }
 
@@ -464,6 +467,7 @@ fn panels<'a>(items: &'a [Item], trail: &[usize]) -> Vec<&'a [Item]> {
 #[derive(Default)]
 pub(crate) struct State {
     open: Option<Open>,
+    pending: Option<Trail>,
     confirm: Slot<Trail>,
     failed: Slot<Trail>,
     figures: [figures::State; figures::COUNT],
@@ -518,6 +522,7 @@ impl State {
 
         self.confirm.expire();
         self.failed.expire();
+        self.pending = None;
         self.open = (!items.is_empty()).then_some(Open { at, items, trail: Trail::new() });
     }
 
@@ -533,6 +538,7 @@ impl State {
             }
             Message::Dismissed => {
                 self.open = None;
+                self.pending = None;
                 self.confirm.expire();
                 self.failed.expire();
                 Task::none()
@@ -544,6 +550,16 @@ impl State {
             Message::FailureExpired => {
                 self.failed.expire();
                 Task::none()
+            }
+            Message::Replaced(placed) => {
+                let Some(trail) = self.pending.take() else { return Task::none(); };
+
+                if placed {
+                    self.open = None;
+                    return Task::none();
+                }
+
+                self.failed.set(trail, Message::FailureExpired)
             }
             Message::Prose(subject, msg) => self
                 .prose_mut(subject)
@@ -817,13 +833,20 @@ impl State {
             .and_then(|item| item.action.as_ref())
             .map_or(Outcome::Done, |action| self.perform(action, vfs));
 
-        if matches!(outcome, Outcome::Done) {
-            return Task::none();
+        match outcome {
+            Outcome::Done => Task::none(),
+            Outcome::Deferred(task) => {
+                self.open = Some(open);
+                self.pending = Some(trail);
+
+                task
+            }
+            Outcome::Failed => {
+                self.open = Some(open);
+
+                self.failed.set(trail, Message::FailureExpired)
+            }
         }
-
-        self.open = Some(open);
-
-        self.failed.set(trail, Message::FailureExpired)
     }
 }
 
@@ -1194,30 +1217,33 @@ fn banner_target(app: &BattleCatsApp, id: u32) -> Option<BannerTarget> {
 }
 
 fn replace_icon(file: &str, target_mod: Option<&str>, game: Option<&Path>) -> Outcome {
-    let Some(source) = rfd::FileDialog::new().add_filter("PNG Image", &["png"]).pick_file() else {
-        return Outcome::Done;
-    };
+    let file = file.to_string();
+    let target_mod = target_mod.map(str::to_string);
+    let game = game.map(Path::to_path_buf);
 
+    Outcome::Deferred(Task::perform(
+        async move {
+            let Some(source) = dialog::file("PNG Image", &["png"]).await else { return true; };
+
+            place_icon(&file, target_mod.as_deref(), game.as_deref(), &source)
+        },
+        Message::Replaced,
+    ))
+}
+
+fn place_icon(file: &str, target_mod: Option<&str>, game: Option<&Path>, source: &Path) -> bool {
     let placed = match target_mod {
-        Some(name) => mods::place(name, &source, file),
+        Some(name) => mods::place(name, source, file),
         None => match game {
-            Some(path) => fs::copy(&source, path).map(|_| path.to_path_buf()),
+            Some(path) => fs::copy(source, path).map(|_| path.to_path_buf()),
             None => Err(io::Error::new(io::ErrorKind::NotFound, "the vanilla icon is missing")),
         },
     };
 
-    match placed {
-        Ok(path) => {
-            info!(path = %path.display(), "Replaced an icon");
-
-            Outcome::Done
-        }
-        Err(err) => {
-            warn!(file, "Failed to replace the icon: {}", err);
-
-            Outcome::Failed
-        }
-    }
+    placed
+        .inspect(|path| info!(path = %path.display(), "Replaced an icon"))
+        .inspect_err(|err| warn!(file, "Failed to replace the icon: {}", err))
+        .is_ok()
 }
 
 fn cat_subject(app: &BattleCatsApp) -> Option<CatTarget> {

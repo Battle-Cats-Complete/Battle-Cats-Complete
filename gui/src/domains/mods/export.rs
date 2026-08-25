@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::thread;
 
 use iced::futures::channel::mpsc;
@@ -13,6 +14,7 @@ use kore::domains::mods::ModDataState;
 use kore::domains::settings::Settings;
 
 use crate::app::theme;
+use crate::common::dialog;
 use crate::widget::{popup, smooth_scroll, ConsoleState};
 
 use super::{
@@ -35,6 +37,7 @@ pub enum Message {
     PackageChanged(String),
     RegionSelected(Region),
     SelectAppFile,
+    AppFilePicked(Option<PathBuf>),
     CompressionChanged(f32),
     PackNameChanged(String),
     StartExport,
@@ -96,8 +99,11 @@ impl State {
                 Task::none()
             }
             Message::SelectAppFile => {
-                if let Some(path) = rfd::FileDialog::new().add_filter("Android App", &["apk", "xapk", "apkm", "apks"]).pick_file() {
-                    data.export.selected_apk = Some(path);
+                Task::perform(dialog::file("Android App", &["apk", "xapk", "apkm", "apks"]), Message::AppFilePicked)
+            }
+            Message::AppFilePicked(picked) => {
+                if picked.is_some() {
+                    data.export.selected_apk = picked;
                 }
                 Task::none()
             }

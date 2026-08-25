@@ -15,7 +15,9 @@ use kore::domains::mods::ModDataState;
 use kore::domains::settings::Settings;
 
 use crate::app::theme;
+use crate::common::dialog;
 use crate::common::feedback::Slot;
+use crate::common::watcher;
 use crate::widget::{popup, smooth_scroll, ConsoleState};
 
 use super::{
@@ -35,8 +37,10 @@ pub enum Message {
     NewModNameChanged(String),
     PackageSuffixChanged(String),
     SelectArchive,
+    ArchivePicked(Option<PathBuf>),
     FormatSelected(ModPackType),
     SelectSource,
+    SourcePicked(Vec<PathBuf>),
     PackErrorExpired,
     StartImport,
     Job(JobEvent),
@@ -85,9 +89,10 @@ impl State {
                 data.import.package_suffix = value;
                 Task::none()
             }
-            Message::SelectArchive => {
-                if let Some(path) = rfd::FileDialog::new().add_filter("Archive", &["bcm", "zip"]).pick_file() {
-                    self.bcm_path = Some(path);
+            Message::SelectArchive => Task::perform(dialog::file("Archive", &["bcm", "zip"]), Message::ArchivePicked),
+            Message::ArchivePicked(picked) => {
+                if picked.is_some() {
+                    self.bcm_path = picked;
                 }
                 Task::none()
             }
@@ -98,6 +103,7 @@ impl State {
                 Task::none()
             }
             Message::SelectSource => self.handle_select_source(data),
+            Message::SourcePicked(picked) => self.apply_source(picked, data),
             Message::StartImport => self.start_import(data, settings),
             Message::Job(event) => self.apply_job_event(event, data),
             Message::ConsoleScrolled(viewport) => {
@@ -117,6 +123,7 @@ impl State {
             JobEvent::Finished(outcome) => {
                 self.running = false;
                 self.job_handle = None;
+                watcher::resume();
 
                 match outcome {
                     JobOutcome::Completed => {
@@ -142,6 +149,7 @@ impl State {
     }
 
     fn begin(&mut self, status: String) {
+        watcher::suspend();
         self.running = true;
         self.log.clear();
         self.log.push_str(&status);
@@ -222,33 +230,38 @@ impl State {
 
     fn handle_select_source(&mut self, data: &ModDataState) -> Task<Message> {
         match data.import.pack_type {
-            ModPackType::Apk => {
-                if let Some(path) = rfd::FileDialog::new().add_filter("APK", &["apk", "xapk", "apkm"]).pick_file() {
-                    self.pack_path = Some(path);
-                }
-            }
-            ModPackType::Pack => {
-                let Some(files) = rfd::FileDialog::new().add_filter("Pack/List", &["pack", "list"]).pick_files() else { return Task::none(); };
-                let Some(first) = files.first() else { return Task::none(); };
+            ModPackType::Apk => Task::perform(dialog::file("APK", &["apk", "xapk", "apkm"]), |picked| {
+                Message::SourcePicked(picked.into_iter().collect())
+            }),
+            ModPackType::Pack => Task::perform(dialog::files("Pack/List", &["pack", "list"]), Message::SourcePicked),
+        }
+    }
 
-                let parent = first.parent().unwrap_or(Path::new(""));
-                let stem = first.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-                let pack_file = parent.join(format!("{}.pack", stem));
-                let list_file = parent.join(format!("{}.list", stem));
+    fn apply_source(&mut self, picked: Vec<PathBuf>, data: &ModDataState) -> Task<Message> {
+        let Some(first) = picked.into_iter().next() else { return Task::none(); };
 
-                if !pack_file.exists() {
-                    self.pack_path = None;
-                    return self.pack_error.set("Missing .pack!".to_string(), Message::PackErrorExpired);
-                } else if !list_file.exists() {
-                    self.pack_path = None;
-                    return self.pack_error.set("Missing .list!".to_string(), Message::PackErrorExpired);
-                } else {
-                    self.pack_path = Some(pack_file);
-                    self.pack_error.clear();
-                }
-            }
+        if data.import.pack_type == ModPackType::Apk {
+            self.pack_path = Some(first);
+            return Task::none();
         }
 
+        let parent = first.parent().unwrap_or(Path::new(""));
+        let stem = first.file_stem().map_or_else(String::new, |stem| stem.to_string_lossy().to_string());
+        let pack_file = parent.join(format!("{}.pack", stem));
+        let list_file = parent.join(format!("{}.list", stem));
+
+        if !pack_file.exists() {
+            self.pack_path = None;
+            return self.pack_error.set("Missing .pack!".to_string(), Message::PackErrorExpired);
+        }
+
+        if !list_file.exists() {
+            self.pack_path = None;
+            return self.pack_error.set("Missing .list!".to_string(), Message::PackErrorExpired);
+        }
+
+        self.pack_path = Some(pack_file);
+        self.pack_error.clear();
         Task::none()
     }
 

@@ -1,4 +1,5 @@
 pub mod ability_icon;
+pub mod dialog;
 pub mod feedback;
 pub mod fonts;
 pub mod header_icon;

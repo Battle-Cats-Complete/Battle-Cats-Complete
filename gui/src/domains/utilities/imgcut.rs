@@ -11,6 +11,7 @@ use image::ImageFormat;
 use kore::domains::utilities::imgcut::{self, Sheet};
 
 use crate::app::theme;
+use crate::common::dialog;
 use crate::common::feedback::{Slot, FAILURE_LABEL};
 use crate::widget::picture;
 
@@ -95,9 +96,9 @@ pub struct State {
 impl State {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::PickPng => Task::perform(picker::ask("PNG Image", &["png"]), Message::PngPicked),
+            Message::PickPng => Task::perform(dialog::file("PNG Image", &["png"]), Message::PngPicked),
             Message::PickImgcut => {
-                Task::perform(picker::ask("Sprite Cut List", &["imgcut"]), Message::ImgcutPicked)
+                Task::perform(dialog::file("Sprite Cut List", &["imgcut"]), Message::ImgcutPicked)
             }
             Message::PngPicked(Some(path)) => {
                 if self.imgcut.is_none() {

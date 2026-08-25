@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use iced::widget::{button, column, container, mouse_area, opaque, pick_list, row, scrollable, stack, text, text_input, toggler, Space};
 use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
@@ -8,6 +8,7 @@ use kore::common::io::APP_LANGUAGES;
 use kore::domains::settings::{ExceptionList, ExceptionRule, RuleHandling};
 
 use crate::app::theme;
+use crate::common::dialog;
 use crate::common::feedback::Slot;
 use crate::widget::{popup, smooth_scroll, toggle_label};
 
@@ -34,6 +35,7 @@ pub enum Message {
     CloseLangDropdown,
     LangDropdownIgnore,
     Import,
+    ImportPicked(Option<PathBuf>),
     ImportExpired,
     Export,
     ExportExpired,
@@ -135,17 +137,17 @@ impl State {
                 Task::none()
             }
             Message::LangDropdownIgnore => Task::none(),
-            Message::Import => {
-                if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
-                    let success = ExceptionList::load_from_file(&path)
-                        .map(|list| {
-                            self.rules = list.rules;
-                            self.save();
-                        })
-                        .is_ok();
-                    return self.import_feedback.set(success, Message::ImportExpired);
-                }
-                Task::none()
+            Message::Import => Task::perform(dialog::file("JSON", &["json"]), Message::ImportPicked),
+            Message::ImportPicked(None) => Task::none(),
+            Message::ImportPicked(Some(path)) => {
+                let success = ExceptionList::load_from_file(&path)
+                    .map(|list| {
+                        self.rules = list.rules;
+                        self.save();
+                    })
+                    .is_ok();
+
+                self.import_feedback.set(success, Message::ImportExpired)
             }
             Message::ImportExpired => {
                 self.import_feedback.expire();

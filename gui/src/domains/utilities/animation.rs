@@ -10,6 +10,7 @@ use kore::domains::utilities::animation as builder;
 
 use crate::app::state::{AnimState, AppState};
 use crate::app::theme;
+use crate::common::dialog;
 use crate::systems::animation as viewer;
 use crate::widget::popup;
 
@@ -81,12 +82,12 @@ impl Default for State {
 impl State {
     pub fn update(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState) -> Task<Message> {
         match message {
-            Message::PickPng => Task::perform(picker::ask("PNG Image", &["png"]), Message::PngPicked),
+            Message::PickPng => Task::perform(dialog::file("PNG Image", &["png"]), Message::PngPicked),
             Message::PickImgcut => {
-                Task::perform(picker::ask("Sprite Cut List", &["imgcut"]), Message::ImgcutPicked)
+                Task::perform(dialog::file("Sprite Cut List", &["imgcut"]), Message::ImgcutPicked)
             }
-            Message::PickMamodel => Task::perform(picker::ask("Model", &["mamodel"]), Message::MamodelPicked),
-            Message::AddAnims => Task::perform(picker::ask_many("Animation", &["maanim"]), Message::AnimsPicked),
+            Message::PickMamodel => Task::perform(dialog::file("Model", &["mamodel"]), Message::MamodelPicked),
+            Message::AddAnims => Task::perform(dialog::files("Animation", &["maanim"]), Message::AnimsPicked),
             Message::PngPicked(picked) => {
                 self.replace(picked, |state| &mut state.png);
                 Task::none()

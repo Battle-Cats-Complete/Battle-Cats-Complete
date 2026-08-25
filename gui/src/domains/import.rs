@@ -1,5 +1,5 @@
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -24,6 +24,7 @@ use kore::domains::settings::Settings;
 
 use crate::app::state::AppState;
 use crate::app::theme;
+use crate::common::dialog;
 use crate::common::watcher;
 use crate::widget::ConsoleState;
 
@@ -38,7 +39,9 @@ pub enum Message {
     AdbRegionChangedDec(AdbTarget),
     ImportModeChanged(ImportMode),
     SelectDecryptFolder,
+    DecryptFolderPicked(Option<PathBuf>),
     SelectImportData,
+    ImportDataPicked(Option<PathBuf>),
     TriggerImportJob,
     AbortImportJob,
     ImportJob(JobEvent),
@@ -205,26 +208,28 @@ impl State {
                 self.config.import_mode = mode;
             }
             Message::SelectDecryptFolder => {
-                if let Some(folder_path) = rfd::FileDialog::new().pick_folder() {
-                    self.config.decrypt_path = folder_path.to_string_lossy().to_string();
-                    self.decrypt_censored = censor_path(&self.config.decrypt_path);
-                    info!("Selected decrypt folder: {}", self.decrypt_censored);
-                }
+                return Task::perform(dialog::folder(), Message::DecryptFolderPicked);
+            }
+            Message::DecryptFolderPicked(Some(folder_path)) => {
+                self.config.decrypt_path = folder_path.to_string_lossy().to_string();
+                self.decrypt_censored = censor_path(&self.config.decrypt_path);
+                info!("Selected decrypt folder: {}", self.decrypt_censored);
             }
             Message::SelectImportData => {
-                let dialog_result = match self.config.import_mode {
-                    ImportMode::Zip => rfd::FileDialog::new()
-                        .add_filter("Archive", &["zst", "tar", "zip"])
-                        .pick_file(),
-                    ImportMode::Folder => rfd::FileDialog::new().pick_folder(),
+                return match self.config.import_mode {
+                    ImportMode::Zip => Task::perform(
+                        dialog::file("Archive", &["zst", "tar", "zip"]),
+                        Message::ImportDataPicked,
+                    ),
+                    ImportMode::Folder => Task::perform(dialog::folder(), Message::ImportDataPicked),
                 };
-
-                if let Some(file_path) = dialog_result {
-                    self.config.import_path = file_path.to_string_lossy().to_string();
-                    self.import_censored = censor_path(&self.config.import_path);
-                    info!("Selected import data path: {}", self.import_censored);
-                }
             }
+            Message::ImportDataPicked(Some(file_path)) => {
+                self.config.import_path = file_path.to_string_lossy().to_string();
+                self.import_censored = censor_path(&self.config.import_path);
+                info!("Selected import data path: {}", self.import_censored);
+            }
+            Message::DecryptFolderPicked(None) | Message::ImportDataPicked(None) => {}
             Message::TriggerImportJob => {
                 info!("Starting import job.");
                 return self.trigger_import_job(settings, app_state);

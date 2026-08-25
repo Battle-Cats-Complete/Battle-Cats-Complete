@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use iced::widget::{column, container, row, scrollable, text};
 use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
@@ -7,6 +7,7 @@ use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 use kore::domains::settings::pem;
 
 use crate::app::theme;
+use crate::common::dialog;
 use crate::common::feedback::Slot;
 use crate::widget::{popup, smooth_scroll};
 
@@ -17,6 +18,7 @@ pub enum Message {
     Popup(popup::Message),
     Open,
     Import,
+    ImportPicked(Option<PathBuf>),
     Export,
     ExportExpired,
     GenerateRequested,
@@ -71,8 +73,9 @@ impl State {
                 }
                 Task::none()
             }
-            Message::Import => {
-                if let Some(path) = rfd::FileDialog::new().add_filter("PEM", &["pem", "txt"]).pick_file()
+            Message::Import => Task::perform(dialog::file("PEM", &["pem", "txt"]), Message::ImportPicked),
+            Message::ImportPicked(picked) => {
+                if let Some(path) = picked
                     && let Ok(content) = fs::read_to_string(&path)
                     && content.contains("-----BEGIN PRIVATE KEY-----")
                     && content.contains("-----BEGIN CERTIFICATE-----") {
