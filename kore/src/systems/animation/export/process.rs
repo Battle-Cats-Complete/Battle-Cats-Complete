@@ -26,12 +26,10 @@ pub fn build_config(request: &ExportRequest) -> ExportConfig {
                 format!("{}f~{}f", start_frame, end_frame)
             };
 
-            let clean_prefix = request.name_prefix.replace("_0", "").replace("_f", "-1").replace("_c", "-2").replace("_s", "-3");
-
             let prefix_display = if is_showcase {
-                clean_prefix.split('.').next().map_or_else(|| "unit.showcase".to_string(), |first| format!("{}.showcase", first))
+                request.name_prefix.split('.').next().map_or_else(|| "unit.showcase".to_string(), |first| format!("{}.showcase", first))
             } else {
-                clean_prefix
+                request.name_prefix.clone()
             };
 
             let base = if prefix_display.is_empty() { "animation".to_string() } else { prefix_display };

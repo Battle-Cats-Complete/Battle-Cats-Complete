@@ -1,478 +1,355 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tracing::warn;
 
 use nyanko::graphics::rig::{Animation, Rig};
 
-use kore::systems::animation::{
-    furthest_frame, loop_frame, true_loop, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE,
-    IDX_SPIRIT, IDX_SURFACE, IDX_WALK,
-};
-use kore::domains::cat::files::{self, AnimType};
-use kore::domains::cat::scanner::CatEntry;
-use kore::domains::enemy::files::{self as enemy_files, AnimType as EnemyAnimType};
-use kore::domains::enemy::scanner::EnemyEntry;
-use kore::Vfs;
+use kore::systems::animation::{furthest_frame, loop_frame, true_loop, Clip, Role};
 
-const ANIM_SLOTS: [usize; 6] = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
-const FALLBACK_PRIORITY: [usize; 6] = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB, IDX_BURROW, IDX_SURFACE];
+pub(super) const COLUMNS: usize = 4;
+const DEFAULT_SLOTS: usize = 8;
 
-const ENEMY_ANIM_SLOTS: [usize; 4] = [IDX_WALK, IDX_IDLE, IDX_ATTACK, IDX_KB];
-const IDX_DIG: usize = 7;
-
-type PrimaryAssets = (PathBuf, PathBuf, PathBuf);
-type SecondaryAssets = (PathBuf, PathBuf, PathBuf, PathBuf);
-
+#[derive(Default)]
 pub struct State {
     pub held_unit: Option<Arc<Rig>>,
     pub current_anim: Option<Arc<Animation>>,
-    pub loaded_anim_index: usize,
-    pub available_anims: Vec<(usize, PathBuf)>,
 
-    primary_id: String,
-    secondary_id: String,
-    primary_assets: Option<PrimaryAssets>,
-    secondary_assets: Option<SecondaryAssets>,
+    clips: Vec<Clip>,
+    slots: Vec<Option<usize>>,
+    selected: Option<usize>,
 
-    loaded_id: String,
-    failed_load_id: String,
-    current_anim_index: usize,
+    set_id: String,
+    loaded_rig: String,
+    failed_rig: String,
+    loaded_clip: Option<usize>,
     cache: RigCache,
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            held_unit: None,
-            current_anim: None,
-            loaded_anim_index: IDX_NONE,
-            available_anims: Vec::new(),
-            primary_id: String::new(),
-            secondary_id: String::new(),
-            primary_assets: None,
-            secondary_assets: None,
-            loaded_id: String::new(),
-            failed_load_id: String::new(),
-            current_anim_index: IDX_NONE,
-            cache: RigCache::default(),
-        }
-    }
-}
-
 impl State {
-    pub fn base_assets_available(&self) -> bool {
-        self.primary_assets.is_some()
+    pub fn set_id(&self) -> &str {
+        &self.set_id
+    }
+
+    pub fn slots(&self) -> &[Option<usize>] {
+        &self.slots
+    }
+
+    pub fn clip(&self, index: usize) -> Option<&Clip> {
+        self.clips.get(index)
+    }
+
+    pub fn selected(&self) -> Option<usize> {
+        self.selected
+    }
+
+    pub fn current_clip(&self) -> Option<&Clip> {
+        self.selected.and_then(|index| self.clips.get(index))
+    }
+
+    pub fn is_model(&self) -> bool {
+        self.current_clip().is_some_and(|clip| clip.anim.is_none())
+    }
+
+    pub fn current_loops(&self) -> bool {
+        self.current_clip().is_some_and(|clip| clip.loops)
+    }
+
+    pub fn role_paths(&self) -> Vec<(Role, PathBuf)> {
+        self.clips
+            .iter()
+            .filter_map(|clip| Some((clip.role?, clip.anim.clone()?)))
+            .collect()
+    }
+
+    pub fn role_path(&self, role: Role) -> Option<&PathBuf> {
+        self.clips
+            .iter()
+            .find(|clip| clip.role == Some(role))
+            .and_then(|clip| clip.anim.as_ref())
     }
 
     pub fn loop_bound(&self) -> Option<i32> {
         self.current_anim.as_ref().map_or(Some(0), |anim| {
-            if self.current_anim_index <= IDX_IDLE { true_loop(anim) } else { Some(furthest_frame(anim)) }
+            if self.current_loops() { true_loop(anim) } else { Some(furthest_frame(anim)) }
         })
     }
 
-    pub fn active_index(&self) -> usize {
-        self.current_anim_index
-    }
-
     pub fn playback_frame(&self, frame: f32) -> f32 {
-        if self.current_anim_index <= IDX_IDLE {
+        if self.current_loops() {
             return frame;
         }
 
         self.current_anim.as_ref().map_or(frame, |anim| loop_frame(anim, frame))
     }
 
-    pub fn loaded_id(&self) -> &str {
-        &self.loaded_id
-    }
-
-    fn is_loaded(&self, target_id: &str) -> bool {
-        self.loaded_id == target_id && self.held_unit.is_some()
-    }
-
-    pub fn primary_id(&self) -> &str {
-        &self.primary_id
+    pub fn playhead_key(&self) -> (&str, Option<usize>) {
+        (&self.loaded_rig, self.selected)
     }
 
     pub fn select(&mut self, index: usize) {
-        if self.loaded_anim_index == index {
+        if self.selected == Some(index) || index >= self.clips.len() {
             return;
         }
 
-        self.loaded_anim_index = index;
+        self.selected = Some(index);
         self.load_active();
     }
 
     pub fn invalidate_paths(&mut self) {
-        self.primary_id.clear();
-        self.secondary_id.clear();
-        self.loaded_id.clear();
-        self.failed_load_id.clear();
+        self.set_id.clear();
+        self.loaded_rig.clear();
+        self.failed_rig.clear();
         self.cache.clear();
     }
 
-    pub fn secondary_available(&self) -> bool {
-        self.secondary_assets.is_some()
-    }
-
-    pub fn sync(&mut self, cat: &CatEntry, form: usize, vfs: &Vfs) {
-        self.prepare(cat, form, vfs);
+    pub fn sync(&mut self, key: &str, build: impl FnOnce() -> Vec<Clip>) {
+        self.prepare(key, build);
         self.load_active();
     }
 
-    pub fn preload_request(&mut self, cat: &CatEntry, form: usize, vfs: &Vfs) -> Option<PreloadRequest> {
-        self.prepare(cat, form, vfs);
+    pub fn preload_request(&mut self, key: &str, build: impl FnOnce() -> Vec<Clip>) -> Option<PreloadRequest> {
+        self.prepare(key, build);
         self.build_request()
     }
 
-    pub fn preload_enemy_request(&mut self, enemy: &EnemyEntry, vfs: &Vfs) -> Option<PreloadRequest> {
-        self.prepare_enemy(enemy, vfs);
-        self.build_request()
+    fn prepare(&mut self, key: &str, build: impl FnOnce() -> Vec<Clip>) {
+        if self.set_id != key {
+            let previous = self.current_clip().map(Clip::label);
+
+            self.set_id = key.to_string();
+            self.clips = build();
+            let requests: Vec<Request> = self
+                .clips
+                .iter()
+                .map(|clip| Request { slot: clip.slot, trailing: clip.anim.is_none() })
+                .collect();
+
+            self.slots = place(&requests);
+            self.selected = previous.and_then(|label| self.clips.iter().position(|clip| clip.label() == label));
+        }
+
+        self.select_valid();
+    }
+
+    fn select_valid(&mut self) {
+        if self.selected.is_some_and(|index| index < self.clips.len()) {
+            return;
+        }
+
+        self.selected = self.slots.iter().find_map(|slot| *slot);
+
+        if self.selected.is_none() {
+            self.held_unit = None;
+            self.current_anim = None;
+            self.loaded_clip = None;
+        }
+    }
+
+    fn build_request(&mut self) -> Option<PreloadRequest> {
+        let index = self.selected?;
+        let rig_id = self.clips.get(index)?.rig.id.clone();
+
+        if self.is_loaded(&rig_id) || self.failed_rig == rig_id || self.apply_cached(index) {
+            return None;
+        }
+
+        let clip = self.clips.get(index)?;
+
+        Some(PreloadRequest {
+            rig_id,
+            png: clip.rig.png.clone(),
+            cut: clip.rig.cut.clone(),
+            model: clip.rig.model.clone(),
+            anim: clip.anim.clone(),
+        })
     }
 
     pub fn apply_preload(&mut self, result: PreloadResult) {
-        let index = self.loaded_anim_index;
-        let desired_id = if index == IDX_SPIRIT { &self.secondary_id } else { &self.primary_id };
-        let wanted = index != IDX_NONE
-            && !desired_id.is_empty()
-            && *desired_id == result.target_id
-            && !self.is_loaded(&result.target_id);
+        let wanted = self
+            .current_clip()
+            .is_some_and(|clip| clip.rig.id == result.rig_id && !self.is_loaded(&result.rig_id));
 
         let Some(unit) = result.unit else {
             if wanted {
-                self.loaded_id = result.target_id.clone();
-                self.failed_load_id = result.target_id;
+                self.loaded_rig = result.rig_id.clone();
+                self.failed_rig = result.rig_id;
                 self.held_unit = None;
                 self.current_anim = None;
-                self.current_anim_index = IDX_NONE;
+                self.loaded_clip = None;
             }
             return;
         };
 
-        self.cache.insert(&result.target_id, unit.clone());
-        if let Some(anim) = &result.anim {
-            self.cache.store_anim(&result.target_id, result.anim_index, anim.clone());
+        self.cache.insert(&result.rig_id, unit.clone());
+        if let (Some(path), Some(anim)) = (&result.anim_path, &result.anim) {
+            self.cache.store_anim(&result.rig_id, path, anim.clone());
         }
 
-        if wanted {
-            self.held_unit = Some(unit);
-            self.loaded_id = result.target_id;
-            self.failed_load_id.clear();
-            self.current_anim = result.anim;
-            self.current_anim_index = result.anim_index;
+        if !wanted {
+            return;
+        }
+
+        self.held_unit = Some(unit);
+        self.loaded_rig = result.rig_id;
+        self.failed_rig.clear();
+
+        if let Some(index) = self.selected {
+            self.load_anim(index);
         }
     }
 
-    fn prepare(&mut self, cat: &CatEntry, form: usize, vfs: &Vfs) {
-        let form_char = match form {
-            0 => 'f',
-            1 => 'c',
-            2 => 's',
-            _ => 'u',
+    fn is_loaded(&self, rig_id: &str) -> bool {
+        self.loaded_rig == rig_id && self.held_unit.is_some()
+    }
+
+    fn apply_cached(&mut self, index: usize) -> bool {
+        let Some(clip) = self.clips.get(index) else {
+            return false;
         };
-        let primary_id = format!("{:03}_{}", cat.id, form_char);
 
-        if self.primary_id != primary_id {
-            self.rescan_paths(cat, form, &primary_id, vfs);
-        }
-
-        self.select_valid_index();
-    }
-
-    fn build_request(&mut self) -> Option<PreloadRequest> {
-        let index = self.loaded_anim_index;
-        if index == IDX_NONE {
-            return None;
-        }
-
-        let target_id = if index == IDX_SPIRIT { self.secondary_id.clone() } else { self.primary_id.clone() };
-        if target_id.is_empty() || self.is_loaded(&target_id) || self.failed_load_id == target_id {
-            return None;
-        }
-
-        if self.apply_cached(&target_id, index) {
-            return None;
-        }
-
-        let (png, cut, model, anim) = self.resolve_paths(index);
-        Some(PreloadRequest {
-            target_id,
-            anim_index: index,
-            png: png?,
-            cut: cut?,
-            model: model?,
-            anim,
-        })
-    }
-
-    fn apply_cached(&mut self, target_id: &str, index: usize) -> bool {
-        let Some(unit) = self.cache.lookup(target_id) else {
+        let rig_id = clip.rig.id.clone();
+        let Some(unit) = self.cache.lookup(&rig_id) else {
             return false;
         };
 
         self.held_unit = Some(unit);
-        self.loaded_id = target_id.to_string();
-        self.failed_load_id.clear();
-        let (_, _, _, anim_path) = self.resolve_paths(index);
-        self.load_anim(index, anim_path);
-        self.current_anim_index = index;
+        self.loaded_rig = rig_id;
+        self.failed_rig.clear();
+        self.load_anim(index);
         true
     }
 
-    fn rescan_paths(&mut self, cat: &CatEntry, form: usize, primary_id: &str, vfs: &Vfs) {
-        let egg_ids = cat.egg_ids.unwrap_or((-1, -1));
-
-        let resolve = |name: String| -> Option<PathBuf> { vfs.find(&name) };
-
-        let mut available_anims = Vec::new();
-        for idx in ANIM_SLOTS {
-            let candidate = files::maanim_file(cat.id, form, egg_ids, idx);
-            if let Some(resolved) = resolve(candidate) {
-                available_anims.push((idx, resolved));
-            }
-        }
-
-        let primary_assets = (|| {
-            let png = resolve(files::anim_file(cat.id, form, egg_ids, AnimType::Png))?;
-            let cut = resolve(files::anim_file(cat.id, form, egg_ids, AnimType::Imgcut))?;
-            let model = resolve(files::anim_file(cat.id, form, egg_ids, AnimType::Mamodel))?;
-            Some((png, cut, model))
-        })();
-
-        let conjure_id = cat.stats.get(form)
-            .and_then(|s| s.as_ref())
-            .map(|s| s.conjure_unit_id)
-            .unwrap_or(0);
-
-        let mut secondary_assets = None;
-        let mut secondary_id = String::new();
-
-        if conjure_id > 0 {
-            let spirit_id = conjure_id as u32;
-            secondary_assets = (|| {
-                let png = resolve(files::anim_file(spirit_id, 0, (-1, -1), AnimType::Png))?;
-                let cut = resolve(files::anim_file(spirit_id, 0, (-1, -1), AnimType::Imgcut))?;
-                let model = resolve(files::anim_file(spirit_id, 0, (-1, -1), AnimType::Mamodel))?;
-                let atk = resolve(files::maanim_file(spirit_id, 0, (-1, -1), IDX_ATTACK))?;
-                Some((png, cut, model, atk))
-            })();
-
-            if secondary_assets.is_some() {
-                secondary_id = format!("spirit_{}", spirit_id);
-            }
-        }
-
-        self.primary_id = primary_id.to_string();
-        self.secondary_id = secondary_id;
-        self.available_anims = available_anims;
-        self.primary_assets = primary_assets;
-        self.secondary_assets = secondary_assets;
-    }
-
-    pub fn sync_enemy(&mut self, enemy: &EnemyEntry, vfs: &Vfs) {
-        self.prepare_enemy(enemy, vfs);
-        self.load_active();
-    }
-
-    fn prepare_enemy(&mut self, enemy: &EnemyEntry, vfs: &Vfs) {
-        let primary_id = enemy.id_str();
-
-        if self.primary_id != primary_id {
-            self.rescan_enemy_paths(enemy, &primary_id, vfs);
-        }
-
-        self.select_valid_index();
-    }
-
-    fn rescan_enemy_paths(&mut self, enemy: &EnemyEntry, primary_id: &str, vfs: &Vfs) {
-        let resolve = |name: String| -> Option<PathBuf> {
-            let iname = format!("i{}", name);
-            vfs.find(&[name.as_str(), iname.as_str()])
-        };
-
-        let mut available_anims = Vec::new();
-        for idx in ENEMY_ANIM_SLOTS {
-            let candidate = enemy_files::maanim_file(enemy.id, idx);
-            if let Some(resolved) = resolve(candidate) {
-                available_anims.push((idx, resolved));
-            }
-        }
-
-        if let Some(p) = resolve(enemy_files::zombie_maanim_file(enemy.id, 0)) {
-            available_anims.push((IDX_BURROW, p));
-        }
-        if let Some(p) = resolve(enemy_files::zombie_maanim_file(enemy.id, 1)) {
-            available_anims.push((IDX_DIG, p));
-        }
-        if let Some(p) = resolve(enemy_files::zombie_maanim_file(enemy.id, 2)) {
-            available_anims.push((IDX_SURFACE, p));
-        }
-
-        let primary_assets = (|| {
-            let png = resolve(enemy_files::anim_file(enemy.id, EnemyAnimType::Png))?;
-            let cut = resolve(enemy_files::anim_file(enemy.id, EnemyAnimType::Imgcut))?;
-            let model = resolve(enemy_files::anim_file(enemy.id, EnemyAnimType::Mamodel))?;
-            Some((png, cut, model))
-        })();
-
-        self.primary_id = primary_id.to_string();
-        self.secondary_id = String::new();
-        self.available_anims = available_anims;
-        self.primary_assets = primary_assets;
-        self.secondary_assets = None;
-    }
-
-    fn select_valid_index(&mut self) {
-        let current_index = self.loaded_anim_index;
-        let base_available = self.base_assets_available();
-        let secondary_available = self.secondary_available();
-
-        let is_current_valid = if current_index == IDX_NONE {
-            false
-        } else if current_index == IDX_SPIRIT {
-            secondary_available
-        } else if current_index == IDX_MODEL {
-            base_available
-        } else {
-            base_available && self.available_anims.iter().any(|(index, _)| *index == current_index)
-        };
-
-        if is_current_valid {
-            return;
-        }
-
-        let mut valid_index = IDX_NONE;
-
-        if base_available {
-            for check_index in FALLBACK_PRIORITY {
-                if self.available_anims.iter().any(|(index, _)| *index == check_index) {
-                    valid_index = check_index;
-                    break;
-                }
-            }
-        }
-
-        if valid_index == IDX_NONE && secondary_available {
-            valid_index = IDX_SPIRIT;
-        }
-        if valid_index == IDX_NONE && base_available {
-            valid_index = IDX_MODEL;
-        }
-
-        self.loaded_anim_index = valid_index;
-        if valid_index == IDX_NONE {
-            self.held_unit = None;
-            self.current_anim = None;
-        }
-    }
-
     fn load_active(&mut self) {
-        let valid_index = self.loaded_anim_index;
-
-        if valid_index == IDX_NONE {
+        let Some(index) = self.selected else {
             return;
-        }
+        };
 
-        let target_id = if valid_index == IDX_SPIRIT { self.secondary_id.clone() } else { self.primary_id.clone() };
-        if target_id.is_empty() {
+        let Some(rig) = self.clips.get(index).map(|clip| clip.rig.clone()) else {
             return;
-        }
+        };
 
-        if self.is_loaded(&target_id) {
-            self.sync_animation(valid_index);
-            return;
-        }
+        let rig_id = rig.id.clone();
 
-        if self.failed_load_id == target_id {
-            return;
-        }
-
-        if self.apply_cached(&target_id, valid_index) {
-            return;
-        }
-
-        let (png, cut, model, anim_path) = self.resolve_paths(valid_index);
-
-        let loaded_unit = match (png, cut, model) {
-            (Some(png), Some(cut), Some(model)) => {
-                match (std::fs::read(png), std::fs::read(cut), std::fs::read(model)) {
-                    (Ok(png_bytes), Ok(cut_bytes), Ok(model_bytes)) => Rig::parse(&png_bytes, &cut_bytes, &model_bytes).ok(),
-                    _ => None,
-                }
+        if self.is_loaded(&rig_id) {
+            if self.loaded_clip != Some(index) {
+                self.load_anim(index);
             }
+            return;
+        }
+
+        if self.failed_rig == rig_id || self.apply_cached(index) {
+            return;
+        }
+
+        let sources = (std::fs::read(&rig.png), std::fs::read(&rig.cut), std::fs::read(&rig.model));
+
+        let loaded_unit = match sources {
+            (Ok(png), Ok(cut), Ok(model)) => Rig::parse(&png, &cut, &model).ok(),
             _ => None,
         };
 
         match loaded_unit {
             Some(unit) => {
                 let unit = Arc::new(unit);
-                self.cache.insert(&target_id, unit.clone());
+                self.cache.insert(&rig_id, unit.clone());
                 self.held_unit = Some(unit);
-                self.loaded_id = target_id;
-                self.failed_load_id.clear();
-                self.load_anim(valid_index, anim_path);
-                self.current_anim_index = valid_index;
+                self.loaded_rig = rig_id;
+                self.failed_rig.clear();
+                self.load_anim(index);
             }
             None => {
-                self.loaded_id = target_id.clone();
-                self.failed_load_id = target_id;
+                self.loaded_rig = rig_id.clone();
+                self.failed_rig = rig_id;
                 self.held_unit = None;
                 self.current_anim = None;
-                self.current_anim_index = IDX_NONE;
+                self.loaded_clip = None;
             }
         }
     }
 
-    fn needs_animation_reload(loaded_for: usize, target: usize) -> bool {
-        loaded_for != target
-    }
+    fn load_anim(&mut self, index: usize) {
+        self.loaded_clip = Some(index);
 
-    fn sync_animation(&mut self, valid_index: usize) {
-        if !Self::needs_animation_reload(self.current_anim_index, valid_index) {
+        let Some(path) = self.clips.get(index).and_then(|clip| clip.anim.clone()) else {
+            self.current_anim = None;
             return;
-        }
+        };
 
-        let (_, _, _, anim_path) = self.resolve_paths(valid_index);
-        self.load_anim(valid_index, anim_path);
-        self.current_anim_index = valid_index;
-    }
-
-    fn load_anim(&mut self, index: usize, anim_path: Option<PathBuf>) {
-        if let Some(anim) = self.cache.anim(&self.loaded_id, index) {
+        if let Some(anim) = self.cache.anim(&self.loaded_rig, &path) {
             self.current_anim = Some(anim);
             return;
         }
 
-        let parsed = anim_path
-            .and_then(|path| std::fs::read(path).ok())
+        let parsed = std::fs::read(&path)
+            .ok()
             .and_then(|bytes| Animation::parse(&bytes).ok())
             .map(Arc::new);
 
         if let Some(anim) = &parsed {
-            self.cache.store_anim(&self.loaded_id, index, anim.clone());
+            self.cache.store_anim(&self.loaded_rig, &path, anim.clone());
         }
 
         self.current_anim = parsed;
     }
+}
 
-    fn resolve_paths(&self, target_index: usize) -> (Option<PathBuf>, Option<PathBuf>, Option<PathBuf>, Option<PathBuf>) {
-        if target_index == IDX_SPIRIT {
-            return self.secondary_assets.as_ref().map_or((None, None, None, None), |(png, cut, model, anim)| {
-                (Some(png.clone()), Some(cut.clone()), Some(model.clone()), Some(anim.clone()))
-            });
+#[derive(Clone, Copy)]
+pub(super) struct Request {
+    pub slot: Option<usize>,
+    pub trailing: bool,
+}
+
+fn place(requests: &[Request]) -> Vec<Option<usize>> {
+    let mut slots: Vec<Option<usize>> = vec![None; DEFAULT_SLOTS];
+    let settled = |request: &Request| !request.trailing;
+
+    let mut anchored: Vec<(usize, usize)> = requests
+        .iter()
+        .enumerate()
+        .filter(|(_, request)| settled(request))
+        .filter_map(|(index, request)| Some((request.slot?, index)))
+        .collect();
+    anchored.sort_by_key(|(slot, _)| *slot);
+
+    for (slot, index) in anchored {
+        settle(&mut slots, slot, 1, index);
+    }
+
+    for (index, _) in requests.iter().enumerate().filter(|(_, request)| settled(request) && request.slot.is_none()) {
+        settle(&mut slots, 0, 1, index);
+    }
+
+    for (index, request) in requests.iter().enumerate().filter(|(_, request)| request.trailing) {
+        settle(&mut slots, request.slot.unwrap_or(0), COLUMNS, index);
+    }
+
+    while !slots.len().is_multiple_of(COLUMNS) {
+        slots.push(None);
+    }
+
+    slots
+}
+
+fn settle(slots: &mut Vec<Option<usize>>, from: usize, stride: usize, index: usize) {
+    let mut at = from;
+
+    loop {
+        while at >= slots.len() {
+            slots.push(None);
         }
 
-        let anim_path = self.available_anims.iter().find(|(index, _)| *index == target_index).map(|(_, path)| path.clone());
-        self.primary_assets
-            .as_ref()
-            .map_or((None, None, None, None), |(png, cut, model)| (Some(png.clone()), Some(cut.clone()), Some(model.clone()), anim_path))
+        if slots[at].is_none() {
+            slots[at] = Some(index);
+            return;
+        }
+
+        at += stride;
     }
 }
 
 pub struct PreloadRequest {
-    target_id: String,
-    anim_index: usize,
+    rig_id: String,
     png: PathBuf,
     cut: PathBuf,
     model: PathBuf,
@@ -487,16 +364,18 @@ impl PreloadRequest {
         };
 
         if unit.is_none() {
-            warn!("Animation preload failed for {}", self.target_id);
+            warn!("Animation preload failed for {}", self.rig_id);
         }
 
-        let anim = self.anim
+        let anim = self
+            .anim
+            .as_ref()
             .and_then(|path| std::fs::read(path).ok())
             .and_then(|bytes| Animation::parse(&bytes).ok());
 
         PreloadResult {
-            target_id: self.target_id,
-            anim_index: self.anim_index,
+            rig_id: self.rig_id,
+            anim_path: self.anim,
             unit: unit.map(Arc::new),
             anim: anim.map(Arc::new),
         }
@@ -505,8 +384,8 @@ impl PreloadRequest {
 
 #[derive(Clone)]
 pub struct PreloadResult {
-    target_id: String,
-    anim_index: usize,
+    rig_id: String,
+    anim_path: Option<PathBuf>,
     unit: Option<Arc<Rig>>,
     anim: Option<Arc<Animation>>,
 }
@@ -514,8 +393,8 @@ pub struct PreloadResult {
 impl std::fmt::Debug for PreloadResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PreloadResult")
-            .field("target_id", &self.target_id)
-            .field("anim_index", &self.anim_index)
+            .field("rig_id", &self.rig_id)
+            .field("anim", &self.anim_path)
             .field("loaded", &self.unit.is_some())
             .finish()
     }
@@ -531,7 +410,7 @@ struct RigCache {
 struct CacheSlot {
     id: String,
     unit: Arc<Rig>,
-    anims: Vec<(usize, Arc<Animation>)>,
+    anims: Vec<(PathBuf, Arc<Animation>)>,
 }
 
 impl RigCache {
@@ -543,9 +422,9 @@ impl RigCache {
         Some(unit)
     }
 
-    fn anim(&self, id: &str, index: usize) -> Option<Arc<Animation>> {
+    fn anim(&self, id: &str, path: &Path) -> Option<Arc<Animation>> {
         let slot = self.slots.iter().find(|slot| slot.id == id)?;
-        slot.anims.iter().find(|(i, _)| *i == index).map(|(_, anim)| anim.clone())
+        slot.anims.iter().find(|(known, _)| known == path).map(|(_, anim)| anim.clone())
     }
 
     fn insert(&mut self, id: &str, unit: Arc<Rig>) {
@@ -563,17 +442,85 @@ impl RigCache {
         self.slots.push(CacheSlot { id: id.to_string(), unit, anims: Vec::new() });
     }
 
-    fn store_anim(&mut self, id: &str, index: usize, anim: Arc<Animation>) {
+    fn store_anim(&mut self, id: &str, path: &Path, anim: Arc<Animation>) {
         let Some(slot) = self.slots.iter_mut().find(|slot| slot.id == id) else {
             return;
         };
 
-        if !slot.anims.iter().any(|(i, _)| *i == index) {
-            slot.anims.push((index, anim));
+        if !slot.anims.iter().any(|(known, _)| known == path) {
+            slot.anims.push((path.to_path_buf(), anim));
         }
     }
 
     fn clear(&mut self) {
         self.slots.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use kore::systems::animation::SLOT_MODEL;
+
+    use super::*;
+
+    fn at(slot: usize) -> Request {
+        Request { slot: Some(slot), trailing: false }
+    }
+
+    fn free() -> Request {
+        Request { slot: None, trailing: false }
+    }
+
+    fn model() -> Request {
+        Request { slot: Some(SLOT_MODEL), trailing: true }
+    }
+
+    #[test]
+    fn requested_slots_win_before_walkers() {
+        // walk/idle/attack/kb ask for 0-3; burrow/surface/spirit have no request and walk from 0.
+        let slots = place(&[at(0), at(1), at(2), at(3), model(), free(), free(), free()]);
+
+        assert_eq!(slots, vec![Some(0), Some(1), Some(2), Some(3), Some(5), Some(6), Some(7), Some(4)]);
+    }
+
+    #[test]
+    fn collisions_walk_forward_in_numerical_order() {
+        // Two clips want slot 2; the later one settles on 3, pushing the slot-3 request to 4.
+        let slots = place(&[at(3), at(2), at(2)]);
+
+        assert_eq!(slots[2..5], [Some(1), Some(2), Some(0)]);
+    }
+
+    #[test]
+    fn a_request_past_the_default_grid_grows_it() {
+        let slots = place(&[at(0), at(1), at(2), at(3), model(), at(9)]);
+
+        assert_eq!(slots.len(), 12);
+        assert_eq!(slots[9], Some(5));
+        assert_eq!(slots[8], None);
+    }
+
+    #[test]
+    fn the_model_settles_last_and_keeps_the_trailing_column() {
+        // Eight walkers fill 0-7, so the model steps a whole row rather than landing at 8.
+        let mut requests: Vec<Request> = std::iter::repeat_n(free(), 8).collect();
+        requests.push(model());
+
+        let slots = place(&requests);
+
+        assert_eq!(slots.len(), 12);
+        assert_eq!(slots[11], Some(8));
+        assert_eq!(slots[8..11], [None, None, None]);
+    }
+
+    #[test]
+    fn overflow_grows_the_grid_in_whole_rows() {
+        let requests: Vec<Request> = std::iter::repeat_n(free(), 9).chain([model()]).collect();
+        let slots = place(&requests);
+
+        assert_eq!(slots.len(), 12);
+        assert_eq!(slots[8], Some(8));
+        assert_eq!(slots[11], Some(9));
+        assert_eq!(slots[9..11], [None, None]);
     }
 }

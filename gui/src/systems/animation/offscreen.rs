@@ -14,7 +14,7 @@ use nyanko::graphics::rig::{Animation, Rig};
 
 use kore::systems::animation::export::process::calculate_export_time;
 use kore::systems::animation::export::{EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
-use kore::systems::animation::{multiply_mat3, IDX_ATTACK, IDX_IDLE, IDX_KB, IDX_WALK};
+use kore::systems::animation::{multiply_mat3, Role};
 
 use super::pipeline::{build_vertices, Pipeline};
 
@@ -233,7 +233,7 @@ impl Renderer {
 pub struct Job {
     pub unit: Arc<Rig>,
     pub animation: Option<Arc<Animation>>,
-    pub available_anims: Vec<(usize, PathBuf)>,
+    pub role_paths: Vec<(Role, PathBuf)>,
     pub timing: FrameTiming,
     pub lengths: ShowcaseLengths,
     pub camera: Camera,
@@ -260,7 +260,7 @@ fn run(job: Job) {
     };
 
     let clips = if job.timing.mode == ExportMode::Showcase {
-        Some(ShowcaseClips::load(&job.available_anims))
+        Some(ShowcaseClips::load(&job.role_paths))
     } else {
         None
     };
@@ -277,8 +277,8 @@ fn run(job: Job) {
 
         let (animation, local_time) = match &clips {
             Some(clips) => {
-                let (slot, time) = showcase_segment(job.lengths, progress);
-                let animation = clips.get(slot);
+                let (role, time) = showcase_segment(job.lengths, progress);
+                let animation = clips.get(role);
                 let time = match animation {
                     Some(anim) if anim.playback_frames() > 1 => time,
                     _ => 0.0,
@@ -317,46 +317,45 @@ struct ShowcaseClips {
 }
 
 impl ShowcaseClips {
-    fn load(available_anims: &[(usize, PathBuf)]) -> Self {
-        let parse = |slot: usize| -> Option<Animation> {
-            let (_, path) = available_anims.iter().find(|(idx, _)| *idx == slot)?;
+    fn load(role_paths: &[(Role, PathBuf)]) -> Self {
+        let parse = |role: Role| -> Option<Animation> {
+            let (_, path) = role_paths.iter().find(|(known, _)| *known == role)?;
             let bytes = fs::read(path).ok()?;
             Animation::parse(&bytes).ok()
         };
 
         Self {
-            walk: parse(IDX_WALK),
-            idle: parse(IDX_IDLE),
-            attack: parse(IDX_ATTACK),
-            kb: parse(IDX_KB),
+            walk: parse(Role::Walk),
+            idle: parse(Role::Idle),
+            attack: parse(Role::Attack),
+            kb: parse(Role::Knockback),
         }
     }
 
-    fn get(&self, slot: usize) -> Option<&Animation> {
-        match slot {
-            IDX_WALK => self.walk.as_ref(),
-            IDX_IDLE => self.idle.as_ref(),
-            IDX_ATTACK => self.attack.as_ref(),
-            IDX_KB => self.kb.as_ref(),
-            _ => None,
+    fn get(&self, role: Role) -> Option<&Animation> {
+        match role {
+            Role::Walk => self.walk.as_ref(),
+            Role::Idle => self.idle.as_ref(),
+            Role::Attack => self.attack.as_ref(),
+            Role::Knockback => self.kb.as_ref(),
         }
     }
 }
 
-fn showcase_segment(lengths: ShowcaseLengths, progress: i32) -> (usize, f32) {
+fn showcase_segment(lengths: ShowcaseLengths, progress: i32) -> (Role, f32) {
     let walk = lengths.walk;
     let idle = lengths.idle;
     let attack = lengths.attack;
 
     if progress < walk {
-        (IDX_WALK, (progress % walk.max(1)) as f32)
+        (Role::Walk, (progress % walk.max(1)) as f32)
     } else if progress < walk + idle {
-        (IDX_IDLE, ((progress - walk) % idle.max(1)) as f32)
+        (Role::Idle, ((progress - walk) % idle.max(1)) as f32)
     } else if progress < walk + idle + attack {
-        (IDX_ATTACK, (progress - (walk + idle)) as f32)
+        (Role::Attack, (progress - (walk + idle)) as f32)
     } else {
         let relative = progress - (walk + idle + attack);
-        (IDX_KB, (relative % lengths.kb.max(1)) as f32)
+        (Role::Knockback, (relative % lengths.kb.max(1)) as f32)
     }
 }
 

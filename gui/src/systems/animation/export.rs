@@ -15,7 +15,7 @@ use nyanko::graphics::rig::Animation;
 use kore::common::job::ProgressCounter;
 use kore::systems::addons::paths::{self, Presence};
 use kore::systems::animation::export::{find_bounds, find_loop, leader, process, BoundsOutcome, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
-use kore::systems::animation::{furthest_frame, true_loop, IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_SPIRIT, IDX_SURFACE, IDX_WALK};
+use kore::systems::animation::{furthest_frame, true_loop, Role};
 use kore::domains::settings::Settings;
 
 use crate::app::state::AnimState;
@@ -50,7 +50,7 @@ const DEFAULT_WALK_LEN: i32 = 90;
 const DEFAULT_IDLE_LEN: i32 = 90;
 const DEFAULT_KB_LEN: i32 = 60;
 
-type JobKey = (String, usize);
+type JobKey = (String, Option<usize>);
 
 enum JobResult {
     Completed,
@@ -277,7 +277,7 @@ impl State {
     pub fn sync(&mut self, data: &data::State, settings: &Settings, anim_state: &AnimState) {
         self.check_settings_defaults(settings);
 
-        let key = (data.loaded_id().to_string(), data.loaded_anim_index);
+        let key = (data.set_id().to_string(), data.selected());
 
         if self.synced_key.as_ref() != Some(&key) {
             let unit_changed = self.synced_key.as_ref().is_none_or(|(id, _)| *id != key.0);
@@ -287,7 +287,7 @@ impl State {
                 self.reset(settings, anim_state);
             }
 
-            self.exporter.loop_supported = matches!(data.loaded_anim_index, IDX_WALK | IDX_IDLE);
+            self.exporter.loop_supported = data.current_loops();
 
             if self.exporter.export_mode == ExportMode::Loop && !self.exporter.loop_supported {
                 self.exporter.export_mode = ExportMode::Manual;
@@ -314,7 +314,8 @@ impl State {
                 self.exporter.frame_end_str.clear();
             }
 
-            self.exporter.name_prefix = derive_name_prefix(data.primary_id(), data.loaded_anim_index);
+            let slug = data.current_clip().map_or_else(|| "anim".to_string(), |clip| clip.slug());
+            self.exporter.name_prefix = derive_name_prefix(data.set_id(), &slug);
         }
 
         self.maybe_scan_showcase(data, settings);
@@ -351,19 +352,18 @@ impl State {
             return;
         }
 
-        let loaded_id = data.loaded_id();
-        if self.scanned_showcase.as_deref() == Some(loaded_id) {
+        let set_id = data.set_id();
+        if self.scanned_showcase.as_deref() == Some(set_id) {
             return;
         }
-        self.scanned_showcase = Some(loaded_id.to_string());
+        self.scanned_showcase = Some(set_id.to_string());
 
-        let parse_anim = |target_idx: usize| -> Option<Animation> {
-            let (_, path) = data.available_anims.iter().find(|(idx, _)| *idx == target_idx)?;
-            let bytes = fs::read(path).ok()?;
+        let parse_anim = |role: Role| -> Option<Animation> {
+            let bytes = fs::read(data.role_path(role)?).ok()?;
             Animation::parse(&bytes).ok()
         };
 
-        if let Some(attack) = parse_anim(IDX_ATTACK) {
+        if let Some(attack) = parse_anim(Role::Attack) {
             let total_attack_frames = furthest_frame(&attack) + 1;
             self.exporter.detected_attack_len = total_attack_frames;
             if self.exporter.showcase_attack_str.is_empty() {
@@ -371,7 +371,7 @@ impl State {
             }
         }
 
-        if let Some(walk) = parse_anim(IDX_WALK) {
+        if let Some(walk) = parse_anim(Role::Walk) {
             let walk_loop = true_loop(&walk).unwrap_or_else(|| furthest_frame(&walk));
             let new_walk_length = if walk_loop <= 1 { 0 } else { settings.animation.default_showcase_walk };
             self.exporter.detected_walk_len = new_walk_length;
@@ -382,7 +382,7 @@ impl State {
             }
         }
 
-        if let Some(idle) = parse_anim(IDX_IDLE) {
+        if let Some(idle) = parse_anim(Role::Idle) {
             let idle_loop = true_loop(&idle).unwrap_or_else(|| furthest_frame(&idle));
             let new_idle_length = if idle_loop <= 1 { 0 } else { settings.animation.default_showcase_idle };
             self.exporter.detected_idle_len = new_idle_length;
@@ -638,7 +638,7 @@ impl State {
                 offscreen::spawn(offscreen::Job {
                     unit,
                     animation: data.current_anim.clone(),
-                    available_anims: data.available_anims.clone(),
+                    role_paths: data.role_paths(),
                     timing,
                     lengths: request.showcase,
                     camera: Camera {
@@ -832,12 +832,12 @@ impl State {
                 let is_showcase = self.exporter.export_mode == ExportMode::Showcase;
                 let scan_limit = self.exporter.frame_end.max(self.exporter.frame_start).max(0);
                 let current_anim = data.current_anim.clone();
-                let available_anims = data.available_anims.clone();
+                let role_paths = data.role_paths();
                 let showcase_slots = [
-                    (IDX_WALK, self.exporter.showcase_walk_len),
-                    (IDX_IDLE, self.exporter.showcase_idle_len),
-                    (IDX_ATTACK, self.exporter.showcase_attack_len),
-                    (IDX_KB, self.exporter.showcase_kb_len),
+                    (Role::Walk, self.exporter.showcase_walk_len),
+                    (Role::Idle, self.exporter.showcase_idle_len),
+                    (Role::Attack, self.exporter.showcase_attack_len),
+                    (Role::Knockback, self.exporter.showcase_kb_len),
                 ];
 
                 let abort = Arc::new(AtomicBool::new(false));
@@ -850,12 +850,12 @@ impl State {
                     let mut showcase_clips = Vec::new();
 
                     if is_showcase {
-                        for (slot, length) in showcase_slots {
+                        for (role, length) in showcase_slots {
                             if length <= 0 {
                                 continue;
                             }
 
-                            if let Some((_, path)) = available_anims.iter().find(|(idx, _)| *idx == slot)
+                            if let Some((_, path)) = role_paths.iter().find(|(known, _)| *known == role)
                                 && let Ok(bytes) = fs::read(path)
                                 && let Ok(anim) = Animation::parse(&bytes) {
                                 showcase_clips.push((anim, length));
@@ -1144,17 +1144,11 @@ impl State {
             format!("{}f~{}f", display_start, display_end)
         };
 
-        let clean_prefix = self.exporter.name_prefix
-            .replace("_0", "")
-            .replace("_f", "-1")
-            .replace("_c", "-2")
-            .replace("_s", "-3");
-
         let prefix_display = if self.exporter.export_mode == ExportMode::Showcase {
-            clean_prefix.split('.').next()
+            self.exporter.name_prefix.split('.').next()
                 .map_or_else(|| "unit.showcase".to_string(), |first| format!("{}.showcase", first))
         } else {
-            clean_prefix
+            self.exporter.name_prefix.clone()
         };
 
         let name_hint = if prefix_display.is_empty() {
@@ -1407,19 +1401,7 @@ fn addon_badge(label: &str, installed: bool) -> Element<'_, Message> {
         .into()
 }
 
-fn derive_name_prefix(raw_id: &str, anim_index: usize) -> String {
-    let type_string = match anim_index {
-        IDX_WALK => "walk",
-        IDX_IDLE => "idle",
-        IDX_ATTACK => "attack",
-        IDX_KB => "kb",
-        IDX_BURROW => "burrow",
-        IDX_SURFACE => "surface",
-        IDX_SPIRIT => "spirit",
-        IDX_MODEL => "model",
-        _ => "anim",
-    };
-
+fn derive_name_prefix(raw_id: &str, type_string: &str) -> String {
     let id_parts: Vec<&str> = raw_id.split('_').collect();
     let mut clean_id = id_parts.first().copied().unwrap_or("").to_string();
 

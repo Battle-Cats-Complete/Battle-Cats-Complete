@@ -1,16 +1,11 @@
-use iced::widget::{button, column, container, mouse_area, opaque, row, rule, text, text_input, Button, Container, TextInput};
+use iced::widget::{button, column, container, mouse_area, opaque, row, rule, scrollable, text, text_input, Button, Container, TextInput};
 use iced::border::Radius;
 use iced::{alignment, border, font, Background, Border, Color, Element, Font, Length, Padding, Theme, Vector};
-
-use kore::systems::animation::{
-    IDX_ATTACK, IDX_BURROW, IDX_IDLE, IDX_KB, IDX_MODEL, IDX_NONE, IDX_SPIRIT, IDX_SURFACE,
-    IDX_WALK,
-};
 
 use crate::app::state::AnimState;
 use crate::app::theme;
 use crate::common::fonts;
-use crate::widget::{slide, Slide};
+use crate::widget::{slide, smooth_scroll, Slide};
 
 use super::{canvas, data};
 
@@ -35,12 +30,19 @@ const ANIM_BUTTON_W: f32 = 70.0;
 const ANIM_BUTTON_H: f32 = 25.0;
 const GRID_GAP: f32 = 5.0;
 const GRID_PAD: f32 = 2.0;
+const GRID_ROWS: usize = 2;
+const SCROLLBAR_W: f32 = 6.0;
+const SCROLLBAR_MARGIN: f32 = 2.0;
 
 const TOGGLE_HEIGHT: f32 = 18.0;
 const TOGGLE_TEXT_SIZE: f32 = 14.0;
 const PLAY_TEXT_SIZE: f32 = 16.0;
 const TILE_TEXT_SIZE: f32 = 14.0;
-const ANIM_TEXT_SIZE: f32 = 13.0;
+const ANIM_TEXT_STEPS: [f32; 6] = [13.0, 12.0, 11.0, 10.0, 9.0, 8.0];
+const ANIM_TEXT_FLOOR: f32 = 8.0;
+const ANIM_LABEL_INSET: f32 = 2.0;
+const GLYPH_ADVANCE: f32 = 0.52;
+const LINE_HEIGHT: f32 = 1.1;
 
 const PANEL_PAD: f32 = 8.0;
 const PANEL_ALPHA: f32 = 160.0 / 255.0;
@@ -49,17 +51,6 @@ const DISABLED_ALPHA: f32 = 0.5;
 
 const PLAY_GLYPH: &str = "\u{25B6}";
 const PAUSE_GLYPH: &str = "\u{25AE}\u{25AE}";
-
-const ANIM_BUTTONS: [(&str, usize); 8] = [
-    ("Walk", IDX_WALK),
-    ("Idle", IDX_IDLE),
-    ("Attack", IDX_ATTACK),
-    ("Knockback", IDX_KB),
-    ("Burrow", IDX_BURROW),
-    ("Surface", IDX_SURFACE),
-    ("Spirit", IDX_SPIRIT),
-    ("Model", IDX_MODEL),
-];
 
 #[derive(Default)]
 pub struct State {
@@ -103,7 +94,7 @@ fn frame_text(canvas: &canvas::State) -> String {
 }
 
 fn frame_bounds(canvas: &canvas::State, data: &data::State) -> (f32, Option<f32>) {
-    if data.active_index() == IDX_MODEL {
+    if data.is_model() {
         return (0.0, Some(0.0));
     }
 
@@ -119,7 +110,7 @@ pub(super) fn clamp_frame(canvas: &mut canvas::State, data: &data::State) {
 }
 
 fn effective_max(canvas: &canvas::State, data: &data::State) -> String {
-    if data.active_index() == IDX_MODEL {
+    if data.is_model() {
         return "0".to_string();
     }
 
@@ -270,37 +261,96 @@ fn divider<'a>() -> Container<'a, Message> {
         .align_x(alignment::Horizontal::Center)
 }
 
-fn anim_grid(data: &data::State) -> Element<'_, Message> {
-    let base_available = data.base_assets_available();
-    let secondary_available = data.secondary_available();
+fn vacant_tile<'a>() -> Element<'a, Message> {
+    container(text(""))
+        .width(Length::Fixed(ANIM_BUTTON_W))
+        .height(Length::Fixed(ANIM_BUTTON_H))
+        .style(|t: &Theme| {
+            let base = theme::toggle_button(t, button::Status::Active, false);
 
+            container::Style {
+                background: base.background,
+                text_color: Some(base.text_color),
+                border: base.border,
+                ..container::Style::default()
+            }
+        })
+        .into()
+}
+
+fn fitted_size(label: &str) -> f32 {
+    let room_w = ANIM_BUTTON_W - ANIM_LABEL_INSET * 2.0;
+    let room_h = ANIM_BUTTON_H - ANIM_LABEL_INSET * 2.0;
+    let glyphs = label.chars().count();
+
+    ANIM_TEXT_STEPS
+        .into_iter()
+        .find(|size| {
+            let per_line = (room_w / (size * GLYPH_ADVANCE)).floor().max(1.0);
+            let lines = (room_h / (size * LINE_HEIGHT)).floor().max(1.0);
+            glyphs as f32 <= per_line * lines
+        })
+        .unwrap_or(ANIM_TEXT_FLOOR)
+}
+
+fn clip_tile(data: &data::State, index: usize) -> Element<'_, Message> {
+    let Some(clip) = data.clip(index) else {
+        return vacant_tile();
+    };
+
+    let is_active = data.selected() == Some(index);
+    let label = clip.label();
+    let size = fitted_size(&label);
+
+    let face = container(
+        text(label)
+            .size(size)
+            .line_height(text::LineHeight::Relative(LINE_HEIGHT))
+            .wrapping(text::Wrapping::WordOrGlyph)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center(),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .clip(true);
+
+    button(face)
+        .width(Length::Fixed(ANIM_BUTTON_W))
+        .height(Length::Fixed(ANIM_BUTTON_H))
+        .padding(ANIM_LABEL_INSET)
+        .on_press(Message::SelectAnimation(index))
+        .style(move |t: &Theme, status| control_style(t, status, is_active))
+        .into()
+}
+
+fn anim_grid(data: &data::State) -> Element<'_, Message> {
+    let slots = data.slots();
     let mut grid = column![].spacing(GRID_GAP);
 
-    for chunk in ANIM_BUTTONS.chunks(4) {
+    for chunk in slots.chunks(data::COLUMNS) {
         let mut buttons = row![].spacing(GRID_GAP);
 
-        for (label, index) in chunk {
-            let available = match *index {
-                IDX_SPIRIT => secondary_available,
-                IDX_MODEL => base_available,
-                idx => base_available && data.available_anims.iter().any(|(a, _)| *a == idx),
-            };
-            let is_active = data.loaded_anim_index == *index && data.loaded_anim_index != IDX_NONE;
-
-            buttons = buttons.push(
-                button(text(*label).size(ANIM_TEXT_SIZE).width(Length::Fill).height(Length::Fill).center())
-                    .width(Length::Fixed(ANIM_BUTTON_W))
-                    .height(Length::Fixed(ANIM_BUTTON_H))
-                    .padding(0)
-                    .on_press_maybe(available.then_some(Message::SelectAnimation(*index)))
-                    .style(move |t: &Theme, status| control_style(t, status, is_active)),
-            );
+        for slot in chunk {
+            buttons = buttons.push(slot.map_or_else(vacant_tile, |index| clip_tile(data, index)));
         }
 
         grid = grid.push(buttons);
     }
 
-    grid.into()
+    if slots.len() <= data::COLUMNS * GRID_ROWS {
+        return grid.into();
+    }
+
+    let visible = ANIM_BUTTON_H * GRID_ROWS as f32 + GRID_GAP * (GRID_ROWS - 1) as f32;
+    let bar = scrollable::Scrollbar::new().width(SCROLLBAR_W).scroller_width(SCROLLBAR_W).margin(SCROLLBAR_MARGIN);
+
+    smooth_scroll(
+        scrollable(container(grid).width(Length::Fill).align_x(alignment::Horizontal::Center))
+            .direction(scrollable::Direction::Vertical(bar))
+            .height(Length::Fixed(visible)),
+    )
+    .into()
 }
 
 impl State {
@@ -442,8 +492,8 @@ impl State {
     }
 
     fn transport_row<'a>(&'a self, canvas: &'a canvas::State, data: &'a data::State) -> Element<'a, Message> {
-        let base_available = data.base_assets_available();
-        let anim_loaded = base_available && data.loaded_anim_index != IDX_NONE;
+        let base_available = data.held_unit.is_some();
+        let anim_loaded = base_available && data.current_clip().is_some();
 
         let play_icon = if canvas.is_playing { PAUSE_GLYPH } else { PLAY_GLYPH };
 

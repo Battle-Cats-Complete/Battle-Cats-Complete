@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod filter;
 pub mod files;
 pub(crate) mod patterns;

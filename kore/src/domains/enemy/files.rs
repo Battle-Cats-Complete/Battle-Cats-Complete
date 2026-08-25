@@ -19,7 +19,7 @@ impl AnimType {
     }
 }
 
-fn anim_base_filename(id: u32) -> String {
+pub fn anim_base_filename(id: u32) -> String {
     format!("{:03}_e", id)
 }
 

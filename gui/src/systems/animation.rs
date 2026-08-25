@@ -10,10 +10,8 @@ mod pipeline;
 use iced::widget::{button, column, container, stack, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
 
-use kore::domains::cat::scanner::CatEntry;
-use kore::domains::enemy::scanner::EnemyEntry;
 use kore::domains::settings::Settings;
-use kore::Vfs;
+use kore::systems::animation::Clip;
 
 use crate::app::state::AnimState;
 use crate::app::theme;
@@ -56,8 +54,8 @@ pub struct State {
     export: export::State,
     overlay: overlay::State,
     is_expanded: bool,
-    playhead_id: String,
-    playhead_index: usize,
+    playhead_rig: String,
+    playhead_clip: Option<usize>,
     playhead_reset: bool,
 }
 
@@ -72,14 +70,8 @@ pub enum Message {
 }
 
 impl State {
-    pub fn sync(&mut self, cat: &CatEntry, form: usize, vfs: &Vfs, settings: &Settings, anim_state: &AnimState) {
-        self.data.sync(cat, form, vfs);
-        self.export.sync(&self.data, settings, anim_state);
-        self.sync_playhead();
-    }
-
-    pub fn sync_enemy(&mut self, enemy: &EnemyEntry, vfs: &Vfs, settings: &Settings, anim_state: &AnimState) {
-        self.data.sync_enemy(enemy, vfs);
+    pub fn sync(&mut self, key: &str, build: impl FnOnce() -> Vec<Clip>, settings: &Settings, anim_state: &AnimState) {
+        self.data.sync(key, build);
         self.export.sync(&self.data, settings, anim_state);
         self.sync_playhead();
     }
@@ -89,12 +81,14 @@ impl State {
     }
 
     fn sync_playhead(&mut self) {
-        if self.playhead_id == self.data.loaded_id() && self.playhead_index == self.data.active_index() {
+        let (rig, clip) = self.data.playhead_key();
+
+        if self.playhead_rig == rig && self.playhead_clip == clip {
             return;
         }
 
-        self.playhead_id = self.data.loaded_id().to_string();
-        self.playhead_index = self.data.active_index();
+        self.playhead_rig = rig.to_string();
+        self.playhead_clip = clip;
 
         if std::mem::take(&mut self.playhead_reset) {
             self.canvas.current_frame = 0.0;
@@ -103,12 +97,8 @@ impl State {
         controls::clamp_frame(&mut self.canvas, &self.data);
     }
 
-    pub fn preload(&mut self, cat: &CatEntry, form: usize, vfs: &Vfs) -> Task<Message> {
-        Self::preload_task(self.data.preload_request(cat, form, vfs))
-    }
-
-    pub fn preload_enemy(&mut self, enemy: &EnemyEntry, vfs: &Vfs) -> Task<Message> {
-        Self::preload_task(self.data.preload_enemy_request(enemy, vfs))
+    pub fn preload(&mut self, key: &str, build: impl FnOnce() -> Vec<Clip>) -> Task<Message> {
+        Self::preload_task(self.data.preload_request(key, build))
     }
 
     fn preload_task(request: Option<data::PreloadRequest>) -> Task<Message> {

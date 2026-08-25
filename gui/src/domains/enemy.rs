@@ -24,6 +24,7 @@ use kore::common::context::GlobalContext;
 use kore::common::formats::SpriteSheet as CoreSpriteSheet;
 use kore::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
 use kore::systems::combat::RenderContext;
+use kore::domains::enemy::animation as enemy_animation;
 use kore::domains::enemy::scanner::{self, EnemyEntry};
 use kore::domains::enemy::EnemyDataState;
 use kore::domains::settings::Settings;
@@ -49,6 +50,12 @@ const ICON_BOX_WIDTH: f32 = 110.0;
 const ICON_BOX_HEIGHT: f32 = 96.0;
 const APPEARANCES_TEXT_SIZE: f32 = 12.0;
 const EMPTY_CAT_ICON: &str = "uni.png";
+
+fn animation_preload(state: &mut animation::State, enemy: &EnemyEntry, vfs: &Vfs) -> Task<Message> {
+    let key = enemy_animation::set_id(enemy);
+
+    state.preload(&key, || enemy_animation::clips(enemy, vfs)).map(Message::Animation)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
@@ -372,7 +379,7 @@ impl EnemyState {
                 self.data.enemies = enemies;
                 let filter_task = self.filter.refresh_available(&self.data.enemies).map(Message::Filter);
                 let preload_task = match self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
-                    Some(enemy) => self.animation.preload_enemy(enemy, &global_ctx.vault.vfs).map(Message::Animation),
+                    Some(enemy) => animation_preload(&mut self.animation, enemy, &global_ctx.vault.vfs),
                     None => Task::none(),
                 };
 
@@ -380,7 +387,9 @@ impl EnemyState {
             }
             Message::AnimationTick => {
                 if let Some(enemy) = self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
-                    self.animation.sync_enemy(enemy, &global_ctx.vault.vfs, settings, &app_state.animation);
+                    let vfs = &global_ctx.vault.vfs;
+                    let key = enemy_animation::set_id(enemy);
+                    self.animation.sync(&key, || enemy_animation::clips(enemy, vfs), settings, &app_state.animation);
                 }
                 self.animation.tick();
                 Task::none()
@@ -401,7 +410,7 @@ impl EnemyState {
 
                 info!("Selected enemy ID: {}", id);
                 match self.data.enemies.iter().find(|e| e.id == id) {
-                    Some(enemy) => self.animation.preload_enemy(enemy, &global_ctx.vault.vfs).map(Message::Animation),
+                    Some(enemy) => animation_preload(&mut self.animation, enemy, &global_ctx.vault.vfs),
                     None => Task::none(),
                 }
             }

@@ -26,6 +26,7 @@ use tracing::info;
 
 use kore::common::context::GlobalContext;
 use kore::common::formats::SpriteSheet as CoreSpriteSheet;
+use kore::domains::cat::animation as cat_animation;
 use kore::domains::cat::game::stats::{get_final_stats, seeded_level};
 use kore::domains::cat::scanner::{self, CatEntry};
 use kore::domains::cat::waiter::unitid;
@@ -60,6 +61,12 @@ pub(crate) struct CatChanges<'a> {
 }
 
 type StatsMemo = RefCell<Option<(u32, Option<Arc<Vec<Entity>>>)>>;
+
+fn animation_preload(state: &mut animation::State, cat: &CatEntry, form: usize, vfs: &Vfs) -> Task<Message> {
+    let key = cat_animation::set_id(cat, form);
+
+    state.preload(&key, || cat_animation::clips(cat, form, vfs)).map(Message::Animation)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
@@ -494,7 +501,7 @@ impl State {
                         let (form, tab) = self.clamped_selection(cat);
                         self.selected_form = form;
                         self.selected_tab = tab;
-                        self.animation.preload(cat, form, &global_ctx.vault.vfs).map(Message::Animation)
+                        animation_preload(&mut self.animation, cat, form, &global_ctx.vault.vfs)
                     }
                     None => Task::none(),
                 };
@@ -503,7 +510,10 @@ impl State {
             }
             Message::AnimationTick => {
                 if let Some(cat) = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
-                    self.animation.sync(cat, self.selected_form, &global_ctx.vault.vfs, settings, &app_state.animation);
+                    let vfs = &global_ctx.vault.vfs;
+                    let form = self.selected_form;
+                    let key = cat_animation::set_id(cat, form);
+                    self.animation.sync(&key, || cat_animation::clips(cat, form, vfs), settings, &app_state.animation);
                 }
                 self.animation.tick();
                 Task::none()
@@ -531,7 +541,7 @@ impl State {
                         let (form, tab) = self.clamped_selection(cat);
                         self.selected_form = form;
                         self.selected_tab = tab;
-                        self.animation.preload(cat, form, &global_ctx.vault.vfs).map(Message::Animation)
+                        animation_preload(&mut self.animation, cat, form, &global_ctx.vault.vfs)
                     }
                     None => Task::none(),
                 }
@@ -543,7 +553,7 @@ impl State {
                     self.selected_tab = DetailTab::Abilities;
                 }
                 match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
-                    Some(cat) => self.animation.preload(cat, form_idx, &global_ctx.vault.vfs).map(Message::Animation),
+                    Some(cat) => animation_preload(&mut self.animation, cat, form_idx, &global_ctx.vault.vfs),
                     None => Task::none(),
                 }
             }

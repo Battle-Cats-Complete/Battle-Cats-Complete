@@ -48,7 +48,7 @@ pub fn form_name(form: usize) -> &'static str {
     }
 }
 
-fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
+pub fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     let (egg_norm, egg_evol) = egg_ids;
     let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
 
