@@ -50,15 +50,15 @@ pub(super) fn walk(root: &Path) -> Result<MountedDir, VfsError> {
     })
 }
 
-pub(super) fn stat(path: &Path) -> (u64, u64) {
-    path.metadata().map_or((0, 0), |meta| (modified(&meta), meta.len()))
+pub(super) fn stat(path: &Path) -> Option<(u64, u64)> {
+    path.metadata().ok().map(|meta| (modified(&meta), meta.len()))
 }
 
 fn modified(meta: &fs::Metadata) -> u64 {
     meta.modified()
         .ok()
         .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, |since| since.as_secs())
+        .map_or(0, |since| u64::try_from(since.as_nanos()).unwrap_or(u64::MAX))
 }
 
 fn scan(root: &Path, dir: &Path) -> Collected {

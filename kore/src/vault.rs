@@ -33,12 +33,12 @@ impl Vault {
         }
     }
 
-    pub fn hash(active_mod: Option<&str>) -> u64 {
-        cache::get_game_hash(active_mod)
+    pub fn hash(&self, active_mod: Option<&str>) -> u64 {
+        cache::index_key(self.vfs.fingerprint(), active_mod)
     }
 
-    pub fn key(config: &ScannerConfig) -> u64 {
-        cache::content_hash(config)
+    pub fn key(&self, config: &ScannerConfig) -> u64 {
+        cache::content_hash(self.vfs.fingerprint(), config)
     }
 
     pub fn key_for(index: u64, config: &ScannerConfig) -> u64 {

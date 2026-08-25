@@ -1,83 +1,36 @@
 use std::fs;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rayon::prelude::*;
 use rustc_hash::FxHasher;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::common::architecture;
 use crate::common::dirs;
 use crate::domains::settings::ScannerConfig;
 
-fn hash_directory_parallel(directory_path: &Path) -> u64 {
-    if !directory_path.exists() {
-        tracing::trace!("Directory {:?} does not exist, skipping hash", directory_path);
-        return 0;
-    }
+pub(crate) fn index_key(fingerprint: u64, active_mod: Option<&str>) -> u64 {
+    let mut hasher = FxHasher::default();
 
-    let Ok(read_directory) = fs::read_dir(directory_path) else {
-        tracing::warn!("Failed to read directory for hashing: {:?}", directory_path);
-        return 0;
-    };
-
-    let mut file_entries: Vec<PathBuf> = read_directory.flatten().map(|entry| entry.path()).collect();
-    file_entries.sort_unstable();
-
-    let child_hashes: Vec<u64> = file_entries.par_iter().map(|child_path| {
-        let mut local_hasher = FxHasher::default();
-
-        if child_path.is_dir() {
-            let subdirectory_hash = hash_directory_parallel(child_path);
-            subdirectory_hash.hash(&mut local_hasher);
-        } else if let Ok(file_metadata) = child_path.metadata()
-            && let Ok(modified_time) = file_metadata.modified() {
-            modified_time.hash(&mut local_hasher);
-        }
-
-        local_hasher.finish()
-    }).collect();
-
-    let mut final_hasher = FxHasher::default();
-    for child_hash in child_hashes {
-        child_hash.hash(&mut final_hasher);
-    }
-
-    file_entries.len().hash(&mut final_hasher);
-    final_hasher.finish()
-}
-
-#[tracing::instrument(level = "debug", skip(active_mod))]
-pub(crate) fn get_game_hash(active_mod: Option<&str>) -> u64 {
-    tracing::trace!("Calculating global game hash across assets and tables...");
-    let mut final_game_hasher = FxHasher::default();
-
-    hash_directory_parallel(Path::new(architecture::GAME)).hash(&mut final_game_hasher);
-    hash_directory_parallel(Path::new(architecture::MODS)).hash(&mut final_game_hasher);
+    fingerprint.hash(&mut hasher);
 
     if let Some(mod_name) = active_mod {
-        tracing::trace!("Including active mod in hash: {}", mod_name);
-        mod_name.hash(&mut final_game_hasher);
+        mod_name.hash(&mut hasher);
     } else {
-        "vanilla_base_game".hash(&mut final_game_hasher);
+        "vanilla_base_game".hash(&mut hasher);
     }
 
-    BUILD_STAMP.hash(&mut final_game_hasher);
-    force_token().hash(&mut final_game_hasher);
+    BUILD_STAMP.hash(&mut hasher);
+    force_token().hash(&mut hasher);
 
-    let hash_result = final_game_hasher.finish();
-    tracing::debug!("Generated game hash: {}", hash_result);
-    hash_result
+    hasher.finish()
 }
 
-pub(crate) fn content_hash(config: &ScannerConfig) -> u64 {
-    content_key(get_game_hash(config.active_mod.as_deref()), config)
+pub(crate) fn content_hash(fingerprint: u64, config: &ScannerConfig) -> u64 {
+    content_key(index_key(fingerprint, config.active_mod.as_deref()), config)
 }
 
 pub(crate) fn content_key(index: u64, config: &ScannerConfig) -> u64 {
@@ -218,5 +171,21 @@ fn load_payload<T: DeserializeOwned>(filename: &str) -> Option<(u64, T)> {
             let _ = fs::remove_file(&cache_path);
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_index_fingerprint_drives_the_key_it_composes() {
+        // persist_index derives this from the live index instead of walking the disk,
+        // so a changed index must never compose to the key the last launch stored.
+        assert_ne!(index_key(1, None), index_key(2, None));
+        assert_eq!(index_key(1, None), index_key(1, None));
+
+        // The active mod still separates keys for an otherwise identical index.
+        assert_ne!(index_key(1, None), index_key(1, Some("MyMod")));
     }
 }

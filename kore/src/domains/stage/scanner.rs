@@ -195,7 +195,7 @@ fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) +
         return Scan { data: bundle, key: None, payload: None };
     }
 
-    let key = cache::content_hash(config);
+    let key = cache::content_hash(vault.vfs.fingerprint(), config);
     let payload = cache::encode::<StageCache>(key, &bundle);
 
     Scan { data: bundle, key: Some(key), payload }

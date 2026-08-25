@@ -82,6 +82,8 @@ const FRAMES_BEFORE_SHOW: u8 = 2;
 
 const INDEX_PERSIST_COOLDOWN: Duration = Duration::from_secs(10);
 
+const INDEX_QUIET_WINDOW: Duration = Duration::from_secs(3);
+
 const TAB_TEXT_SIZE: f32 = 16.0;
 
 const ALL_PAGES: &[Page] = &[
@@ -212,6 +214,10 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     index_persisted_at: Option<Instant>,
     #[serde(skip)]
+    last_change_at: Option<Instant>,
+    #[serde(skip)]
+    replay: Vec<PathBuf>,
+    #[serde(skip)]
     validated_key: Option<u64>,
     #[serde(skip)]
     frames_painted: u8,
@@ -294,6 +300,8 @@ impl Default for BattleCatsApp {
             index_persisting: false,
             index_dirty: false,
             index_persisted_at: None,
+            last_change_at: None,
+            replay: Vec::new(),
             validated_key: None,
             frames_painted: 0,
             window_shown: false,
@@ -433,6 +441,13 @@ impl BattleCatsApp {
             return Task::none();
         }
 
+        // A rebuild is walking the disk into a vault that will replace this one, so anything
+        // patched in here is about to be thrown away. Keep the paths and replay them after
+        // the swap, otherwise a live edit during indexing silently drops out of the index.
+        if self.rebuild_running {
+            self.replay.extend(paths.iter().cloned());
+        }
+
         let mut units = HashSet::new();
         let mut stats = HashSet::new();
         let mut enemies = HashSet::new();
@@ -449,19 +464,27 @@ impl BattleCatsApp {
             if mount != architecture::GAME {
                 self.vault.evict(name);
 
-                let reindexed = self.vault.vfs.indexed(mount.as_str(), path.as_path())
-                    && self
-                        .vault
-                        .vfs
-                        .create((mount.as_str(), path.as_path()))
-                        .inspect_err(|err| warn!(path = %path.display(), "Failed to re-index a changed mod file: {}", err))
-                        .is_ok();
-
                 if name.eq_ignore_ascii_case(kore_mods::ICON) {
                     restyled_mods.insert(mount.clone());
                 }
 
-                if !reindexed {
+                let patched = if path.is_file() {
+                    self.vault
+                        .vfs
+                        .create((mount.as_str(), path.as_path()))
+                        .inspect_err(|err| warn!(path = %path.display(), "Failed to re-index a changed mod file: {}", err))
+                        .is_ok()
+                } else if self.vault.vfs.indexed(mount.as_str(), path.as_path()) {
+                    self.vault.vfs.destroy((mount.as_str(), path.as_path()));
+
+                    true
+                } else {
+                    // A vanished path we do not hold as a single file: a removed directory,
+                    // or a name the mount has more than one copy of. Re-walk to settle it.
+                    false
+                };
+
+                if !patched {
                     remounted_mods.insert(mount);
                 }
             } else if path.is_file() {
@@ -542,7 +565,26 @@ impl BattleCatsApp {
         self.enemy_state.reload_selected(&self.vault, self.settings.show_invalid_enemies());
         self.stage_state.reload_selected(&self.vault);
 
-        Task::batch([files_task, self.persist_index()])
+        self.index_dirty = true;
+        self.last_change_at = Some(Instant::now());
+
+        files_task
+    }
+
+    fn replay_changes(&mut self) -> Task<Message> {
+        let pending = std::mem::take(&mut self.replay);
+
+        if pending.is_empty() {
+            return Task::none();
+        }
+
+        info!(paths = pending.len(), "Replaying changes that landed while the index was rebuilding");
+
+        self.apply_changes(pending)
+    }
+
+    fn quiet(&self) -> bool {
+        self.last_change_at.is_none_or(|at| at.elapsed() >= INDEX_QUIET_WINDOW)
     }
 
     fn finish_validation(&mut self, vault: Option<Arc<Vault>>, key: Option<u64>, mounted: Option<String>) -> Task<Message> {
@@ -562,14 +604,17 @@ impl BattleCatsApp {
             self.vault.vds.clear();
 
             let adopted = self.adopt_vault(rebuilt, false);
+            let replayed = self.replay_changes();
 
             if !queued {
-                return adopted;
+                return Task::batch([adopted, replayed]);
             }
 
             info!("More changes landed mid-validation, indexing again");
-            return Task::batch([adopted, self.rebuild_content()]);
+            return Task::batch([adopted, replayed, self.rebuild_content()]);
         }
+
+        self.replay.clear();
 
         if queued {
             info!("More changes landed mid-validation, indexing again");
@@ -660,7 +705,7 @@ impl BattleCatsApp {
 
         Task::perform(
             smol::unblock(move || {
-                let hash = Vault::hash(active_mod.as_deref());
+                let hash = vault.hash(active_mod.as_deref());
                 vault.vfs.persist(hash);
                 trace!(hash, "Re-persisted the file index after a live change");
             }),
@@ -673,7 +718,7 @@ impl BattleCatsApp {
         let config = self.settings.scanner_config(self.mods_state.active_mod());
 
         thread::spawn(move || {
-            ContentStore::capture(&vault.vds).save(Vault::key(&config));
+            ContentStore::capture(&vault.vds).save(vault.key(&config));
         });
     }
 
@@ -735,7 +780,7 @@ impl BattleCatsApp {
                 self.check_auto_save();
                 self.check_auto_save_state();
 
-                if !self.index_dirty {
+                if !self.index_dirty || !self.quiet() {
                     return Task::none();
                 }
 

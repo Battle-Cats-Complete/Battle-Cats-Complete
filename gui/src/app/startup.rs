@@ -58,6 +58,10 @@ impl BattleCatsApp {
 
         logging::init_logging(app.settings.general.enable_logging);
 
+        if let Some(note) = architecture::anchored() {
+            info!("{}", note);
+        }
+
         architecture::work_cleanup();
 
         info!(settings_ms, "Starting initialization sequence...");
@@ -75,6 +79,12 @@ impl BattleCatsApp {
             info!("Notice {} not yet acknowledged, showing at startup", notice::hash());
             app.notice_open = true;
             app.sync_popup(ActivePopup::VersionNotice, true);
+        }
+
+        if let Some(home) = architecture::volatile() {
+            warn!(path = %home.display(), "Running from a temporary folder; imported data here can be cleared by the OS");
+            app.init_errors.report_volatile(home);
+            app.sync_popup(ActivePopup::InitErrors, true);
         }
 
         if let Some(state_dir) = dirs::state() {
@@ -141,7 +151,8 @@ impl BattleCatsApp {
                 stored
             });
 
-            let index = Vault::hash(config.active_mod.as_deref());
+            let rebuilt = walk_vault(&config);
+            let index = rebuilt.hash(config.active_mod.as_deref());
             let key = Some(Vault::key_for(index, &config));
 
             if stored == Some(Some(index)) {
@@ -150,9 +161,9 @@ impl BattleCatsApp {
                 return;
             }
 
-            info!(index, "Building the file index in the background");
-            let mut rebuilt = Vault::with_priority(&config.language_priority);
-            rebuild_vault(&mut rebuilt, &config, index);
+            info!(index, "The file index moved on disk, adopting the fresh walk");
+            adopt_walk(&rebuilt, index);
+
             let vault = Some(Arc::new(rebuilt));
             let _ = tx.unbounded_send(Message::VaultValidated { vault, key, mounted: config.active_mod });
         });
@@ -205,13 +216,19 @@ fn hydrate_vault(vault: &mut Vault) -> Option<u64> {
     stored
 }
 
-fn rebuild_vault(vault: &mut Vault, config: &ScannerConfig, index: u64) {
-    mount_game(vault);
+fn walk_vault(config: &ScannerConfig) -> Vault {
+    let vault = Vault::with_priority(&config.language_priority);
+
+    mount_game(&vault);
 
     if let Some(name) = config.active_mod.as_deref() {
-        mount_mod(vault, name);
+        mount_mod(&vault, name);
     }
 
+    vault
+}
+
+fn adopt_walk(vault: &Vault, index: u64) {
     if vault.vfs.count(architecture::GAME) == 0 {
         warn!("No game data left on disk, purging every derived cache");
         import::purge_derived_caches();

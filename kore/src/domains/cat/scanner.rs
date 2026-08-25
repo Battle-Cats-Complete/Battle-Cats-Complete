@@ -244,7 +244,7 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     parsed_cats.sort_by_key(|cat| cat.id);
 
-    let key = Some(cache::content_hash(&config));
+    let key = Some(cache::content_hash(vfs.fingerprint(), &config));
     let payload = key.and_then(|key| cache::encode::<CatCache>(key, &parsed_cats));
 
     Scan { data: parsed_cats, key, payload }

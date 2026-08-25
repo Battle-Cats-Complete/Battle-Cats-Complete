@@ -5,13 +5,14 @@ mod walk;
 
 use std::env;
 use std::ffi::OsStr;
+use std::hash::{Hash, Hasher};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHasher};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -22,6 +23,7 @@ const MOUNT_GAME: &str = "game";
 type MountKey = Box<str>;
 type Index = FxHashMap<MountKey, MountedDir>;
 type Sorted = Option<(u64, Arc<[MountKey]>)>;
+type Printed = Option<(u64, u64)>;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Entry {
@@ -167,6 +169,7 @@ pub struct Vfs {
     priority: RwLock<Vec<String>>,
     generation: AtomicU64,
     sorted: RwLock<Sorted>,
+    printed: RwLock<Printed>,
 }
 
 struct Mutation<'a> {
@@ -209,6 +212,7 @@ impl Vfs {
             priority: RwLock::new(complete),
             generation: AtomicU64::new(0),
             sorted: RwLock::new(None),
+            printed: RwLock::new(None),
         }
     }
 
@@ -473,6 +477,58 @@ impl Vfs {
         within(&indexed.root, path)
     }
 
+    pub fn fingerprint(&self) -> u64 {
+        let generation = self.generation.load(Ordering::Relaxed);
+
+        if let Ok(cached) = self.printed.read()
+            && let Some((stamp, print)) = cached.as_ref()
+            && *stamp == generation
+        {
+            return *print;
+        }
+
+        let Ok(mounts) = self.mounts.read() else {
+            return 0;
+        };
+
+        let mut hasher = FxHasher::default();
+        let mut keys: Vec<&MountKey> = mounts.keys().collect();
+        keys.sort_unstable();
+
+        for key in keys {
+            let Some(indexed) = mounts.get(key) else { continue };
+
+            key.hash(&mut hasher);
+
+            let mut names: Vec<&MountKey> = indexed.files.keys().collect();
+            names.sort_unstable();
+
+            for name in &names {
+                let Some(entry) = indexed.files.get(*name) else { continue };
+
+                name.hash(&mut hasher);
+                entry.path.hash(&mut hasher);
+                entry.mtime.hash(&mut hasher);
+                entry.len.hash(&mut hasher);
+            }
+
+            names.len().hash(&mut hasher);
+
+            for conflict in &indexed.conflicts {
+                conflict.key.hash(&mut hasher);
+                conflict.paths.len().hash(&mut hasher);
+            }
+        }
+
+        let print = hasher.finish();
+
+        if let Ok(mut cached) = self.printed.write() {
+            *cached = Some((generation, print));
+        }
+
+        print
+    }
+
     pub fn indexed(&self, mount: &str, path: &Path) -> bool {
         let Ok(mounts) = self.mounts.read() else {
             return false;
@@ -698,7 +754,11 @@ impl Mount for (&str, &Path) {
             return Err(VfsError::Unrooted { root: mount.root.clone(), path: file.to_path_buf() });
         };
 
-        let (mtime, len) = walk::stat(file);
+        // A vanished file must never be indexed: it would shadow the game mount with a
+        // dead path instead of letting resolution fall back to vanilla.
+        let Some((mtime, len)) = walk::stat(file) else {
+            return Err(VfsError::InvalidPath(file.to_path_buf()));
+        };
 
         if let Some(parent) = relative.parent() {
             let listing = mount.dirs.entry(parent.to_string_lossy().into()).or_default();
@@ -710,8 +770,40 @@ impl Mount for (&str, &Path) {
             link(mount, parent);
         }
 
-        mount.files.insert(name.into(), Entry { path: relative, mtime, len });
-        Ok(Vec::new())
+        let absolute = mount.root.join(&relative);
+
+        if let Some(at) = mount.conflicts.iter().position(|conflict| conflict.key.as_ref() == name) {
+            let paths = &mut mount.conflicts[at].paths;
+
+            if !paths.contains(&absolute) {
+                paths.push(absolute);
+                paths.sort();
+            }
+
+            return Ok(vec![mount.conflicts[at].clone()]);
+        }
+
+        let shadowed = mount.files.get(name).filter(|entry| entry.path != relative).map(|entry| mount.root.join(&entry.path));
+
+        let Some(previous) = shadowed else {
+            mount.files.insert(name.into(), Entry { path: relative, mtime, len });
+
+            return Ok(Vec::new());
+        };
+
+        // A second copy of the name appeared, so neither resolves any more — same rule
+        // walk::merge applies, kept in step so an added file needs no remount.
+        mount.files.remove(name);
+
+        let mut paths = vec![previous, absolute];
+        paths.sort();
+
+        let conflict = Conflict { key: name.into(), paths };
+        let at = mount.conflicts.partition_point(|existing| existing.key.as_ref() < name);
+
+        mount.conflicts.insert(at, conflict.clone());
+
+        Ok(vec![conflict])
     }
 
     fn unmount(self, vfs: &Vfs) {
@@ -734,17 +826,33 @@ impl Mount for (&str, &Path) {
                 return;
             };
 
-            if mount.files.get(name).is_none_or(|entry| entry.path != relative) {
-                return;
-            }
-
-            let removed = mount.files.remove(name);
-
-            if let Some(entry) = removed
-                && let Some(parent) = entry.path.parent()
+            if let Some(parent) = relative.parent()
                 && let Some(listing) = mount.dirs.get_mut(parent.to_string_lossy().as_ref())
             {
                 listing.retain(|existing| existing.as_ref() != name);
+            }
+
+            let absolute = mount.root.join(&relative);
+
+            if let Some(at) = mount.conflicts.iter().position(|conflict| conflict.key.as_ref() == name) {
+                mount.conflicts[at].paths.retain(|path| path != &absolute);
+
+                match mount.conflicts[at].paths.len() {
+                    0 => drop(mount.conflicts.remove(at)),
+                    // The last rival is gone, so the survivor becomes resolvable again.
+                    1 => {
+                        let survivor = mount.conflicts.remove(at).paths.remove(0);
+
+                        if let Some(path) = within(&mount.root, &survivor)
+                            && let Some((mtime, len)) = walk::stat(&survivor)
+                        {
+                            mount.files.insert(name.into(), Entry { path, mtime, len });
+                        }
+                    }
+                    _ => {}
+                }
+            } else if mount.files.get(name).is_some_and(|entry| entry.path == relative) {
+                mount.files.remove(name);
             }
         }
 
@@ -874,6 +982,101 @@ mod tests {
 
         // Unknown mounts never claim a file.
         assert!(!vfs.indexed("nope", &known));
+    }
+
+    #[test]
+    fn an_incrementally_updated_index_fingerprints_like_a_cold_walk() {
+        let scratch = Scratch::new("fingerprint");
+        let root = &scratch.0;
+        let target = root.join("patch").join("unit044.csv");
+
+        fs::write(&target, "0,1,2\n").expect("seed file");
+        fs::write(root.join("patch").join("t_unit.csv"), "a\n").expect("seed sibling");
+
+        let live = Vfs::with_priority(&[]);
+        live.create(root.as_path()).expect("mount");
+
+        let mount = root.file_name().and_then(OsStr::to_str).expect("mount key");
+        let before = live.fingerprint();
+
+        // Edit on disk, then apply only the per-file update the watcher would.
+        fs::write(&target, "0,9,9,9\n").expect("rewrite file");
+        live.create((mount, target.as_path())).expect("incremental update");
+
+        let after = live.fingerprint();
+        assert_ne!(before, after, "an edit has to move the fingerprint or the cache never invalidates");
+
+        // The whole design trusts the live index instead of re-walking: a cold walk of the
+        // same directory must produce the identical fingerprint, or the key written during
+        // a session will not match the one the next launch computes.
+        let cold = Vfs::with_priority(&[]);
+        cold.create(root.as_path()).expect("cold walk");
+
+        assert_eq!(after, cold.fingerprint(), "incremental index diverged from a fresh walk");
+    }
+
+    #[test]
+    fn a_deleted_file_cannot_be_reindexed_into_a_dead_entry() {
+        let scratch = Scratch::new("deleted");
+        let root = &scratch.0;
+        let target = root.join("patch").join("unit044.csv");
+
+        fs::write(&target, "0,1,2\n").expect("seed file");
+
+        let vfs = Vfs::with_priority(&[]);
+        vfs.create(root.as_path()).expect("mount");
+
+        let mount = root.file_name().and_then(OsStr::to_str).expect("mount key");
+        fs::remove_file(&target).expect("delete the file");
+
+        // The name is still indexed, so an existence check is the caller's job — but the
+        // incremental mount must refuse rather than insert a zeroed entry, which would shadow
+        // the game mount with a dead path and read as "missing" instead of falling back.
+        assert!(vfs.indexed(mount, &target));
+        assert!(vfs.create((mount, target.as_path())).is_err());
+        assert_eq!(vfs.rooted(mount, "unit044.csv"), Some(target.clone()));
+
+        // A remount is what actually drops it, restoring the fallback.
+        vfs.create(root.as_path()).expect("remount");
+        assert_eq!(vfs.rooted(mount, "unit044.csv"), None);
+    }
+
+    #[test]
+    fn adding_and_removing_a_rival_copy_needs_no_remount() {
+        let scratch = Scratch::new("rivals");
+        let root = &scratch.0;
+        let shallow = root.join("unit044.csv");
+        let deep = root.join("patch").join("unit044.csv");
+
+        fs::write(&shallow, "one\n").expect("seed");
+
+        let vfs = Vfs::with_priority(&[]);
+        vfs.create(root.as_path()).expect("mount");
+
+        let mount = root.file_name().and_then(OsStr::to_str).expect("mount key");
+        assert!(vfs.indexed(mount, &shallow));
+
+        // A second copy appears: neither resolves, exactly as a cold walk would decide.
+        fs::write(&deep, "two\n").expect("seed rival");
+        vfs.create((mount, deep.as_path())).expect("index the rival");
+
+        assert!(!vfs.indexed(mount, &shallow), "a contested name is no longer a single entry");
+        assert_eq!(vfs.conflicts().len(), 1);
+
+        let cold = Vfs::with_priority(&[]);
+        cold.create(root.as_path()).expect("cold walk");
+        assert_eq!(vfs.fingerprint(), cold.fingerprint(), "incremental add diverged from a fresh walk");
+
+        // Remove the rival: the survivor has to become resolvable again.
+        fs::remove_file(&deep).expect("delete rival");
+        vfs.destroy((mount, deep.as_path()));
+
+        assert!(vfs.conflicts().is_empty());
+        assert_eq!(vfs.rooted(mount, "unit044.csv"), Some(shallow.clone()));
+
+        let settled = Vfs::with_priority(&[]);
+        settled.create(root.as_path()).expect("cold walk");
+        assert_eq!(vfs.fingerprint(), settled.fingerprint(), "incremental delete diverged from a fresh walk");
     }
 
     #[test]

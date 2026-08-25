@@ -13,11 +13,14 @@ use std::panic;
 use iced::window;
 use iced::Size;
 
+use kore::common::architecture;
 use kore::common::assets;
 #[cfg(target_os = "linux")]
 use kore::common::dirs::APP_DIR;
 
 pub fn main() -> iced::Result {
+    architecture::anchor();
+
     #[cfg(windows)]
     {
         if std::env::var_os("WGPU_BACKEND").is_none() {

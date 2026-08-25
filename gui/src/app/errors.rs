@@ -1,6 +1,8 @@
 use iced::widget::{button, column, container, rule, scrollable, text, Space};
 use iced::{Alignment, Element, Length, Size};
 
+use std::path::{Path, PathBuf};
+
 use kore::Conflict;
 
 use crate::widget::{popup, smooth_scroll};
@@ -26,15 +28,27 @@ The files listed below were not loaded into the Virtual File System and won't be
 const WATCHER_INTRO: &str = "Failed to initialize file Watcher due to complex directory structure. \
 File Watcher has been disabled for this session. Please simplify your directory structure.";
 
+const VOLATILE_INTRO: &str = "Battle Cats Complete is running from a temporary folder. This usually means \
+the program was opened from inside its .zip instead of being extracted first.";
+
+const VOLATILE_WARNING: &str = "Anything you import or edit will be stored here, and Windows deletes this \
+folder without warning. Close the app, extract the .zip to a real folder such as Documents or Desktop, \
+and run it from there.";
+
 #[derive(Default)]
 pub(super) struct State {
     popup: popup::State,
     conflicts: Vec<Conflict>,
     watcher_failed: bool,
     watcher_shown: bool,
+    volatile: Option<PathBuf>,
 }
 
 impl State {
+    pub(super) fn report_volatile(&mut self, home: &Path) {
+        self.volatile = Some(home.to_path_buf());
+    }
+
     pub(super) fn report_conflicts(&mut self, conflicts: Vec<Conflict>, ignored: bool) {
         self.conflicts = if ignored { Vec::new() } else { conflicts };
     }
@@ -53,10 +67,14 @@ impl State {
     }
 
     pub(super) fn is_open(&self) -> bool {
-        !self.conflicts.is_empty() || self.watcher_shown
+        self.volatile.is_some() || !self.conflicts.is_empty() || self.watcher_shown
     }
 
     pub(super) fn acknowledge(&mut self) {
+        if self.volatile.take().is_some() {
+            return;
+        }
+
         if !self.conflicts.is_empty() {
             self.conflicts.clear();
             return;
@@ -77,7 +95,11 @@ impl State {
         }
 
         Some(self.popup.view(POPUP_TITLE, POPUP, window, Message::InitErrorPopup, move || {
-            let body = if self.conflicts.is_empty() { watcher_body() } else { self.conflict_body() };
+            let body = match (self.volatile.as_deref(), self.conflicts.is_empty()) {
+                (Some(home), _) => volatile_body(home),
+                (None, true) => watcher_body(),
+                (None, false) => self.conflict_body(),
+            };
 
             column![
                 body,
@@ -125,6 +147,21 @@ impl State {
             .height(Length::Fill)
             .into()
     }
+}
+
+fn volatile_body(home: &Path) -> Element<'_, Message> {
+    container(
+        column![
+            text(VOLATILE_INTRO).size(BODY_SIZE),
+            theme::bold_text(home.display().to_string()).size(PATH_SIZE),
+            text(VOLATILE_WARNING).size(BODY_SIZE),
+        ]
+        .spacing(BODY_SPACING),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 fn watcher_body<'a>() -> Element<'a, Message> {
