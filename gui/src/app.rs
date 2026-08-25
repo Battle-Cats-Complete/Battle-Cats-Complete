@@ -32,7 +32,6 @@ use state::AppState;
 
 mod errors;
 mod logging;
-mod migrate;
 mod notice;
 pub(crate) mod startup;
 pub mod state;

@@ -22,7 +22,7 @@ use kore::{ContentStore, Vault};
 use crate::domains::home;
 use crate::widget::popup;
 
-use super::{logging, migrate, notice, updater, ActivePopup, BattleCatsApp, Message};
+use super::{logging, notice, updater, ActivePopup, BattleCatsApp, Message};
 
 #[derive(serde::Deserialize, Default)]
 #[serde(default)]
@@ -41,15 +41,6 @@ pub(crate) fn saved_window_size() -> Size {
     Size::new(config.settings.window.width.max(800.0), config.settings.window.height.max(600.0))
 }
 
-fn report(notes: Vec<migrate::Note>) {
-    for note in notes {
-        match note {
-            migrate::Note::Info(message) => info!("{}", message),
-            migrate::Note::Warn(message) => warn!("{}", message),
-        }
-    }
-}
-
 fn split(phase: &mut Instant) -> u128 {
     let elapsed = phase.elapsed().as_millis();
     *phase = Instant::now();
@@ -61,21 +52,15 @@ impl BattleCatsApp {
         let boot = Instant::now();
         let mut phase = boot;
 
-        let migration_notes = migrate::run();
-        let migrate_ms = split(&mut phase);
-
         let mut app: Self = json::load("settings.json").unwrap_or_default();
         app.app_state = json::load_state("state.json").unwrap_or_default();
         let settings_ms = split(&mut phase);
 
         logging::init_logging(app.settings.general.enable_logging);
 
-        report(migration_notes);
-
         architecture::work_cleanup();
-        report(migrate::transient());
 
-        info!(migrate_ms, settings_ms, "Starting initialization sequence...");
+        info!(settings_ms, "Starting initialization sequence...");
         app.boot = Some(boot);
 
         app.cat_state.restore_state(&app.app_state.cat);

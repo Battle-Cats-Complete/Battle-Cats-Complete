@@ -35,12 +35,17 @@ impl State {
     }
 
     pub fn offset(&self) -> Option<usize> {
-        self.offset
+        let rows = self.available_rows();
+
+        match self.offset {
+            None => None,
+            Some(row) if row < rows => Some(row),
+            Some(_) => (rows > 0).then_some(0),
+        }
     }
 
     pub fn offset_label(&self) -> &'static str {
-        self.offset
-            .filter(|row| *row < self.available_rows())
+        self.offset()
             .and_then(|row| self.offsets.get(row).copied())
             .unwrap_or(RAW_OFFSET)
     }
@@ -57,6 +62,14 @@ impl State {
 
     pub fn select_offset(&mut self, label: &str) {
         self.offset = self.offsets.iter().position(|known| *known == label);
+    }
+
+    pub fn selected_offset(&self) -> Option<usize> {
+        self.offset
+    }
+
+    pub fn restore_offset(&mut self, row: Option<usize>) {
+        self.offset = row;
     }
 
     pub fn slots(&self) -> &[Option<usize>] {
@@ -161,7 +174,6 @@ impl State {
             self.set_name = set.name;
             self.clips = set.clips;
             self.offsets = set.offsets;
-            self.offset = self.offset.or(Some(0));
             self.loaded_clip = None;
             let requests: Vec<Request> = self
                 .clips

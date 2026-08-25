@@ -381,7 +381,10 @@ impl State {
                     clamp_frame(canvas, data);
                 }
             }
-            Message::OffsetSelected(label) => data.select_offset(&label),
+            Message::OffsetSelected(label) => {
+                data.select_offset(&label);
+                anim_state.offset_row = data.selected_offset();
+            }
             Message::RangeStartChanged(value) => {
                 if value.is_empty() {
                     canvas.loop_start = None;

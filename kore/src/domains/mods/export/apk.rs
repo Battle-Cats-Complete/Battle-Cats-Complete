@@ -16,7 +16,9 @@ use crate::domains::mods::METADATA;
 use crate::domains::settings::ExportBehavior;
 use crate::Vfs;
 
-use super::{modify, pack, sign};
+use crate::systems::apk::{modify, sign};
+
+use super::pack;
 
 const ASSETS: &str = "assets";
 const DOWNLOAD_LOCAL: &str = "DownloadLocal";
@@ -202,7 +204,7 @@ pub fn run(
         log_callback("New package identity found.".to_string());
         log_callback("Creating new APK...".to_string());
 
-        match apk_editor.apply_patches(&suffix, &app_title) {
+        match apk_editor.apply_patches(modify::Identity::Suffix(&suffix), &app_title) {
             Ok(new_package_id) => {
                 if let Err(error) = apk_editor.save_to_paths(&manifest_path, if extracted_arsc { Some(arsc_path.as_path()) } else { None }) {
                     error!("Failed saving patched binaries: {}", error);

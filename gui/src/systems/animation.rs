@@ -86,6 +86,7 @@ impl State {
     }
 
     pub fn sync(&mut self, key: &str, build: impl FnOnce() -> ClipSet, settings: &Settings, anim_state: &AnimState) {
+        self.data.restore_offset(anim_state.offset_row);
         self.data.sync(key, build);
         self.export.sync(&self.data, settings, anim_state);
         self.sync_playhead();

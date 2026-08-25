@@ -112,8 +112,8 @@ impl ApkEditor {
         Ok(())
     }
 
-    #[instrument(skip_all, fields(suffix = %suffix, title = %app_title))]
-    pub(crate) fn apply_patches(&mut self, suffix: &str, app_title: &str) -> Result<String, ResError> {
+    #[instrument(skip_all, fields(title = %app_title))]
+    pub(crate) fn apply_patches(&mut self, identity: Identity<'_>, app_title: &str) -> Result<String, ResError> {
         info!("Applying Manifest patches");
 
         let root = self.manifest.root.get_element_mut(&["manifest"], &self.manifest.string_pool)
@@ -162,12 +162,17 @@ impl ApkEditor {
             }
         };
 
-        let mut parts: Vec<&str> = original_package.split('.').collect();
-        if !parts.is_empty() {
-            parts.pop();
-        }
+        let new_package_name = match identity {
+            Identity::Keep => original_package.clone(),
+            Identity::Suffix(suffix) => {
+                let mut parts: Vec<&str> = original_package.split('.').collect();
+                if !parts.is_empty() {
+                    parts.pop();
+                }
 
-        let new_package_name = format!("{}.battlecats{}", parts.join("."), suffix.trim());
+                format!("{}.battlecats{}", parts.join("."), suffix.trim())
+            }
+        };
         debug!("Changing package name from {} to {}", original_package, new_package_name);
 
         package_attribute.write_string(new_package_name.as_str().into(), &mut self.manifest.string_pool);
@@ -340,6 +345,12 @@ fn collect_directory_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     }
 
     Ok(files)
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Identity<'a> {
+    Keep,
+    Suffix(&'a str),
 }
 
 #[derive(Default)]

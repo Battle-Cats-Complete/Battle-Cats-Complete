@@ -1,4 +1,5 @@
 mod animation;
+mod clone;
 mod imgcut;
 mod picker;
 
@@ -17,13 +18,14 @@ const ROW_GAP: f32 = 4.0;
 const LABEL_SIZE: f32 = 14.0;
 const TICK_MS: u64 = 16;
 
-const TOOLS: [(&str, Tool); 2] = [("Imgcut", Tool::Imgcut), ("Animation", Tool::Animation)];
+const TOOLS: [(&str, Tool); 3] = [("Imgcut", Tool::Imgcut), ("Animation", Tool::Animation), ("Clone", Tool::Clone)];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tool {
     #[default]
     Imgcut,
     Animation,
+    Clone,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +33,7 @@ pub enum Message {
     ToolSelected(Tool),
     Imgcut(imgcut::Message),
     Animation(animation::Message),
+    Clone(clone::Message),
 }
 
 #[derive(Default)]
@@ -38,6 +41,7 @@ pub struct State {
     tool: Tool,
     imgcut: imgcut::State,
     animation: animation::State,
+    clone: clone::State,
 }
 
 impl State {
@@ -58,6 +62,7 @@ impl State {
             }
             Message::Imgcut(msg) => self.imgcut.update(msg).map(Message::Imgcut),
             Message::Animation(msg) => self.animation.update(msg, settings, app_state).map(Message::Animation),
+            Message::Clone(msg) => self.clone.update(msg).map(Message::Clone),
         }
     }
 
@@ -85,6 +90,7 @@ impl State {
         let body = match self.tool {
             Tool::Imgcut => self.imgcut.view().map(Message::Imgcut),
             Tool::Animation => self.animation.view(settings, app_state).map(Message::Animation),
+            Tool::Clone => self.clone.view().map(Message::Clone),
         };
 
         row![
