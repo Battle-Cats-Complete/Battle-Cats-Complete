@@ -16,7 +16,7 @@ use std::sync::LazyLock;
 use iced::widget::{operation, scrollable};
 use iced::{Element, Size, Task};
 use nyanko::combat::Separator;
-use nyanko::common::tools::file;
+use nyanko::common;
 use tracing::warn;
 
 use kore::common::preview::{self, Stamp};
@@ -523,7 +523,7 @@ impl Draft {
             return None;
         };
 
-        let body = file::scrub(&bytes);
+        let body = common::scrub(&bytes);
         let delimiter = Separator::detect(&body).unwrap_or(Separator::Comma).char();
         let lines: Vec<String> = body.lines().map(str::to_owned).collect();
 
@@ -726,7 +726,7 @@ impl Draft {
             return;
         };
 
-        let body = file::scrub(&bytes);
+        let body = common::scrub(&bytes);
         let delimiter = Separator::detect(&body).unwrap_or(Separator::Comma).char();
         let vanilla: Vec<String> = body.lines().map(str::to_owned).collect();
 

@@ -8,7 +8,7 @@ use iced::alignment::{Horizontal, Vertical};
 use iced::{font, Alignment, Color, Element, Length, Padding, Theme};
 use nyanko::combat::{get_talent, Entity};
 use nyanko::cat::unit::{LevelCurve, Talent, TalentCost, TalentGroup};
-use nyanko::common::data::img022;
+use nyanko::files::img022;
 
 use kore::common::gfx::autocrop;
 use kore::systems::combat::registry::{get_display_def, AbilityIcon};

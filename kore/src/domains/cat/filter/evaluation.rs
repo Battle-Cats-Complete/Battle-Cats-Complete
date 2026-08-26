@@ -10,6 +10,10 @@ use crate::domains::cat::game::talents::apply_talent_stats;
 use crate::domains::cat::scanner::CatEntry;
 
 pub fn entity_passes_filter(cat: &CatEntry, filter: &CatFilterState) -> bool {
+    if !filter.combo_effects.is_empty() && !filter.combo_units.contains(&cat.id) {
+        return false;
+    }
+
     let any_rarity_selected = filter.rarities.iter().any(|&is_selected| is_selected);
 
     if any_rarity_selected {

@@ -107,7 +107,7 @@ impl Default for State {
 }
 
 impl State {
-    pub(crate) fn invalidate_assets(&self, items: &HashSet<u32>, enemies: &HashSet<u32>, coarse: bool) {
+    pub(crate) fn invalidate_assets(&mut self, items: &HashSet<u32>, enemies: &HashSet<u32>, coarse: bool, vault: &Vault) {
         for id in items {
             self.treasure.forget(*id);
             self.materials.forget(*id);
@@ -121,6 +121,9 @@ impl State {
             self.info.clear_icons();
             self.fixedlineup.clear_icons();
         }
+
+        self.list.invalidate_filter();
+        self.list.refresh(&self.filter.filter_state, &self.data, vault);
     }
 
     pub(crate) fn reload_selected(&mut self, vault: &Vault) {
@@ -223,7 +226,7 @@ impl State {
         self.battleground.clear_icons();
     }
 
-    pub fn update(&mut self, message: Message) -> Task<Message> {
+    pub fn update(&mut self, message: Message, global_ctx: GlobalContext<'_>) -> Task<Message> {
         let task = match message {
             Message::ScanProgress(generation, done, total) => {
                 if generation != self.scan_generation {
@@ -252,8 +255,6 @@ impl State {
 
                 let dictionaries = bundle.dictionaries;
                 self.data.enemy_name_registry = dictionaries.enemy_name_registry;
-                self.data.item_buy_registry = dictionaries.item_buy_registry;
-                self.data.item_name_registry = dictionaries.item_name_registry;
                 self.data.drop_chara_registry = dictionaries.drop_chara_registry;
                 self.data.unit_buy_registry = dictionaries.unit_buy_registry;
                 self.data.cat_name_registry = dictionaries.cat_name_registry;
@@ -293,7 +294,7 @@ impl State {
             }
         };
 
-        self.list.refresh(&self.filter.filter_state, &self.data);
+        self.list.refresh(&self.filter.filter_state, &self.data, global_ctx.vault);
         task
     }
 
@@ -454,19 +455,21 @@ impl State {
                 left: CONTENT_PADDING,
             });
 
-        content = content.push(self.info.view(stage, map, vfs, &self.data, self.selected_crown));
+        let items = &global_ctx.vault.vds.items;
+
+        content = content.push(self.info.view(stage, map, vfs, &self.data, items, self.selected_crown));
 
         if materials::has_drops(stage, map) {
             content = content.push(
                 row![
-                    self.materials.view(stage, map, self.selected_crown, &self.data.item_buy_registry, &self.data.item_name_registry, vfs),
-                    self.treasure.view(stage, &self.data.item_buy_registry, &self.data.item_name_registry, &self.data.drop_chara_registry, &self.data.unit_buy_registry, vfs),
+                    self.materials.view(stage, map, self.selected_crown, items, vfs),
+                    self.treasure.view(stage, items, &self.data.drop_chara_registry, &self.data.unit_buy_registry, vfs),
                 ]
                     .spacing(DROP_TABLE_GAP)
                     .align_y(Alignment::Start)
             );
         } else {
-            content = content.push(self.treasure.view(stage, &self.data.item_buy_registry, &self.data.item_name_registry, &self.data.drop_chara_registry, &self.data.unit_buy_registry, vfs));
+            content = content.push(self.treasure.view(stage, items, &self.data.drop_chara_registry, &self.data.unit_buy_registry, vfs));
         }
 
         if let Some(preset) = stage.fixed_lineups.get(&self.selected_crown) {

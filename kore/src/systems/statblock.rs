@@ -9,7 +9,7 @@ use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use imageproc::rect::Rect;
 use nyanko::combat::Identity;
-use nyanko::common::data::img015;
+use nyanko::files::img015;
 
 use crate::common::assets;
 use crate::common::formats::SpriteSheet;

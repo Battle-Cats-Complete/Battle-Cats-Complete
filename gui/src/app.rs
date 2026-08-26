@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use iced::futures::channel::mpsc;
 use iced::widget::{button, column, container, markdown, opaque, operation, row, scrollable, stack};
 use iced::{task, window, Element, Length, Size, Subscription, Task, Theme};
-use nyanko::common::data::{Localizable, Param};
+use nyanko::files::{Localizable, Param};
 use rustc_hash::FxHasher;
 use self_update::update::Release;
 use tracing::{info, trace, warn};
@@ -559,11 +559,12 @@ impl BattleCatsApp {
 
         self.cat_state.invalidate_assets(&changed, &self.vault, &cat_config);
         self.enemy_state.invalidate_assets(&enemies, &self.vault, self.settings.show_invalid_enemies());
-        self.stage_state.invalidate_assets(&items, &enemies, stage_coarse);
 
         self.cat_state.reload_selected(&self.vault, &cat_config);
         self.enemy_state.reload_selected(&self.vault, self.settings.show_invalid_enemies());
         self.stage_state.reload_selected(&self.vault);
+
+        self.stage_state.invalidate_assets(&items, &enemies, stage_coarse, &self.vault);
 
         self.index_dirty = true;
         self.last_change_at = Some(Instant::now());
@@ -1021,7 +1022,8 @@ impl BattleCatsApp {
             }
             Message::Stage(msg) => {
                 let stages_loaded = matches!(msg, stage::Message::Loaded(..));
-                let task = self.stage_state.update(msg).map(Message::Stage);
+                let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault };
+                let task = self.stage_state.update(msg, global_ctx).map(Message::Stage);
                 if stages_loaded {
                     self.persist_content();
                 }

@@ -87,6 +87,7 @@ pub enum Message {
     SearchChanged(String),
     SelectCat(u32),
     SelectForm(usize),
+    JumpToUnit(u32, usize),
     SelectTab(DetailTab),
     LevelInputChanged(String),
     ChangeTalentLevel(u8, u8),
@@ -111,6 +112,7 @@ impl std::fmt::Debug for Message {
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
             Self::SelectCat(id) => write!(f, "SelectCat({})", id),
             Self::SelectForm(i) => write!(f, "SelectForm({})", i),
+            Self::JumpToUnit(id, form) => write!(f, "JumpToUnit({}, {})", id, form),
             Self::SelectTab(t) => write!(f, "SelectTab({:?})", t),
             Self::LevelInputChanged(s) => write!(f, "LevelInputChanged({})", s),
             Self::ChangeTalentLevel(i, l) => write!(f, "ChangeTalentLevel({}, {})", i, l),
@@ -292,6 +294,8 @@ impl State {
             self.details.forget(*id as i32);
         }
 
+        self.details.clear_combos();
+        self.filter.refresh_combos(vault);
         self.header_icon_cache.borrow_mut().clear();
         self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
     }
@@ -419,6 +423,7 @@ impl State {
         self.abilities.clear_icons();
         self.talents.clear_icons();
         self.details.clear_icons();
+        self.details.clear_combos();
         self.filter.clear_icons();
     }
 
@@ -494,7 +499,9 @@ impl State {
                 self.scan_progress = None;
                 self.list.invalidate();
                 self.details.clear_icons();
+                self.details.clear_combos();
                 self.data.cats = cats;
+                self.filter.refresh_combos(global_ctx.vault);
                 let filter_task = self.filter.refresh_available(&self.data.cats).map(Message::Filter);
                 let preload_task = match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
                     Some(cat) => {
@@ -545,6 +552,20 @@ impl State {
                     }
                     None => Task::none(),
                 }
+            }
+            Message::JumpToUnit(id, form) => {
+                let Some(cat) = self.data.cats.iter().find(|cat| cat.id == id) else {
+                    return Task::none();
+                };
+
+                let reachable = cat.forms.get(form).copied().unwrap_or(false);
+                let select = self.update(Message::SelectCat(id), settings, app_state, global_ctx);
+
+                if !reachable || self.selected_form == form {
+                    return select;
+                }
+
+                Task::batch([select, self.update(Message::SelectForm(form), settings, app_state, global_ctx)])
             }
             Message::SelectForm(form_idx) => {
                 self.selected_form = form_idx;
@@ -1043,6 +1064,6 @@ impl State {
     }
 
     fn view_details<'a>(&'a self, cat: &'a CatEntry, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
-        self.details.view(cat, self.selected_form, &global_ctx.vault.vfs)
+        self.details.view(cat, self.selected_form, global_ctx)
     }
 }

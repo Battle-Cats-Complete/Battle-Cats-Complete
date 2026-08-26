@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -7,13 +6,11 @@ use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::Category;
 use nyanko::chapter::map::{DropItemEntry, LockSkipDataEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
 use nyanko::chapter::stage::{CharaGroupEntry, CostType, FixedFormationEntry, MapStageData, ScatCpuSetting, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
-use nyanko::combat::Separator;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, trace, warn};
 
-use crate::common::formats::{gatyaitembuy, gatyaitemname, GatyaItemBuy, GatyaItemName};
 use crate::common::job::Ticker;
 use crate::common::io::cache::{self, Scan};
 use crate::domains::cat::waiter::unitexplanation;
@@ -90,8 +87,6 @@ impl cache::CacheSpec for StageCache {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StageDictionaries {
     pub enemy_name_registry: Vec<String>,
-    pub item_buy_registry: HashMap<u32, GatyaItemBuy>,
-    pub item_name_registry: HashMap<usize, GatyaItemName>,
     pub drop_chara_registry: HashMap<u32, u32>,
     pub unit_buy_registry: HashMap<u32, UnitBuy>,
     pub cat_name_registry: HashMap<u32, Vec<String>>,
@@ -148,9 +143,6 @@ fn build_dictionaries(vault: &Vault) -> StageDictionaries {
 
     let enemy_name_registry = vault.vds.enemies.names(vfs).as_ref().clone();
 
-    let item_buy_registry = gatyaitembuy::load(vfs, "Gatyaitembuy.csv");
-    let item_name_registry = gatyaitemname::load(vfs, "GatyaitemName.csv");
-
     let drop_chara_registry = drop_chara(vfs, "drop_chara.csv");
     let lock_skip_registry = lockskipdata(vfs, "LockSkipData.csv");
     let scat_cpu_setting = scatcpusetting(vfs, "ScatCPUsetting.csv");
@@ -172,8 +164,6 @@ fn build_dictionaries(vault: &Vault) -> StageDictionaries {
 
     StageDictionaries {
         enemy_name_registry,
-        item_buy_registry,
-        item_name_registry,
         drop_chara_registry,
         unit_buy_registry: unit_buy_registry.as_ref().clone(),
         cat_name_registry,
@@ -612,8 +602,6 @@ fn load_story_stages(
 ) -> (Vec<u32>, Vec<(GlobalStageId, Stage)>) {
     let mut id_list = Vec::new();
     let mut stage_list = Vec::new();
-    let mut story_data = HashMap::new();
-    let mut inv_story_data = None;
 
     let story_file = if map.category.map_prefix() == "Z" {
         match global_map_id {
@@ -653,51 +641,8 @@ fn load_story_stages(
         }
     };
 
-    if !story_file.is_empty() {
-        let resolved_paths = ctx.vfs.list(story_file);
-        if let Some(story_path) = resolved_paths.first() {
-            if let Ok(content) = fs::read_to_string(story_path) {
-                let sep = Separator::detect(&content).unwrap_or(Separator::Comma).char();
-                for (idx, line) in content.lines().skip(2).enumerate() {
-                    let clean = line.split("//").next().unwrap_or("").trim();
-                    if clean.is_empty() { continue; }
-
-                    let parts: Vec<&str> = clean.split(sep).collect();
-                    if parts.len() < 6 { continue; }
-
-                    let energy = parts[0].trim().parse().unwrap_or(0);
-                    let init_track: i16 = parts[2].trim().parse().unwrap_or(0);
-                    let boss_track: i16 = parts[5].trim().parse().unwrap_or(-1);
-                    story_data.insert(idx as u32, (energy, init_track, boss_track));
-                }
-            } else {
-                warn!("Expected story data file missing or unreadable: {}", story_path.display());
-            }
-        } else {
-            warn!(file = story_file, "Expected story data file missing");
-        }
-    }
-
-    if !inv_story_file.is_empty() {
-        let resolved_paths = ctx.vfs.list(inv_story_file);
-        if let Some(inv_story_path) = resolved_paths.first()
-            && let Ok(content) = fs::read_to_string(inv_story_path) {
-            let sep = Separator::detect(&content).unwrap_or(Separator::Comma).char();
-            for line in content.lines().skip(2) {
-                let clean = line.split("//").next().unwrap_or("").trim();
-                if clean.is_empty() { continue; }
-
-                let parts: Vec<&str> = clean.split(sep).collect();
-                if parts.len() >= 6 {
-                    let energy = parts[0].trim().parse().unwrap_or(0);
-                    let init_track: i16 = parts[2].trim().parse().unwrap_or(0);
-                    let boss_track: i16 = parts[5].trim().parse().unwrap_or(-1);
-                    inv_story_data = Some((energy, init_track, boss_track));
-                    break;
-                }
-            }
-        }
-    }
+    let story_data = mapstagedata(ctx.vfs, story_file);
+    let inv_story_data = mapstagedata(ctx.vfs, inv_story_file);
 
     for (stage_id, file_name) in battlegrounds(&ctx.globs, &map.category, map.map_id) {
         let is_ec_group = map.category.map_prefix() == PREFIX_EC || (map.category.map_prefix() == "Z" && map.map_id <= 2);
@@ -719,11 +664,12 @@ fn load_story_stages(
 
         stage_struct.base_id = stage_id as i32;
 
-        if let Some((energy_val, init_track_val, boss_track_val)) = story_data.get(&stage_id) {
-            stage_struct.cost = *energy_val;
+        if let Some(entry) = story_data.entries.get(stage_id as usize) {
+            stage_struct.cost = entry.cost;
             stage_struct.xp = global_map_id.map(|id| get_hardcoded_xp(id, stage_id as usize)).unwrap_or(0);
-            stage_struct.init_track = *init_track_val as u32;
-            stage_struct.boss_track = *boss_track_val;
+            stage_struct.init_track = entry.init_track;
+            stage_struct.bgm_change_percent = entry.bgm_change_percent;
+            stage_struct.boss_track = entry.boss_track;
         }
 
         let stage_key = GlobalStageId { category: map.category.clone(), map: map.map_id, stage: stage_id };
@@ -742,11 +688,12 @@ fn load_story_stages(
             stage_struct.name = "Invasion".to_string();
             stage_struct.base_id = inv_stage_id as i32;
 
-            if let Some((energy_val, init_track_val, boss_track_val)) = inv_story_data {
-                stage_struct.cost = energy_val;
+            if let Some(entry) = inv_story_data.entries.first() {
+                stage_struct.cost = entry.cost;
                 stage_struct.xp = global_map_id.map(|id| get_hardcoded_xp(id, inv_stage_id as usize)).unwrap_or(0);
-                stage_struct.init_track = init_track_val as u32;
-                stage_struct.boss_track = boss_track_val;
+                stage_struct.init_track = entry.init_track;
+                stage_struct.bgm_change_percent = entry.bgm_change_percent;
+                stage_struct.boss_track = entry.boss_track;
             }
 
             let stage_key = GlobalStageId { category: map.category.clone(), map: map.map_id, stage: inv_stage_id };

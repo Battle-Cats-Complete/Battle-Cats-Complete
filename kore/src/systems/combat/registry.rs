@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use nyanko::cat::unit::UnitBuy;
 use nyanko::combat::{AttrValue, Entity, Faction, Identity, REGISTRY};
-use nyanko::common::data::{img015, Param};
+use nyanko::files::{img015, Param};
 use serde::{Deserialize, Serialize};
 
 use crate::systems::combat::CustomIcon;

@@ -9,6 +9,7 @@ use nyanko::chapter::Category;
 
 use kore::domains::stage::filter::{CompiledStageFilter, StageFilterState, StageLookupContext};
 use kore::domains::stage::{navigate, GlobalMapId, GlobalStageId, StageDataState};
+use kore::Vault;
 
 use crate::app::theme;
 use crate::widget::{list_row, smooth_scroll};
@@ -67,7 +68,7 @@ impl State {
         }
     }
 
-    pub fn refresh(&mut self, filter_state: &StageFilterState, data: &StageDataState) {
+    pub fn refresh(&mut self, filter_state: &StageFilterState, data: &StageDataState, vault: &Vault) {
         if self.sorted_categories.is_none() {
             let mut categories = navigate::get_categories(&data.registry);
             categories.sort_by_key(|category| category.sort_order());
@@ -87,7 +88,7 @@ impl State {
             self.matching_categories.clear();
 
             if compiled.is_active() {
-                let ctx = StageLookupContext::from_data(data);
+                let ctx = StageLookupContext::from_data(data, vault);
 
                 for (stage_key, stage) in &data.registry.stages {
                     let map_key = GlobalMapId { category: stage_key.category.clone(), map: stage_key.map };
@@ -108,6 +109,10 @@ impl State {
     pub fn invalidate(&mut self) {
         self.compiled_filter = None;
         self.sorted_categories = None;
+    }
+
+    pub fn invalidate_filter(&mut self) {
+        self.compiled_filter = None;
     }
 
     pub fn view<'a>(&'a self, data: &'a StageDataState, filter_state: &StageFilterState, busy: bool) -> Element<'a, Message> {

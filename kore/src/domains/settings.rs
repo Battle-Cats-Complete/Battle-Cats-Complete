@@ -8,7 +8,7 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 use md5::{Digest, Md5};
-use nyanko::common::tools::variant::Region;
+use nyanko::common::Region;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 

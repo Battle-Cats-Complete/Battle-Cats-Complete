@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use nyanko::cat::unit::UnitBuy;
 use nyanko::cat::unitid;
 use nyanko::combat::Scale;
-use nyanko::common::tools::columns::{Column, FromColumn};
+use nyanko::common::{Column, FromColumn};
 use nyanko::enemy::t_unit;
 
 use kore::domains::settings::EditorMode;

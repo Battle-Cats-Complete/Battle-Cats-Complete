@@ -1,9 +1,9 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use nyanko::cat::unitid;
-use nyanko::cat::unit::UnitExplanation;
-use nyanko::combat::Entity;
+use nyanko::cat::unit::{Nyancombo, NyancomboData, NyancomboFilter, UnitExplanation};
+use nyanko::combat::{Entity, Separator};
 use tracing::trace;
 
 use crate::domains::cat::files;
@@ -72,8 +72,165 @@ pub fn unitid(vfs: &Vfs, cat_id: i32) -> Option<Vec<Entity>> {
     unitid::parse(&bytes, None).ok()
 }
 
-fn delimiter(path: &std::path::Path) -> nyanko::combat::Separator {
+pub(crate) enum ComboText {
+    Name,
+    Effect,
+    Band,
+}
+
+impl ComboText {
+    fn file(&self) -> &'static str {
+        match self {
+            ComboText::Name => files::NYANCOMBO_NAME,
+            ComboText::Effect => files::NYANCOMBO_EFFECT,
+            ComboText::Band => files::NYANCOMBO_BAND,
+        }
+    }
+
+    fn separator(&self, path: &Path) -> Option<Separator> {
+        match self {
+            ComboText::Name => None,
+            _ => Some(delimiter(path)),
+        }
+    }
+}
+
+pub(crate) fn nyancombodata(vfs: &Vfs) -> Vec<NyancomboData> {
+    trace!("loading the cat combo table");
+
+    let Some(file_path) = vfs.find(files::NYANCOMBO_DATA) else {
+        return Vec::new();
+    };
+
+    let Ok(bytes) = fs::read(&file_path) else {
+        return Vec::new();
+    };
+
+    NyancomboData::parse(&bytes, None).unwrap_or_default()
+}
+
+pub(crate) fn nyancombofilter(vfs: &Vfs) -> Vec<NyancomboFilter> {
+    trace!("loading the cat combo filter groups");
+
+    let Some(file_path) = vfs.find(files::NYANCOMBO_FILTER) else {
+        return Vec::new();
+    };
+
+    let Ok(bytes) = fs::read(&file_path) else {
+        return Vec::new();
+    };
+
+    NyancomboFilter::parse(&bytes, None).unwrap_or_default()
+}
+
+pub(crate) fn nyancombo(vfs: &Vfs, table: ComboText) -> Vec<Option<String>> {
+    trace!(file = table.file(), "merging localized cat combo text");
+    let mut merged: Vec<Option<String>> = Vec::new();
+
+    for file_path in vfs.list(table.file()) {
+        let Ok(bytes) = fs::read(&file_path) else {
+            continue;
+        };
+
+        let Ok(lines) = Nyancombo::parse(&bytes, table.separator(&file_path)) else {
+            continue;
+        };
+
+        if lines.len() > merged.len() {
+            merged.resize(lines.len(), None);
+        }
+
+        for (line, entry) in lines.into_iter().enumerate() {
+            if let Some(slot) = merged.get_mut(line)
+                && slot.is_none()
+            {
+                *slot = entry.text;
+            }
+        }
+    }
+
+    merged
+}
+
+fn delimiter(path: &Path) -> Separator {
     let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
 
     crate::common::region::text_separator(&name)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+
+    use super::*;
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let root = env::temp_dir().join(format!("bcc-combo-{name}-{}", std::process::id()));
+
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(&root).expect("scratch root");
+
+            Self(root)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn every_region_in_priority_order_fills_the_holes_the_one_above_it_leaves() {
+        let scratch = Scratch::new("names");
+        let root = &scratch.0;
+
+        // Every region but Japan blanks a few entries and stops a line short, and Japanese
+        // is only the usual filler, not a special case: whichever table comes next in the
+        // priority order gets to answer.
+        fs::write(root.join("Nyancombo_en.csv"), "Cat Army\n\n\nRed Strike\n").expect("seed en");
+        fs::write(root.join("Nyancombo_ja.csv"), "ニャンコ軍団\nキンギンパワー\n\nレッドストライク\nパックマンフィーバー\n").expect("seed ja");
+        fs::write(root.join("Nyancombo_tw.csv"), "貓咪軍團\n金銀力量\n只有台灣\n紅色打擊\n").expect("seed tw");
+
+        let vfs = Vfs::with_priority(&[
+            "".to_string(),
+            "en".to_string(),
+            "ja".to_string(),
+            "tw".to_string(),
+            "--".to_string(),
+        ]);
+        vfs.create(root.as_path()).expect("mount the scratch dir");
+
+        let merged = nyancombo(&vfs, ComboText::Name);
+
+        assert_eq!(
+            merged,
+            vec![
+                Some("Cat Army".to_string()),
+                Some("キンギンパワー".to_string()),
+                Some("只有台灣".to_string()),
+                Some("Red Strike".to_string()),
+                Some("パックマンフィーバー".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_band_suffix_keeps_the_space_that_separates_it() {
+        let scratch = Scratch::new("bands");
+        let root = &scratch.0;
+
+        fs::write(root.join("Nyancombo2_en.csv"), " (Sm)|\n (M)|\n Activated|\n").expect("seed en");
+
+        let vfs = Vfs::with_priority(&["".to_string(), "en".to_string(), "--".to_string()]);
+        vfs.create(root.as_path()).expect("mount the scratch dir");
+
+        let bands = nyancombo(&vfs, ComboText::Band);
+
+        assert_eq!(bands.first(), Some(&Some(" (Sm)".to_string())));
+        assert_eq!(bands.get(2), Some(&Some(" Activated".to_string())));
+    }
 }

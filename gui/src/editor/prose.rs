@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use iced::widget::{button, column, container, scrollable, text_input};
 use iced::{Element, Length, Padding, Size, Task};
 use nyanko::combat::Separator;
-use nyanko::common::tools::file;
+use nyanko::common;
 use tracing::warn;
 
 use kore::common::preview::{self, Stamp};
@@ -320,7 +320,7 @@ impl Draft {
             .ok()?;
 
         let stamp = preview::stamp(&read_from)?;
-        let body = file::scrub(&bytes);
+        let body = common::scrub(&bytes);
         let delimiter = plan.subject.delimited().then(|| separator(&plan.file));
         let lines: Vec<String> = body.lines().map(str::to_owned).collect();
         let (head, fields, tail) = parse(&body, plan.row, delimiter, plan.subject);
@@ -362,7 +362,7 @@ impl Draft {
             return;
         };
 
-        let body = file::scrub(&bytes);
+        let body = common::scrub(&bytes);
         let delimiter = self.plan.subject.delimited().then(|| separator(&self.plan.file));
         let (head, fields, tail) = parse(&body, self.plan.row, delimiter, self.plan.subject);
         self.head = head;

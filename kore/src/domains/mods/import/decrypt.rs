@@ -2,18 +2,12 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use nyanko::common::tools::variant::Region;
+use nyanko::common::Region;
 use nyanko::pack::cryptology;
 use rayon::prelude::*;
 use tracing::{error, info, trace};
 
 use crate::domains::settings::UserKeys;
-
-struct PackEntry {
-    name: String,
-    offset: usize,
-    size: usize,
-}
 
 fn format_log_name(name: &str, path: &Path) -> String {
     let cleaned = name.trim_start_matches("...\\").trim_start_matches(".../");
@@ -49,17 +43,7 @@ pub fn run(pack_file: &Path, workspace_dir: &Path, emit_log: &(dyn Fn(String) + 
     let list_data = fs::read(&list_path).map_err(|error| error.to_string())?;
     let content = cryptology::decrypt_list(&list_data).map_err(|error| error.to_string())?;
 
-    let mut entries = Vec::new();
-    for line in content.lines() {
-        let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() < 3 { continue; }
-
-        entries.push(PackEntry {
-            name: parts[0].to_string(),
-            offset: parts[1].parse().unwrap_or(0),
-            size: parts[2].parse().unwrap_or(0),
-        });
-    }
+    let entries = cryptology::PackEntry::parse(&content);
 
     let total_entries = entries.len();
     let log_interval = (total_entries / 10).max(1);
@@ -75,26 +59,22 @@ pub fn run(pack_file: &Path, workspace_dir: &Path, emit_log: &(dyn Fn(String) + 
     let extracted_count = AtomicUsize::new(0);
 
     entries.into_par_iter().for_each(|entry| {
-        let aligned_size = if entry.size % 16 == 0 { entry.size } else { ((entry.size / 16) + 1) * 16 };
+        let Some((final_data, _)) = entry.extract(&pack_data, &nyanko_keys) else {
+            return;
+        };
 
-        if entry.offset + aligned_size <= pack_data.len() {
-            let chunk = &pack_data[entry.offset .. entry.offset + aligned_size];
-            let (decrypted_bytes, _) = cryptology::decrypt_chunk(chunk, &entry.name, &nyanko_keys);
-            let final_data = &decrypted_bytes[..std::cmp::min(entry.size, decrypted_bytes.len())];
+        let out_file = patch_dir.join(&entry.name);
+        if let Some(parent) = out_file.parent() { let _ = fs::create_dir_all(parent); }
+        let _ = fs::write(out_file, final_data);
 
-            let out_file = patch_dir.join(&entry.name);
-            if let Some(parent) = out_file.parent() { let _ = fs::create_dir_all(parent); }
-            let _ = fs::write(out_file, final_data);
+        let current = extracted_count.fetch_add(1, Ordering::Relaxed) + 1;
 
-            let current = extracted_count.fetch_add(1, Ordering::Relaxed) + 1;
-
-            if current.is_multiple_of(log_interval) || current == total_entries {
-                let path = Path::new(&entry.name);
-                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-                let display_name = format_log_name(&file_name, path);
-                trace!("Decrypted chunk stream: {}", display_name);
-                emit_log(format!("Extracted {} Files | Streaming: {}", current, display_name));
-            }
+        if current.is_multiple_of(log_interval) || current == total_entries {
+            let path = Path::new(&entry.name);
+            let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+            let display_name = format_log_name(&file_name, path);
+            trace!("Decrypted chunk stream: {}", display_name);
+            emit_log(format!("Extracted {} Files | Streaming: {}", current, display_name));
         }
     });
 

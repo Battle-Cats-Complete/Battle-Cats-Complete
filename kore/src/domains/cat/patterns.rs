@@ -17,6 +17,10 @@ pub(crate) const SKILL_NAME_PATTERN: &str = r"^Skill_name_\d{3}(?:_([a-z]{2}))?\
 
 pub(crate) const CAT_EVOLVE_PATTERN: &str = r"^unitevolve\.csv$";
 
+pub(crate) const CAT_COMBO_DIR: &str = "combo";
+pub(crate) const CAT_COMBO_TABLE_PATTERN: &str = r"^Nyancombo(?:Data\.csv|Param\.tsv|Filter\.tsv)$";
+pub(crate) const CAT_COMBO_TEXT_PATTERN: &str = r"^(Nyancombo[12]?)\.csv$";
+
 pub(crate) const CAT_UNIVERSAL_FILES: &[&str] = &[
     "SkillAcquisition.csv",
     "SkillLevel.csv",

@@ -1,4 +1,5 @@
 pub mod animation;
+pub mod combo;
 pub mod filter;
 pub mod game;
 pub mod scanner;

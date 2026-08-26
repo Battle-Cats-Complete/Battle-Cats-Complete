@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use nyanko::cat::unit::{
-    LevelCurve, SkillDescriptions, Talent, TalentCost, UnitBuy, UnitEvolve,
+    LevelCurve, NyancomboData, NyancomboFilter, SkillDescriptions, Talent, TalentCost, UnitBuy,
+    UnitEvolve,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::domains::cat::files::{self, SKILL_DESCRIPTIONS, UNIT_EVOLVE};
+use crate::domains::cat::waiter::{self, ComboText};
 use crate::Vfs;
 
 use super::Slot;
@@ -20,6 +22,11 @@ pub struct CatStore {
     unitbuy: Slot<HashMap<u32, UnitBuy>>,
     evolve: Slot<HashMap<u32, UnitEvolve>>,
     curves: Slot<HashMap<u32, LevelCurve>>,
+    combos: Slot<Vec<NyancomboData>>,
+    combo_names: Slot<Vec<Option<String>>>,
+    combo_effects: Slot<Vec<Option<String>>>,
+    combo_bands: Slot<Vec<Option<String>>>,
+    combo_filters: Slot<Vec<NyancomboFilter>>,
 }
 
 impl Clone for CatStore {
@@ -31,6 +38,11 @@ impl Clone for CatStore {
             unitbuy: super::snapshot(&self.unitbuy),
             evolve: super::snapshot(&self.evolve),
             curves: super::snapshot(&self.curves),
+            combos: super::snapshot(&self.combos),
+            combo_names: super::snapshot(&self.combo_names),
+            combo_effects: super::snapshot(&self.combo_effects),
+            combo_bands: super::snapshot(&self.combo_bands),
+            combo_filters: super::snapshot(&self.combo_filters),
         }
     }
 }
@@ -92,6 +104,26 @@ impl CatStore {
         })
     }
 
+    pub(crate) fn combos(&self, vfs: &Vfs) -> Arc<Vec<NyancomboData>> {
+        super::cached(&self.combos, || waiter::nyancombodata(vfs))
+    }
+
+    pub(crate) fn combo_names(&self, vfs: &Vfs) -> Arc<Vec<Option<String>>> {
+        super::cached(&self.combo_names, || waiter::nyancombo(vfs, ComboText::Name))
+    }
+
+    pub(crate) fn combo_effects(&self, vfs: &Vfs) -> Arc<Vec<Option<String>>> {
+        super::cached(&self.combo_effects, || waiter::nyancombo(vfs, ComboText::Effect))
+    }
+
+    pub(crate) fn combo_bands(&self, vfs: &Vfs) -> Arc<Vec<Option<String>>> {
+        super::cached(&self.combo_bands, || waiter::nyancombo(vfs, ComboText::Band))
+    }
+
+    pub(crate) fn combo_filters(&self, vfs: &Vfs) -> Arc<Vec<NyancomboFilter>> {
+        super::cached(&self.combo_filters, || waiter::nyancombofilter(vfs))
+    }
+
     pub(super) fn evict(&self, filename: &str) {
         match filename {
             files::SKILL_ACQUISITION => super::reset(&self.talents),
@@ -100,6 +132,11 @@ impl CatStore {
             files::UNIT_BUY => super::reset(&self.unitbuy),
             files::UNIT_LEVEL => super::reset(&self.curves),
             UNIT_EVOLVE => super::reset(&self.evolve),
+            files::NYANCOMBO_DATA => super::reset(&self.combos),
+            files::NYANCOMBO_NAME => super::reset(&self.combo_names),
+            files::NYANCOMBO_EFFECT => super::reset(&self.combo_effects),
+            files::NYANCOMBO_BAND => super::reset(&self.combo_bands),
+            files::NYANCOMBO_FILTER => super::reset(&self.combo_filters),
             _ => (),
         }
     }
@@ -111,5 +148,10 @@ impl CatStore {
         super::reset(&self.unitbuy);
         super::reset(&self.evolve);
         super::reset(&self.curves);
+        super::reset(&self.combos);
+        super::reset(&self.combo_names);
+        super::reset(&self.combo_effects);
+        super::reset(&self.combo_bands);
+        super::reset(&self.combo_filters);
     }
 }

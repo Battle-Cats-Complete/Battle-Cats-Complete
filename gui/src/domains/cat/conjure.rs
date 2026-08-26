@@ -1,7 +1,7 @@
 use iced::border::Radius;
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Alignment, Border, Element, Length, Theme};
-use nyanko::common::data::img015;
+use nyanko::files::img015;
 
 use kore::domains::cat::game::stats::get_final_stats;
 use kore::domains::cat::waiter::unitid;

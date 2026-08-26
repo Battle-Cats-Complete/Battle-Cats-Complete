@@ -10,6 +10,8 @@ use crate::domains::stage::patterns as stage_patterns;
 
 struct CatPatternsSet {
     universal: Regex,
+    combo_table: Regex,
+    combo_text: Regex,
     skill_desc: Regex,
     skill_name: Regex,
     stats: Regex,
@@ -30,6 +32,8 @@ impl CatPatternsSet {
     fn new() -> Result<Self, regex::Error> {
         Ok(Self {
             universal: Regex::new(cat_patterns::CAT_EVOLVE_PATTERN)?,
+            combo_table: Regex::new(cat_patterns::CAT_COMBO_TABLE_PATTERN)?,
+            combo_text: Regex::new(cat_patterns::CAT_COMBO_TEXT_PATTERN)?,
             skill_desc: Regex::new(cat_patterns::SKILL_DESC_PATTERN)?,
             skill_name: Regex::new(cat_patterns::SKILL_NAME_PATTERN)?,
             stats: Regex::new(cat_patterns::CAT_STATS_PATTERN)?,
@@ -65,6 +69,13 @@ impl CatPatternsSet {
         }
         if self.universal.is_match(name) {
             return Some(cats_dir.join("unitevolve"));
+        }
+
+        if self.combo_table.is_match(name) {
+            return Some(cats_dir.join(cat_patterns::CAT_COMBO_DIR));
+        }
+        if let Some(caps) = self.combo_text.captures(name) {
+            return Some(cats_dir.join(cat_patterns::CAT_COMBO_DIR).join(&caps[1]));
         }
 
         if let Some(caps) = self.stats.captures(name)
@@ -614,5 +625,43 @@ impl AssetRouter {
             .or_else(|| self.stage_matcher.get_dest(&base_name, &self.stages_dir));
 
         routed_folder.map_or_else(|| self.raw_dir.join(final_name), |folder| folder.join(final_name))
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn router() -> AssetRouter {
+        AssetRouter::new(Path::new("game"), ImportStructure::Bcc).expect("router")
+    }
+
+    #[test]
+    fn the_combo_family_lands_under_cats_combo() {
+        let router = router();
+        let combo = Path::new("game").join("cats").join(cat_patterns::CAT_COMBO_DIR);
+
+        for name in ["NyancomboData.csv", "NyancomboParam.tsv", "NyancomboFilter.tsv"] {
+            assert_eq!(router.resolve_destination(name, name), combo.join(name), "{name}");
+        }
+
+        // Localized text tables get one folder per table, whatever region they came from.
+        for (name, folder) in [
+            ("Nyancombo_en.csv", "Nyancombo"),
+            ("Nyancombo_ja.csv", "Nyancombo"),
+            ("Nyancombo1_tw.csv", "Nyancombo1"),
+            ("Nyancombo2_ko.csv", "Nyancombo2"),
+        ] {
+            assert_eq!(router.resolve_destination(name, name), combo.join(folder).join(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_flat_import_still_ignores_the_combo_folders() {
+        let flat = AssetRouter::new(Path::new("game"), ImportStructure::Flat).expect("router");
+
+        assert_eq!(
+            flat.resolve_destination("Nyancombo1_en.csv", "Nyancombo1_en.csv"),
+            Path::new("game").join("Nyancombo1_en.csv")
+        );
     }
 }

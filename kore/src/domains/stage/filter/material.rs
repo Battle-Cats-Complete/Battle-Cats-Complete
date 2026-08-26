@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::formats::GatyaItemBuy;
-use crate::common::formats::GatyaItemName;
+
+use crate::{ItemStore, Vfs};
 
 use super::super::materials::MAT_IDS;
 use super::range::{CompiledStatRange, StatRange};
@@ -45,8 +44,8 @@ impl CompiledMaterialFilter {
         &self,
         index: usize,
         drop_amount: u32,
-        buy_reg: &HashMap<u32, GatyaItemBuy>,
-        name_reg: &HashMap<usize, GatyaItemName>,
+        items: &ItemStore,
+        vfs: &Vfs,
     ) -> bool {
         if !self.amount.matches(drop_amount as i64) { return false; }
         if self.name_or_id.is_empty() { return true; }
@@ -54,9 +53,6 @@ impl CompiledMaterialFilter {
         let Some(&item_id) = MAT_IDS.get(index) else { return false; };
         if self.parsed_id == Some(item_id) { return true; }
 
-        let Some(item_buy) = buy_reg.get(&item_id) else { return false; };
-        let Some(name_entry) = name_reg.get(&{ item_buy.row_index }) else { return false; };
-
-        name_entry.name.to_lowercase().contains(&self.name_or_id)
+        items.name(vfs, item_id).is_some_and(|name| name.to_lowercase().contains(&self.name_or_id))
     }
 }

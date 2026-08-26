@@ -10,7 +10,7 @@ use nyanko::chapter::stage::ScatCpuSetting;
 use nyanko::chapter::Category;
 
 use kore::domains::stage::{cost, Map, Stage, StageDataState};
-use kore::Vfs;
+use kore::{ItemStore, Vfs};
 
 use crate::app::theme;
 use crate::common::item_icon;
@@ -147,6 +147,7 @@ impl State {
         map: &'a Map,
         vfs: &Vfs,
         data: &StageDataState,
+        items: &ItemStore,
         selected_crown: u8,
     ) -> Element<'a, super::Message> {
         let image_prefix = stage.category.image_prefix();
@@ -185,7 +186,7 @@ impl State {
         let hp_header = if is_dojo { "Time Limit" } else { "Base HP" };
         let hp_value = if is_dojo { format_time(stage.time_limit) } else { final_hp.to_string() };
 
-        let cost = cost::resolve_cost(stage, &data.item_buy_registry, &data.item_name_registry);
+        let cost = cost::resolve_cost(stage, items, vfs);
         let energy_header = cost.header.as_str();
         let energy_value = cost.value;
 

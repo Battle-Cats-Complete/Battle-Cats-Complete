@@ -1,11 +1,8 @@
-use std::collections::HashMap;
-
 use nyanko::chapter::Stage;
 use nyanko::chapter::stage::{CataminGrade, CostType};
 use tracing::debug;
 
-use crate::common::formats::GatyaItemBuy;
-use crate::common::formats::GatyaItemName;
+use crate::{ItemStore, Vfs};
 
 pub struct CostDisplay {
     pub header: String,
@@ -32,22 +29,7 @@ fn short_label(name: &str) -> String {
     format!("{}s", last_word)
 }
 
-fn item_label(
-    item_id: u32,
-    item_buy_registry: &HashMap<u32, GatyaItemBuy>,
-    item_name_registry: &HashMap<usize, GatyaItemName>,
-) -> Option<String> {
-    let item_buy = item_buy_registry.get(&item_id)?;
-    let item_name = item_name_registry.get(&item_buy.row_index)?;
-
-    Some(short_label(&item_name.name))
-}
-
-pub fn resolve_cost(
-    stage: &Stage,
-    item_buy_registry: &HashMap<u32, GatyaItemBuy>,
-    item_name_registry: &HashMap<usize, GatyaItemName>,
-) -> CostDisplay {
+pub fn resolve_cost(stage: &Stage, items: &ItemStore, vfs: &Vfs) -> CostDisplay {
     let resolved = stage.resolved_cost();
 
     match stage.cost_type() {
@@ -61,7 +43,8 @@ pub fn resolve_cost(
         }
         CostType::Item => {
             let label = resolved.id
-                .and_then(|item_id| item_label(item_id, item_buy_registry, item_name_registry));
+                .and_then(|item_id| items.name(vfs, item_id))
+                .map(|name| short_label(&name));
 
             debug!(item_id = ?resolved.id, amount = resolved.value, ?label, "Resolving stage cost as item currency");
 

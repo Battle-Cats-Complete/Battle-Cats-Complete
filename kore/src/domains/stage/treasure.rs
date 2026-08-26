@@ -4,10 +4,8 @@ use std::path::PathBuf;
 use nyanko::cat::unit::UnitBuy;
 use tracing::{debug, trace};
 
-use crate::common::formats::GatyaItemBuy;
-use crate::common::formats::GatyaItemName;
 use crate::domains::cat::waiter::unitexplanation;
-use crate::Vfs;
+use crate::{ItemStore, Vfs};
 
 use super::files;
 
@@ -59,30 +57,17 @@ pub fn resolve_drop(
     vfs: &Vfs,
     target_item_id: u32,
     raw_amount: u32,
-    item_buy_registry: &HashMap<u32, GatyaItemBuy>,
-    item_name_registry: &HashMap<usize, GatyaItemName>,
+    items: &ItemStore,
     drop_chara_registry: &HashMap<u32, u32>,
     unit_buy_registry: &HashMap<u32, UnitBuy>
 ) -> ResolvedDrop {
 
-    if let Some(item_buy) = item_buy_registry.get(&target_item_id) {
+    if let Some(icon_index) = items.icon_index(vfs, target_item_id) {
         debug!(target_item_id, "Resolving regular item drop");
-        let name_idx = item_buy.row_index;
-        let name = item_name_registry.get(&name_idx)
-            .map(|d| d.name.clone())
-            .unwrap_or_else(|| target_item_id.to_string());
-
-        let img_id = if item_buy.img_id != -1 {
-            item_buy.img_id as u32
-        } else {
-            item_buy.row_index as u32
-        };
-
-        let image_path = vfs.find(&files::gatya_item_img(img_id));
 
         return ResolvedDrop {
-            name,
-            image_path,
+            name: items.name(vfs, target_item_id).unwrap_or_else(|| target_item_id.to_string()),
+            image_path: vfs.find(&files::gatya_item_img(icon_index)),
             amount_display: raw_amount.to_string(),
         };
     }

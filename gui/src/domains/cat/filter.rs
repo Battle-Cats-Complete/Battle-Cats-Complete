@@ -5,8 +5,10 @@ use iced::widget::{button, column, container, image as iced_image, operation, pi
 use iced::{Element, Length, Size, Task, Theme};
 use nyanko::combat::{AttrUnit, Identity, REGISTRY};
 
+use kore::domains::cat::combo::{self, ComboEffects};
 use kore::domains::cat::filter::{icons, ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
 use kore::domains::cat::scanner::CatEntry;
+use kore::Vault;
 use kore::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
 use kore::systems::combat::{present_identities, talent_identities, CustomIcon, TalentIdentities};
 
@@ -43,6 +45,7 @@ pub enum Message {
     LevelInputChanged(String),
     StatMinChanged(&'static str, String),
     StatMaxChanged(&'static str, String),
+    ComboToggled(i32),
     Scrolled(f32),
 }
 
@@ -53,6 +56,7 @@ pub struct State {
     icons: ability_icon::Cache,
     inherent: HashSet<Identity>,
     gainable: TalentIdentities,
+    combos: ComboEffects,
     scroll_offset: f32,
 }
 
@@ -75,6 +79,49 @@ impl State {
 
     pub(crate) fn restore_scroll<M: 'static>(&self) -> Task<M> {
         operation::scroll_to(Self::scrollable_id(), scrollable::AbsoluteOffset { x: 0.0, y: self.scroll_offset })
+    }
+
+    pub(super) fn refresh_combos(&mut self, vault: &Vault) {
+        self.combos = combo::effects(vault);
+        self.filter_state.combo_effects.retain(|effect| self.combos.units.contains_key(effect));
+        self.resolve_combo_units();
+    }
+
+    fn resolve_combo_units(&mut self) {
+        self.filter_state.combo_units = self
+            .filter_state
+            .combo_effects
+            .iter()
+            .filter_map(|effect| self.combos.units.get(effect))
+            .flatten()
+            .copied()
+            .collect();
+    }
+
+    fn combo_section(&self) -> Option<Element<'_, Message>> {
+        if self.combos.groups.is_empty() {
+            return None;
+        }
+
+        let mut section = column![].spacing(10);
+
+        for group in &self.combos.groups {
+            let mut group_row = row![].spacing(4);
+
+            for effect in group {
+                let Some(label) = self.combos.labels.get(effect) else { continue };
+
+                group_row = group_row.push(toggle_button(
+                    label,
+                    self.filter_state.combo_effects.contains(effect),
+                    Message::ComboToggled(*effect),
+                ));
+            }
+
+            section = section.push(group_row.wrap());
+        }
+
+        Some(section.into())
     }
 
     pub(super) fn refresh_available(&mut self, cats: &[CatEntry]) -> Task<Message> {
@@ -127,6 +174,13 @@ impl State {
             }
             Message::StatMaxChanged(stat, value) => {
                 self.filter_state.stat_ranges.entry(stat).or_default().max = value;
+            }
+            Message::ComboToggled(effect) => {
+                if !self.filter_state.combo_effects.remove(&effect) {
+                    self.filter_state.combo_effects.insert(effect);
+                }
+
+                self.resolve_combo_units();
             }
             Message::Scrolled(offset) => self.scroll_offset = offset,
         }
@@ -268,8 +322,15 @@ impl State {
             Space::new().height(Length::Fixed(16.0)),
             text("Abilities").size(18),
             abilities_col,
-            Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)),
         ].spacing(8).padding(CONTENT_PADDING);
+
+        let content = match self.combo_section() {
+            Some(combos) => content.push(Space::new().height(Length::Fixed(16.0)))
+                .push(text("Combo").size(18))
+                .push(combos),
+            None => content,
+        }
+            .push(Space::new().height(Length::Fixed(CLEAR_BTN_CLEARANCE)));
 
         let scroll_layer = smooth_scroll(
             scrollable(content)

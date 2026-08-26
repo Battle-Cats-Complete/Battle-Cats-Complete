@@ -1,5 +1,5 @@
 use nyanko::combat::{get_talent, AttrUnit, AttrValue, Faction, Identity, REGISTRY};
-use nyanko::common::data::img015;
+use nyanko::files::img015;
 use tracing::trace;
 
 use crate::systems::combat::{AbilityGroups, AbilityItem, CustomIcon};

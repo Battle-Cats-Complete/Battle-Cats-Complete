@@ -13,7 +13,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 
-use nyanko::common::tools::variant::Region;
+use nyanko::common::Region;
 use nyanko::pack::chronology;
 use nyanko::pack::cryptology;
 use rayon::prelude::*;
@@ -255,15 +255,8 @@ pub(crate) fn run_universal_import(
                 continue;
             };
 
-            for text_line in decoded_string_content.lines() {
-                let parts: Vec<&str> = text_line.split(',').collect();
-                if parts.len() < 3 {
-                    continue;
-                }
-
-                let raw_asset_name = parts[0];
-                let byte_offset_value: u64 = parts[1].parse().unwrap_or(0);
-                let byte_size_value: usize = parts[2].parse().unwrap_or(0);
+            for entry in cryptology::PackEntry::parse(&decoded_string_content) {
+                let raw_asset_name = entry.name.as_str();
 
                 let matched_user_rule = compiled_regex_set
                     .matches(raw_asset_name)
@@ -324,8 +317,8 @@ pub(crate) fn run_universal_import(
                     pack_path: corresponding_pack_path.clone(),
                     original_name: raw_asset_name.to_string(),
                     final_name: final_resolved_filename.clone(),
-                    byte_offset: byte_offset_value,
-                    byte_size: byte_size_value,
+                    byte_offset: entry.offset,
+                    byte_size: entry.size,
                     region_code: final_region_code.clone(),
                     chrono_score: file_chrono_score,
                     is_loose: false,

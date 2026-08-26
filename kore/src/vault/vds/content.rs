@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::io::cache;
 
-use super::{CatStore, EnemyStore, StageStore, Vds};
+use super::{CatStore, EnemyStore, ItemStore, StageStore, Vds};
 
 struct ContentCache;
 
@@ -15,6 +15,7 @@ impl cache::CacheSpec for ContentCache {
 pub struct ContentStore {
     cats: CatStore,
     enemies: EnemyStore,
+    items: ItemStore,
     stages: StageStore,
 }
 
@@ -23,6 +24,7 @@ impl ContentStore {
         Self {
             cats: vds.cats.clone(),
             enemies: vds.enemies.clone(),
+            items: vds.items.clone(),
             stages: vds.stages.clone(),
         }
     }
@@ -30,6 +32,7 @@ impl ContentStore {
     pub fn apply(self, vds: &mut Vds) {
         vds.cats = self.cats;
         vds.enemies = self.enemies;
+        vds.items = self.items;
         vds.stages = self.stages;
     }
 
@@ -77,6 +80,11 @@ mod tests {
         unitbuy: Option<u8>,
         evolve: Option<u8>,
         curves: Option<Vec<LevelCurve>>,
+        combos: Option<u8>,
+        combo_names: Option<u8>,
+        combo_effects: Option<u8>,
+        combo_bands: Option<u8>,
+        combo_filters: Option<u8>,
     }
 
     #[derive(Default, Serialize)]
@@ -87,6 +95,11 @@ mod tests {
         unitbuy: Option<u8>,
         evolve: Option<u8>,
         curves: Option<HashMap<u32, LevelCurve>>,
+        combos: Option<u8>,
+        combo_names: Option<u8>,
+        combo_effects: Option<u8>,
+        combo_bands: Option<u8>,
+        combo_filters: Option<u8>,
     }
 
     #[derive(Default, Serialize)]
@@ -112,9 +125,17 @@ mod tests {
     }
 
     #[derive(Default, Serialize)]
+    struct OldItemStore {
+        catalogue: Option<u8>,
+        lines: Option<u8>,
+        names: Option<u8>,
+    }
+
+    #[derive(Default, Serialize)]
     struct ContentStoreLike<C> {
         cats: C,
         enemies: OldEnemyStore,
+        items: OldItemStore,
         stages: OldStageStore,
     }
 

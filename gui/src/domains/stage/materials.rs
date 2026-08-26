@@ -7,10 +7,9 @@ use iced::widget::image::Handle;
 use iced::widget::{column, container, image as iced_image, row, space, text, tooltip, Column};
 use iced::{Color, Element, Length, Theme};
 
-use kore::common::formats::{GatyaItemBuy, GatyaItemName};
 use kore::domains::stage::materials;
 use kore::domains::stage::{Map, Stage};
-use kore::Vfs;
+use kore::{ItemStore, Vfs};
 
 use crate::app::theme;
 use crate::common::item_icon;
@@ -60,8 +59,7 @@ impl State {
         stage: &'a Stage,
         map: &'a Map,
         selected_crown: u8,
-        item_buys: &'a HashMap<u32, GatyaItemBuy>,
-        item_names: &'a HashMap<usize, GatyaItemName>,
+        items: &ItemStore,
         vfs: &'a Vfs,
     ) -> Element<'a, super::Message> {
         if !has_drops(stage, map) {
@@ -83,10 +81,10 @@ impl State {
         let mut grid_col = column![].spacing(CHUNK_SPACING);
 
         if base_mats.iter().any(|&count| count > 0) {
-            grid_col = self.push_chunks(grid_col, base_mats, 0, item_buys, item_names, vfs);
+            grid_col = self.push_chunks(grid_col, base_mats, 0, items, vfs);
         }
         if z_mats.iter().any(|&count| count > 0) {
-            grid_col = self.push_chunks(grid_col, z_mats, 8, item_buys, item_names, vfs);
+            grid_col = self.push_chunks(grid_col, z_mats, 8, items, vfs);
         }
 
         container(section(format!("Materials | Amount: {} ({}×{:.2})", final_amount, base_amount, multiplier), Length::Fill, grid_col))
@@ -99,8 +97,7 @@ impl State {
         mut col: Column<'a, super::Message>,
         chances: &'a [u32],
         offset: usize,
-        item_buys: &'a HashMap<u32, GatyaItemBuy>,
-        item_names: &'a HashMap<usize, GatyaItemName>,
+        items: &ItemStore,
         vfs: &'a Vfs,
     ) -> Column<'a, super::Message> {
         let column_width = (MAT_TABLE_WIDTH - (CELL_PADDING_X as f32 * 2.0) - (COL_SPACING * 3.0)) / 4.0;
@@ -109,7 +106,7 @@ impl State {
             let chunk_offset = offset + (chunk_idx * 4);
 
             let resolved: Vec<_> = chunk.iter().enumerate()
-                .map(|(i, &chance)| (materials::resolve(vfs, chunk_offset + i, chance, item_buys, item_names), chance))
+                .map(|(i, &chance)| (materials::resolve(vfs, chunk_offset + i, chance, items), chance))
                 .collect();
 
             let mut name_row = row![].spacing(COL_SPACING);

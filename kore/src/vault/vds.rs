@@ -2,6 +2,7 @@
 mod cat;
 mod content;
 mod enemy;
+mod item;
 mod stage;
 
 use std::fs;
@@ -14,6 +15,7 @@ use crate::Vfs;
 pub use cat::CatStore;
 pub use content::ContentStore;
 pub use enemy::EnemyStore;
+pub use item::ItemStore;
 pub use stage::StageStore;
 
 type Slot<T> = RwLock<Option<Arc<T>>>;
@@ -22,6 +24,7 @@ type Slot<T> = RwLock<Option<Arc<T>>>;
 pub struct Vds {
     pub cats: CatStore,
     pub enemies: EnemyStore,
+    pub items: ItemStore,
     pub stages: StageStore,
 }
 
@@ -29,6 +32,7 @@ impl Vds {
     pub fn evict(&self, filename: &str) {
         self.cats.evict(filename);
         self.enemies.evict(filename);
+        self.items.evict(filename);
         self.stages.evict(filename);
     }
 
@@ -41,6 +45,7 @@ impl Vds {
     pub fn clear(&self) {
         self.cats.clear();
         self.enemies.clear();
+        self.items.clear();
         self.stages.clear();
     }
 }

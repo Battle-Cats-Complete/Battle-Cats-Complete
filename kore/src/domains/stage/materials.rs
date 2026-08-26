@@ -1,8 +1,4 @@
-use std::collections::HashMap;
-
-use crate::common::formats::GatyaItemBuy;
-use crate::common::formats::GatyaItemName;
-use crate::Vfs;
+use crate::{ItemStore, Vfs};
 
 use super::files;
 use super::treasure::ResolvedDrop;
@@ -12,13 +8,7 @@ pub(crate) const MAT_IDS: [u32; 16] = [
     187, 188, 189, 190, 191, 192, 193, 194,
 ];
 
-pub fn resolve(
-    vfs: &Vfs,
-    idx: usize,
-    amt: u32,
-    buy: &HashMap<u32, GatyaItemBuy>,
-    names: &HashMap<usize, GatyaItemName>
-) -> ResolvedDrop {
+pub fn resolve(vfs: &Vfs, idx: usize, amt: u32, items: &ItemStore) -> ResolvedDrop {
     let Some(&item_id) = MAT_IDS.get(idx) else {
         return ResolvedDrop {
             name: format!("ID {}", idx),
@@ -27,30 +17,11 @@ pub fn resolve(
         };
     };
 
-    let Some(buy_data) = buy.get(&item_id) else {
-        return ResolvedDrop {
-            name: format!("ID {}", item_id),
-            image_path: None,
-            amount_display: amt.to_string(),
-        };
-    };
-
-    let target_row = buy_data.row_index;
-    let name = names.get(&target_row)
-        .map(|d| d.name.clone())
-        .unwrap_or_else(|| format!("ID {}", item_id));
-
-    let img_id = if buy_data.img_id != -1 {
-        buy_data.img_id as u32
-    } else {
-        buy_data.row_index as u32
-    };
-
-    let image_path = vfs.find(&files::gatya_item_img(img_id));
-
     ResolvedDrop {
-        name,
-        image_path,
+        name: items.name(vfs, item_id).unwrap_or_else(|| format!("ID {}", item_id)),
+        image_path: items
+            .icon_index(vfs, item_id)
+            .and_then(|index| vfs.find(&files::gatya_item_img(index))),
         amount_display: amt.to_string(),
     }
 }

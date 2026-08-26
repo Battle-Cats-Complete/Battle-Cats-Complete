@@ -1,5 +1,5 @@
-use nyanko::common::data::Localizable;
-use nyanko::common::data::Param;
+use nyanko::files::Localizable;
+use nyanko::files::Param;
 
 use crate::Vault;
 

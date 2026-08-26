@@ -1,6 +1,6 @@
 use nyanko::chapter::stage::{CharaGroupEntry, CharaGroupType};
 use nyanko::chapter::Stage;
-use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
+use nyanko::common::{strip_html_tags, BreakHandling};
 use tracing::{debug, trace, warn};
 
 use crate::common::context::GlobalContext;

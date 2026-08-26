@@ -21,8 +21,6 @@ pub use nyanko::chapter::Stage;
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, trace};
 
-use crate::common::formats::GatyaItemBuy;
-use crate::common::formats::GatyaItemName;
 use crate::domains::enemy::scanner::EnemyEntry;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
@@ -54,8 +52,6 @@ pub struct StageDataState {
 
     #[serde(skip)] pub enemy_registry: HashMap<u32, EnemyEntry>,
     #[serde(skip)] pub enemy_name_registry: Vec<String>,
-    #[serde(skip)] pub item_buy_registry: HashMap<u32, GatyaItemBuy>,
-    #[serde(skip)] pub item_name_registry: HashMap<usize, GatyaItemName>,
     #[serde(skip)] pub drop_chara_registry: HashMap<u32, u32>,
     #[serde(skip)] pub unit_buy_registry: HashMap<u32, UnitBuy>,
     #[serde(skip)] pub cat_name_registry: HashMap<u32, Vec<String>>,

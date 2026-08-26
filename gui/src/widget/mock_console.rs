@@ -20,7 +20,9 @@ impl Default for ConsoleState {
 
 impl ConsoleState {
     pub(crate) fn on_scroll(&mut self, viewport: scrollable::Viewport) {
-        self.stuck_to_bottom = viewport.relative_offset().y >= STICK_THRESHOLD;
+        let overflow = viewport.content_bounds().height - viewport.bounds().height;
+
+        self.stuck_to_bottom = sticks(viewport.relative_offset().y, overflow);
     }
 
     pub(crate) fn snap_to_bottom<Message: 'static>(&self) -> Task<Message> {
@@ -38,6 +40,10 @@ impl ConsoleState {
     ) -> Element<'a, Message> {
         mock_console(self.id.clone(), log, on_scroll)
     }
+}
+
+fn sticks(offset: f32, overflow: f32) -> bool {
+    overflow <= 0.0 || offset >= STICK_THRESHOLD
 }
 
 pub(crate) fn mock_console<'a, Message: 'a>(
@@ -60,4 +66,27 @@ pub(crate) fn mock_console<'a, Message: 'a>(
         .height(Length::Fill)
         .style(theme::mock_console_container)
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A cleared console is shorter than its viewport, so iced reports 0 / -overflow.
+    // That is -0.0, which is not >= the threshold, and it used to unstick the console
+    // for the rest of the session.
+    #[test]
+    fn a_console_with_nothing_to_scroll_stays_stuck() {
+        assert!(sticks(0.0 / -200.0, -200.0), "a cleared console must stay stuck");
+        assert!(sticks(f32::NAN, 0.0), "content exactly filling the viewport must stay stuck");
+        assert!(sticks(0.0, 0.0));
+    }
+
+    #[test]
+    fn scrolling_away_from_the_bottom_still_unsticks() {
+        assert!(!sticks(0.0, 400.0));
+        assert!(!sticks(0.9, 400.0));
+        assert!(sticks(1.0, 400.0));
+        assert!(sticks(STICK_THRESHOLD, 400.0));
+    }
 }

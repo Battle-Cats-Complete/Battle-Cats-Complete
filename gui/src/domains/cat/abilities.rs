@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use iced::widget::column;
 use iced::Element;
 use nyanko::cat::unit::LevelCurve;
-use nyanko::common::data::img015;
+use nyanko::files::img015;
 
 use kore::common::context::GlobalContext;
 use kore::domains::cat::scanner::CatEntry;

@@ -9,10 +9,9 @@ use iced::{Alignment, Element, Length, Theme};
 use nyanko::cat::unit::UnitBuy;
 use nyanko::chapter::stage::RewardStructure;
 
-use kore::common::formats::{GatyaItemBuy, GatyaItemName};
 use kore::domains::stage::treasure;
 use kore::domains::stage::Stage;
-use kore::Vfs;
+use kore::{ItemStore, Vfs};
 
 use crate::app::theme;
 use crate::common::item_icon;
@@ -102,8 +101,7 @@ impl State {
     pub fn view<'a>(
         &'a self,
         stage: &'a Stage,
-        item_buys: &'a HashMap<u32, GatyaItemBuy>,
-        item_names: &'a HashMap<usize, GatyaItemName>,
+        items: &ItemStore,
         drop_charas: &'a HashMap<u32, u32>,
         unit_buys: &'a HashMap<u32, UnitBuy>,
         vfs: &'a Vfs,
@@ -118,7 +116,7 @@ impl State {
                 let mut grid = column![header_row("Chance")];
 
                 for (index, drop) in valid_drops.into_iter().enumerate() {
-                    let resolved = treasure::resolve_drop(vfs, drop.item_id, drop.amount, item_buys, item_names, drop_charas, unit_buys);
+                    let resolved = treasure::resolve_drop(vfs, drop.item_id, drop.amount, items, drop_charas, unit_buys);
                     grid = grid.push(self.item_row(
                         index,
                         drop.item_id,
@@ -139,7 +137,7 @@ impl State {
                 let mut grid = column![header_row("Score")];
 
                 for (index, score) in timed_scores.iter().enumerate() {
-                    let resolved = treasure::resolve_drop(vfs, score.item_id, score.amount, item_buys, item_names, drop_charas, unit_buys);
+                    let resolved = treasure::resolve_drop(vfs, score.item_id, score.amount, items, drop_charas, unit_buys);
                     grid = grid.push(self.item_row(
                         index,
                         score.item_id,

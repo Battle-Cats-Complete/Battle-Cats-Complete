@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use nyanko::cat::unit::UnitBuy;
 use serde::{Deserialize, Serialize};
 
-use crate::common::formats::GatyaItemBuy;
-use crate::common::formats::GatyaItemName;
+
+use crate::{ItemStore, Vfs};
 
 use super::range::{CompiledStatRange, StatRange};
 
@@ -52,8 +52,8 @@ impl CompiledTreasureFilter {
         target_id: u32,
         drop_amt: u32,
         drop_chnc: u32,
-        buy_reg: &HashMap<u32, GatyaItemBuy>,
-        name_reg: &HashMap<usize, GatyaItemName>,
+        items: &ItemStore,
+        vfs: &Vfs,
         drop_chara_reg: &HashMap<u32, u32>,
         unit_buy_reg: &HashMap<u32, UnitBuy>,
         cat_name_reg: &HashMap<u32, Vec<String>>,
@@ -64,9 +64,8 @@ impl CompiledTreasureFilter {
         if self.name_or_id.is_empty() { return true; }
         if self.parsed_id == Some(target_id) { return true; }
 
-        if let Some(item_buy) = buy_reg.get(&target_id) {
-            return name_reg.get(&{ item_buy.row_index })
-                .is_some_and(|name| name.name.to_lowercase().contains(&self.name_or_id));
+        if let Some(name) = items.name(vfs, target_id) {
+            return name.to_lowercase().contains(&self.name_or_id);
         }
 
         if let Some(&chara_id) = drop_chara_reg.get(&target_id) {

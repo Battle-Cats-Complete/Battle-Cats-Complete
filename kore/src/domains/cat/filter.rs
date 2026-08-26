@@ -4,7 +4,7 @@ pub mod stats;
 
 use std::collections::{HashMap, HashSet};
 
-use nyanko::common::data::img015;
+use nyanko::files::img015;
 
 use crate::systems::combat::CustomIcon;
 use crate::systems::combat::registry::AbilityIcon;
@@ -67,6 +67,8 @@ pub struct CatFilterState {
     pub adv_ranges: HashMap<AbilityIcon, HashMap<&'static str, RangeInput>>,
     pub level_input: String,
     pub stat_ranges: HashMap<&'static str, RangeInput>,
+    pub combo_effects: HashSet<i32>,
+    pub combo_units: HashSet<u32>,
 }
 
 impl Default for CatFilterState {
@@ -82,6 +84,8 @@ impl Default for CatFilterState {
             adv_ranges: HashMap::new(),
             level_input: String::new(),
             stat_ranges: HashMap::new(),
+            combo_effects: HashSet::new(),
+            combo_units: HashSet::new(),
         }
     }
 }
@@ -95,6 +99,8 @@ impl CatFilterState {
         let ultra_talent_required = self.ultra_talent_mode == TalentFilterMode::Only;
         let has_stat_ranges = self.stat_ranges.values().any(|range_input| !range_input.min.is_empty() || !range_input.max.is_empty());
 
-        has_icons || has_rarities || has_forms || normal_talent_required || ultra_talent_required || has_stat_ranges
+        let has_combos = !self.combo_effects.is_empty();
+
+        has_icons || has_rarities || has_forms || normal_talent_required || ultra_talent_required || has_stat_ranges || has_combos
     }
 }

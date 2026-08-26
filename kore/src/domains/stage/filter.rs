@@ -14,8 +14,7 @@ use nyanko::chapter::{Map, Stage};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::common::formats::GatyaItemBuy;
-use crate::common::formats::GatyaItemName;
+use crate::{ItemStore, Vault, Vfs};
 
 use super::StageDataState;
 
@@ -273,21 +272,21 @@ pub struct StageLookupContext<'a> {
     pub enemy_name_registry: &'a [String],
     pub lock_registry: &'a HashMap<u32, LockSkipDataEntry>,
     pub cpu_setting: &'a ScatCpuSetting,
-    pub item_buy_registry: &'a HashMap<u32, GatyaItemBuy>,
-    pub item_name_registry: &'a HashMap<usize, GatyaItemName>,
+    pub items: &'a ItemStore,
+    pub vfs: &'a Vfs,
     pub drop_chara_registry: &'a HashMap<u32, u32>,
     pub unit_buy_registry: &'a HashMap<u32, UnitBuy>,
     pub cat_name_registry: &'a HashMap<u32, Vec<String>>,
 }
 
 impl<'a> StageLookupContext<'a> {
-    pub fn from_data(data: &'a StageDataState) -> Self {
+    pub fn from_data(data: &'a StageDataState, vault: &'a Vault) -> Self {
         Self {
             enemy_name_registry: &data.enemy_name_registry,
             lock_registry: &data.lock_skip_registry,
             cpu_setting: &data.scat_cpu_setting,
-            item_buy_registry: &data.item_buy_registry,
-            item_name_registry: &data.item_name_registry,
+            items: &vault.vds.items,
+            vfs: &vault.vfs,
             drop_chara_registry: &data.drop_chara_registry,
             unit_buy_registry: &data.unit_buy_registry,
             cat_name_registry: &data.cat_name_registry,
@@ -464,10 +463,10 @@ impl CompiledStageFilter {
             for treasure_filter in &self.treasures {
                 let found = match &stage.rewards {
                     RewardStructure::Treasure { drops, .. } => {
-                        drops.iter().any(|drop| treasure_filter.matches_drop(drop.item_id, drop.amount, drop.chance, ctx.item_buy_registry, ctx.item_name_registry, ctx.drop_chara_registry, ctx.unit_buy_registry, ctx.cat_name_registry))
+                        drops.iter().any(|drop| treasure_filter.matches_drop(drop.item_id, drop.amount, drop.chance, ctx.items, ctx.vfs, ctx.drop_chara_registry, ctx.unit_buy_registry, ctx.cat_name_registry))
                     }
                     RewardStructure::Timed(scores) => {
-                        scores.iter().any(|score| treasure_filter.matches_drop(score.item_id, score.amount, 100, ctx.item_buy_registry, ctx.item_name_registry, ctx.drop_chara_registry, ctx.unit_buy_registry, ctx.cat_name_registry))
+                        scores.iter().any(|score| treasure_filter.matches_drop(score.item_id, score.amount, 100, ctx.items, ctx.vfs, ctx.drop_chara_registry, ctx.unit_buy_registry, ctx.cat_name_registry))
                     }
                     _ => false,
                 };
@@ -480,7 +479,7 @@ impl CompiledStageFilter {
             for material_filter in &self.materials {
                 let found = drop_items_opt.is_some_and(|drop_items| {
                     drop_items.material_drops.iter().enumerate().any(|(index, &amount)| {
-                        amount > 0 && material_filter.matches_material(index, amount, ctx.item_buy_registry, ctx.item_name_registry)
+                        amount > 0 && material_filter.matches_material(index, amount, ctx.items, ctx.vfs)
                     })
                 });
                 if material_filter.is_exclude { if found { return false; } } else if !found { return false; }

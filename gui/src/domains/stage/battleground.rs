@@ -7,7 +7,7 @@ use iced::widget::{column, container, image as iced_image, row, text, tooltip};
 use iced::{Alignment, Element, Length, Theme};
 use nyanko::chapter::map::{BonusType, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry};
 use nyanko::chapter::stage::{BossType, EnemyAmount};
-use nyanko::common::tools::file::{strip_html_tags, BreakHandling};
+use nyanko::common::{strip_html_tags, BreakHandling};
 use tracing::warn;
 
 use kore::common::context::GlobalContext;
