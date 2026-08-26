@@ -50,6 +50,8 @@ const DEFAULT_WALK_LEN: i32 = 90;
 const DEFAULT_IDLE_LEN: i32 = 90;
 const DEFAULT_KB_LEN: i32 = 60;
 const DEFAULT_CULL: i32 = 100;
+const PERCENT_MIN: i32 = 0;
+const PERCENT_MAX: i32 = 100;
 
 type JobKey = (String, Option<usize>);
 
@@ -530,22 +532,22 @@ impl State {
                 }
             }
             Message::SetLoopTolerance(value) => {
+                if !is_typable_number(&value, false, false) {
+                    return Task::none();
+                }
                 self.exporter.loop_tolerance_str = value.clone();
                 if let Ok(parsed) = value.parse::<i32>() {
                     self.exporter.loop_tolerance = parsed;
                 }
             }
             Message::SetCull(value) => {
-                if !is_typable_number(&value, false, false) {
+                let Some((percent, text)) = percentage(&value, DEFAULT_CULL) else {
                     return Task::none();
-                }
-                self.exporter.cull_percent_str = value.clone();
-                if value.trim().is_empty() {
-                    self.exporter.cull_percent = DEFAULT_CULL;
-                } else if let Ok(parsed) = value.parse::<i32>() {
-                    self.exporter.cull_percent = parsed.clamp(0, 100);
-                }
-                settings.animation.bounds_cull = self.exporter.cull_percent;
+                };
+
+                self.exporter.cull_percent = percent;
+                self.exporter.cull_percent_str = text;
+                settings.animation.bounds_cull = percent;
             }
             Message::SetLoopMin(value) => {
                 self.exporter.loop_min_str = value.clone();
@@ -634,30 +636,22 @@ impl State {
                 }
             }
             Message::SetQuality(value) => {
-                if !is_typable_number(&value, false, false) {
+                let Some((percent, text)) = percentage(&value, PERCENT_MAX) else {
                     return Task::none();
-                }
-                self.exporter.quality_percent_str = value.clone();
-                if value.trim().is_empty() {
-                    self.exporter.quality_percent = 100;
-                    anim_state.last_export_quality = None;
-                } else if let Ok(parsed) = value.parse::<i32>() {
-                    self.exporter.quality_percent = parsed.clamp(0, 100);
-                    anim_state.last_export_quality = Some(self.exporter.quality_percent);
-                }
+                };
+
+                self.exporter.quality_percent = percent;
+                anim_state.last_export_quality = (!text.is_empty()).then_some(percent);
+                self.exporter.quality_percent_str = text;
             }
             Message::SetCompression(value) => {
-                if !is_typable_number(&value, false, false) {
+                let Some((percent, text)) = percentage(&value, PERCENT_MIN) else {
                     return Task::none();
-                }
-                self.exporter.compression_percent_str = value.clone();
-                if value.trim().is_empty() {
-                    self.exporter.compression_percent = 0;
-                    anim_state.last_export_compression = None;
-                } else if let Ok(parsed) = value.parse::<i32>() {
-                    self.exporter.compression_percent = parsed.clamp(0, 100);
-                    anim_state.last_export_compression = Some(self.exporter.compression_percent);
-                }
+                };
+
+                self.exporter.compression_percent = percent;
+                anim_state.last_export_compression = (!text.is_empty()).then_some(percent);
+                self.exporter.compression_percent_str = text;
             }
             Message::ToggleBackground(enabled) => {
                 self.exporter.background = enabled;
@@ -1158,7 +1152,7 @@ impl State {
                             Some(Message::SetEndFrame),
                         ),
                     ),
-                    field_row("Tolerance %", small_input("30", &self.exporter.loop_tolerance_str, Message::SetLoopTolerance)),
+                    field_row("Tolerance", small_input("30", &self.exporter.loop_tolerance_str, Message::SetLoopTolerance)),
                     field_row("Min Frames", small_input("15", &self.exporter.loop_min_str, Message::SetLoopMin)),
                     field_row("Max Frames", small_input("None", &self.exporter.loop_max_str, Message::SetLoopMax)),
                     find_loop_button,
@@ -1411,6 +1405,22 @@ fn field_row<'a>(label: &'a str, control: impl Into<Element<'a, Message>>) -> El
         .spacing(FIELD_SPACING)
         .align_y(Alignment::Center)
         .into()
+}
+
+fn percentage(input: &str, empty: i32) -> Option<(i32, String)> {
+    if !is_typable_number(input, false, false) {
+        return None;
+    }
+
+    if input.trim().is_empty() {
+        return Some((empty, String::new()));
+    }
+
+    let parsed = input.parse::<i32>().unwrap_or(PERCENT_MAX);
+    let clamped = parsed.clamp(PERCENT_MIN, PERCENT_MAX);
+    let text = if clamped == parsed { input.to_string() } else { clamped.to_string() };
+
+    Some((clamped, text))
 }
 
 fn is_typable_number(value: &str, allow_negative: bool, allow_decimal: bool) -> bool {
