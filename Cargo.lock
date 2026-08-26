@@ -1929,7 +1929,7 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "2.3.5"
+version = "2.4.0"
 dependencies = [
  "arboard",
  "bytemuck",
@@ -2738,7 +2738,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "kore"
-version = "2.3.5"
+version = "2.4.0"
 dependencies = [
  "ab_glyph",
  "base64 0.23.1",
@@ -3467,6 +3467,7 @@ dependencies = [
 [[package]]
 name = "nyanko"
 version = "0.9.0"
+source = "git+https://github.com/omochikaeri15/nyanko#c39659759e87cfd7ba5571a260152fd6b67faf85"
 dependencies = [
  "aes",
  "block-padding",
