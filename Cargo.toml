@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.3.4"
+version = "2.3.5"
 edition = "2024"
 license-file = "LICENSE"
 authors = ["omochikaeri15 <251449262+omochikaeri15@users.noreply.github.com>"]
@@ -16,8 +16,8 @@ repository = "https://github.com/omochikaeri15/battle-cats-complete"
 [workspace.dependencies]
 nyanko = { git = "https://github.com/omochikaeri15/nyanko" }
 
-[patch."https://github.com/omochikaeri15/nyanko"]
-nyanko = { path = "../nyanko" }
+#[patch."https://github.com/omochikaeri15/nyanko"]
+#nyanko = { path = "../nyanko" }
 
 [profile.release]
 strip = true
