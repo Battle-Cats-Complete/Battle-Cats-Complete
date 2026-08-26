@@ -1,25 +1,23 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use tracing::{debug, warn};
 
 use super::github;
 use super::io::cache::{self, CacheSpec};
 
-const TTL_SECS: u64 = 60 * 60 * 6;
+const UNKEYED: u64 = 0;
 
 struct Cache;
 
 impl CacheSpec for Cache {
     type Data = Vec<(String, String)>;
-    const FILE: &'static str = "changelog";
+    const FILE: &'static str = "changelog.bin";
 }
 
 pub fn load(owner: &str, repo: &str, current_version: &str) -> Result<Vec<(String, String)>, github::Error> {
-    let Some((fetched_at, cached)) = cache::read::<Cache>() else {
+    let Some((_, cached)) = cache::read::<Cache>() else {
         return github::list_releases(owner, repo).map(store);
     };
 
-    if is_fresh(fetched_at) && cached.iter().any(|(version, _)| version == current_version) {
+    if cached.iter().any(|(version, _)| version == current_version) {
         debug!("Serving {} changelog entries from the cache", cached.len());
         return Ok(cached);
     }
@@ -48,14 +46,6 @@ fn store(releases: Vec<github::Release>) -> Vec<(String, String)> {
         })
         .collect();
 
-    cache::write::<Cache>(now(), &entries);
+    cache::write::<Cache>(UNKEYED, &entries);
     entries
-}
-
-fn is_fresh(fetched_at: u64) -> bool {
-    now().saturating_sub(fetched_at) < TTL_SECS
-}
-
-fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
