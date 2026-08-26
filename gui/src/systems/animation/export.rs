@@ -49,6 +49,7 @@ const POPUP_BODY_ALPHA: f32 = 0.95;
 const DEFAULT_WALK_LEN: i32 = 90;
 const DEFAULT_IDLE_LEN: i32 = 90;
 const DEFAULT_KB_LEN: i32 = 60;
+const DEFAULT_CULL: i32 = 100;
 
 type JobKey = (String, Option<usize>);
 
@@ -108,6 +109,8 @@ struct ExportForm {
     loop_min_str: String,
     loop_max: Option<i32>,
     loop_max_str: String,
+    cull_percent: i32,
+    cull_percent_str: String,
     showcase_walk_str: String,
     showcase_idle_str: String,
     showcase_attack_str: String,
@@ -159,6 +162,8 @@ impl Default for ExportForm {
             loop_min_str: String::new(),
             loop_max: None,
             loop_max_str: String::new(),
+            cull_percent: DEFAULT_CULL,
+            cull_percent_str: String::new(),
             showcase_walk_str: String::new(),
             showcase_idle_str: String::new(),
             showcase_attack_str: String::new(),
@@ -199,6 +204,7 @@ impl Default for ExportForm {
 impl ExportForm {
     fn with_settings(settings: &Settings) -> Self {
         Self {
+            cull_percent: settings.animation.bounds_cull,
             showcase_walk_len: settings.animation.default_showcase_walk,
             showcase_idle_len: settings.animation.default_showcase_idle,
             showcase_kb_len: settings.animation.default_showcase_kb,
@@ -258,6 +264,7 @@ pub enum Message {
     SetLoopTolerance(String),
     SetLoopMin(String),
     SetLoopMax(String),
+    SetCull(String),
     SetShowcaseWalk(String),
     SetShowcaseIdle(String),
     SetShowcaseAttack(String),
@@ -321,7 +328,7 @@ impl State {
             if self.exporter.export_mode != ExportMode::Showcase {
                 match &data.current_anim {
                     Some(anim) => {
-                        self.exporter.max_frame = anim.last_frame();
+                        self.exporter.max_frame = anim.declared_frames() - 1;
                         self.exporter.frame_start = 0;
                         self.exporter.frame_end = self.exporter.max_frame;
                     }
@@ -527,6 +534,18 @@ impl State {
                 if let Ok(parsed) = value.parse::<i32>() {
                     self.exporter.loop_tolerance = parsed;
                 }
+            }
+            Message::SetCull(value) => {
+                if !is_typable_number(&value, false, false) {
+                    return Task::none();
+                }
+                self.exporter.cull_percent_str = value.clone();
+                if value.trim().is_empty() {
+                    self.exporter.cull_percent = DEFAULT_CULL;
+                } else if let Ok(parsed) = value.parse::<i32>() {
+                    self.exporter.cull_percent = parsed.clamp(0, 100);
+                }
+                settings.animation.bounds_cull = self.exporter.cull_percent;
             }
             Message::SetLoopMin(value) => {
                 self.exporter.loop_min_str = value.clone();
@@ -884,7 +903,7 @@ impl State {
                     return Task::none();
                 };
 
-                let tolerance = if settings.animation.use_tight_bounds { 1.0 } else { 0.0 };
+                let tolerance = self.exporter.cull_percent as f32 / 100.0;
                 let is_showcase = self.exporter.export_mode == ExportMode::Showcase;
                 let scan_limit = self.exporter.frame_end.max(self.exporter.frame_start).max(0);
                 let current_anim = data.current_anim.clone();
@@ -1181,6 +1200,7 @@ impl State {
             "Camera",
             Length::Fill,
             column![
+                cull_row(&self.exporter.cull_percent_str),
                 camera_buttons,
                 row![
                     axis_input("X", &self.exporter.region_x_str, Message::SetRegionX),
@@ -1371,6 +1391,16 @@ fn advance_search(slot: &mut Option<(JobKey, SearchJob)>, synced_key: Option<&Jo
         && let Some((_, job)) = slot.take() {
         job.task_handle.abort();
     }
+}
+
+fn cull_row<'a>(value: &'a str) -> Element<'a, Message> {
+    row![
+        text("Auto-Bounds Cull Faint %").size(CONTROL_TEXT_SIZE),
+        small_input(&DEFAULT_CULL.to_string(), value, Message::SetCull),
+    ]
+        .spacing(FIELD_SPACING)
+        .align_y(Alignment::Center)
+        .into()
 }
 
 fn field_row<'a>(label: &'a str, control: impl Into<Element<'a, Message>>) -> Element<'a, Message> {

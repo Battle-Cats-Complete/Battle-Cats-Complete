@@ -28,12 +28,17 @@ pub fn search(
         })
         .collect();
 
-    let total = limits.iter().map(|last| (last + 1).max(0) as usize).sum();
-    progress.reset(total);
+    let total: usize = limits.iter().map(|last| (last + 1).max(0) as usize).sum();
+    progress.reset(total.max(1));
 
     info!("Starting bounds measurement over {} frames", total);
 
     let strictness = Tolerance::new(tolerance);
+
+    if clips.is_empty() {
+        return resting(unit, strictness, offset, progress);
+    }
+
     let mut bounds: Option<BoundingBox> = None;
 
     for ((animation, _), last) in clips.iter().zip(&limits) {
@@ -53,6 +58,19 @@ pub fn search(
         }
     }
 
+    settle(bounds)
+}
+
+fn resting(unit: &Rig, strictness: Tolerance, offset: Option<usize>, progress: &ProgressCounter) -> BoundsOutcome {
+    info!("No animation to sweep, measuring the rig's resting pose instead");
+
+    let measured = scan_bounds(unit, None, strictness, Some((0, 0)), offset);
+    progress.advance();
+
+    settle(measured)
+}
+
+fn settle(bounds: Option<BoundingBox>) -> BoundsOutcome {
     bounds.map_or_else(
         || {
             warn!("No visible geometry found while measuring bounds.");

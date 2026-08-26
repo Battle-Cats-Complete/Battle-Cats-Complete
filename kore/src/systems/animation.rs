@@ -258,6 +258,25 @@ mod tests {
     }
 
     #[test]
+    fn the_authored_range_and_the_playback_bound_agree_without_a_cycle() {
+        // The exporter sizes its Frames row from declared_frames - 1 and the viewer
+        // sizes its slider from playback_frames - 1. Those must land on the same
+        // number, or the two controls disagree about the same animation.
+        let attack = animation(vec![curve(1, 0, 15)]);
+        assert_eq!(attack.declared_frames() - 1, playback_frames(&attack) - 1);
+
+        // A held pose is one frame, so index zero from both directions.
+        let knockback = animation(vec![curve(-1, 0, 0)]);
+        assert_eq!(knockback.declared_frames() - 1, playback_frames(&knockback) - 1);
+
+        // A looping walk ends one frame before its furthest keyframe, since that
+        // frame renders as frame zero again.
+        let walk = animation(vec![curve(-1, 0, 16)]);
+        assert_eq!(walk.declared_frames() - 1, 15);
+        assert_eq!(playback_frames(&walk) - 1, 15);
+    }
+
+    #[test]
     fn a_longer_name_sharing_the_prefix_is_not_ours() {
         // 008_charaawa.maanim starts with 008_c but belongs to a different unit.
         assert!(!owns("haraawa"));

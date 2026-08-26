@@ -76,7 +76,6 @@ pub enum Message {
     Utf8ModeSelected(Utf8Mode),
     ContextScopeSelected(ContextScope),
     EditorModeSelected(EditorMode),
-    ToggleTightBounds(bool),
     ToggleAutoCamera(bool),
     ShowcaseWalkChanged(String),
     ShowcaseIdleChanged(String),
@@ -229,10 +228,6 @@ impl State {
             }
             Message::ToggleDebugView(val) => {
                 core_settings.animation.debug_view = val;
-                Task::none()
-            }
-            Message::ToggleTightBounds(val) => {
-                core_settings.animation.use_tight_bounds = val;
                 Task::none()
             }
             Message::ToggleAutoCamera(val) => {
@@ -604,10 +599,6 @@ impl State {
         let viewer_content = toggle_row(core_settings.animation.debug_view, text("Enable Debug View"), Some(Message::ToggleDebugView));
 
         let exporter_content = column![
-            hover_hint(
-                toggle_row(core_settings.animation.use_tight_bounds, text("Use Tight Bounds"), Some(Message::ToggleTightBounds)),
-                "Automatically crops out minor vfx and glow when calculating camera bounds",
-            ),
             hover_hint(
                 toggle_row(core_settings.animation.auto_set_camera_region, text("Auto-Set Camera Region"), Some(Message::ToggleAutoCamera)),
                 "Automatically calculates a Units tight bounding box when exporting\nThis setting may cause lag spikes on some devices",

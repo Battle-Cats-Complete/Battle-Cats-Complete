@@ -292,8 +292,8 @@ impl Default for GameDataSettings {
 #[serde(default)]
 pub struct AnimSettings {
     pub debug_view: bool,
-    pub use_tight_bounds: bool,
     pub auto_set_camera_region: bool,
+    pub bounds_cull: i32,
     pub default_showcase_walk: i32,
     pub default_showcase_idle: i32,
     pub default_showcase_kb: i32,
@@ -303,8 +303,8 @@ impl Default for AnimSettings {
     fn default() -> Self {
         Self {
             debug_view: false,
-            use_tight_bounds: true,
             auto_set_camera_region: false,
+            bounds_cull: 100,
             default_showcase_walk: 90,
             default_showcase_idle: 90,
             default_showcase_kb: 60,
