@@ -2,12 +2,15 @@ use std::env;
 
 use iced::widget::{button, column, container, markdown, pick_list, row, scrollable, text, Space};
 use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
-use self_update::backends::github::ReleaseList;
 use tracing::{debug, error, info, warn};
+
+use kore::common::changelog;
 
 use crate::app::{theme, Page};
 use crate::widget::{nightly_label, popup, smooth_scroll};
 
+const REPO_OWNER: &str = "omochikaeri15";
+const REPO_NAME: &str = "battle-cats-complete";
 const SPACE_TOP: f32 = 20.0;
 const SPACE_TITLE_SUBTITLE: f32 = 2.0;
 const SPACE_SUBTITLE_SECTION: f32 = 50.0;
@@ -149,7 +152,7 @@ impl State {
             .width(Length::Fill);
 
         let version_tag = format!("v{}", env!("CARGO_PKG_VERSION"));
-        let release_url = format!("https://github.com/omochikaeri15/battle-cats-complete/releases/tag/{}", version_tag);
+        let release_url = format!("https://github.com/{}/{}/releases/tag/{}", REPO_OWNER, REPO_NAME, version_tag);
         let footer = row![
             button(text(version_tag).size(13.0))
                 .style(button::text)
@@ -323,24 +326,10 @@ impl State {
 }
 
 fn fetch_changelogs() -> Result<Vec<(String, String)>, String> {
-    info!("Fetching GitHub releases...");
+    info!("Loading changelogs...");
 
-    let result = ReleaseList::configure()
-        .repo_owner("omochikaeri15")
-        .repo_name("battle-cats-complete")
-        .build()
-        .map_err(|e| e.to_string())?
-        .fetch()
-        .map_err(|e| e.to_string())?;
+    let entries = changelog::load(REPO_OWNER, REPO_NAME, env!("CARGO_PKG_VERSION")).map_err(|err| err.to_string())?;
+    info!("Loaded {} changelog entries", entries.len());
 
-    let mut formatted = Vec::new();
-    for r in result {
-        let clean_version = r.version.trim_start_matches('v').to_string();
-        if !clean_version.is_empty() && clean_version.chars().all(|c| c.is_ascii_digit() || c == '.') {
-            let raw_body = r.body.unwrap_or_else(|| "No notes.".to_string());
-            formatted.push((clean_version, raw_body));
-        }
-    }
-
-    Ok(formatted)
+    Ok(entries)
 }

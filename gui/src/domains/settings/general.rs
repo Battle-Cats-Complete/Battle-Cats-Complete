@@ -9,7 +9,7 @@ use kore::domains::settings::{lang, nightly};
 use kore::domains::settings::{Settings as CoreSettings, UpdateMode};
 
 use crate::app::theme;
-use crate::app::UpdateStatus;
+use crate::app::{CheckFailure, UpdateStatus};
 use crate::common::fonts;
 use crate::widget::toggle_row;
 #[cfg(target_os = "linux")]
@@ -208,7 +208,9 @@ impl State {
             UpdateStatus::Checking => ("Checking for Updates...", theme::warning_button, None),
             UpdateStatus::UpToDate => ("Up to Date!", theme::success_button, None),
             UpdateStatus::UpdateFound(..) => ("Update Found!", theme::success_button, Some(Message::ShowUpdatePopup)),
-            UpdateStatus::CheckFailed => ("Failed to Check!", theme::danger_button, None),
+            UpdateStatus::CheckFailed(CheckFailure::RateLimited) => ("Rate Limited!", theme::danger_button, None),
+            UpdateStatus::CheckFailed(CheckFailure::InvalidUrl) => ("Invalid URL!", theme::danger_button, None),
+            UpdateStatus::CheckFailed(CheckFailure::Unknown) => ("Failed to Check!", theme::danger_button, None),
             UpdateStatus::Downloading(_) => ("Downloading Update...", theme::primary_button, Some(Message::ShowUpdatePopup)),
             UpdateStatus::RestartPending(_) => ("Restart Pending!", theme::warning_button, Some(Message::ShowUpdatePopup)),
             UpdateStatus::Idle => ("Check for Update Now", theme::primary_button, Some(Message::ManualUpdateCheck)),

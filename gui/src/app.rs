@@ -11,7 +11,6 @@ use iced::widget::{button, column, container, markdown, opaque, operation, row, 
 use iced::{task, window, Element, Length, Size, Subscription, Task, Theme};
 use nyanko::files::{Localizable, Param};
 use rustc_hash::FxHasher;
-use self_update::update::Release;
 use tracing::{info, trace, warn};
 
 use kore::common::context::GlobalContext;
@@ -23,6 +22,7 @@ use kore::common::architecture;
 use kore::domains::settings::{Settings, UpdateMode};
 use kore::{ContentStore, Vault};
 
+use crate::common::feedback::Slot;
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
 use crate::domains::{cat, enemy, files, help, home, import, mods, settings as gui_settings, stage, utilities};
@@ -99,22 +99,37 @@ const ALL_PAGES: &[Page] = &[
     Page::Settings,
 ];
 
+#[derive(Clone, Copy, Debug)]
+pub enum CheckFailure {
+    RateLimited,
+    InvalidUrl,
+    Unknown,
+}
+
+#[derive(Clone, Debug)]
+pub struct UpdateTarget {
+    pub latest: String,
+    pub version: String,
+    pub tag: String,
+    pub asset: String,
+}
+
 #[derive(Clone)]
 pub enum UpdateStatus {
     Idle,
     Checking,
-    UpdateFound(String, Release),
+    UpdateFound(UpdateTarget),
     Downloading(String),
     RestartPending(String),
-    CheckFailed,
+    CheckFailed(CheckFailure),
     UpToDate,
 }
 
 #[derive(Clone, Debug)]
 pub enum UpdaterMsg {
-    UpdateFound(Release),
+    UpdateFound(UpdateTarget),
     UpToDate,
-    CheckFailed,
+    CheckFailed(CheckFailure),
     DownloadStarted(String),
     DownloadFinished(String),
     SilentFail,
@@ -122,9 +137,10 @@ pub enum UpdaterMsg {
 
 #[derive(Clone, Debug)]
 pub enum UpdaterAction {
-    StartDownload(Release),
+    StartDownload(UpdateTarget),
     DismissUpdate,
     NeverUpdate,
+    NeverExpired,
     RestartApp,
 }
 
@@ -279,6 +295,8 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     updater_popup_open: bool,
     #[serde(skip)]
+    updater_never_confirm: Slot<()>,
+    #[serde(skip)]
     pub download_progress: f32,
 
     pub app_theme: AppTheme,
@@ -330,6 +348,7 @@ impl Default for BattleCatsApp {
             updater_status_handle: None,
             updater_popup: popup::State::default(),
             updater_popup_open: false,
+            updater_never_confirm: Slot::default(),
             download_progress: 0.0,
             app_theme: AppTheme::default(),
         }
@@ -817,16 +836,16 @@ impl BattleCatsApp {
             Message::Updater(msg) => {
                 let mut task = Task::none();
                 match msg {
-                    UpdaterMsg::UpdateFound(release) => {
-                        self.updater_status = UpdateStatus::UpdateFound(release.version.clone(), release);
+                    UpdaterMsg::UpdateFound(target) => {
+                        self.updater_status = UpdateStatus::UpdateFound(target);
                         self.set_updater_popup(true);
                     }
                     UpdaterMsg::UpToDate => {
                         self.updater_status = UpdateStatus::UpToDate;
                         task = self.schedule_updater_status_expiry();
                     }
-                    UpdaterMsg::CheckFailed => {
-                        self.updater_status = UpdateStatus::CheckFailed;
+                    UpdaterMsg::CheckFailed(reason) => {
+                        self.updater_status = UpdateStatus::CheckFailed(reason);
                         task = self.schedule_updater_status_expiry();
                     }
                     UpdaterMsg::DownloadStarted(version) => {
@@ -852,7 +871,7 @@ impl BattleCatsApp {
                 Task::none()
             }
             Message::UpdaterStatusExpired => {
-                if matches!(self.updater_status, UpdateStatus::UpToDate | UpdateStatus::CheckFailed) {
+                if matches!(self.updater_status, UpdateStatus::UpToDate | UpdateStatus::CheckFailed(_)) {
                     self.updater_status = UpdateStatus::Idle;
                 }
                 self.updater_status_handle = None;
@@ -876,12 +895,23 @@ impl BattleCatsApp {
             }
             Message::UpdaterAction(action) => {
                 match action {
-                    UpdaterAction::StartDownload(release) => self.download_and_install(release),
+                    UpdaterAction::StartDownload(target) => self.download_and_install(target),
                     UpdaterAction::DismissUpdate => {
+                        self.updater_never_confirm.expire();
                         self.dismiss_updater_popup();
                         Task::none()
                     }
+                    UpdaterAction::NeverExpired => {
+                        self.updater_never_confirm.expire();
+                        Task::none()
+                    }
                     UpdaterAction::NeverUpdate => {
+                        if !self.updater_never_confirm.take(&()) {
+                            return self
+                                .updater_never_confirm
+                                .set((), Message::UpdaterAction(UpdaterAction::NeverExpired));
+                        }
+
                         info!("User selected Never update, changing mode to Ignore");
                         self.settings.general.update_mode = UpdateMode::Ignore;
                         self.updater_status = UpdateStatus::Idle;
@@ -1213,7 +1243,7 @@ impl BattleCatsApp {
             .iter()
             .filter_map(|popup| match popup {
                 ActivePopup::InitErrors => self.init_errors.view(self.window_size),
-                ActivePopup::Updater => updater::view(&self.updater_popup, &self.updater_status, self.window_size, self.download_progress),
+                ActivePopup::Updater => updater::view(&self.updater_popup, &self.updater_status, self.window_size, self.download_progress, self.updater_never_confirm.is_set()),
                 ActivePopup::VersionNotice => Some(notice::view(&self.notice_popup, self.window_size, self.theme(), &self.notice_items)),
                 ActivePopup::HomeChangelog => {
                     if !matches!(self.current_page, Page::Home) {

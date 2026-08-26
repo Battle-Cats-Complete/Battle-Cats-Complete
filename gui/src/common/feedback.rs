@@ -6,6 +6,8 @@ const EXPIRY: Duration = Duration::from_secs(2);
 
 pub const CONFIRM_LABEL: &str = "Are You Sure?";
 
+pub const CONFIRM_SHORT_LABEL: &str = "Confirm?";
+
 pub const FAILURE_LABEL: &str = "Failed!";
 
 pub const UNSUPPORTED_NOTICE: &str = "This action is not supported in the current app version";

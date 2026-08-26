@@ -1,10 +1,12 @@
 pub mod architecture;
 pub mod assets;
+pub mod changelog;
 pub mod context;
 pub mod dirs;
 pub mod formats;
 pub mod game;
 pub mod gfx;
+pub mod github;
 pub mod io;
 pub mod job;
 pub mod junk;

@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::iter;
 #[cfg(unix)]
 use std::path::Path;
 use std::thread;
@@ -8,16 +9,17 @@ use std::time::Duration;
 use iced::futures::channel::mpsc;
 use iced::widget::{column, container, progress_bar, row, text, Space};
 use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
+use self_update::backends::github::Update as GithubUpdate;
 use self_update::{cargo_crate_version, version};
-use self_update::backends::github::{ReleaseList, Update as GithubUpdate};
-use self_update::update::Release;
 use tracing::{error, info, warn};
 
+use kore::common::github;
 use kore::common::process;
 
+use crate::common::feedback::CONFIRM_SHORT_LABEL;
 use crate::widget::popup;
 
-use super::{theme, BattleCatsApp, Message, UpdateStatus, UpdaterAction, UpdaterMsg};
+use super::{theme, BattleCatsApp, CheckFailure, Message, UpdateStatus, UpdateTarget, UpdaterAction, UpdaterMsg};
 
 const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "battle-cats-complete";
@@ -25,7 +27,6 @@ const BIN_NAME: &str = "Battle Cats Complete";
 const STATUS_EXPIRY: Duration = Duration::from_secs(2);
 #[cfg(unix)]
 const RESTART_DELAY_SECS: u8 = 1;
-const MAX_RELEASE_LOOKBACK: usize = 8;
 
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Updater, Size::new(440.0, 250.0));
 const POPUP_PADDING: f32 = 20.0;
@@ -53,7 +54,7 @@ impl BattleCatsApp {
     }
 
     pub(crate) fn check_for_updates(&mut self, is_manual: bool) -> Task<Message> {
-        let is_valid_state = matches!(self.updater_status, UpdateStatus::Idle | UpdateStatus::UpToDate | UpdateStatus::CheckFailed);
+        let is_valid_state = matches!(self.updater_status, UpdateStatus::Idle | UpdateStatus::UpToDate | UpdateStatus::CheckFailed(_));
         if !is_valid_state { return Task::none(); }
 
         info!("Checking Github for releases...");
@@ -63,9 +64,9 @@ impl BattleCatsApp {
 
         thread::spawn(move || {
             match check_remote() {
-                Ok(Some(release)) => {
-                    info!("Found new release: {}", release.version);
-                    let _ = tx.unbounded_send(UpdaterMsg::UpdateFound(release));
+                Ok(Some(target)) => {
+                    info!("Found new release: {}", target.tag);
+                    let _ = tx.unbounded_send(UpdaterMsg::UpdateFound(target));
                 },
                 Ok(None) if is_manual => {
                     info!("Software is up to date");
@@ -73,8 +74,8 @@ impl BattleCatsApp {
                 },
                 Ok(None) => { let _ = tx.unbounded_send(UpdaterMsg::SilentFail); },
                 Err(err) if is_manual => {
-                    error!("Update check failed: {}", err);
-                    let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
+                    error!("Update check failed: {}", err.detail);
+                    let _ = tx.unbounded_send(UpdaterMsg::CheckFailed(err.reason));
                 }
                 Err(_) => { let _ = tx.unbounded_send(UpdaterMsg::SilentFail); }
             }
@@ -85,8 +86,8 @@ impl BattleCatsApp {
         task.map(Message::Updater)
     }
 
-    pub(crate) fn download_and_install(&mut self, release: Release) -> Task<Message> {
-        let target_version = release.version.clone();
+    pub(crate) fn download_and_install(&mut self, target: UpdateTarget) -> Task<Message> {
+        let target_version = target.version.clone();
         self.updater_status = UpdateStatus::Downloading(target_version.clone());
         self.download_progress = 0.0;
         self.set_updater_popup(true);
@@ -99,12 +100,7 @@ impl BattleCatsApp {
             cleanup_temp_files();
             let _ = tx.unbounded_send(UpdaterMsg::DownloadStarted(target_version.clone()));
 
-            let Some((target_tag, target_asset_name)) = resolve_download(&release) else {
-                cleanup_temp_files();
-                error!("No release within the last {} carries a usable asset for this platform", MAX_RELEASE_LOOKBACK);
-                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
-                return;
-            };
+            let UpdateTarget { tag: target_tag, asset: target_asset_name, .. } = target;
 
             info!("Installing asset {} from {}", target_asset_name, target_tag);
 
@@ -121,14 +117,14 @@ impl BattleCatsApp {
                 .build() else {
                 cleanup_temp_files();
                 error!("Failed to build download configurator");
-                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
+                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed(CheckFailure::Unknown));
                 return;
             };
 
             if update_box.update().is_err() {
                 cleanup_temp_files();
                 error!("Failed during update installation sequence");
-                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed);
+                let _ = tx.unbounded_send(UpdaterMsg::CheckFailed(CheckFailure::Unknown));
                 return;
             }
 
@@ -147,7 +143,7 @@ pub(super) fn update_popup(state: &mut popup::State, message: popup::Message) ->
     state.update(message, POPUP)
 }
 
-pub(super) fn view<'a>(state: &'a popup::State, status: &'a UpdateStatus, window: Size, progress: f32) -> Option<Element<'a, Message>> {
+pub(super) fn view<'a>(state: &'a popup::State, status: &'a UpdateStatus, window: Size, progress: f32, confirming_never: bool) -> Option<Element<'a, Message>> {
     let title = match status {
         UpdateStatus::UpdateFound(..) => "Update Available",
         UpdateStatus::Downloading(_) => "Downloading Update",
@@ -157,7 +153,7 @@ pub(super) fn view<'a>(state: &'a popup::State, status: &'a UpdateStatus, window
 
     Some(state.view(title, POPUP, window, Message::UpdaterPopup, move || {
         let body = match status {
-            UpdateStatus::UpdateFound(tag, release) => view_update_found(tag, release),
+            UpdateStatus::UpdateFound(target) => view_update_found(target, confirming_never),
             UpdateStatus::Downloading(tag) => view_downloading(tag, progress),
             UpdateStatus::RestartPending(tag) => view_restart_pending(tag),
             _ => Space::new().into(),
@@ -184,24 +180,35 @@ fn subtle_text<'a>(content: impl ToString) -> Element<'a, Message> {
         .into()
 }
 
-fn view_update_found<'a>(tag: &str, release: &Release) -> Element<'a, Message> {
+fn view_update_found<'a>(target: &UpdateTarget, confirming_never: bool) -> Element<'a, Message> {
+    let never_label = if confirming_never { CONFIRM_SHORT_LABEL } else { "Never" };
+
     let actions = row![
         theme::sized_button("Yes", theme::POPUP_ACTION_BUTTON_WIDTH, theme::success_button)
-            .on_press(Message::UpdaterAction(UpdaterAction::StartDownload(release.clone()))),
+            .on_press(Message::UpdaterAction(UpdaterAction::StartDownload(target.clone()))),
         theme::sized_button("No", theme::POPUP_ACTION_BUTTON_WIDTH, theme::neutral_button)
             .on_press(Message::UpdaterAction(UpdaterAction::DismissUpdate)),
-        theme::sized_button("Never", theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
+        theme::sized_button(never_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
             .on_press(Message::UpdaterAction(UpdaterAction::NeverUpdate)),
     ]
     .spacing(BUTTON_SPACING);
 
+    let stepping = (target.version != target.latest).then(|| {
+        subtle_text(format!(
+            "{} is out, but this build has to install {} first",
+            display_version(&target.latest),
+            display_version(&target.version)
+        ))
+    });
+
     column![
-        theme::bold_text(format!("Battle Cats Complete {}", display_version(&release.version))).size(TITLE_SIZE),
-        subtle_text(format!("You are running v{} · found {}", cargo_crate_version!(), display_version(tag))),
-        text("Would you like to download the update now?").size(BODY_SIZE),
-        actions,
-        subtle_text("\"Never\" stops all future update checks."),
+        theme::bold_text(format!("Battle Cats Complete {}", display_version(&target.version))).size(TITLE_SIZE),
+        subtle_text(format!("You are running v{}", cargo_crate_version!())),
     ]
+    .extend(stepping)
+    .push(text("Would you like to download the update now?").size(BODY_SIZE))
+    .push(actions)
+    .push(subtle_text("\"Never\" stops all future update checks."))
     .spacing(CONTENT_SPACING)
     .align_x(Alignment::Center)
     .into()
@@ -350,53 +357,170 @@ fn asset_candidates() -> [String; 2] {
     ]
 }
 
-fn matching_asset(release: &Release) -> Option<String> {
+fn matching_asset(release: &github::Release) -> Option<String> {
     asset_candidates()
         .into_iter()
-        .find(|candidate| release.assets.iter().any(|asset| asset.name == *candidate))
+        .find(|candidate| release.has_asset(candidate))
 }
 
-fn release_tag(version: &str) -> String {
-    if version.starts_with('v') { version.to_string() } else { format!("v{}", version) }
+#[derive(Debug)]
+struct CheckError {
+    reason: CheckFailure,
+    detail: String,
 }
 
-fn resolve_download(selected: &Release) -> Option<(String, String)> {
-    if let Some(target) = matching_asset(selected) {
-        return Some((release_tag(&selected.version), target));
+impl From<github::Error> for CheckError {
+    fn from(err: github::Error) -> Self {
+        let reason = match err.kind {
+            github::ErrorKind::RateLimited => CheckFailure::RateLimited,
+            github::ErrorKind::InvalidUrl => CheckFailure::InvalidUrl,
+            github::ErrorKind::Network | github::ErrorKind::Malformed => CheckFailure::Unknown,
+        };
+
+        Self { reason, detail: err.to_string() }
     }
-
-    info!("Release {} carries no asset this build understands; walking back through older releases", selected.version);
-
-    let releases = ReleaseList::configure()
-        .repo_owner(REPO_OWNER)
-        .repo_name(REPO_NAME)
-        .build()
-        .and_then(|list| list.fetch())
-        .inspect_err(|err| error!("Failed to list releases while resolving a download target: {}", err))
-        .ok()?;
-
-    let start = releases.iter().position(|entry| entry.version == selected.version).unwrap_or(0);
-
-    releases
-        .iter()
-        .skip(start)
-        .take(MAX_RELEASE_LOOKBACK)
-        .find_map(|entry| matching_asset(entry).map(|target| (release_tag(&entry.version), target)))
 }
 
-fn check_remote() -> Result<Option<Release>, Box<dyn std::error::Error>> {
+fn check_remote() -> Result<Option<UpdateTarget>, CheckError> {
     let current_version = cargo_crate_version!();
-    let releases = ReleaseList::configure()
-        .repo_owner(REPO_OWNER)
-        .repo_name(REPO_NAME)
-        .build()?
-        .fetch()?;
 
-    let Some(latest_release) = releases.first() else { return Ok(None); };
+    if let Some(latest) = github::latest_release(REPO_OWNER, REPO_NAME)? {
+        if !is_upgrade(current_version, &latest) {
+            return Ok(None);
+        }
 
-    if !version::bump_is_greater(current_version, &latest_release.version)? {
-        return Ok(None);
+        if let Some(asset) = matching_asset(&latest) {
+            return Ok(Some(UpdateTarget {
+                latest: latest.version().to_string(),
+                version: latest.version().to_string(),
+                tag: latest.tag_name,
+                asset,
+            }));
+        }
+
+        warn!("{} carries no asset this build understands; listing every release to find a step", latest.tag_name);
     }
 
-    Ok(Some(latest_release.clone()))
+    let releases = github::list_releases(REPO_OWNER, REPO_NAME)?;
+    select_target(&releases, current_version)
+}
+
+fn is_upgrade(current_version: &str, release: &github::Release) -> bool {
+    release.is_versioned()
+        && !release.prerelease
+        && version::bump_is_greater(current_version, release.version())
+            .inspect_err(|err| warn!("Skipping release {}: {}", release.tag_name, err))
+            .unwrap_or(false)
+}
+
+fn select_target(releases: &[github::Release], current_version: &str) -> Result<Option<UpdateTarget>, CheckError> {
+    let mut newer = releases.iter().filter(|release| is_upgrade(current_version, release));
+
+    let Some(latest) = newer.next() else { return Ok(None); };
+
+    let Some((installable, asset)) = iter::once(latest)
+        .chain(newer)
+        .find_map(|release| matching_asset(release).map(|asset| (release, asset)))
+    else {
+        return Err(CheckError {
+            reason: CheckFailure::Unknown,
+            detail: format!(
+                "{} is newer than v{}, but no release above it ships an asset this build can install",
+                latest.tag_name, current_version
+            ),
+        });
+    };
+
+    if installable.tag_name != latest.tag_name {
+        warn!(
+            "{} carries no asset this build understands; stepping through {} first",
+            latest.tag_name, installable.tag_name
+        );
+    }
+
+    Ok(Some(UpdateTarget {
+        latest: latest.version().to_string(),
+        version: installable.version().to_string(),
+        tag: installable.tag_name.clone(),
+        asset,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn release(tag: &str, assets: &[&str]) -> github::Release {
+        github::Release {
+            tag_name: tag.to_string(),
+            body: None,
+            prerelease: false,
+            assets: assets
+                .iter()
+                .map(|name| github::Asset { name: name.to_string() })
+                .collect(),
+        }
+    }
+
+    fn known_asset() -> String {
+        format!("bcc_{}.zip", platform())
+    }
+
+    #[test]
+    fn picks_the_newest_installable_release() {
+        let asset = known_asset();
+        let releases = [release("v3.0.0", &[&asset]), release("v2.9.0", &[&asset])];
+
+        let target = select_target(&releases, "2.8.0").unwrap().unwrap();
+
+        assert_eq!(target.tag, "v3.0.0");
+        assert_eq!(target.latest, "3.0.0");
+        assert_eq!(target.asset, asset);
+    }
+
+    // The point of the fallback: a rename on the newest release must not strand old builds.
+    #[test]
+    fn steps_back_to_the_last_release_this_build_understands() {
+        let asset = known_asset();
+        let releases = [
+            release("v3.0.0", &["bcc-3.0.0-x86_64.tar.zst"]),
+            release("v2.9.1", &["bcc-2.9.1-x86_64.tar.zst"]),
+            release("v2.9.0", &[&asset]),
+            release("v2.7.0", &[&asset]),
+        ];
+
+        let target = select_target(&releases, "2.8.0").unwrap().unwrap();
+
+        assert_eq!(target.tag, "v2.9.0");
+        assert_eq!(target.latest, "3.0.0");
+    }
+
+    #[test]
+    fn never_walks_back_past_the_running_version() {
+        let releases = [
+            release("v3.0.0", &["bcc-3.0.0-x86_64.tar.zst"]),
+            release("v2.7.0", &[&known_asset()]),
+        ];
+
+        assert!(select_target(&releases, "2.8.0").is_err());
+    }
+
+    #[test]
+    fn ignores_prereleases_and_unversioned_tags() {
+        let asset = known_asset();
+        let mut beta = release("v3.0.0", &[&asset]);
+        beta.prerelease = true;
+        let releases = [beta, release("tools", &[&asset]), release("v2.9.0", &[&asset])];
+
+        let target = select_target(&releases, "2.8.0").unwrap().unwrap();
+
+        assert_eq!(target.tag, "v2.9.0");
+    }
+
+    #[test]
+    fn reports_nothing_when_already_current() {
+        let releases = [release("v2.8.0", &[&known_asset()])];
+
+        assert!(select_target(&releases, "2.8.0").unwrap().is_none());
+    }
 }
