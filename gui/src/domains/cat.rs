@@ -62,6 +62,10 @@ pub(crate) struct CatChanges<'a> {
 
 type StatsMemo = RefCell<Option<(u32, Option<Arc<Vec<Entity>>>)>>;
 
+fn typable_level(value: &str) -> bool {
+    value.chars().all(|glyph| glyph.is_ascii_digit() || glyph == '+')
+}
+
 fn animation_preload(state: &mut animation::State, cat: &CatEntry, form: usize, vfs: &Vfs) -> Task<Message> {
     let key = cat_animation::set_id(cat, form);
 
@@ -602,6 +606,10 @@ impl State {
                 Task::none()
             }
             Message::LevelInputChanged(input) => {
+                if !typable_level(&input) {
+                    return Task::none();
+                }
+
                 self.level_input = input;
                 let parsed: i32 = self.level_input.split('+')
                     .filter_map(|s| s.trim().parse::<i32>().ok())

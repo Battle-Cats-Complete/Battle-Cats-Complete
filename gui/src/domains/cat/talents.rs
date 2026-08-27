@@ -48,6 +48,10 @@ const TALENT_BTN_WIDTH: f32 = 100.0;
 const TALENT_BTN_HEIGHT: f32 = 23.0;
 const SECTION_SPACING: f32 = 2.0;
 
+fn typable_digits(value: &str) -> bool {
+    value.chars().all(|glyph| glyph.is_ascii_digit())
+}
+
 fn bold_text<'a>(content: impl ToString, size: f32) -> iced::widget::Text<'a> {
     text(content.to_string())
         .size(size)
@@ -150,19 +154,31 @@ impl State {
         inputs: &mut HashMap<u8, String>,
         talent_data: Option<&Talent>,
     ) {
+        if !typable_digits(&input) {
+            return;
+        }
+
         let max_level = talent_data
             .and_then(|data| data.groups.get(index as usize))
             .map_or(u8::MAX, |group| group.max_level.max(1));
 
+        let trimmed = input.trim();
+        let parsed = trimmed.parse::<u8>().ok();
+
         if let Some(levels) = levels {
-            if let Ok(parsed) = input.trim().parse::<u8>() {
+            if let Some(parsed) = parsed {
                 levels.insert(index, parsed.min(max_level));
-            } else if input.trim().is_empty() {
+            } else if trimmed.is_empty() {
                 levels.insert(index, 0);
             }
         }
 
-        inputs.insert(index, input);
+        let clamped_input = match parsed {
+            Some(parsed) if parsed > max_level => max_level.to_string(),
+            _ => input,
+        };
+
+        inputs.insert(index, clamped_input);
     }
 
     pub fn toggle(&self, is_ultra: bool, talent_data: &Talent, levels: &mut HashMap<u8, u8>, inputs: &mut HashMap<u8, String>) {

@@ -57,6 +57,10 @@ fn animation_preload(state: &mut animation::State, enemy: &EnemyEntry, vfs: &Vfs
     state.preload(&key, || enemy_animation::clips(enemy, vfs)).map(Message::Animation)
 }
 
+fn typable_magnification(value: &str) -> bool {
+    value.chars().all(|glyph| glyph.is_ascii_digit() || matches!(glyph, '/' | '|' | '\\'))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
     Abilities,
@@ -434,6 +438,10 @@ impl EnemyState {
                 Task::none()
             }
             Message::MagnificationChanged(input) => {
+                if !typable_magnification(&input) {
+                    return Task::none();
+                }
+
                 self.mag_input = input;
                 let trimmed = self.mag_input.trim();
                 let parts: Vec<&str> = trimmed.split(['/', '|', '\\']).collect();
