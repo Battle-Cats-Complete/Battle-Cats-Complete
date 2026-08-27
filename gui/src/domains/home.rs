@@ -297,8 +297,6 @@ impl State {
 
         column![
             row![
-                text("Version:").size(16.0),
-                Space::new().width(10.0),
                 pick_list(
                     options,
                     self.selected_version.clone(),
@@ -314,6 +312,7 @@ impl State {
                     markdown::view(&self.changelog_items, markdown::Settings::with_text_size(14.0, crate::app::theme::markdown_style(theme)))
                         .map(Message::OpenUrl)
                 )
+                    .width(Length::Fill)
                     .height(Length::Fill)
                     .spacing(SCROLLBAR_GAP)
             ),
