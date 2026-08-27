@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use iced::alignment::Horizontal;
 use iced::widget::image::Handle;
-use iced::widget::{column, container, image as iced_image, row, text, tooltip};
+use iced::widget::{button, column, container, image as iced_image, row, text, tooltip};
 use iced::{Alignment, Element, Length, Theme};
 use nyanko::chapter::map::{BonusType, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry};
 use nyanko::chapter::stage::{BossType, EnemyAmount};
@@ -312,23 +312,32 @@ impl State {
                 .cloned()
                 .unwrap_or_else(|| format!("{:03}-E", spawn.enemy_id));
 
-            let icon_element: Element<'a, super::Message> = enemy_registry.get(&spawn.enemy_id)
-                .and_then(|entry| entry.icon_path.as_ref())
-                .and_then(|path| self.icon(spawn.enemy_id, path))
-                .map(|handle| tooltip(
-                    iced_image(handle).width(Length::Fixed(MAX_ICON_SIZE)).height(Length::Fixed(MAX_ICON_SIZE)),
-                    container(text(resolved_name.clone())).padding(6).style(container::bordered_box),
-                    tooltip::Position::Top,
-                ).into())
-                .unwrap_or_else(|| tooltip(
-                    text(format!("{:03}", spawn.enemy_id)).size(11),
-                    container(text(resolved_name.clone())).padding(6).style(container::bordered_box),
-                    tooltip::Position::Top,
-                ).into());
-
             let final_hp_mag = (spawn.magnification * crown_mag) / 100;
             let final_atk_mag = (spawn.atk_magnification * crown_mag) / 100;
-            let formatted_mag = if final_hp_mag == final_atk_mag {
+            let same_mag = final_hp_mag == final_atk_mag;
+
+            let icon_content: Element<'a, super::Message> = enemy_registry.get(&spawn.enemy_id)
+                .and_then(|entry| entry.icon_path.as_ref())
+                .and_then(|path| self.icon(spawn.enemy_id, path))
+                .map_or_else(
+                    || text(format!("{:03}", spawn.enemy_id)).size(11).into(),
+                    |handle| iced_image(handle).width(Length::Fixed(MAX_ICON_SIZE)).height(Length::Fixed(MAX_ICON_SIZE)).into(),
+                );
+
+            let mag_input = if same_mag { final_hp_mag.to_string() } else { format!("{}/{}", final_hp_mag, final_atk_mag) };
+
+            let clickable_icon = button(icon_content)
+                .padding(0)
+                .on_press(super::Message::JumpToEnemy(spawn.enemy_id, mag_input))
+                .style(|_theme: &Theme, _status| button::Style::default());
+
+            let icon_element: Element<'a, super::Message> = tooltip(
+                clickable_icon,
+                container(text(resolved_name.clone())).padding(6).style(container::bordered_box),
+                tooltip::Position::Top,
+            ).into();
+
+            let formatted_mag = if same_mag {
                 format!("{}%", final_hp_mag)
             } else {
                 format!("{}% / {}%", final_hp_mag, final_atk_mag)

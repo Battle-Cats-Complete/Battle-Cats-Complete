@@ -1054,6 +1054,10 @@ impl BattleCatsApp {
                 self.navigate(Page::Cats),
                 self.update(Message::Cat(cat::Message::JumpToUnitAtLevel(id, form, level, plus_level))),
             ]),
+            Message::Stage(stage::Message::JumpToEnemy(id, mag_input)) => Task::batch([
+                self.navigate(Page::Enemies),
+                self.update(Message::Enemy(enemy::Message::JumpToEnemyMagnified(id, mag_input))),
+            ]),
             Message::Stage(msg) => {
                 let stages_loaded = matches!(msg, stage::Message::Loaded(..));
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault };

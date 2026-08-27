@@ -73,6 +73,7 @@ pub enum Message {
     Img015Loaded(u64, usize, Option<CoreSpriteSheet>),
     SearchChanged(String),
     SelectEnemy(u32),
+    JumpToEnemyMagnified(u32, String),
     SelectTab(DetailTab),
     MagnificationChanged(String),
     NavigateAppearances(u32),
@@ -92,6 +93,7 @@ impl std::fmt::Debug for Message {
             Self::Img015Loaded(_, i, _) => write!(f, "Img015Loaded({})", i),
             Self::SearchChanged(s) => write!(f, "SearchChanged({})", s),
             Self::SelectEnemy(id) => write!(f, "SelectEnemy({})", id),
+            Self::JumpToEnemyMagnified(id, mag_input) => write!(f, "JumpToEnemyMagnified({}, {})", id, mag_input),
             Self::SelectTab(t) => write!(f, "SelectTab({:?})", t),
             Self::MagnificationChanged(s) => write!(f, "MagnificationChanged({})", s),
             Self::NavigateAppearances(id) => write!(f, "NavigateAppearances({})", id),
@@ -421,6 +423,11 @@ impl EnemyState {
                     Some(enemy) => animation_preload(&mut self.animation, enemy, &global_ctx.vault.vfs),
                     None => Task::none(),
                 }
+            }
+            Message::JumpToEnemyMagnified(id, mag_input) => {
+                let select = self.update(Message::SelectEnemy(id), settings, app_state, global_ctx);
+                let magnified = self.update(Message::MagnificationChanged(mag_input), settings, app_state, global_ctx);
+                Task::batch([select, magnified])
             }
             Message::SelectTab(tab) => {
                 self.selected_tab = tab;
