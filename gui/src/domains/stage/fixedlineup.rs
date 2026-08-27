@@ -75,7 +75,7 @@ impl State {
         let upgrades_panel = container(smooth_scroll(upgrades_scroller))
             .padding(CARD_PADDING)
             .height(Length::Fixed(CARD_HEIGHT))
-            .style(theme::card_container_outlined);
+            .style(card_style);
 
         let body = row![slots_col, upgrades_panel].spacing(UPGRADES_GAP).align_y(Alignment::Start);
 
@@ -132,6 +132,15 @@ impl State {
             container(tooltip_content).padding(TOOLTIP_PADDING).style(container::bordered_box),
             tooltip::Position::Top,
         ).into()
+    }
+}
+
+const CARD_BACKGROUND_DARKEN: f32 = 0.36;
+
+fn card_style(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(theme::darken_color(theme.palette().background, CARD_BACKGROUND_DARKEN).into()),
+        ..theme::card_container_outlined(theme)
     }
 }
 
