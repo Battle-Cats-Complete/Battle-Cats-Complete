@@ -379,7 +379,12 @@ impl EnemyState {
                 self.data.enemies = enemies;
                 let filter_task = self.filter.refresh_available(&self.data.enemies).map(Message::Filter);
                 let preload_task = match self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id)) {
-                    Some(enemy) => animation_preload(&mut self.animation, enemy, &global_ctx.vault.vfs),
+                    Some(enemy) => {
+                        if self.selected_tab != DetailTab::Animation {
+                            self.animation.clear();
+                        }
+                        animation_preload(&mut self.animation, enemy, &global_ctx.vault.vfs)
+                    }
                     None => Task::none(),
                 };
 
@@ -409,6 +414,9 @@ impl EnemyState {
                 self.animation.reset_playhead();
 
                 info!("Selected enemy ID: {}", id);
+                if self.selected_tab != DetailTab::Animation {
+                    self.animation.clear();
+                }
                 match self.data.enemies.iter().find(|e| e.id == id) {
                     Some(enemy) => animation_preload(&mut self.animation, enemy, &global_ctx.vault.vfs),
                     None => Task::none(),

@@ -98,6 +98,12 @@ impl State {
         self.playhead_reset = true;
     }
 
+    pub fn clear(&mut self) {
+        self.data.reset_display();
+        self.playhead_rig.clear();
+        self.playhead_clip = None;
+    }
+
     pub fn is_model_selected(&self) -> bool {
         self.data.is_model()
     }

@@ -508,6 +508,9 @@ impl State {
                         let (form, tab) = self.clamped_selection(cat);
                         self.selected_form = form;
                         self.selected_tab = tab;
+                        if tab != DetailTab::Animation {
+                            self.animation.clear();
+                        }
                         animation_preload(&mut self.animation, cat, form, &global_ctx.vault.vfs)
                     }
                     None => Task::none(),
@@ -548,6 +551,9 @@ impl State {
                         let (form, tab) = self.clamped_selection(cat);
                         self.selected_form = form;
                         self.selected_tab = tab;
+                        if tab != DetailTab::Animation {
+                            self.animation.clear();
+                        }
                         animation_preload(&mut self.animation, cat, form, &global_ctx.vault.vfs)
                     }
                     None => Task::none(),
@@ -572,6 +578,9 @@ impl State {
 
                 if self.selected_tab == DetailTab::Talents && form_idx < 2 {
                     self.selected_tab = DetailTab::Abilities;
+                }
+                if self.selected_tab != DetailTab::Animation {
+                    self.animation.clear();
                 }
                 match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
                     Some(cat) => animation_preload(&mut self.animation, cat, form_idx, &global_ctx.vault.vfs),

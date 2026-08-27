@@ -155,6 +155,20 @@ impl State {
         self.cache.clear();
     }
 
+    pub fn reset_display(&mut self) {
+        self.held_unit = None;
+        self.current_anim = None;
+        self.clips.clear();
+        self.slots.clear();
+        self.selected = None;
+        self.set_key.clear();
+        self.set_name.clear();
+        self.offsets.clear();
+        self.loaded_rig.clear();
+        self.failed_rig.clear();
+        self.loaded_clip = None;
+    }
+
     pub fn sync(&mut self, key: &str, build: impl FnOnce() -> ClipSet) {
         self.prepare(key, build);
         self.load_active();
