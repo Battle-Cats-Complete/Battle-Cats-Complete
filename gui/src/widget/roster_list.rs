@@ -27,7 +27,7 @@ const TAG_WIDTH: f32 = 56.0;
 const TAG_GAP: f32 = 6.0;
 const LINE_GAP: f32 = 3.0;
 
-pub(crate) fn tooltip_table<'a>(rows: impl IntoIterator<Item = (&'a str, String)>) -> Element<'a, Message> {
+pub(crate) fn tooltip_table<'a, M: 'a>(rows: impl IntoIterator<Item = (&'a str, String)>) -> Element<'a, M> {
     let mut table = Column::new().spacing(LINE_GAP);
 
     for (tag, value) in rows {

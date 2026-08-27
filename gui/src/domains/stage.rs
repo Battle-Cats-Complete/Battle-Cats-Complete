@@ -50,6 +50,7 @@ pub enum Message {
     ToggleSidebar,
     SelectCrown(u8),
     ShowEnemyAppearances(u32),
+    JumpToUnit(u32, usize, u16, u16),
     List(list::Message),
     Filter(filter::Message),
 }
@@ -62,6 +63,7 @@ impl std::fmt::Debug for Message {
             Self::ToggleSidebar => write!(f, "ToggleSidebar"),
             Self::SelectCrown(crown) => write!(f, "SelectCrown({})", crown),
             Self::ShowEnemyAppearances(id) => write!(f, "ShowEnemyAppearances({})", id),
+            Self::JumpToUnit(id, form, level, plus_level) => write!(f, "JumpToUnit({}, {}, {}, {})", id, form, level, plus_level),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
         }
@@ -279,6 +281,7 @@ impl State {
                 self.filter.filter_state = StageFilterState { enemies: vec![filter], ..Default::default() };
                 Task::none()
             }
+            Message::JumpToUnit(..) => Task::none(),
             Message::List(list::Message::ToggleFilter) => {
                 self.filter.update(filter::Message::Toggle);
                 Task::none()

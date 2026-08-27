@@ -1,8 +1,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use iced::alignment::{Horizontal, Vertical};
 use iced::widget::image::Handle;
-use iced::widget::{column, container, image as iced_image, row, scrollable, space, text, tooltip};
+use iced::widget::{button, column, container, image as iced_image, row, scrollable, space, tooltip};
 use iced::{Alignment, Border, Element, Length, Theme};
 use nyanko::chapter::stage::{AbilityType, CannonType, CertificationPreset, EvolutionForm, TreasureType};
 
@@ -12,18 +13,26 @@ use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::item_icon;
+use crate::widget::roster_list;
 use crate::widget::{section, smooth_scroll};
 
 const ICON_SIZE: f32 = 128.0 * 0.45;
-const ICON_SPACING: f32 = 8.0;
-const SCROLL_AREA_HEIGHT: f32 = 90.0;
+const ICON_GAP_H: f32 = 4.0;
+const ICON_GAP_V: f32 = 0.0;
+const CARD_PADDING: f32 = 4.0;
+const CARD_HEIGHT: f32 = 115.0;
+const SCROLL_AREA_HEIGHT: f32 = CARD_HEIGHT - CARD_PADDING * 2.0;
+const SCROLLBAR_SPACING: f32 = 6.0;
 const UPGRADES_GAP: f32 = 24.0;
-const GRID_SPACING: f32 = 4.0;
-const GRID_COLUMN_GAP: f32 = 24.0;
-const GRID_BLOCK_GAP: f32 = 12.0;
-const CANNON_LABEL_WIDTH: f32 = 140.0;
-const UPGRADE_LABEL_WIDTH: f32 = 160.0;
-const CHAPTER_LABEL_WIDTH: f32 = 110.0;
+const GRID_SPACING: f32 = 2.0;
+const GRID_COLUMN_GAP: f32 = 12.0;
+const GRID_BLOCK_GAP: f32 = 6.0;
+const CANNON_LABEL_WIDTH: f32 = 100.0;
+const UPGRADE_LABEL_WIDTH: f32 = 110.0;
+const CHAPTER_LABEL_WIDTH: f32 = 80.0;
+const CELL_PADDING: [u16; 2] = [2, 4];
+const TABLE_TEXT_SIZE: f32 = 11.0;
+const TOOLTIP_PADDING: f32 = 8.0;
 
 #[derive(Default)]
 pub struct State {
@@ -47,33 +56,26 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, resolved_lineup: &ResolvedFixedLineup, preset: &'a CertificationPreset, vfs: &'a Vfs) -> Element<'a, super::Message> {
-        let mut top_row = row![].spacing(ICON_SPACING);
+        let mut top_row = row![].spacing(ICON_GAP_H);
         for slot in resolved_lineup.slots.iter().take(5) {
             top_row = top_row.push(self.slot_view(slot, preset, vfs));
         }
 
-        let mut bottom_row = row![].spacing(ICON_SPACING);
+        let mut bottom_row = row![].spacing(ICON_GAP_H);
         for slot in resolved_lineup.slots.iter().skip(5).take(5) {
             bottom_row = bottom_row.push(self.slot_view(slot, preset, vfs));
         }
 
-        let slots_col = column![top_row, bottom_row].spacing(ICON_SPACING);
+        let slots_col = column![top_row, bottom_row].spacing(ICON_GAP_V);
 
-        let upgrades_panel = container(
-            smooth_scroll(
-                scrollable(upgrades_section(preset))
-                    .height(Length::Fixed(SCROLL_AREA_HEIGHT))
-            )
-        )
-            .padding(4)
-            .style(|theme: &Theme| container::Style {
-                border: Border {
-                    color: theme.extended_palette().background.strong.color,
-                    width: 2.0,
-                    radius: theme::RADIUS_SM.into(),
-                },
-                ..container::Style::default()
-            });
+        let upgrades_scroller = scrollable(upgrades_section(preset))
+            .height(Length::Fixed(SCROLL_AREA_HEIGHT))
+            .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().spacing(SCROLLBAR_SPACING)));
+
+        let upgrades_panel = container(smooth_scroll(upgrades_scroller))
+            .padding(CARD_PADDING)
+            .height(Length::Fixed(CARD_HEIGHT))
+            .style(theme::card_container_outlined);
 
         let body = row![slots_col, upgrades_panel].spacing(UPGRADES_GAP).align_y(Alignment::Start);
 
@@ -89,10 +91,10 @@ impl State {
             return empty_slot();
         };
 
-        let image_el = iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE));
+        let image_el: Element<'a, super::Message> = iced_image(handle).width(Length::Fixed(ICON_SIZE)).height(Length::Fixed(ICON_SIZE)).into();
 
         let (Some(unit_id), Some(unit_level)) = (slot.unit_id, slot.level) else {
-            return image_el.into();
+            return image_el;
         };
 
         let padded_id = format!("{:03}", unit_id);
@@ -114,17 +116,30 @@ impl State {
         let plus_level = slot.plus_level.unwrap_or(0);
         let plus_string = if plus_level > 0 { format!("+{}", plus_level) } else { String::new() };
 
-        let tooltip_content = column![
-            row![text("[Name] ").size(12), text(display_name)].align_y(Alignment::Center),
-            row![text("[ID] ").size(12), text(padded_id)].align_y(Alignment::Center),
-            row![text("[Level] ").size(12), text(format!("{}{}", unit_level, plus_string))].align_y(Alignment::Center),
-        ].spacing(2);
+        let tooltip_content = roster_list::tooltip_table([
+            ("Name", display_name),
+            ("ID", padded_id),
+            ("Level", format!("{}{}", unit_level, plus_string)),
+        ]);
+
+        let clickable = button(image_el)
+            .padding(0)
+            .on_press(super::Message::JumpToUnit(unit_id, form_index, unit_level, plus_level))
+            .style(|_theme: &Theme, _status| button::Style::default());
 
         tooltip(
-            image_el,
-            container(tooltip_content).padding(6).style(container::bordered_box),
+            clickable,
+            container(tooltip_content).padding(TOOLTIP_PADDING).style(container::bordered_box),
             tooltip::Position::Top,
         ).into()
+    }
+}
+
+fn cell_style(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(theme.extended_palette().background.strong.color.into()),
+        border: Border::default().rounded(theme::RADIUS_SM),
+        ..container::Style::default()
     }
 }
 
@@ -132,12 +147,46 @@ fn empty_slot<'a>() -> Element<'a, super::Message> {
     container(space())
         .width(Length::Fixed(ICON_SIZE))
         .height(Length::Fixed(ICON_SIZE))
-        .style(|theme: &Theme| container::Style {
-            background: Some(theme.extended_palette().background.strong.color.into()),
-            border: Border::default().rounded(theme::RADIUS_SM),
-            ..container::Style::default()
-        })
+        .style(cell_style)
         .into()
+}
+
+fn header_cell<'a>(label: &'a str, width: f32) -> Element<'a, super::Message> {
+    theme::bold_text(label)
+        .size(TABLE_TEXT_SIZE)
+        .width(Length::Fixed(width))
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Center)
+        .into()
+}
+
+fn zebra_table<'a>(label_header: &'a str, value_header: &'a str, label_width: f32, rows: Vec<(String, String)>) -> Element<'a, super::Message> {
+    let header = row![header_cell(label_header, label_width), header_cell(value_header, label_width)].spacing(GRID_COLUMN_GAP);
+
+    let mut table = column![
+        container(header)
+            .style(theme::zebra_table_header)
+            .padding(CELL_PADDING)
+            .width(Length::Fill)
+            .align_x(Horizontal::Center)
+    ].spacing(GRID_SPACING);
+
+    for (index, (label, value)) in rows.into_iter().enumerate() {
+        let row_content = row![
+            theme::table_cell_text(label, Length::Fixed(label_width)).size(TABLE_TEXT_SIZE),
+            theme::table_cell_text(value, Length::Fixed(label_width)).size(TABLE_TEXT_SIZE),
+        ].spacing(GRID_COLUMN_GAP);
+
+        table = table.push(
+            container(row_content)
+                .style(move |theme: &Theme| theme::zebra_table_row(theme, index))
+                .padding(CELL_PADDING)
+                .width(Length::Fill)
+                .align_x(Horizontal::Center),
+        );
+    }
+
+    table.into()
 }
 
 fn upgrades_section<'a>(preset: &'a CertificationPreset) -> Element<'a, super::Message> {
@@ -154,10 +203,7 @@ fn upgrades_section<'a>(preset: &'a CertificationPreset) -> Element<'a, super::M
     };
     let cannon_level = preset.cannon_levels.get(&preset.slot_cannon_type).copied().unwrap_or(0);
 
-    let cannon_grid = column![
-        row![theme::bold_text("Cannon").width(Length::Fixed(CANNON_LABEL_WIDTH)), theme::bold_text("Level")].spacing(GRID_COLUMN_GAP),
-        row![text(cannon_name).width(Length::Fixed(CANNON_LABEL_WIDTH)), text(cannon_level.to_string())].spacing(GRID_COLUMN_GAP),
-    ].spacing(GRID_SPACING);
+    let cannon_grid = zebra_table("Cannon", "Level", CANNON_LABEL_WIDTH, vec![(cannon_name.to_string(), cannon_level.to_string())]);
 
     const ABILITIES: [(AbilityType, &str); 10] = [
         (AbilityType::CatCannonAttack, "Cat Cannon Attack"),
@@ -172,15 +218,16 @@ fn upgrades_section<'a>(preset: &'a CertificationPreset) -> Element<'a, super::M
         (AbilityType::CatEnergy, "Cat Energy"),
     ];
 
-    let mut abilities_grid = column![
-        row![theme::bold_text("Upgrade").width(Length::Fixed(UPGRADE_LABEL_WIDTH)), theme::bold_text("Level")].spacing(GRID_COLUMN_GAP)
-    ].spacing(GRID_SPACING);
-    for (ability_type, name) in ABILITIES {
-        let level_string = preset.abilities.get(&ability_type).map_or("0".to_string(), |ability| {
-            if ability.plus_level > 0 { format!("{} +{}", ability.level, ability.plus_level) } else { ability.level.to_string() }
-        });
-        abilities_grid = abilities_grid.push(row![text(name).width(Length::Fixed(UPGRADE_LABEL_WIDTH)), text(level_string)].spacing(GRID_COLUMN_GAP));
-    }
+    let abilities_rows: Vec<(String, String)> = ABILITIES
+        .iter()
+        .map(|(ability_type, name)| {
+            let level_string = preset.abilities.get(ability_type).map_or("0".to_string(), |ability| {
+                if ability.plus_level > 0 { format!("{} +{}", ability.level, ability.plus_level) } else { ability.level.to_string() }
+            });
+            (name.to_string(), level_string)
+        })
+        .collect();
+    let abilities_grid = zebra_table("Upgrade", "Level", UPGRADE_LABEL_WIDTH, abilities_rows);
 
     const TREASURES: [(TreasureType, &str); 9] = [
         (TreasureType::EoC1, "EoC Ch. 1"),
@@ -194,15 +241,16 @@ fn upgrades_section<'a>(preset: &'a CertificationPreset) -> Element<'a, super::M
         (TreasureType::CotC3, "CotC Ch. 3"),
     ];
 
-    let mut treasures_grid = column![
-        row![theme::bold_text("Chapter").width(Length::Fixed(CHAPTER_LABEL_WIDTH)), theme::bold_text("Grades")].spacing(GRID_COLUMN_GAP)
-    ].spacing(GRID_SPACING);
-    for (treasure_type, name) in TREASURES {
-        let grades_string = preset.treasures.get(&treasure_type).map_or("0/0/0".to_string(), |treasure| {
-            format!("{}/{}/{}", treasure.superior_count, treasure.normal_count, treasure.inferior_count)
-        });
-        treasures_grid = treasures_grid.push(row![text(name).width(Length::Fixed(CHAPTER_LABEL_WIDTH)), text(grades_string)].spacing(GRID_COLUMN_GAP));
-    }
+    let treasures_rows: Vec<(String, String)> = TREASURES
+        .iter()
+        .map(|(treasure_type, name)| {
+            let grades_string = preset.treasures.get(treasure_type).map_or("0/0/0".to_string(), |treasure| {
+                format!("{}/{}/{}", treasure.inferior_count, treasure.normal_count, treasure.superior_count)
+            });
+            (name.to_string(), grades_string)
+        })
+        .collect();
+    let treasures_grid = zebra_table("Chapter", "Treasure", CHAPTER_LABEL_WIDTH, treasures_rows);
 
     column![
         cannon_grid,

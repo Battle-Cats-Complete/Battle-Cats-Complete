@@ -88,6 +88,7 @@ pub enum Message {
     SelectCat(u32),
     SelectForm(usize),
     JumpToUnit(u32, usize),
+    JumpToUnitAtLevel(u32, usize, u16, u16),
     SelectTab(DetailTab),
     LevelInputChanged(String),
     ChangeTalentLevel(u8, u8),
@@ -113,6 +114,9 @@ impl std::fmt::Debug for Message {
             Self::SelectCat(id) => write!(f, "SelectCat({})", id),
             Self::SelectForm(i) => write!(f, "SelectForm({})", i),
             Self::JumpToUnit(id, form) => write!(f, "JumpToUnit({}, {})", id, form),
+            Self::JumpToUnitAtLevel(id, form, level, plus_level) => {
+                write!(f, "JumpToUnitAtLevel({}, {}, {}, {})", id, form, level, plus_level)
+            }
             Self::SelectTab(t) => write!(f, "SelectTab({:?})", t),
             Self::LevelInputChanged(s) => write!(f, "LevelInputChanged({})", s),
             Self::ChangeTalentLevel(i, l) => write!(f, "ChangeTalentLevel({}, {})", i, l),
@@ -572,6 +576,12 @@ impl State {
                 }
 
                 Task::batch([select, self.update(Message::SelectForm(form), settings, app_state, global_ctx)])
+            }
+            Message::JumpToUnitAtLevel(id, form, level, plus_level) => {
+                let jump = self.update(Message::JumpToUnit(id, form), settings, app_state, global_ctx);
+                let input = if plus_level > 0 { format!("{}+{}", level, plus_level) } else { level.to_string() };
+                let leveled = self.update(Message::LevelInputChanged(input), settings, app_state, global_ctx);
+                Task::batch([jump, leveled])
             }
             Message::SelectForm(form_idx) => {
                 self.selected_form = form_idx;
