@@ -1,9 +1,8 @@
-use std::fmt;
 use std::path::PathBuf;
 
 use iced::alignment::Horizontal;
-use iced::widget::{column, container, pick_list, row};
-use iced::{Alignment, Element, Length, Size, Task, Theme};
+use iced::widget::{column, container, row};
+use iced::{Alignment, Element, Length, Size, Task};
 
 use kore::domains::settings::Settings;
 use kore::domains::utilities::animation as builder;
@@ -11,6 +10,7 @@ use kore::domains::utilities::animation as builder;
 use crate::app::state::{AnimState, AppState};
 use crate::app::theme;
 use crate::common::dialog;
+use crate::common::feedback;
 use crate::systems::animation as viewer;
 use crate::widget::popup;
 
@@ -18,24 +18,6 @@ use super::picker;
 
 const PANEL_PADDING: f32 = 12.0;
 const ROW_GAP: f32 = 8.0;
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct Track {
-    index: usize,
-    label: String,
-}
-
-impl fmt::Display for Track {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.label)
-    }
-}
-
-impl fmt::Debug for Track {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -47,8 +29,10 @@ pub enum Message {
     MamodelPicked(Option<PathBuf>),
     AddAnims,
     AnimsPicked(Vec<PathBuf>),
-    TrackSelected(Track),
     RemoveAnim,
+    RemoveConfirmExpired,
+    WipeAnims,
+    WipeConfirmExpired,
     Viewer(viewer::Message),
     Tick,
 }
@@ -58,9 +42,8 @@ pub struct State {
     imgcut: Option<PathBuf>,
     mamodel: Option<PathBuf>,
     anims: Vec<PathBuf>,
-    tracks: Vec<Track>,
-    track_width: f32,
-    selected: Option<Track>,
+    confirm_remove: feedback::Slot<PathBuf>,
+    confirm_wipe: feedback::Slot<()>,
     viewer: viewer::State,
 }
 
@@ -71,9 +54,8 @@ impl Default for State {
             imgcut: None,
             mamodel: None,
             anims: Vec::new(),
-            tracks: Vec::new(),
-            track_width: picker::BUTTON_WIDTH,
-            selected: None,
+            confirm_remove: feedback::Slot::default(),
+            confirm_wipe: feedback::Slot::default(),
             viewer: viewer::State::with_popup(popup::Kind::UtilityAnimationExport),
         }
     }
@@ -106,21 +88,35 @@ impl State {
                         self.anims.push(path);
                     }
                 }
-
-                self.refresh_tracks();
-                Task::none()
-            }
-            Message::TrackSelected(track) => {
-                self.selected = Some(track);
                 Task::none()
             }
             Message::RemoveAnim => {
-                if let Some(track) = self.selected.take()
-                    && track.index < self.anims.len()
-                {
-                    self.anims.remove(track.index);
-                    self.refresh_tracks();
+                let Some(anim) = self.viewer.selected_anim().cloned() else {
+                    return Task::none();
+                };
+
+                if self.confirm_remove.take(&anim) {
+                    self.anims.retain(|path| *path != anim);
+                    Task::none()
+                } else {
+                    self.confirm_remove.set(anim, Message::RemoveConfirmExpired)
                 }
+            }
+            Message::RemoveConfirmExpired => {
+                self.confirm_remove.expire();
+                Task::none()
+            }
+            Message::WipeAnims => {
+                if self.confirm_wipe.is_set() {
+                    self.anims.clear();
+                    self.confirm_wipe.clear();
+                    Task::none()
+                } else {
+                    self.confirm_wipe.set((), Message::WipeConfirmExpired)
+                }
+            }
+            Message::WipeConfirmExpired => {
+                self.confirm_wipe.expire();
                 Task::none()
             }
             Message::Tick => {
@@ -141,19 +137,6 @@ impl State {
 
         *field(self) = Some(path);
         self.viewer.reset_playhead();
-    }
-
-    fn refresh_tracks(&mut self) {
-        self.tracks = self
-            .anims
-            .iter()
-            .enumerate()
-            .map(|(index, path)| Track { index, label: picker::name_of(path) })
-            .collect();
-
-        self.track_width = picker::combo_width(self.tracks.iter().map(|track| &track.label));
-
-        self.selected = None;
     }
 
     fn sync(&mut self, settings: &Settings, anim_state: &AnimState) {
@@ -197,25 +180,9 @@ impl State {
         ]
         .spacing(ROW_GAP);
 
-        let chooser = pick_list(self.tracks.as_slice(), self.selected.as_ref(), Message::TrackSelected)
-            .placeholder("No MAANIM")
-            .width(Length::Fixed(self.track_width))
-            .padding(picker::COMBO_PADDING)
-            .text_size(picker::TEXT_SIZE)
-            .style(theme::combo_box)
-            .menu_style(theme::combo_box_menu);
-
-        let armed = self.selected.is_some();
-        let remove = picker::action("Remove MAANIM", Message::RemoveAnim)
-            .on_press_maybe(armed.then_some(Message::RemoveAnim))
-            .style(move |t: &Theme, status| {
-                if armed { theme::danger_button(t, status) } else { theme::neutral_button(t, status) }
-            });
-
         let tracks = row![
             picker::action("Add MAANIM", Message::AddAnims).style(theme::primary_button),
-            chooser,
-            remove,
+            self.maanim_button(),
         ]
         .spacing(ROW_GAP)
         .align_y(Alignment::Center);
@@ -223,6 +190,25 @@ impl State {
         let body = column![centered(files), centered(tracks)].spacing(ROW_GAP);
 
         container(body).padding(PANEL_PADDING).into()
+    }
+
+    fn maanim_button(&self) -> Element<'_, Message> {
+        if self.anims.is_empty() {
+            return picker::action("Missing MAANIM", Message::RemoveAnim)
+                .on_press_maybe(None)
+                .style(theme::neutral_button)
+                .into();
+        }
+
+        if self.viewer.is_model_selected() {
+            let label = self.confirm_wipe.confirm_label("Wipe MAANIM");
+            return picker::action(label, Message::WipeAnims).style(theme::danger_button).into();
+        }
+
+        let armed = self.viewer.selected_anim().is_some_and(|anim| self.confirm_remove.armed_for(anim));
+        let label = if armed { feedback::CONFIRM_LABEL } else { "Remove MAANIM" };
+
+        picker::action(label, Message::RemoveAnim).style(theme::danger_button).into()
     }
 
     fn view_viewer<'a>(&'a self, settings: &Settings, app_state: &AppState) -> Element<'a, Message> {

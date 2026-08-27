@@ -7,6 +7,8 @@ mod offscreen;
 mod overlay;
 mod pipeline;
 
+use std::path::PathBuf;
+
 use iced::widget::{button, column, container, stack, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
 
@@ -94,6 +96,14 @@ impl State {
 
     pub fn reset_playhead(&mut self) {
         self.playhead_reset = true;
+    }
+
+    pub fn is_model_selected(&self) -> bool {
+        self.data.is_model()
+    }
+
+    pub fn selected_anim(&self) -> Option<&PathBuf> {
+        self.data.current_clip().and_then(|clip| clip.anim.as_ref())
     }
 
     fn sync_playhead(&mut self) {
