@@ -17,7 +17,7 @@ use kore::Vfs;
 use crate::app::theme;
 use crate::common::item_icon;
 use crate::editor;
-use crate::widget::{fit_column, smooth_scroll};
+use crate::widget::{fit_column, roster_list, smooth_scroll};
 
 use super::Message;
 
@@ -48,6 +48,12 @@ const COMBO_SLOT_SPACING: f32 = 4.0;
 const COMBO_SLOT_LABEL_SIZE: f32 = 10.0;
 const COMBO_TEXT_FLOOR: f32 = 8.0;
 const SCROLLBAR_SPACING: f32 = 6.0;
+
+const MIN_WINDOW_WIDTH: f32 = 800.0;
+const SIDEBAR_WIDTH: f32 = roster_list::LIST_WIDTH + 16.0;
+const MAIN_CONTENT_PADDING: f32 = 16.0 + 16.0;
+const SCROLLBAR_GUTTER: f32 = 10.0 + SCROLLBAR_SPACING;
+const DESCRIPTION_AREA_WIDTH: f32 = MIN_WINDOW_WIDTH - SIDEBAR_WIDTH - MAIN_CONTENT_PADDING - SCROLLBAR_GUTTER;
 
 type ComboKey = (u32, usize);
 
@@ -174,7 +180,7 @@ impl State {
             return None;
         }
 
-        let mut cards = column![].spacing(COMBO_CARD_GAP).width(Length::Fill);
+        let mut cards = column![].spacing(COMBO_CARD_GAP).width(Length::Fixed(DESCRIPTION_AREA_WIDTH));
 
         for combo in combos {
             cards = cards.push(self.view_combo(combo, cat_id));
@@ -185,7 +191,7 @@ impl State {
                 Space::new().height(Length::Fixed(SECTION_GAP)),
                 text("Cat Combo").size(HEADING_SIZE),
                 Space::new().height(Length::Fixed(HEADING_BODY_GAP)),
-                cards,
+                container(cards).width(Length::Fill),
             ]
                 .width(Length::Fill)
                 .into(),
