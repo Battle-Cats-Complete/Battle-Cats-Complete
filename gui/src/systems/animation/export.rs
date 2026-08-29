@@ -429,6 +429,11 @@ impl State {
         self.exporter = ExportForm::with_settings(settings);
         self.exporter.export_mode = previous_mode;
         self.exporter.format = anim_state.last_export_format.clone();
+        if is_forced_opaque(&self.exporter.format) {
+            self.exporter.background = true;
+        } else {
+            self.exporter.background = self.exporter.user_bg_preference;
+        }
         self.exporter.quality_percent = anim_state.last_export_quality.unwrap_or(80);
         self.exporter.quality_percent_str = anim_state.last_export_quality.map_or_else(String::new, |v| v.to_string());
         self.exporter.compression_percent = anim_state.last_export_compression.unwrap_or(30);
