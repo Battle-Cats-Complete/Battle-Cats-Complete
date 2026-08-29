@@ -83,11 +83,12 @@ pub struct UtilitiesSettings {
 pub struct WindowSettings {
     pub width: f32,
     pub height: f32,
+    pub fullscreen: bool,
 }
 
 impl Default for WindowSettings {
     fn default() -> Self {
-        Self { width: 800.0, height: 600.0 }
+        Self { width: 800.0, height: 600.0, fullscreen: false }
     }
 }
 

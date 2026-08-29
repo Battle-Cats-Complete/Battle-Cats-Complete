@@ -171,6 +171,7 @@ pub enum Message {
     ShowWindow,
     Navigate(Page),
     CloseRequested(window::Id),
+    CloseWithMode(window::Id, window::Mode),
     ToggleSidebar,
     WindowResized(Size),
     Updater(UpdaterMsg),
@@ -390,7 +391,8 @@ impl BattleCatsApp {
             info!(ms = boot.elapsed().as_millis(), "Window revealed");
         }
 
-        window::latest().and_then(|id| window::set_mode(id, window::Mode::Windowed))
+        let mode = if self.settings.window.fullscreen { window::Mode::Fullscreen } else { window::Mode::Windowed };
+        window::latest().and_then(move |id| window::set_mode(id, mode))
     }
 
     fn navigate(&mut self, page: Page) -> Task<Message> {
@@ -881,10 +883,15 @@ impl BattleCatsApp {
                 self.editor.flush_now(&self.vault.vfs);
                 self.mods_state.flush_metadata();
                 self.files_state.leave(&self.vault.vfs);
-                self.check_auto_save();
-                self.check_auto_save_state();
                 architecture::work_cleanup();
                 updater::cleanup_replace_artifacts();
+
+                window::mode(id).map(move |mode| Message::CloseWithMode(id, mode))
+            }
+            Message::CloseWithMode(id, mode) => {
+                self.settings.window.fullscreen = mode == window::Mode::Fullscreen;
+                self.check_auto_save();
+                self.check_auto_save_state();
 
                 window::close(id)
             }
