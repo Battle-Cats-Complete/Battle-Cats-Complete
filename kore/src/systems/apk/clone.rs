@@ -111,7 +111,7 @@ pub fn run(config: CloneConfig, emit: impl Fn(JobEvent) + Sync) -> Result<PathBu
     sign::sign(&normalized, None).map_err(|error| format!("Signing Error: {}", error))?;
 
     let stem = if config.app_name.trim().is_empty() { renamed } else { config.app_name.trim().to_string() };
-    let destination = vacant_path(&export_dir, &sanitized(&stem));
+    let destination = vacant_path(&export_dir, &stem);
 
     fs::copy(&normalized, &destination).map_err(|error| format!("Filesystem Error: {}", error))?;
 
@@ -149,15 +149,6 @@ fn extract_binaries(apk: &Path, manifest: &Path, arsc: &Path) -> Result<bool, St
     }
 
     Ok(found_arsc)
-}
-
-fn sanitized(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
-        .collect();
-
-    if cleaned.is_empty() { "clone".to_string() } else { cleaned }
 }
 
 fn vacant_path(dir: &Path, stem: &str) -> PathBuf {
