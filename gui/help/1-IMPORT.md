@@ -30,7 +30,7 @@ Alternatively, you can create the `game` folder next to BCC's binary and move th
 There are two methods for sorting an existing database, using the `Raw` import method targeting specifically `game` or `game/raw`:
 
 ### `game`
-Targeting `game` with `Raw` import will flatten the entire database (minus `meta`) into `raw` and then proceed to run the database sorter on the now flattened database.
+Targeting `game` with `Raw` import will flatten the entire database into `raw` and then proceed to run the database sorter on the now flattened database.
 
 ### `game/raw`
 targeting `game/raw` with `Raw` import will skip the flattening, only moving unsorted files within `raw` to their new locations.

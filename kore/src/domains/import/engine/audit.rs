@@ -9,17 +9,6 @@ fn is_auditable_text(filename: &str) -> bool {
         || lower.ends_with(".list")
 }
 
-pub(crate) fn calculate_true_weight(data: &[u8], filename: &str) -> usize {
-    if !is_auditable_text(filename) {
-        return data.len();
-    }
-
-    let carriage_return_byte = b'\r';
-    let carriage_return_count = data.iter().filter(|&&byte| byte == carriage_return_byte).count();
-
-    data.len() - carriage_return_count
-}
-
 pub(crate) fn strip_carriage_returns(data: &[u8], filename: &str) -> Vec<u8> {
     if !is_auditable_text(filename) {
         return data.to_vec();

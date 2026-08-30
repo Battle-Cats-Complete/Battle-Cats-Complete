@@ -17,6 +17,7 @@ use nyanko::common::Region;
 use nyanko::pack::chronology;
 use nyanko::pack::cryptology;
 use rayon::prelude::*;
+use tracing::warn;
 
 use crate::common::architecture;
 use crate::common::io;
@@ -37,10 +38,19 @@ struct UniversalTask {
     pub is_loose: bool,
 }
 
+impl UniversalTask {
+    fn pack_name(&self) -> String {
+        if self.is_loose {
+            return manifest::LOOSE.to_string();
+        }
+
+        self.pack_path.file_name().unwrap_or_default().to_string_lossy().into_owned()
+    }
+}
+
 struct DecryptedCandidate {
     pub task: UniversalTask,
     pub clean_data: Vec<u8>,
-    pub true_weight: usize,
 }
 
 fn determine_region_code(filename: &str, folder_region: &str) -> String {
@@ -70,6 +80,14 @@ fn get_region_priority(region_code: &str) -> u8 {
     }
 }
 
+fn absorb_pack_hashes(ledger: &mut manifest::Ledger, hashes: HashMap<String, HashMap<String, u64>>) {
+    for (pack_name, region_map) in hashes {
+        for (region_key, checksum) in region_map {
+            ledger.track(pack_name.clone(), region_key, checksum);
+        }
+    }
+}
+
 fn cleanup_temporary_directories(directories: &[PathBuf]) {
     for directory in directories {
         let _ = fs::remove_dir_all(directory);
@@ -96,13 +114,10 @@ pub(crate) fn run_universal_import(
 
     let nyanko_keys = cryptology::Keys::parse(&reference_tuples).map_err(|error| error.to_string())?;
 
-    let game_root_path = Path::new(architecture::GAME);
-    let meta_directory_path = game_root_path.join("meta");
-    let pack_manifest_path = meta_directory_path.join("pack.json");
-    let file_manifest_path = meta_directory_path.join("file.json");
+    manifest::retire_legacy();
 
-    let mut global_pack_registry: HashMap<String, HashMap<String, manifest::PackRecord>> = manifest::load(&pack_manifest_path);
-    let mut global_file_ledger: HashMap<String, manifest::ManifestEntry> = manifest::load(&file_manifest_path);
+    let game_root_path = Path::new(architecture::GAME);
+    let mut ledger = manifest::Ledger::load();
 
     let asset_router_utility = router::AssetRouter::new(game_root_path, structure).map_err(|error| error.to_string())?;
     let (compiled_regex_set, compiled_exception_rules) = rules::compile();
@@ -111,7 +126,7 @@ pub(crate) fn run_universal_import(
 
     let mut universal_task_map: HashMap<String, Vec<UniversalTask>> = HashMap::new();
     let mut global_temporary_directories: Vec<PathBuf> = Vec::new();
-    let mut current_pack_hashes: HashMap<String, HashMap<String, manifest::PackRecord>> = HashMap::new();
+    let mut current_pack_hashes: HashMap<String, HashMap<String, u64>> = HashMap::new();
 
     let mut has_notified_extraction = false;
 
@@ -240,11 +255,11 @@ pub(crate) fn run_universal_import(
             let pack_filename = corresponding_pack_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
             let final_region_code = determine_region_code(&pack_filename, current_region_code);
             let file_chrono_score = chronology::calculate_weight(&corresponding_pack_path, &global_temporary_directories);
-            let region_pack_map = current_pack_hashes.entry(final_region_code.clone()).or_default();
+            let pack_region_map = current_pack_hashes.entry(pack_filename.clone()).or_default();
 
-            if !region_pack_map.contains_key(&pack_filename)
+            if !pack_region_map.contains_key(&final_region_code)
                 && let Ok(pack_hash_value) = manifest::hash_file(&corresponding_pack_path) {
-                region_pack_map.insert(pack_filename.clone(), manifest::PackRecord { checksum: pack_hash_value });
+                pack_region_map.insert(final_region_code.clone(), pack_hash_value);
             }
 
             let Ok(list_file_data) = fs::read(&item_path) else {
@@ -365,25 +380,22 @@ pub(crate) fn run_universal_import(
 
         let mut requires_memory_decryption = false;
 
-        if let Some(existing_manifest_entry) = global_file_ledger.get(&resolved_filename) {
+        if let Some(existing_placement) = ledger.placement(&resolved_filename) {
             for candidate in &regional_winners_to_decrypt {
                 if candidate.is_loose {
-                    if candidate.byte_size > existing_manifest_entry.encrypted {
+                    if candidate.byte_size > existing_placement.record.encrypted {
                         requires_memory_decryption = true;
                         break;
                     }
                 } else {
-                    let pack_filename = candidate.pack_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                    let pack_filename = candidate.pack_name();
 
                     let newly_calculated_hash = current_pack_hashes
-                        .get(&candidate.region_code)
-                        .and_then(|region_map| region_map.get(&pack_filename))
-                        .map(|record| record.checksum);
+                        .get(&pack_filename)
+                        .and_then(|region_map| region_map.get(&candidate.region_code))
+                        .copied();
 
-                    let saved_manifest_hash = global_pack_registry
-                        .get(&candidate.region_code)
-                        .and_then(|region_map| region_map.get(&pack_filename))
-                        .map(|record| record.checksum);
+                    let saved_manifest_hash = ledger.pack_checksum(&pack_filename, &candidate.region_code);
 
                     if newly_calculated_hash.is_none() || newly_calculated_hash != saved_manifest_hash {
                         requires_memory_decryption = true;
@@ -407,12 +419,9 @@ pub(crate) fn run_universal_import(
     if final_extraction_queue.is_empty() {
         emit(JobEvent::Log("Workspace is completely up to date.".to_string()));
 
-        for (region_key, pack_map) in current_pack_hashes {
-            let region_entry = global_pack_registry.entry(region_key).or_default();
-            region_entry.extend(pack_map);
-        }
+        absorb_pack_hashes(&mut ledger, current_pack_hashes);
+        ledger.save();
 
-        manifest::save(&pack_manifest_path, &global_pack_registry);
         cleanup_temporary_directories(&global_temporary_directories);
         return Ok(());
     }
@@ -435,7 +444,7 @@ pub(crate) fn run_universal_import(
 
     emit(JobEvent::Log(format!("Comparing and organizing {} game files...", final_extraction_queue.len())));
 
-    let updated_manifest_entries: Vec<(String, manifest::ManifestEntry)> = final_extraction_queue
+    let updated_placements: Vec<(String, manifest::Placement)> = final_extraction_queue
         .into_par_iter()
         .filter_map(|(resolved_filename, regional_tasks_to_decrypt, target_destination_path)| {
             if abort_flag.load(Ordering::Relaxed) {
@@ -446,32 +455,50 @@ pub(crate) fn run_universal_import(
 
             for processing_task in regional_tasks_to_decrypt {
                 if processing_task.is_loose {
-                    if let Ok(raw_data) = fs::read(&processing_task.pack_path) {
-                        decrypted_candidates.push(DecryptedCandidate {
+                    match fs::read(&processing_task.pack_path) {
+                        Ok(raw_data) => decrypted_candidates.push(DecryptedCandidate {
                             task: processing_task.clone(),
-                            clean_data: raw_data.clone(),
-                            true_weight: raw_data.len(),
-                        });
+                            clean_data: raw_data,
+                        }),
+                        Err(error) => {
+                            failed_decryption_count.fetch_add(1, Ordering::Relaxed);
+                            warn!("Could not read loose file {}: {}", processing_task.pack_path.display(), error);
+                        }
                     }
                     continue;
                 }
 
+                let pack_display = processing_task.pack_path.display();
+
                 let Ok(mut input_pack_file) = fs::File::open(&processing_task.pack_path) else {
+                    failed_decryption_count.fetch_add(1, Ordering::Relaxed);
+                    warn!("Could not open {} while extracting {}", pack_display, processing_task.final_name);
                     continue;
                 };
 
-                let memory_aligned_size = if processing_task.byte_size % 16 == 0 {
-                    processing_task.byte_size
-                } else {
-                    ((processing_task.byte_size / 16) + 1) * 16
-                };
+                let memory_aligned_size = processing_task.byte_size.div_ceil(16) * 16;
 
-                let mut encrypted_byte_buffer = vec![0u8; memory_aligned_size];
-                if input_pack_file.seek(SeekFrom::Start(processing_task.byte_offset)).is_err() {
+                let bytes_remaining = input_pack_file
+                    .metadata()
+                    .map_or(memory_aligned_size, |data| data.len().saturating_sub(processing_task.byte_offset) as usize);
+
+                if bytes_remaining == 0 && processing_task.byte_size > 0 {
+                    failed_decryption_count.fetch_add(1, Ordering::Relaxed);
+                    warn!("{} starts past the end of {}", processing_task.final_name, pack_display);
                     continue;
                 }
 
-                if input_pack_file.read_exact(&mut encrypted_byte_buffer).is_err() {
+                let mut encrypted_byte_buffer = vec![0u8; memory_aligned_size.min(bytes_remaining)];
+
+                if input_pack_file.seek(SeekFrom::Start(processing_task.byte_offset)).is_err() {
+                    failed_decryption_count.fetch_add(1, Ordering::Relaxed);
+                    warn!("Could not seek to {} in {}", processing_task.byte_offset, pack_display);
+                    continue;
+                }
+
+                if let Err(error) = input_pack_file.read_exact(&mut encrypted_byte_buffer) {
+                    failed_decryption_count.fetch_add(1, Ordering::Relaxed);
+                    warn!("Could not read {} from {}: {}", processing_task.final_name, pack_display, error);
                     continue;
                 }
 
@@ -480,23 +507,22 @@ pub(crate) fn run_universal_import(
                 let strict_size_limit = std::cmp::min(processing_task.byte_size, decrypted_byte_vector.len());
                 let exact_data_slice = &decrypted_byte_vector[..strict_size_limit];
 
-                let calculated_true_weight = audit::calculate_true_weight(exact_data_slice, &processing_task.final_name);
                 let cleaned_data_vector = audit::strip_carriage_returns(exact_data_slice, &processing_task.final_name);
 
                 decrypted_candidates.push(DecryptedCandidate {
                     task: processing_task,
                     clean_data: cleaned_data_vector,
-                    true_weight: calculated_true_weight,
                 });
             }
 
             if decrypted_candidates.is_empty() {
+                warn!("No readable source for {}, it will be retried on the next import", resolved_filename);
                 advance_progress();
                 return None;
             }
 
             decrypted_candidates.sort_by(|candidate_a, candidate_b| {
-                let weight_cmp = candidate_a.true_weight.cmp(&candidate_b.true_weight);
+                let weight_cmp = candidate_a.clean_data.len().cmp(&candidate_b.clean_data.len());
                 if weight_cmp == std::cmp::Ordering::Equal {
                     get_region_priority(&candidate_a.task.region_code).cmp(&get_region_priority(&candidate_b.task.region_code))
                 } else {
@@ -510,49 +536,55 @@ pub(crate) fn run_universal_import(
             };
 
             let winning_checksum = manifest::hash(&winning_candidate.clean_data);
-            let mut should_write_to_disk = true;
+            let winning_size = winning_candidate.clean_data.len();
+            let mut already_on_disk = false;
 
-            if let Some(existing_manifest_entry) = global_file_ledger.get(&resolved_filename) {
-                let is_same_region = winning_candidate.task.region_code == existing_manifest_entry.winner;
-                let is_identical = winning_candidate.true_weight == existing_manifest_entry.weight
-                    && winning_checksum == existing_manifest_entry.checksum;
+            if let Some(existing_placement) = ledger.placement(&resolved_filename) {
+                let is_same_region = winning_candidate.task.region_code == existing_placement.record.winner;
 
-                if is_identical && target_destination_path.exists() {
-                    should_write_to_disk = false;
+                if !is_same_region && winning_size < existing_placement.record.size {
+                    advance_progress();
+                    return None;
                 }
 
-                if !is_same_region && winning_candidate.true_weight < existing_manifest_entry.weight {
-                    should_write_to_disk = false;
-                }
+                already_on_disk = winning_size == existing_placement.record.size
+                    && winning_checksum == existing_placement.record.checksum
+                    && target_destination_path.exists();
             }
 
-            if should_write_to_disk {
+            if !already_on_disk {
                 if let Some(parent_directory) = target_destination_path.parent() {
                     let _ = fs::create_dir_all(parent_directory);
                 }
-                let _ = fs::write(&target_destination_path, &winning_candidate.clean_data);
+                if let Err(error) = fs::write(&target_destination_path, &winning_candidate.clean_data) {
+                    failed_decryption_count.fetch_add(1, Ordering::Relaxed);
+                    warn!("Could not write {}: {}", target_destination_path.display(), error);
+                    advance_progress();
+                    return None;
+                }
 
                 let current_extracted_total = successfully_extracted_count.fetch_add(1, Ordering::Relaxed) + 1;
                 if (current_extracted_total as usize).is_multiple_of(console_update_interval) {
                     emit(JobEvent::Log(format!("Processed {} files | Routing: {}", current_extracted_total, resolved_filename)));
                 }
-
-                advance_progress();
-
-                return Some((
-                    resolved_filename.clone(),
-                    manifest::ManifestEntry {
-                        winner: winning_candidate.task.region_code,
-                        weight: winning_candidate.true_weight,
-                        size: winning_candidate.clean_data.len(),
-                        encrypted: winning_candidate.task.byte_size,
-                        checksum: winning_checksum,
-                    },
-                ));
             }
 
             advance_progress();
-            None
+
+            let winning_pack = winning_candidate.task.pack_name();
+
+            Some((
+                resolved_filename,
+                manifest::Placement {
+                    pack: winning_pack,
+                    record: manifest::FileRecord {
+                        winner: winning_candidate.task.region_code,
+                        size: winning_size,
+                        encrypted: winning_candidate.task.byte_size,
+                        checksum: winning_checksum,
+                    },
+                },
+            ))
         })
         .collect();
 
@@ -563,20 +595,15 @@ pub(crate) fn run_universal_import(
 
     let final_errors = failed_decryption_count.load(Ordering::Relaxed);
     if final_errors > 0 {
-        emit(JobEvent::Log(format!("Encountered {} errors decrypting pack chunks.", final_errors)));
+        emit(JobEvent::Log(format!("Encountered {} errors reading pack chunks. See the log for details.", final_errors)));
     }
 
-    for (filename_key, entry_data) in updated_manifest_entries {
-        global_file_ledger.insert(filename_key, entry_data);
+    for (filename_key, placement) in updated_placements {
+        ledger.place(filename_key, placement);
     }
 
-    for (region_key, pack_map) in current_pack_hashes {
-        let region_entry = global_pack_registry.entry(region_key).or_default();
-        region_entry.extend(pack_map);
-    }
-
-    manifest::save(&pack_manifest_path, &global_pack_registry);
-    manifest::save(&file_manifest_path, &global_file_ledger);
+    absorb_pack_hashes(&mut ledger, current_pack_hashes);
+    ledger.save();
 
     cleanup_temporary_directories(&global_temporary_directories);
 

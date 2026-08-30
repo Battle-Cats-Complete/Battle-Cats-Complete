@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,6 +18,8 @@ pub fn run(
     language_priority: &[String],
     progress: &ProgressCounter,
 ) -> Result<(), String> {
+    manifest::retire_legacy();
+
     let source_path = Path::new(source_path_string);
     let game_root_path = Path::new(architecture::GAME);
     let raw_directory_path = game_root_path.join("raw");
@@ -101,8 +102,7 @@ fn sort_raw_folder(
 
     let asset_router = router::AssetRouter::new(game_root_path, structure).map_err(|e| e.to_string())?;
 
-    let file_manifest_path = game_root_path.join("meta").join("file.json");
-    let mut global_file_ledger: HashMap<String, manifest::ManifestEntry> = manifest::load(&file_manifest_path);
+    let mut ledger = manifest::Ledger::load();
 
     let total = all_discovered_files.len();
     let update_interval = (total / 100).max(10);
@@ -110,7 +110,7 @@ fn sort_raw_folder(
     emit(JobEvent::Progress { current: 0, total });
     progress.reset(total);
 
-    let updated_manifest_entries: Vec<(String, manifest::ManifestEntry)> = all_discovered_files
+    let updated_placements: Vec<(String, manifest::Placement)> = all_discovered_files
         .into_par_iter()
         .filter_map(|file_path: PathBuf| {
             if abort_flag.load(Ordering::Relaxed) {
@@ -130,7 +130,6 @@ fn sort_raw_folder(
                 return None;
             };
 
-            let true_calculated_weight = audit::calculate_true_weight(&file_data, &filename_string);
             let clean_file_data = audit::strip_carriage_returns(&file_data, &filename_string);
 
             if let Some(parent_directory) = target_destination_path.parent() {
@@ -152,23 +151,25 @@ fn sort_raw_folder(
                 )));
             }
 
-            let manifest_entry = manifest::ManifestEntry {
-                winner: "Unknown".to_string(),
-                weight: true_calculated_weight,
-                size: clean_file_data.len(),
-                encrypted: file_data.len(),
-                checksum: manifest::hash(&clean_file_data),
+            let placement = manifest::Placement {
+                pack: manifest::LOOSE.to_string(),
+                record: manifest::FileRecord {
+                    winner: manifest::NONE.to_string(),
+                    size: clean_file_data.len(),
+                    encrypted: file_data.len(),
+                    checksum: manifest::hash(&clean_file_data),
+                },
             };
 
-            Some((filename_string, manifest_entry))
+            Some((filename_string, placement))
         })
         .collect();
 
-    for (filename_key, entry_data) in updated_manifest_entries {
-        global_file_ledger.insert(filename_key, entry_data);
+    for (filename_key, placement) in updated_placements {
+        ledger.place(filename_key, placement);
     }
 
-    manifest::save(&file_manifest_path, &global_file_ledger);
+    ledger.save();
 
     emit(JobEvent::Log("Raw files successfully structured.".to_string()));
     Ok(())
@@ -182,14 +183,14 @@ fn flatten_to_raw(
     progress: &ProgressCounter,
 ) -> Result<(), String> {
     let mut all_files = Vec::new();
-    let meta_directories = ["raw", "meta"];
+    let reserved_directories = ["raw"];
 
     if let Ok(directory_entries) = fs::read_dir(game_root_path) {
         for entry in directory_entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 let directory_name = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                if !meta_directories.contains(&directory_name.as_str()) {
+                if !reserved_directories.contains(&directory_name.as_str()) {
                     collect_files_recursive(&path, &mut all_files);
                 }
             }
@@ -252,7 +253,7 @@ fn flatten_to_raw(
             let path = entry.path();
             if path.is_dir() {
                 let directory_name = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                if !meta_directories.contains(&directory_name.as_str()) {
+                if !reserved_directories.contains(&directory_name.as_str()) {
                     remove_empty_directories(&path);
                 }
             }

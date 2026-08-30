@@ -1,38 +1,117 @@
+use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read};
+use std::io::Read;
 use std::path::Path;
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
+use tracing::{debug, warn};
+
+use crate::common::architecture;
+use crate::common::io::json;
+
+pub(crate) const LOOSE: &str = "";
+pub(crate) const NONE: &str = "--";
+
+const FILE: &str = "manifest.json";
 
 #[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct ManifestEntry {
+pub(crate) struct FileRecord {
     pub winner: String,
-    pub weight: usize,
     pub size: usize,
     pub encrypted: usize,
     pub checksum: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub(crate) struct PackRecord {
-    pub checksum: u64,
+#[derive(Serialize, Deserialize, Default)]
+struct PackRecord {
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    checksums: HashMap<String, u64>,
+    #[serde(default)]
+    files: HashMap<String, FileRecord>,
 }
 
-pub(crate) fn load<T: DeserializeOwned + Default>(path: &Path) -> T {
-    if let Ok(file) = File::open(path)
-        && let Ok(manifest) = serde_json::from_reader(BufReader::new(file)) {
-        return manifest;
-    }
-    T::default()
+type Stored = HashMap<String, PackRecord>;
+
+#[derive(Clone)]
+pub(crate) struct Placement {
+    pub pack: String,
+    pub record: FileRecord,
 }
 
-pub(crate) fn save<T: Serialize>(path: &Path, data: &T) {
-    if let Some(parent_directory) = path.parent() {
-        let _ = fs::create_dir_all(parent_directory);
+#[derive(Default)]
+pub(crate) struct Ledger {
+    packs: HashMap<String, HashMap<String, u64>>,
+    files: HashMap<String, Placement>,
+}
+
+impl Ledger {
+    pub(crate) fn load() -> Self {
+        Self::from_stored(json::load_state(FILE).unwrap_or_default())
     }
 
-    if let Ok(file) = File::create(path) {
-        let _ = serde_json::to_writer_pretty(BufWriter::new(file), data);
+    pub(crate) fn save(self) {
+        if let Err(err) = json::save_state(FILE, &self.into_stored()) {
+            warn!("Failed to save {}: {}", FILE, err);
+        }
+    }
+
+    fn from_stored(stored: Stored) -> Self {
+        let mut ledger = Self::default();
+
+        for (pack, entry) in stored {
+            if !entry.checksums.is_empty() {
+                ledger.packs.insert(pack.clone(), entry.checksums);
+            }
+
+            for (filename, record) in entry.files {
+                ledger.files.insert(filename, Placement { pack: pack.clone(), record });
+            }
+        }
+
+        ledger
+    }
+
+    fn into_stored(self) -> Stored {
+        let mut stored = Stored::new();
+
+        for (pack, checksums) in self.packs {
+            stored.entry(pack).or_default().checksums = checksums;
+        }
+
+        for (filename, placement) in self.files {
+            stored.entry(placement.pack).or_default().files.insert(filename, placement.record);
+        }
+
+        stored
+    }
+
+    pub(crate) fn pack_checksum(&self, pack: &str, region: &str) -> Option<u64> {
+        self.packs.get(pack).and_then(|regions| regions.get(region)).copied()
+    }
+
+    pub(crate) fn placement(&self, filename: &str) -> Option<&Placement> {
+        self.files.get(filename)
+    }
+
+    pub(crate) fn track(&mut self, pack: String, region: String, checksum: u64) {
+        self.packs.entry(pack).or_default().insert(region, checksum);
+    }
+
+    pub(crate) fn place(&mut self, filename: String, placement: Placement) {
+        self.files.insert(filename, placement);
+    }
+}
+
+pub(crate) fn retire_legacy() {
+    let legacy = Path::new(architecture::GAME).join("meta");
+
+    if !legacy.is_dir() {
+        return;
+    }
+
+    match fs::remove_dir_all(&legacy) {
+        Ok(()) => debug!("Removed the legacy manifest directory {}", legacy.display()),
+        Err(err) => warn!("Failed to remove the legacy manifest directory {}: {}", legacy.display(), err),
     }
 }
 
@@ -60,4 +139,78 @@ pub(crate) fn hash_file(path: &Path) -> std::io::Result<u64> {
         }
     }
     Ok(current_hash)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(winner: &str, size: usize) -> FileRecord {
+        FileRecord { winner: winner.to_string(), size, encrypted: size, checksum: size as u64 }
+    }
+
+    fn placed(pack: &str, winner: &str, size: usize) -> Placement {
+        Placement { pack: pack.to_string(), record: record(winner, size) }
+    }
+
+    fn stored_with(pack: &str, checksums: &[(&str, u64)], files: &[(&str, &str, usize)]) -> Stored {
+        let entry = PackRecord {
+            checksums: checksums.iter().map(|(region, sum)| ((*region).to_string(), *sum)).collect(),
+            files: files.iter().map(|(name, winner, size)| ((*name).to_string(), record(winner, *size))).collect(),
+        };
+
+        HashMap::from([(pack.to_string(), entry)])
+    }
+
+    // One pack name shipped by several regions stays a single entry, holding a
+    // checksum per region, with each file naming the region that actually won it.
+    #[test]
+    fn a_shared_pack_name_keeps_one_entry_across_regions() {
+        let mut ledger = Ledger::from_stored(stored_with(
+            "DownloadLocal.pack",
+            &[("ja", 11)],
+            &[("real.png", "ja", 400), ("dummy.png", "ja", 4)],
+        ));
+
+        ledger.track("DownloadLocal.pack".to_string(), "en".to_string(), 22);
+        ledger.place("dummy.png".to_string(), placed("DownloadLocal.pack", "en", 900));
+
+        let stored = ledger.into_stored();
+
+        assert_eq!(stored.len(), 1);
+
+        let pack = &stored["DownloadLocal.pack"];
+        assert_eq!(pack.checksums, HashMap::from([("ja".to_string(), 11), ("en".to_string(), 22)]));
+        assert_eq!(pack.files["real.png"].winner, "ja");
+        assert_eq!(pack.files["dummy.png"].winner, "en");
+        assert_eq!(pack.files["dummy.png"].size, 900);
+    }
+
+    // A file served first by the APK's local pack and later by a server pack must
+    // end up under the server pack only, never listed twice.
+    #[test]
+    fn moving_a_file_to_another_pack_leaves_no_duplicate() {
+        let mut ledger = Ledger::from_stored(stored_with("DataLocal.pack", &[("en", 11)], &[("unit001.csv", "en", 40)]));
+
+        ledger.place("unit001.csv".to_string(), placed("AUnitServer.pack", "en", 40));
+        ledger.track("AUnitServer.pack".to_string(), "en".to_string(), 22);
+
+        let stored = ledger.into_stored();
+
+        assert!(stored["DataLocal.pack"].files.is_empty());
+        assert_eq!(stored["DataLocal.pack"].checksums["en"], 11);
+        assert_eq!(stored["AUnitServer.pack"].files.len(), 1);
+        assert_eq!(stored["AUnitServer.pack"].checksums["en"], 22);
+    }
+
+    #[test]
+    fn loose_files_round_trip_under_an_unnamed_pack_without_a_checksum() {
+        let ledger = Ledger::from_stored(stored_with(LOOSE, &[], &[("loose.png", NONE, 5)]));
+
+        assert_eq!(ledger.pack_checksum(LOOSE, NONE), None);
+        assert_eq!(ledger.placement("loose.png").map(|p| p.pack.as_str()), Some(LOOSE));
+
+        let json = serde_json::to_string(&ledger.into_stored()).expect("serialize");
+        assert_eq!(json, r#"{"":{"files":{"loose.png":{"winner":"--","size":5,"encrypted":5,"checksum":5}}}}"#);
+    }
 }
