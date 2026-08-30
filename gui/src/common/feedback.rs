@@ -17,6 +17,12 @@ pub const NIGHTLY_ONLY_NOTICE: &str = "Requires Nightly Features, enable it unde
 pub const LOCKED_NOTICE: &str =
     "Vanilla \"game\" mount is locked and cannot be written\nMake a Mod or unlock under Settings > Files > Editor";
 
+pub const MANIFEST_BUILDING_NOTICE: &str = "Import manifest building\nReverting to previous selection";
+
+pub const MANIFEST_MISSING_NOTICE: &str = "Import manifest missing\nReverting to previous selection";
+
+pub const MANIFEST_MALFORMED_NOTICE: &str = "Import manifest malformed\nReverting to previous selection";
+
 pub const NO_FILES_LABEL: &str = "No files available";
 
 pub const NO_FILES_NOTICE: &str = "Couldn't find any files within this Context Scope";

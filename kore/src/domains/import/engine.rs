@@ -114,8 +114,6 @@ pub(crate) fn run_universal_import(
 
     let nyanko_keys = cryptology::Keys::parse(&reference_tuples).map_err(|error| error.to_string())?;
 
-    manifest::retire_legacy();
-
     let game_root_path = Path::new(architecture::GAME);
     let mut ledger = manifest::Ledger::load();
 

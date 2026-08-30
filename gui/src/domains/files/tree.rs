@@ -1,9 +1,10 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use iced::alignment::Vertical;
 use iced::widget::{container, operation, responsive, row, scrollable, space, text, Column};
 use iced::{widget, Element, Font, Length, Padding, Size, Task};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use kore::Vfs;
 
@@ -42,9 +43,15 @@ struct Row {
     expanded: bool,
 }
 
+type PackGroup = (Box<str>, Vec<Box<str>>);
+
 pub(super) struct State {
     expanded: FxHashSet<PathBuf>,
     flat_keys: Vec<Box<str>>,
+    pack_groups: Vec<PackGroup>,
+    pack_roots: Vec<Box<str>>,
+    pack_dirty: bool,
+    pack_count: usize,
     rows: Vec<Row>,
     selected_row: Option<usize>,
     has_folders: bool,
@@ -58,6 +65,10 @@ impl Default for State {
         Self {
             expanded: FxHashSet::from_iter([PathBuf::new()]),
             flat_keys: Vec::new(),
+            pack_groups: Vec::new(),
+            pack_roots: Vec::new(),
+            pack_dirty: true,
+            pack_count: 0,
             rows: Vec::new(),
             selected_row: None,
             has_folders: false,
@@ -82,7 +93,18 @@ impl State {
     pub(super) fn reset(&mut self) {
         self.expanded.clear();
         self.expanded.insert(PathBuf::new());
+        self.invalidate_packs();
         self.rewind();
+    }
+
+    pub(super) fn invalidate_packs(&mut self) {
+        self.pack_dirty = true;
+    }
+
+    pub(super) fn prime_packs(&mut self, vfs: &Vfs, mount: Option<&str>, packs: &FxHashMap<String, String>) {
+        if let Some(mount) = mount {
+            self.group_packs(vfs, mount, packs);
+        }
     }
 
     pub(super) fn rewind(&mut self) {
@@ -115,29 +137,68 @@ impl State {
         operation::scroll_to(self.scroll_id.clone(), scrollable::AbsoluteOffset { x: 0.0, y: 0.0 })
     }
 
-    pub(super) fn refresh_keys(&mut self, vfs: &Vfs, mount: Option<&str>, mode: Mode) {
+    pub(super) fn refresh_keys(&mut self, vfs: &Vfs, mount: Option<&str>, mode: Mode, packs: &FxHashMap<String, String>) {
         self.flat_keys.clear();
-
-        if mode != Mode::Flat {
-            return;
-        }
 
         let Some(mount) = mount else {
             return;
         };
 
-        self.flat_keys = vfs.keys(mount);
-        self.flat_keys.sort_unstable();
+        match mode {
+            Mode::Tree => {}
+            Mode::Flat => {
+                self.flat_keys = vfs.keys(mount);
+                self.flat_keys.sort_unstable();
+            }
+            Mode::Pack => self.group_packs(vfs, mount, packs),
+        }
+    }
+
+    fn group_packs(&mut self, vfs: &Vfs, mount: &str, packs: &FxHashMap<String, String>) {
+        let count = vfs.count(mount);
+
+        if !self.pack_dirty && self.pack_count == count {
+            return;
+        }
+
+        let mut grouped: BTreeMap<&str, Vec<Box<str>>> = BTreeMap::new();
+        let mut roots: Vec<Box<str>> = Vec::new();
+
+        for name in vfs.keys(mount) {
+            match packs.get(name.as_ref()) {
+                Some(pack) if !pack.is_empty() => match grouped.get_mut(pack.as_str()) {
+                    Some(bucket) => bucket.push(name),
+                    None => {
+                        grouped.insert(pack.as_str(), vec![name]);
+                    }
+                },
+                _ => roots.push(name),
+            }
+        }
+
+        roots.sort_unstable();
+        self.pack_roots = roots;
+
+        self.pack_groups = grouped
+            .into_iter()
+            .map(|(pack, mut files)| {
+                files.sort_unstable();
+                (pack.into(), files)
+            })
+            .collect();
+
+        self.pack_count = count;
+        self.pack_dirty = false;
     }
 
     pub(super) fn entry(&self, vfs: &Vfs, mount: &str, mode: Mode, index: usize) -> Option<(bool, PathBuf)> {
         let target = self.rows.get(index)?;
 
-        if mode == Mode::Flat {
-            return vfs.stored(mount, target.name.as_ref()).map(|path| (target.folder, path));
+        match mode {
+            Mode::Tree => self.path_of(index).map(|path| (target.folder, path)),
+            Mode::Pack if target.folder => Some((true, PathBuf::from(target.name.as_ref()))),
+            Mode::Flat | Mode::Pack => vfs.stored(mount, target.name.as_ref()).map(|path| (false, path)),
         }
-
-        self.path_of(index).map(|path| (target.folder, path))
     }
 
     fn path_of(&self, index: usize) -> Option<PathBuf> {
@@ -177,6 +238,8 @@ impl State {
             anchor,
             query: query.trim(),
             flat_keys: &self.flat_keys,
+            pack_groups: &self.pack_groups,
+            pack_roots: &self.pack_roots,
             rows: Vec::new(),
             selected_row: None,
             folders: false,
@@ -186,6 +249,7 @@ impl State {
         match mode {
             Mode::Tree => flatten.walk(Path::new(""), 0),
             Mode::Flat => flatten.flat(),
+            Mode::Pack => flatten.packs(),
         }
 
         self.has_folders = flatten.folders;
@@ -297,6 +361,8 @@ struct Flatten<'a> {
     anchor: Option<(&'a Path, &'a str)>,
     query: &'a str,
     flat_keys: &'a [Box<str>],
+    pack_groups: &'a [PackGroup],
+    pack_roots: &'a [Box<str>],
     rows: Vec<Row>,
     selected_row: Option<usize>,
     folders: bool,
@@ -334,6 +400,50 @@ impl Flatten<'_> {
             }
 
             self.push(Row { name: name.clone(), depth: 0, folder: false, expanded: false });
+        }
+    }
+
+    fn packs(&mut self) {
+        let marked = self.anchor.map(|(_, name)| name);
+        let query = self.query;
+
+        for (pack, files) in self.pack_groups {
+            if !files.iter().any(|file| matches(file, query)) {
+                continue;
+            }
+
+            let open = self.expanded.contains(Path::new(pack.as_ref()));
+
+            self.folders = true;
+            self.push(Row { name: pack.clone(), depth: 0, folder: true, expanded: open });
+
+            if !open {
+                continue;
+            }
+
+            for file in files {
+                if !matches(file, query) {
+                    continue;
+                }
+
+                if marked == Some(file.as_ref()) {
+                    self.selected_row = Some(self.rows.len());
+                }
+
+                self.push(Row { name: file.clone(), depth: 1, folder: false, expanded: false });
+            }
+        }
+
+        for file in self.pack_roots {
+            if !matches(file, query) {
+                continue;
+            }
+
+            if marked == Some(file.as_ref()) {
+                self.selected_row = Some(self.rows.len());
+            }
+
+            self.push(Row { name: file.clone(), depth: 0, folder: false, expanded: false });
         }
     }
 

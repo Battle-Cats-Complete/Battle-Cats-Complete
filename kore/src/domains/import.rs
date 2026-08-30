@@ -3,11 +3,24 @@ pub mod engine;
 pub mod pack;
 pub mod raw;
 
+use std::collections::HashMap;
+use std::time::SystemTime;
+
 use serde::{Deserialize, Serialize};
 
 use crate::common::region::Region;
 use crate::domains::{cat, enemy, stage};
 use crate::ContentStore;
+
+pub use engine::manifest::Fault as PackFault;
+
+pub fn pack_index() -> Result<HashMap<String, String>, PackFault> {
+    engine::manifest::index()
+}
+
+pub fn pack_stamp() -> Option<SystemTime> {
+    engine::manifest::stamp()
+}
 
 pub fn purge_derived_caches() {
     cat::scanner::purge();

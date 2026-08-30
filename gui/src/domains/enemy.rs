@@ -32,7 +32,7 @@ use kore::{Vfs, Vault};
 
 use crate::systems::animation;
 use crate::systems::combat::abilities as combat_abilities;
-use crate::app::state::{AppState, EnemyListState};
+use crate::app::state::{AnimState, AppState, EnemyListState};
 use crate::app::theme;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
@@ -51,10 +51,10 @@ const ICON_BOX_HEIGHT: f32 = 96.0;
 const APPEARANCES_TEXT_SIZE: f32 = 12.0;
 const EMPTY_CAT_ICON: &str = "uni.png";
 
-fn animation_preload(state: &mut animation::State, enemy: &EnemyEntry, vfs: &Vfs) -> Task<Message> {
+fn animation_preload(state: &mut animation::State, enemy: &EnemyEntry, vfs: &Vfs, anim_state: &AnimState) -> Task<Message> {
     let key = enemy_animation::set_id(enemy);
 
-    state.preload(&key, || enemy_animation::clips(enemy, vfs)).map(Message::Animation)
+    state.preload(&key, || enemy_animation::clips(enemy, vfs), anim_state).map(Message::Animation)
 }
 
 fn typable_magnification(value: &str) -> bool {
@@ -389,7 +389,7 @@ impl EnemyState {
                         if self.selected_tab != DetailTab::Animation {
                             self.animation.clear();
                         }
-                        animation_preload(&mut self.animation, enemy, &global_ctx.vault.vfs)
+                        animation_preload(&mut self.animation, enemy, &global_ctx.vault.vfs, &app_state.animation)
                     }
                     None => Task::none(),
                 };
@@ -424,7 +424,7 @@ impl EnemyState {
                     self.animation.clear();
                 }
                 match self.data.enemies.iter().find(|e| e.id == id) {
-                    Some(enemy) => animation_preload(&mut self.animation, enemy, &global_ctx.vault.vfs),
+                    Some(enemy) => animation_preload(&mut self.animation, enemy, &global_ctx.vault.vfs, &app_state.animation),
                     None => Task::none(),
                 }
             }

@@ -1106,7 +1106,9 @@ impl BattleCatsApp {
                     return task;
                 }
 
-                Task::batch([task, self.rebuild_content()])
+                let packs = self.files_state.reload_packs().map(Message::Files);
+
+                Task::batch([task, packs, self.rebuild_content()])
             }
             Message::Files(msg) => {
                 let task = self.files_state.update(msg, &self.vault.vfs, &self.settings.files).map(Message::Files);

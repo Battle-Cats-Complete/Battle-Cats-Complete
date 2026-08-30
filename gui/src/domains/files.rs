@@ -1,25 +1,28 @@
 mod body;
 mod tree;
 
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, column, container, mouse_area, pick_list, row, scrollable, space, stack, text_input};
 use iced::{font, Alignment, Element, Font, Length, Padding, Task, Theme};
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use kore::common::architecture;
+use kore::domains::import::{self, PackFault};
 use kore::domains::settings::{FilesSettings, Utf8Mode};
 use kore::Vfs;
 
 use crate::app::state::FilesState;
 use crate::app::theme;
 use crate::common::dialog;
-use crate::common::feedback::LOCKED_NOTICE;
+use crate::common::feedback::{LOCKED_NOTICE, MANIFEST_BUILDING_NOTICE, MANIFEST_MALFORMED_NOTICE, MANIFEST_MISSING_NOTICE};
 use crate::common::feedback::Slot;
 use crate::common::fonts;
 use crate::common::watcher;
@@ -81,6 +84,7 @@ pub enum Message {
     ToggleSidebar,
     Deselect,
     Uploaded(Option<PathBuf>),
+    PackIndexed(Result<HashMap<String, String>, PackFault>),
     NoticeExpired,
     Tree(tree::Message),
     Body(body::Message),
@@ -91,10 +95,11 @@ pub enum Mode {
     #[default]
     Tree,
     Flat,
+    Pack,
 }
 
 impl Mode {
-    const ALL: [Self; 2] = [Self::Tree, Self::Flat];
+    const ALL: [Self; 3] = [Self::Tree, Self::Flat, Self::Pack];
 }
 
 impl fmt::Display for Mode {
@@ -102,8 +107,41 @@ impl fmt::Display for Mode {
         f.write_str(match self {
             Self::Tree => "Tree",
             Self::Flat => "Flat",
+            Self::Pack => "Pack",
         })
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum PackState {
+    #[default]
+    Unknown,
+    Building,
+    Ready,
+    Faulted(PackFault),
+}
+
+impl PackState {
+    fn offers_pack(self) -> bool {
+        self == Self::Ready
+    }
+
+    fn notice(self) -> Option<&'static str> {
+        match self {
+            Self::Unknown | Self::Building => Some(MANIFEST_BUILDING_NOTICE),
+            Self::Ready => None,
+            Self::Faulted(PackFault::Missing) => Some(MANIFEST_MISSING_NOTICE),
+            Self::Faulted(PackFault::Malformed) => Some(MANIFEST_MALFORMED_NOTICE),
+        }
+    }
+}
+
+#[derive(Default)]
+struct Packs {
+    index: FxHashMap<String, String>,
+    stamp: Option<SystemTime>,
+    state: PackState,
+    pending: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,6 +175,8 @@ pub struct State {
     verify: bool,
     unlocked: bool,
     utf8_mode: Utf8Mode,
+    packs: Packs,
+    notice_text: &'static str,
     tree: tree::State,
     body: body::State,
     notice: Slot<()>,
@@ -156,6 +196,8 @@ impl Default for State {
             verify: false,
             unlocked: false,
             utf8_mode: Utf8Mode::default(),
+            packs: Packs::default(),
+            notice_text: LOCKED_NOTICE,
             tree: tree::State::default(),
             body: body::State::default(),
             notice: Slot::default(),
@@ -227,7 +269,28 @@ impl State {
             self.reset();
         }
 
-        self.reindex(vfs)
+        Task::batch([self.probe_packs(), self.reindex(vfs)])
+    }
+
+    pub(crate) fn reload_packs(&mut self) -> Task<Message> {
+        self.packs.state = PackState::Unknown;
+        self.tree.invalidate_packs();
+
+        self.probe_packs()
+    }
+
+    fn probe_packs(&mut self) -> Task<Message> {
+        let stamp = import::pack_stamp();
+
+        if self.packs.pending || (self.packs.stamp == stamp && self.packs.state != PackState::Unknown) {
+            return Task::none();
+        }
+
+        self.packs.pending = true;
+        self.packs.stamp = stamp;
+        self.packs.state = PackState::Building;
+
+        Task::perform(smol::unblock(import::pack_index), Message::PackIndexed)
     }
 
     pub(crate) fn apply_changes(&mut self, vfs: &Vfs, paths: &[PathBuf], files: &FilesSettings) -> Task<Message> {
@@ -256,10 +319,12 @@ impl State {
         }
 
         if !mounted {
-            return Task::none();
+            return self.probe_packs();
         }
 
-        self.reindex(vfs)
+        self.tree.invalidate_packs();
+
+        Task::batch([self.probe_packs(), self.reindex(vfs)])
     }
 
     pub(crate) fn update(&mut self, message: Message, vfs: &Vfs, files: &FilesSettings) -> Task<Message> {
@@ -276,6 +341,14 @@ impl State {
                 Task::batch([self.reindex(vfs), self.tree.snap_to_top().map(Message::Tree)])
             }
             Message::ModeSelected(mode) => {
+                if mode == Mode::Pack && !self.packs.state.offers_pack() {
+                    let Some(notice) = self.packs.state.notice() else {
+                        return Task::none();
+                    };
+
+                    return self.raise_notice(notice);
+                }
+
                 if self.mode == mode {
                     return Task::none();
                 }
@@ -310,6 +383,40 @@ impl State {
 
                 self.upload(vfs, &source)
             }
+            Message::PackIndexed(result) => {
+                self.packs.pending = false;
+
+                let fell_back = match result {
+                    Ok(index) => {
+                        self.packs.index = index.into_iter().collect();
+                        self.packs.state = PackState::Ready;
+                        self.tree.invalidate_packs();
+                        self.tree.prime_packs(vfs, self.mount.as_deref(), &self.packs.index);
+                        false
+                    }
+                    Err(fault) => {
+                        self.packs.index = FxHashMap::default();
+                        self.packs.state = PackState::Faulted(fault);
+                        self.tree.invalidate_packs();
+
+                        let stranded = self.mode == Mode::Pack;
+
+                        if stranded {
+                            info!(?fault, "Pack view is unavailable, falling back to the tree view");
+                            self.mode = Mode::Tree;
+                            self.tree.rewind();
+                        }
+
+                        stranded
+                    }
+                };
+
+                if self.mode != Mode::Pack && !fell_back {
+                    return Task::none();
+                }
+
+                self.reindex(vfs)
+            }
             Message::NoticeExpired => {
                 self.notice.expire();
                 Task::none()
@@ -326,7 +433,7 @@ impl State {
 
                 match outcome {
                     body::Outcome::Idle => task.map(Message::Body),
-                    body::Outcome::Refused => self.notice.set_after((), Message::NoticeExpired, NOTICE_EXPIRY),
+                    body::Outcome::Refused => self.raise_notice(LOCKED_NOTICE),
                     body::Outcome::Upload => {
                         Task::perform(dialog::file("PNG Image", &["png"]), Message::Uploaded)
                     }
@@ -362,13 +469,19 @@ impl State {
         Task::batch([queued, self.body.recenter().map(Message::Body)])
     }
 
+    fn raise_notice(&mut self, text: &'static str) -> Task<Message> {
+        self.notice_text = text;
+
+        self.notice.set_after((), Message::NoticeExpired, NOTICE_EXPIRY)
+    }
+
     fn reset(&mut self) {
         self.tree.reset();
         self.selected = None;
     }
 
     fn reindex(&mut self, vfs: &Vfs) -> Task<Message> {
-        self.tree.refresh_keys(vfs, self.mount.as_deref(), self.mode);
+        self.tree.refresh_keys(vfs, self.mount.as_deref(), self.mode, &self.packs.index);
         self.refresh(vfs)
     }
 
@@ -523,7 +636,7 @@ impl State {
     }
 
     fn view_notice(&self) -> Element<'_, Message> {
-        let banner = container(theme::centered_text(LOCKED_NOTICE).size(NOTICE_TEXT_SIZE))
+        let banner = container(theme::centered_text(self.notice_text).size(NOTICE_TEXT_SIZE))
             .align_x(Horizontal::Center)
             .align_y(Vertical::Center)
             .padding(Padding {

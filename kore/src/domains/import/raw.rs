@@ -18,8 +18,6 @@ pub fn run(
     language_priority: &[String],
     progress: &ProgressCounter,
 ) -> Result<(), String> {
-    manifest::retire_legacy();
-
     let source_path = Path::new(source_path_string);
     let game_root_path = Path::new(architecture::GAME);
     let raw_directory_path = game_root_path.join("raw");
@@ -183,14 +181,13 @@ fn flatten_to_raw(
     progress: &ProgressCounter,
 ) -> Result<(), String> {
     let mut all_files = Vec::new();
-    let reserved_directories = ["raw"];
 
     if let Ok(directory_entries) = fs::read_dir(game_root_path) {
         for entry in directory_entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 let directory_name = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                if !reserved_directories.contains(&directory_name.as_str()) {
+                if directory_name != "raw" {
                     collect_files_recursive(&path, &mut all_files);
                 }
             }
@@ -253,7 +250,7 @@ fn flatten_to_raw(
             let path = entry.path();
             if path.is_dir() {
                 let directory_name = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                if !reserved_directories.contains(&directory_name.as_str()) {
+                if directory_name != "raw" {
                     remove_empty_directories(&path);
                 }
             }

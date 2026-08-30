@@ -37,7 +37,7 @@ use kore::domains::settings::{ScannerConfig, Settings};
 use kore::{Vfs, Vault};
 
 use crate::systems::animation;
-use crate::app::state::{AppState, CatListState};
+use crate::app::state::{AnimState, AppState, CatListState};
 use crate::app::theme;
 use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
@@ -66,10 +66,10 @@ fn typable_level(value: &str) -> bool {
     value.chars().all(|glyph| glyph.is_ascii_digit() || glyph == '+')
 }
 
-fn animation_preload(state: &mut animation::State, cat: &CatEntry, form: usize, vfs: &Vfs) -> Task<Message> {
+fn animation_preload(state: &mut animation::State, cat: &CatEntry, form: usize, vfs: &Vfs, anim_state: &AnimState) -> Task<Message> {
     let key = cat_animation::set_id(cat, form);
 
-    state.preload(&key, || cat_animation::clips(cat, form, vfs)).map(Message::Animation)
+    state.preload(&key, || cat_animation::clips(cat, form, vfs), anim_state).map(Message::Animation)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -519,7 +519,7 @@ impl State {
                         if tab != DetailTab::Animation {
                             self.animation.clear();
                         }
-                        animation_preload(&mut self.animation, cat, form, &global_ctx.vault.vfs)
+                        animation_preload(&mut self.animation, cat, form, &global_ctx.vault.vfs, &app_state.animation)
                     }
                     None => Task::none(),
                 };
@@ -562,7 +562,7 @@ impl State {
                         if tab != DetailTab::Animation {
                             self.animation.clear();
                         }
-                        animation_preload(&mut self.animation, cat, form, &global_ctx.vault.vfs)
+                        animation_preload(&mut self.animation, cat, form, &global_ctx.vault.vfs, &app_state.animation)
                     }
                     None => Task::none(),
                 }
@@ -597,7 +597,7 @@ impl State {
                     self.animation.clear();
                 }
                 match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
-                    Some(cat) => animation_preload(&mut self.animation, cat, form_idx, &global_ctx.vault.vfs),
+                    Some(cat) => animation_preload(&mut self.animation, cat, form_idx, &global_ctx.vault.vfs, &app_state.animation),
                     None => Task::none(),
                 }
             }

@@ -129,7 +129,8 @@ impl State {
         controls::clamp_frame(&mut self.canvas, &self.data);
     }
 
-    pub fn preload(&mut self, key: &str, build: impl FnOnce() -> ClipSet) -> Task<Message> {
+    pub fn preload(&mut self, key: &str, build: impl FnOnce() -> ClipSet, anim_state: &AnimState) -> Task<Message> {
+        self.data.restore_offset(anim_state.offset_row);
         Self::preload_task(self.data.preload_request(key, build))
     }
 

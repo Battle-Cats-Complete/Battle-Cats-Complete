@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::Path;
+use std::time::SystemTime;
 
+use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
+use tracing::warn;
 
-use crate::common::architecture;
+use crate::common::dirs;
 use crate::common::io::json;
 
 pub(crate) const LOOSE: &str = "";
@@ -20,6 +22,18 @@ pub(crate) struct FileRecord {
     pub size: usize,
     pub encrypted: usize,
     pub checksum: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fault {
+    Missing,
+    Malformed,
+}
+
+#[derive(Deserialize)]
+struct IndexRecord {
+    #[serde(default)]
+    files: HashMap<String, IgnoredAny>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -102,17 +116,33 @@ impl Ledger {
     }
 }
 
-pub(crate) fn retire_legacy() {
-    let legacy = Path::new(architecture::GAME).join("meta");
+pub(crate) fn index() -> Result<HashMap<String, String>, Fault> {
+    let Some(directory) = dirs::state() else {
+        return Err(Fault::Missing);
+    };
 
-    if !legacy.is_dir() {
-        return;
-    }
+    let Ok(data) = fs::read_to_string(directory.join(FILE)) else {
+        return Err(Fault::Missing);
+    };
 
-    match fs::remove_dir_all(&legacy) {
-        Ok(()) => debug!("Removed the legacy manifest directory {}", legacy.display()),
-        Err(err) => warn!("Failed to remove the legacy manifest directory {}: {}", legacy.display(), err),
-    }
+    let stored: HashMap<String, IndexRecord> = match serde_json::from_str(&data) {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!("Could not parse {}: {}", FILE, error);
+            return Err(Fault::Malformed);
+        }
+    };
+
+    Ok(stored
+        .into_iter()
+        .flat_map(|(pack, entry)| entry.files.into_keys().map(move |filename| (filename, pack.clone())))
+        .collect())
+}
+
+pub(crate) fn stamp() -> Option<SystemTime> {
+    dirs::state()
+        .and_then(|directory| fs::metadata(directory.join(FILE)).ok())
+        .and_then(|data| data.modified().ok())
 }
 
 pub(crate) fn hash(data: &[u8]) -> u64 {
@@ -214,3 +244,5 @@ mod tests {
         assert_eq!(json, r#"{"":{"files":{"loose.png":{"winner":"--","size":5,"encrypted":5,"checksum":5}}}}"#);
     }
 }
+
+
