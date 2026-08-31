@@ -347,7 +347,7 @@ impl EnemyState {
 
         self.list.refresh(&self.data.enemies, &self.search_query, &self.filter.filter_state);
 
-        task
+        Task::batch([task, self.list.take_scroll()])
     }
 
     fn update_inner(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {

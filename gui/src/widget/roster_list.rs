@@ -7,7 +7,7 @@ use std::sync::Arc;
 use iced::futures::channel::mpsc::UnboundedReceiver;
 use iced::widget::image::Handle;
 use iced::alignment::Vertical;
-use iced::widget::{container, responsive, row, scrollable, space, text, Column, Id};
+use iced::widget::{container, operation, responsive, row, scrollable, space, text, Column, Id};
 use iced::{Element, Length, Size, Task};
 use image::RgbaImage;
 use tracing::{info, warn};
@@ -45,6 +45,19 @@ pub(crate) fn tooltip_table<'a, M: 'a>(rows: impl IntoIterator<Item = (&'a str, 
 }
 const SCROLLBAR_WIDTH: f32 = 16.0;
 pub(crate) const LIST_WIDTH: f32 = row_window::ROW_HEIGHT * BANNER_ASPECT + SCROLLBAR_WIDTH;
+
+fn anchored_offset(previous: &[u32], current: &[u32], offset: f32) -> Option<f32> {
+    if offset <= 0.0 {
+        return None;
+    }
+
+    let row = (offset / row_window::ROW_PITCH).round() as usize;
+    let anchor = previous.get(row)?;
+    let moved = current.iter().position(|id| id == anchor)?;
+    let target = moved as f32 * row_window::ROW_PITCH;
+
+    ((target - offset).abs() >= 1.0).then_some(target)
+}
 
 pub(crate) trait Roster {
     type Entry;
@@ -98,6 +111,8 @@ pub(crate) struct State<R: Roster> {
     last_unit_count: usize,
     last_filter_state: R::Filter,
     cached_indices: Vec<usize>,
+    cached_ids: Vec<u32>,
+    pending_scroll: bool,
     dirty: bool,
     scroll_offset: f32,
     last_focus_row: usize,
@@ -132,6 +147,8 @@ impl<R: Roster> Default for State<R> {
             last_unit_count: usize::MAX,
             last_filter_state: R::Filter::default(),
             cached_indices: Vec::new(),
+            cached_ids: Vec::new(),
+            pending_scroll: false,
             dirty: false,
             scroll_offset: 0.0,
             last_focus_row: 0,
@@ -152,7 +169,16 @@ impl<R: Roster> State<R> {
         self.scroll_offset
     }
 
+    pub(crate) fn take_scroll<T: Send + 'static>(&mut self) -> Task<T> {
+        if !std::mem::take(&mut self.pending_scroll) {
+            return Task::none();
+        }
+
+        operation::scroll_to(Self::scrollable_id(), scrollable::AbsoluteOffset { x: 0.0, y: self.scroll_offset })
+    }
+
     pub(crate) fn set_scroll_offset(&mut self, offset: f32) {
+        self.pending_scroll = false;
         self.scroll_offset = offset;
     }
 
@@ -229,6 +255,8 @@ impl<R: Roster> State<R> {
         self.last_search_query = query.to_string();
         self.last_unit_count = entries.len();
         self.last_filter_state = filter_state.clone();
+
+        let previous = std::mem::take(&mut self.cached_ids);
         self.cached_indices.clear();
 
         let query_lower = query.to_lowercase();
@@ -240,7 +268,13 @@ impl<R: Roster> State<R> {
 
             if query_lower.is_empty() || R::matches_query(entry, &query_lower) {
                 self.cached_indices.push(index);
+                self.cached_ids.push(R::id(entry));
             }
+        }
+
+        if let Some(target) = anchored_offset(&previous, &self.cached_ids, self.scroll_offset) {
+            self.scroll_offset = target;
+            self.pending_scroll = true;
         }
 
         info!("Visible {}: {} (of {} total)", R::LABEL, self.cached_indices.len(), entries.len());
@@ -334,5 +368,41 @@ impl<R: Roster> State<R> {
             Some(marker) => editor::target(row, marker),
             None => row,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::anchored_offset;
+    use crate::common::row_window::ROW_PITCH;
+
+    // Toggling a setting rescans the roster, so rows shift under a pixel offset that
+    // stayed put. The unit that was on top should still be on top afterwards.
+    #[test]
+    fn the_row_under_the_viewport_top_keeps_its_place() {
+        let before = [10, 11, 12, 13, 14];
+        let after = [7, 8, 10, 11, 12, 13, 14];
+
+        assert_eq!(anchored_offset(&before, &after, ROW_PITCH * 2.0), Some(ROW_PITCH * 4.0));
+    }
+
+    #[test]
+    fn a_list_already_at_the_top_is_left_alone() {
+        assert_eq!(anchored_offset(&[10, 11], &[7, 10, 11], 0.0), None);
+    }
+
+    #[test]
+    fn an_anchor_that_did_not_move_asks_for_no_scroll() {
+        let rows = [10, 11, 12];
+
+        assert_eq!(anchored_offset(&rows, &rows, ROW_PITCH), None);
+    }
+
+    // A filtered-away anchor has nowhere to land, so the offset is left for the
+    // row window to clamp rather than guessing at a neighbour.
+    #[test]
+    fn a_vanished_anchor_leaves_the_offset_untouched() {
+        assert_eq!(anchored_offset(&[10, 11, 12], &[10, 12], ROW_PITCH), None);
+        assert_eq!(anchored_offset(&[], &[10], ROW_PITCH), None);
     }
 }

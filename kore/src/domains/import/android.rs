@@ -30,7 +30,7 @@ pub fn run(
         ignore_modified_app: import_config.ignore_modified_app,
     };
 
-    let pulled_directories = bridge::execute_pull(
+    let pull = bridge::execute_pull(
         &app_repository,
         pull_options,
         target_region,
@@ -45,7 +45,7 @@ pub fn run(
 
     emit(JobEvent::Log("Starting Processing Phase...".to_string()));
 
-    engine::run_universal_import(&pulled_directories, import_config.structure, &emit, abort_flag, progress)
+    engine::run_universal_import(&pull.directories, import_config.structure, &emit, abort_flag, progress, pull.builds)
         .map_err(|engine_error| format!("Universal Import Failed: {}", engine_error))?;
 
     emit(JobEvent::Log("All Operations Complete!".to_string()));

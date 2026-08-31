@@ -221,6 +221,12 @@ impl State {
         self.list.scroll_offset()
     }
 
+    pub(crate) fn apply_talent_selection(&mut self, cat_id: u32, levels: HashMap<u8, u8>) {
+        self.talent_level_inputs.clear();
+        self.talent_levels.insert(cat_id, levels);
+        self.selected_tab = DetailTab::Abilities;
+    }
+
     pub(crate) fn restore_state(&mut self, state: &CatListState) {
         self.list.set_scroll_offset(state.list_scroll_offset);
         self.selected_cat = state.selected_cat;
@@ -463,7 +469,7 @@ impl State {
 
         self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
 
-        task
+        Task::batch([task, self.list.take_scroll()])
     }
 
     fn update_inner(&mut self, message: Message, settings: &mut Settings, app_state: &mut AppState, global_ctx: GlobalContext<'_>) -> Task<Message> {

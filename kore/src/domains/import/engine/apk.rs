@@ -10,6 +10,8 @@ use crate::systems::apk::modify::ApkEditor;
 
 const MANIFEST: &str = "AndroidManifest.xml";
 
+const BUNDLE_MANIFEST: &str = "manifest.json";
+
 pub(crate) fn find_files(
     search_directory: &Path,
     list_paths: &mut Vec<PathBuf>,
@@ -63,17 +65,54 @@ fn read_build(apk_path: &Path) -> Option<Build> {
     let archive_file = fs::File::open(apk_path).ok()?;
     let mut archive = ZipArchive::new(archive_file).ok()?;
 
-    let mut bytes = Vec::new();
-    archive.by_name(MANIFEST).ok()?.read_to_end(&mut bytes).ok()?;
+    if let Some(build) = entry(&mut archive, MANIFEST).and_then(|bytes| binary_build(&bytes, apk_path)) {
+        return Some(build);
+    }
 
-    let editor = ApkEditor::from_manifest_bytes(&bytes).ok()?;
+    entry(&mut archive, BUNDLE_MANIFEST).and_then(|bytes| bundle_build(&bytes, apk_path))
+}
+
+fn entry(archive: &mut ZipArchive<fs::File>, name: &str) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    archive.by_name(name).ok()?.read_to_end(&mut bytes).ok()?;
+
+    Some(bytes)
+}
+
+fn binary_build(bytes: &[u8], apk_path: &Path) -> Option<Build> {
+    let editor = ApkEditor::from_manifest_bytes(bytes).ok()?;
     let (code, name) = editor.get_version_info()?;
 
-    let label = editor
-        .get_package()
-        .unwrap_or_else(|| apk_path.file_stem().unwrap_or_default().to_string_lossy().into_owned());
+    Some(Build { code, name, label: editor.get_package().unwrap_or_else(|| stem(apk_path)) })
+}
+
+fn bundle_build(bytes: &[u8], apk_path: &Path) -> Option<Build> {
+    let manifest: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+
+    let name = manifest.get("version_name")?.as_str()?.trim().to_string();
+
+    if name.is_empty() {
+        return None;
+    }
+
+    let code = manifest.get("version_code").and_then(version_code).unwrap_or_default();
+    let label = manifest
+        .get("package_name")
+        .and_then(serde_json::Value::as_str)
+        .map_or_else(|| stem(apk_path), str::to_string);
 
     Some(Build { code, name, label })
+}
+
+fn version_code(value: &serde_json::Value) -> Option<u32> {
+    value
+        .as_u64()
+        .and_then(|code| u32::try_from(code).ok())
+        .or_else(|| value.as_str()?.trim().parse().ok())
+}
+
+fn stem(apk_path: &Path) -> String {
+    apk_path.file_stem().unwrap_or_default().to_string_lossy().into_owned()
 }
 
 pub(crate) fn extract_all(apk_paths: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
@@ -168,4 +207,34 @@ pub(crate) fn extract_all(apk_paths: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>,
     }
 
     (final_list_paths, final_temporary_directories, final_loose_paths)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // An .xapk is a wrapper: no binary AndroidManifest.xml at its root, just the
+    // split APKs and a plain-JSON manifest carrying the version.
+    #[test]
+    fn a_bundle_manifest_yields_the_build_its_json_declares() {
+        let raw = br#"{"xapk_version":2,"package_name":"jp.co.ponos.battlecatsen","version_name":"15.5.0","version_code":"1505000"}"#;
+        let build = bundle_build(raw, Path::new("BCEN-15.5.xapk")).expect("a build");
+
+        assert_eq!(build.label, "jp.co.ponos.battlecatsen");
+        assert_eq!(build.name, "15.5.0");
+        assert_eq!(build.code, 1_505_000);
+    }
+
+    #[test]
+    fn a_numeric_version_code_reads_the_same_as_a_quoted_one() {
+        let raw = br#"{"package_name":"jp.co.ponos.battlecats","version_name":"15.6.0","version_code":1506000}"#;
+
+        assert_eq!(bundle_build(raw, Path::new("x.xapk")).map(|build| build.code), Some(1_506_000));
+    }
+
+    // Without a version there is nothing to report, and the file stem is not a version.
+    #[test]
+    fn a_bundle_without_a_version_name_reports_nothing() {
+        assert!(bundle_build(br#"{"package_name":"jp.co.ponos.battlecats"}"#, Path::new("x.xapk")).is_none());
+        assert!(bundle_build(b"not json", Path::new("x.xapk")).is_none());
+    }
 }

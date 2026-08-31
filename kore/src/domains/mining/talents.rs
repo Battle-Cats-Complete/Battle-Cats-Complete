@@ -7,6 +7,7 @@ use super::{FileDelta, RowDelta, Status};
 
 #[derive(Clone)]
 pub struct Gain {
+    pub index: u8,
     pub group: TalentGroup,
     pub name: &'static str,
     pub fallback: &'static str,
@@ -28,6 +29,10 @@ pub struct Find {
 }
 
 impl Find {
+    pub fn enabled_levels(&self) -> std::collections::HashMap<u8, u8> {
+        self.gained.iter().map(|gain| (gain.index, gain.group.max_level.max(1))).collect()
+    }
+
     pub fn ultra_only(&self) -> bool {
         !self.gained.is_empty() && self.gained.iter().all(|gain| gain.ultra)
     }
@@ -110,14 +115,16 @@ fn compare(previous: Option<&Talent>, current: &Talent) -> Option<Find> {
     let mut gained = Vec::new();
     let mut retuned = Vec::new();
 
-    for group in &current.groups {
+    for (index, group) in current.groups.iter().enumerate() {
+        let slot = index as u8;
+
         let Some(before) = carried.iter().find(|held| held.ability_id == group.ability_id) else {
-            gained.push(gain(group));
+            gained.push(gain(slot, group));
             continue;
         };
 
         if before != group {
-            retuned.push(Retune { gain: gain(group), before: before.clone() });
+            retuned.push(Retune { gain: gain(slot, group), before: before.clone() });
         }
     }
 
@@ -128,7 +135,7 @@ fn compare(previous: Option<&Talent>, current: &Talent) -> Option<Find> {
     Some(Find { cat_id: current.id, fresh: carried.is_empty(), gained, retuned })
 }
 
-fn gain(group: &TalentGroup) -> Gain {
+fn gain(index: u8, group: &TalentGroup) -> Gain {
     let ability = get_talent(group.ability_id);
 
     let (name, fallback, icon) = ability.map_or(("Unknown Talent", "?", AbilityIcon::None), |def| {
@@ -137,7 +144,7 @@ fn gain(group: &TalentGroup) -> Gain {
         (display.name, display.fallback, display.icon)
     });
 
-    Gain { group: group.clone(), name, fallback, icon, ultra: group.limit == 1 }
+    Gain { index, group: group.clone(), name, fallback, icon, ultra: group.limit == 1 }
 }
 
 #[cfg(test)]
@@ -185,6 +192,9 @@ mod tests {
         assert_eq!(find.gained.len(), 1);
         assert!(find.gained[0].ultra);
         assert!(find.ultra_only());
+
+        // The cats page keys talent levels by slot, so the gain must carry its position.
+        assert_eq!(find.enabled_levels(), std::collections::HashMap::from([(1, 5)]));
     }
 
     // The group travels whole so the reader can hand it to the cat talent display logic.

@@ -1122,6 +1122,23 @@ impl BattleCatsApp {
 
                 Task::batch([task, packs, self.rebuild_content()])
             }
+            Message::Mining(mining::Message::OpenUnit(cat_id)) => {
+                let select = self.update(Message::Cat(cat::Message::SelectCat(cat_id)));
+
+                Task::batch([select, self.navigate(Page::Cats)])
+            }
+            Message::Mining(mining::Message::OpenTalents(cat_id, form)) => {
+                let Some(levels) = self.mining_state.enabled_levels(cat_id) else {
+                    return Task::none();
+                };
+
+                let jump = self.update(Message::Cat(cat::Message::JumpToUnit(cat_id, form)));
+
+                self.cat_state.apply_talent_selection(cat_id, levels);
+                self.cat_state.sync_state(&mut self.app_state.cat);
+
+                Task::batch([jump, self.navigate(Page::Cats)])
+            }
             Message::Mining(msg) => self.mining_state.update(msg).map(Message::Mining),
             Message::Files(msg) => {
                 let task = self.files_state.update(msg, &self.vault.vfs, &self.settings.files).map(Message::Files);
@@ -1199,7 +1216,7 @@ impl BattleCatsApp {
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Files => self.files_state.view().map(Message::Files),
             Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
-            Page::Mining => self.mining_state.view(&self.cat_state.data.cats, &self.vault.vfs, &self.settings).map(Message::Mining),
+            Page::Mining => self.mining_state.view(&self.cat_state.data.cats, &self.vault.vfs, &self.settings, self.window_size).map(Message::Mining),
             Page::Utilities => self.utilities_state.view(&self.settings, &self.app_state).map(Message::Utilities),
             Page::Help => {
                 let ui_theme = self.theme();

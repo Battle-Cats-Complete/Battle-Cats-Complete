@@ -5,11 +5,18 @@ use std::time::Duration;
 
 use crate::common::region::Region;
 use crate::domains::import::{AdbImportType, AdbTarget};
+use crate::domains::mining::Build;
 
 use super::driver;
 
 const BASE_APK: &str = "base.apk";
 const MODIFIED_APP: &str = "File modification suspected, do a clean install on device.";
+
+#[derive(Default)]
+pub(crate) struct Pull {
+    pub(crate) directories: Vec<PathBuf>,
+    pub(crate) builds: Vec<Build>,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct PullOptions {
@@ -23,7 +30,7 @@ pub(crate) fn execute_pull(
     target_region: AdbTarget,
     emit_log: &(dyn Fn(String) + Sync),
     abort_flag: &AtomicBool
-) -> Result<Vec<PathBuf>, String> {
+) -> Result<Pull, String> {
 
     emit_log("Starting ADB Server...".to_string());
     let _ = driver::run_command(&["kill-server"]);
@@ -51,23 +58,44 @@ pub(crate) fn execute_pull(
         _ => vec![target_region],
     };
 
-    let mut successful_pulls = Vec::new();
+    let mut pulled = Pull::default();
 
     for current_region in regions_to_process.iter() {
         if abort_flag.load(Ordering::Relaxed) { return Err("Aborted".into()); }
         pull_region_data(
             current_region, &mut current_serial, &fallback_ip_address,
-            base_output_directory, options, emit_log, &mut successful_pulls
+            base_output_directory, options, emit_log, &mut pulled
         );
     }
 
     let _ = driver::run_command(&["kill-server"]);
 
-    if successful_pulls.is_empty() {
+    if pulled.directories.is_empty() {
         return Err("No regions were successfully pulled.".to_string());
     }
 
-    Ok(successful_pulls)
+    Ok(pulled)
+}
+
+fn read_build(serial_number: &str, package_name: &str) -> Option<Build> {
+    let dump = driver::run_command(&["-s", serial_number, "shell", "dumpsys", "package", package_name]).ok()?;
+
+    let name = field(&dump, "versionName=")?;
+
+    if name.is_empty() {
+        return None;
+    }
+
+    let code = field(&dump, "versionCode=").and_then(|value| value.parse().ok()).unwrap_or_default();
+
+    Some(Build { code, name, label: package_name.to_string() })
+}
+
+fn field(dump: &str, key: &str) -> Option<String> {
+    let tail = dump.split(key).nth(1)?;
+    let value = tail.split_whitespace().next()?;
+
+    Some(value.to_string())
 }
 
 fn establish_connection(emit_log: &(dyn Fn(String) + Sync)) -> Result<(String, Option<String>), String> {
@@ -167,7 +195,7 @@ fn pull_region_data(
     base_output_directory: &Path,
     options: PullOptions,
     emit_log: &(dyn Fn(String) + Sync),
-    successful_pulls: &mut Vec<PathBuf>
+    pulled: &mut Pull
 ) {
     let region_suffix = current_region.suffix();
     let package_name = format!("jp.co.ponos.battlecats{}", region_suffix);
@@ -179,10 +207,16 @@ fn pull_region_data(
     }
 
     emit_log(format!("Pulling {}...", package_name));
+
+    if let Some(build) = read_build(current_serial, &package_name) {
+        emit_log(format!("Device reports {} v{}", package_name, build.name));
+        pulled.builds.push(build);
+    }
+
     let target_directory = base_output_directory.join(&package_name);
 
     let Err(process_error) = process_single_region_adb(emit_log, current_serial, &package_name, &target_directory, options) else {
-        successful_pulls.push(target_directory);
+        pulled.directories.push(target_directory);
         return;
     };
 
@@ -206,7 +240,7 @@ fn pull_region_data(
     *current_serial = rescue_ip_address.clone();
     if process_single_region_adb(emit_log, current_serial, &package_name, &target_directory, options).is_ok() {
         emit_log("Rescue Successful!".to_string());
-        successful_pulls.push(target_directory);
+        pulled.directories.push(target_directory);
     }
 }
 
@@ -321,4 +355,18 @@ fn pull_target_apk(serial_number: &str, package_manager_output: &str, target_fil
     }
 
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::field;
+
+    // dumpsys prints the version among other space-separated pairs on the same line.
+    const DUMP: &str = "  Package [jp.co.ponos.battlecatsen] (a1b2):\n    versionCode=1505000 minSdk=24 targetSdk=33\n    versionName=15.5.0\n    dataDir=/data/user/0/jp.co.ponos.battlecatsen\n";
+
+    #[test]
+    fn a_dump_yields_the_version_pair_without_its_neighbours() {
+        assert_eq!(field(DUMP, "versionName="), Some("15.5.0".to_string()));
+        assert_eq!(field(DUMP, "versionCode="), Some("1505000".to_string()));
+        assert_eq!(field(DUMP, "splitName="), None);
+    }
 }

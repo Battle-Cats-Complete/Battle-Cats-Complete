@@ -1,4 +1,5 @@
 pub mod talents;
+pub mod units;
 
 use std::collections::HashMap;
 use std::fs;
@@ -17,10 +18,23 @@ const BASE: &str = "base.json";
 
 const SCHEMA: u32 = 2;
 
-const MINEABLE: &[&str] = &[cat_files::SKILL_ACQUISITION];
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Keying {
+    Column,
+    Line,
+}
+
+const MINEABLE: &[(&str, Keying)] = &[
+    (cat_files::SKILL_ACQUISITION, Keying::Column),
+    (cat_files::UNIT_BUY, Keying::Line),
+];
 
 pub(crate) fn mineable(filename: &str) -> bool {
-    MINEABLE.contains(&filename)
+    keying(filename).is_some()
+}
+
+fn keying(filename: &str) -> Option<Keying> {
+    MINEABLE.iter().find(|(name, _)| *name == filename).map(|(_, keying)| *keying)
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -154,8 +168,9 @@ pub(crate) fn commit(files: Vec<FileDelta>, after: Vec<Build>) -> bool {
 }
 
 pub(crate) fn delta(file: &str, region: &str, before: Option<&[u8]>, after: &[u8]) -> Option<FileDelta> {
+    let keying = keying(file)?;
     let after_text = String::from_utf8_lossy(after).into_owned();
-    let after_rows = rows(&after_text);
+    let after_rows = rows(&after_text, keying);
 
     let Some(before) = before else {
         return Some(FileDelta {
@@ -169,7 +184,7 @@ pub(crate) fn delta(file: &str, region: &str, before: Option<&[u8]>, after: &[u8
     };
 
     let before_text = String::from_utf8_lossy(before).into_owned();
-    let mut carried: HashMap<&str, &str> = rows(&before_text).into_iter().collect();
+    let mut carried: HashMap<String, &str> = rows(&before_text, keying).into_iter().collect();
     let rows_before = carried.len();
 
     let mut changes = Vec::new();
@@ -178,12 +193,12 @@ pub(crate) fn delta(file: &str, region: &str, before: Option<&[u8]>, after: &[u8
         match carried.remove(key) {
             Some(previous) if previous == *line => {}
             Some(previous) => changes.push(RowDelta {
-                key: (*key).to_string(),
+                key: key.clone(),
                 before: Some(previous.to_string()),
                 after: Some((*line).to_string()),
             }),
             None => changes.push(RowDelta {
-                key: (*key).to_string(),
+                key: key.clone(),
                 before: None,
                 after: Some((*line).to_string()),
             }),
@@ -192,7 +207,7 @@ pub(crate) fn delta(file: &str, region: &str, before: Option<&[u8]>, after: &[u8
 
     let mut dropped: Vec<RowDelta> = carried
         .into_iter()
-        .map(|(key, line)| RowDelta { key: key.to_string(), before: Some(line.to_string()), after: None })
+        .map(|(key, line)| RowDelta { key, before: Some(line.to_string()), after: None })
         .collect();
 
     dropped.sort_by(|left, right| left.key.cmp(&right.key));
@@ -208,16 +223,28 @@ pub(crate) fn delta(file: &str, region: &str, before: Option<&[u8]>, after: &[u8
     })
 }
 
-fn rows(text: &str) -> Vec<(&str, &str)> {
-    text.lines()
-        .filter_map(|line| {
-            let trimmed = line.trim_end();
-            let end = trimmed.find([',', '\t'])?;
-            let key = trimmed[..end].trim();
+fn rows(text: &str, keying: Keying) -> Vec<(String, &str)> {
+    match keying {
+        Keying::Column => text
+            .lines()
+            .filter_map(|line| {
+                let trimmed = line.trim_end();
+                let end = trimmed.find([',', '\t'])?;
+                let key = trimmed[..end].trim();
 
-            (!key.is_empty()).then_some((key, trimmed))
-        })
-        .collect()
+                (!key.is_empty()).then(|| (key.to_string(), trimmed))
+            })
+            .collect(),
+        Keying::Line => text
+            .lines()
+            .enumerate()
+            .filter_map(|(index, line)| {
+                let trimmed = line.trim_end();
+
+                (!trimmed.trim().is_empty()).then(|| (index.to_string(), trimmed))
+            })
+            .collect(),
+    }
 }
 
 #[cfg(test)]
@@ -225,6 +252,20 @@ mod tests {
     use super::*;
 
     const OLD: &[u8] = b"1,0,10,5,100,200,0,0,0,0,0,0,1,1,0\n2,0,11,5,50,60,0,0,0,0,0,0,2,2,0\n";
+
+    // unitbuy.csv is positional: its first column is rarity, so column keying would
+    // collide thousands of rows onto a handful of keys.
+    #[test]
+    fn a_positional_table_keys_by_line_rather_than_by_its_first_column() {
+        let old = b"0,0,50\n0,1,60\n";
+        let new = b"0,0,50\n0,1,60\n3,2,70\n";
+
+        let delta = delta("unitbuy.csv", "en", Some(old), new).expect("changed");
+
+        assert_eq!(delta.rows_before, 2);
+        assert_eq!(delta.added(), 1);
+        assert_eq!(delta.rows[0].key, "2", "the third line is unit two");
+    }
 
     #[test]
     fn a_first_sighting_of_a_file_is_a_baseline_rather_than_a_wall_of_additions() {

@@ -109,10 +109,7 @@ fn resolve_images(vfs: &Vfs, id: u32, egg_ids: (i32, i32), ub_row: &UnitBuy, con
         real[form] = !config.show_invalid_cats && banner.as_deref().is_some_and(is_valid_png);
 
         forms[form] = match form {
-            0 | 1 => match banner.as_deref() {
-                Some(_) => config.show_invalid_cats || real[form],
-                None => config.show_invalid_cats && icon.is_some(),
-            },
+            0 | 1 => base_form_present(form, banner.is_some(), icon.is_some(), real[form], config.show_invalid_cats),
             2 => ub_row.true_form_id > 0,
             _ => ub_row.ultra_form_id > 0,
         };
@@ -134,12 +131,27 @@ fn resolve_images(vfs: &Vfs, id: u32, egg_ids: (i32, i32), ub_row: &UnitBuy, con
     Images { forms, deploy_icons, banner, art }
 }
 
+fn base_form_present(form: usize, banner: bool, icon: bool, real: bool, show_invalid: bool) -> bool {
+    if banner {
+        return show_invalid || real;
+    }
+
+    show_invalid && (form == 0 || icon)
+}
+
 fn valid_forms(images: &Images, config: &ScannerConfig) -> bool {
     config.show_invalid_cats || (images.art && images.forms.iter().any(|valid| *valid))
 }
 
 fn valid_stats(found: bool, config: &ScannerConfig) -> bool {
     config.show_invalid_cats || found
+}
+
+pub fn listable(vfs: &Vfs, entry: &CatEntry, config: &ScannerConfig) -> bool {
+    let egg_ids = entry.egg_ids.unwrap_or((-1, -1));
+    let images = resolve_images(vfs, entry.id, egg_ids, &entry.unitbuy, config);
+
+    valid_stats(vfs.find(&files::stats_file(entry.id)).is_some(), config) && valid_forms(&images, config)
 }
 
 pub fn revalidate(vfs: &Vfs, entry: &mut CatEntry, config: &ScannerConfig) -> bool {
@@ -330,4 +342,33 @@ fn process_cat_entry(
         talent_costs: Arc::clone(&tables.talent_costs),
         skill_descriptions: Arc::clone(&tables.skill_descriptions),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::base_form_present;
+
+    // A conjured spirit carries neither a banner nor a deploy icon. It used to leave every
+    // form false, and the list filter drops a form-less entry outright, so "show invalid
+    // cats" listed nothing for it no matter how the setting was set.
+    #[test]
+    fn an_artless_unit_still_claims_its_first_form_when_invalid_cats_are_shown() {
+        assert!(base_form_present(0, false, false, false, true));
+        assert!(!base_form_present(1, false, false, false, true), "only the first form is assumed");
+    }
+
+    #[test]
+    fn hiding_invalid_cats_leaves_every_artless_form_absent() {
+        for form in 0..2 {
+            assert!(!base_form_present(form, false, false, false, false));
+            assert!(!base_form_present(form, false, true, false, false));
+        }
+    }
+
+    #[test]
+    fn a_banner_still_decides_a_form_the_way_it_always_did() {
+        assert!(base_form_present(0, true, false, true, false), "a valid banner lists the form");
+        assert!(!base_form_present(0, true, false, false, false), "a junk banner stays hidden");
+        assert!(base_form_present(0, true, false, false, true), "unless invalid cats are shown");
+    }
 }

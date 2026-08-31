@@ -35,5 +35,5 @@ pub fn run(
 
     let directories_to_process = vec![source_directory];
 
-    engine::run_universal_import(&directories_to_process, import_config.structure, &emit, abort_flag, progress)
+    engine::run_universal_import(&directories_to_process, import_config.structure, &emit, abort_flag, progress, Vec::new())
 }

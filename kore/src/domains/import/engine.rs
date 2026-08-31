@@ -123,6 +123,7 @@ pub(crate) fn run_universal_import(
     emit: &(dyn Fn(JobEvent) + Sync),
     abort_flag: &AtomicBool,
     progress: &ProgressCounter,
+    seed_builds: Vec<mining::Build>,
 ) -> Result<(), String> {
     let user_keys = UserKeys::load();
     if user_keys.is_empty() {
@@ -145,7 +146,7 @@ pub(crate) fn run_universal_import(
 
     emit(JobEvent::Log("Collecting game data...".to_string()));
 
-    let mut detected_builds: Vec<mining::Build> = Vec::new();
+    let mut detected_builds: Vec<mining::Build> = seed_builds;
     let mut universal_task_map: HashMap<String, Vec<UniversalTask>> = HashMap::new();
     let mut global_temporary_directories: Vec<PathBuf> = Vec::new();
     let mut current_pack_hashes: HashMap<String, HashMap<String, u64>> = HashMap::new();

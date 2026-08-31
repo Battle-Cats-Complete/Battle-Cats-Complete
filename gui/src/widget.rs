@@ -17,6 +17,7 @@ mod smooth_scroll;
 mod stat_grid;
 mod status;
 mod superscript;
+mod uniform_grid;
 
 pub(crate) mod popup;
 pub mod roster_list;
@@ -40,3 +41,4 @@ pub(crate) use smooth_scroll::{smooth_scroll, BOOTSTRAP_DT, DECAY_RATE, EPSILON,
 pub(crate) use stat_grid::{grid_frames, grid_header, grid_value};
 pub(crate) use status::status;
 pub(crate) use superscript::text_with_superscript;
+pub(crate) use uniform_grid::uniform_grid;

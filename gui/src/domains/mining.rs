@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::time::Duration;
 
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{column, container, image as iced_image, responsive, row, rule, scrollable, text, text_input, Column, Row, Space};
+use iced::widget::text::Wrapping;
+use iced::widget::{button, column, container, image as iced_image, row, rule, scrollable, text, text_input, Column, Row, Space, Text};
 use iced::{Color, Element, Length, Size, Task, Theme};
 use nyanko::cat::unit::{LevelCurve, TalentCost};
 use nyanko::combat::Entity;
@@ -13,16 +14,16 @@ use kore::common::region::Region;
 use kore::domains::cat::files as cat_files;
 use kore::domains::cat::game::stats as cat_stats;
 use kore::domains::cat::game::talents as talent_logic;
-use kore::domains::cat::scanner::CatEntry;
-use kore::domains::mining::{self, talents, Build, Ore, Status};
+use kore::domains::cat::scanner::{self as cat_scanner, CatEntry};
+use kore::domains::mining::{self, talents, units, Build, Ore, Status};
 use kore::domains::settings::Settings;
-use kore::systems::combat::registry::AbilityIcon;
+use kore::systems::combat::registry::{AbilityIcon, STAT_RARITY};
 use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::header_icon::{self, HeaderIcon};
 use crate::common::{ability_icon, img015, skill_name, CustomAssets, SpriteSheet};
-use crate::widget::{fallback_icon, list_row, section, smooth_scroll};
+use crate::widget::{fallback_icon, list_row, section, smooth_scroll, uniform_grid};
 
 const SIDEBAR_WIDTH: f32 = 110.0;
 const SIDEBAR_PADDING: f32 = 8.0;
@@ -35,11 +36,14 @@ const SCROLLBAR_GAP: f32 = 8.0;
 const SCROLLBAR_RESERVE: f32 = 24.0;
 const CARD_PADDING: f32 = 12.0;
 const UNIT_MIN_WIDTH: f32 = 440.0;
+const SECTION_SPACING: f32 = 18.0;
 const CARD_SPACING: f32 = 8.0;
 const ULTRA_LEVEL: i32 = 60;
 const LEVEL_INPUT_WIDTH: f32 = 44.0;
 const LEVEL_INPUT_PADDING: f32 = 2.0;
 const IGNORED_LABELS: &[&str] = &["Width"];
+
+const FIRST_FORM: usize = 0;
 
 const PORTRAIT_SIZE: f32 = 56.0;
 const TALENT_ICON_SIZE: f32 = 30.0;
@@ -57,6 +61,8 @@ const UNIT_BOX_HEIGHT: f32 = PORTRAIT_SIZE + BOX_PADDING * 2.0;
 const HEADER_BOX_HEIGHT: f32 = TALENT_ICON_SIZE + BOX_PADDING * 2.0;
 const VALUE_LABEL_GAP: f32 = 8.0;
 const META_LABEL_WIDTH: f32 = 110.0;
+const META_TEXT_SIZE: f32 = 14.0;
+const NOTICE_TEXT_SIZE: f32 = 15.0;
 
 const ULTRA_TINT: Color = Color { r: 0.47, g: 0.08, b: 0.08, a: 1.0 };
 const NORMAL_TINT: Color = Color { r: 0.71, g: 0.55, b: 0.08, a: 1.0 };
@@ -85,6 +91,8 @@ const TABS: &[Tab] = &[Tab::Meta, Tab::Cats];
 pub enum Message {
     Select(Tab),
     LevelChanged(u32, String),
+    OpenTalents(u32, usize),
+    OpenUnit(u32),
     Img015Loaded(u64, usize, Option<CoreSpriteSheet>),
 }
 
@@ -93,6 +101,8 @@ impl fmt::Debug for Message {
         match self {
             Self::Select(tab) => write!(f, "Select({:?})", tab),
             Self::LevelChanged(cat, value) => write!(f, "LevelChanged({}, {})", cat, value),
+            Self::OpenTalents(cat, form) => write!(f, "OpenTalents({}, {})", cat, form),
+            Self::OpenUnit(cat) => write!(f, "OpenUnit({})", cat),
             Self::Img015Loaded(generation, index, _) => write!(f, "Img015Loaded({}, {})", generation, index),
         }
     }
@@ -102,6 +112,7 @@ pub struct State {
     tab: Tab,
     ore: Option<Ore>,
     report: Option<talents::Report>,
+    units: Option<units::Report>,
     levels: HashMap<u32, String>,
     img015_sheets: Vec<SpriteSheet>,
     sheet_generation: u64,
@@ -118,6 +129,7 @@ impl Default for State {
             tab: Tab::Meta,
             ore: None,
             report: None,
+            units: None,
             levels: HashMap::new(),
             img015_sheets: Vec::new(),
             sheet_generation: 0,
@@ -138,6 +150,12 @@ impl State {
             .as_ref()
             .and_then(|ore| ore.file(cat_files::SKILL_ACQUISITION))
             .map(talents::read);
+
+        self.units = self
+            .ore
+            .as_ref()
+            .and_then(|ore| ore.file(cat_files::UNIT_BUY))
+            .map(units::read);
 
         if !self.enabled(self.tab) {
             self.tab = Tab::Meta;
@@ -179,6 +197,7 @@ impl State {
                     self.levels.insert(cat_id, value);
                 }
             }
+            Message::OpenTalents(..) | Message::OpenUnit(..) => {}
             Message::Img015Loaded(generation, index, sheet) => {
                 if generation == self.sheet_generation
                     && let Some(slot) = self.img015_sheets.get_mut(index)
@@ -206,25 +225,64 @@ impl State {
         }
     }
 
+    pub(crate) fn enabled_levels(&self, cat_id: u32) -> Option<HashMap<u8, u8>> {
+        self.report
+            .as_ref()?
+            .finds
+            .iter()
+            .find(|find| find.cat_id == cat_id)
+            .map(talents::Find::enabled_levels)
+    }
+
     fn has_finds(&self) -> bool {
+        self.has_talents() || self.has_fresh()
+    }
+
+    fn has_talents(&self) -> bool {
         self.report.as_ref().is_some_and(|report| report.status == Status::Changed && !report.finds.is_empty())
     }
 
-    pub fn view<'a>(&'a self, cats: &'a [CatEntry], vfs: &'a Vfs, settings: &'a Settings) -> Element<'a, Message> {
-        let page = responsive(move |size: Size| {
-            let body = match self.tab {
-                Tab::Meta => self.view_meta(),
-                Tab::Cats => self.view_cats(cats, vfs, settings, units_per_row(size.width)),
-            };
+    fn has_fresh(&self) -> bool {
+        self.units.as_ref().is_some_and(|units| units.status == Status::Changed && !units.fresh.is_empty())
+    }
 
-            smooth_scroll(
-                scrollable(container(body).padding(PAGE_PADDING).width(Length::Fill))
-                    .spacing(SCROLLBAR_GAP)
-                    .width(Length::Fill)
-                    .height(Length::Fill),
-            )
-            .into()
-        });
+    fn fresh_units<'a>(&'a self, cats: &'a [CatEntry], vfs: &Vfs, settings: &Settings) -> Vec<&'a CatEntry> {
+        let Some(units) = &self.units else {
+            return Vec::new();
+        };
+
+        let mut strict = settings.scanner_config(None);
+        strict.show_invalid_cats = false;
+
+        let spirits = conjured(cats);
+
+        units
+            .fresh
+            .iter()
+            .filter(|id| !spirits.contains(*id))
+            .filter_map(|id| cats.iter().find(|entry| entry.id == *id))
+            .filter(|entry| cat_scanner::listable(vfs, entry, &strict))
+            .collect()
+    }
+
+    pub fn view<'a>(
+        &'a self,
+        cats: &'a [CatEntry],
+        vfs: &'a Vfs,
+        settings: &'a Settings,
+        window: Size,
+    ) -> Element<'a, Message> {
+        let body = match self.tab {
+            Tab::Meta => self.view_meta(),
+            Tab::Cats => self.view_cats(cats, vfs, settings, window.width - SIDEBAR_WIDTH),
+        };
+
+        let page = smooth_scroll(
+            scrollable(container(body).padding(PAGE_PADDING).width(Length::Fill))
+                .spacing(SCROLLBAR_GAP)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        );
 
         row![self.view_sidebar(), page].height(Length::Fill).into()
     }
@@ -233,7 +291,7 @@ impl State {
         let mut tabs = Column::new().spacing(SIDEBAR_SPACING);
 
         for tab in TABS {
-            let cell = container(theme::button_label(tab.label()).size(TAB_TEXT_SIZE))
+            let cell = container(theme::button_label(tab.label()).size(TAB_TEXT_SIZE).wrapping(Wrapping::None))
                 .padding(TAB_PADDING)
                 .width(Length::Fill);
 
@@ -273,7 +331,6 @@ impl State {
 
         if let Some(report) = &self.report {
             rows.push(("Source", source_line(&report.region, &ore.after)));
-            rows.push(("Talent table", format!("{} -> {} units", report.rows_before, report.rows_after)));
 
             if !report.dropped.is_empty() {
                 rows.push(("Units dropped", report.dropped.len().to_string()));
@@ -284,20 +341,13 @@ impl State {
             }
         }
 
-        for delta in &ore.files {
-            rows.push((
-                "File",
-                format!("{} ({} added, {} changed, {} removed)", delta.file, delta.added(), delta.modified(), delta.removed()),
-            ));
-        }
-
         let mut table = Column::new().spacing(6);
 
         for (label, value) in rows {
             table = table.push(
                 row![
-                    theme::bold_text(label).size(14).width(Length::Fixed(META_LABEL_WIDTH)),
-                    text(value).size(14),
+                    strong(label, META_TEXT_SIZE).width(Length::Fixed(META_LABEL_WIDTH)),
+                    plain(value, META_TEXT_SIZE),
                 ]
                 .spacing(VALUE_LABEL_GAP)
                 .align_y(Vertical::Center),
@@ -312,16 +362,73 @@ impl State {
         cats: &'a [CatEntry],
         vfs: &'a Vfs,
         settings: &'a Settings,
-        per_row: usize,
+        width: f32,
     ) -> Element<'a, Message> {
-        let Some(report) = &self.report else {
+        let mut body = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
+        let mut listed = false;
+
+        let fresh = self.fresh_units(cats, vfs, settings);
+
+        if !fresh.is_empty() {
+            listed = true;
+            let cards: Vec<Element<'a, Message>> = fresh.into_iter().map(|cat| self.view_fresh(cat)).collect();
+
+            body = body.push(section("New", Length::Fill, uniform_grid(cards, CARD_SPACING)));
+        }
+
+        if let Some(report) = &self.report
+            && self.has_talents()
+        {
+            listed = true;
+
+            let cards: Vec<Element<'a, Message>> =
+                report.finds.iter().map(|find| self.view_find(find, cats, vfs, settings)).collect();
+
+            body = body.push(section("Talents", Length::Fill, wrap(cards, cards_per_row(width, UNIT_MIN_WIDTH))));
+        }
+
+        if !listed {
             return notice("No ore available, import a game data to see its diff");
-        };
+        }
 
-        let cards: Vec<Element<'a, Message>> =
-            report.finds.iter().map(|find| self.view_find(find, cats, vfs, settings)).collect();
+        body.into()
+    }
 
-        column![section("Talents", Length::Fill, wrap(cards, per_row))].width(Length::Fill).into()
+    fn view_fresh<'a>(&'a self, cat: &'a CatEntry) -> Element<'a, Message> {
+        let identity = button(self.view_identity(Some(cat), FIRST_FORM, cat.id))
+            .padding(0)
+            .style(button::text)
+            .on_press(Message::OpenUnit(cat.id));
+
+        let card = row![
+            light_box(identity, Length::Fixed(UNIT_BOX_HEIGHT)),
+            light_box(strong(format!("ID: {}", cat.id), UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
+            light_box(strong((STAT_RARITY.formatter)(cat.unitbuy.rarity), UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
+        ]
+        .spacing(CELL_SPACING)
+        .align_y(Vertical::Center);
+
+        container(card).padding(CARD_PADDING).width(Length::Shrink).style(theme::card_container).into()
+    }
+
+    fn view_identity<'a>(&'a self, cat: Option<&'a CatEntry>, form: usize, id: u32) -> Element<'a, Message> {
+        let icon = cat
+            .and_then(|entry| entry.deploy_icon_paths.get(form).and_then(Option::as_ref))
+            .and_then(|path| header_icon::load(&self.portraits, path))
+            .unwrap_or_else(|| self.portrait_dummy.clone());
+
+        let name = cat.map_or_else(|| format!("Unknown unit {:03}", id), |entry| entry.display_name(form));
+
+        let frame = container(iced_image(icon.handle).height(Length::Fixed(PORTRAIT_SIZE)))
+            .width(Length::Fixed(PORTRAIT_SIZE))
+            .height(Length::Fixed(PORTRAIT_SIZE))
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center);
+
+        row![frame, strong(name, UNIT_NAME_SIZE)]
+            .spacing(CELL_SPACING)
+            .align_y(Vertical::Center)
+            .into()
     }
 
     fn view_find<'a>(
@@ -380,24 +487,12 @@ impl State {
         form: usize,
         level: Level,
     ) -> Element<'a, Message> {
-        let icon = cat
-            .and_then(|entry| entry.deploy_icon_paths.get(form).and_then(Option::as_ref))
-            .and_then(|path| header_icon::load(&self.portraits, path))
-            .unwrap_or_else(|| self.portrait_dummy.clone());
-
-        let name = cat.map_or_else(|| format!("Unknown unit {:03}", find.cat_id), |entry| entry.display_name(form));
-
-        let frame = container(iced_image(icon.handle).height(Length::Fixed(PORTRAIT_SIZE)))
-            .width(Length::Fixed(PORTRAIT_SIZE))
-            .height(Length::Fixed(PORTRAIT_SIZE))
-            .align_x(Horizontal::Center)
-            .align_y(Vertical::Center);
-
-        let identity = row![frame, theme::bold_text(name).size(UNIT_NAME_SIZE)]
-            .spacing(CELL_SPACING)
-            .align_y(Vertical::Center);
-
         let cat_id = find.cat_id;
+
+        let identity = button(self.view_identity(cat, form, cat_id))
+            .padding(0)
+            .style(button::text)
+            .on_press_maybe(cat.map(|_| Message::OpenTalents(cat_id, form)));
 
         let field = text_input(&level.fallback.to_string(), &level.typed)
             .on_input(move |value| Message::LevelChanged(cat_id, value))
@@ -406,13 +501,13 @@ impl State {
             .padding(LEVEL_INPUT_PADDING)
             .style(theme::rounded_input);
 
-        let level_cell = row![theme::bold_text("LEVEL").size(UNIT_NAME_SIZE), field]
+        let level_cell = row![strong("LEVEL", UNIT_NAME_SIZE), field]
             .spacing(CELL_SPACING)
             .align_y(Vertical::Center);
 
         row![
             light_box(identity, Length::Fixed(UNIT_BOX_HEIGHT)),
-            light_box(theme::bold_text(kind_badge(find)).size(UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
+            light_box(strong(kind_badge(find), UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
             light_box(level_cell, Length::Fixed(UNIT_BOX_HEIGHT)),
         ]
         .spacing(CELL_SPACING)
@@ -530,20 +625,28 @@ fn ignored(line: &str) -> bool {
     line.split_once(": ").is_some_and(|(label, _)| IGNORED_LABELS.contains(&label))
 }
 
-fn header_text<'a>(content: impl ToString) -> iced::widget::Text<'a> {
-    theme::bold_text(content).size(HEADER_TEXT_SIZE).color(CHIP_TEXT)
+fn header_text<'a>(content: impl ToString) -> Text<'a> {
+    strong(content, HEADER_TEXT_SIZE).color(CHIP_TEXT)
+}
+
+fn strong<'a>(content: impl ToString, size: f32) -> Text<'a> {
+    theme::bold_text(content).size(size).wrapping(Wrapping::None)
+}
+
+fn plain<'a>(content: impl ToString, size: f32) -> Text<'a> {
+    text(content.to_string()).size(size).wrapping(Wrapping::None)
 }
 
 fn value_row<'a>(line: &str) -> Element<'a, Message> {
     let content: Element<'a, Message> = match line.split_once(": ") {
         Some((label, reading)) => row![
-            text(label.to_string()).size(VALUE_TEXT_SIZE).color(CHIP_TEXT),
-            theme::bold_text(reading).size(VALUE_TEXT_SIZE).color(CHIP_TEXT),
+            plain(label, VALUE_TEXT_SIZE).color(CHIP_TEXT),
+            strong(reading, VALUE_TEXT_SIZE).color(CHIP_TEXT),
         ]
         .spacing(VALUE_LABEL_GAP)
         .align_y(Vertical::Center)
         .into(),
-        None => theme::bold_text(line).size(VALUE_TEXT_SIZE).color(CHIP_TEXT).into(),
+        None => strong(line, VALUE_TEXT_SIZE).color(CHIP_TEXT).into(),
     };
 
     dark_box(content, Length::Shrink)
@@ -576,8 +679,7 @@ fn light_box<'a>(content: impl Into<Element<'a, Message>>, height: Length) -> El
 }
 
 fn notice<'a>(message: &'a str) -> Element<'a, Message> {
-    text(message)
-        .size(15)
+    plain(message, NOTICE_TEXT_SIZE)
         .style(|theme: &Theme| text::Style { color: Some(theme::weak_text_color(theme)) })
         .into()
 }
@@ -609,11 +711,18 @@ fn wrap<'a>(cards: Vec<Element<'a, Message>>, per_row: usize) -> Element<'a, Mes
     grid.into()
 }
 
-fn units_per_row(available_width: f32) -> usize {
-    let usable = (available_width - PAGE_PADDING * 2.0 - SCROLLBAR_RESERVE).max(UNIT_MIN_WIDTH);
-    let slot = UNIT_MIN_WIDTH + CARD_SPACING;
+fn cards_per_row(available_width: f32, min_width: f32) -> usize {
+    let usable = (available_width - PAGE_PADDING * 2.0 - SCROLLBAR_RESERVE).max(min_width);
+    let slot = min_width + CARD_SPACING;
 
     (((usable + CARD_SPACING) / slot).floor() as usize).max(1)
+}
+
+fn conjured(cats: &[CatEntry]) -> HashSet<u32> {
+    cats.iter()
+        .flat_map(|entry| entry.stats.iter().flatten())
+        .filter_map(|stats| u32::try_from(stats.conjure_unit_id).ok())
+        .collect()
 }
 
 fn kind_badge(find: &talents::Find) -> &'static str {
@@ -774,9 +883,10 @@ mod tests {
 
     #[test]
     fn a_narrow_window_still_fits_one_card_per_row() {
-        assert_eq!(units_per_row(200.0), 1);
-        assert_eq!(units_per_row(0.0), 1);
-        assert!(units_per_row(1600.0) > 1, "a wide window must fit more than one unit card");
+        assert_eq!(cards_per_row(200.0, UNIT_MIN_WIDTH), 1);
+        assert_eq!(cards_per_row(0.0, UNIT_MIN_WIDTH), 1);
+        assert!(cards_per_row(1600.0, UNIT_MIN_WIDTH) > 1, "a wide window must fit more than one unit card");
+
     }
 
     #[test]
