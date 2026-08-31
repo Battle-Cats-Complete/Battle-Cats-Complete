@@ -6,12 +6,23 @@ pub(crate) fn uniform_grid<'a, Message>(
     items: Vec<Element<'a, Message>>,
     spacing: f32,
 ) -> UniformGrid<'a, Message> {
-    UniformGrid { items, spacing }
+    UniformGrid { items, spacing, columns: None }
 }
 
 pub(crate) struct UniformGrid<'a, Message> {
     items: Vec<Element<'a, Message>>,
     spacing: f32,
+    columns: Option<usize>,
+}
+
+impl<Message> UniformGrid<'_, Message> {
+    /// Lays the grid out in a caller-chosen number of columns, skipping the intrinsic
+    /// width pass. Items may then size themselves with `Length::Fill`.
+    pub(crate) fn columns(mut self, columns: usize) -> Self {
+        self.columns = Some(columns.max(1));
+
+        self
+    }
 }
 
 impl<'a, Message: 'a> From<UniformGrid<'a, Message>> for Element<'a, Message> {
@@ -39,7 +50,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for UniformGrid<'_, Message
         }
 
         let available = limits.max().width;
-        let columns = self.columns(tree, renderer, available);
+        let columns = self.resolve_columns(tree, renderer, available);
         let column_width = (available - self.spacing * (columns as f32 - 1.0)) / columns as f32;
 
         let mut nodes: Vec<layout::Node> = Vec::with_capacity(self.items.len());
@@ -58,9 +69,17 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for UniformGrid<'_, Message
                 nodes.push(node);
             }
 
+            let alone = end - cursor == 1;
+
             for (position, slot) in (cursor..end).enumerate() {
-                let fixed = layout::Limits::new(Size::new(column_width, tallest), Size::new(column_width, tallest));
                 let placed = Point::new(position as f32 * (column_width + self.spacing), offset);
+
+                if alone {
+                    nodes[slot] = std::mem::replace(&mut nodes[slot], layout::Node::new(Size::ZERO)).move_to(placed);
+                    continue;
+                }
+
+                let fixed = layout::Limits::new(Size::new(column_width, tallest), Size::new(column_width, tallest));
 
                 nodes[slot] = self.items[slot]
                     .as_widget_mut()
@@ -150,7 +169,11 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for UniformGrid<'_, Message
 }
 
 impl<Message> UniformGrid<'_, Message> {
-    fn columns(&mut self, tree: &mut widget::Tree, renderer: &iced::Renderer, available: f32) -> usize {
+    fn resolve_columns(&mut self, tree: &mut widget::Tree, renderer: &iced::Renderer, available: f32) -> usize {
+        if let Some(columns) = self.columns {
+            return columns.min(self.items.len()).max(1);
+        }
+
         let widest = self
             .items
             .iter_mut()

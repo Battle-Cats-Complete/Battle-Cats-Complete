@@ -428,7 +428,7 @@ impl State {
                 .map(|(changed, diff)| self.view_changed(changed, cats, diff))
                 .collect();
 
-            body = body.push(section("Changes", Length::Fill, wrap(cards, cards_per_row(width, UNIT_MIN_WIDTH))));
+            body = body.push(section("Changes", Length::Fill, uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH))));
         }
 
         let unlocked: Vec<&forms::Unlocked> = self
@@ -445,7 +445,7 @@ impl State {
                 .map(|entry| self.view_unlocked(entry, cats, global, settings))
                 .collect();
 
-            body = body.push(section("Forms", Length::Fill, wrap(cards, cards_per_row(width, UNIT_MIN_WIDTH))));
+            body = body.push(section("Forms", Length::Fill, uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH))));
         }
 
         if let Some(report) = &self.report
@@ -459,7 +459,7 @@ impl State {
             let cards: Vec<Element<'a, Message>> =
                 ranked.into_iter().map(|find| self.view_find(find, cats, vfs, settings)).collect();
 
-            body = body.push(section("Talents", Length::Fill, wrap(cards, cards_per_row(width, UNIT_MIN_WIDTH))));
+            body = body.push(section("Talents", Length::Fill, uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH))));
         }
 
         if !listed {
@@ -859,33 +859,6 @@ fn notice<'a>(message: &'a str) -> Element<'a, Message> {
         .into()
 }
 
-fn wrap<'a>(cards: Vec<Element<'a, Message>>, per_row: usize) -> Element<'a, Message> {
-    let mut grid = Column::new().spacing(CARD_SPACING).width(Length::Fill);
-    let mut line = Row::new().spacing(CARD_SPACING).width(Length::Fill);
-    let mut filled = 0;
-
-    for card in cards {
-        line = line.push(card);
-        filled += 1;
-
-        if filled == per_row {
-            grid = grid.push(line);
-            line = Row::new().spacing(CARD_SPACING).width(Length::Fill);
-            filled = 0;
-        }
-    }
-
-    if filled > 0 {
-        for _ in filled..per_row {
-            line = line.push(Space::new().width(Length::Fill));
-        }
-
-        grid = grid.push(line);
-    }
-
-    grid.into()
-}
-
 fn cards_per_row(available_width: f32, min_width: f32) -> usize {
     let usable = (available_width - PAGE_PADDING * 2.0 - SCROLLBAR_RESERVE).max(min_width);
     let slot = min_width + CARD_SPACING;
@@ -1024,7 +997,7 @@ fn change_row<'a>(change: &forms::Change) -> Element<'a, Message> {
     line = line.push(strong(&change.before, VALUE_TEXT_SIZE).color(CHIP_TEXT));
 
     if let Some(shift) = &change.shift {
-        line = line.push(plain(shift, VALUE_TEXT_SIZE).color(CHIP_TEXT));
+        line = line.push(strong(shift, VALUE_TEXT_SIZE).color(CHIP_TEXT));
     }
 
     line = line.push(strong("->", VALUE_TEXT_SIZE).color(CHIP_TEXT));
