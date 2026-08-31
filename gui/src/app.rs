@@ -20,6 +20,7 @@ use kore::domains::cat::files as cat_files;
 use kore::domains::mods as kore_mods;
 use kore::common::architecture;
 use kore::domains::settings::{Settings, UpdateMode};
+use kore::domains::stage::GlobalMapId;
 use kore::{ContentStore, Vault};
 
 use crate::common::feedback::Slot;
@@ -483,9 +484,6 @@ impl BattleCatsApp {
             return Task::none();
         }
 
-        // A rebuild is walking the disk into a vault that will replace this one, so anything
-        // patched in here is about to be thrown away. Keep the paths and replay them after
-        // the swap, otherwise a live edit during indexing silently drops out of the index.
         if self.rebuild_running {
             self.replay.extend(paths.iter().cloned());
         }
@@ -521,8 +519,6 @@ impl BattleCatsApp {
 
                     true
                 } else {
-                    // A vanished path we do not hold as a single file: a removed directory,
-                    // or a name the mount has more than one copy of. Re-walk to settle it.
                     false
                 };
 
@@ -1144,6 +1140,36 @@ impl BattleCatsApp {
 
                 Task::none()
             }
+            Message::Mining(mining::Message::OpenCategory(category)) => {
+                self.stage_state.reveal();
+
+                let select = self.update(Message::Stage(stage::Message::List(stage::list::Message::SelectCategory(category))));
+
+                Task::batch([select, self.navigate(Page::Stages)])
+            }
+            Message::Mining(mining::Message::OpenMap(map)) => {
+                self.stage_state.reveal();
+
+                let category = self.update(Message::Stage(stage::Message::List(stage::list::Message::SelectCategory(map.category.clone()))));
+                let select = self.update(Message::Stage(stage::Message::List(stage::list::Message::SelectMap(map))));
+
+                Task::batch([category, select, self.navigate(Page::Stages)])
+            }
+            Message::Mining(mining::Message::OpenStage(stage_id, crown)) => {
+                let map = GlobalMapId { category: stage_id.category.clone(), map: stage_id.map };
+
+                let category = self.update(Message::Stage(stage::Message::List(stage::list::Message::SelectCategory(stage_id.category.clone()))));
+                let chapter = self.update(Message::Stage(stage::Message::List(stage::list::Message::SelectMap(map))));
+                let select = self.update(Message::Stage(stage::Message::List(stage::list::Message::SelectStage(stage_id))));
+
+                let crowned = crown
+                    .map(|highest| self.update(Message::Stage(stage::Message::SelectCrown(highest))))
+                    .unwrap_or_else(Task::none);
+
+                self.stage_state.conceal();
+
+                Task::batch([category, chapter, select, crowned, self.navigate(Page::Stages)])
+            }
             Message::Mining(mining::Message::OpenEnemy(enemy_id)) => {
                 let jump = self.update(Message::Enemy(enemy::Message::JumpToEnemyMagnified(enemy_id, "100".to_string())));
 
@@ -1248,7 +1274,7 @@ impl BattleCatsApp {
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Files => self.files_state.view().map(Message::Files),
             Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
-            Page::Mining => self.mining_state.view(&self.cat_state.data.cats, &self.enemy_state.data.enemies, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }, &self.settings, self.window_size).map(Message::Mining),
+            Page::Mining => self.mining_state.view(&self.cat_state.data.cats, &self.enemy_state.data.enemies, &self.stage_state.data.registry, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }, &self.settings, self.window_size).map(Message::Mining),
             Page::Utilities => self.utilities_state.view(&self.settings, &self.app_state).map(Message::Utilities),
             Page::Help => {
                 let ui_theme = self.theme();

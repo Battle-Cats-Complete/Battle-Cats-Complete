@@ -2,6 +2,7 @@ pub mod changes;
 pub mod enemies;
 pub mod forms;
 pub mod levels;
+pub mod stages;
 pub mod talents;
 pub mod units;
 
@@ -18,6 +19,7 @@ use crate::common::io::json;
 use crate::Vfs;
 use crate::domains::cat::files as cat_files;
 use crate::domains::enemy::files as enemy_files;
+
 
 const FILE: &str = "ore.json";
 
@@ -37,6 +39,7 @@ const MINEABLE: &[(&str, Keying)] = &[
     (cat_files::SKILL_ACQUISITION, Keying::Column),
     (cat_files::UNIT_BUY, Keying::Line),
     (enemy_files::STATS, Keying::Line),
+    (stages::MAP_OPTION, Keying::Column),
 ];
 
 pub(crate) fn mineable(filename: &str) -> bool {
@@ -44,7 +47,7 @@ pub(crate) fn mineable(filename: &str) -> bool {
 }
 
 fn keying(filename: &str) -> Option<Keying> {
-    if cat_files::stats_id(filename).is_some() {
+    if cat_files::stats_id(filename).is_some() || stages::mineable(filename) {
         return Some(Keying::Line);
     }
 

@@ -1,10 +1,10 @@
 mod battleground;
-mod category;
+pub(crate) mod category;
 mod crowns;
 mod filter;
 mod fixedlineup;
 mod info;
-mod list;
+pub(crate) mod list;
 mod materials;
 mod treasure;
 
@@ -150,6 +150,15 @@ impl State {
 
     pub(crate) fn clear_indexing(&mut self) {
         self.scan_progress = None;
+    }
+
+    pub(crate) fn reveal(&mut self) {
+        self.is_sidebar_open = true;
+        self.filter.filter_state = Default::default();
+    }
+
+    pub(crate) fn conceal(&mut self) {
+        self.is_sidebar_open = false;
     }
 
     pub(crate) fn enter(&mut self) {

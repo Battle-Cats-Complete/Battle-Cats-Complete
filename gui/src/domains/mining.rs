@@ -1,13 +1,13 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fmt;
 use std::time::Duration;
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::text::Wrapping;
-use iced::widget::{button, column, container, image as iced_image, row, rule, scrollable, text, text_input, tooltip, Column, Row, Space, Text};
-use iced::{Color, Element, Length, Size, Task, Theme};
+use iced::widget::{button, column, container, image as iced_image, operation, row, rule, scrollable, text, text_input, tooltip, Column, Id, Row, Space, Text};
+use iced::{Color, ContentFit, Element, Length, Size, Task, Theme};
 use nyanko::cat::unit::{LevelCurve, TalentCost};
 use nyanko::combat::{Entity, REGISTRY};
 
@@ -17,7 +17,9 @@ use kore::domains::cat::game::stats as cat_stats;
 use kore::domains::cat::game::talents as talent_logic;
 use kore::domains::cat::scanner::{self as cat_scanner, CatEntry};
 use kore::domains::enemy::scanner::EnemyEntry;
-use kore::domains::mining::{self, changes, enemies, forms, levels, talents, units, Build, Ore, Status};
+use kore::domains::stage::{GlobalMapId, GlobalStageId, StageRegistry};
+use nyanko::chapter::Category;
+use kore::domains::mining::{self, changes, enemies, forms, levels, stages, talents, units, Build, Ore, Status};
 
 use kore::domains::settings::{ScannerConfig, Settings};
 use kore::systems::combat::registry::{get_display_def, is_trait, AbilityIcon, STAT_RARITY};
@@ -25,6 +27,8 @@ use kore::common::context::GlobalContext;
 use kore::Vfs;
 
 use crate::app::theme;
+use crate::domains::stage::category::CategoryExt;
+use crate::common::fonts;
 use crate::common::item_icon;
 use crate::common::{ability_icon, img015, skill_name, CustomAssets, SpriteSheet};
 use iced::widget::image::Handle;
@@ -38,10 +42,12 @@ const TAB_PADDING: [u16; 2] = [8, 12];
 
 const PAGE_PADDING: f32 = 20.0;
 const SCROLLBAR_GAP: f32 = 8.0;
+const SCROLL_ID: &str = "mining_body";
 const SCROLLBAR_RESERVE: f32 = 24.0;
 const CARD_PADDING: f32 = 12.0;
 const UNIT_MIN_WIDTH: f32 = 440.0;
 const LEVEL_MIN_WIDTH: f32 = 420.0;
+const STAGE_MIN_WIDTH: f32 = 300.0;
 const SECTION_SPACING: f32 = 18.0;
 const CARD_SPACING: f32 = 8.0;
 const ULTRA_LEVEL: i32 = 60;
@@ -53,6 +59,8 @@ const FIRST_FORM: usize = 0;
 
 const PORTRAIT_SIZE: f32 = 56.0;
 const PORTRAIT_CANVAS: u32 = PORTRAIT_SIZE as u32 * 2;
+const PLACEHOLDER_EDGE: u32 = 8;
+const CROWN_GLYPH: &str = "\u{1F732}";
 const TALENT_ICON_SIZE: f32 = 30.0;
 const NAME_PLATE_HEIGHT: f32 = 26.0;
 const UNIT_NAME_SIZE: f32 = 16.0;
@@ -100,11 +108,12 @@ const REMOVAL_TINT: Color = Color { r: 0.47, g: 0.13, b: 0.13, a: 1.0 };
 const DARK_BOX_BG: Color = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.4 };
 const CHIP_TEXT: Color = Color::WHITE;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Tab {
     Meta,
     Cats,
     Enemies,
+    Stages,
 }
 
 impl Tab {
@@ -113,15 +122,17 @@ impl Tab {
             Self::Meta => "Meta",
             Self::Cats => "Cats",
             Self::Enemies => "Enemies",
+            Self::Stages => "Stages",
         }
     }
 }
 
-const TABS: &[Tab] = &[Tab::Meta, Tab::Cats, Tab::Enemies];
+const TABS: &[Tab] = &[Tab::Meta, Tab::Cats, Tab::Enemies, Tab::Stages];
 
 #[derive(Clone)]
 pub enum Message {
     Select(Tab),
+    Scrolled(f32),
     CreateBase,
     CreateDiff,
     LevelChanged(u32, String),
@@ -129,6 +140,9 @@ pub enum Message {
     OpenForm(u32, usize),
     OpenUnit(u32),
     OpenEnemy(u32),
+    OpenCategory(Category),
+    OpenMap(GlobalMapId),
+    OpenStage(GlobalStageId, Option<u8>),
     Img015Loaded(u64, usize, Option<CoreSpriteSheet>),
 }
 
@@ -136,6 +150,7 @@ impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Select(tab) => write!(f, "Select({:?})", tab),
+            Self::Scrolled(offset) => write!(f, "Scrolled({})", offset),
             Self::CreateBase => write!(f, "CreateBase"),
             Self::CreateDiff => write!(f, "CreateDiff"),
             Self::LevelChanged(cat, value) => write!(f, "LevelChanged({}, {})", cat, value),
@@ -143,6 +158,9 @@ impl fmt::Debug for Message {
             Self::OpenForm(cat, form) => write!(f, "OpenForm({}, {})", cat, form),
             Self::OpenUnit(cat) => write!(f, "OpenUnit({})", cat),
             Self::OpenEnemy(enemy) => write!(f, "OpenEnemy({})", enemy),
+            Self::OpenCategory(category) => write!(f, "OpenCategory({:?})", category),
+            Self::OpenMap(map) => write!(f, "OpenMap({:?})", map),
+            Self::OpenStage(stage, crown) => write!(f, "OpenStage({:?}, {:?})", stage, crown),
             Self::Img015Loaded(generation, index, _) => write!(f, "Img015Loaded({}, {})", generation, index),
         }
     }
@@ -150,6 +168,7 @@ impl fmt::Debug for Message {
 
 pub struct State {
     tab: Tab,
+    offsets: HashMap<Tab, f32>,
     ore: Option<Ore>,
     report: Option<talents::Report>,
     units: Option<units::Report>,
@@ -157,6 +176,7 @@ pub struct State {
     changes: Vec<changes::Changed>,
     foes: Vec<enemies::Changed>,
     fresh_foes: Vec<u32>,
+    lands: stages::Report,
     levels_raised: Vec<levels::Raised>,
     promoted: Vec<u32>,
     levels: HashMap<u32, String>,
@@ -165,6 +185,7 @@ pub struct State {
     icons: ability_icon::Cache,
     plates: skill_name::Cache,
     portraits: RefCell<HashMap<(PathBuf, bool), Option<Handle>>>,
+    art: RefCell<HashMap<PathBuf, Option<Handle>>>,
     assets: CustomAssets,
 }
 
@@ -172,6 +193,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             tab: Tab::Meta,
+            offsets: HashMap::new(),
             ore: None,
             report: None,
             units: None,
@@ -179,6 +201,7 @@ impl Default for State {
             changes: Vec::new(),
             foes: Vec::new(),
             fresh_foes: Vec::new(),
+            lands: stages::Report::default(),
             levels_raised: Vec::new(),
             promoted: Vec::new(),
             levels: HashMap::new(),
@@ -187,6 +210,7 @@ impl Default for State {
             icons: ability_icon::Cache::default(),
             plates: skill_name::Cache::default(),
             portraits: RefCell::new(HashMap::new()),
+            art: RefCell::new(HashMap::new()),
             assets: CustomAssets::new(),
         }
     }
@@ -244,6 +268,17 @@ impl State {
             .as_ref()
             .map_or_else(Vec::new, |ore| ore.files.iter().flat_map(enemies::fresh).collect());
 
+        self.lands = self.ore.as_ref().map_or_else(stages::Report::default, |ore| {
+            ore.files.iter().map(stages::read).fold(stages::Report::default(), |mut all, part| {
+                all.fresh_maps.extend(part.fresh_maps);
+                all.fresh_stages.extend(part.fresh_stages);
+                all.changed_stages.extend(part.changed_stages);
+                all.crowned.extend(part.crowned);
+
+                all
+            })
+        });
+
         self.levels_raised = self
             .ore
             .as_ref()
@@ -268,7 +303,7 @@ impl State {
 
         self.reread();
 
-        self.check_sheets(vfs)
+        Task::batch([self.check_sheets(vfs), self.restore()])
     }
 
     pub(crate) fn relocalize(&mut self, vfs: &Vfs) -> Task<Message> {
@@ -282,6 +317,7 @@ impl State {
         self.icons.clear();
         self.plates.borrow_mut().clear();
         self.portraits.borrow_mut().clear();
+        self.art.borrow_mut().clear();
 
         for sheet in &mut self.img015_sheets {
             sheet.mark_stale();
@@ -302,9 +338,14 @@ impl State {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Select(tab) => {
-                if self.enabled(tab) {
+                if self.enabled(tab) && self.tab != tab {
                     self.tab = tab;
+
+                    return self.restore();
                 }
+            }
+            Message::Scrolled(offset) => {
+                self.offsets.insert(self.tab, offset);
             }
             Message::LevelChanged(cat_id, value) => {
                 if value.chars().all(|glyph| glyph.is_ascii_digit()) {
@@ -316,7 +357,10 @@ impl State {
             | Message::OpenTalents(..)
             | Message::OpenForm(..)
             | Message::OpenUnit(..)
-            | Message::OpenEnemy(..) => {}
+            | Message::OpenEnemy(..)
+            | Message::OpenCategory(..)
+            | Message::OpenMap(..)
+            | Message::OpenStage(..) => {}
             Message::Img015Loaded(generation, index, sheet) => {
                 if generation == self.sheet_generation
                     && let Some(slot) = self.img015_sheets.get_mut(index)
@@ -328,6 +372,12 @@ impl State {
         }
 
         Task::none()
+    }
+
+    fn restore(&self) -> Task<Message> {
+        let offset = self.offsets.get(&self.tab).copied().unwrap_or_default();
+
+        operation::scroll_to(Id::new(SCROLL_ID), scrollable::AbsoluteOffset { x: 0.0, y: offset })
     }
 
     fn check_sheets(&mut self, vfs: &Vfs) -> Task<Message> {
@@ -342,6 +392,7 @@ impl State {
             Tab::Meta => true,
             Tab::Cats => self.has_finds(),
             Tab::Enemies => !self.foes.is_empty() || !self.fresh_foes.is_empty(),
+            Tab::Stages => !self.lands.is_empty(),
         }
     }
 
@@ -401,18 +452,22 @@ impl State {
         &'a self,
         cats: &'a [CatEntry],
         foes: &'a [EnemyEntry],
+        registry: &'a StageRegistry,
         global: GlobalContext<'a>,
         settings: &'a Settings,
         window: Size,
     ) -> Element<'a, Message> {
         let body = match self.tab {
-            Tab::Meta => self.view_meta(cats, &global.vault.vfs, settings, window.height - PAGE_PADDING * 2.0),
+            Tab::Meta => self.view_meta(cats, registry, settings, global, window.height - PAGE_PADDING * 2.0),
             Tab::Cats => self.view_cats(cats, global, settings, window.width - SIDEBAR_WIDTH),
             Tab::Enemies => self.view_enemies(foes, global, window.width - SIDEBAR_WIDTH),
+            Tab::Stages => self.view_stages(registry, global, window.width - SIDEBAR_WIDTH),
         };
 
         let page = smooth_scroll(
             scrollable(container(body).padding(PAGE_PADDING).width(Length::Fill))
+                .id(Id::new(SCROLL_ID))
+                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
                 .spacing(SCROLLBAR_GAP)
                 .width(Length::Fill)
                 .height(Length::Fill),
@@ -451,10 +506,13 @@ impl State {
     fn view_meta<'a>(
         &'a self,
         cats: &'a [CatEntry],
-        vfs: &Vfs,
+        registry: &StageRegistry,
         settings: &Settings,
+        global: GlobalContext<'a>,
         room: f32,
     ) -> Element<'a, Message> {
+        let vfs = &global.vault.vfs;
+
         let Some(ore) = &self.ore else {
             return self.view_empty(
                 "No imported base to reference for a future diff",
@@ -485,7 +543,7 @@ impl State {
             Space::new().height(SECTION_SPACING),
             strong("Summary", SECTION_TITLE_SIZE),
             Space::new().height(TABLE_GAP),
-            self.view_tally(cats, vfs, settings),
+            self.view_tally(cats, registry, vfs, settings),
         ]
         .spacing(8)
         .width(Length::Shrink);
@@ -517,7 +575,13 @@ impl State {
         container(body).center_x(Length::Fill).center_y(Length::Fixed(room.max(PORTRAIT_SIZE))).into()
     }
 
-    fn view_tally<'a>(&'a self, cats: &'a [CatEntry], vfs: &Vfs, settings: &Settings) -> Element<'a, Message> {
+    fn view_tally<'a>(
+        &'a self,
+        cats: &'a [CatEntry],
+        registry: &StageRegistry,
+        vfs: &Vfs,
+        settings: &Settings,
+    ) -> Element<'a, Message> {
         let strict = strict_config(settings);
 
         let changed = self
@@ -559,10 +623,28 @@ impl State {
 
         let foes = vec![("New Count", self.fresh_foes.len()), ("Changed Count", self.foes.len())];
 
+        let opened = grouped(self.lands.fresh_maps.iter(), registry);
+        let added = grouped(self.lands.fresh_stages.iter(), registry);
+        let moved = grouped(self.lands.changed_stages.iter(), registry);
+        let crowned = gather(
+            self.lands.crowned.iter().filter_map(|found| global_map(found.global_map, registry)).map(|key| (key, None)),
+            registry,
+        );
+
+        let lands = vec![
+            ("New Sub Count", subchapters(&opened)),
+            ("Changed Sub Count", subchapters(&moved)),
+            ("New Crowns Count", subchapters(&crowned)),
+            ("New Stage Count", stage_count(&added)),
+            ("Changed Stage Count", stage_count(&moved)),
+        ];
+
         let table = column![
             tally_table("Cats", cats),
             Space::new().height(TABLE_GAP),
             tally_table("Enemies", foes),
+            Space::new().height(TABLE_GAP),
+            tally_table("Stages", lands),
         ]
         .width(Length::Shrink);
 
@@ -734,6 +816,21 @@ impl State {
         self.cached_icon(path, true)
     }
 
+    fn plate(&self, path: &Path) -> Option<Handle> {
+        if let Some(cached) = self.art.borrow().get(path) {
+            return cached.clone();
+        }
+
+        let handle = item_icon::load_cropped(path)
+            .and_then(|(handle, width, height)| {
+                (width >= PLACEHOLDER_EDGE && height >= PLACEHOLDER_EDGE).then_some(handle)
+            });
+
+        self.art.borrow_mut().insert(path.to_path_buf(), handle.clone());
+
+        handle
+    }
+
     fn cached_icon(&self, path: &Path, fill: bool) -> Option<Handle> {
         let key = (path.to_path_buf(), fill);
 
@@ -842,6 +939,215 @@ impl State {
         let card = column![header, rule::horizontal(1), body].spacing(10).width(Length::Fill);
 
         container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into()
+    }
+
+    fn view_stages<'a>(
+        &'a self,
+        registry: &'a StageRegistry,
+        global: GlobalContext<'a>,
+        width: f32,
+    ) -> Element<'a, Message> {
+        let mut body = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
+
+        let moves: HashMap<GlobalMapId, (u8, u8)> = self
+            .lands
+            .crowned
+            .iter()
+            .filter_map(|found| global_map(found.global_map, registry).map(|key| (key, (found.before, found.after))))
+            .collect();
+
+        let lands = Lands { moves: &moves, registry, global };
+        let fresh = grouped(self.lands.fresh_maps.iter().chain(self.lands.fresh_stages.iter()), registry);
+
+        if !fresh.is_empty() {
+            let cards: Vec<Element<'a, Message>> = fresh
+                .into_iter()
+                .map(|(category, maps)| self.view_land(category, maps, true, &lands))
+                .collect();
+
+            body = body.push(section(
+                "New",
+                Length::Fill,
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, STAGE_MIN_WIDTH)),
+            ));
+        }
+
+        let crowned = gather(
+            self.lands.crowned.iter().filter_map(|found| global_map(found.global_map, registry)).map(|key| (key, None)),
+            registry,
+        );
+
+        if !crowned.is_empty() {
+            let cards: Vec<Element<'a, Message>> = crowned
+                .into_iter()
+                .map(|(category, maps)| self.view_land(category, maps, true, &lands))
+                .collect();
+
+            body = body.push(section(
+                "Crowns",
+                Length::Fill,
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, STAGE_MIN_WIDTH)),
+            ));
+        }
+
+        let moved = grouped(self.lands.changed_stages.iter(), registry);
+
+        if !moved.is_empty() {
+            let cards: Vec<Element<'a, Message>> = moved
+                .into_iter()
+                .map(|(category, maps)| self.view_land(category, maps, false, &lands))
+                .collect();
+
+            body = body.push(section(
+                "Changed",
+                Length::Fill,
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, STAGE_MIN_WIDTH)),
+            ));
+        }
+
+        body.into()
+    }
+
+    fn view_land<'a>(
+        &'a self,
+        category: Category,
+        maps: BTreeMap<u32, Vec<u32>>,
+        fresh: bool,
+        lands: &Lands<'a, '_>,
+    ) -> Element<'a, Message> {
+        let heading = button(strong(category.display_name(), UNIT_NAME_SIZE))
+            .padding(0)
+            .style(button::text)
+            .on_press(Message::OpenCategory(category.clone()));
+
+        let mut crown = row![light_box(heading, Length::Fixed(UNIT_BOX_HEIGHT))]
+            .spacing(CELL_SPACING)
+            .align_y(Vertical::Center);
+
+        let letters = category.map_prefix();
+
+        if letters != category.display_name() {
+            crown = crown.push(light_box(strong(letters, UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)));
+        }
+
+        let mut body = Column::new().spacing(CARD_SPACING).width(Length::Fill);
+
+        for (map, listed) in maps {
+            body = body.push(self.view_subchapter(&category, map, listed, fresh, lands));
+        }
+
+        let card = column![crown, rule::horizontal(1), body].spacing(10).width(Length::Fill);
+
+        container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into()
+    }
+
+    fn view_subchapter<'a>(
+        &'a self,
+        category: &Category,
+        map: u32,
+        listed: Vec<u32>,
+        fresh: bool,
+        lands: &Lands<'a, '_>,
+    ) -> Element<'a, Message> {
+        let key = GlobalMapId { category: category.clone(), map };
+        let held = lands.registry.maps.get(&key);
+        let vfs = &lands.global.vault.vfs;
+        let art = category.image_prefix();
+
+        let banner = vfs
+            .find(&map_art(map, &art))
+            .and_then(|path| self.plate(&path))
+            .map(|handle| iced_image(handle).height(Length::Fixed(NAME_PLATE_HEIGHT)).into());
+
+        let label: Element<'a, Message> = banner.unwrap_or_else(|| {
+            let name = held.map_or_else(|| format!("Map {:03}", map), |found| found.name.clone());
+
+            strong(name, VALUE_TEXT_SIZE).into()
+        });
+
+        let heading = button(label).padding(0).style(button::text).on_press(Message::OpenMap(key.clone()));
+
+        let mut crest = row![heading, dark_box(strong(format!("ID: {}", map), VALUE_TEXT_SIZE).color(CHIP_TEXT), Length::Shrink)]
+            .spacing(CELL_SPACING)
+            .align_y(Vertical::Center);
+
+        let mut crown = None;
+
+        if let Some((before, after)) = lands.moves.get(&key) {
+            crest = crest.push(dark_box(crown_shift(*before, *after), Length::Shrink));
+            crown = Some(after.saturating_sub(1));
+        }
+
+        let chips: Vec<Element<'a, Message>> = listed
+            .into_iter()
+            .map(|stage| {
+                let id = GlobalStageId { category: category.clone(), map, stage };
+
+                self.view_stage_chip(id, &art, crown, lands.registry, vfs)
+            })
+            .collect();
+
+        let tint = if fresh { ADDITION_TINT } else { NORMAL_TINT };
+
+        let block = column![crest, ledger_rule(), uniform_grid(chips, ABILITY_ICON_GAP)]
+            .spacing(6)
+            .width(Length::Fill);
+
+        container(block)
+            .padding(CHIP_PADDING)
+            .width(Length::Fill)
+            .style(move |_theme: &Theme| container::Style {
+                background: Some(tint.into()),
+                border: iced::border::rounded(CHIP_RADIUS),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    fn view_stage_chip<'a>(
+        &'a self,
+        key: GlobalStageId,
+        art: &str,
+        crown: Option<u8>,
+        registry: &'a StageRegistry,
+        vfs: &Vfs,
+    ) -> Element<'a, Message> {
+        let (map, stage) = (key.map, key.stage);
+
+        let label: Element<'a, Message> = vfs
+            .find(&stage_art(map, stage, art))
+            .and_then(|path| self.plate(&path))
+            .map_or_else(
+                || {
+                    let name = registry
+                        .stages
+                        .get(&key)
+                        .map_or_else(|| format!("Stage {:02}", stage), |found| found.name.clone());
+
+                    container(strong(name, VALUE_TEXT_SIZE).color(CHIP_TEXT))
+                        .width(Length::Fill)
+                        .center_y(Length::Fixed(NAME_PLATE_HEIGHT))
+                        .align_x(Horizontal::Left)
+                        .into()
+                },
+                |handle| {
+                    container(
+                        iced_image(handle)
+                            .height(Length::Fixed(NAME_PLATE_HEIGHT))
+                            .content_fit(ContentFit::Contain),
+                    )
+                    .width(Length::Fill)
+                    .align_x(Horizontal::Left)
+                    .into()
+                },
+            );
+
+        button(label)
+            .padding(0)
+            .width(Length::Fill)
+            .style(button::text)
+            .on_press(Message::OpenStage(key, crown))
+            .into()
     }
 
     fn view_enemies<'a>(
@@ -1131,6 +1437,12 @@ impl State {
 
         fallback_icon(fallback)
     }
+}
+
+struct Lands<'a, 'b> {
+    moves: &'b HashMap<GlobalMapId, (u8, u8)>,
+    registry: &'a StageRegistry,
+    global: GlobalContext<'a>,
 }
 
 struct Icons<'a> {
@@ -1540,6 +1852,126 @@ fn version_table<'a>(ore: &Ore) -> Element<'a, Message> {
     }
 
     stack.into()
+}
+
+type Grouped = Vec<(Category, BTreeMap<u32, Vec<u32>>)>;
+
+fn grouped<'a>(found: impl Iterator<Item = &'a stages::Located>, registry: &StageRegistry) -> Grouped {
+    let placed = found.map(|entry| {
+        let key = GlobalMapId { category: Category::from_prefix(&entry.prefix), map: entry.map };
+
+        (key, entry.stage)
+    });
+
+    gather(placed, registry)
+}
+
+fn gather(found: impl Iterator<Item = (GlobalMapId, Option<u32>)>, registry: &StageRegistry) -> Grouped {
+    let mut raw: HashMap<Category, BTreeMap<u32, (bool, Vec<u32>)>> = HashMap::new();
+
+    for (key, stage) in found {
+        if !registry.maps.contains_key(&key) {
+            continue;
+        }
+
+        let slot = raw.entry(key.category).or_default().entry(key.map).or_insert((false, Vec::new()));
+
+        match stage {
+            None => slot.0 = true,
+            Some(id) => slot.1.push(id),
+        }
+    }
+
+    settle(raw, registry)
+}
+
+fn settle(raw: HashMap<Category, BTreeMap<u32, (bool, Vec<u32>)>>, registry: &StageRegistry) -> Grouped {
+    let mut all: Grouped = Vec::new();
+
+    for (category, maps) in raw {
+        let mut kept: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+
+        for (map, (whole, mut listed)) in maps {
+            let key = GlobalMapId { category: category.clone(), map };
+            let held = registry.maps.get(&key);
+
+            if whole {
+                listed.extend(held.map(|found| found.stages.clone()).unwrap_or_default());
+            }
+
+            if let Some(found) = held {
+                listed.retain(|stage| found.stages.contains(stage));
+            }
+
+            listed.sort_unstable();
+            listed.dedup();
+
+            if !listed.is_empty() {
+                kept.insert(map, listed);
+            }
+        }
+
+        if !kept.is_empty() {
+            all.push((category, kept));
+        }
+    }
+
+    all.sort_by_key(|(category, _)| category.sort_order());
+
+    all
+}
+
+fn crown_shift<'a>(before: u8, after: u8) -> Element<'a, Message> {
+    let crown = || {
+        text(CROWN_GLYPH)
+            .font(fonts::MISC_SYMBOLS)
+            .size(VALUE_TEXT_SIZE)
+            .line_height(fonts::MISC_SYMBOLS_LINE_HEIGHT)
+            .color(CHIP_TEXT)
+    };
+
+    row![
+        strong(before, VALUE_TEXT_SIZE).color(CHIP_TEXT),
+        crown(),
+        strong("->", VALUE_TEXT_SIZE).color(CHIP_TEXT),
+        strong(after, VALUE_TEXT_SIZE).color(CHIP_TEXT),
+        crown(),
+    ]
+    .spacing(2)
+    .align_y(Vertical::Center)
+    .into()
+}
+
+fn global_map(global: u32, registry: &StageRegistry) -> Option<GlobalMapId> {
+    registry
+        .maps
+        .keys()
+        .find(|key| key.category.global_map_id(key.map) == Some(global))
+        .cloned()
+}
+
+fn map_art(map: u32, prefix: &str) -> String {
+    if prefix.is_empty() {
+        return format!("mapname{:03}.png", map);
+    }
+
+    format!("mapname{:03}_{}.png", map, prefix)
+}
+
+fn stage_art(map: u32, stage: u32, prefix: &str) -> String {
+    if prefix.is_empty() {
+        return format!("mapsn{:03}_{:02}.png", map, stage);
+    }
+
+    format!("mapsn{:03}_{:02}_{}.png", map, stage, prefix)
+}
+
+fn subchapters(grouped: &Grouped) -> usize {
+    grouped.iter().map(|(_, maps)| maps.len()).sum()
+}
+
+fn stage_count(grouped: &Grouped) -> usize {
+    grouped.iter().flat_map(|(_, maps)| maps.values()).map(Vec::len).sum()
 }
 
 fn tally_table<'a>(title: &'static str, rows: Vec<(&'static str, usize)>) -> Element<'a, Message> {
