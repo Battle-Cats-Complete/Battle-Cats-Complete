@@ -215,6 +215,7 @@ pub enum Message {
     CreateDiff,
     Mined,
     Turn(Shelf, usize),
+    OpenFile(String),
     TileLoaded(u64, PathBuf, Option<Handle>),
     LevelChanged(u32, String),
     OpenTalents(u32, usize),
@@ -236,6 +237,7 @@ impl fmt::Debug for Message {
             Self::CreateDiff => write!(f, "CreateDiff"),
             Self::Mined => write!(f, "Mined"),
             Self::Turn(shelf, page) => write!(f, "Turn({:?}, {})", shelf, page),
+            Self::OpenFile(name) => write!(f, "OpenFile({})", name),
             Self::TileLoaded(generation, path, _) => write!(f, "TileLoaded({}, {:?})", generation, path),
             Self::LevelChanged(cat, value) => write!(f, "LevelChanged({}, {})", cat, value),
             Self::OpenTalents(cat, form) => write!(f, "OpenTalents({}, {})", cat, form),
@@ -495,7 +497,8 @@ impl State {
             | Message::OpenEnemy(..)
             | Message::OpenCategory(..)
             | Message::OpenMap(..)
-            | Message::OpenStage(..) => {}
+            | Message::OpenStage(..)
+            | Message::OpenFile(..) => {}
             Message::Img015Loaded(generation, index, sheet) => {
                 if generation == self.sheet_generation
                     && let Some(slot) = self.img015_sheets.get_mut(index)
@@ -1158,8 +1161,7 @@ impl State {
             let mut group = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
 
             if !named.is_empty() {
-                let cells: Vec<Element<'_, Message>> =
-                    named.iter().map(|name| name_cell(name)).collect();
+                let cells: Vec<Element<'_, Message>> = named.iter().map(|name| name_cell(name)).collect();
 
                 group = group.push(subsection(
                     "Data",
@@ -1259,7 +1261,10 @@ impl State {
         .align_x(Horizontal::Center)
         .width(Length::Fill);
 
-        container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into()
+        open_file(
+            container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container),
+            name,
+        )
     }
 
     fn view_stages<'a>(
@@ -1878,7 +1883,16 @@ fn file_name<'a>(name: &str) -> Text<'a> {
 }
 
 fn name_cell<'a>(name: &str) -> Element<'a, Message> {
-    light_box(file_name(name).width(Length::Fill), Length::Shrink)
+    open_file(light_box(file_name(name).width(Length::Fill), Length::Shrink), name)
+}
+
+fn open_file<'a>(content: impl Into<Element<'a, Message>>, name: &str) -> Element<'a, Message> {
+    button(content.into())
+        .padding(0)
+        .width(Length::Fill)
+        .style(button::text)
+        .on_press(Message::OpenFile(name.to_string()))
+        .into()
 }
 
 fn notice<'a>(message: &'a str) -> Element<'a, Message> {

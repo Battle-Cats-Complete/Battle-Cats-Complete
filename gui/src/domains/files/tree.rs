@@ -127,10 +127,27 @@ impl State {
         }
     }
 
+    pub(super) fn open(&mut self, path: PathBuf) {
+        self.expanded.insert(path);
+    }
+
     pub(super) fn toggle(&mut self, path: PathBuf) {
         if !self.expanded.remove(&path) {
             self.expanded.insert(path);
         }
+    }
+
+    pub(super) fn center(&mut self) -> Task<Message> {
+        let Some(index) = self.selected_row else {
+            return Task::none();
+        };
+
+        self.scroll_offset = index as f32 * (ROW_HEIGHT + ROW_SPACING);
+
+        operation::scroll_to(
+            self.scroll_id.clone(),
+            scrollable::AbsoluteOffset { x: 0.0, y: self.scroll_offset },
+        )
     }
 
     pub(super) fn snap_to_top(&self) -> Task<Message> {
@@ -369,7 +386,7 @@ struct Flatten<'a> {
     widest: f32,
 }
 
-fn matches(name: &str, query: &str) -> bool {
+pub(super) fn matches(name: &str, query: &str) -> bool {
     if query.is_empty() {
         return true;
     }

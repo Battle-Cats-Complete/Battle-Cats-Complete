@@ -272,6 +272,35 @@ impl State {
         Task::batch([self.probe_packs(), self.reindex(vfs)])
     }
 
+    pub(crate) fn reveal(&mut self, vfs: &Vfs, name: &str) -> Task<Message> {
+        let Some(relative) = vfs.list(name).iter().find_map(|path| vfs.relative(architecture::GAME, path)) else {
+            return Task::none();
+        };
+
+        if self.mount.as_deref() != Some(architecture::GAME) {
+            self.mount = Some(architecture::GAME.to_string());
+            self.reset();
+        }
+
+        if !tree::matches(name, self.search_query.trim()) {
+            self.search_query.clear();
+        }
+
+        match self.mode {
+            Mode::Tree => self.tree.reveal(&relative),
+            Mode::Pack => {
+                if let Some(pack) = self.packs.index.get(name) {
+                    self.tree.open(PathBuf::from(pack));
+                }
+            }
+            Mode::Flat => {}
+        }
+
+        self.selected = Some(relative);
+
+        Task::batch([self.reindex(vfs), self.tree.center().map(Message::Tree)])
+    }
+
     pub(crate) fn reload_packs(&mut self) -> Task<Message> {
         self.packs.state = PackState::Unknown;
         self.tree.invalidate_packs();
