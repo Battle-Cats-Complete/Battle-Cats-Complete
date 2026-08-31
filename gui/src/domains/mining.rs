@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fmt;
 use std::time::Duration;
 
@@ -9,17 +9,18 @@ use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, image as iced_image, row, rule, scrollable, text, text_input, tooltip, Column, Row, Space, Text};
 use iced::{Color, Element, Length, Size, Task, Theme};
 use nyanko::cat::unit::{LevelCurve, TalentCost};
-use nyanko::combat::Entity;
+use nyanko::combat::{Entity, REGISTRY};
 
 use kore::common::formats::SpriteSheet as CoreSpriteSheet;
 use kore::domains::cat::files as cat_files;
 use kore::domains::cat::game::stats as cat_stats;
 use kore::domains::cat::game::talents as talent_logic;
 use kore::domains::cat::scanner::{self as cat_scanner, CatEntry};
-use kore::domains::mining::{self, changes, forms, levels, talents, units, Build, Ore, Status};
+use kore::domains::enemy::scanner::EnemyEntry;
+use kore::domains::mining::{self, changes, enemies, forms, levels, talents, units, Build, Ore, Status};
 
 use kore::domains::settings::{ScannerConfig, Settings};
-use kore::systems::combat::registry::{AbilityIcon, STAT_RARITY};
+use kore::systems::combat::registry::{get_display_def, is_trait, AbilityIcon, STAT_RARITY};
 use kore::common::context::GlobalContext;
 use kore::Vfs;
 
@@ -103,6 +104,7 @@ const CHIP_TEXT: Color = Color::WHITE;
 pub enum Tab {
     Meta,
     Cats,
+    Enemies,
 }
 
 impl Tab {
@@ -110,11 +112,12 @@ impl Tab {
         match self {
             Self::Meta => "Meta",
             Self::Cats => "Cats",
+            Self::Enemies => "Enemies",
         }
     }
 }
 
-const TABS: &[Tab] = &[Tab::Meta, Tab::Cats];
+const TABS: &[Tab] = &[Tab::Meta, Tab::Cats, Tab::Enemies];
 
 #[derive(Clone)]
 pub enum Message {
@@ -125,6 +128,7 @@ pub enum Message {
     OpenTalents(u32, usize),
     OpenForm(u32, usize),
     OpenUnit(u32),
+    OpenEnemy(u32),
     Img015Loaded(u64, usize, Option<CoreSpriteSheet>),
 }
 
@@ -138,6 +142,7 @@ impl fmt::Debug for Message {
             Self::OpenTalents(cat, form) => write!(f, "OpenTalents({}, {})", cat, form),
             Self::OpenForm(cat, form) => write!(f, "OpenForm({}, {})", cat, form),
             Self::OpenUnit(cat) => write!(f, "OpenUnit({})", cat),
+            Self::OpenEnemy(enemy) => write!(f, "OpenEnemy({})", enemy),
             Self::Img015Loaded(generation, index, _) => write!(f, "Img015Loaded({}, {})", generation, index),
         }
     }
@@ -150,6 +155,8 @@ pub struct State {
     units: Option<units::Report>,
     forms: Vec<forms::Unlocked>,
     changes: Vec<changes::Changed>,
+    foes: Vec<enemies::Changed>,
+    fresh_foes: Vec<u32>,
     levels_raised: Vec<levels::Raised>,
     promoted: Vec<u32>,
     levels: HashMap<u32, String>,
@@ -157,7 +164,7 @@ pub struct State {
     sheet_generation: u64,
     icons: ability_icon::Cache,
     plates: skill_name::Cache,
-    portraits: RefCell<HashMap<PathBuf, Option<Handle>>>,
+    portraits: RefCell<HashMap<(PathBuf, bool), Option<Handle>>>,
     assets: CustomAssets,
 }
 
@@ -170,6 +177,8 @@ impl Default for State {
             units: None,
             forms: Vec::new(),
             changes: Vec::new(),
+            foes: Vec::new(),
+            fresh_foes: Vec::new(),
             levels_raised: Vec::new(),
             promoted: Vec::new(),
             levels: HashMap::new(),
@@ -224,6 +233,16 @@ impl State {
             .ore
             .as_ref()
             .map_or_else(Vec::new, |ore| ore.files.iter().flat_map(changes::read).collect());
+
+        self.foes = self
+            .ore
+            .as_ref()
+            .map_or_else(Vec::new, |ore| ore.files.iter().flat_map(enemies::read).collect());
+
+        self.fresh_foes = self
+            .ore
+            .as_ref()
+            .map_or_else(Vec::new, |ore| ore.files.iter().flat_map(enemies::fresh).collect());
 
         self.levels_raised = self
             .ore
@@ -292,7 +311,12 @@ impl State {
                     self.levels.insert(cat_id, value);
                 }
             }
-            Message::CreateBase | Message::CreateDiff | Message::OpenTalents(..) | Message::OpenForm(..) | Message::OpenUnit(..) => {}
+            Message::CreateBase
+            | Message::CreateDiff
+            | Message::OpenTalents(..)
+            | Message::OpenForm(..)
+            | Message::OpenUnit(..)
+            | Message::OpenEnemy(..) => {}
             Message::Img015Loaded(generation, index, sheet) => {
                 if generation == self.sheet_generation
                     && let Some(slot) = self.img015_sheets.get_mut(index)
@@ -317,6 +341,7 @@ impl State {
         match tab {
             Tab::Meta => true,
             Tab::Cats => self.has_finds(),
+            Tab::Enemies => !self.foes.is_empty() || !self.fresh_foes.is_empty(),
         }
     }
 
@@ -375,13 +400,15 @@ impl State {
     pub fn view<'a>(
         &'a self,
         cats: &'a [CatEntry],
+        foes: &'a [EnemyEntry],
         global: GlobalContext<'a>,
         settings: &'a Settings,
         window: Size,
     ) -> Element<'a, Message> {
         let body = match self.tab {
-            Tab::Meta => self.view_meta(cats, &global.vault.vfs, settings),
+            Tab::Meta => self.view_meta(cats, &global.vault.vfs, settings, window.height - PAGE_PADDING * 2.0),
             Tab::Cats => self.view_cats(cats, global, settings, window.width - SIDEBAR_WIDTH),
+            Tab::Enemies => self.view_enemies(foes, global, window.width - SIDEBAR_WIDTH),
         };
 
         let page = smooth_scroll(
@@ -421,12 +448,19 @@ impl State {
             .into()
     }
 
-    fn view_meta<'a>(&'a self, cats: &'a [CatEntry], vfs: &Vfs, settings: &Settings) -> Element<'a, Message> {
+    fn view_meta<'a>(
+        &'a self,
+        cats: &'a [CatEntry],
+        vfs: &Vfs,
+        settings: &Settings,
+        room: f32,
+    ) -> Element<'a, Message> {
         let Some(ore) = &self.ore else {
             return self.view_empty(
                 "No imported base to reference for a future diff",
                 "Please import or click the \"Create Base\" button below",
                 mining::capturable(vfs).then_some(("Create Base", Message::CreateBase)),
+                room,
             );
         };
 
@@ -435,6 +469,7 @@ impl State {
                 "Base loaded, but no diff to compare against it",
                 "Import an update or click the \"Create Diff\" button below",
                 (mining::has_base() && mining::capturable(vfs)).then_some(("Create Diff", Message::CreateDiff)),
+                room,
             );
         }
 
@@ -463,6 +498,7 @@ impl State {
         headline: &'a str,
         hint: &'a str,
         action: Option<(&'a str, Message)>,
+        room: f32,
     ) -> Element<'a, Message> {
         let mut body = Column::new().spacing(10).align_x(Horizontal::Center);
 
@@ -478,7 +514,7 @@ impl State {
             );
         }
 
-        container(body).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).center_y(Length::Fill).into()
+        container(body).center_x(Length::Fill).center_y(Length::Fixed(room.max(PORTRAIT_SIZE))).into()
     }
 
     fn view_tally<'a>(&'a self, cats: &'a [CatEntry], vfs: &Vfs, settings: &Settings) -> Element<'a, Message> {
@@ -512,7 +548,7 @@ impl State {
             })
         };
 
-        let tally = [
+        let cats = vec![
             ("New Count", self.fresh_units(cats, vfs, settings).len()),
             ("Changed Count", changed),
             ("True Form Count", forms(forms::TRUE_FORM)),
@@ -521,17 +557,14 @@ impl State {
             ("Ultra Talent Count", talents(true)),
         ];
 
-        let header = container(
-            theme::table_cell_text("Cats", Length::Fixed(TALLY_TABLE_WIDTH)).size(META_TEXT_SIZE),
-        )
-        .center_y(Length::Fixed(TABLE_ROW_HEIGHT))
-        .style(theme::zebra_table_header);
+        let foes = vec![("New Count", self.fresh_foes.len()), ("Changed Count", self.foes.len())];
 
-        let mut table = Column::new().push(header).width(Length::Shrink);
-
-        for (index, (label, count)) in tally.into_iter().enumerate() {
-            table = table.push(row![tally_label(label, index), sized_cell(count, TALLY_VALUE_WIDTH, index)]);
-        }
+        let table = column![
+            tally_table("Cats", cats),
+            Space::new().height(TABLE_GAP),
+            tally_table("Enemies", foes),
+        ]
+        .width(Length::Shrink);
 
         table.into()
     }
@@ -693,13 +726,28 @@ impl State {
         container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into()
     }
 
-    fn portrait(&self, path: &PathBuf) -> Option<Handle> {
-        if let Some(cached) = self.portraits.borrow().get(path) {
+    fn portrait(&self, path: &Path) -> Option<Handle> {
+        self.cached_icon(path, false)
+    }
+
+    fn thumbnail(&self, path: &Path) -> Option<Handle> {
+        self.cached_icon(path, true)
+    }
+
+    fn cached_icon(&self, path: &Path, fill: bool) -> Option<Handle> {
+        let key = (path.to_path_buf(), fill);
+
+        if let Some(cached) = self.portraits.borrow().get(&key) {
             return cached.clone();
         }
 
-        let handle = item_icon::load_boxed(path, PORTRAIT_CANVAS);
-        self.portraits.borrow_mut().insert(path.clone(), handle.clone());
+        let handle = if fill {
+            item_icon::load_scaled(path, PORTRAIT_CANVAS)
+        } else {
+            item_icon::load_boxed(path, PORTRAIT_CANVAS)
+        };
+
+        self.portraits.borrow_mut().insert(key, handle.clone());
 
         handle
     }
@@ -790,6 +838,116 @@ impl State {
             body = body.push(strong("Conjure", LEDGER_TITLE_SIZE));
             body = body.extend(panels(spirit, &icons));
         }
+
+        let card = column![header, rule::horizontal(1), body].spacing(10).width(Length::Fill);
+
+        container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into()
+    }
+
+    fn view_enemies<'a>(
+        &'a self,
+        roster: &'a [EnemyEntry],
+        global: GlobalContext<'a>,
+        width: f32,
+    ) -> Element<'a, Message> {
+        let mut body = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
+
+        if !self.fresh_foes.is_empty() {
+            let cards: Vec<Element<'a, Message>> = self
+                .fresh_foes
+                .iter()
+                .map(|id| self.view_foe(*id, None, roster, global))
+                .collect();
+
+            body = body.push(section(
+                "New",
+                Length::Fill,
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, LEVEL_MIN_WIDTH)),
+            ));
+        }
+
+        if !self.foes.is_empty() {
+            let cards: Vec<Element<'a, Message>> = self
+                .foes
+                .iter()
+                .map(|foe| self.view_foe(foe.enemy_id, Some(foe), roster, global))
+                .collect();
+
+            body = body.push(section(
+                "Changed",
+                Length::Fill,
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH)),
+            ));
+        }
+
+        body.into()
+    }
+
+    fn view_foe<'a>(
+        &'a self,
+        enemy_id: u32,
+        changed: Option<&'a enemies::Changed>,
+        roster: &'a [EnemyEntry],
+        global: GlobalContext<'a>,
+    ) -> Element<'a, Message> {
+        let entry = roster.iter().find(|held| held.id == enemy_id);
+        let stats = changed.map(|foe| &foe.current).or(entry.map(|held| &held.stats));
+
+        let icon = entry.and_then(|held| held.icon_path.as_ref()).and_then(|path| self.thumbnail(path));
+        let name = entry.map_or_else(|| format!("Enemy {:03}", enemy_id), EnemyEntry::display_name);
+
+        let portrait: Element<'a, Message> = match icon {
+            Some(handle) => iced_image(handle)
+                .width(Length::Fixed(PORTRAIT_SIZE))
+                .height(Length::Fixed(PORTRAIT_SIZE))
+                .into(),
+            None => Space::new().width(Length::Fixed(PORTRAIT_SIZE)).height(Length::Fixed(PORTRAIT_SIZE)).into(),
+        };
+
+        let identity = button(
+            row![
+                container(portrait)
+                    .width(Length::Fixed(PORTRAIT_SIZE))
+                    .height(Length::Fixed(PORTRAIT_SIZE))
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Center),
+                strong(name, UNIT_NAME_SIZE),
+            ]
+            .spacing(CELL_SPACING)
+            .align_y(Vertical::Center),
+        )
+        .padding(0)
+        .style(button::text)
+        .on_press_maybe(entry.map(|_| Message::OpenEnemy(enemy_id)));
+
+        let icons = Icons { cache: &self.icons, sheets: &self.img015_sheets, assets: &self.assets };
+
+        let mut header = row![
+            light_box(identity, Length::Fixed(UNIT_BOX_HEIGHT)),
+            light_box(strong(format!("ID: {}", enemy_id), UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
+        ]
+        .spacing(CELL_SPACING)
+        .align_y(Vertical::Center);
+
+        if let Some(stats) = stats {
+            header = header.push(light_box(trait_row(stats, &icons), Length::Fixed(UNIT_BOX_HEIGHT)));
+        }
+
+        let Some(foe) = changed else {
+            return container(header).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into();
+        };
+
+        let diff = forms::compare(&forms::Subject {
+            global,
+            previous: &foe.previous,
+            current: &foe.current,
+            curve: None,
+            level: 1,
+            frames: entry.map_or((0, 0), |held| (held.atk_anim_frames, held.atk_anim_frames)),
+        });
+
+        let mut body = Column::new().spacing(CARD_SPACING).width(Length::Fill);
+        body = body.extend(panels(&diff, &icons));
 
         let card = column![header, rule::horizontal(1), body].spacing(10).width(Length::Fill);
 
@@ -1301,6 +1459,28 @@ fn resolved<'a>(cats: &'a [CatEntry], id: u32, vfs: &Vfs, config: &ScannerConfig
     cat_scanner::listable(vfs, entry, config).then_some(entry)
 }
 
+fn trait_row<'a>(stats: &Entity, icons: &Icons<'_>) -> Element<'a, Message> {
+    let mut carried = Row::new().spacing(ABILITY_ICON_GAP).align_y(Vertical::Center);
+    let mut found = false;
+
+    for pure in REGISTRY {
+        let display = get_display_def(pure.identity);
+
+        if !is_trait(pure.identity) || (pure.attributes)(stats).is_empty() {
+            continue;
+        }
+
+        carried = carried.push(icons.render(display.icon, display.fallback));
+        found = true;
+    }
+
+    if !found {
+        return strong("None", UNIT_NAME_SIZE).into();
+    }
+
+    carried.into()
+}
+
 fn conjured(cats: &[CatEntry]) -> HashSet<u32> {
     cats.iter()
         .flat_map(|entry| entry.stats.iter().flatten())
@@ -1360,6 +1540,20 @@ fn version_table<'a>(ore: &Ore) -> Element<'a, Message> {
     }
 
     stack.into()
+}
+
+fn tally_table<'a>(title: &'static str, rows: Vec<(&'static str, usize)>) -> Element<'a, Message> {
+    let header = container(theme::table_cell_text(title, Length::Fixed(TALLY_TABLE_WIDTH)).size(META_TEXT_SIZE))
+        .center_y(Length::Fixed(TABLE_ROW_HEIGHT))
+        .style(theme::zebra_table_header);
+
+    let mut table = Column::new().push(header).width(Length::Shrink);
+
+    for (index, (label, count)) in rows.into_iter().enumerate() {
+        table = table.push(row![tally_label(label, index), sized_cell(count, TALLY_VALUE_WIDTH, index)]);
+    }
+
+    table.into()
 }
 
 fn zebra_cell<'a>(body: impl ToString, index: usize) -> Element<'a, Message> {

@@ -1,4 +1,5 @@
 pub mod changes;
+pub mod enemies;
 pub mod forms;
 pub mod levels;
 pub mod talents;
@@ -16,6 +17,7 @@ use crate::common::dirs;
 use crate::common::io::json;
 use crate::Vfs;
 use crate::domains::cat::files as cat_files;
+use crate::domains::enemy::files as enemy_files;
 
 const FILE: &str = "ore.json";
 
@@ -34,6 +36,7 @@ enum Keying {
 const MINEABLE: &[(&str, Keying)] = &[
     (cat_files::SKILL_ACQUISITION, Keying::Column),
     (cat_files::UNIT_BUY, Keying::Line),
+    (enemy_files::STATS, Keying::Line),
 ];
 
 pub(crate) fn mineable(filename: &str) -> bool {
@@ -149,7 +152,7 @@ fn stats_rows(vfs: &Vfs) -> usize {
 fn on_disk(vfs: &Vfs) -> Vec<(String, PathBuf)> {
     let mut found = Vec::new();
 
-    for name in [cat_files::UNIT_BUY, cat_files::SKILL_ACQUISITION] {
+    for name in [cat_files::UNIT_BUY, cat_files::SKILL_ACQUISITION, enemy_files::STATS] {
         if let Some(path) = vfs.find(name) {
             found.push((name.to_string(), path));
         }

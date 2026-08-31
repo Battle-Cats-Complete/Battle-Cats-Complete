@@ -288,8 +288,24 @@ const DAMAGE_SPLIT: Figure = Figure { label: "Damage split", read: read_damage, 
 
 const TIMING_SPLIT: Figure = Figure { label: "Timing split", read: read_timing, weigh: weigh_timing };
 
-const ABILITY_SPLIT: Figure = Figure { label: "Ability split",
-    read: read_carriers, weigh: weigh_carriers };
+const ABILITY_SPLIT: Figure = Figure { label: "Ability split", read: read_carriers, weigh: weigh_carriers };
+
+pub fn is_trait(identity: Identity) -> bool {
+    if matches!(get_display_def(identity).group, DisplayGroup::Trait) {
+        return true;
+    }
+
+    matches!(
+        identity,
+        Identity::TraitDojo
+            | Identity::TraitStarredAlien
+            | Identity::TraitCatGod
+            | Identity::TraitColossus
+            | Identity::TraitBehemoth
+            | Identity::TraitSage
+            | Identity::TraitKaijin
+    )
+}
 
 pub fn get_figures(identity: Identity) -> &'static [Figure] {
     match identity {
@@ -1375,6 +1391,31 @@ pub(crate) const ENEMY_STATS_REGISTRY: &[StatsDef] = &[
 
 pub fn format_stat(definition: &StatsDef, ctx: &StatContext<'_>) -> String {
     (definition.formatter)((definition.get_value)(ctx))
+}
+
+#[cfg(test)]
+mod trait_tests {
+    use super::{is_trait, DisplayGroup, Identity};
+
+    // The subtraits sit in Headline1 beside abilities that are not traits at all, so the
+    // group alone cannot answer this.
+    #[test]
+    fn the_subtraits_count_as_traits_and_their_neighbours_do_not() {
+        for identity in [Identity::TraitStarredAlien, Identity::TraitBehemoth, Identity::TraitColossus, Identity::TraitSage] {
+            assert!(is_trait(identity), "{:?} is a subtrait", identity);
+            assert!(!matches!(super::get_display_def(identity).group, DisplayGroup::Trait));
+        }
+
+        for identity in [Identity::MassiveDamage, Identity::InsaneDamage, Identity::Resist, Identity::AttackOnly] {
+            assert!(!is_trait(identity), "{:?} shares Headline1 but is no trait", identity);
+        }
+    }
+
+    #[test]
+    fn the_ordinary_traits_still_count() {
+        assert!(is_trait(Identity::TraitRed));
+        assert!(is_trait(Identity::TraitAku));
+    }
 }
 
 #[cfg(test)]

@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use nyanko::cat::unit::{LevelCurve, UnitBuy};
-use nyanko::combat::{AttrUnit, Attribute, Entity, Identity, REGISTRY};
+use nyanko::combat::{AttrUnit, Attribute, Entity, Faction, Identity, REGISTRY};
 
 use crate::common::context::GlobalContext;
 use crate::domains::cat::game::stats;
 use crate::domains::cat::waiter::unitid;
-use crate::systems::combat::registry::{self, AbilityIcon, DisplayGroup, StatContext, CAT_STATS_REGISTRY};
+use crate::systems::combat::registry::{self, AbilityIcon, DisplayGroup, Magnification, StatContext, CAT_STATS_REGISTRY, ENEMY_STATS_REGISTRY};
 use crate::systems::combat::{abilities, comparable, RenderContext};
 
 use super::FileDelta;
@@ -163,9 +163,11 @@ pub fn compare(subject: &Subject<'_>) -> Diff {
 
     let mut diff = Diff::default();
 
-    for stat in CAT_STATS_REGISTRY {
-        let old = (stat.get_value)(&StatContext::cat(&before, subject.frames.0, None));
-        let new = (stat.get_value)(&StatContext::cat(&after, subject.frames.1, None));
+    let faction = subject.current.faction;
+
+    for stat in table_for(faction) {
+        let old = (stat.get_value)(&reading(faction, &before, subject.frames.0));
+        let new = (stat.get_value)(&reading(faction, &after, subject.frames.1));
 
         if old == new {
             continue;
@@ -189,6 +191,20 @@ pub fn compare(subject: &Subject<'_>) -> Diff {
     diff.spirit = spirit_diff(subject, &before, &after).map(Box::new);
 
     diff
+}
+
+fn table_for(faction: Faction) -> &'static [registry::StatsDef] {
+    match faction {
+        Faction::Cat => CAT_STATS_REGISTRY,
+        Faction::Enemy => ENEMY_STATS_REGISTRY,
+    }
+}
+
+fn reading<'a>(faction: Faction, stats: &'a Entity, frames: i32) -> StatContext<'a> {
+    match faction {
+        Faction::Cat => StatContext::cat(stats, frames, None),
+        Faction::Enemy => StatContext::enemy(stats, frames, Magnification::default()),
+    }
 }
 
 fn spirit_diff(subject: &Subject<'_>, before: &Entity, after: &Entity) -> Option<Diff> {
@@ -382,16 +398,19 @@ fn spoken(
 }
 
 fn described(subject: &Subject<'_>, stats: &Entity) -> HashMap<Identity, String> {
-    let context = RenderContext {
-        global: subject.global,
-        base_stats: stats,
-        final_stats: stats,
-        magnification: registry::Magnification::default(),
-        current_level: subject.level,
-        level_curve: subject.curve,
-        talent_data: None,
-        talent_levels: None,
-        is_conjure_unit: false,
+    let context = match stats.faction {
+        Faction::Enemy => RenderContext::enemy(subject.global, stats, Magnification::default()),
+        Faction::Cat => RenderContext {
+            global: subject.global,
+            base_stats: stats,
+            final_stats: stats,
+            magnification: Magnification::default(),
+            current_level: subject.level,
+            level_curve: subject.curve,
+            talent_data: None,
+            talent_levels: None,
+            is_conjure_unit: false,
+        },
     };
 
     let groups = abilities::collect_ability_data(&context);

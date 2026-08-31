@@ -1144,6 +1144,11 @@ impl BattleCatsApp {
 
                 Task::none()
             }
+            Message::Mining(mining::Message::OpenEnemy(enemy_id)) => {
+                let jump = self.update(Message::Enemy(enemy::Message::JumpToEnemyMagnified(enemy_id, "100".to_string())));
+
+                Task::batch([jump, self.navigate(Page::Enemies)])
+            }
             Message::Mining(mining::Message::OpenUnit(cat_id)) => {
                 let select = self.update(Message::Cat(cat::Message::SelectCat(cat_id)));
 
@@ -1243,7 +1248,7 @@ impl BattleCatsApp {
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Files => self.files_state.view().map(Message::Files),
             Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
-            Page::Mining => self.mining_state.view(&self.cat_state.data.cats, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }, &self.settings, self.window_size).map(Message::Mining),
+            Page::Mining => self.mining_state.view(&self.cat_state.data.cats, &self.enemy_state.data.enemies, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }, &self.settings, self.window_size).map(Message::Mining),
             Page::Utilities => self.utilities_state.view(&self.settings, &self.app_state).map(Message::Utilities),
             Page::Help => {
                 let ui_theme = self.theme();
