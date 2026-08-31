@@ -147,19 +147,21 @@ fn valid_stats(found: bool, config: &ScannerConfig) -> bool {
     config.show_invalid_cats || found
 }
 
+fn verdict(vfs: &Vfs, id: u32, images: &Images, config: &ScannerConfig) -> bool {
+    valid_stats(vfs.find(&files::stats_file(id)).is_some(), config) && valid_forms(images, config)
+}
+
 pub fn listable(vfs: &Vfs, entry: &CatEntry, config: &ScannerConfig) -> bool {
     let egg_ids = entry.egg_ids.unwrap_or((-1, -1));
     let images = resolve_images(vfs, entry.id, egg_ids, &entry.unitbuy, config);
 
-    valid_stats(vfs.find(&files::stats_file(entry.id)).is_some(), config) && valid_forms(&images, config)
+    verdict(vfs, entry.id, &images, config)
 }
 
 pub fn revalidate(vfs: &Vfs, entry: &mut CatEntry, config: &ScannerConfig) -> bool {
     let egg_ids = entry.egg_ids.unwrap_or((-1, -1));
     let images = resolve_images(vfs, entry.id, egg_ids, &entry.unitbuy, config);
-
-    let listable = valid_stats(vfs.find(&files::stats_file(entry.id)).is_some(), config)
-        && valid_forms(&images, config);
+    let listable = verdict(vfs, entry.id, &images, config);
 
     entry.forms = images.forms;
     entry.deploy_icon_paths = images.deploy_icons;

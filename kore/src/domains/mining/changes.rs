@@ -50,6 +50,7 @@ mod tests {
     fn delta(file: &str, rows: Vec<RowDelta>) -> FileDelta {
         FileDelta {
             file: file.to_string(),
+            from: "en".to_string(),
             region: "en".to_string(),
             status: Status::Changed,
             rows_before: 2,

@@ -1,9 +1,10 @@
 pub mod changes;
 pub mod forms;
+pub mod levels;
 pub mod talents;
 pub mod units;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -54,6 +55,10 @@ pub struct Build {
 struct Base {
     #[serde(default)]
     builds: Vec<Build>,
+    #[serde(default)]
+    roster: Vec<u32>,
+    #[serde(default)]
+    promoted: Vec<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -72,6 +77,8 @@ pub struct RowDelta {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct FileDelta {
     pub file: String,
+    #[serde(default)]
+    pub from: String,
     pub region: String,
     pub status: Status,
     pub rows_before: usize,
@@ -141,14 +148,48 @@ fn drop_state(name: &str) {
     }
 }
 
+fn stored_base() -> Base {
+    json::load_state::<Base>(BASE).unwrap_or_default()
+}
+
+fn save_base(base: &Base) {
+    if let Err(err) = json::save_state(BASE, base) {
+        warn!("Failed to save {}: {}", BASE, err);
+    }
+}
+
 fn base() -> Vec<Build> {
-    json::load_state::<Base>(BASE).map_or_else(Vec::new, |base| base.builds)
+    stored_base().builds
 }
 
 fn set_base(builds: &[Build]) {
-    if let Err(err) = json::save_state(BASE, &Base { builds: builds.to_vec() }) {
-        warn!("Failed to save {}: {}", BASE, err);
+    let mut base = stored_base();
+    base.builds = builds.to_vec();
+
+    save_base(&base);
+}
+
+pub fn reconcile(listable: &[u32]) -> Vec<u32> {
+    let mut base = stored_base();
+
+    if listable.is_empty() || listable == base.roster {
+        return base.promoted;
     }
+
+    let held: HashSet<u32> = base.roster.iter().copied().collect();
+
+    let promoted = if held.is_empty() {
+        Vec::new()
+    } else {
+        listable.iter().filter(|id| !held.contains(id)).copied().collect()
+    };
+
+    base.roster = listable.to_vec();
+    base.promoted.clone_from(&promoted);
+
+    save_base(&base);
+
+    promoted
 }
 
 pub(crate) fn commit(files: Vec<FileDelta>, after: Vec<Build>) -> bool {
@@ -162,6 +203,7 @@ pub(crate) fn commit(files: Vec<FileDelta>, after: Vec<Build>) -> bool {
         return false;
     }
 
+    let diffed = files.iter().any(|delta| delta.status == Status::Changed && !delta.rows.is_empty());
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
     let ore = Ore { schema: SCHEMA, stamp, before, after, files };
 
@@ -170,10 +212,10 @@ pub(crate) fn commit(files: Vec<FileDelta>, after: Vec<Build>) -> bool {
         return false;
     }
 
-    true
+    diffed
 }
 
-pub(crate) fn delta(file: &str, region: &str, before: Option<&[u8]>, after: &[u8]) -> Option<FileDelta> {
+pub(crate) fn delta(file: &str, from: &str, region: &str, before: Option<&[u8]>, after: &[u8]) -> Option<FileDelta> {
     let keying = keying(file)?;
     let after_text = String::from_utf8_lossy(after).into_owned();
     let after_rows = rows(&after_text, keying);
@@ -181,6 +223,7 @@ pub(crate) fn delta(file: &str, region: &str, before: Option<&[u8]>, after: &[u8
     let Some(before) = before else {
         return Some(FileDelta {
             file: file.to_string(),
+            from: from.to_string(),
             region: region.to_string(),
             status: Status::Baseline,
             rows_before: 0,
@@ -221,6 +264,7 @@ pub(crate) fn delta(file: &str, region: &str, before: Option<&[u8]>, after: &[u8
 
     (!changes.is_empty()).then(|| FileDelta {
         file: file.to_string(),
+        from: from.to_string(),
         region: region.to_string(),
         status: Status::Changed,
         rows_before,
@@ -262,6 +306,20 @@ mod tests {
     // unitbuy.csv is positional: its first column is rarity, so column keying would
     // collide thousands of rows onto a handful of keys.
     // Every per-unit stats table is mineable, and each of its lines is one form.
+    // A unit that only ever existed as an art-less placeholder becomes a real release the
+    // moment its art lands, which is a new unit rather than a changed one.
+    #[test]
+    fn a_first_roster_is_a_baseline_rather_than_a_wall_of_promotions() {
+        let mut base = Base::default();
+        assert!(base.roster.is_empty());
+
+        base.roster = vec![1, 2, 3];
+        let held: HashSet<u32> = base.roster.iter().copied().collect();
+        let promoted: Vec<u32> = [1, 2, 3, 4].iter().filter(|id| !held.contains(id)).copied().collect();
+
+        assert_eq!(promoted, vec![4]);
+    }
+
     #[test]
     fn a_per_unit_stats_table_is_mined_by_line() {
         assert!(mineable("unit440.csv"));
@@ -274,7 +332,7 @@ mod tests {
         let old = b"0,0,50\n0,1,60\n";
         let new = b"0,0,50\n0,1,60\n3,2,70\n";
 
-        let delta = delta("unitbuy.csv", "en", Some(old), new).expect("changed");
+        let delta = delta("unitbuy.csv", "en", "en", Some(old), new).expect("changed");
 
         assert_eq!(delta.rows_before, 2);
         assert_eq!(delta.added(), 1);
@@ -283,7 +341,7 @@ mod tests {
 
     #[test]
     fn a_first_sighting_of_a_file_is_a_baseline_rather_than_a_wall_of_additions() {
-        let delta = delta("SkillAcquisition.csv", "en", None, OLD).expect("baseline");
+        let delta = delta("SkillAcquisition.csv", "en", "en", None, OLD).expect("baseline");
 
         assert_eq!(delta.status, Status::Baseline);
         assert_eq!(delta.rows_after, 2);
@@ -294,7 +352,7 @@ mod tests {
     fn an_inserted_row_does_not_smear_the_rows_beneath_it() {
         // A mid-file insertion is the case a line diff misreads as a mass rewrite.
         let new = b"1,0,10,5,100,200,0,0,0,0,0,0,1,1,0\n7,0,99,5,1,2,0,0,0,0,0,0,3,3,0\n2,0,11,5,50,60,0,0,0,0,0,0,2,2,0\n";
-        let delta = delta("SkillAcquisition.csv", "en", Some(OLD), new).expect("changed");
+        let delta = delta("SkillAcquisition.csv", "en", "en", Some(OLD), new).expect("changed");
 
         assert_eq!(delta.added(), 1);
         assert_eq!(delta.modified(), 0);
@@ -305,7 +363,7 @@ mod tests {
     #[test]
     fn an_edited_row_is_reported_with_both_sides() {
         let new = b"1,0,10,5,100,300,0,0,0,0,0,0,1,1,0\n2,0,11,5,50,60,0,0,0,0,0,0,2,2,0\n";
-        let delta = delta("SkillAcquisition.csv", "en", Some(OLD), new).expect("changed");
+        let delta = delta("SkillAcquisition.csv", "en", "en", Some(OLD), new).expect("changed");
 
         assert_eq!(delta.modified(), 1);
         assert_eq!(delta.rows[0].before.as_deref(), Some("1,0,10,5,100,200,0,0,0,0,0,0,1,1,0"));
@@ -313,13 +371,13 @@ mod tests {
 
     #[test]
     fn an_identical_reimport_yields_nothing_to_mine() {
-        assert!(delta("SkillAcquisition.csv", "en", Some(OLD), OLD).is_none());
+        assert!(delta("SkillAcquisition.csv", "en", "en", Some(OLD), OLD).is_none());
     }
 
     #[test]
     fn a_vanished_row_is_kept_so_a_downgrade_can_be_called_out() {
         let new = b"1,0,10,5,100,200,0,0,0,0,0,0,1,1,0\n";
-        let delta = delta("SkillAcquisition.csv", "en", Some(OLD), new).expect("changed");
+        let delta = delta("SkillAcquisition.csv", "en", "en", Some(OLD), new).expect("changed");
 
         assert_eq!(delta.removed(), 1);
         assert_eq!(delta.rows_after, 1);

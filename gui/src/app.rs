@@ -452,7 +452,11 @@ impl BattleCatsApp {
                 self.stage_state.enter();
                 Task::none()
             }
-            Page::Mining => self.mining_state.enter(&self.vault.vfs).map(Message::Mining),
+            Page::Mining => {
+                let settled = self.vault_ready && !self.rebuild_running && !self.cat_state.data.cats.is_empty();
+
+                self.mining_state.enter(&self.cat_state.data.cats, &self.vault.vfs, &self.settings, settled).map(Message::Mining)
+            }
             Page::Import => self.import_state.enter().map(Message::Import),
             Page::Help => operation::scroll_to(
                 help::State::content_scrollable_id(),
@@ -1126,7 +1130,7 @@ impl BattleCatsApp {
                 }
 
                 let packs = self.files_state.reload_packs().map(Message::Files);
-                self.mining_state.refresh();
+                self.mining_state.reload();
 
                 Task::batch([task, packs, self.rebuild_content()])
             }

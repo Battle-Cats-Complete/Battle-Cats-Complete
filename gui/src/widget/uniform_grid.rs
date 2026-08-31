@@ -16,8 +16,6 @@ pub(crate) struct UniformGrid<'a, Message> {
 }
 
 impl<Message> UniformGrid<'_, Message> {
-    /// Lays the grid out in a caller-chosen number of columns, skipping the intrinsic
-    /// width pass. Items may then size themselves with `Length::Fill`.
     pub(crate) fn columns(mut self, columns: usize) -> Self {
         self.columns = Some(columns.max(1));
 

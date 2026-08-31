@@ -134,7 +134,7 @@ fn sort_raw_folder(
             let sample = mining::mineable(&filename_string).then(|| {
                 let previous = fs::read(&target_destination_path).ok();
 
-                mining::delta(&filename_string, manifest::NONE, previous.as_deref(), &clean_file_data)
+                mining::delta(&filename_string, manifest::NONE, manifest::NONE, previous.as_deref(), &clean_file_data)
             });
 
             if let Some(parent_directory) = target_destination_path.parent() {
@@ -178,7 +178,7 @@ fn sort_raw_folder(
     }
 
     if mining::commit(ore, Vec::new()) {
-        emit(JobEvent::Log("Captured what this import changed. Open the Mining page to read it.".to_string()));
+        emit(JobEvent::Log("This import moved game data. Open the Mining page to read what changed.".to_string()));
     }
 
     ledger.save();

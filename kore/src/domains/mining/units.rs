@@ -35,6 +35,7 @@ mod tests {
     fn delta(rows: Vec<RowDelta>) -> FileDelta {
         FileDelta {
             file: "unitbuy.csv".to_string(),
+            from: "en".to_string(),
             region: "en".to_string(),
             status: Status::Changed,
             rows_before: 2,

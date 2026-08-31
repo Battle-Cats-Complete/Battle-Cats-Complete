@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::fmt;
 use std::time::Duration;
 
@@ -15,15 +17,16 @@ use kore::domains::cat::files as cat_files;
 use kore::domains::cat::game::stats as cat_stats;
 use kore::domains::cat::game::talents as talent_logic;
 use kore::domains::cat::scanner::{self as cat_scanner, CatEntry};
-use kore::domains::mining::{self, changes, forms, talents, units, Build, Ore, Status};
-use kore::domains::settings::Settings;
+use kore::domains::mining::{self, changes, forms, levels, talents, units, Build, Ore, Status};
+use kore::domains::settings::{ScannerConfig, Settings};
 use kore::systems::combat::registry::{AbilityIcon, STAT_RARITY};
 use kore::common::context::GlobalContext;
 use kore::Vfs;
 
 use crate::app::theme;
-use crate::common::header_icon::{self, HeaderIcon};
+use crate::common::item_icon;
 use crate::common::{ability_icon, img015, skill_name, CustomAssets, SpriteSheet};
+use iced::widget::image::Handle;
 use crate::widget::{fallback_icon, list_row, section, smooth_scroll, tinted_superscript, uniform_grid};
 
 const SIDEBAR_WIDTH: f32 = 110.0;
@@ -37,6 +40,7 @@ const SCROLLBAR_GAP: f32 = 8.0;
 const SCROLLBAR_RESERVE: f32 = 24.0;
 const CARD_PADDING: f32 = 12.0;
 const UNIT_MIN_WIDTH: f32 = 440.0;
+const LEVEL_MIN_WIDTH: f32 = 420.0;
 const SECTION_SPACING: f32 = 18.0;
 const CARD_SPACING: f32 = 8.0;
 const ULTRA_LEVEL: i32 = 60;
@@ -47,6 +51,7 @@ const IGNORED_LABELS: &[&str] = &["Width"];
 const FIRST_FORM: usize = 0;
 
 const PORTRAIT_SIZE: f32 = 56.0;
+const PORTRAIT_CANVAS: u32 = PORTRAIT_SIZE as u32 * 2;
 const TALENT_ICON_SIZE: f32 = 30.0;
 const NAME_PLATE_HEIGHT: f32 = 26.0;
 const UNIT_NAME_SIZE: f32 = 16.0;
@@ -125,13 +130,14 @@ pub struct State {
     units: Option<units::Report>,
     forms: Vec<forms::Unlocked>,
     changes: Vec<changes::Changed>,
+    levels_raised: Vec<levels::Raised>,
+    promoted: Vec<u32>,
     levels: HashMap<u32, String>,
     img015_sheets: Vec<SpriteSheet>,
     sheet_generation: u64,
     icons: ability_icon::Cache,
     plates: skill_name::Cache,
-    portraits: header_icon::Cache,
-    portrait_dummy: HeaderIcon,
+    portraits: RefCell<HashMap<PathBuf, Option<Handle>>>,
     assets: CustomAssets,
 }
 
@@ -144,20 +150,37 @@ impl Default for State {
             units: None,
             forms: Vec::new(),
             changes: Vec::new(),
+            levels_raised: Vec::new(),
+            promoted: Vec::new(),
             levels: HashMap::new(),
             img015_sheets: Vec::new(),
             sheet_generation: 0,
             icons: ability_icon::Cache::default(),
             plates: skill_name::Cache::default(),
-            portraits: header_icon::Cache::default(),
-            portrait_dummy: HeaderIcon::dummy(),
+            portraits: RefCell::new(HashMap::new()),
             assets: CustomAssets::new(),
         }
     }
 }
 
 impl State {
-    pub(crate) fn refresh(&mut self) {
+    pub(crate) fn reload(&mut self) {
+        self.reread();
+    }
+
+    fn reconcile(&mut self, cats: &[CatEntry], vfs: &Vfs, settings: &Settings) {
+        let strict = strict_config(settings);
+
+        let listable: Vec<u32> = cats
+            .iter()
+            .filter(|entry| cat_scanner::listable(vfs, entry, &strict))
+            .map(|entry| entry.id)
+            .collect();
+
+        self.promoted = mining::reconcile(&listable);
+    }
+
+    fn reread(&mut self) {
         self.ore = mining::load();
         self.report = self
             .ore
@@ -182,13 +205,29 @@ impl State {
             .as_ref()
             .map_or_else(Vec::new, |ore| ore.files.iter().flat_map(changes::read).collect());
 
+        self.levels_raised = self
+            .ore
+            .as_ref()
+            .and_then(|ore| ore.file(cat_files::UNIT_BUY))
+            .map_or_else(Vec::new, levels::read);
+
         if !self.enabled(self.tab) {
             self.tab = Tab::Meta;
         }
     }
 
-    pub(crate) fn enter(&mut self, vfs: &Vfs) -> Task<Message> {
-        self.refresh();
+    pub(crate) fn enter(
+        &mut self,
+        cats: &[CatEntry],
+        vfs: &Vfs,
+        settings: &Settings,
+        settled: bool,
+    ) -> Task<Message> {
+        if settled {
+            self.reconcile(cats, vfs, settings);
+        }
+
+        self.reread();
 
         self.check_sheets(vfs)
     }
@@ -263,8 +302,16 @@ impl State {
         self.forms.iter().any(|unlocked| unlocked.cat_id == cat_id && unlocked.form == form)
     }
 
+    fn arrived(&self, cat_id: u32) -> bool {
+        self.promoted.contains(&cat_id)
+    }
+
     fn has_finds(&self) -> bool {
-        self.has_talents() || self.has_fresh() || !self.forms.is_empty() || !self.changes.is_empty()
+        self.has_talents()
+            || self.has_fresh()
+            || !self.forms.is_empty()
+            || !self.changes.is_empty()
+            || !self.levels_raised.is_empty()
     }
 
     fn has_talents(&self) -> bool {
@@ -276,21 +323,21 @@ impl State {
     }
 
     fn fresh_units<'a>(&'a self, cats: &'a [CatEntry], vfs: &Vfs, settings: &Settings) -> Vec<&'a CatEntry> {
-        let Some(units) = &self.units else {
-            return Vec::new();
+        let units = match &self.units {
+            Some(units) => units.fresh.as_slice(),
+            None => &[],
         };
 
-        let mut strict = settings.scanner_config(None);
-        strict.show_invalid_cats = false;
-
+        let strict = strict_config(settings);
         let spirits = conjured(cats);
 
+        let mut seen: HashSet<u32> = HashSet::new();
+
         units
-            .fresh
             .iter()
-            .filter(|id| !spirits.contains(*id))
-            .filter_map(|id| cats.iter().find(|entry| entry.id == *id))
-            .filter(|entry| cat_scanner::listable(vfs, entry, &strict))
+            .chain(self.promoted.iter())
+            .filter(|id| !spirits.contains(*id) && seen.insert(**id))
+            .filter_map(|id| resolved(cats, *id, vfs, &strict))
             .collect()
     }
 
@@ -407,11 +454,16 @@ impl State {
             body = body.push(section("New", Length::Fill, uniform_grid(cards, CARD_SPACING)));
         }
 
+        let strict = strict_config(settings);
+
         let altered: Vec<&changes::Changed> = self
             .changes
             .iter()
-            .filter(|changed| cats.iter().any(|entry| entry.id == changed.cat_id))
-            .filter(|changed| !self.unlocks(changed.cat_id, changed.form))
+            .filter(|changed| !self.arrived(changed.cat_id) && !self.unlocks(changed.cat_id, changed.form))
+            .filter(|changed| {
+                resolved(cats, changed.cat_id, vfs, &strict)
+                    .is_some_and(|entry| entry.forms.get(changed.form).copied().unwrap_or(false))
+            })
             .collect();
 
         let read: Vec<(&changes::Changed, forms::Diff)> = altered
@@ -434,7 +486,8 @@ impl State {
         let unlocked: Vec<&forms::Unlocked> = self
             .forms
             .iter()
-            .filter(|unlocked| cats.iter().any(|entry| entry.id == unlocked.cat_id))
+            .filter(|unlocked| !self.arrived(unlocked.cat_id))
+            .filter(|unlocked| resolved(cats, unlocked.cat_id, vfs, &strict).is_some())
             .collect();
 
         if !unlocked.is_empty() {
@@ -462,6 +515,26 @@ impl State {
             body = body.push(section("Talents", Length::Fill, uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH))));
         }
 
+        let raised: Vec<&levels::Raised> = self
+            .levels_raised
+            .iter()
+            .filter(|entry| !self.arrived(entry.cat_id))
+            .filter(|entry| resolved(cats, entry.cat_id, vfs, &strict).is_some())
+            .collect();
+
+        if !raised.is_empty() {
+            listed = true;
+
+            let cards: Vec<Element<'a, Message>> =
+                raised.into_iter().map(|entry| self.view_raised(entry, cats)).collect();
+
+            body = body.push(section(
+                "Levels",
+                Length::Fill,
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, LEVEL_MIN_WIDTH)),
+            ));
+        }
+
         if !listed {
             return notice("No ore available, import a game data to see its diff");
         }
@@ -486,15 +559,64 @@ impl State {
         container(card).padding(CARD_PADDING).width(Length::Shrink).style(theme::card_container).into()
     }
 
+    fn view_raised<'a>(&'a self, raised: &'a levels::Raised, cats: &'a [CatEntry]) -> Element<'a, Message> {
+        let cat = cats.iter().find(|entry| entry.id == raised.cat_id);
+        let form = cat.map_or(FIRST_FORM, top_form);
+        let rarity = cat.map_or_else(|| "??".to_string(), |entry| (STAT_RARITY.formatter)(entry.unitbuy.rarity));
+
+        let identity = button(self.view_identity(cat, form, raised.cat_id))
+            .padding(0)
+            .style(button::text)
+            .on_press_maybe(cat.map(|_| Message::OpenUnit(raised.cat_id)));
+
+        let header = row![
+            light_box(identity, Length::Fixed(UNIT_BOX_HEIGHT)),
+            light_box(strong(format!("ID: {}", raised.cat_id), UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
+            light_box(strong(rarity, UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
+        ]
+        .spacing(CELL_SPACING)
+        .align_y(Vertical::Center);
+
+        let reading = row![
+            strong(raised.before.label(), UNIT_NAME_SIZE),
+            strong("->", UNIT_NAME_SIZE),
+            strong(raised.after.label(), UNIT_NAME_SIZE),
+        ]
+        .spacing(VALUE_LABEL_GAP)
+        .align_y(Vertical::Center);
+
+        let card = column![header, rule::horizontal(1), reading].spacing(10).width(Length::Fill);
+
+        container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into()
+    }
+
+    fn portrait(&self, path: &PathBuf) -> Option<Handle> {
+        if let Some(cached) = self.portraits.borrow().get(path) {
+            return cached.clone();
+        }
+
+        let handle = item_icon::load_boxed(path, PORTRAIT_CANVAS);
+        self.portraits.borrow_mut().insert(path.clone(), handle.clone());
+
+        handle
+    }
+
     fn view_identity<'a>(&'a self, cat: Option<&'a CatEntry>, form: usize, id: u32) -> Element<'a, Message> {
         let icon = cat
             .and_then(|entry| entry.deploy_icon_paths.get(form).and_then(Option::as_ref))
-            .and_then(|path| header_icon::load(&self.portraits, path))
-            .unwrap_or_else(|| self.portrait_dummy.clone());
+            .and_then(|path| self.portrait(path));
 
         let name = cat.map_or_else(|| format!("Unknown unit {:03}", id), |entry| entry.display_name(form));
 
-        let frame = container(iced_image(icon.handle).height(Length::Fixed(PORTRAIT_SIZE)))
+        let body: Element<'a, Message> = match icon {
+            Some(handle) => iced_image(handle)
+                .width(Length::Fixed(PORTRAIT_SIZE))
+                .height(Length::Fixed(PORTRAIT_SIZE))
+                .into(),
+            None => Space::new().width(Length::Fixed(PORTRAIT_SIZE)).height(Length::Fixed(PORTRAIT_SIZE)).into(),
+        };
+
+        let frame = container(body)
             .width(Length::Fixed(PORTRAIT_SIZE))
             .height(Length::Fixed(PORTRAIT_SIZE))
             .align_x(Horizontal::Center)
@@ -1028,15 +1150,17 @@ fn ability_groups<'a>(abilities: &[forms::Ability], icons: &Icons<'_>) -> Elemen
 }
 
 fn hinted_icon<'a>(ability: &forms::Ability, icons: &Icons<'_>) -> Element<'a, Message> {
-    let icon = icons.render(ability.icon, ability.fallback);
+    hinted(icons.render(ability.icon, ability.fallback), &ability.text)
+}
 
-    if ability.text.is_empty() {
-        return icon;
+fn hinted<'a>(content: impl Into<Element<'a, Message>>, description: &str) -> Element<'a, Message> {
+    if description.is_empty() {
+        return content.into();
     }
 
     tooltip(
-        icon,
-        container(tinted_superscript(&ability.text, VALUE_TEXT_SIZE, None))
+        content,
+        container(tinted_superscript(description, VALUE_TEXT_SIZE, None))
             .padding(6)
             .style(container::bordered_box),
         tooltip::Position::Top,
@@ -1045,22 +1169,33 @@ fn hinted_icon<'a>(ability: &forms::Ability, icons: &Icons<'_>) -> Element<'a, M
 }
 
 fn explained_ability<'a>(ability: &forms::Ability, icons: &Icons<'_>) -> Element<'a, Message> {
-    let mut block = Column::new().spacing(2).width(Length::Fill);
+    let heading = row![
+        icons.render(ability.icon, ability.fallback),
+        strong(ability.name, VALUE_TEXT_SIZE).color(CHIP_TEXT),
+    ]
+    .spacing(4)
+    .align_y(Vertical::Center);
 
-    block = block.push(
-        row![
-            icons.render(ability.icon, ability.fallback),
-            strong(ability.name, VALUE_TEXT_SIZE).color(CHIP_TEXT),
-        ]
-        .spacing(4)
-        .align_y(Vertical::Center),
-    );
+    let mut block = Column::new().spacing(2).width(Length::Fill).push(hinted(heading, &ability.text));
 
     for change in &ability.detail {
         block = block.push(change_row(change));
     }
 
     block.into()
+}
+
+fn strict_config(settings: &Settings) -> ScannerConfig {
+    let mut config = settings.scanner_config(None);
+    config.show_invalid_cats = false;
+
+    config
+}
+
+fn resolved<'a>(cats: &'a [CatEntry], id: u32, vfs: &Vfs, config: &ScannerConfig) -> Option<&'a CatEntry> {
+    let entry = cats.iter().find(|cat| cat.id == id)?;
+
+    cat_scanner::listable(vfs, entry, config).then_some(entry)
 }
 
 fn conjured(cats: &[CatEntry]) -> HashSet<u32> {
@@ -1142,6 +1277,10 @@ fn build_for<'a>(region: &str, builds: &'a [Build]) -> Option<&'a Build> {
     let needle = format!("battlecats{}", suffix);
 
     builds.iter().find(|build| build.label.ends_with(&needle))
+}
+
+fn top_form(cat: &CatEntry) -> usize {
+    (0..cat.forms.len()).rev().find(|slot| cat.forms[*slot]).unwrap_or(FIRST_FORM)
 }
 
 fn portrait_form(cat: &CatEntry, ultra: bool) -> usize {

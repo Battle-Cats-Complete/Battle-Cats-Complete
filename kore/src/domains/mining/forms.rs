@@ -71,6 +71,12 @@ fn shift(before: i32, after: i32) -> Option<String> {
     (percent != 0).then(|| format!("({}{}%)", if percent > 0 { "+" } else { "" }, percent))
 }
 
+fn drift(unit: AttrUnit, before: i32, after: i32) -> Option<String> {
+    let delta = after - before;
+
+    (delta != 0).then(|| format!("({}{})", if delta > 0 { "+" } else { "" }, measured(unit, delta)))
+}
+
 fn measured(unit: AttrUnit, amount: i32) -> String {
     match unit {
         AttrUnit::Percent => format!("{}%", amount),
@@ -90,6 +96,10 @@ fn stat_text(name: &'static str, formatter: fn(i32) -> String, value: i32) -> St
 }
 
 const RAW_FRAMES: &[&str] = &["Cooldown"];
+
+const PRESENCE: &str = "Active";
+
+const ABSENT: &str = "None";
 
 fn stat_label(name: &'static str, display: &'static str) -> &'static str {
     match name {
@@ -221,18 +231,27 @@ fn sort_abilities(subject: &Subject<'_>, before: &Entity, after: &Entity, diff: 
 
         let display = registry::get_display_def(pure.identity);
 
+        let (mut better, mut worse) = diverged(&held, &carried);
+        let (gained, lost) = figured(pure.identity, before, after);
+
+        better.extend(gained);
+        worse.extend(lost);
+
         if held.is_empty() {
-            diff.learned.extend(spoken(&new_text, pure.identity, &display, Vec::new()));
+            better.extend(worse);
+            diff.learned.extend(spoken(&new_text, pure.identity, &display, better));
             continue;
         }
 
         if carried.is_empty() {
-            diff.forgotten.extend(spoken(&old_text, pure.identity, &display, Vec::new()));
+            worse.extend(better);
+            diff.forgotten.extend(spoken(&old_text, pure.identity, &display, worse));
             continue;
         }
 
-
-        let (better, worse) = diverged(&held, &carried);
+        if better.is_empty() && worse.is_empty() {
+            continue;
+        }
 
         if !better.is_empty() {
             diff.learned.extend(spoken(&new_text, pure.identity, &display, better));
@@ -244,29 +263,104 @@ fn sort_abilities(subject: &Subject<'_>, before: &Entity, after: &Entity, diff: 
     }
 }
 
-fn diverged(held: &[Attribute], carried: &[Attribute]) -> (Vec<Change>, Vec<Change>) {
+fn figured(identity: Identity, before: &Entity, after: &Entity) -> (Vec<Change>, Vec<Change>) {
     let mut better = Vec::new();
     let mut worse = Vec::new();
 
-    for (label, value, unit) in carried {
-        let old = held.iter().find(|(key, _, _)| key == label).map_or(0, |(_, held, _)| comparable(*held));
-        let new = comparable(*value);
+    for figure in registry::get_figures(identity) {
+        let was = (figure.read)(before);
+        let now = (figure.read)(after);
+
+        if was == now {
+            continue;
+        }
+
+        let change = Change {
+            label: figure.label,
+            before: was.unwrap_or_else(|| ABSENT.to_string()),
+            after: now.unwrap_or_else(|| ABSENT.to_string()),
+            shift: None,
+        };
+
+        if (figure.weigh)(after) >= (figure.weigh)(before) {
+            better.push(change);
+        } else {
+            worse.push(change);
+        }
+    }
+
+    (better, worse)
+}
+
+fn diverged(held: &[Attribute], carried: &[Attribute]) -> (Vec<Change>, Vec<Change>) {
+    let mut better = Vec::new();
+    let mut worse = Vec::new();
+    let mut seen: Vec<&'static str> = Vec::new();
+
+    for (label, _, _) in carried.iter().chain(held.iter()) {
+        if *label == PRESENCE || seen.contains(label) {
+            continue;
+        }
+
+        seen.push(label);
+
+        let pick = |side: &[Attribute]| side.iter().find(|(key, _, _)| key == label).copied();
+        let (was, now) = (pick(held), pick(carried));
+
+        let old = was.map_or(0, |(_, value, _)| comparable(value));
+        let new = now.map_or(0, |(_, value, _)| comparable(value));
 
         if old == new {
             continue;
         }
 
+        let unit = now.or(was).map_or(AttrUnit::None, |(_, _, unit)| unit);
+
         let change = Change {
             label,
-            before: measured(*unit, old),
-            after: measured(*unit, new),
-            shift: shift(old, new),
+            before: measured(unit, old),
+            after: measured(unit, new),
+            shift: drift(unit, old, new),
         };
 
         if new > old { better.push(change) } else { worse.push(change) }
     }
 
-    (better, worse)
+    (collapse(better), collapse(worse))
+}
+
+fn collapse(mut changes: Vec<Change>) -> Vec<Change> {
+    let bounds: Vec<&'static str> = changes
+        .iter()
+        .filter_map(|change| change.label.strip_prefix("Min ").map(|_| change.label))
+        .collect();
+
+    for low in bounds {
+        let suffix = &low[4..];
+        let high = format!("Max {}", suffix);
+
+        let Some(paired) = changes.iter().find(|change| change.label == high) else {
+            continue;
+        };
+
+        let Some(base) = changes.iter().find(|change| change.label == low) else {
+            continue;
+        };
+
+        if base.before != paired.before || base.after != paired.after {
+            continue;
+        }
+
+        changes.retain(|change| change.label != high);
+
+        for change in &mut changes {
+            if change.label == low {
+                change.label = suffix;
+            }
+        }
+    }
+
+    changes
 }
 
 fn spoken(
@@ -332,12 +426,231 @@ mod tests {
         }
     }
 
+    // An ability attribute reports the ground it moved, in its own unit, the same way
+    // cat/game/talents.rs writes a talent's modifier.
+    #[test]
+    fn an_ability_attribute_reports_the_ground_it_moved() {
+        assert_eq!(drift(AttrUnit::Percent, 10, 20).as_deref(), Some("(+10%)"));
+        assert_eq!(drift(AttrUnit::Percent, 50, 30).as_deref(), Some("(-20%)"));
+        assert_eq!(drift(AttrUnit::Frames, 60, 120).as_deref(), Some("(+60f)"));
+        assert_eq!(drift(AttrUnit::None, 200, 100).as_deref(), Some("(-100)"));
+        assert_eq!(drift(AttrUnit::Range, 30, 30), None);
+    }
+
+    // A gained ability starts at nothing, which a proportion cannot express at all.
+    #[test]
+    fn a_gained_ability_still_reports_its_whole_value() {
+        assert_eq!(drift(AttrUnit::Frames, 0, 120).as_deref(), Some("(+120f)"));
+        assert_eq!(drift(AttrUnit::Percent, 0, 30).as_deref(), Some("(+30%)"));
+    }
+
     #[test]
     fn a_shift_reads_as_a_percentage_of_the_value_it_left() {
         assert_eq!(shift(100, 150).as_deref(), Some("(+50%)"));
         assert_eq!(shift(150, 100).as_deref(), Some("(-33%)"));
         assert_eq!(shift(100, 100), None);
         assert_eq!(shift(0, 100), None, "there is no percentage away from nothing");
+    }
+
+    // Omni Strike widens its band between forms and nothing else reports it.
+    #[test]
+    fn a_widened_band_reads_as_a_gain_under_its_own_ability() {
+        let before = Entity { long_distance_1_anchor: 200, long_distance_1_span: 400, ..Default::default() };
+        let after = Entity { long_distance_1_span: 600, ..before.clone() };
+
+        let (better, worse) = figured(Identity::OmniStrike, &before, &after);
+        let band = better.iter().find(|change| change.label == "Effective Range").expect("the band");
+
+        assert_eq!((band.before.as_str(), band.after.as_str()), ("200~600", "200~800"));
+        assert!(worse.is_empty());
+    }
+
+    // "VS Base" is where the unit stands relative to the opposing base, the same figure
+    // fmt_effective_range prints as "Stands at N Range relative to Enemy Base".
+    #[test]
+    fn the_base_reading_is_where_the_unit_stands() {
+        let before = Entity { standing_range: 350, long_distance_1_anchor: 200, long_distance_1_span: 400, ..Default::default() };
+        let after = Entity { long_distance_1_anchor: 300, ..before.clone() };
+
+        let (better, _) = figured(Identity::OmniStrike, &before, &after);
+        let stands = better.iter().find(|change| change.label == "VS Base").expect("the base reading");
+
+        assert_eq!((stands.before.as_str(), stands.after.as_str()), ("200", "300"));
+    }
+
+    // Without an anchor of its own the unit stands at its ordinary range.
+    #[test]
+    fn an_anchorless_band_stands_at_the_units_own_range() {
+        let before = Entity { standing_range: 350, long_distance_1_span: 400, ..Default::default() };
+        let after = Entity { standing_range: 450, ..before.clone() };
+
+        let (better, _) = figured(Identity::LongDistance, &before, &after);
+        let stands = better.iter().find(|change| change.label == "VS Base").expect("the base reading");
+
+        assert_eq!((stands.before.as_str(), stands.after.as_str()), ("350", "450"));
+    }
+
+    // A form without a band still attacks somewhere, so the reading is its ordinary area.
+    #[test]
+    fn a_gained_band_reads_from_the_ordinary_attack_area() {
+        let before = Entity { standing_range: 350, ..Default::default() };
+        let after = Entity { long_distance_1_anchor: 200, long_distance_1_span: -400, ..before.clone() };
+
+        let (better, _) = figured(Identity::OmniStrike, &before, &after);
+        let band = better.iter().find(|change| change.label == "Effective Range").expect("the band");
+
+        assert_eq!((band.before.as_str(), band.after.as_str()), ("-320~350", "-200~200"));
+    }
+
+    // Losing multi-hit still leaves one hit, and its readings say what is left.
+    #[test]
+    fn a_lost_multi_hit_reads_down_to_its_single_hit() {
+        let before = Entity {
+            attack_1_damage: 800,
+            attack_2_damage: 1200,
+            attack_1_abilities: 1,
+            attack_2_abilities: 1,
+            ..Default::default()
+        };
+        let after = Entity { attack_1_damage: 1400, attack_2_damage: 0, attack_2_abilities: 0, ..before.clone() };
+
+        let (_, worse) = figured(Identity::MultiHit, &before, &after);
+        let damage = worse.iter().find(|change| change.label == "Damage split").expect("the damage split");
+        let carriers = worse.iter().find(|change| change.label == "Ability split").expect("the ability split");
+
+        assert_eq!((damage.before.as_str(), damage.after.as_str()), ("800 / 1200", "1400"));
+        assert_eq!((carriers.before.as_str(), carriers.after.as_str()), ("True / True", "True"));
+    }
+
+    #[test]
+    fn a_multi_hit_split_is_carried_by_its_own_ability() {
+        let before = Entity { attack_1_damage: 800, attack_2_damage: 1200, ..Default::default() };
+        let after = Entity { attack_3_damage: 600, ..before.clone() };
+
+        let (better, _) = figured(Identity::MultiHit, &before, &after);
+        let damage = better.iter().find(|change| change.label == "Damage split").expect("the damage split");
+
+        assert_eq!((damage.before.as_str(), damage.after.as_str()), ("800 / 1200", "800 / 1200 / 600"));
+    }
+
+    // Each split is its own row, and a split that held still is not reported at all.
+    #[test]
+    fn only_the_splits_that_moved_are_reported() {
+        let before = Entity {
+            attack_1_damage: 800,
+            attack_2_damage: 1200,
+            time_until_attack_1: 20,
+            time_until_attack_2: 40,
+            attack_1_abilities: 1,
+            ..Default::default()
+        };
+        let after = Entity { attack_2_abilities: 1, time_until_attack_2: 30, ..before.clone() };
+
+        let (better, worse) = figured(Identity::MultiHit, &before, &after);
+        let labels: Vec<&str> = better.iter().chain(worse.iter()).map(|change| change.label).collect();
+
+        assert!(!labels.contains(&"Damage split"), "the damage never moved");
+        assert!(labels.contains(&"Timing split"));
+        assert!(labels.contains(&"Ability split"));
+    }
+
+    // A hit landing sooner is an improvement even though the number went down.
+    #[test]
+    fn a_quicker_hit_reads_as_a_gain() {
+        let before = Entity { attack_1_damage: 800, attack_2_damage: 1200, time_until_attack_2: 40, ..Default::default() };
+        let after = Entity { time_until_attack_2: 30, ..before.clone() };
+
+        let (better, worse) = figured(Identity::MultiHit, &before, &after);
+
+        assert!(better.iter().any(|change| change.label == "Timing split"));
+        assert!(worse.is_empty());
+    }
+
+    // Everything else says all it has to say through its attributes.
+    #[test]
+    fn an_ordinary_ability_publishes_no_extra_figures() {
+        let (better, worse) = figured(Identity::Weaken, &Entity::default(), &Entity::default());
+
+        assert!(better.is_empty() && worse.is_empty());
+    }
+
+    // Single Attack and friends publish nothing but a presence flag; which panel holds
+    // them already says that, and "Active 0 -> 1 (+100%)" says nothing at all.
+    #[test]
+    fn a_bare_presence_flag_never_reaches_a_card() {
+        use nyanko::combat::AttrValue;
+
+        let carried = [(PRESENCE, AttrValue::Finite(1), AttrUnit::None)];
+        let (better, worse) = diverged(&[], &carried);
+
+        assert!(better.is_empty() && worse.is_empty());
+    }
+
+    // A surge whose band never widens publishes the same number twice; one "Range" says it.
+    #[test]
+    fn a_matching_min_and_max_collapse_into_one_reading() {
+        use nyanko::combat::AttrValue;
+
+        let held = [
+            ("Min Range", AttrValue::Finite(200), AttrUnit::Range),
+            ("Max Range", AttrValue::Finite(200), AttrUnit::Range),
+        ];
+        let carried = [
+            ("Min Range", AttrValue::Finite(400), AttrUnit::Range),
+            ("Max Range", AttrValue::Finite(400), AttrUnit::Range),
+        ];
+
+        let (better, _) = diverged(&held, &carried);
+
+        assert_eq!(better.len(), 1);
+        assert_eq!(better[0].label, "Range");
+        assert_eq!((better[0].before.as_str(), better[0].after.as_str()), ("200", "400"));
+    }
+
+    #[test]
+    fn a_genuine_span_keeps_both_of_its_bounds() {
+        use nyanko::combat::AttrValue;
+
+        let held = [
+            ("Min Range", AttrValue::Finite(200), AttrUnit::Range),
+            ("Max Range", AttrValue::Finite(600), AttrUnit::Range),
+        ];
+        let carried = [
+            ("Min Range", AttrValue::Finite(300), AttrUnit::Range),
+            ("Max Range", AttrValue::Finite(700), AttrUnit::Range),
+        ];
+
+        let (better, _) = diverged(&held, &carried);
+        let labels: Vec<&str> = better.iter().map(|change| change.label).collect();
+
+        assert_eq!(labels, vec!["Min Range", "Max Range"]);
+    }
+
+    // A newly learned ability has nothing on its left, so its values read from the
+    // default rather than showing an empty card.
+    #[test]
+    fn a_learned_ability_reads_from_its_defaults() {
+        use nyanko::combat::AttrValue;
+
+        let carried = [("Chance", AttrValue::Finite(30), AttrUnit::Percent)];
+        let (better, worse) = diverged(&[], &carried);
+
+        assert_eq!(better.len(), 1);
+        assert_eq!((better[0].before.as_str(), better[0].after.as_str()), ("0%", "30%"));
+        assert!(worse.is_empty());
+    }
+
+    // A forgotten ability is the mirror: its values fall back to the default.
+    #[test]
+    fn a_forgotten_ability_reads_down_to_its_defaults() {
+        use nyanko::combat::AttrValue;
+
+        let held = [("Duration", AttrValue::Finite(60), AttrUnit::Frames)];
+        let (better, worse) = diverged(&held, &[]);
+
+        assert!(better.is_empty());
+        assert_eq!(worse.len(), 1);
+        assert_eq!((worse[0].before.as_str(), worse[0].after.as_str()), ("60f", "0f"));
     }
 
     // An ability whose values move both ways belongs on both sides, carrying only the
@@ -410,6 +723,7 @@ mod tests {
     fn delta(rows: Vec<RowDelta>) -> FileDelta {
         FileDelta {
             file: "unitbuy.csv".to_string(),
+            from: "en".to_string(),
             region: "en".to_string(),
             status: Status::Changed,
             rows_before: 2,

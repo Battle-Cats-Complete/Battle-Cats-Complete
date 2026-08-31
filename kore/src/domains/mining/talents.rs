@@ -160,6 +160,7 @@ mod tests {
     fn changed(before: Option<&str>, after: &str) -> Report {
         read(&FileDelta {
             file: "SkillAcquisition.csv".to_string(),
+            from: "en".to_string(),
             region: "en".to_string(),
             status: Status::Changed,
             rows_before: 1,

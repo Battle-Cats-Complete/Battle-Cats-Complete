@@ -591,8 +591,13 @@ pub(crate) fn run_universal_import(
             let sample = (!already_on_disk && mining::mineable(&resolved_filename)).then(|| {
                 let previous = fs::read(&target_destination_path).ok();
 
+                let held = ledger
+                    .placement(&resolved_filename)
+                    .map_or("", |placement| placement.record.winner.as_str());
+
                 mining::delta(
                     &resolved_filename,
+                    held,
                     &winning_candidate.task.region_code,
                     previous.as_deref(),
                     &winning_candidate.clean_data,
@@ -654,7 +659,7 @@ pub(crate) fn run_universal_import(
     }
 
     if mining::commit(ore, detected_builds) {
-        emit(JobEvent::Log("Captured what this import changed. Open the Mining page to read it.".to_string()));
+        emit(JobEvent::Log("This import moved game data. Open the Mining page to read what changed.".to_string()));
     }
 
     absorb_pack_hashes(&mut ledger, current_pack_hashes);

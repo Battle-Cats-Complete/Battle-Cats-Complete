@@ -273,6 +273,129 @@ fn fmt_sage_trait(param: &Param) -> String {
 }
 
 
+#[derive(Clone, Copy)]
+pub struct Figure {
+    pub label: &'static str,
+    pub read: fn(&Entity) -> Option<String>,
+    pub weigh: fn(&Entity) -> i32,
+}
+
+const ATTACK_BAND: Figure = Figure { label: "Effective Range", read: read_band, weigh: weigh_band };
+
+const BASE_OFFSET: Figure = Figure { label: "VS Base", read: read_offset, weigh: weigh_offset };
+
+const DAMAGE_SPLIT: Figure = Figure { label: "Damage split", read: read_damage, weigh: weigh_damage };
+
+const TIMING_SPLIT: Figure = Figure { label: "Timing split", read: read_timing, weigh: weigh_timing };
+
+const ABILITY_SPLIT: Figure = Figure { label: "Ability split",
+    read: read_carriers, weigh: weigh_carriers };
+
+pub fn get_figures(identity: Identity) -> &'static [Figure] {
+    match identity {
+        Identity::OmniStrike | Identity::LongDistance => &const { [ATTACK_BAND, BASE_OFFSET] },
+        Identity::MultiHit => &const { [DAMAGE_SPLIT, TIMING_SPLIT, ABILITY_SPLIT] },
+        _ => &[],
+    }
+}
+
+fn reach_slots(stats: &Entity) -> [(bool, i32, i32); 3] {
+    [
+        (true, stats.long_distance_1_anchor, stats.long_distance_1_span),
+        (stats.long_distance_2_flag > 0, stats.long_distance_2_anchor, stats.long_distance_2_span),
+        (stats.long_distance_3_flag > 0, stats.long_distance_3_anchor, stats.long_distance_3_span),
+    ]
+}
+
+fn read_band(stats: &Entity) -> Option<String> {
+    let reach: Vec<String> = reach_slots(stats)
+        .into_iter()
+        .filter(|(active, anchor, span)| *active && (*anchor != 0 || *span != 0))
+        .map(|(_, anchor, span)| {
+            let edge = anchor + span;
+
+            format!("{}~{}", anchor.min(edge), anchor.max(edge))
+        })
+        .collect();
+
+    if reach.is_empty() {
+        let near = pick(stats.faction, -320, -stats.hitbox_width);
+
+        return Some(format!("{}~{}", near, stats.standing_range));
+    }
+
+    Some(reach.join(", "))
+}
+
+fn anchor_range(stats: &Entity) -> i32 {
+    if stats.long_distance_1_anchor != 0 {
+        return stats.long_distance_1_anchor;
+    }
+
+    stats.standing_range
+}
+
+fn read_offset(stats: &Entity) -> Option<String> {
+    Some(anchor_range(stats).to_string())
+}
+
+fn weigh_offset(stats: &Entity) -> i32 {
+    anchor_range(stats)
+}
+
+fn weigh_band(stats: &Entity) -> i32 {
+    reach_slots(stats).into_iter().filter(|(active, _, _)| *active).map(|(_, _, span)| span.abs()).sum()
+}
+
+fn hits<T>(stats: &Entity, read: impl Fn(usize) -> T) -> Vec<T> {
+    let landed = if stats.attack_3_damage > 0 {
+        3
+    } else if stats.attack_2_damage > 0 {
+        2
+    } else {
+        1
+    };
+
+    (0..landed).map(read).collect()
+}
+
+fn joined(parts: Vec<String>) -> Option<String> {
+    (!parts.is_empty()).then(|| parts.join(" / "))
+}
+
+fn read_damage(stats: &Entity) -> Option<String> {
+    let damage = [stats.attack_1_damage, stats.attack_2_damage, stats.attack_3_damage];
+
+    joined(hits(stats, |hit| damage[hit].to_string()))
+}
+
+fn weigh_damage(stats: &Entity) -> i32 {
+    stats.attack_1_damage + stats.attack_2_damage + stats.attack_3_damage
+}
+
+fn read_timing(stats: &Entity) -> Option<String> {
+    let timing = [stats.time_until_attack_1, stats.time_until_attack_2, stats.time_until_attack_3];
+
+    joined(hits(stats, |hit| format!("{}f", timing[hit])))
+}
+
+fn weigh_timing(stats: &Entity) -> i32 {
+    -(stats.time_until_attack_1 + stats.time_until_attack_2 + stats.time_until_attack_3)
+}
+
+fn read_carriers(stats: &Entity) -> Option<String> {
+    let carries = [stats.attack_1_abilities, stats.attack_2_abilities, stats.attack_3_abilities];
+
+    joined(hits(stats, |hit| if carries[hit] > 0 { "True".to_string() } else { "False".to_string() }))
+}
+
+fn weigh_carriers(stats: &Entity) -> i32 {
+    [stats.attack_1_abilities, stats.attack_2_abilities, stats.attack_3_abilities]
+        .iter()
+        .filter(|carries| **carries > 0)
+        .count() as i32
+}
+
 pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
     match identity {
         Identity::TraitRed => AbilityDisplayDef {
