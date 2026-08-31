@@ -1134,6 +1134,16 @@ impl BattleCatsApp {
 
                 Task::batch([task, packs, self.rebuild_content()])
             }
+            Message::Mining(mining::Message::CreateBase) => {
+                self.mining_state.capture_base(&self.vault.vfs);
+
+                Task::none()
+            }
+            Message::Mining(mining::Message::CreateDiff) => {
+                self.mining_state.craft_diff(&self.cat_state.data.cats, &self.vault.vfs, &self.settings);
+
+                Task::none()
+            }
             Message::Mining(mining::Message::OpenUnit(cat_id)) => {
                 let select = self.update(Message::Cat(cat::Message::SelectCat(cat_id)));
 

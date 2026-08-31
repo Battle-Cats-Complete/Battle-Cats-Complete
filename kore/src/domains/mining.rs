@@ -6,6 +6,7 @@ pub mod units;
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -13,11 +14,14 @@ use tracing::warn;
 
 use crate::common::dirs;
 use crate::common::io::json;
+use crate::Vfs;
 use crate::domains::cat::files as cat_files;
 
 const FILE: &str = "ore.json";
 
 const BASE: &str = "base.json";
+
+const SNAPSHOT: &str = "base";
 
 const SCHEMA: u32 = 2;
 
@@ -128,9 +132,95 @@ pub fn load() -> Option<Ore> {
     json::load_state::<Ore>(FILE).filter(|ore| ore.schema == SCHEMA)
 }
 
+fn snapshot_dir() -> Option<PathBuf> {
+    let path = dirs::state()?.join(SNAPSHOT);
+
+    fs::create_dir_all(&path).ok()?;
+
+    Some(path)
+}
+
+fn stats_rows(vfs: &Vfs) -> usize {
+    vfs.find(cat_files::UNIT_BUY)
+        .and_then(|path| fs::read_to_string(path).ok())
+        .map_or(0, |body| body.lines().filter(|line| !line.trim().is_empty()).count())
+}
+
+fn on_disk(vfs: &Vfs) -> Vec<(String, PathBuf)> {
+    let mut found = Vec::new();
+
+    for name in [cat_files::UNIT_BUY, cat_files::SKILL_ACQUISITION] {
+        if let Some(path) = vfs.find(name) {
+            found.push((name.to_string(), path));
+        }
+    }
+
+    for id in 0..stats_rows(vfs) as u32 {
+        let name = cat_files::stats_file(id);
+
+        if let Some(path) = vfs.find(&name) {
+            found.push((name, path));
+        }
+    }
+
+    found
+}
+
+pub fn has_base() -> bool {
+    snapshot_dir().and_then(|path| fs::read_dir(path).ok()).is_some_and(|mut entries| entries.next().is_some())
+}
+
+pub fn capturable(vfs: &Vfs) -> bool {
+    vfs.find(cat_files::UNIT_BUY).is_some()
+}
+
+pub fn capture(vfs: &Vfs) -> usize {
+    let Some(target) = snapshot_dir() else {
+        return 0;
+    };
+
+    let mut kept = 0;
+
+    for (name, path) in on_disk(vfs) {
+        if fs::copy(&path, target.join(&name)).is_ok() {
+            kept += 1;
+        }
+    }
+
+    kept
+}
+
+pub fn craft(vfs: &Vfs) -> bool {
+    let Some(source) = snapshot_dir() else {
+        return false;
+    };
+
+    let mut files = Vec::new();
+
+    for (name, path) in on_disk(vfs) {
+        let held = source.join(&name);
+
+        let (Ok(before), Ok(after)) = (fs::read(&held), fs::read(&path)) else {
+            continue;
+        };
+
+        files.extend(delta(&name, "", "", Some(&before), &after));
+    }
+
+    let recorded = commit(files, Vec::new());
+
+    capture(vfs);
+
+    recorded
+}
+
 pub fn clear() {
     for name in [FILE, BASE] {
         drop_state(name);
+    }
+
+    if let Some(path) = snapshot_dir() {
+        let _ = fs::remove_dir_all(path);
     }
 }
 

@@ -12,12 +12,12 @@ use nyanko::cat::unit::{LevelCurve, TalentCost};
 use nyanko::combat::Entity;
 
 use kore::common::formats::SpriteSheet as CoreSpriteSheet;
-use kore::common::region::Region;
 use kore::domains::cat::files as cat_files;
 use kore::domains::cat::game::stats as cat_stats;
 use kore::domains::cat::game::talents as talent_logic;
 use kore::domains::cat::scanner::{self as cat_scanner, CatEntry};
 use kore::domains::mining::{self, changes, forms, levels, talents, units, Build, Ore, Status};
+
 use kore::domains::settings::{ScannerConfig, Settings};
 use kore::systems::combat::registry::{AbilityIcon, STAT_RARITY};
 use kore::common::context::GlobalContext;
@@ -72,6 +72,22 @@ const UNIT_BOX_HEIGHT: f32 = PORTRAIT_SIZE + BOX_PADDING * 2.0;
 const HEADER_BOX_HEIGHT: f32 = TALENT_ICON_SIZE + BOX_PADDING * 2.0;
 const VALUE_LABEL_GAP: f32 = 8.0;
 const META_LABEL_WIDTH: f32 = 110.0;
+const EMPTY_TEXT_SIZE: f32 = 17.0;
+const TABLE_CELL_WIDTH: f32 = 190.0;
+const TABLE_ROW_HEIGHT: f32 = 26.0;
+const SECTION_TITLE_SIZE: f32 = 18.0;
+const TABLE_GAP: f32 = 6.0;
+const TALLY_LABEL_WIDTH: f32 = 150.0;
+const TALLY_VALUE_WIDTH: f32 = 60.0;
+const TALLY_PADDING: f32 = 8.0;
+const TALLY_TABLE_WIDTH: f32 = TALLY_LABEL_WIDTH + TALLY_PADDING * 2.0 + TALLY_VALUE_WIDTH;
+
+const REGIONS: &[(&str, &str)] = &[
+    ("Global", "battlecatsen"),
+    ("Japan", "battlecats"),
+    ("Taiwan", "battlecatstw"),
+    ("Korea", "battlecatskr"),
+];
 const META_TEXT_SIZE: f32 = 14.0;
 const NOTICE_TEXT_SIZE: f32 = 15.0;
 
@@ -103,6 +119,8 @@ const TABS: &[Tab] = &[Tab::Meta, Tab::Cats];
 #[derive(Clone)]
 pub enum Message {
     Select(Tab),
+    CreateBase,
+    CreateDiff,
     LevelChanged(u32, String),
     OpenTalents(u32, usize),
     OpenForm(u32, usize),
@@ -114,6 +132,8 @@ impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Select(tab) => write!(f, "Select({:?})", tab),
+            Self::CreateBase => write!(f, "CreateBase"),
+            Self::CreateDiff => write!(f, "CreateDiff"),
             Self::LevelChanged(cat, value) => write!(f, "LevelChanged({}, {})", cat, value),
             Self::OpenTalents(cat, form) => write!(f, "OpenTalents({}, {})", cat, form),
             Self::OpenForm(cat, form) => write!(f, "OpenForm({}, {})", cat, form),
@@ -249,6 +269,17 @@ impl State {
         }
     }
 
+    pub(crate) fn capture_base(&mut self, vfs: &Vfs) {
+        mining::capture(vfs);
+        self.reread();
+    }
+
+    pub(crate) fn craft_diff(&mut self, cats: &[CatEntry], vfs: &Vfs, settings: &Settings) {
+        mining::craft(vfs);
+        self.reconcile(cats, vfs, settings);
+        self.reread();
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Select(tab) => {
@@ -261,7 +292,7 @@ impl State {
                     self.levels.insert(cat_id, value);
                 }
             }
-            Message::OpenTalents(..) | Message::OpenForm(..) | Message::OpenUnit(..) => {}
+            Message::CreateBase | Message::CreateDiff | Message::OpenTalents(..) | Message::OpenForm(..) | Message::OpenUnit(..) => {}
             Message::Img015Loaded(generation, index, sheet) => {
                 if generation == self.sheet_generation
                     && let Some(slot) = self.img015_sheets.get_mut(index)
@@ -349,7 +380,7 @@ impl State {
         window: Size,
     ) -> Element<'a, Message> {
         let body = match self.tab {
-            Tab::Meta => self.view_meta(),
+            Tab::Meta => self.view_meta(cats, &global.vault.vfs, settings),
             Tab::Cats => self.view_cats(cats, global, settings, window.width - SIDEBAR_WIDTH),
         };
 
@@ -390,47 +421,119 @@ impl State {
             .into()
     }
 
-    fn view_meta(&self) -> Element<'_, Message> {
+    fn view_meta<'a>(&'a self, cats: &'a [CatEntry], vfs: &Vfs, settings: &Settings) -> Element<'a, Message> {
         let Some(ore) = &self.ore else {
-            return notice("No base available, import game data to create a base");
+            return self.view_empty(
+                "No imported base to reference for a future diff",
+                "Please import or click the \"Create Base\" button below",
+                mining::capturable(vfs).then_some(("Create Base", Message::CreateBase)),
+            );
         };
 
-        let baseline = self.report.as_ref().is_some_and(|report| report.status == Status::Baseline);
-
-        if baseline || ore.files.is_empty() {
-            return notice("No ore available, import a game data to see its diff");
-        }
-
-        let mut rows = vec![("Captured", ore.age().map_or_else(|| "just now".to_string(), ago))];
-
-        rows.extend(version_rows(ore));
-
-        if let Some(report) = &self.report {
-            rows.push(("Source", source_line(&report.region, &ore.after)));
-
-            if !report.dropped.is_empty() {
-                rows.push(("Units dropped", report.dropped.len().to_string()));
-            }
-
-            if report.unreadable > 0 {
-                rows.push(("Rows unread", report.unreadable.to_string()));
-            }
-        }
-
-        let mut table = Column::new().spacing(6);
-
-        for (label, value) in rows {
-            table = table.push(
-                row![
-                    strong(label, META_TEXT_SIZE).width(Length::Fixed(META_LABEL_WIDTH)),
-                    plain(value, META_TEXT_SIZE),
-                ]
-                .spacing(VALUE_LABEL_GAP)
-                .align_y(Vertical::Center),
+        if !self.has_finds() {
+            return self.view_empty(
+                "Base loaded, but no diff to compare against it",
+                "Import an update or click the \"Create Diff\" button below",
+                (mining::has_base() && mining::capturable(vfs)).then_some(("Create Diff", Message::CreateDiff)),
             );
         }
 
-        table.width(Length::Shrink).into()
+        let captured = ore.age().map_or_else(|| "just now".to_string(), ago);
+
+        let body = column![
+            strong("Information", SECTION_TITLE_SIZE),
+            row![strong("Captured", META_TEXT_SIZE).width(Length::Fixed(META_LABEL_WIDTH)), plain(captured, META_TEXT_SIZE)]
+                .spacing(VALUE_LABEL_GAP)
+                .align_y(Vertical::Center),
+            Space::new().height(TABLE_GAP),
+            version_table(ore),
+            Space::new().height(SECTION_SPACING),
+            strong("Summary", SECTION_TITLE_SIZE),
+            Space::new().height(TABLE_GAP),
+            self.view_tally(cats, vfs, settings),
+        ]
+        .spacing(8)
+        .width(Length::Shrink);
+
+        body.into()
+    }
+
+    fn view_empty<'a>(
+        &'a self,
+        headline: &'a str,
+        hint: &'a str,
+        action: Option<(&'a str, Message)>,
+    ) -> Element<'a, Message> {
+        let mut body = Column::new().spacing(10).align_x(Horizontal::Center);
+
+        body = body.push(plain(headline, EMPTY_TEXT_SIZE).align_x(Horizontal::Center));
+
+        if let Some((label, message)) = action {
+            body = body.push(plain(hint, EMPTY_TEXT_SIZE).align_x(Horizontal::Center));
+            body = body.push(
+                button(theme::button_label(label).size(TAB_TEXT_SIZE))
+                    .padding([6, 16])
+                    .style(theme::primary_button)
+                    .on_press(message),
+            );
+        }
+
+        container(body).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).center_y(Length::Fill).into()
+    }
+
+    fn view_tally<'a>(&'a self, cats: &'a [CatEntry], vfs: &Vfs, settings: &Settings) -> Element<'a, Message> {
+        let strict = strict_config(settings);
+
+        let changed = self
+            .changes
+            .iter()
+            .filter(|entry| !self.arrived(entry.cat_id) && !self.unlocks(entry.cat_id, entry.form))
+            .filter(|entry| {
+                resolved(cats, entry.cat_id, vfs, &strict)
+                    .is_some_and(|cat| cat.forms.get(entry.form).copied().unwrap_or(false))
+            })
+            .count();
+
+        let forms = |slot: usize| {
+            self.forms
+                .iter()
+                .filter(|entry| entry.form == slot && !self.arrived(entry.cat_id))
+                .filter(|entry| resolved(cats, entry.cat_id, vfs, &strict).is_some())
+                .count()
+        };
+
+        let talents = |ultra: bool| {
+            self.report.as_ref().map_or(0, |report| {
+                report
+                    .finds
+                    .iter()
+                    .filter(|find| find.gained.iter().any(|gain| gain.ultra == ultra))
+                    .count()
+            })
+        };
+
+        let tally = [
+            ("New Count", self.fresh_units(cats, vfs, settings).len()),
+            ("Changed Count", changed),
+            ("True Form Count", forms(forms::TRUE_FORM)),
+            ("Ultra Form Count", forms(forms::ULTRA_FORM)),
+            ("Talent Count", talents(false)),
+            ("Ultra Talent Count", talents(true)),
+        ];
+
+        let header = container(
+            theme::table_cell_text("Cats", Length::Fixed(TALLY_TABLE_WIDTH)).size(META_TEXT_SIZE),
+        )
+        .center_y(Length::Fixed(TABLE_ROW_HEIGHT))
+        .style(theme::zebra_table_header);
+
+        let mut table = Column::new().push(header).width(Length::Shrink);
+
+        for (index, (label, count)) in tally.into_iter().enumerate() {
+            table = table.push(row![tally_label(label, index), sized_cell(count, TALLY_VALUE_WIDTH, index)]);
+        }
+
+        table.into()
     }
 
     fn view_cats<'a>(
@@ -1236,47 +1339,50 @@ fn talent_rank(find: &talents::Find) -> u8 {
     }
 }
 
-fn version_rows(ore: &Ore) -> Vec<(&'static str, String)> {
-    if ore.after.is_empty() {
-        return ore
-            .before
-            .iter()
-            .map(|build| ("Base build", format!("{}  {} ({})", build.label, build.name, build.code)))
-            .collect();
+fn version_table<'a>(ore: &Ore) -> Element<'a, Message> {
+    let mut stack = Column::new().spacing(TABLE_GAP).width(Length::Shrink);
+
+    for (label, suffix) in REGIONS {
+        let Some(build) = build_in(ore, suffix) else {
+            continue;
+        };
+
+        let header = container(theme::table_cell_text(*label, Length::Fixed(TABLE_CELL_WIDTH)).size(META_TEXT_SIZE))
+            .center_y(Length::Fixed(TABLE_ROW_HEIGHT))
+            .style(theme::zebra_table_header);
+
+        stack = stack.push(column![
+            header,
+            zebra_cell(&build.label, 0),
+            zebra_cell(build.code, 1),
+            zebra_cell(format!("v{}", build.name), 2),
+        ]);
     }
 
-    ore.after
-        .iter()
-        .map(|build| {
-            let carried = ore.before.iter().find(|held| held.label == build.label);
-
-            let reading = match carried {
-                Some(carried) if carried.name != build.name => {
-                    format!("{}  {} -> {} ({})", build.label, carried.name, build.name, build.code)
-                }
-                _ => format!("{}  {} ({})", build.label, build.name, build.code),
-            };
-
-            ("Version", reading)
-        })
-        .collect()
+    stack.into()
 }
 
-fn source_line(region: &str, builds: &[Build]) -> String {
-    let name = region_name(region);
-
-    build_for(region, builds).map_or_else(|| name.to_string(), |build| format!("{} v{}", name, build.name))
+fn zebra_cell<'a>(body: impl ToString, index: usize) -> Element<'a, Message> {
+    sized_cell(body, TABLE_CELL_WIDTH, index)
 }
 
-fn build_for<'a>(region: &str, builds: &'a [Build]) -> Option<&'a Build> {
-    if builds.len() == 1 {
-        return builds.first();
-    }
+fn sized_cell<'a>(body: impl ToString, width: f32, index: usize) -> Element<'a, Message> {
+    container(theme::table_cell_text(body.to_string(), Length::Fixed(width)).size(META_TEXT_SIZE))
+        .center_y(Length::Fixed(TABLE_ROW_HEIGHT))
+        .style(move |theme: &Theme| theme::zebra_table_row(theme, index))
+        .into()
+}
 
-    let suffix = region.parse::<Region>().ok()?.metadata().package_suffix;
-    let needle = format!("battlecats{}", suffix);
+fn tally_label<'a>(body: &'a str, index: usize) -> Element<'a, Message> {
+    container(plain(body, META_TEXT_SIZE).width(Length::Fixed(TALLY_LABEL_WIDTH)))
+        .padding([0, TALLY_PADDING as u16])
+        .center_y(Length::Fixed(TABLE_ROW_HEIGHT))
+        .style(move |theme: &Theme| theme::zebra_table_row(theme, index))
+        .into()
+}
 
-    builds.iter().find(|build| build.label.ends_with(&needle))
+fn build_in<'a>(ore: &'a Ore, suffix: &str) -> Option<&'a Build> {
+    ore.after.iter().chain(ore.before.iter()).find(|build| build.label.ends_with(suffix))
 }
 
 fn top_form(cat: &CatEntry) -> usize {
@@ -1291,10 +1397,6 @@ fn portrait_form(cat: &CatEntry, ultra: bool) -> usize {
         .find(|&form| cat.forms.get(form).copied().unwrap_or(false))
         .or_else(|| (0..cat.forms.len()).rev().find(|&form| cat.forms[form]))
         .unwrap_or(0)
-}
-
-fn region_name(code: &str) -> &'static str {
-    code.parse::<Region>().map_or("loose files", |region| region.metadata().display_name)
 }
 
 fn ago(age: Duration) -> String {
@@ -1325,47 +1427,24 @@ mod tests {
         Ore { schema: 2, stamp: 0, before, after, files: Vec::new() }
     }
 
+    // Each column names one region, and Japan's package must not swallow the others.
+    #[test]
+    fn a_column_finds_only_its_own_regions_build() {
+        let held = ore(
+            Vec::new(),
+            vec![build("jp.co.ponos.battlecatsen", "15.5.0", 1_505_000), build("jp.co.ponos.battlecats", "15.6.0", 1_506_000)],
+        );
+
+        assert_eq!(build_in(&held, "battlecatsen").map(|b| b.code), Some(1_505_000));
+        assert_eq!(build_in(&held, "battlecats").map(|b| b.code), Some(1_506_000));
+        assert!(build_in(&held, "battlecatskr").is_none());
+    }
+
     #[test]
     fn the_age_line_reads_as_a_human_would_say_it() {
         assert_eq!(ago(Duration::from_secs(20)), "moments ago");
         assert_eq!(ago(Duration::from_secs(60)), "1 minute ago");
         assert_eq!(ago(Duration::from_secs(7200)), "2 hours ago");
-    }
-
-    #[test]
-    fn a_version_row_pairs_the_old_build_with_the_new_one_by_package() {
-        let rows = version_rows(&ore(
-            vec![build("jp.co.ponos.battlecatsen", "15.5.0", 155000)],
-            vec![build("jp.co.ponos.battlecatsen", "15.6.0", 156000)],
-        ));
-
-        assert_eq!(rows[0].1, "jp.co.ponos.battlecatsen  15.5.0 -> 15.6.0 (156000)");
-    }
-
-    // A first import has nothing to pair against, and an unrelated package must not pair either.
-    #[test]
-    fn an_unpaired_build_reads_as_a_single_version() {
-        let rows = version_rows(&ore(Vec::new(), vec![build("battlecats", "15.6.0", 156000)]));
-        assert_eq!(rows[0].1, "battlecats  15.6.0 (156000)");
-
-        let rows = version_rows(&ore(
-            vec![build("jp.co.ponos.battlecats", "15.5.0", 155000)],
-            vec![build("jp.co.ponos.battlecatsen", "15.6.0", 156000)],
-        ));
-        assert_eq!(rows[0].1, "jp.co.ponos.battlecatsen  15.6.0 (156000)");
-    }
-
-    // A multi-region import must name the build that actually served the winning file.
-    #[test]
-    fn the_source_names_the_build_matching_its_own_region() {
-        let builds = vec![
-            build("jp.co.ponos.battlecatsen", "15.5.0", 155000),
-            build("jp.co.ponos.battlecats", "15.6.0", 156000),
-        ];
-
-        assert_eq!(source_line("ja", &builds), "Japan v15.6.0");
-        assert_eq!(source_line("en", &builds), "Global v15.5.0");
-        assert_eq!(source_line("--", &builds), "loose files");
     }
 
     // Surge and friends report a spawn width that reads as noise on a diff card.
@@ -1412,9 +1491,4 @@ mod tests {
 
     }
 
-    #[test]
-    fn a_raw_import_names_its_source_instead_of_a_region() {
-        assert_eq!(region_name("en"), "Global");
-        assert_eq!(region_name("--"), "loose files");
-    }
 }
