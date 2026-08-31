@@ -263,7 +263,7 @@ impl State {
 
             text("Database").size(18.0),
             Space::new().height(10.0),
-            nav_row(&[("Mods", Page::Mods), ("Files", Page::Files), ("Import", Page::Import)]),
+            nav_row(&[("Mods", Page::Mods), ("Files", Page::Files), ("Import", Page::Import), ("Mining", Page::Mining)]),
             Space::new().height(SPACE_BETWEEN_SECTIONS),
 
             text("Other").size(18.0),

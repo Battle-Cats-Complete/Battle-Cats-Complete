@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, row, scrollable, slider, text, text_input, Space};
@@ -10,13 +9,13 @@ use nyanko::combat::{get_talent, Entity};
 use nyanko::cat::unit::{LevelCurve, Talent, TalentCost, TalentGroup};
 use nyanko::files::img022;
 
-use kore::common::gfx::autocrop;
 use kore::systems::combat::registry::{get_display_def, AbilityIcon};
 use kore::domains::cat::game::talents as talent_logic;
 use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::ability_icon;
+use crate::common::skill_name;
 use crate::common::fonts::{self, MISC_SYMBOLS_LINE_HEIGHT};
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::widget::{fallback_icon, smooth_scroll};
@@ -357,21 +356,7 @@ impl State {
 
 
     fn skill_name_handle(&self, group: &TalentGroup, vfs: &Vfs) -> Option<Handle> {
-        let image_id = if group.name_id > 0 { group.name_id } else { group.ability_id as i16 };
-        if image_id <= 0 { return None; }
-
-        let path = find_skill_image_path(vfs, image_id)?;
-        let file_name = path.file_name()?.to_string_lossy().to_string();
-
-        if let Some(cached) = self.skill_name_cache.borrow().get(&file_name) {
-            return Some(cached.clone());
-        }
-
-        let img = image::open(&path).ok()?;
-        let rgba = autocrop(img.to_rgba8());
-        let handle = Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw());
-        self.skill_name_cache.borrow_mut().insert(file_name, handle.clone());
-        Some(handle)
+        skill_name::load(&self.skill_name_cache, group, vfs)
     }
 }
 
@@ -412,6 +397,3 @@ fn dark_box<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message
         .into()
 }
 
-fn find_skill_image_path(vfs: &Vfs, image_id: i16) -> Option<PathBuf> {
-    vfs.find(&format!("Skill_name_{:03}.png", image_id))
-}

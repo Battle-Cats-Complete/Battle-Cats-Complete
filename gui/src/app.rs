@@ -25,7 +25,7 @@ use kore::{ContentStore, Vault};
 use crate::common::feedback::Slot;
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
-use crate::domains::{cat, enemy, files, help, home, import, mods, settings as gui_settings, stage, utilities};
+use crate::domains::{cat, enemy, files, help, home, import, mining, mods, settings as gui_settings, stage, utilities};
 use crate::editor;
 use crate::widget::{nightly_label, popup, slide, Slide};
 
@@ -50,6 +50,7 @@ pub enum Page {
     Mods,
     Files,
     Import,
+    Mining,
     Utilities,
     Help,
     Settings,
@@ -65,6 +66,7 @@ impl Page {
             Self::Mods => "Mods",
             Self::Files => "Files",
             Self::Import => "Import",
+            Self::Mining => "Mining",
             Self::Utilities => "Utilities",
             Self::Help => "Help",
             Self::Settings => "Settings",
@@ -94,6 +96,7 @@ const ALL_PAGES: &[Page] = &[
     Page::Mods,
     Page::Files,
     Page::Import,
+    Page::Mining,
     Page::Utilities,
     Page::Help,
     Page::Settings,
@@ -195,6 +198,7 @@ pub enum Message {
     Mod(mods::Message),
     Files(files::Message),
     Import(import::Message),
+    Mining(mining::Message),
     Help(help::Message),
     Utilities(utilities::Message),
     Settings(gui_settings::Message),
@@ -257,6 +261,8 @@ pub struct BattleCatsApp {
     pub files_state: files::State,
     #[serde(skip)]
     pub import_state: import::State,
+    #[serde(skip)]
+    pub mining_state: mining::State,
     #[serde(skip)]
     pub help_state: help::State,
     #[serde(skip)]
@@ -332,6 +338,7 @@ impl Default for BattleCatsApp {
             mods_state: mods::State::new(kore::domains::mods::ModDataState::default()),
             files_state: files::State::default(),
             import_state: import::State::default(),
+            mining_state: mining::State::default(),
             help_state: help::State::default(),
             utilities_state: utilities::State::default(),
             settings_state: gui_settings::State::default(),
@@ -437,6 +444,8 @@ impl BattleCatsApp {
                 self.stage_state.enter();
                 Task::none()
             }
+            Page::Mining => self.mining_state.enter(&self.vault.vfs).map(Message::Mining),
+            Page::Import => self.import_state.enter().map(Message::Import),
             Page::Help => operation::scroll_to(
                 help::State::content_scrollable_id(),
                 scrollable::AbsoluteOffset { x: 0.0, y: self.help_state.scroll_offset() },
@@ -623,6 +632,7 @@ impl BattleCatsApp {
             self.cat_state.clear_caches();
             self.enemy_state.clear_caches();
             self.stage_state.clear_caches();
+            self.mining_state.clear_caches();
             self.vault.vds.clear();
 
             let adopted = self.adopt_vault(rebuilt, false);
@@ -764,6 +774,7 @@ impl BattleCatsApp {
         let sheets = Task::batch([
             self.cat_state.relocalize(&self.vault.vfs).map(Message::Cat),
             self.enemy_state.relocalize(&self.vault.vfs).map(Message::Enemy),
+            self.mining_state.relocalize(&self.vault.vfs).map(Message::Mining),
         ]);
 
         Task::batch([sheets, self.rescan_units()])
@@ -1107,9 +1118,11 @@ impl BattleCatsApp {
                 }
 
                 let packs = self.files_state.reload_packs().map(Message::Files);
+                self.mining_state.refresh();
 
                 Task::batch([task, packs, self.rebuild_content()])
             }
+            Message::Mining(msg) => self.mining_state.update(msg).map(Message::Mining),
             Message::Files(msg) => {
                 let task = self.files_state.update(msg, &self.vault.vfs, &self.settings.files).map(Message::Files);
                 self.files_state.sync_state(&mut self.app_state.files);
@@ -1186,6 +1199,7 @@ impl BattleCatsApp {
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Files => self.files_state.view().map(Message::Files),
             Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
+            Page::Mining => self.mining_state.view(&self.cat_state.data.cats, &self.vault.vfs, &self.settings).map(Message::Mining),
             Page::Utilities => self.utilities_state.view(&self.settings, &self.app_state).map(Message::Utilities),
             Page::Help => {
                 let ui_theme = self.theme();

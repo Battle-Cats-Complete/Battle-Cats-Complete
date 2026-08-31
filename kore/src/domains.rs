@@ -1,6 +1,7 @@
 pub mod cat;
 pub mod enemy;
 pub mod import;
+pub mod mining;
 pub mod mods;
 pub mod settings;
 pub mod stage;

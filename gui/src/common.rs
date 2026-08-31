@@ -8,6 +8,7 @@ pub mod img022;
 pub mod item_icon;
 pub(crate) mod markdown;
 pub mod row_window;
+pub(crate) mod skill_name;
 pub mod udi_loader;
 pub mod watcher;
 

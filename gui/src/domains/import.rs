@@ -177,6 +177,10 @@ pub struct State {
 }
 
 impl State {
+    pub(crate) fn enter(&mut self) -> Task<Message> {
+        self.import.console.restick()
+    }
+
     pub(crate) fn take_import_success(&mut self) -> bool {
         std::mem::take(&mut self.import_succeeded)
     }

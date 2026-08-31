@@ -116,6 +116,20 @@ impl Ledger {
     }
 }
 
+pub(crate) fn reset() {
+    let Some(directory) = dirs::state() else {
+        return;
+    };
+
+    let path = directory.join(FILE);
+
+    if path.exists()
+        && let Err(err) = fs::remove_file(&path)
+    {
+        warn!("Failed to reset {}: {}", FILE, err);
+    }
+}
+
 pub(crate) fn index() -> Result<HashMap<String, String>, Fault> {
     let Some(directory) = dirs::state() else {
         return Err(Fault::Missing);

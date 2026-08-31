@@ -59,6 +59,27 @@ impl ApkEditor {
         Ok(Self { manifest, res_table })
     }
 
+    pub(crate) fn from_manifest_bytes(bytes: &[u8]) -> Result<Self, ResError> {
+        let manifest = XMLTree::read(&mut Cursor::new(bytes)).map_err(|error| {
+            error!("Failed to parse Manifest bytes: {}", error);
+            ResError::Manifest(error.to_string())
+        })?;
+
+        Ok(Self { manifest, res_table: None })
+    }
+
+    pub(crate) fn get_package(&self) -> Option<String> {
+        let root_element = self.manifest.root.get_element(&["manifest"], &self.manifest.string_pool)?;
+        let package_attribute = root_element.get_attribute("package", &self.manifest.string_pool)?;
+
+        match &package_attribute.typed_value.data {
+            ResValueType::String(string_reference) => {
+                string_reference.resolve(&self.manifest.string_pool).map(|value| value.to_string())
+            }
+            _ => None,
+        }
+    }
+
     #[instrument(skip_all)]
     pub(crate) fn get_version_info(&self) -> Option<(u32, String)> {
         trace!("Extracting version information from XML tree");

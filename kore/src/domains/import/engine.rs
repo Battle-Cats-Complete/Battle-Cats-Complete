@@ -22,6 +22,7 @@ use tracing::warn;
 use crate::common::architecture;
 use crate::common::io;
 use crate::common::job::{JobEvent, ProgressCounter};
+use crate::domains::mining;
 use crate::domains::settings::ImportStructure;
 use crate::domains::settings::RuleHandling;
 use crate::domains::settings::UserKeys;
@@ -80,6 +81,28 @@ fn get_region_priority(region_code: &str) -> u8 {
     }
 }
 
+enum Verdict {
+    Skip,
+    Keep,
+    Write,
+}
+
+fn verdict(present: bool, region: &str, size: usize, checksum: u64, record: &manifest::FileRecord) -> Verdict {
+    if !present {
+        return Verdict::Write;
+    }
+
+    if region != record.winner && size < record.size {
+        return Verdict::Skip;
+    }
+
+    if size == record.size && checksum == record.checksum {
+        return Verdict::Keep;
+    }
+
+    Verdict::Write
+}
+
 fn absorb_pack_hashes(ledger: &mut manifest::Ledger, hashes: HashMap<String, HashMap<String, u64>>) {
     for (pack_name, region_map) in hashes {
         for (region_key, checksum) in region_map {
@@ -122,6 +145,7 @@ pub(crate) fn run_universal_import(
 
     emit(JobEvent::Log("Collecting game data...".to_string()));
 
+    let mut detected_builds: Vec<mining::Build> = Vec::new();
     let mut universal_task_map: HashMap<String, Vec<UniversalTask>> = HashMap::new();
     let mut global_temporary_directories: Vec<PathBuf> = Vec::new();
     let mut current_pack_hashes: HashMap<String, HashMap<String, u64>> = HashMap::new();
@@ -162,6 +186,12 @@ pub(crate) fn run_universal_import(
         if !discovered_apk_files.is_empty() && !has_notified_extraction {
             emit(JobEvent::Log("Extracting update data...".to_string()));
             has_notified_extraction = true;
+        }
+
+        for build in apk::builds(&discovered_apk_files) {
+            if !detected_builds.contains(&build) {
+                detected_builds.push(build);
+            }
         }
 
         let (mut new_list_paths, mut new_temporary_dirs, mut new_loose_paths) = apk::extract_all(&discovered_apk_files);
@@ -417,6 +447,7 @@ pub(crate) fn run_universal_import(
     if final_extraction_queue.is_empty() {
         emit(JobEvent::Log("Workspace is completely up to date.".to_string()));
 
+        mining::commit(Vec::new(), detected_builds);
         absorb_pack_hashes(&mut ledger, current_pack_hashes);
         ledger.save();
 
@@ -442,7 +473,7 @@ pub(crate) fn run_universal_import(
 
     emit(JobEvent::Log(format!("Comparing and organizing {} game files...", final_extraction_queue.len())));
 
-    let updated_placements: Vec<(String, manifest::Placement)> = final_extraction_queue
+    let updated_placements: Vec<(String, manifest::Placement, Option<mining::FileDelta>)> = final_extraction_queue
         .into_par_iter()
         .filter_map(|(resolved_filename, regional_tasks_to_decrypt, target_destination_path)| {
             if abort_flag.load(Ordering::Relaxed) {
@@ -538,17 +569,34 @@ pub(crate) fn run_universal_import(
             let mut already_on_disk = false;
 
             if let Some(existing_placement) = ledger.placement(&resolved_filename) {
-                let is_same_region = winning_candidate.task.region_code == existing_placement.record.winner;
+                let call = verdict(
+                    target_destination_path.exists(),
+                    &winning_candidate.task.region_code,
+                    winning_size,
+                    winning_checksum,
+                    &existing_placement.record,
+                );
 
-                if !is_same_region && winning_size < existing_placement.record.size {
-                    advance_progress();
-                    return None;
+                match call {
+                    Verdict::Skip => {
+                        advance_progress();
+                        return None;
+                    }
+                    Verdict::Keep => already_on_disk = true,
+                    Verdict::Write => {}
                 }
-
-                already_on_disk = winning_size == existing_placement.record.size
-                    && winning_checksum == existing_placement.record.checksum
-                    && target_destination_path.exists();
             }
+
+            let sample = (!already_on_disk && mining::mineable(&resolved_filename)).then(|| {
+                let previous = fs::read(&target_destination_path).ok();
+
+                mining::delta(
+                    &resolved_filename,
+                    &winning_candidate.task.region_code,
+                    previous.as_deref(),
+                    &winning_candidate.clean_data,
+                )
+            });
 
             if !already_on_disk {
                 if let Some(parent_directory) = target_destination_path.parent() {
@@ -582,6 +630,7 @@ pub(crate) fn run_universal_import(
                         checksum: winning_checksum,
                     },
                 },
+                sample.flatten(),
             ))
         })
         .collect();
@@ -596,8 +645,15 @@ pub(crate) fn run_universal_import(
         emit(JobEvent::Log(format!("Encountered {} errors reading pack chunks. See the log for details.", final_errors)));
     }
 
-    for (filename_key, placement) in updated_placements {
+    let mut ore = Vec::new();
+
+    for (filename_key, placement, sample) in updated_placements {
         ledger.place(filename_key, placement);
+        ore.extend(sample);
+    }
+
+    if mining::commit(ore, detected_builds) {
+        emit(JobEvent::Log("Captured what this import changed. Open the Mining page to read it.".to_string()));
     }
 
     absorb_pack_hashes(&mut ledger, current_pack_hashes);
@@ -607,4 +663,36 @@ pub(crate) fn run_universal_import(
 
     emit(JobEvent::Log("Files successfully organized and updated.".to_string()));
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(winner: &str, size: usize, checksum: u64) -> manifest::FileRecord {
+        manifest::FileRecord { winner: winner.to_string(), size, encrypted: size, checksum }
+    }
+
+    // Wiping the game folder leaves the manifest behind, so every record describes a file
+    // that is no longer there. A record must never veto rewriting a file that is missing.
+    #[test]
+    fn a_record_for_a_missing_file_never_preempts_the_write() {
+        let held = record("ja", 50567, 11);
+
+        assert!(matches!(verdict(false, "en", 4000, 22, &held), Verdict::Write));
+    }
+
+    #[test]
+    fn a_smaller_rival_region_still_loses_to_a_file_that_is_on_disk() {
+        let held = record("ja", 50567, 11);
+
+        assert!(matches!(verdict(true, "en", 4000, 22, &held), Verdict::Skip));
+    }
+
+    #[test]
+    fn an_unchanged_file_on_disk_is_left_alone() {
+        let held = record("en", 400, 11);
+
+        assert!(matches!(verdict(true, "en", 400, 11, &held), Verdict::Keep));
+        assert!(matches!(verdict(true, "en", 400, 99, &held), Verdict::Write));
+    }
 }

@@ -6,6 +6,7 @@ use rayon::prelude::*;
 
 use crate::common::architecture;
 use crate::common::job::{JobEvent, ProgressCounter};
+use crate::domains::mining;
 use crate::domains::settings::{ImportConfig, ImportStructure};
 
 use super::engine::{audit, manifest, router, sort};
@@ -108,7 +109,7 @@ fn sort_raw_folder(
     emit(JobEvent::Progress { current: 0, total });
     progress.reset(total);
 
-    let updated_placements: Vec<(String, manifest::Placement)> = all_discovered_files
+    let updated_placements: Vec<(String, manifest::Placement, Option<mining::FileDelta>)> = all_discovered_files
         .into_par_iter()
         .filter_map(|file_path: PathBuf| {
             if abort_flag.load(Ordering::Relaxed) {
@@ -129,6 +130,12 @@ fn sort_raw_folder(
             };
 
             let clean_file_data = audit::strip_carriage_returns(&file_data, &filename_string);
+
+            let sample = mining::mineable(&filename_string).then(|| {
+                let previous = fs::read(&target_destination_path).ok();
+
+                mining::delta(&filename_string, manifest::NONE, previous.as_deref(), &clean_file_data)
+            });
 
             if let Some(parent_directory) = target_destination_path.parent() {
                 let _ = fs::create_dir_all(parent_directory);
@@ -159,12 +166,19 @@ fn sort_raw_folder(
                 },
             };
 
-            Some((filename_string, placement))
+            Some((filename_string, placement, sample.flatten()))
         })
         .collect();
 
-    for (filename_key, placement) in updated_placements {
+    let mut ore = Vec::new();
+
+    for (filename_key, placement, sample) in updated_placements {
         ledger.place(filename_key, placement);
+        ore.extend(sample);
+    }
+
+    if mining::commit(ore, Vec::new()) {
+        emit(JobEvent::Log("Captured what this import changed. Open the Mining page to read it.".to_string()));
     }
 
     ledger.save();

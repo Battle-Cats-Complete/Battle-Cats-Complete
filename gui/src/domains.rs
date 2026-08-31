@@ -6,5 +6,6 @@ pub(crate) mod home;
 pub(crate) mod files;
 pub(crate) mod help;
 pub(crate) mod import;
+pub(crate) mod mining;
 pub(crate) mod mods;
 pub(crate) mod utilities;

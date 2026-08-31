@@ -22,7 +22,17 @@ impl ConsoleState {
     pub(crate) fn on_scroll(&mut self, viewport: scrollable::Viewport) {
         let overflow = viewport.content_bounds().height - viewport.bounds().height;
 
-        self.stuck_to_bottom = sticks(viewport.relative_offset().y, overflow);
+        self.on_scroll_offset(viewport.relative_offset().y, overflow);
+    }
+
+    fn on_scroll_offset(&mut self, offset: f32, overflow: f32) {
+        self.stuck_to_bottom = sticks(offset, overflow);
+    }
+
+    pub(crate) fn restick<Message: 'static>(&mut self) -> Task<Message> {
+        self.stuck_to_bottom = true;
+
+        operation::snap_to_end(self.id.clone())
     }
 
     pub(crate) fn snap_to_bottom<Message: 'static>(&self) -> Task<Message> {
@@ -80,6 +90,19 @@ mod tests {
         assert!(sticks(0.0 / -200.0, -200.0), "a cleared console must stay stuck");
         assert!(sticks(f32::NAN, 0.0), "content exactly filling the viewport must stay stuck");
         assert!(sticks(0.0, 0.0));
+    }
+
+    // Navigating away drops the scrollable; the rebuilt one reports offset 0, which
+    // unsticks the console for the rest of the session even though nobody scrolled.
+    #[test]
+    fn re_entering_the_page_re_arms_a_console_the_remount_unstuck() {
+        let mut console = ConsoleState::default();
+
+        console.on_scroll_offset(0.0, 400.0);
+        assert!(!console.stuck_to_bottom);
+
+        let _task: Task<()> = console.restick();
+        assert!(console.stuck_to_bottom);
     }
 
     #[test]

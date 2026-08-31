@@ -1,8 +1,14 @@
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 use zip::ZipArchive;
+
+use crate::domains::mining::Build;
+use crate::systems::apk::modify::ApkEditor;
+
+const MANIFEST: &str = "AndroidManifest.xml";
 
 pub(crate) fn find_files(
     search_directory: &Path,
@@ -47,6 +53,27 @@ pub(crate) fn find_files(
     }
 
     Ok(())
+}
+
+pub(crate) fn builds(apk_paths: &[PathBuf]) -> Vec<Build> {
+    apk_paths.par_iter().filter_map(|path| read_build(path)).collect()
+}
+
+fn read_build(apk_path: &Path) -> Option<Build> {
+    let archive_file = fs::File::open(apk_path).ok()?;
+    let mut archive = ZipArchive::new(archive_file).ok()?;
+
+    let mut bytes = Vec::new();
+    archive.by_name(MANIFEST).ok()?.read_to_end(&mut bytes).ok()?;
+
+    let editor = ApkEditor::from_manifest_bytes(&bytes).ok()?;
+    let (code, name) = editor.get_version_info()?;
+
+    let label = editor
+        .get_package()
+        .unwrap_or_else(|| apk_path.file_stem().unwrap_or_default().to_string_lossy().into_owned());
+
+    Some(Build { code, name, label })
 }
 
 pub(crate) fn extract_all(apk_paths: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {

@@ -9,7 +9,7 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 
 use crate::common::region::Region;
-use crate::domains::{cat, enemy, stage};
+use crate::domains::{cat, enemy, mining, stage};
 use crate::ContentStore;
 
 pub use engine::manifest::Fault as PackFault;
@@ -20,6 +20,11 @@ pub fn pack_index() -> Result<HashMap<String, String>, PackFault> {
 
 pub fn pack_stamp() -> Option<SystemTime> {
     engine::manifest::stamp()
+}
+
+pub fn forget_imports() {
+    engine::manifest::reset();
+    mining::clear();
 }
 
 pub fn purge_derived_caches() {

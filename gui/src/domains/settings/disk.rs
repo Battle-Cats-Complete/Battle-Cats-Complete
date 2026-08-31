@@ -7,6 +7,7 @@ use iced::{task, Element, Task};
 use tracing::{debug, error};
 
 use kore::common::architecture;
+use kore::domains::import;
 
 use crate::app::theme;
 use crate::common::feedback::{Slot as Confirm, CONFIRM_LABEL};
@@ -196,8 +197,13 @@ impl State {
             smol::unblock(move || {
                 if let Err(delete_error) = fs::remove_dir_all(&path) {
                     error!("Failed to delete folder {:?}: {}", path, delete_error);
-                } else {
-                    debug!("Folder deletion completed successfully.");
+                    return;
+                }
+
+                debug!("Folder deletion completed successfully.");
+
+                if target == Target::Game {
+                    import::forget_imports();
                 }
             }),
             move |_| Message::DeleteFinished(target),
