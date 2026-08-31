@@ -8,26 +8,31 @@ pub mod units;
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use crate::common::architecture;
 use crate::common::dirs;
 use crate::common::io::json;
-use crate::Vfs;
 use crate::domains::cat::files as cat_files;
 use crate::domains::enemy::files as enemy_files;
+use crate::domains::import::engine::manifest;
 
 
 const FILE: &str = "ore.json";
 
 const BASE: &str = "base.json";
 
-const SNAPSHOT: &str = "base";
 
-const SCHEMA: u32 = 2;
+const SCHEMA: u32 = 3;
+
+const LEGACY_SNAPSHOT: &str = "base";
+
+const LEGACY_CENSUS: &str = "census.json";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Keying {
@@ -61,6 +66,19 @@ pub struct Build {
     pub label: String,
 }
 
+type Census = HashMap<String, u64>;
+
+const KEPT: &[&str] = &[
+    cat_files::UNIT_BUY,
+    cat_files::SKILL_ACQUISITION,
+    enemy_files::STATS,
+    stages::MAP_OPTION,
+];
+
+fn kept(filename: &str) -> bool {
+    cat_files::stats_id(filename).is_some() || KEPT.contains(&filename)
+}
+
 #[derive(Serialize, Deserialize, Default)]
 struct Base {
     #[serde(default)]
@@ -69,6 +87,10 @@ struct Base {
     roster: Vec<u32>,
     #[serde(default)]
     promoted: Vec<u32>,
+    #[serde(default)]
+    census: Census,
+    #[serde(default)]
+    rows: HashMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -110,6 +132,12 @@ impl FileDelta {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct FileTouch {
+    pub file: String,
+    pub status: Status,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Ore {
     pub schema: u32,
@@ -119,6 +147,8 @@ pub struct Ore {
     #[serde(default)]
     pub after: Vec<Build>,
     pub files: Vec<FileDelta>,
+    #[serde(default)]
+    pub touched: Vec<FileTouch>,
 }
 
 impl Ore {
@@ -138,84 +168,122 @@ pub fn load() -> Option<Ore> {
     json::load_state::<Ore>(FILE).filter(|ore| ore.schema == SCHEMA)
 }
 
-fn snapshot_dir() -> Option<PathBuf> {
-    let path = dirs::state()?.join(SNAPSHOT);
-
-    fs::create_dir_all(&path).ok()?;
-
-    Some(path)
-}
-
-fn stats_rows(vfs: &Vfs) -> usize {
-    vfs.find(cat_files::UNIT_BUY)
-        .and_then(|path| fs::read_to_string(path).ok())
-        .map_or(0, |body| body.lines().filter(|line| !line.trim().is_empty()).count())
-}
-
-fn on_disk(vfs: &Vfs) -> Vec<(String, PathBuf)> {
+fn walk(root: &Path) -> Vec<(String, PathBuf)> {
     let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
 
-    for name in [cat_files::UNIT_BUY, cat_files::SKILL_ACQUISITION, enemy_files::STATS] {
-        if let Some(path) = vfs.find(name) {
-            found.push((name.to_string(), path));
-        }
-    }
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
 
-    for id in 0..stats_rows(vfs) as u32 {
-        let name = cat_files::stats_file(id);
+        for entry in entries.flatten() {
+            let path = entry.path();
 
-        if let Some(path) = vfs.find(&name) {
-            found.push((name, path));
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                pending.push(path);
+                continue;
+            }
+
+            if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                found.push((name.to_string(), path));
+            }
         }
     }
 
     found
 }
 
+fn census(found: &[(String, PathBuf)]) -> Census {
+    found
+        .par_iter()
+        .filter_map(|(name, path)| manifest::hash_file(path).ok().map(|hash| (name.to_string(), hash)))
+        .collect()
+}
+
+fn tables(found: &[(String, PathBuf)]) -> HashMap<String, String> {
+    found
+        .iter()
+        .filter(|(name, _)| kept(name))
+        .filter_map(|(name, path)| fs::read_to_string(path).ok().map(|text| (name.to_string(), text)))
+        .collect()
+}
+
+fn sweep() {
+    let Some(directory) = dirs::state() else {
+        return;
+    };
+
+    let _ = fs::remove_dir_all(directory.join(LEGACY_SNAPSHOT));
+    let _ = fs::remove_file(directory.join(LEGACY_CENSUS));
+}
+
+fn rebase(found: &[(String, PathBuf)], taken: Census) {
+    sweep();
+
+    let mut base = stored_base();
+
+    base.rows = tables(found);
+    base.census = taken;
+
+    save_base(&base);
+}
+
+pub(crate) fn enroll(taken: Census) {
+    rebase(&walk(Path::new(architecture::GAME)), taken);
+}
+
+pub fn tidy() {
+    sweep();
+}
+
 pub fn has_base() -> bool {
-    snapshot_dir().and_then(|path| fs::read_dir(path).ok()).is_some_and(|mut entries| entries.next().is_some())
+    !stored_base().census.is_empty()
 }
 
-pub fn capturable(vfs: &Vfs) -> bool {
-    vfs.find(cat_files::UNIT_BUY).is_some()
+pub fn capturable() -> bool {
+    architecture::game_present()
 }
 
-pub fn capture(vfs: &Vfs) -> usize {
-    let Some(target) = snapshot_dir() else {
-        return 0;
-    };
+pub fn capture() -> usize {
+    let found = walk(Path::new(architecture::GAME));
+    let taken = census(&found);
+    let seen = taken.len();
 
-    let mut kept = 0;
+    rebase(&found, taken);
 
-    for (name, path) in on_disk(vfs) {
-        if fs::copy(&path, target.join(&name)).is_ok() {
-            kept += 1;
-        }
-    }
-
-    kept
+    seen
 }
 
-pub fn craft(vfs: &Vfs) -> bool {
-    let Some(source) = snapshot_dir() else {
-        return false;
-    };
+pub fn craft() -> bool {
+    let base = stored_base();
+    let found = walk(Path::new(architecture::GAME));
+    let taken = census(&found);
+
+    let mut touched: Vec<FileTouch> = taken
+        .iter()
+        .filter_map(|(name, hash)| touch(name, base.census.get(name).copied(), *hash))
+        .collect();
+
+    touched.sort_by(|left, right| left.file.cmp(&right.file));
 
     let mut files = Vec::new();
 
-    for (name, path) in on_disk(vfs) {
-        let held = source.join(&name);
-
-        let (Ok(before), Ok(after)) = (fs::read(&held), fs::read(&path)) else {
+    for (name, path) in found.iter().filter(|(name, _)| kept(name)) {
+        let Some(before) = base.rows.get(name) else {
             continue;
         };
 
-        files.extend(delta(&name, "", "", Some(&before), &after));
+        let Ok(after) = fs::read(path) else {
+            continue;
+        };
+
+        files.extend(delta(name, "", "", Some(before.as_bytes()), &after));
     }
 
-    let recorded = commit(files, Vec::new());
+    let recorded = commit(files, touched, Vec::new());
 
-    capture(vfs);
+    rebase(&found, taken);
 
     recorded
 }
@@ -223,10 +291,6 @@ pub fn craft(vfs: &Vfs) -> bool {
 pub fn clear() {
     for name in [FILE, BASE] {
         drop_state(name);
-    }
-
-    if let Some(path) = snapshot_dir() {
-        let _ = fs::remove_dir_all(path);
     }
 }
 
@@ -288,20 +352,20 @@ pub fn reconcile(listable: &[u32]) -> Vec<u32> {
     promoted
 }
 
-pub(crate) fn commit(files: Vec<FileDelta>, after: Vec<Build>) -> bool {
+pub(crate) fn commit(files: Vec<FileDelta>, touched: Vec<FileTouch>, after: Vec<Build>) -> bool {
     let before = base();
 
     if !after.is_empty() && before != after {
         set_base(&after);
     }
 
-    if files.is_empty() {
+    if files.is_empty() && touched.is_empty() {
         return false;
     }
 
     let diffed = files.iter().any(|delta| delta.status == Status::Changed && !delta.rows.is_empty());
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    let ore = Ore { schema: SCHEMA, stamp, before, after, files };
+    let ore = Ore { schema: SCHEMA, stamp, before, after, files, touched };
 
     if let Err(err) = json::save_state(FILE, &ore) {
         warn!("Failed to save {}: {}", FILE, err);
@@ -309,6 +373,14 @@ pub(crate) fn commit(files: Vec<FileDelta>, after: Vec<Build>) -> bool {
     }
 
     diffed
+}
+
+pub(crate) fn touch(file: &str, before: Option<u64>, after: u64) -> Option<FileTouch> {
+    match before {
+        None => Some(FileTouch { file: file.to_string(), status: Status::Baseline }),
+        Some(held) if held != after => Some(FileTouch { file: file.to_string(), status: Status::Changed }),
+        Some(_) => None,
+    }
 }
 
 pub(crate) fn delta(file: &str, from: &str, region: &str, before: Option<&[u8]>, after: &[u8]) -> Option<FileDelta> {
@@ -463,6 +535,15 @@ mod tests {
 
         assert_eq!(delta.modified(), 1);
         assert_eq!(delta.rows[0].before.as_deref(), Some("1,0,10,5,100,200,0,0,0,0,0,0,1,1,0"));
+    }
+
+    // The Files tab reads a rewrite as "changed" and a first sighting as "new"; an
+    // untouched file must stay out of both lists even though the import rewrote its row.
+    #[test]
+    fn a_file_is_listed_only_when_its_bytes_actually_moved() {
+        assert!(touch("000_f.png", Some(7), 7).is_none());
+        assert!(matches!(touch("000_f.png", Some(7), 8).map(|held| held.status), Some(Status::Changed)));
+        assert!(matches!(touch("000_f.png", None, 8).map(|held| held.status), Some(Status::Baseline)));
     }
 
     #[test]

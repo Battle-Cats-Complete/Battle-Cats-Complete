@@ -1126,20 +1126,20 @@ impl BattleCatsApp {
                 }
 
                 let packs = self.files_state.reload_packs().map(Message::Files);
-                self.mining_state.reload();
+                let mined = self.mining_state.reload(&self.vault.vfs).map(Message::Mining);
 
-                Task::batch([task, packs, self.rebuild_content()])
+                Task::batch([task, packs, mined, self.rebuild_content()])
             }
             Message::Mining(mining::Message::CreateBase) => {
-                self.mining_state.capture_base(&self.vault.vfs);
-
-                Task::none()
+                self.mining_state.begin(mining::Chore::Base).map(Message::Mining)
             }
             Message::Mining(mining::Message::CreateDiff) => {
-                self.mining_state.craft_diff(&self.cat_state.data.cats, &self.vault.vfs, &self.settings);
-
-                Task::none()
+                self.mining_state.begin(mining::Chore::Diff).map(Message::Mining)
             }
+            Message::Mining(mining::Message::Mined) => self
+                .mining_state
+                .settle(&self.cat_state.data.cats, &self.vault.vfs, &self.settings)
+                .map(Message::Mining),
             Message::Mining(mining::Message::OpenCategory(category)) => {
                 self.stage_state.reveal();
 

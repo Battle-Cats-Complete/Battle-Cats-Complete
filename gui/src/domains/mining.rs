@@ -2,11 +2,13 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fmt;
+use std::thread;
 use std::time::Duration;
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, image as iced_image, operation, row, rule, scrollable, text, text_input, tooltip, Column, Id, Row, Space, Text};
+use iced::futures::channel::mpsc::unbounded;
 use iced::{Color, ContentFit, Element, Length, Size, Task, Theme};
 use nyanko::cat::unit::{LevelCurve, TalentCost};
 use nyanko::combat::{Entity, REGISTRY};
@@ -32,7 +34,7 @@ use crate::common::fonts;
 use crate::common::item_icon;
 use crate::common::{ability_icon, img015, skill_name, CustomAssets, SpriteSheet};
 use iced::widget::image::Handle;
-use crate::widget::{fallback_icon, list_row, section, smooth_scroll, tinted_superscript, uniform_grid};
+use crate::widget::{fallback_icon, list_row, section, smooth_scroll, subsection, tinted_superscript, uniform_grid};
 
 const SIDEBAR_WIDTH: f32 = 110.0;
 const SIDEBAR_PADDING: f32 = 8.0;
@@ -48,6 +50,13 @@ const CARD_PADDING: f32 = 12.0;
 const UNIT_MIN_WIDTH: f32 = 440.0;
 const LEVEL_MIN_WIDTH: f32 = 420.0;
 const STAGE_MIN_WIDTH: f32 = 300.0;
+const NAME_MIN_WIDTH: f32 = 240.0;
+const ART_MIN_WIDTH: f32 = 150.0;
+const ART_TILE_SIZE: f32 = 96.0;
+const ART_CANVAS: u32 = 192;
+const FILE_NAME_SIZE: f32 = 13.0;
+const DATA_PAGE: usize = 200;
+const ART_PAGE: usize = 60;
 const SECTION_SPACING: f32 = 18.0;
 const CARD_SPACING: f32 = 8.0;
 const ULTRA_LEVEL: i32 = 60;
@@ -114,6 +123,7 @@ pub enum Tab {
     Cats,
     Enemies,
     Stages,
+    Files,
 }
 
 impl Tab {
@@ -123,11 +133,79 @@ impl Tab {
             Self::Cats => "Cats",
             Self::Enemies => "Enemies",
             Self::Stages => "Stages",
+            Self::Files => "Files",
         }
     }
 }
 
-const TABS: &[Tab] = &[Tab::Meta, Tab::Cats, Tab::Enemies, Tab::Stages];
+const TABS: &[Tab] = &[Tab::Meta, Tab::Cats, Tab::Enemies, Tab::Stages, Tab::Files];
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Chore {
+    Base,
+    Diff,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Shelf {
+    FreshData,
+    FreshArt,
+    MovedData,
+    MovedArt,
+}
+
+#[derive(Default)]
+struct Shelves {
+    fresh_data: Vec<String>,
+    fresh_art: Vec<(String, PathBuf)>,
+    moved_data: Vec<String>,
+    moved_art: Vec<(String, PathBuf)>,
+}
+
+impl Shelves {
+    fn is_empty(&self) -> bool {
+        self.fresh_data.is_empty()
+            && self.fresh_art.is_empty()
+            && self.moved_data.is_empty()
+            && self.moved_art.is_empty()
+    }
+
+    fn fresh(&self) -> usize {
+        self.fresh_data.len() + self.fresh_art.len()
+    }
+
+    fn moved(&self) -> usize {
+        self.moved_data.len() + self.moved_art.len()
+    }
+}
+
+fn shelve(ore: &Ore, vfs: &Vfs) -> Shelves {
+    let mut shelves = Shelves::default();
+
+    for held in &ore.touched {
+        let art = pictured(&held.file).then(|| vfs.find(&held.file)).flatten();
+
+        match (held.status, art) {
+            (Status::Baseline, Some(path)) => shelves.fresh_art.push((held.file.clone(), path)),
+            (Status::Baseline, None) => shelves.fresh_data.push(held.file.clone()),
+            (Status::Changed, Some(path)) => shelves.moved_art.push((held.file.clone(), path)),
+            (Status::Changed, None) => shelves.moved_data.push(held.file.clone()),
+        }
+    }
+
+    shelves.fresh_data.sort_unstable();
+    shelves.moved_data.sort_unstable();
+    shelves.fresh_art.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    shelves.moved_art.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+
+    shelves
+}
+
+fn page_of<T>(items: &[T], page: usize, size: usize) -> &[T] {
+    let start = (page * size).min(items.len());
+
+    &items[start..(start + size).min(items.len())]
+}
 
 #[derive(Clone)]
 pub enum Message {
@@ -135,6 +213,9 @@ pub enum Message {
     Scrolled(f32),
     CreateBase,
     CreateDiff,
+    Mined,
+    Turn(Shelf, usize),
+    TileLoaded(u64, PathBuf, Option<Handle>),
     LevelChanged(u32, String),
     OpenTalents(u32, usize),
     OpenForm(u32, usize),
@@ -153,6 +234,9 @@ impl fmt::Debug for Message {
             Self::Scrolled(offset) => write!(f, "Scrolled({})", offset),
             Self::CreateBase => write!(f, "CreateBase"),
             Self::CreateDiff => write!(f, "CreateDiff"),
+            Self::Mined => write!(f, "Mined"),
+            Self::Turn(shelf, page) => write!(f, "Turn({:?}, {})", shelf, page),
+            Self::TileLoaded(generation, path, _) => write!(f, "TileLoaded({}, {:?})", generation, path),
             Self::LevelChanged(cat, value) => write!(f, "LevelChanged({}, {})", cat, value),
             Self::OpenTalents(cat, form) => write!(f, "OpenTalents({}, {})", cat, form),
             Self::OpenForm(cat, form) => write!(f, "OpenForm({}, {})", cat, form),
@@ -170,6 +254,10 @@ pub struct State {
     tab: Tab,
     offsets: HashMap<Tab, f32>,
     ore: Option<Ore>,
+    chore: Option<Chore>,
+    files: Shelves,
+    pages: HashMap<Shelf, usize>,
+    tiles: HashMap<PathBuf, Option<Handle>>,
     report: Option<talents::Report>,
     units: Option<units::Report>,
     forms: Vec<forms::Unlocked>,
@@ -195,6 +283,10 @@ impl Default for State {
             tab: Tab::Meta,
             offsets: HashMap::new(),
             ore: None,
+            chore: None,
+            files: Shelves::default(),
+            pages: HashMap::new(),
+            tiles: HashMap::new(),
             report: None,
             units: None,
             forms: Vec::new(),
@@ -217,8 +309,10 @@ impl Default for State {
 }
 
 impl State {
-    pub(crate) fn reload(&mut self) {
-        self.reread();
+    pub(crate) fn reload(&mut self, vfs: &Vfs) -> Task<Message> {
+        self.reread(vfs);
+
+        self.ensure_tiles()
     }
 
     fn reconcile(&mut self, cats: &[CatEntry], vfs: &Vfs, settings: &Settings) {
@@ -233,8 +327,11 @@ impl State {
         self.promoted = mining::reconcile(&listable);
     }
 
-    fn reread(&mut self) {
+    fn reread(&mut self, vfs: &Vfs) {
         self.ore = mining::load();
+        self.files = self.ore.as_ref().map_or_else(Shelves::default, |ore| shelve(ore, vfs));
+        self.pages.clear();
+        self.tiles.clear();
         self.report = self
             .ore
             .as_ref()
@@ -297,19 +394,21 @@ impl State {
         settings: &Settings,
         settled: bool,
     ) -> Task<Message> {
+        mining::tidy();
+
         if settled {
             self.reconcile(cats, vfs, settings);
         }
 
-        self.reread();
+        self.reread(vfs);
 
-        Task::batch([self.check_sheets(vfs), self.restore()])
+        Task::batch([self.check_sheets(vfs), self.ensure_tiles(), self.restore()])
     }
 
     pub(crate) fn relocalize(&mut self, vfs: &Vfs) -> Task<Message> {
         self.clear_caches();
 
-        self.check_sheets(vfs)
+        Task::batch([self.check_sheets(vfs), self.ensure_tiles()])
     }
 
     pub(crate) fn clear_caches(&mut self) {
@@ -318,21 +417,46 @@ impl State {
         self.plates.borrow_mut().clear();
         self.portraits.borrow_mut().clear();
         self.art.borrow_mut().clear();
+        self.tiles.clear();
 
         for sheet in &mut self.img015_sheets {
             sheet.mark_stale();
         }
     }
 
-    pub(crate) fn capture_base(&mut self, vfs: &Vfs) {
-        mining::capture(vfs);
-        self.reread();
+    pub(crate) fn begin(&mut self, chore: Chore) -> Task<Message> {
+        if self.chore.is_some() {
+            return Task::none();
+        }
+
+        self.chore = Some(chore);
+
+        let (tx, rx) = unbounded();
+
+        thread::spawn(move || {
+            match chore {
+                Chore::Base => {
+                    mining::capture();
+                }
+                Chore::Diff => {
+                    mining::craft();
+                }
+            }
+
+            let _ = tx.unbounded_send(Message::Mined);
+        });
+
+        Task::stream(rx)
     }
 
-    pub(crate) fn craft_diff(&mut self, cats: &[CatEntry], vfs: &Vfs, settings: &Settings) {
-        mining::craft(vfs);
-        self.reconcile(cats, vfs, settings);
-        self.reread();
+    pub(crate) fn settle(&mut self, cats: &[CatEntry], vfs: &Vfs, settings: &Settings) -> Task<Message> {
+        if self.chore.take() == Some(Chore::Diff) {
+            self.reconcile(cats, vfs, settings);
+        }
+
+        self.reread(vfs);
+
+        self.ensure_tiles()
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -341,7 +465,17 @@ impl State {
                 if self.enabled(tab) && self.tab != tab {
                     self.tab = tab;
 
-                    return self.restore();
+                    return Task::batch([self.ensure_tiles(), self.restore()]);
+                }
+            }
+            Message::Turn(shelf, page) => {
+                self.pages.insert(shelf, page);
+
+                return self.ensure_tiles();
+            }
+            Message::TileLoaded(generation, path, handle) => {
+                if generation == self.sheet_generation {
+                    self.tiles.insert(path, handle);
                 }
             }
             Message::Scrolled(offset) => {
@@ -354,6 +488,7 @@ impl State {
             }
             Message::CreateBase
             | Message::CreateDiff
+            | Message::Mined
             | Message::OpenTalents(..)
             | Message::OpenForm(..)
             | Message::OpenUnit(..)
@@ -393,7 +528,66 @@ impl State {
             Tab::Cats => self.has_finds(),
             Tab::Enemies => !self.foes.is_empty() || !self.fresh_foes.is_empty(),
             Tab::Stages => !self.lands.is_empty(),
+            Tab::Files => !self.files.is_empty(),
         }
+    }
+
+    fn art_page(&self, shelf: Shelf) -> &[(String, PathBuf)] {
+        let items = match shelf {
+            Shelf::FreshArt => &self.files.fresh_art,
+            Shelf::MovedArt => &self.files.moved_art,
+            Shelf::FreshData | Shelf::MovedData => return &[],
+        };
+
+        page_of(items, self.pages.get(&shelf).copied().unwrap_or_default(), ART_PAGE)
+    }
+
+    fn data_page(&self, shelf: Shelf) -> &[String] {
+        let items = match shelf {
+            Shelf::FreshData => &self.files.fresh_data,
+            Shelf::MovedData => &self.files.moved_data,
+            Shelf::FreshArt | Shelf::MovedArt => return &[],
+        };
+
+        page_of(items, self.pages.get(&shelf).copied().unwrap_or_default(), DATA_PAGE)
+    }
+
+    fn ensure_tiles(&mut self) -> Task<Message> {
+        if self.tab != Tab::Files {
+            return Task::none();
+        }
+
+        let wanted: Vec<PathBuf> = [Shelf::FreshArt, Shelf::MovedArt]
+            .into_iter()
+            .flat_map(|shelf| self.art_page(shelf))
+            .filter(|(_, path)| !self.tiles.contains_key(path))
+            .map(|(_, path)| path.to_path_buf())
+            .collect();
+
+        if wanted.is_empty() {
+            return Task::none();
+        }
+
+        for path in &wanted {
+            self.tiles.insert(path.to_path_buf(), None);
+        }
+
+        let generation = self.sheet_generation;
+        let (tx, rx) = unbounded();
+
+        thread::spawn(move || {
+            for path in wanted {
+                let handle = item_icon::load_boxed(&path, ART_CANVAS);
+
+                let _ = tx.unbounded_send(Message::TileLoaded(generation, path, handle));
+            }
+        });
+
+        Task::stream(rx)
+    }
+
+    fn has_diff(&self) -> bool {
+        TABS.iter().any(|tab| *tab != Tab::Meta && self.enabled(*tab))
     }
 
     pub(crate) fn enabled_levels(&self, cat_id: u32) -> Option<HashMap<u8, u8>> {
@@ -462,6 +656,7 @@ impl State {
             Tab::Cats => self.view_cats(cats, global, settings, window.width - SIDEBAR_WIDTH),
             Tab::Enemies => self.view_enemies(foes, global, window.width - SIDEBAR_WIDTH),
             Tab::Stages => self.view_stages(registry, global, window.width - SIDEBAR_WIDTH),
+            Tab::Files => self.view_files(window.width - SIDEBAR_WIDTH),
         };
 
         let page = smooth_scroll(
@@ -511,25 +706,23 @@ impl State {
         global: GlobalContext<'a>,
         room: f32,
     ) -> Element<'a, Message> {
-        let vfs = &global.vault.vfs;
+        let Some(ore) = self.ore.as_ref().filter(|_| self.has_diff()) else {
+            let (headline, hint, action) = if mining::has_base() {
+                (
+                    "Base captured, but no diff to compare against it",
+                    "Import an update or click the \"Create Diff\" button below",
+                    ("Create Diff", Message::CreateDiff),
+                )
+            } else {
+                (
+                    "No captured base to reference for a future diff",
+                    "Please import or click the \"Create Base\" button below",
+                    ("Create Base", Message::CreateBase),
+                )
+            };
 
-        let Some(ore) = &self.ore else {
-            return self.view_empty(
-                "No imported base to reference for a future diff",
-                "Please import or click the \"Create Base\" button below",
-                mining::capturable(vfs).then_some(("Create Base", Message::CreateBase)),
-                room,
-            );
+            return self.view_empty(headline, hint, mining::capturable().then_some(action), room);
         };
-
-        if !self.has_finds() {
-            return self.view_empty(
-                "Base loaded, but no diff to compare against it",
-                "Import an update or click the \"Create Diff\" button below",
-                (mining::has_base() && mining::capturable(vfs)).then_some(("Create Diff", Message::CreateDiff)),
-                room,
-            );
-        }
 
         let captured = ore.age().map_or_else(|| "just now".to_string(), ago);
 
@@ -543,7 +736,7 @@ impl State {
             Space::new().height(SECTION_SPACING),
             strong("Summary", SECTION_TITLE_SIZE),
             Space::new().height(TABLE_GAP),
-            self.view_tally(cats, registry, vfs, settings),
+            self.view_tally(cats, registry, &global.vault.vfs, settings),
         ]
         .spacing(8)
         .width(Length::Shrink);
@@ -563,12 +756,15 @@ impl State {
         body = body.push(plain(headline, EMPTY_TEXT_SIZE).align_x(Horizontal::Center));
 
         if let Some((label, message)) = action {
+            let working = self.chore.is_some();
+            let style: theme::ButtonStyleFn = if working { theme::warning_button } else { theme::primary_button };
+
             body = body.push(plain(hint, EMPTY_TEXT_SIZE).align_x(Horizontal::Center));
             body = body.push(
-                button(theme::button_label(label).size(TAB_TEXT_SIZE))
+                button(theme::centered_text(if working { "Creating..." } else { label }).size(TAB_TEXT_SIZE))
                     .padding([6, 16])
-                    .style(theme::primary_button)
-                    .on_press(message),
+                    .style(style)
+                    .on_press_maybe((!working).then_some(message)),
             );
         }
 
@@ -639,12 +835,16 @@ impl State {
             ("Changed Stage Count", stage_count(&moved)),
         ];
 
+        let files = vec![("New Count", self.files.fresh()), ("Changed Count", self.files.moved())];
+
         let table = column![
             tally_table("Cats", cats),
             Space::new().height(TABLE_GAP),
             tally_table("Enemies", foes),
             Space::new().height(TABLE_GAP),
             tally_table("Stages", lands),
+            Space::new().height(TABLE_GAP),
+            tally_table("Files", files),
         ]
         .width(Length::Shrink);
 
@@ -937,6 +1137,127 @@ impl State {
         }
 
         let card = column![header, rule::horizontal(1), body].spacing(10).width(Length::Fill);
+
+        container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into()
+    }
+
+    fn view_files(&self, width: f32) -> Element<'_, Message> {
+        let mut body = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
+
+        for (title, data, art) in [
+            ("New", Shelf::FreshData, Shelf::FreshArt),
+            ("Changed", Shelf::MovedData, Shelf::MovedArt),
+        ] {
+            let named = self.data_page(data);
+            let drawn = self.art_page(art);
+
+            if named.is_empty() && drawn.is_empty() {
+                continue;
+            }
+
+            let mut group = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
+
+            if !named.is_empty() {
+                let cells: Vec<Element<'_, Message>> =
+                    named.iter().map(|name| name_cell(name)).collect();
+
+                group = group.push(subsection(
+                    "Data",
+                    self.view_shelf(
+                        data,
+                        uniform_grid(cells, CARD_SPACING).columns(cards_per_row(width, NAME_MIN_WIDTH)),
+                        DATA_PAGE,
+                    ),
+                ));
+            }
+
+            if !drawn.is_empty() {
+                let tiles: Vec<Element<'_, Message>> =
+                    drawn.iter().map(|(name, path)| self.view_art(name, path)).collect();
+
+                group = group.push(subsection(
+                    "Images",
+                    self.view_shelf(
+                        art,
+                        uniform_grid(tiles, CARD_SPACING).columns(cards_per_row(width, ART_MIN_WIDTH)),
+                        ART_PAGE,
+                    ),
+                ));
+            }
+
+            body = body.push(section(title, Length::Fill, group));
+        }
+
+        body.into()
+    }
+
+    fn view_shelf<'a>(
+        &self,
+        shelf: Shelf,
+        grid: impl Into<Element<'a, Message>>,
+        size: usize,
+    ) -> Element<'a, Message> {
+        let total = self.shelf_len(shelf);
+        let pages = total.div_ceil(size).max(1);
+
+        let mut body = Column::new().spacing(CARD_SPACING).width(Length::Fill);
+        body = body.push(grid.into());
+
+        if pages == 1 {
+            return body.into();
+        }
+
+        let current = self.pages.get(&shelf).copied().unwrap_or_default().min(pages - 1);
+
+        let step = |label: &'static str, target: Option<usize>| {
+            button(theme::centered_text(label).size(FILE_NAME_SIZE))
+                .padding([BOX_PADDING as u16, CHIP_PADDING as u16])
+                .style(theme::primary_button)
+                .on_press_maybe(target.map(|page| Message::Turn(shelf, page)))
+        };
+
+        body.push(
+            row![
+                step("Prev", current.checked_sub(1)),
+                plain(format!("Page {} of {} ({} files)", current + 1, pages, total), FILE_NAME_SIZE),
+                step("Next", (current + 1 < pages).then_some(current + 1)),
+            ]
+            .spacing(CELL_SPACING)
+            .align_y(Vertical::Center),
+        )
+        .into()
+    }
+
+    fn shelf_len(&self, shelf: Shelf) -> usize {
+        match shelf {
+            Shelf::FreshData => self.files.fresh_data.len(),
+            Shelf::FreshArt => self.files.fresh_art.len(),
+            Shelf::MovedData => self.files.moved_data.len(),
+            Shelf::MovedArt => self.files.moved_art.len(),
+        }
+    }
+
+    fn view_art<'a>(&self, name: &str, path: &Path) -> Element<'a, Message> {
+        let body: Element<'a, Message> = match self.tiles.get(path).cloned().flatten() {
+            Some(handle) => iced_image(handle)
+                .width(Length::Fixed(ART_TILE_SIZE))
+                .height(Length::Fixed(ART_TILE_SIZE))
+                .content_fit(ContentFit::Contain)
+                .into(),
+            None => Space::new().width(Length::Fixed(ART_TILE_SIZE)).height(Length::Fixed(ART_TILE_SIZE)).into(),
+        };
+
+        let card = column![
+            container(body)
+                .width(Length::Fill)
+                .height(Length::Fixed(ART_TILE_SIZE))
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center),
+            file_name(name).align_x(Horizontal::Center).width(Length::Fill),
+        ]
+        .spacing(CARD_SPACING)
+        .align_x(Horizontal::Center)
+        .width(Length::Fill);
 
         container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into()
     }
@@ -1548,6 +1869,18 @@ fn light_box<'a>(content: impl Into<Element<'a, Message>>, height: Length) -> El
         .into()
 }
 
+fn pictured(name: &str) -> bool {
+    name.rsplit('.').next().is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
+}
+
+fn file_name<'a>(name: &str) -> Text<'a> {
+    theme::bold_text(name).size(FILE_NAME_SIZE).wrapping(Wrapping::WordOrGlyph)
+}
+
+fn name_cell<'a>(name: &str) -> Element<'a, Message> {
+    light_box(file_name(name).width(Length::Fill), Length::Shrink)
+}
+
 fn notice<'a>(message: &'a str) -> Element<'a, Message> {
     plain(message, NOTICE_TEXT_SIZE)
         .style(|theme: &Theme| text::Style { color: Some(theme::weak_text_color(theme)) })
@@ -2050,7 +2383,7 @@ mod tests {
     }
 
     fn ore(before: Vec<Build>, after: Vec<Build>) -> Ore {
-        Ore { schema: 2, stamp: 0, before, after, files: Vec::new() }
+        Ore { schema: 2, stamp: 0, before, after, files: Vec::new(), touched: Vec::new() }
     }
 
     // Each column names one region, and Japan's package must not swallow the others.

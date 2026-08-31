@@ -102,6 +102,7 @@ fn sort_raw_folder(
     let asset_router = router::AssetRouter::new(game_root_path, structure).map_err(|e| e.to_string())?;
 
     let mut ledger = manifest::Ledger::load();
+    let tracked = ledger.tracks_files();
 
     let total = all_discovered_files.len();
     let update_interval = (total / 100).max(10);
@@ -131,7 +132,7 @@ fn sort_raw_folder(
 
             let clean_file_data = audit::strip_carriage_returns(&file_data, &filename_string);
 
-            let sample = mining::mineable(&filename_string).then(|| {
+            let sample = (tracked && mining::mineable(&filename_string)).then(|| {
                 let previous = fs::read(&target_destination_path).ok();
 
                 mining::delta(&filename_string, manifest::NONE, manifest::NONE, previous.as_deref(), &clean_file_data)
@@ -171,16 +172,24 @@ fn sort_raw_folder(
         .collect();
 
     let mut ore = Vec::new();
+    let mut touched = Vec::new();
 
     for (filename_key, placement, sample) in updated_placements {
+        if tracked {
+            let held = ledger.placement(&filename_key).map(|placed| placed.record.checksum);
+
+            touched.extend(mining::touch(&filename_key, held, placement.record.checksum));
+        }
+
         ledger.place(filename_key, placement);
         ore.extend(sample);
     }
 
-    if mining::commit(ore, Vec::new()) {
+    if mining::commit(ore, touched, Vec::new()) {
         emit(JobEvent::Log("This import moved game data. Open the Mining page to read what changed.".to_string()));
     }
 
+    mining::enroll(ledger.census());
     ledger.save();
 
     emit(JobEvent::Log("Raw files successfully structured.".to_string()));

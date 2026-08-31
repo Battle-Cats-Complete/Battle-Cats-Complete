@@ -140,6 +140,7 @@ pub(crate) fn run_universal_import(
 
     let game_root_path = Path::new(architecture::GAME);
     let mut ledger = manifest::Ledger::load();
+    let tracked = ledger.tracks_files();
 
     let asset_router_utility = router::AssetRouter::new(game_root_path, structure).map_err(|error| error.to_string())?;
     let (compiled_regex_set, compiled_exception_rules) = rules::compile();
@@ -448,8 +449,9 @@ pub(crate) fn run_universal_import(
     if final_extraction_queue.is_empty() {
         emit(JobEvent::Log("Workspace is completely up to date.".to_string()));
 
-        mining::commit(Vec::new(), detected_builds);
+        mining::commit(Vec::new(), Vec::new(), detected_builds);
         absorb_pack_hashes(&mut ledger, current_pack_hashes);
+        mining::enroll(ledger.census());
         ledger.save();
 
         cleanup_temporary_directories(&global_temporary_directories);
@@ -588,7 +590,7 @@ pub(crate) fn run_universal_import(
                 }
             }
 
-            let sample = (!already_on_disk && mining::mineable(&resolved_filename)).then(|| {
+            let sample = (tracked && !already_on_disk && mining::mineable(&resolved_filename)).then(|| {
                 let previous = fs::read(&target_destination_path).ok();
 
                 let held = ledger
@@ -652,17 +654,25 @@ pub(crate) fn run_universal_import(
     }
 
     let mut ore = Vec::new();
+    let mut touched = Vec::new();
 
     for (filename_key, placement, sample) in updated_placements {
+        if tracked {
+            let held = ledger.placement(&filename_key).map(|placed| placed.record.checksum);
+
+            touched.extend(mining::touch(&filename_key, held, placement.record.checksum));
+        }
+
         ledger.place(filename_key, placement);
         ore.extend(sample);
     }
 
-    if mining::commit(ore, detected_builds) {
+    if mining::commit(ore, touched, detected_builds) {
         emit(JobEvent::Log("This import moved game data. Open the Mining page to read what changed.".to_string()));
     }
 
     absorb_pack_hashes(&mut ledger, current_pack_hashes);
+    mining::enroll(ledger.census());
     ledger.save();
 
     cleanup_temporary_directories(&global_temporary_directories);
