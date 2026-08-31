@@ -88,6 +88,14 @@ const INDEX_QUIET_WINDOW: Duration = Duration::from_secs(3);
 
 const TAB_TEXT_SIZE: f32 = 16.0;
 
+const TAB_HEIGHT: f32 = 45.0;
+
+const TAB_SPACING: f32 = 7.5;
+
+const SIDEBAR_PADDING: f32 = 15.0;
+
+const SIDEBAR_WIDTH: f32 = 180.0;
+
 const ALL_PAGES: &[Page] = &[
     Page::Home,
     Page::Cats,
@@ -1127,6 +1135,11 @@ impl BattleCatsApp {
 
                 Task::batch([select, self.navigate(Page::Cats)])
             }
+            Message::Mining(mining::Message::OpenForm(cat_id, form)) => {
+                let jump = self.update(Message::Cat(cat::Message::JumpToUnit(cat_id, form)));
+
+                Task::batch([jump, self.navigate(Page::Cats)])
+            }
             Message::Mining(mining::Message::OpenTalents(cat_id, form)) => {
                 let Some(levels) = self.mining_state.enabled_levels(cat_id) else {
                     return Task::none();
@@ -1216,7 +1229,7 @@ impl BattleCatsApp {
             Page::Mods => self.mods_state.view().map(Message::Mod),
             Page::Files => self.files_state.view().map(Message::Files),
             Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
-            Page::Mining => self.mining_state.view(&self.cat_state.data.cats, &self.vault.vfs, &self.settings, self.window_size).map(Message::Mining),
+            Page::Mining => self.mining_state.view(&self.cat_state.data.cats, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }, &self.settings, self.window_size).map(Message::Mining),
             Page::Utilities => self.utilities_state.view(&self.settings, &self.app_state).map(Message::Utilities),
             Page::Help => {
                 let ui_theme = self.theme();
@@ -1404,7 +1417,7 @@ impl BattleCatsApp {
                 left: 0.0,
             });
 
-        let mut tabs: iced::widget::Column<'_, Message> = column![].spacing(10);
+        let mut tabs: iced::widget::Column<'_, Message> = column![].spacing(TAB_SPACING);
         for page in ALL_PAGES {
             if page.nightly() && !self.settings.general.enable_nightly {
                 continue;
@@ -1416,9 +1429,10 @@ impl BattleCatsApp {
             } else {
                 theme::button_label(page.tab_name()).size(TAB_TEXT_SIZE).into()
             };
-            let btn = button(label)
+            let btn = button(container(label).center_y(Length::Fill))
                 .width(Length::Fill)
-                .padding(10)
+                .height(Length::Fixed(TAB_HEIGHT))
+                .padding([0, 10])
                 .on_press(Message::Navigate(*page))
                 .style(move |theme: &Theme, status| theme::toggle_button(theme, status, is_active));
 
@@ -1426,9 +1440,9 @@ impl BattleCatsApp {
         }
 
         let sidebar_panel = container(tabs)
-            .width(Length::Fixed(180.0))
+            .width(Length::Fixed(SIDEBAR_WIDTH))
             .height(Length::Fill)
-            .padding(15)
+            .padding(SIDEBAR_PADDING)
             .style(theme::sidebar_container);
 
         let layer = row![toggle_container, opaque(slide(sidebar_panel, self.sidebar_open, Slide::Right))]
@@ -1475,5 +1489,22 @@ impl BattleCatsApp {
             }
             self.last_saved_state_hash = current_hash;
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::{ALL_PAGES, SIDEBAR_PADDING, TAB_HEIGHT, TAB_SPACING};
+
+    const MINIMUM_WINDOW_HEIGHT: f32 = 600.0;
+
+    // The list is top-aligned, so its margins only match when the tabs fill the smallest
+    // window exactly: the panel padding is then the whole gap at both ends. Adding a page
+    // or resizing a tab breaks that balance, and this catches it.
+    #[test]
+    fn the_nav_list_fills_the_smallest_window_exactly() {
+        let tabs = ALL_PAGES.len() as f32;
+        let used = tabs * TAB_HEIGHT + (tabs - 1.0) * TAB_SPACING;
+
+        assert_eq!(used, MINIMUM_WINDOW_HEIGHT - SIDEBAR_PADDING * 2.0);
     }
 }

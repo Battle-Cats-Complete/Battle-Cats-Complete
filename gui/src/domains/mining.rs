@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::text::Wrapping;
-use iced::widget::{button, column, container, image as iced_image, row, rule, scrollable, text, text_input, Column, Row, Space, Text};
+use iced::widget::{button, column, container, image as iced_image, row, rule, scrollable, text, text_input, tooltip, Column, Row, Space, Text};
 use iced::{Color, Element, Length, Size, Task, Theme};
 use nyanko::cat::unit::{LevelCurve, TalentCost};
 use nyanko::combat::Entity;
@@ -15,15 +15,16 @@ use kore::domains::cat::files as cat_files;
 use kore::domains::cat::game::stats as cat_stats;
 use kore::domains::cat::game::talents as talent_logic;
 use kore::domains::cat::scanner::{self as cat_scanner, CatEntry};
-use kore::domains::mining::{self, talents, units, Build, Ore, Status};
+use kore::domains::mining::{self, changes, forms, talents, units, Build, Ore, Status};
 use kore::domains::settings::Settings;
 use kore::systems::combat::registry::{AbilityIcon, STAT_RARITY};
+use kore::common::context::GlobalContext;
 use kore::Vfs;
 
 use crate::app::theme;
 use crate::common::header_icon::{self, HeaderIcon};
 use crate::common::{ability_icon, img015, skill_name, CustomAssets, SpriteSheet};
-use crate::widget::{fallback_icon, list_row, section, smooth_scroll, uniform_grid};
+use crate::widget::{fallback_icon, list_row, section, smooth_scroll, tinted_superscript, uniform_grid};
 
 const SIDEBAR_WIDTH: f32 = 110.0;
 const SIDEBAR_PADDING: f32 = 8.0;
@@ -54,6 +55,11 @@ const CHIP_RADIUS: f32 = 5.0;
 const CHIP_PADDING: f32 = 6.0;
 const CELL_SPACING: f32 = 8.0;
 const HEADER_TEXT_SIZE: f32 = 13.0;
+const LEDGER_TITLE_SIZE: f32 = 17.0;
+const ABILITY_ICON_SIZE: f32 = 32.0;
+const ABILITY_ICON_GAP: f32 = CELL_SPACING / 2.0;
+const LEDGER_RULE_ALPHA: f32 = 0.35;
+
 const VALUE_TEXT_SIZE: f32 = 13.0;
 const BOX_PADDING: f32 = 4.0;
 const BOX_RADIUS: f32 = 4.0;
@@ -67,6 +73,8 @@ const NOTICE_TEXT_SIZE: f32 = 15.0;
 const ULTRA_TINT: Color = Color { r: 0.47, g: 0.08, b: 0.08, a: 1.0 };
 const NORMAL_TINT: Color = Color { r: 0.71, g: 0.55, b: 0.08, a: 1.0 };
 const RETUNE_TINT: Color = Color { r: 0.16, g: 0.36, b: 0.55, a: 1.0 };
+const ADDITION_TINT: Color = Color { r: 0.13, g: 0.42, b: 0.20, a: 1.0 };
+const REMOVAL_TINT: Color = Color { r: 0.47, g: 0.13, b: 0.13, a: 1.0 };
 const DARK_BOX_BG: Color = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.4 };
 const CHIP_TEXT: Color = Color::WHITE;
 
@@ -92,6 +100,7 @@ pub enum Message {
     Select(Tab),
     LevelChanged(u32, String),
     OpenTalents(u32, usize),
+    OpenForm(u32, usize),
     OpenUnit(u32),
     Img015Loaded(u64, usize, Option<CoreSpriteSheet>),
 }
@@ -102,6 +111,7 @@ impl fmt::Debug for Message {
             Self::Select(tab) => write!(f, "Select({:?})", tab),
             Self::LevelChanged(cat, value) => write!(f, "LevelChanged({}, {})", cat, value),
             Self::OpenTalents(cat, form) => write!(f, "OpenTalents({}, {})", cat, form),
+            Self::OpenForm(cat, form) => write!(f, "OpenForm({}, {})", cat, form),
             Self::OpenUnit(cat) => write!(f, "OpenUnit({})", cat),
             Self::Img015Loaded(generation, index, _) => write!(f, "Img015Loaded({}, {})", generation, index),
         }
@@ -113,6 +123,8 @@ pub struct State {
     ore: Option<Ore>,
     report: Option<talents::Report>,
     units: Option<units::Report>,
+    forms: Vec<forms::Unlocked>,
+    changes: Vec<changes::Changed>,
     levels: HashMap<u32, String>,
     img015_sheets: Vec<SpriteSheet>,
     sheet_generation: u64,
@@ -130,6 +142,8 @@ impl Default for State {
             ore: None,
             report: None,
             units: None,
+            forms: Vec::new(),
+            changes: Vec::new(),
             levels: HashMap::new(),
             img015_sheets: Vec::new(),
             sheet_generation: 0,
@@ -156,6 +170,17 @@ impl State {
             .as_ref()
             .and_then(|ore| ore.file(cat_files::UNIT_BUY))
             .map(units::read);
+
+        self.forms = self
+            .ore
+            .as_ref()
+            .and_then(|ore| ore.file(cat_files::UNIT_BUY))
+            .map_or_else(Vec::new, forms::read);
+
+        self.changes = self
+            .ore
+            .as_ref()
+            .map_or_else(Vec::new, |ore| ore.files.iter().flat_map(changes::read).collect());
 
         if !self.enabled(self.tab) {
             self.tab = Tab::Meta;
@@ -197,7 +222,7 @@ impl State {
                     self.levels.insert(cat_id, value);
                 }
             }
-            Message::OpenTalents(..) | Message::OpenUnit(..) => {}
+            Message::OpenTalents(..) | Message::OpenForm(..) | Message::OpenUnit(..) => {}
             Message::Img015Loaded(generation, index, sheet) => {
                 if generation == self.sheet_generation
                     && let Some(slot) = self.img015_sheets.get_mut(index)
@@ -234,8 +259,12 @@ impl State {
             .map(talents::Find::enabled_levels)
     }
 
+    fn unlocks(&self, cat_id: u32, form: usize) -> bool {
+        self.forms.iter().any(|unlocked| unlocked.cat_id == cat_id && unlocked.form == form)
+    }
+
     fn has_finds(&self) -> bool {
-        self.has_talents() || self.has_fresh()
+        self.has_talents() || self.has_fresh() || !self.forms.is_empty() || !self.changes.is_empty()
     }
 
     fn has_talents(&self) -> bool {
@@ -268,13 +297,13 @@ impl State {
     pub fn view<'a>(
         &'a self,
         cats: &'a [CatEntry],
-        vfs: &'a Vfs,
+        global: GlobalContext<'a>,
         settings: &'a Settings,
         window: Size,
     ) -> Element<'a, Message> {
         let body = match self.tab {
             Tab::Meta => self.view_meta(),
-            Tab::Cats => self.view_cats(cats, vfs, settings, window.width - SIDEBAR_WIDTH),
+            Tab::Cats => self.view_cats(cats, global, settings, window.width - SIDEBAR_WIDTH),
         };
 
         let page = smooth_scroll(
@@ -360,10 +389,12 @@ impl State {
     fn view_cats<'a>(
         &'a self,
         cats: &'a [CatEntry],
-        vfs: &'a Vfs,
+        global: GlobalContext<'a>,
         settings: &'a Settings,
         width: f32,
     ) -> Element<'a, Message> {
+        let vfs = &global.vault.vfs;
+
         let mut body = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
         let mut listed = false;
 
@@ -376,13 +407,57 @@ impl State {
             body = body.push(section("New", Length::Fill, uniform_grid(cards, CARD_SPACING)));
         }
 
+        let altered: Vec<&changes::Changed> = self
+            .changes
+            .iter()
+            .filter(|changed| cats.iter().any(|entry| entry.id == changed.cat_id))
+            .filter(|changed| !self.unlocks(changed.cat_id, changed.form))
+            .collect();
+
+        let read: Vec<(&changes::Changed, forms::Diff)> = altered
+            .into_iter()
+            .map(|changed| (changed, changed_diff(changed, cats, global, settings)))
+            .filter(|(_, diff)| !diff.is_empty())
+            .collect();
+
+        if !read.is_empty() {
+            listed = true;
+
+            let cards: Vec<Element<'a, Message>> = read
+                .into_iter()
+                .map(|(changed, diff)| self.view_changed(changed, cats, diff))
+                .collect();
+
+            body = body.push(section("Changes", Length::Fill, wrap(cards, cards_per_row(width, UNIT_MIN_WIDTH))));
+        }
+
+        let unlocked: Vec<&forms::Unlocked> = self
+            .forms
+            .iter()
+            .filter(|unlocked| cats.iter().any(|entry| entry.id == unlocked.cat_id))
+            .collect();
+
+        if !unlocked.is_empty() {
+            listed = true;
+
+            let cards: Vec<Element<'a, Message>> = unlocked
+                .into_iter()
+                .map(|entry| self.view_unlocked(entry, cats, global, settings))
+                .collect();
+
+            body = body.push(section("Forms", Length::Fill, wrap(cards, cards_per_row(width, UNIT_MIN_WIDTH))));
+        }
+
         if let Some(report) = &self.report
             && self.has_talents()
         {
             listed = true;
 
+            let mut ranked: Vec<&talents::Find> = report.finds.iter().collect();
+            ranked.sort_by_key(|find| talent_rank(find));
+
             let cards: Vec<Element<'a, Message>> =
-                report.finds.iter().map(|find| self.view_find(find, cats, vfs, settings)).collect();
+                ranked.into_iter().map(|find| self.view_find(find, cats, vfs, settings)).collect();
 
             body = body.push(section("Talents", Length::Fill, wrap(cards, cards_per_row(width, UNIT_MIN_WIDTH))));
         }
@@ -431,6 +506,71 @@ impl State {
             .into()
     }
 
+    fn view_changed<'a>(
+        &'a self,
+        changed: &'a changes::Changed,
+        cats: &'a [CatEntry],
+        diff: forms::Diff,
+    ) -> Element<'a, Message> {
+        let cat = cats.iter().find(|entry| entry.id == changed.cat_id);
+        let badge = format!("{} FORM", cat_files::form_name(changed.form).to_uppercase());
+
+        self.view_diff_card(cat, changed.cat_id, changed.form, badge, diff)
+    }
+
+    fn view_unlocked<'a>(
+        &'a self,
+        unlocked: &'a forms::Unlocked,
+        cats: &'a [CatEntry],
+        global: GlobalContext<'a>,
+        settings: &Settings,
+    ) -> Element<'a, Message> {
+        let cat = cats.iter().find(|entry| entry.id == unlocked.cat_id);
+        let form = unlocked.form;
+        let badge = if form == forms::ULTRA_FORM { "ULTRA FORM" } else { "TRUE FORM" };
+
+        let diff = cat.map_or_else(forms::Diff::default, |entry| form_diff(entry, form, global, settings));
+
+        self.view_diff_card(cat, unlocked.cat_id, form, badge.to_string(), diff)
+    }
+
+    fn view_diff_card<'a>(
+        &'a self,
+        cat: Option<&'a CatEntry>,
+        cat_id: u32,
+        form: usize,
+        badge: String,
+        diff: forms::Diff,
+    ) -> Element<'a, Message> {
+        let identity = button(self.view_identity(cat, form, cat_id))
+            .padding(0)
+            .style(button::text)
+            .on_press_maybe(cat.map(|_| Message::OpenForm(cat_id, form)));
+
+        let header = row![
+            light_box(identity, Length::Fixed(UNIT_BOX_HEIGHT)),
+            light_box(strong(badge, UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
+        ]
+        .spacing(CELL_SPACING)
+        .align_y(Vertical::Center);
+
+        let icons = Icons { cache: &self.icons, sheets: &self.img015_sheets, assets: &self.assets };
+        let mut body = Column::new().spacing(CARD_SPACING).width(Length::Fill);
+
+        body = body.extend(panels(&diff, &icons));
+
+        if let Some(spirit) = &diff.spirit
+            && !spirit.is_empty()
+        {
+            body = body.push(strong("Conjure", LEDGER_TITLE_SIZE));
+            body = body.extend(panels(spirit, &icons));
+        }
+
+        let card = column![header, rule::horizontal(1), body].spacing(10).width(Length::Fill);
+
+        container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into()
+    }
+
     fn view_find<'a>(
         &'a self,
         find: &'a talents::Find,
@@ -451,14 +591,19 @@ impl State {
             level: level.value,
         };
 
+        let mut ordered: Vec<(&talents::Gain, bool)> = find
+            .gained
+            .iter()
+            .map(|gain| (gain, false))
+            .chain(find.retuned.iter().map(|retune| (&retune.gain, true)))
+            .collect();
+
+        ordered.sort_by_key(|(gain, _)| gain.ultra);
+
         let mut talents = Column::new().spacing(CARD_SPACING).width(Length::Fill);
 
-        for gain in &find.gained {
-            talents = talents.push(self.view_gain(gain, false, &unit, vfs));
-        }
-
-        for retune in &find.retuned {
-            talents = talents.push(self.view_gain(&retune.gain, true, &unit, vfs));
+        for (gain, retuned) in ordered {
+            talents = talents.push(self.view_gain(gain, retuned, &unit, vfs));
         }
 
         let card = column![self.view_unit_header(find, cat, form, level), rule::horizontal(1), talents]
@@ -583,27 +728,57 @@ impl State {
     }
 
     fn view_talent_icon<'a>(&'a self, gain: &'a talents::Gain) -> Element<'a, Message> {
-        match gain.icon {
+        self.view_icon(gain.icon, gain.fallback, TALENT_ICON_SIZE)
+    }
+
+    fn view_icon<'a>(&'a self, icon: AbilityIcon, fallback: &'a str, size: f32) -> Element<'a, Message> {
+        match icon {
             AbilityIcon::Custom(custom) => {
                 if let Some(handle) = self.assets.get_icon_texture(custom) {
-                    return iced_image(handle)
-                        .width(Length::Fixed(TALENT_ICON_SIZE))
-                        .height(Length::Fixed(TALENT_ICON_SIZE))
-                        .into();
+                    return iced_image(handle).width(Length::Fixed(size)).height(Length::Fixed(size)).into();
                 }
             }
             AbilityIcon::Standard(icon_id) => {
                 if let Some(handle) = self.icons.handle(icon_id, &self.img015_sheets) {
+                    return iced_image(handle).width(Length::Fixed(size)).height(Length::Fixed(size)).into();
+                }
+            }
+            AbilityIcon::None => {}
+        }
+
+        fallback_icon(fallback)
+    }
+}
+
+struct Icons<'a> {
+    cache: &'a ability_icon::Cache,
+    sheets: &'a [SpriteSheet],
+    assets: &'a CustomAssets,
+}
+
+impl Icons<'_> {
+    fn render<'b>(&self, icon: AbilityIcon, fallback: &'static str) -> Element<'b, Message> {
+        match icon {
+            AbilityIcon::Custom(custom) => {
+                if let Some(handle) = self.assets.get_icon_texture(custom) {
                     return iced_image(handle)
-                        .width(Length::Fixed(TALENT_ICON_SIZE))
-                        .height(Length::Fixed(TALENT_ICON_SIZE))
+                        .width(Length::Fixed(ABILITY_ICON_SIZE))
+                        .height(Length::Fixed(ABILITY_ICON_SIZE))
+                        .into();
+                }
+            }
+            AbilityIcon::Standard(icon_id) => {
+                if let Some(handle) = self.cache.handle(icon_id, self.sheets) {
+                    return iced_image(handle)
+                        .width(Length::Fixed(ABILITY_ICON_SIZE))
+                        .height(Length::Fixed(ABILITY_ICON_SIZE))
                         .into();
                 }
             }
             AbilityIcon::None => {}
         }
 
-        fallback_icon(gain.fallback)
+        fallback_icon(fallback)
     }
 }
 
@@ -718,6 +893,203 @@ fn cards_per_row(available_width: f32, min_width: f32) -> usize {
     (((usable + CARD_SPACING) / slot).floor() as usize).max(1)
 }
 
+fn changed_diff<'a>(
+    changed: &'a changes::Changed,
+    cats: &'a [CatEntry],
+    global: GlobalContext<'a>,
+    settings: &Settings,
+) -> forms::Diff {
+    let cat = cats.iter().find(|entry| entry.id == changed.cat_id);
+
+    forms::compare(&forms::Subject {
+        global,
+        previous: &changed.previous,
+        current: &changed.current,
+        curve: cat.and_then(|entry| entry.curve.as_ref()),
+        level: reading_level(cat, changed.form, settings),
+        frames: frames_for(cat, changed.form, changed.form),
+    })
+}
+
+fn reading_level(cat: Option<&CatEntry>, form: usize, settings: &Settings) -> i32 {
+    if form == forms::ULTRA_FORM {
+        return ULTRA_LEVEL;
+    }
+
+    cat.map_or(1, |entry| cat_stats::seeded_level(entry, settings).0)
+}
+
+fn frames_for(cat: Option<&CatEntry>, earlier: usize, form: usize) -> (i32, i32) {
+    let frames = |slot: usize| {
+        cat.and_then(|entry| entry.atk_anim_frames.get(slot).copied()).unwrap_or_default()
+    };
+
+    (frames(earlier), frames(form))
+}
+
+fn form_diff<'a>(cat: &'a CatEntry, form: usize, global: GlobalContext<'a>, settings: &Settings) -> forms::Diff {
+    let Some(earlier) = (0..form).rev().find(|slot| cat.forms.get(*slot).copied().unwrap_or(false)) else {
+        return forms::Diff::default();
+    };
+
+    let (Some(previous), Some(current)) = (
+        cat.stats.get(earlier).and_then(Option::as_ref),
+        cat.stats.get(form).and_then(Option::as_ref),
+    ) else {
+        return forms::Diff::default();
+    };
+
+    forms::compare(&forms::Subject {
+        global,
+        previous,
+        current,
+        curve: cat.curve.as_ref(),
+        level: reading_level(Some(cat), form, settings),
+        frames: frames_for(Some(cat), earlier, form),
+    })
+}
+
+fn panels<'a>(diff: &forms::Diff, icons: &Icons<'_>) -> Vec<Element<'a, Message>> {
+    let sides = [
+        ("Additions", ADDITION_TINT, &diff.gains, &diff.learned),
+        ("Removals", REMOVAL_TINT, &diff.losses, &diff.forgotten),
+    ];
+
+    sides
+        .into_iter()
+        .filter_map(|(title, tint, stats, abilities)| ledger(title, tint, stats, abilities, icons))
+        .collect()
+}
+
+fn ledger<'a>(
+    title: &'static str,
+    tint: Color,
+    stats: &[forms::Change],
+    abilities: &[forms::Ability],
+    icons: &Icons<'_>,
+) -> Option<Element<'a, Message>> {
+    if stats.is_empty() && abilities.is_empty() {
+        return None;
+    }
+
+    let mut panel = Column::new().spacing(8).width(Length::Fill);
+
+    panel = panel.push(strong(title, LEDGER_TITLE_SIZE).color(CHIP_TEXT));
+    panel = panel.push(ledger_rule());
+
+    if !stats.is_empty() {
+        let mut lines = Column::new().spacing(4).width(Length::Fill);
+
+        for change in stats {
+            lines = lines.push(dark_box(change_row(change), Length::Shrink));
+        }
+
+        panel = panel.push(labelled("Statistics", lines));
+    }
+
+    if !abilities.is_empty() {
+        panel = panel.push(labelled("Abilities", ability_groups(abilities, icons)));
+    }
+
+    Some(
+        container(panel)
+            .padding(CHIP_PADDING)
+            .width(Length::Fill)
+            .style(move |_theme: &Theme| container::Style {
+                background: Some(tint.into()),
+                border: iced::border::rounded(CHIP_RADIUS),
+                ..Default::default()
+            })
+            .into(),
+    )
+}
+
+fn ledger_rule<'a>() -> Element<'a, Message> {
+    rule::horizontal(1)
+        .style(|theme: &Theme| rule::Style {
+            color: Color { a: LEDGER_RULE_ALPHA, ..CHIP_TEXT },
+            ..rule::default(theme)
+        })
+        .into()
+}
+
+fn labelled<'a>(title: &'static str, body: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    column![strong(title, HEADER_TEXT_SIZE).color(CHIP_TEXT), body.into()].spacing(4).width(Length::Fill).into()
+}
+
+fn change_row<'a>(change: &forms::Change) -> Element<'a, Message> {
+    let mut line = Row::new().spacing(VALUE_LABEL_GAP).align_y(Vertical::Center);
+
+    line = line.push(plain(change.label, VALUE_TEXT_SIZE).color(CHIP_TEXT));
+    line = line.push(strong(&change.before, VALUE_TEXT_SIZE).color(CHIP_TEXT));
+
+    if let Some(shift) = &change.shift {
+        line = line.push(plain(shift, VALUE_TEXT_SIZE).color(CHIP_TEXT));
+    }
+
+    line = line.push(strong("->", VALUE_TEXT_SIZE).color(CHIP_TEXT));
+    line = line.push(strong(&change.after, VALUE_TEXT_SIZE).color(CHIP_TEXT));
+
+    line.into()
+}
+
+fn ability_groups<'a>(abilities: &[forms::Ability], icons: &Icons<'_>) -> Element<'a, Message> {
+    let mut body = Column::new().spacing(4).width(Length::Fill);
+    let mut folded = Row::new().spacing(ABILITY_ICON_GAP).align_y(Vertical::Center);
+    let mut plain_count = 0;
+
+    for ability in abilities.iter().filter(|ability| !ability.explained()) {
+        folded = folded.push(hinted_icon(ability, icons));
+        plain_count += 1;
+    }
+
+    if plain_count > 0 {
+        body = body.push(dark_box(folded, Length::Shrink));
+    }
+
+    for ability in abilities.iter().filter(|ability| ability.explained()) {
+        body = body.push(dark_box(explained_ability(ability, icons), Length::Shrink));
+    }
+
+    body.into()
+}
+
+fn hinted_icon<'a>(ability: &forms::Ability, icons: &Icons<'_>) -> Element<'a, Message> {
+    let icon = icons.render(ability.icon, ability.fallback);
+
+    if ability.text.is_empty() {
+        return icon;
+    }
+
+    tooltip(
+        icon,
+        container(tinted_superscript(&ability.text, VALUE_TEXT_SIZE, None))
+            .padding(6)
+            .style(container::bordered_box),
+        tooltip::Position::Top,
+    )
+    .into()
+}
+
+fn explained_ability<'a>(ability: &forms::Ability, icons: &Icons<'_>) -> Element<'a, Message> {
+    let mut block = Column::new().spacing(2).width(Length::Fill);
+
+    block = block.push(
+        row![
+            icons.render(ability.icon, ability.fallback),
+            strong(ability.name, VALUE_TEXT_SIZE).color(CHIP_TEXT),
+        ]
+        .spacing(4)
+        .align_y(Vertical::Center),
+    );
+
+    for change in &ability.detail {
+        block = block.push(change_row(change));
+    }
+
+    block.into()
+}
+
 fn conjured(cats: &[CatEntry]) -> HashSet<u32> {
     cats.iter()
         .flat_map(|entry| entry.stats.iter().flatten())
@@ -725,7 +1097,7 @@ fn conjured(cats: &[CatEntry]) -> HashSet<u32> {
         .collect()
 }
 
-fn kind_badge(find: &talents::Find) -> &'static str {
+fn talent_kinds(find: &talents::Find) -> (bool, bool) {
     let mut normal = false;
     let mut ultra = false;
 
@@ -737,10 +1109,22 @@ fn kind_badge(find: &talents::Find) -> &'static str {
         }
     }
 
-    match (normal, ultra) {
+    (normal, ultra)
+}
+
+fn kind_badge(find: &talents::Find) -> &'static str {
+    match talent_kinds(find) {
         (true, true) => "TALENT+ULTRA",
         (false, true) => "ULTRA",
         _ => "TALENT",
+    }
+}
+
+fn talent_rank(find: &talents::Find) -> u8 {
+    match talent_kinds(find) {
+        (true, true) => 2,
+        (false, true) => 1,
+        _ => 0,
     }
 }
 
@@ -879,6 +1263,33 @@ mod tests {
         assert!(!ignored("Range: 400~800"));
         assert!(!ignored("Chance: 0% (+30%) -> 30%"));
         assert!(!ignored("Widthless"));
+    }
+
+    fn find(gained: &[bool]) -> talents::Find {
+        talents::Find {
+            cat_id: 1,
+            fresh: false,
+            gained: gained
+                .iter()
+                .map(|ultra| talents::Gain {
+                    index: 0,
+                    group: nyanko::cat::unit::TalentGroup { limit: u8::from(*ultra), ..Default::default() },
+                    name: "",
+                    fallback: "",
+                    icon: AbilityIcon::None,
+                    ultra: *ultra,
+                })
+                .collect(),
+            retuned: Vec::new(),
+        }
+    }
+
+    // Plain talents read first, ultra-only next, and the mixed units close the section.
+    #[test]
+    fn talent_cards_rank_plain_then_ultra_then_both() {
+        assert_eq!(talent_rank(&find(&[false, false])), 0);
+        assert_eq!(talent_rank(&find(&[true])), 1);
+        assert_eq!(talent_rank(&find(&[false, true])), 2);
     }
 
     #[test]

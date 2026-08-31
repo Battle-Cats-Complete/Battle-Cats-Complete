@@ -40,5 +40,5 @@ pub(crate) use slide::{slide, Slide};
 pub(crate) use smooth_scroll::{smooth_scroll, BOOTSTRAP_DT, DECAY_RATE, EPSILON, LINE_PIXELS};
 pub(crate) use stat_grid::{grid_frames, grid_header, grid_value};
 pub(crate) use status::status;
-pub(crate) use superscript::text_with_superscript;
+pub(crate) use superscript::{text_with_superscript, tinted_superscript};
 pub(crate) use uniform_grid::uniform_grid;

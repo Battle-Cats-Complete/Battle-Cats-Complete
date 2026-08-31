@@ -1,3 +1,5 @@
+pub mod changes;
+pub mod forms;
 pub mod talents;
 pub mod units;
 
@@ -34,6 +36,10 @@ pub(crate) fn mineable(filename: &str) -> bool {
 }
 
 fn keying(filename: &str) -> Option<Keying> {
+    if cat_files::stats_id(filename).is_some() {
+        return Some(Keying::Line);
+    }
+
     MINEABLE.iter().find(|(name, _)| *name == filename).map(|(_, keying)| *keying)
 }
 
@@ -255,6 +261,14 @@ mod tests {
 
     // unitbuy.csv is positional: its first column is rarity, so column keying would
     // collide thousands of rows onto a handful of keys.
+    // Every per-unit stats table is mineable, and each of its lines is one form.
+    #[test]
+    fn a_per_unit_stats_table_is_mined_by_line() {
+        assert!(mineable("unit440.csv"));
+        assert!(!mineable("unitlevel.csv"));
+        assert!(!mineable("unit44.csv"));
+    }
+
     #[test]
     fn a_positional_table_keys_by_line_rather_than_by_its_first_column() {
         let old = b"0,0,50\n0,1,60\n";
