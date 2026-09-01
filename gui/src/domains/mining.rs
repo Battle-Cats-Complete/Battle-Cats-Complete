@@ -2894,6 +2894,13 @@ fn explained_ability<'a>(ability: &forms::Ability, icons: &Icons<'_>) -> Element
     .spacing(4)
     .align_y(Vertical::Center);
 
+    if ability.detail.is_empty() && !ability.text.is_empty() {
+        return column![heading, tinted_superscript(&ability.text, VALUE_TEXT_SIZE, Some(CHIP_TEXT))]
+            .spacing(2)
+            .width(Length::Fill)
+            .into();
+    }
+
     let mut block = Column::new().spacing(2).width(Length::Fill).push(hinted(heading, &ability.text));
 
     for change in &ability.detail {

@@ -131,8 +131,8 @@ impl Ledger {
         self.files.get(filename)
     }
 
-    pub(crate) fn track(&mut self, pack: String, region: String, checksum: u64) {
-        self.packs.entry(pack).or_default().insert(region, checksum);
+    pub(crate) fn track(&mut self, pack: String, region: String, checksum: u64) -> bool {
+        self.packs.entry(pack).or_default().insert(region, checksum) != Some(checksum)
     }
 
     pub(crate) fn place(&mut self, filename: String, placement: Placement) {
@@ -256,6 +256,18 @@ mod tests {
         assert!(!holds(&directory.join("absent.csv"), body.len(), checksum));
 
         let _ = fs::remove_dir_all(&directory);
+    }
+
+    // A re-import that finds every pack already recorded must not rewrite the manifest,
+    // or the Import activity timer reads "moments ago" when nothing was imported.
+    #[test]
+    fn tracking_an_identical_pack_reports_no_change() {
+        let mut ledger = Ledger::from_stored(stored_with("DownloadLocal.pack", &[("en", 11)], &[]));
+
+        assert!(!ledger.track("DownloadLocal.pack".to_string(), "en".to_string(), 11));
+        assert!(ledger.track("DownloadLocal.pack".to_string(), "en".to_string(), 22), "a new checksum is a change");
+        assert!(ledger.track("DownloadLocal.pack".to_string(), "ja".to_string(), 11), "a new region is a change");
+        assert!(ledger.track("AUnitServer.pack".to_string(), "en".to_string(), 11), "a new pack is a change");
     }
 
     #[test]

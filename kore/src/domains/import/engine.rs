@@ -103,12 +103,16 @@ fn verdict(present: bool, region: &str, size: usize, checksum: u64, record: &man
     Verdict::Write
 }
 
-fn absorb_pack_hashes(ledger: &mut manifest::Ledger, hashes: HashMap<String, HashMap<String, u64>>) {
+fn absorb_pack_hashes(ledger: &mut manifest::Ledger, hashes: HashMap<String, HashMap<String, u64>>) -> bool {
+    let mut fresh = false;
+
     for (pack_name, region_map) in hashes {
         for (region_key, checksum) in region_map {
-            ledger.track(pack_name.clone(), region_key, checksum);
+            fresh |= ledger.track(pack_name.clone(), region_key, checksum);
         }
     }
+
+    fresh
 }
 
 fn cleanup_temporary_directories(directories: &[PathBuf]) {
@@ -455,8 +459,10 @@ pub(crate) fn run_universal_import(
         emit(JobEvent::Log("Workspace is completely up to date.".to_string()));
 
         mining::commit(Vec::new(), Vec::new(), detected_builds);
-        absorb_pack_hashes(&mut ledger, current_pack_hashes);
-        ledger.save();
+
+        if absorb_pack_hashes(&mut ledger, current_pack_hashes) {
+            ledger.save();
+        }
 
         cleanup_temporary_directories(&global_temporary_directories);
         return Ok(());
