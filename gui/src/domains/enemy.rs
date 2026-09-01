@@ -338,7 +338,7 @@ impl EnemyState {
     fn check_sheets(&mut self, vfs: &Vfs) -> Task<Message> {
         let generation = self.sheet_generation;
 
-        crate::common::img015::ensure_loaded(&mut self.img015_sheets, vfs)
+        crate::common::img015::ensure_loaded(&mut self.img015_sheets, vfs, false)
             .map(move |(index, sheet)| Message::Img015Loaded(generation, index, sheet))
     }
 

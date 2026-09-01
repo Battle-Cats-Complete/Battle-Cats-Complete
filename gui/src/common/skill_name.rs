@@ -9,14 +9,15 @@ use kore::Vfs;
 
 pub(crate) type Cache = RefCell<HashMap<String, Handle>>;
 
-pub(crate) fn load(cache: &Cache, group: &TalentGroup, vfs: &Vfs) -> Option<Handle> {
+pub(crate) fn load(cache: &Cache, group: &TalentGroup, vfs: &Vfs, pristine: bool) -> Option<Handle> {
     let image_id = if group.name_id > 0 { group.name_id } else { i16::from(group.ability_id) };
 
     if image_id <= 0 {
         return None;
     }
 
-    let path = vfs.find(&format!("Skill_name_{:03}.png", image_id))?;
+    let name = format!("Skill_name_{:03}.png", image_id);
+    let path = if pristine { vfs.pristine(&name) } else { vfs.find(&name) }?;
     let key = path.file_name()?.to_string_lossy().into_owned();
 
     if let Some(cached) = cache.borrow().get(&key) {

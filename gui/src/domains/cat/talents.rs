@@ -356,7 +356,7 @@ impl State {
 
 
     fn skill_name_handle(&self, group: &TalentGroup, vfs: &Vfs) -> Option<Handle> {
-        skill_name::load(&self.skill_name_cache, group, vfs)
+        skill_name::load(&self.skill_name_cache, group, vfs, false)
     }
 }
 

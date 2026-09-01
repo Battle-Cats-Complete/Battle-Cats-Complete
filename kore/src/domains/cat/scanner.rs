@@ -78,22 +78,36 @@ struct Images {
 
 const EVOLVED_FORM: usize = 1;
 
-fn egg_fallback(vfs: &Vfs, asset: files::AssetType, form: usize, egg_ids: (i32, i32)) -> Option<PathBuf> {
+fn look(vfs: &Vfs, name: &str, config: &ScannerConfig) -> Option<PathBuf> {
+    if config.pristine {
+        return vfs.pristine(name);
+    }
+
+    vfs.find(name)
+}
+
+fn egg_fallback(
+    vfs: &Vfs,
+    asset: files::AssetType,
+    form: usize,
+    egg_ids: (i32, i32),
+    config: &ScannerConfig,
+) -> Option<PathBuf> {
     if form != EVOLVED_FORM || egg_ids.1 == -1 {
         return None;
     }
 
-    vfs.find(&format!("{}{:03}_m00.png", asset.prefix(), egg_ids.1))
+    look(vfs, &format!("{}{:03}_m00.png", asset.prefix(), egg_ids.1), config)
 }
 
-fn resolve_banner(vfs: &Vfs, id: u32, form: usize, egg_ids: (i32, i32)) -> Option<PathBuf> {
-    vfs.find(&files::banner_file(id, form, egg_ids))
-        .or_else(|| egg_fallback(vfs, files::AssetType::Banner, form, egg_ids))
+fn resolve_banner(vfs: &Vfs, id: u32, form: usize, egg_ids: (i32, i32), config: &ScannerConfig) -> Option<PathBuf> {
+    look(vfs, &files::banner_file(id, form, egg_ids), config)
+        .or_else(|| egg_fallback(vfs, files::AssetType::Banner, form, egg_ids, config))
 }
 
-fn resolve_icon(vfs: &Vfs, id: u32, form: usize, egg_ids: (i32, i32)) -> Option<PathBuf> {
-    vfs.find(&files::icon_file(id, form, egg_ids))
-        .or_else(|| egg_fallback(vfs, files::AssetType::Icon, form, egg_ids))
+fn resolve_icon(vfs: &Vfs, id: u32, form: usize, egg_ids: (i32, i32), config: &ScannerConfig) -> Option<PathBuf> {
+    look(vfs, &files::icon_file(id, form, egg_ids), config)
+        .or_else(|| egg_fallback(vfs, files::AssetType::Icon, form, egg_ids, config))
 }
 
 fn resolve_images(vfs: &Vfs, id: u32, egg_ids: (i32, i32), ub_row: &UnitBuy, config: &ScannerConfig) -> Images {
@@ -103,8 +117,8 @@ fn resolve_images(vfs: &Vfs, id: u32, egg_ids: (i32, i32), ub_row: &UnitBuy, con
     let mut real = [false; 4];
 
     for form in 0..forms.len() {
-        let banner = resolve_banner(vfs, id, form, egg_ids);
-        let icon = resolve_icon(vfs, id, form, egg_ids);
+        let banner = resolve_banner(vfs, id, form, egg_ids, config);
+        let icon = resolve_icon(vfs, id, form, egg_ids, config);
 
         real[form] = !config.show_invalid_cats && banner.as_deref().is_some_and(is_valid_png);
 
@@ -148,7 +162,11 @@ fn valid_stats(found: bool, config: &ScannerConfig) -> bool {
 }
 
 fn verdict(vfs: &Vfs, id: u32, images: &Images, config: &ScannerConfig) -> bool {
-    valid_stats(vfs.find(&files::stats_file(id)).is_some(), config) && valid_forms(images, config)
+    valid_stats(look(vfs, &files::stats_file(id), config).is_some(), config) && valid_forms(images, config)
+}
+
+pub fn icon(vfs: &Vfs, entry: &CatEntry, form: usize, config: &ScannerConfig) -> Option<PathBuf> {
+    resolve_icon(vfs, entry.id, form, entry.egg_ids.unwrap_or((-1, -1)), config)
 }
 
 pub fn listable(vfs: &Vfs, entry: &CatEntry, config: &ScannerConfig) -> bool {

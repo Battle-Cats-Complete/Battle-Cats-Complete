@@ -1166,12 +1166,12 @@ impl BattleCatsApp {
                 Task::batch([task, packs, mined, self.rebuild_content()])
             }
             Message::Mining(mining::Message::CreateBase) => {
-                self.mining_state.begin(mining::Chore::Base).map(Message::Mining)
+                self.mining_state.begin(mining::Chore::Bedrock).map(Message::Mining)
             }
             Message::Mining(mining::Message::CreateDiff) => {
                 self.mining_state.begin(mining::Chore::Diff).map(Message::Mining)
             }
-            Message::Mining(mining::Message::Mined) => {
+            Message::Mining(mining::Message::ClearDiff) => {
                 let scope = mining::Scope {
                     cats: &self.cat_state.data.cats,
                     foes: &self.enemy_state.data.enemies,
@@ -1180,7 +1180,18 @@ impl BattleCatsApp {
                     settings: &self.settings,
                 };
 
-                self.mining_state.settle(scope, self.window_size).map(Message::Mining)
+                self.mining_state.wipe(scope, self.window_size).map(Message::Mining)
+            }
+            Message::Mining(mining::Message::Mined(recorded)) => {
+                let scope = mining::Scope {
+                    cats: &self.cat_state.data.cats,
+                    foes: &self.enemy_state.data.enemies,
+                    registry: &self.stage_state.data.registry,
+                    global: GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault },
+                    settings: &self.settings,
+                };
+
+                self.mining_state.settle(scope, recorded, self.window_size).map(Message::Mining)
             }
             Message::Mining(mining::Message::OpenCategory(category)) => {
                 self.stage_state.reveal();

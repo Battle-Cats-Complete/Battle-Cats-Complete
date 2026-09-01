@@ -262,6 +262,42 @@ impl Vfs {
         resolve(&mounts, filename)
     }
 
+    pub fn pristine<T: Target>(&self, target: T) -> Option<PathBuf> {
+        target.resolve(|names| self.untouched(names))
+    }
+
+    pub fn originals<T: Target>(&self, target: T) -> Vec<PathBuf> {
+        target.resolve(|names| self.gathered(names))
+    }
+
+    fn gathered(&self, filenames: &[&str]) -> Vec<PathBuf> {
+        let Ok(order) = self.priority.read() else {
+            return Vec::new();
+        };
+
+        let Ok(mounts) = self.mounts.read() else {
+            return Vec::new();
+        };
+
+        let mut found: Vec<PathBuf> =
+            regional::interleaved(filenames, &order).filter_map(|candidate| vanilla(&mounts, &candidate)).collect();
+
+        found.dedup();
+        found
+    }
+
+    fn untouched(&self, filenames: &[&str]) -> Option<PathBuf> {
+        let Ok(order) = self.priority.read() else {
+            return None;
+        };
+
+        let Ok(mounts) = self.mounts.read() else {
+            return None;
+        };
+
+        regional::interleaved(filenames, &order).find_map(|candidate| vanilla(&mounts, &candidate))
+    }
+
     fn first(&self, filenames: &[&str]) -> Option<PathBuf> {
         let Ok(order) = self.priority.read() else {
             return None;

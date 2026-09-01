@@ -320,6 +320,7 @@ pub struct ScannerConfig {
     pub preferred_form: usize,
     pub show_invalid_cats: bool,
     pub show_invalid_enemies: bool,
+    pub pristine: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -337,6 +338,7 @@ impl Settings {
             preferred_form: self.cat_data.preferred_banner_form,
             show_invalid_cats: self.cat_data.show_invalid_cats,
             show_invalid_enemies: self.enemy_data.show_invalid_enemies,
+            pristine: false,
         }
     }
 

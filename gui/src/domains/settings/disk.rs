@@ -13,6 +13,8 @@ use crate::app::theme;
 use crate::common::feedback::{Slot as Confirm, CONFIRM_LABEL};
 
 const RAW: &str = "game/raw";
+const SCANNING_LABEL: &str = "Scanning file sizes...";
+const UNKNOWN_LABEL: &str = "Unknown file size";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
@@ -71,13 +73,20 @@ pub struct State {
     raw: Slot,
     cache: Slot,
     confirm: Confirm<Target>,
-    sizes: Sizes,
+    sizes: Option<Sizes>,
+    scanning: bool,
 }
 
-fn size_hint<'a>(content: impl Into<Element<'a, Message>>, size: u64) -> Element<'a, Message> {
+fn size_hint<'a>(content: impl Into<Element<'a, Message>>, size: Option<u64>, scanning: bool) -> Element<'a, Message> {
+    let reading = match (scanning, size) {
+        (true, _) => SCANNING_LABEL.to_string(),
+        (false, Some(bytes)) => format_size(bytes),
+        (false, None) => UNKNOWN_LABEL.to_string(),
+    };
+
     tooltip(
         content,
-        container(text(format_size(size))).padding(6).style(container::bordered_box),
+        container(text(reading)).padding(6).style(container::bordered_box),
         tooltip::Position::Right,
     )
     .into()
@@ -158,9 +167,15 @@ impl State {
 
                 self.start_delete(target, path)
             }
-            Message::Refresh => Task::perform(smol::unblock(measure), Message::SizesLoaded),
+            Message::Refresh => {
+                self.scanning = true;
+
+                Task::perform(smol::unblock(measure), Message::SizesLoaded)
+            }
             Message::SizesLoaded(sizes) => {
-                self.sizes = sizes;
+                self.sizes = Some(sizes);
+                self.scanning = false;
+
                 Task::none()
             }
             Message::ConfirmExpired => {
@@ -216,7 +231,7 @@ impl State {
         delete_task
     }
 
-    fn disk_button<'a>(&'a self, name: &str, phase: Phase, target: Target, can_delete: bool, size: u64) -> Element<'a, Message> {
+    fn disk_button<'a>(&'a self, name: &str, phase: Phase, target: Target, can_delete: bool, size: Option<u64>) -> Element<'a, Message> {
         match phase {
             Phase::Deleting => theme::sized_button(format!("Deleting \"{}\"...", name), theme::ACTION_BUTTON_WIDTH, theme::warning_button).into(),
             Phase::Done => theme::sized_button(format!("Deleted \"{}\"!", name), theme::ACTION_BUTTON_WIDTH, theme::success_button).into(),
@@ -230,7 +245,7 @@ impl State {
                 let button = theme::sized_button(label, theme::ACTION_BUTTON_WIDTH, theme::danger_button)
                     .on_press(Message::RequestDelete(target));
 
-                size_hint(button, size)
+                size_hint(button, size, self.scanning)
             }
             Phase::Idle => theme::sized_button(format!("No \"{}\"", name), theme::ACTION_BUTTON_WIDTH, theme::neutral_button).into(),
         }
@@ -241,12 +256,16 @@ impl State {
             Phase::Deleting => theme::sized_button("Clearing Cache...", theme::ACTION_BUTTON_WIDTH, theme::warning_button).into(),
             Phase::Done => theme::sized_button("Cache Cleared!", theme::ACTION_BUTTON_WIDTH, theme::success_button).into(),
             Phase::Idle if can_delete => {
-                let label = self.confirm.confirm_label("Clear Cache");
+                let label = if self.confirm.armed_for(&Target::Cache) {
+                    CONFIRM_LABEL.to_string()
+                } else {
+                    "Clear Cache".to_string()
+                };
 
                 let button = theme::sized_button(label, theme::ACTION_BUTTON_WIDTH, theme::danger_button)
                     .on_press(Message::RequestDelete(Target::Cache));
 
-                size_hint(button, self.sizes.cache)
+                size_hint(button, self.sizes.map(|held| held.cache), self.scanning)
             }
             Phase::Idle => theme::sized_button("Cache Empty", theme::ACTION_BUTTON_WIDTH, theme::neutral_button).into(),
         }
@@ -261,8 +280,8 @@ impl State {
         let raw_can_delete = raw_exists && self.game.phase != Phase::Deleting;
 
         column![
-            self.disk_button("game", self.game.phase, Target::Game, game_exists, self.sizes.game),
-            self.disk_button("raw", self.raw.phase, Target::Raw, raw_can_delete, self.sizes.raw),
+            self.disk_button("game", self.game.phase, Target::Game, game_exists, self.sizes.map(|held| held.game)),
+            self.disk_button("raw", self.raw.phase, Target::Raw, raw_can_delete, self.sizes.map(|held| held.raw)),
             self.cache_button(self.cache.phase, cache_present),
         ].spacing(8).into()
     }

@@ -443,9 +443,9 @@ impl State {
 
     fn check_sheets(&mut self, vfs: &Vfs) -> Task<Message> {
         let generation = self.sheet_generation;
-        let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, vfs)
+        let img015_task = crate::common::img015::ensure_loaded(&mut self.img015_sheets, vfs, false)
             .map(move |(index, sheet)| Message::Img015Loaded(generation, index, sheet));
-        let img022_task = crate::common::img022::ensure_loaded(&mut self.img022_sheets, vfs)
+        let img022_task = crate::common::img022::ensure_loaded(&mut self.img022_sheets, vfs, false)
             .map(move |(index, sheet)| Message::Img022Loaded(generation, index, sheet));
 
         Task::batch([img015_task, img022_task])

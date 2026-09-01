@@ -43,8 +43,9 @@ fn is_placeholder_png(path: &Path) -> bool {
     buffer[24] < 4
 }
 
-fn resolve_icon(vfs: &Vfs, id: u32, show_invalid: bool) -> Option<PathBuf> {
-    let resolved = vfs.find(&files::icon_file(id))?;
+fn resolve_icon(vfs: &Vfs, id: u32, show_invalid: bool, pristine: bool) -> Option<PathBuf> {
+    let name = files::icon_file(id);
+    let resolved = if pristine { vfs.pristine(&name) } else { vfs.find(&name) }?;
 
     (show_invalid || !is_placeholder_png(&resolved)).then_some(resolved)
 }
@@ -53,12 +54,18 @@ fn valid_icon(icon: Option<&PathBuf>, show_invalid: bool) -> bool {
     show_invalid || icon.is_some()
 }
 
-pub fn listable(vfs: &Vfs, id: u32, show_invalid: bool) -> bool {
-    valid_icon(resolve_icon(vfs, id, show_invalid).as_ref(), show_invalid)
+pub fn icon(vfs: &Vfs, id: u32, config: &ScannerConfig) -> Option<PathBuf> {
+    resolve_icon(vfs, id, config.show_invalid_enemies, config.pristine)
+}
+
+pub fn listable(vfs: &Vfs, id: u32, config: &ScannerConfig) -> bool {
+    let icon = resolve_icon(vfs, id, config.show_invalid_enemies, config.pristine);
+
+    valid_icon(icon.as_ref(), config.show_invalid_enemies)
 }
 
 pub fn revalidate(vfs: &Vfs, entry: &mut EnemyEntry, show_invalid: bool) -> bool {
-    let icon = resolve_icon(vfs, entry.id, show_invalid);
+    let icon = resolve_icon(vfs, entry.id, show_invalid, false);
     let listable = valid_icon(icon.as_ref(), show_invalid);
 
     entry.icon_path = icon;
@@ -146,7 +153,7 @@ pub fn scan_single(id: u32, vault: &Vault, show_invalid: bool) -> Option<EnemyEn
 }
 
 fn process_enemy_entry(id: u32, vfs: &Vfs, stats: Entity, name: String, description: Vec<String>, show_invalid: bool) -> Option<EnemyEntry> {
-    let resolved_icon = resolve_icon(vfs, id, show_invalid);
+    let resolved_icon = resolve_icon(vfs, id, show_invalid, false);
 
     if !valid_icon(resolved_icon.as_ref(), show_invalid) {
         return None;

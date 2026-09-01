@@ -5,6 +5,6 @@ use kore::Vfs;
 
 use super::SpriteSheet;
 
-pub fn ensure_loaded(sheets: &mut Vec<SpriteSheet>, vfs: &Vfs) -> Task<(usize, Option<CoreSpriteSheet>)> {
-    super::ensure_sheet_loaded(sheets, vfs, "img015")
+pub fn ensure_loaded(sheets: &mut Vec<SpriteSheet>, vfs: &Vfs, pristine: bool) -> Task<(usize, Option<CoreSpriteSheet>)> {
+    super::ensure_sheet_loaded(sheets, vfs, "img015", pristine)
 }

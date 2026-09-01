@@ -9,10 +9,13 @@ pub mod units;
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rayon::prelude::*;
+use rustc_hash::FxHasher;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -24,16 +27,17 @@ use crate::domains::enemy::files as enemy_files;
 use crate::domains::import::engine::manifest;
 
 
-const FILE: &str = "ore.json";
+const ORE: &str = "ore.json";
 
-const BASE: &str = "base.json";
+const BEDROCK: &str = "bedrock.json";
 
+const SEAMS: &str = "bedrock";
+
+const CENSUS: &str = "census.json";
+
+const EMPTY_MAP: u64 = 2;
 
 const SCHEMA: u32 = 3;
-
-const LEGACY_SNAPSHOT: &str = "base";
-
-const LEGACY_CENSUS: &str = "census.json";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Keying {
@@ -69,19 +73,44 @@ pub struct Build {
 
 type Census = HashMap<String, u64>;
 
-const KEPT: &[&str] = &[
-    cat_files::UNIT_BUY,
-    cat_files::SKILL_ACQUISITION,
-    enemy_files::STATS,
-    stages::MAP_OPTION,
-];
+type Tables = HashMap<String, String>;
 
-fn kept(filename: &str) -> bool {
-    cat_files::stats_id(filename).is_some() || KEPT.contains(&filename)
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Seam {
+    Cat,
+    Enemy,
+    Stage,
+}
+
+const SEAM_ORDER: [Seam; 3] = [Seam::Cat, Seam::Enemy, Seam::Stage];
+
+impl Seam {
+    fn file(self) -> &'static str {
+        match self {
+            Self::Cat => "cat.json",
+            Self::Enemy => "enemy.json",
+            Self::Stage => "stage.json",
+        }
+    }
+}
+
+fn seam(filename: &str) -> Option<Seam> {
+    if cat_files::stats_id(filename).is_some()
+        || filename == cat_files::UNIT_BUY
+        || filename == cat_files::SKILL_ACQUISITION
+    {
+        return Some(Seam::Cat);
+    }
+
+    match filename {
+        enemy_files::STATS => Some(Seam::Enemy),
+        stages::MAP_OPTION => Some(Seam::Stage),
+        _ => None,
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
-struct Base {
+struct Bedrock {
     #[serde(default)]
     builds: Vec<Build>,
     #[serde(default)]
@@ -92,10 +121,6 @@ struct Base {
     bestiary: Vec<u32>,
     #[serde(default)]
     surfaced: Vec<u32>,
-    #[serde(default)]
-    census: Census,
-    #[serde(default)]
-    rows: HashMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -170,7 +195,7 @@ impl Ore {
 }
 
 pub fn load() -> Option<Ore> {
-    json::load_state::<Ore>(FILE).filter(|ore| ore.schema == SCHEMA)
+    json::load_state::<Ore>(ORE).filter(|ore| ore.schema == SCHEMA)
 }
 
 fn walk(root: &Path) -> Vec<(String, PathBuf)> {
@@ -206,26 +231,51 @@ fn census(found: &[(String, PathBuf)]) -> Census {
         .collect()
 }
 
-fn tables(found: &[(String, PathBuf)]) -> HashMap<String, String> {
+fn tables(found: &[(String, PathBuf)], wanted: Seam) -> Tables {
     found
         .iter()
-        .filter(|(name, _)| kept(name))
+        .filter(|(name, _)| seam(name) == Some(wanted))
         .filter_map(|(name, path)| fs::read_to_string(path).ok().map(|text| (name.to_string(), text)))
         .collect()
 }
 
-fn sweep() {
-    let Some(directory) = dirs::state() else {
+fn seam_file(name: &str) -> Option<String> {
+    let directory = dirs::state()?.join(SEAMS);
+
+    fs::create_dir_all(&directory).ok()?;
+
+    Some(format!("{}/{}", SEAMS, name))
+}
+
+fn read_seam<T: DeserializeOwned + Default>(name: &str) -> T {
+    seam_file(name).and_then(|held| json::load_state(&held)).unwrap_or_default()
+}
+
+fn write_seam<T: Serialize>(name: &str, data: &T) {
+    let Some(held) = seam_file(name) else {
         return;
     };
 
-    let _ = fs::remove_dir_all(directory.join(LEGACY_SNAPSHOT));
-    let _ = fs::remove_file(directory.join(LEGACY_CENSUS));
+    if let Err(err) = json::save_state(&held, data) {
+        warn!("Failed to save {}: {}", held, err);
+    }
+}
+
+fn stored_census() -> Census {
+    read_seam(CENSUS)
+}
+
+fn stored_rows() -> Tables {
+    let mut all = Tables::new();
+
+    for held in SEAM_ORDER {
+        all.extend(read_seam::<Tables>(held.file()));
+    }
+
+    all
 }
 
 fn rebase(found: &[(String, PathBuf)], mut taken: Census) {
-    sweep();
-
     let strays: Census = found
         .par_iter()
         .filter(|(name, _)| !taken.contains_key(name))
@@ -234,24 +284,48 @@ fn rebase(found: &[(String, PathBuf)], mut taken: Census) {
 
     taken.extend(strays);
 
-    let mut base = stored_base();
+    write_seam(CENSUS, &taken);
 
-    base.rows = tables(found);
-    base.census = taken;
-
-    save_base(&base);
+    for held in SEAM_ORDER {
+        write_seam(held.file(), &tables(found, held));
+    }
 }
 
 pub(crate) fn enroll(taken: Census) {
     rebase(&walk(Path::new(architecture::GAME)), taken);
 }
 
-pub fn tidy() {
-    sweep();
+pub fn arrivals() -> (Vec<u32>, Vec<u32>) {
+    let bedrock = stored_bedrock();
+
+    (bedrock.promoted, bedrock.surfaced)
 }
 
-pub fn has_base() -> bool {
-    !stored_base().census.is_empty()
+pub fn discard() {
+    drop_state(ORE);
+
+    let mut bedrock = stored_bedrock();
+
+    bedrock.promoted.clear();
+    bedrock.surfaced.clear();
+
+    save_bedrock(&bedrock);
+}
+
+pub fn stamp() -> Option<u64> {
+    let data = fs::metadata(dirs::state()?.join(ORE)).ok()?;
+    let mut hasher = FxHasher::default();
+
+    data.len().hash(&mut hasher);
+    data.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos().hash(&mut hasher);
+
+    Some(hasher.finish())
+}
+
+pub fn has_bedrock() -> bool {
+    dirs::state()
+        .and_then(|directory| fs::metadata(directory.join(SEAMS).join(CENSUS)).ok())
+        .is_some_and(|data| data.len() > EMPTY_MAP)
 }
 
 pub fn capturable() -> bool {
@@ -269,21 +343,22 @@ pub fn capture() -> usize {
 }
 
 pub fn craft() -> bool {
-    let base = stored_base();
+    let held = stored_census();
+    let rows = stored_rows();
     let found = walk(Path::new(architecture::GAME));
     let taken = census(&found);
 
     let mut touched: Vec<FileTouch> = taken
         .iter()
-        .filter_map(|(name, hash)| touch(name, base.census.get(name).copied(), *hash))
+        .filter_map(|(name, hash)| touch(name, held.get(name).copied(), *hash))
         .collect();
 
     touched.sort_by(|left, right| left.file.cmp(&right.file));
 
     let mut files = Vec::new();
 
-    for (name, path) in found.iter().filter(|(name, _)| kept(name)) {
-        let Some(before) = base.rows.get(name) else {
+    for (name, path) in found.iter().filter(|(name, _)| seam(name).is_some()) {
+        let Some(before) = rows.get(name) else {
             continue;
         };
 
@@ -302,8 +377,12 @@ pub fn craft() -> bool {
 }
 
 pub fn clear() {
-    for name in [FILE, BASE] {
+    for name in [ORE, BEDROCK] {
         drop_state(name);
+    }
+
+    if let Some(directory) = dirs::state() {
+        let _ = fs::remove_dir_all(directory.join(SEAMS));
     }
 }
 
@@ -321,38 +400,38 @@ fn drop_state(name: &str) {
     }
 }
 
-fn stored_base() -> Base {
-    json::load_state::<Base>(BASE).unwrap_or_default()
+fn stored_bedrock() -> Bedrock {
+    json::load_state::<Bedrock>(BEDROCK).unwrap_or_default()
 }
 
-fn save_base(base: &Base) {
-    if let Err(err) = json::save_state(BASE, base) {
-        warn!("Failed to save {}: {}", BASE, err);
+fn save_bedrock(bedrock: &Bedrock) {
+    if let Err(err) = json::save_state(BEDROCK, bedrock) {
+        warn!("Failed to save {}: {}", BEDROCK, err);
     }
 }
 
-fn base() -> Vec<Build> {
-    stored_base().builds
+fn builds() -> Vec<Build> {
+    stored_bedrock().builds
 }
 
-fn set_base(builds: &[Build]) {
-    let mut base = stored_base();
-    base.builds = builds.to_vec();
+fn set_builds(after: &[Build]) {
+    let mut bedrock = stored_bedrock();
+    bedrock.builds = after.to_vec();
 
-    save_base(&base);
+    save_bedrock(&bedrock);
 }
 
 pub fn reconcile(listable: &[u32]) -> Vec<u32> {
-    settle(listable, |base| (&mut base.roster, &mut base.promoted))
+    settle(listable, |bedrock| (&mut bedrock.roster, &mut bedrock.promoted))
 }
 
 pub fn reconcile_foes(listable: &[u32]) -> Vec<u32> {
-    settle(listable, |base| (&mut base.bestiary, &mut base.surfaced))
+    settle(listable, |bedrock| (&mut bedrock.bestiary, &mut bedrock.surfaced))
 }
 
-fn settle(listable: &[u32], pick: impl Fn(&mut Base) -> (&mut Vec<u32>, &mut Vec<u32>)) -> Vec<u32> {
-    let mut base = stored_base();
-    let (roster, promoted) = pick(&mut base);
+fn settle(listable: &[u32], pick: impl Fn(&mut Bedrock) -> (&mut Vec<u32>, &mut Vec<u32>)) -> Vec<u32> {
+    let mut bedrock = stored_bedrock();
+    let (roster, promoted) = pick(&mut bedrock);
 
     if listable.is_empty() || listable == roster.as_slice() {
         return promoted.clone();
@@ -369,32 +448,31 @@ fn settle(listable: &[u32], pick: impl Fn(&mut Base) -> (&mut Vec<u32>, &mut Vec
     *roster = listable.to_vec();
     promoted.clone_from(&arrivals);
 
-    save_base(&base);
+    save_bedrock(&bedrock);
 
     arrivals
 }
 
 pub(crate) fn commit(files: Vec<FileDelta>, touched: Vec<FileTouch>, after: Vec<Build>) -> bool {
-    let before = base();
+    let before = builds();
 
     if !after.is_empty() && before != after {
-        set_base(&after);
+        set_builds(&after);
     }
 
     if files.is_empty() && touched.is_empty() {
         return false;
     }
 
-    let diffed = files.iter().any(|delta| delta.status == Status::Changed && !delta.rows.is_empty());
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
     let ore = Ore { schema: SCHEMA, stamp, before, after, files, touched };
 
-    if let Err(err) = json::save_state(FILE, &ore) {
-        warn!("Failed to save {}: {}", FILE, err);
+    if let Err(err) = json::save_state(ORE, &ore) {
+        warn!("Failed to save {}: {}", ORE, err);
         return false;
     }
 
-    diffed
+    true
 }
 
 pub(crate) fn touch(file: &str, before: Option<u64>, after: u64) -> Option<FileTouch> {
@@ -500,11 +578,11 @@ mod tests {
     // moment its art lands, which is a new unit rather than a changed one.
     #[test]
     fn a_first_roster_is_a_baseline_rather_than_a_wall_of_promotions() {
-        let mut base = Base::default();
-        assert!(base.roster.is_empty());
+        let mut bedrock = Bedrock::default();
+        assert!(bedrock.roster.is_empty());
 
-        base.roster = vec![1, 2, 3];
-        let held: HashSet<u32> = base.roster.iter().copied().collect();
+        bedrock.roster = vec![1, 2, 3];
+        let held: HashSet<u32> = bedrock.roster.iter().copied().collect();
         let promoted: Vec<u32> = [1, 2, 3, 4].iter().filter(|id| !held.contains(id)).copied().collect();
 
         assert_eq!(promoted, vec![4]);

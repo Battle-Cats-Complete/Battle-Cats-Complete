@@ -191,8 +191,10 @@ pub fn ensure_sheet_loaded(
     sheets: &mut Vec<SpriteSheet>,
     vfs: &Vfs,
     name: &str,
+    pristine: bool,
 ) -> Task<(usize, Option<CoreSpriteSheet>)> {
-    let png_paths = vfs.list(&format!("{}.png", name));
+    let sheet = format!("{}.png", name);
+    let png_paths = if pristine { vfs.originals(&sheet) } else { vfs.list(&sheet) };
 
     if sheets.len() != png_paths.len() {
         debug!("Resizing the {} sheet matrix to match resolved paths ({})", name, png_paths.len());
