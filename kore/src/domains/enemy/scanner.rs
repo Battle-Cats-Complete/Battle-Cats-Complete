@@ -53,6 +53,10 @@ fn valid_icon(icon: Option<&PathBuf>, show_invalid: bool) -> bool {
     show_invalid || icon.is_some()
 }
 
+pub fn listable(vfs: &Vfs, id: u32, show_invalid: bool) -> bool {
+    valid_icon(resolve_icon(vfs, id, show_invalid).as_ref(), show_invalid)
+}
+
 pub fn revalidate(vfs: &Vfs, entry: &mut EnemyEntry, show_invalid: bool) -> bool {
     let icon = resolve_icon(vfs, entry.id, show_invalid);
     let listable = valid_icon(icon.as_ref(), show_invalid);

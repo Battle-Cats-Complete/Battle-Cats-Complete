@@ -9,13 +9,12 @@ impl CategoryExt for Category {
     fn display_name(&self) -> &str {
         match self {
             Self::StoriesOfLegend      => "Stories of Legend",
-            Self::RegularEventStages   => "Regular Event Stages",
+            Self::EventStages          => "Event Stages",
             Self::CollabStages         => "Collab Stages",
             Self::EmpireOfCats         => "Empire of Cats",
             Self::IntoTheFuture        => "Into the Future",
             Self::CatsOfTheCosmos      => "Cats of the Cosmos",
-            Self::EventStages          => "Event Stages",
-            Self::ContinuationStages   => "Continuation Stages",
+            Self::ExtraStages          => "Extra Stages",
             Self::DojoHallOfInitiates  => "Dojo Hall of Initiates",
             Self::TowersAndCitadels    => "Towers & Citadels",
             Self::DojoRankingEvents    => "Dojo Ranking Events",
@@ -56,10 +55,9 @@ impl CategoryExt for Category {
             Self::ZeroLegends          => 12,
 
 
-            Self::RegularEventStages   => 20,
-            Self::EventStages          => 21,
+            Self::EventStages          => 20,
+            Self::ExtraStages          => 21,
             Self::GauntletStages       => 22,
-            Self::ContinuationStages   => 23,
             Self::CataminStages        => 24,
             Self::ChallengeBattle      => 25,
 

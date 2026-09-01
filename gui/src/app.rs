@@ -456,7 +456,15 @@ impl BattleCatsApp {
             Page::Mining => {
                 let settled = self.vault_ready && !self.rebuild_running && !self.cat_state.data.cats.is_empty();
 
-                self.mining_state.enter(&self.cat_state.data.cats, &self.vault.vfs, &self.settings, settled, self.window_size).map(Message::Mining)
+                let scope = mining::Scope {
+                    cats: &self.cat_state.data.cats,
+                    foes: &self.enemy_state.data.enemies,
+                    registry: &self.stage_state.data.registry,
+                    global: GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault },
+                    settings: &self.settings,
+                };
+
+                self.mining_state.enter(scope, settled, self.window_size).map(Message::Mining)
             }
             Page::Import => self.import_state.enter().map(Message::Import),
             Page::Help => operation::scroll_to(
@@ -670,6 +678,18 @@ impl BattleCatsApp {
 
         self.validated_key = Some(key);
         self.reconcile_caches()
+    }
+
+    fn restock_mining(&mut self) {
+        let scope = mining::Scope {
+            cats: &self.cat_state.data.cats,
+            foes: &self.enemy_state.data.enemies,
+            registry: &self.stage_state.data.registry,
+            global: GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault },
+            settings: &self.settings,
+        };
+
+        self.mining_state.restock(scope);
     }
 
     pub(crate) fn reconcile_caches(&mut self) -> Task<Message> {
@@ -1040,6 +1060,8 @@ impl BattleCatsApp {
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
 
                 if loaded {
+                    self.restock_mining();
+
                     return Task::batch([task, self.reconcile_caches()]);
                 }
 
@@ -1067,6 +1089,8 @@ impl BattleCatsApp {
                 self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open());
 
                 if enemies_loaded {
+                    self.restock_mining();
+
                     return Task::batch([task, self.reconcile_caches()]);
                 }
 
@@ -1083,6 +1107,7 @@ impl BattleCatsApp {
             Message::Stage(stage::Message::JumpToEnemy(id, mag_input)) => Task::batch([
                 self.navigate(Page::Enemies),
                 self.update(Message::Enemy(enemy::Message::JumpToEnemyMagnified(id, mag_input))),
+                self.update(Message::Enemy(enemy::Message::SelectTab(enemy::DetailTab::Abilities))),
             ]),
             Message::Stage(msg) => {
                 let stages_loaded = matches!(msg, stage::Message::Loaded(..));
@@ -1095,6 +1120,8 @@ impl BattleCatsApp {
                 self.sync_popup(ActivePopup::StageFilter, self.stage_state.filter_popup_open());
 
                 if stages_loaded {
+                    self.restock_mining();
+
                     return Task::batch([task, self.reconcile_caches()]);
                 }
 
@@ -1126,7 +1153,15 @@ impl BattleCatsApp {
                 }
 
                 let packs = self.files_state.reload_packs().map(Message::Files);
-                let mined = self.mining_state.reload(&self.vault.vfs, self.window_size).map(Message::Mining);
+                let scope = mining::Scope {
+                    cats: &self.cat_state.data.cats,
+                    foes: &self.enemy_state.data.enemies,
+                    registry: &self.stage_state.data.registry,
+                    global: GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault },
+                    settings: &self.settings,
+                };
+
+                let mined = self.mining_state.reload(scope, self.window_size).map(Message::Mining);
 
                 Task::batch([task, packs, mined, self.rebuild_content()])
             }
@@ -1136,10 +1171,17 @@ impl BattleCatsApp {
             Message::Mining(mining::Message::CreateDiff) => {
                 self.mining_state.begin(mining::Chore::Diff).map(Message::Mining)
             }
-            Message::Mining(mining::Message::Mined) => self
-                .mining_state
-                .settle(&self.cat_state.data.cats, &self.vault.vfs, &self.settings, self.window_size)
-                .map(Message::Mining),
+            Message::Mining(mining::Message::Mined) => {
+                let scope = mining::Scope {
+                    cats: &self.cat_state.data.cats,
+                    foes: &self.enemy_state.data.enemies,
+                    registry: &self.stage_state.data.registry,
+                    global: GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault },
+                    settings: &self.settings,
+                };
+
+                self.mining_state.settle(scope, self.window_size).map(Message::Mining)
+            }
             Message::Mining(mining::Message::OpenCategory(category)) => {
                 self.stage_state.reveal();
 

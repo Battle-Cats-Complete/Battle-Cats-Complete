@@ -2,6 +2,7 @@ pub mod changes;
 pub mod enemies;
 pub mod forms;
 pub mod levels;
+pub mod localized;
 pub mod stages;
 pub mod talents;
 pub mod units;
@@ -52,7 +53,7 @@ pub(crate) fn mineable(filename: &str) -> bool {
 }
 
 fn keying(filename: &str) -> Option<Keying> {
-    if cat_files::stats_id(filename).is_some() || stages::mineable(filename) {
+    if cat_files::stats_id(filename).is_some() || stages::mineable(filename) || localized::mineable(filename) {
         return Some(Keying::Line);
     }
 
@@ -87,6 +88,10 @@ struct Base {
     roster: Vec<u32>,
     #[serde(default)]
     promoted: Vec<u32>,
+    #[serde(default)]
+    bestiary: Vec<u32>,
+    #[serde(default)]
+    surfaced: Vec<u32>,
     #[serde(default)]
     census: Census,
     #[serde(default)]
@@ -338,26 +343,35 @@ fn set_base(builds: &[Build]) {
 }
 
 pub fn reconcile(listable: &[u32]) -> Vec<u32> {
-    let mut base = stored_base();
+    settle(listable, |base| (&mut base.roster, &mut base.promoted))
+}
 
-    if listable.is_empty() || listable == base.roster {
-        return base.promoted;
+pub fn reconcile_foes(listable: &[u32]) -> Vec<u32> {
+    settle(listable, |base| (&mut base.bestiary, &mut base.surfaced))
+}
+
+fn settle(listable: &[u32], pick: impl Fn(&mut Base) -> (&mut Vec<u32>, &mut Vec<u32>)) -> Vec<u32> {
+    let mut base = stored_base();
+    let (roster, promoted) = pick(&mut base);
+
+    if listable.is_empty() || listable == roster.as_slice() {
+        return promoted.clone();
     }
 
-    let held: HashSet<u32> = base.roster.iter().copied().collect();
+    let held: HashSet<u32> = roster.iter().copied().collect();
 
-    let promoted = if held.is_empty() {
+    let arrivals: Vec<u32> = if held.is_empty() {
         Vec::new()
     } else {
         listable.iter().filter(|id| !held.contains(id)).copied().collect()
     };
 
-    base.roster = listable.to_vec();
-    base.promoted.clone_from(&promoted);
+    *roster = listable.to_vec();
+    promoted.clone_from(&arrivals);
 
     save_base(&base);
 
-    promoted
+    arrivals
 }
 
 pub(crate) fn commit(files: Vec<FileDelta>, touched: Vec<FileTouch>, after: Vec<Build>) -> bool {

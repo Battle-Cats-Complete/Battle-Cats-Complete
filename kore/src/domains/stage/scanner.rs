@@ -868,8 +868,16 @@ fn build_base_stage(
 }
 #[cfg(test)]
 mod tests {
-    use super::stage_prefixes;
+    use super::{split_stage, stage_prefixes};
     use nyanko::chapter::Category;
+
+    // The event chapter declares its maps under RE and ships the battlegrounds under EX, and
+    // "stageE" globs both, so the bare prefix must keep refusing the files EX owns.
+    #[test]
+    fn the_bare_event_prefix_never_claims_an_ex_battleground() {
+        assert_eq!(split_stage("stageEX081_00.csv", "EX", 81), Some(0));
+        assert_eq!(split_stage("stageEX081_00.csv", "E", 81), None);
+    }
 
     #[test]
     fn an_unknown_category_gets_the_restricted_variant_added() {

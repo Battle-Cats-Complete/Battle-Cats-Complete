@@ -22,10 +22,10 @@ use kore::domains::cat::files as cat_files;
 use kore::domains::cat::game::stats as cat_stats;
 use kore::domains::cat::game::talents as talent_logic;
 use kore::domains::cat::scanner::{self as cat_scanner, CatEntry};
-use kore::domains::enemy::scanner::EnemyEntry;
+use kore::domains::enemy::scanner::{self as enemy_scanner, EnemyEntry};
 use kore::domains::stage::{GlobalMapId, GlobalStageId, StageRegistry};
 use nyanko::chapter::Category;
-use kore::domains::mining::{self, changes, enemies, forms, levels, stages, talents, units, Build, Ore, Status};
+use kore::domains::mining::{self, changes, enemies, forms, levels, localized, stages, talents, units, Build, Ore, Status};
 
 use kore::domains::settings::{ScannerConfig, Settings};
 use kore::systems::combat::registry::{get_display_def, is_trait, AbilityIcon, STAT_RARITY};
@@ -34,6 +34,7 @@ use kore::Vfs;
 
 use crate::app::theme;
 use crate::domains::stage::category::CategoryExt;
+use crate::common::feedback::Slot;
 use crate::common::fonts;
 use crate::common::item_icon;
 use crate::common::{ability_icon, img015, skill_name, CustomAssets, SpriteSheet};
@@ -117,6 +118,7 @@ const REGIONS: &[(&str, &str)] = &[
 ];
 const META_TEXT_SIZE: f32 = 14.0;
 const NOTICE_TEXT_SIZE: f32 = 15.0;
+const BARREN_LABEL: &str = "No Diff!";
 
 const ULTRA_TINT: Color = Color { r: 0.47, g: 0.08, b: 0.08, a: 1.0 };
 const NORMAL_TINT: Color = Color { r: 0.71, g: 0.55, b: 0.08, a: 1.0 };
@@ -155,6 +157,15 @@ pub enum Chore {
     Diff,
 }
 
+#[derive(Clone, Copy)]
+pub struct Scope<'a> {
+    pub cats: &'a [CatEntry],
+    pub foes: &'a [EnemyEntry],
+    pub registry: &'a StageRegistry,
+    pub global: GlobalContext<'a>,
+    pub settings: &'a Settings,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Shelf {
     FreshData,
@@ -172,6 +183,29 @@ struct Drawn {
     name: String,
     path: PathBuf,
     width: f32,
+}
+
+#[derive(Default)]
+struct Ready {
+    fresh: Vec<u32>,
+    spoken: Vec<usize>,
+    changed: Vec<(usize, forms::Diff)>,
+    unlocked: Vec<(usize, forms::Diff)>,
+    talents: Vec<usize>,
+    raised: Vec<usize>,
+    foes_new: Vec<u32>,
+    foes_changed: Vec<(usize, forms::Diff)>,
+    foes_spoken: Vec<usize>,
+}
+
+#[derive(Default)]
+struct Terrain {
+    fresh: Grouped,
+    opened: Grouped,
+    added: Grouped,
+    moved: Grouped,
+    crowned: Grouped,
+    moves: HashMap<GlobalMapId, (u8, u8)>,
 }
 
 #[derive(Default)]
@@ -318,6 +352,7 @@ pub enum Message {
     CreateBase,
     CreateDiff,
     Mined,
+    Rested,
     OpenFile(String),
     TilesLoaded(u64, Vec<(PathBuf, Option<Handle>)>),
     LevelChanged(u32, String),
@@ -339,6 +374,7 @@ impl fmt::Debug for Message {
             Self::CreateBase => write!(f, "CreateBase"),
             Self::CreateDiff => write!(f, "CreateDiff"),
             Self::Mined => write!(f, "Mined"),
+            Self::Rested => write!(f, "Rested"),
             Self::OpenFile(name) => write!(f, "OpenFile({})", name),
             Self::TilesLoaded(generation, loaded) => write!(f, "TilesLoaded({}, {})", generation, loaded.len()),
             Self::LevelChanged(cat, value) => write!(f, "LevelChanged({}, {})", cat, value),
@@ -359,6 +395,7 @@ pub struct State {
     offsets: HashMap<Tab, f32>,
     ore: Option<Ore>,
     chore: Option<Chore>,
+    barren: Slot<()>,
     files: Shelves,
     tiles: HashMap<PathBuf, Option<Handle>>,
     decoding: bool,
@@ -368,6 +405,13 @@ pub struct State {
     changes: Vec<changes::Changed>,
     foes: Vec<enemies::Changed>,
     fresh_foes: Vec<u32>,
+    spoken_cats: Vec<localized::Localized>,
+    spoken_foes: Vec<localized::Localized>,
+    surfaced: Vec<u32>,
+    index: HashMap<u32, usize>,
+    foe_index: HashMap<u32, usize>,
+    ready: Ready,
+    terrain: Terrain,
     lands: stages::Report,
     levels_raised: Vec<levels::Raised>,
     promoted: Vec<u32>,
@@ -388,6 +432,7 @@ impl Default for State {
             offsets: HashMap::new(),
             ore: None,
             chore: None,
+            barren: Slot::default(),
             files: Shelves::default(),
             tiles: HashMap::new(),
             decoding: false,
@@ -397,6 +442,13 @@ impl Default for State {
             changes: Vec::new(),
             foes: Vec::new(),
             fresh_foes: Vec::new(),
+            spoken_cats: Vec::new(),
+            spoken_foes: Vec::new(),
+            surfaced: Vec::new(),
+            index: HashMap::new(),
+            foe_index: HashMap::new(),
+            ready: Ready::default(),
+            terrain: Terrain::default(),
             lands: stages::Report::default(),
             levels_raised: Vec::new(),
             promoted: Vec::new(),
@@ -413,13 +465,16 @@ impl Default for State {
 }
 
 impl State {
-    pub(crate) fn reload(&mut self, vfs: &Vfs, window: Size) -> Task<Message> {
-        self.reread(vfs);
+    pub(crate) fn reload(&mut self, scope: Scope<'_>, window: Size) -> Task<Message> {
+        let vfs = &scope.global.vault.vfs;
 
-        self.ensure_tiles(window)
+        self.clear_caches();
+        self.reread(scope.cats, scope.foes, scope.registry, scope.global, scope.settings);
+
+        Task::batch([self.check_sheets(vfs), self.ensure_tiles(window)])
     }
 
-    fn reconcile(&mut self, cats: &[CatEntry], vfs: &Vfs, settings: &Settings) {
+    fn reconcile(&mut self, cats: &[CatEntry], foes: &[EnemyEntry], vfs: &Vfs, settings: &Settings) {
         let strict = strict_config(settings);
 
         let listable: Vec<u32> = cats
@@ -429,9 +484,26 @@ impl State {
             .collect();
 
         self.promoted = mining::reconcile(&listable);
+
+        let sighted: Vec<u32> = foes
+            .iter()
+            .filter(|entry| enemy_scanner::listable(vfs, entry.id, strict.show_invalid_enemies))
+            .map(|entry| entry.id)
+            .collect();
+
+        self.surfaced = mining::reconcile_foes(&sighted);
     }
 
-    fn reread(&mut self, vfs: &Vfs) {
+    fn reread(
+        &mut self,
+        cats: &[CatEntry],
+        foes: &[EnemyEntry],
+        registry: &StageRegistry,
+        global: GlobalContext<'_>,
+        settings: &Settings,
+    ) {
+        let vfs = &global.vault.vfs;
+
         self.ore = mining::load();
         self.files = self.ore.as_ref().map_or_else(Shelves::default, |ore| shelve(ore, vfs));
         self.tiles.clear();
@@ -468,6 +540,9 @@ impl State {
             .as_ref()
             .map_or_else(Vec::new, |ore| ore.files.iter().flat_map(enemies::fresh).collect());
 
+        self.spoken_cats = self.ore.as_ref().map_or_else(Vec::new, |ore| localized::cats(ore, vfs));
+        self.spoken_foes = self.ore.as_ref().map_or_else(Vec::new, |ore| localized::enemies(ore, vfs));
+
         self.lands = self.ore.as_ref().map_or_else(stages::Report::default, |ore| {
             ore.files.iter().map(stages::read).fold(stages::Report::default(), |mut all, part| {
                 all.fresh_maps.extend(part.fresh_maps);
@@ -485,26 +560,175 @@ impl State {
             .and_then(|ore| ore.file(cat_files::UNIT_BUY))
             .map_or_else(Vec::new, levels::read);
 
+        self.restock(Scope { cats, foes, registry, global, settings });
+    }
+
+    pub(crate) fn restock(&mut self, scope: Scope<'_>) {
+        self.index = scope.cats.iter().enumerate().map(|(slot, entry)| (entry.id, slot)).collect();
+        self.foe_index = scope.foes.iter().enumerate().map(|(slot, entry)| (entry.id, slot)).collect();
+
+        self.ready = self.derive(scope.cats, scope.foes, scope.global, scope.settings);
+        self.terrain = self.survey(scope.registry);
+
         if !self.enabled(self.tab) {
             self.tab = Tab::Meta;
         }
     }
 
-    pub(crate) fn enter(
-        &mut self,
+    fn entry<'a>(&self, cats: &'a [CatEntry], cat_id: u32) -> Option<&'a CatEntry> {
+        cats.get(*self.index.get(&cat_id)?).filter(|entry| entry.id == cat_id)
+    }
+
+    fn foe<'a>(&self, foes: &'a [EnemyEntry], enemy_id: u32) -> Option<&'a EnemyEntry> {
+        foes.get(*self.foe_index.get(&enemy_id)?).filter(|entry| entry.id == enemy_id)
+    }
+
+    fn derive(
+        &self,
         cats: &[CatEntry],
-        vfs: &Vfs,
+        foes: &[EnemyEntry],
+        global: GlobalContext<'_>,
         settings: &Settings,
-        settled: bool,
-        window: Size,
-    ) -> Task<Message> {
+    ) -> Ready {
+        let vfs = &global.vault.vfs;
+        let strict = strict_config(settings);
+
+        let listable: HashSet<u32> = cats
+            .iter()
+            .filter(|entry| cat_scanner::listable(vfs, entry, &strict))
+            .map(|entry| entry.id)
+            .collect();
+
+        let spirits = conjured(cats);
+        let mut seen: HashSet<u32> = HashSet::new();
+
+        let units = self.units.as_ref().map_or(&[][..], |units| units.fresh.as_slice());
+
+        let fresh: Vec<u32> = units
+            .iter()
+            .chain(self.promoted.iter())
+            .filter(|id| !spirits.contains(*id) && seen.insert(**id))
+            .filter(|id| listable.contains(id))
+            .copied()
+            .collect();
+
+        let spoken: Vec<usize> = self
+            .spoken_cats
+            .iter()
+            .enumerate()
+            .filter(|(_, held)| !self.debuted(held.id) && listable.contains(&held.id))
+            .map(|(slot, _)| slot)
+            .collect();
+
+        let changed: Vec<(usize, forms::Diff)> = self
+            .changes
+            .iter()
+            .enumerate()
+            .filter(|(_, changed)| !self.arrived(changed.cat_id) && !self.unlocks(changed.cat_id, changed.form))
+            .filter(|(_, changed)| {
+                listable.contains(&changed.cat_id)
+                    && self
+                        .entry(cats, changed.cat_id)
+                        .is_some_and(|entry| entry.forms.get(changed.form).copied().unwrap_or(false))
+            })
+            .map(|(slot, changed)| (slot, changed_diff(changed, self.entry(cats, changed.cat_id), global, settings)))
+            .filter(|(_, diff)| !diff.is_empty())
+            .collect();
+
+        let unlocked: Vec<(usize, forms::Diff)> = self
+            .forms
+            .iter()
+            .enumerate()
+            .filter(|(_, held)| !self.arrived(held.cat_id) && listable.contains(&held.cat_id))
+            .map(|(slot, held)| {
+                let diff = self
+                    .entry(cats, held.cat_id)
+                    .map_or_else(forms::Diff::default, |entry| form_diff(entry, held.form, global, settings));
+
+                (slot, diff)
+            })
+            .collect();
+
+        let mut talents: Vec<usize> = Vec::new();
+
+        if let Some(report) = self.report.as_ref().filter(|report| report.status == Status::Changed) {
+            talents = (0..report.finds.len()).collect();
+            talents.sort_by_key(|slot| report.finds.get(*slot).map(talent_rank));
+        }
+
+        let raised: Vec<usize> = self
+            .levels_raised
+            .iter()
+            .enumerate()
+            .filter(|(_, held)| !self.arrived(held.cat_id) && listable.contains(&held.cat_id))
+            .map(|(slot, _)| slot)
+            .collect();
+
+        let foes_new = self.arrivals();
+
+        let foes_changed: Vec<(usize, forms::Diff)> = self
+            .foes
+            .iter()
+            .enumerate()
+            .filter(|(_, foe)| !self.surged(foe.enemy_id))
+            .map(|(slot, foe)| {
+                let frames = self.foe(foes, foe.enemy_id).map_or((0, 0), |held| (held.atk_anim_frames, held.atk_anim_frames));
+
+                let diff = forms::compare(&forms::Subject {
+                    global,
+                    previous: &foe.previous,
+                    current: &foe.current,
+                    curve: None,
+                    level: 1,
+                    frames,
+                });
+
+                (slot, diff)
+            })
+            .collect();
+
+        let foes_spoken: Vec<usize> = self
+            .spoken_foes
+            .iter()
+            .enumerate()
+            .filter(|(_, held)| !self.surged(held.id))
+            .map(|(slot, _)| slot)
+            .collect();
+
+        Ready { fresh, spoken, changed, unlocked, talents, raised, foes_new, foes_changed, foes_spoken }
+    }
+
+    fn survey(&self, registry: &StageRegistry) -> Terrain {
+        let moves: HashMap<GlobalMapId, (u8, u8)> = self
+            .lands
+            .crowned
+            .iter()
+            .filter_map(|found| global_map(found.global_map, registry).map(|key| (key, (found.before, found.after))))
+            .collect();
+
+        Terrain {
+            fresh: grouped(self.lands.fresh_maps.iter().chain(self.lands.fresh_stages.iter()), registry),
+            opened: grouped(self.lands.fresh_maps.iter(), registry),
+            added: grouped(self.lands.fresh_stages.iter(), registry),
+            moved: grouped(self.lands.changed_stages.iter(), registry),
+            crowned: gather(
+                self.lands.crowned.iter().filter_map(|found| global_map(found.global_map, registry)).map(|key| (key, None)),
+                registry,
+            ),
+            moves,
+        }
+    }
+
+    pub(crate) fn enter(&mut self, scope: Scope<'_>, settled: bool, window: Size) -> Task<Message> {
+        let vfs = &scope.global.vault.vfs;
+
         mining::tidy();
 
         if settled {
-            self.reconcile(cats, vfs, settings);
+            self.reconcile(scope.cats, scope.foes, vfs, scope.settings);
         }
 
-        self.reread(vfs);
+        self.reread(scope.cats, scope.foes, scope.registry, scope.global, scope.settings);
 
         Task::batch([self.check_sheets(vfs), self.ensure_tiles(window), self.restore()])
     }
@@ -553,14 +777,22 @@ impl State {
         Task::stream(rx)
     }
 
-    pub(crate) fn settle(&mut self, cats: &[CatEntry], vfs: &Vfs, settings: &Settings, window: Size) -> Task<Message> {
-        if self.chore.take() == Some(Chore::Diff) {
-            self.reconcile(cats, vfs, settings);
+    pub(crate) fn settle(&mut self, scope: Scope<'_>, window: Size) -> Task<Message> {
+        let chore = self.chore.take();
+
+        if chore == Some(Chore::Diff) {
+            self.reconcile(scope.cats, scope.foes, &scope.global.vault.vfs, scope.settings);
         }
 
-        self.reread(vfs);
+        self.reread(scope.cats, scope.foes, scope.registry, scope.global, scope.settings);
 
-        self.ensure_tiles(window)
+        let rested = if chore == Some(Chore::Diff) && !self.has_diff() {
+            self.barren.set((), Message::Rested)
+        } else {
+            Task::none()
+        };
+
+        Task::batch([rested, self.ensure_tiles(window)])
     }
 
     pub fn update(&mut self, message: Message, window: Size) -> Task<Message> {
@@ -571,6 +803,9 @@ impl State {
 
                     return Task::batch([self.ensure_tiles(window), self.restore()]);
                 }
+            }
+            Message::Rested => {
+                self.barren.expire();
             }
             Message::TilesLoaded(generation, loaded) => {
                 self.decoding = false;
@@ -636,8 +871,14 @@ impl State {
         match tab {
             Tab::Meta => true,
             Tab::Cats => self.has_finds(),
-            Tab::Enemies => !self.foes.is_empty() || !self.fresh_foes.is_empty(),
-            Tab::Stages => !self.lands.is_empty(),
+            Tab::Enemies => {
+                !self.ready.foes_new.is_empty()
+                    || !self.ready.foes_changed.is_empty()
+                    || !self.ready.foes_spoken.is_empty()
+            }
+            Tab::Stages => {
+                !self.terrain.fresh.is_empty() || !self.terrain.moved.is_empty() || !self.terrain.crowned.is_empty()
+            }
             Tab::Files => !self.files.is_empty(),
         }
     }
@@ -787,38 +1028,26 @@ impl State {
     }
 
     fn has_finds(&self) -> bool {
-        self.has_talents()
-            || self.has_fresh()
-            || !self.forms.is_empty()
-            || !self.changes.is_empty()
-            || !self.levels_raised.is_empty()
+        !self.ready.fresh.is_empty()
+            || !self.ready.spoken.is_empty()
+            || !self.ready.changed.is_empty()
+            || !self.ready.unlocked.is_empty()
+            || !self.ready.talents.is_empty()
+            || !self.ready.raised.is_empty()
     }
 
-    fn has_talents(&self) -> bool {
-        self.report.as_ref().is_some_and(|report| report.status == Status::Changed && !report.finds.is_empty())
+    fn surged(&self, enemy_id: u32) -> bool {
+        self.fresh_foes.contains(&enemy_id) || self.surfaced.contains(&enemy_id)
     }
 
-    fn has_fresh(&self) -> bool {
-        self.units.as_ref().is_some_and(|units| units.status == Status::Changed && !units.fresh.is_empty())
-    }
-
-    fn fresh_units<'a>(&'a self, cats: &'a [CatEntry], vfs: &Vfs, settings: &Settings) -> Vec<&'a CatEntry> {
-        let units = match &self.units {
-            Some(units) => units.fresh.as_slice(),
-            None => &[],
-        };
-
-        let strict = strict_config(settings);
-        let spirits = conjured(cats);
-
+    fn arrivals(&self) -> Vec<u32> {
         let mut seen: HashSet<u32> = HashSet::new();
 
-        units
-            .iter()
-            .chain(self.promoted.iter())
-            .filter(|id| !spirits.contains(*id) && seen.insert(**id))
-            .filter_map(|id| resolved(cats, *id, vfs, &strict))
-            .collect()
+        self.fresh_foes.iter().chain(self.surfaced.iter()).filter(|id| seen.insert(**id)).copied().collect()
+    }
+
+    fn debuted(&self, cat_id: u32) -> bool {
+        self.arrived(cat_id) || self.units.as_ref().is_some_and(|units| units.fresh.contains(&cat_id))
     }
 
     pub fn view<'a>(
@@ -831,9 +1060,9 @@ impl State {
         window: Size,
     ) -> Element<'a, Message> {
         let body = match self.tab {
-            Tab::Meta => self.view_meta(cats, registry, settings, global, window.height - PAGE_PADDING * 2.0),
-            Tab::Cats => self.view_cats(cats, global, settings, window.width - SIDEBAR_WIDTH),
-            Tab::Enemies => self.view_enemies(foes, global, window.width - SIDEBAR_WIDTH),
+            Tab::Meta => self.view_meta(window.height - PAGE_PADDING * 2.0),
+            Tab::Cats => self.view_cats(cats, &global.vault.vfs, settings, window.width - SIDEBAR_WIDTH),
+            Tab::Enemies => self.view_enemies(foes, window.width - SIDEBAR_WIDTH),
             Tab::Stages => self.view_stages(registry, global, window.width - SIDEBAR_WIDTH),
             Tab::Files => self.view_files(window),
         };
@@ -877,14 +1106,7 @@ impl State {
             .into()
     }
 
-    fn view_meta<'a>(
-        &'a self,
-        cats: &'a [CatEntry],
-        registry: &StageRegistry,
-        settings: &Settings,
-        global: GlobalContext<'a>,
-        room: f32,
-    ) -> Element<'a, Message> {
+    fn view_meta<'a>(&'a self, room: f32) -> Element<'a, Message> {
         let Some(ore) = self.ore.as_ref().filter(|_| self.has_diff()) else {
             let (headline, hint, action) = if mining::has_base() {
                 (
@@ -915,7 +1137,7 @@ impl State {
             Space::new().height(SECTION_SPACING),
             strong("Summary", SECTION_TITLE_SIZE),
             Space::new().height(TABLE_GAP),
-            self.view_tally(cats, registry, &global.vault.vfs, settings),
+            self.view_tally(),
         ]
         .spacing(8)
         .width(Length::Shrink);
@@ -936,11 +1158,16 @@ impl State {
 
         if let Some((label, message)) = action {
             let working = self.chore.is_some();
-            let style: theme::ButtonStyleFn = if working { theme::warning_button } else { theme::primary_button };
+
+            let (label, style): (&str, theme::ButtonStyleFn) = match (working, self.barren.is_set()) {
+                (true, _) => ("Creating...", theme::warning_button),
+                (false, true) => (BARREN_LABEL, theme::danger_button),
+                (false, false) => (label, theme::primary_button),
+            };
 
             body = body.push(plain(hint, EMPTY_TEXT_SIZE).align_x(Horizontal::Center));
             body = body.push(
-                button(theme::centered_text(if working { "Creating..." } else { label }).size(TAB_TEXT_SIZE))
+                button(theme::centered_text(label).size(TAB_TEXT_SIZE))
                     .padding([6, 16])
                     .style(style)
                     .on_press_maybe((!working).then_some(message)),
@@ -950,68 +1177,48 @@ impl State {
         container(body).center_x(Length::Fill).center_y(Length::Fixed(room.max(PORTRAIT_SIZE))).into()
     }
 
-    fn view_tally<'a>(
-        &'a self,
-        cats: &'a [CatEntry],
-        registry: &StageRegistry,
-        vfs: &Vfs,
-        settings: &Settings,
-    ) -> Element<'a, Message> {
-        let strict = strict_config(settings);
-
-        let changed = self
-            .changes
-            .iter()
-            .filter(|entry| !self.arrived(entry.cat_id) && !self.unlocks(entry.cat_id, entry.form))
-            .filter(|entry| {
-                resolved(cats, entry.cat_id, vfs, &strict)
-                    .is_some_and(|cat| cat.forms.get(entry.form).copied().unwrap_or(false))
-            })
-            .count();
-
+    fn view_tally<'a>(&'a self) -> Element<'a, Message> {
         let forms = |slot: usize| {
-            self.forms
+            self.ready
+                .unlocked
                 .iter()
-                .filter(|entry| entry.form == slot && !self.arrived(entry.cat_id))
-                .filter(|entry| resolved(cats, entry.cat_id, vfs, &strict).is_some())
+                .filter(|(held, _)| self.forms.get(*held).is_some_and(|found| found.form == slot))
                 .count()
         };
 
         let talents = |ultra: bool| {
             self.report.as_ref().map_or(0, |report| {
-                report
-                    .finds
+                self.ready
+                    .talents
                     .iter()
+                    .filter_map(|slot| report.finds.get(*slot))
                     .filter(|find| find.gained.iter().any(|gain| gain.ultra == ultra))
                     .count()
             })
         };
 
         let cats = vec![
-            ("New Count", self.fresh_units(cats, vfs, settings).len()),
-            ("Changed Count", changed),
+            ("New Count", self.ready.fresh.len()),
+            ("Changed Count", self.ready.changed.len()),
+            ("Localized Count", self.ready.spoken.len()),
             ("True Form Count", forms(forms::TRUE_FORM)),
             ("Ultra Form Count", forms(forms::ULTRA_FORM)),
             ("Talent Count", talents(false)),
             ("Ultra Talent Count", talents(true)),
         ];
 
-        let foes = vec![("New Count", self.fresh_foes.len()), ("Changed Count", self.foes.len())];
-
-        let opened = grouped(self.lands.fresh_maps.iter(), registry);
-        let added = grouped(self.lands.fresh_stages.iter(), registry);
-        let moved = grouped(self.lands.changed_stages.iter(), registry);
-        let crowned = gather(
-            self.lands.crowned.iter().filter_map(|found| global_map(found.global_map, registry)).map(|key| (key, None)),
-            registry,
-        );
+        let foes = vec![
+            ("New Count", self.ready.foes_new.len()),
+            ("Changed Count", self.ready.foes_changed.len()),
+            ("Localized Count", self.ready.foes_spoken.len()),
+        ];
 
         let lands = vec![
-            ("New Sub Count", subchapters(&opened)),
-            ("Changed Sub Count", subchapters(&moved)),
-            ("New Crowns Count", subchapters(&crowned)),
-            ("New Stage Count", stage_count(&added)),
-            ("Changed Stage Count", stage_count(&moved)),
+            ("New Sub Count", subchapters(&self.terrain.opened)),
+            ("Changed Sub Count", subchapters(&self.terrain.moved)),
+            ("New Crowns Count", subchapters(&self.terrain.crowned)),
+            ("New Stage Count", stage_count(&self.terrain.added)),
+            ("Changed Stage Count", stage_count(&self.terrain.moved)),
         ];
 
         let files = vec![("New Count", self.files.fresh()), ("Changed Count", self.files.moved())];
@@ -1033,97 +1240,95 @@ impl State {
     fn view_cats<'a>(
         &'a self,
         cats: &'a [CatEntry],
-        global: GlobalContext<'a>,
+        vfs: &'a Vfs,
         settings: &'a Settings,
         width: f32,
     ) -> Element<'a, Message> {
-        let vfs = &global.vault.vfs;
-
         let mut body = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
         let mut listed = false;
 
-        let fresh = self.fresh_units(cats, vfs, settings);
-
-        if !fresh.is_empty() {
+        if !self.ready.fresh.is_empty() {
             listed = true;
-            let cards: Vec<Element<'a, Message>> = fresh.into_iter().map(|cat| self.view_fresh(cat)).collect();
+
+            let cards: Vec<Element<'a, Message>> = self
+                .ready
+                .fresh
+                .iter()
+                .filter_map(|id| self.entry(cats, *id))
+                .map(|cat| self.view_fresh(cat))
+                .collect();
 
             body = body.push(section("New", Length::Fill, uniform_grid(cards, CARD_SPACING)));
         }
 
-        let strict = strict_config(settings);
-
-        let altered: Vec<&changes::Changed> = self
-            .changes
-            .iter()
-            .filter(|changed| !self.arrived(changed.cat_id) && !self.unlocks(changed.cat_id, changed.form))
-            .filter(|changed| {
-                resolved(cats, changed.cat_id, vfs, &strict)
-                    .is_some_and(|entry| entry.forms.get(changed.form).copied().unwrap_or(false))
-            })
-            .collect();
-
-        let read: Vec<(&changes::Changed, forms::Diff)> = altered
-            .into_iter()
-            .map(|changed| (changed, changed_diff(changed, cats, global, settings)))
-            .filter(|(_, diff)| !diff.is_empty())
-            .collect();
-
-        if !read.is_empty() {
+        if !self.ready.spoken.is_empty() {
             listed = true;
 
-            let cards: Vec<Element<'a, Message>> = read
-                .into_iter()
+            let cards: Vec<Element<'a, Message>> = self
+                .ready
+                .spoken
+                .iter()
+                .filter_map(|slot| self.spoken_cats.get(*slot))
+                .map(|held| self.view_spoken(held, cats))
+                .collect();
+
+            body = body.push(section("Localized", Length::Fill, uniform_grid(cards, CARD_SPACING)));
+        }
+
+        if !self.ready.changed.is_empty() {
+            listed = true;
+
+            let cards: Vec<Element<'a, Message>> = self
+                .ready
+                .changed
+                .iter()
+                .filter_map(|(slot, diff)| self.changes.get(*slot).map(|changed| (changed, diff)))
                 .map(|(changed, diff)| self.view_changed(changed, cats, diff))
                 .collect();
 
             body = body.push(section("Changes", Length::Fill, uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH))));
         }
 
-        let unlocked: Vec<&forms::Unlocked> = self
-            .forms
-            .iter()
-            .filter(|unlocked| !self.arrived(unlocked.cat_id))
-            .filter(|unlocked| resolved(cats, unlocked.cat_id, vfs, &strict).is_some())
-            .collect();
-
-        if !unlocked.is_empty() {
+        if !self.ready.unlocked.is_empty() {
             listed = true;
 
-            let cards: Vec<Element<'a, Message>> = unlocked
-                .into_iter()
-                .map(|entry| self.view_unlocked(entry, cats, global, settings))
+            let cards: Vec<Element<'a, Message>> = self
+                .ready
+                .unlocked
+                .iter()
+                .filter_map(|(slot, diff)| self.forms.get(*slot).map(|held| (held, diff)))
+                .map(|(held, diff)| self.view_unlocked(held, cats, diff))
                 .collect();
 
             body = body.push(section("Forms", Length::Fill, uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH))));
         }
 
         if let Some(report) = &self.report
-            && self.has_talents()
+            && !self.ready.talents.is_empty()
         {
             listed = true;
 
-            let mut ranked: Vec<&talents::Find> = report.finds.iter().collect();
-            ranked.sort_by_key(|find| talent_rank(find));
-
-            let cards: Vec<Element<'a, Message>> =
-                ranked.into_iter().map(|find| self.view_find(find, cats, vfs, settings)).collect();
+            let cards: Vec<Element<'a, Message>> = self
+                .ready
+                .talents
+                .iter()
+                .filter_map(|slot| report.finds.get(*slot))
+                .map(|find| self.view_find(find, cats, vfs, settings))
+                .collect();
 
             body = body.push(section("Talents", Length::Fill, uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH))));
         }
 
-        let raised: Vec<&levels::Raised> = self
-            .levels_raised
-            .iter()
-            .filter(|entry| !self.arrived(entry.cat_id))
-            .filter(|entry| resolved(cats, entry.cat_id, vfs, &strict).is_some())
-            .collect();
-
-        if !raised.is_empty() {
+        if !self.ready.raised.is_empty() {
             listed = true;
 
-            let cards: Vec<Element<'a, Message>> =
-                raised.into_iter().map(|entry| self.view_raised(entry, cats)).collect();
+            let cards: Vec<Element<'a, Message>> = self
+                .ready
+                .raised
+                .iter()
+                .filter_map(|slot| self.levels_raised.get(*slot))
+                .map(|entry| self.view_raised(entry, cats))
+                .collect();
 
             body = body.push(section(
                 "Levels",
@@ -1149,6 +1354,34 @@ impl State {
             light_box(identity, Length::Fixed(UNIT_BOX_HEIGHT)),
             light_box(strong(format!("ID: {}", cat.id), UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
             light_box(strong((STAT_RARITY.formatter)(cat.unitbuy.rarity), UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
+        ]
+        .spacing(CELL_SPACING)
+        .align_y(Vertical::Center);
+
+        container(card).padding(CARD_PADDING).width(Length::Shrink).style(theme::card_container).into()
+    }
+
+    fn view_spoken<'a>(&'a self, held: &'a localized::Localized, cats: &'a [CatEntry]) -> Element<'a, Message> {
+        let cat = cats.iter().find(|entry| entry.id == held.id);
+        let form = cat.map_or(FIRST_FORM, top_form);
+
+        let identity = button(self.view_identity(cat, form, held.id))
+            .padding(0)
+            .style(button::text)
+            .on_press_maybe(cat.map(|_| Message::OpenUnit(held.id)));
+
+        self.view_tongues(identity.into(), held)
+    }
+
+    fn view_tongues<'a>(
+        &'a self,
+        identity: Element<'a, Message>,
+        held: &'a localized::Localized,
+    ) -> Element<'a, Message> {
+        let card = row![
+            light_box(identity, Length::Fixed(UNIT_BOX_HEIGHT)),
+            light_box(strong(format!("ID: {}", held.id), UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
+            light_box(strong(tongues(&held.languages), UNIT_NAME_SIZE), Length::Fixed(UNIT_BOX_HEIGHT)),
         ]
         .spacing(CELL_SPACING)
         .align_y(Vertical::Center);
@@ -1259,9 +1492,9 @@ impl State {
         &'a self,
         changed: &'a changes::Changed,
         cats: &'a [CatEntry],
-        diff: forms::Diff,
+        diff: &'a forms::Diff,
     ) -> Element<'a, Message> {
-        let cat = cats.iter().find(|entry| entry.id == changed.cat_id);
+        let cat = self.entry(cats, changed.cat_id);
         let badge = format!("{} FORM", cat_files::form_name(changed.form).to_uppercase());
 
         self.view_diff_card(cat, changed.cat_id, changed.form, badge, diff)
@@ -1271,16 +1504,12 @@ impl State {
         &'a self,
         unlocked: &'a forms::Unlocked,
         cats: &'a [CatEntry],
-        global: GlobalContext<'a>,
-        settings: &Settings,
+        diff: &'a forms::Diff,
     ) -> Element<'a, Message> {
-        let cat = cats.iter().find(|entry| entry.id == unlocked.cat_id);
-        let form = unlocked.form;
-        let badge = if form == forms::ULTRA_FORM { "ULTRA FORM" } else { "TRUE FORM" };
+        let cat = self.entry(cats, unlocked.cat_id);
+        let badge = if unlocked.form == forms::ULTRA_FORM { "ULTRA FORM" } else { "TRUE FORM" };
 
-        let diff = cat.map_or_else(forms::Diff::default, |entry| form_diff(entry, form, global, settings));
-
-        self.view_diff_card(cat, unlocked.cat_id, form, badge.to_string(), diff)
+        self.view_diff_card(cat, unlocked.cat_id, unlocked.form, badge.to_string(), diff)
     }
 
     fn view_diff_card<'a>(
@@ -1289,7 +1518,7 @@ impl State {
         cat_id: u32,
         form: usize,
         badge: String,
-        diff: forms::Diff,
+        diff: &'a forms::Diff,
     ) -> Element<'a, Message> {
         let identity = button(self.view_identity(cat, form, cat_id))
             .padding(0)
@@ -1306,7 +1535,7 @@ impl State {
         let icons = Icons { cache: &self.icons, sheets: &self.img015_sheets, assets: &self.assets };
         let mut body = Column::new().spacing(CARD_SPACING).width(Length::Fill);
 
-        body = body.extend(panels(&diff, &icons));
+        body = body.extend(panels(diff, &icons));
 
         if let Some(spirit) = &diff.spirit
             && !spirit.is_empty()
@@ -1411,19 +1640,13 @@ impl State {
     ) -> Element<'a, Message> {
         let mut body = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
 
-        let moves: HashMap<GlobalMapId, (u8, u8)> = self
-            .lands
-            .crowned
-            .iter()
-            .filter_map(|found| global_map(found.global_map, registry).map(|key| (key, (found.before, found.after))))
-            .collect();
+        let lands = Lands { moves: &self.terrain.moves, registry, global };
 
-        let lands = Lands { moves: &moves, registry, global };
-        let fresh = grouped(self.lands.fresh_maps.iter().chain(self.lands.fresh_stages.iter()), registry);
-
-        if !fresh.is_empty() {
-            let cards: Vec<Element<'a, Message>> = fresh
-                .into_iter()
+        if !self.terrain.fresh.is_empty() {
+            let cards: Vec<Element<'a, Message>> = self
+                .terrain
+                .fresh
+                .iter()
                 .map(|(category, maps)| self.view_land(category, maps, true, &lands))
                 .collect();
 
@@ -1434,14 +1657,11 @@ impl State {
             ));
         }
 
-        let crowned = gather(
-            self.lands.crowned.iter().filter_map(|found| global_map(found.global_map, registry)).map(|key| (key, None)),
-            registry,
-        );
-
-        if !crowned.is_empty() {
-            let cards: Vec<Element<'a, Message>> = crowned
-                .into_iter()
+        if !self.terrain.crowned.is_empty() {
+            let cards: Vec<Element<'a, Message>> = self
+                .terrain
+                .crowned
+                .iter()
                 .map(|(category, maps)| self.view_land(category, maps, true, &lands))
                 .collect();
 
@@ -1452,11 +1672,11 @@ impl State {
             ));
         }
 
-        let moved = grouped(self.lands.changed_stages.iter(), registry);
-
-        if !moved.is_empty() {
-            let cards: Vec<Element<'a, Message>> = moved
-                .into_iter()
+        if !self.terrain.moved.is_empty() {
+            let cards: Vec<Element<'a, Message>> = self
+                .terrain
+                .moved
+                .iter()
                 .map(|(category, maps)| self.view_land(category, maps, false, &lands))
                 .collect();
 
@@ -1472,8 +1692,8 @@ impl State {
 
     fn view_land<'a>(
         &'a self,
-        category: Category,
-        maps: BTreeMap<u32, Vec<u32>>,
+        category: &'a Category,
+        maps: &'a BTreeMap<u32, Vec<u32>>,
         fresh: bool,
         lands: &Lands<'a, '_>,
     ) -> Element<'a, Message> {
@@ -1495,7 +1715,7 @@ impl State {
         let mut body = Column::new().spacing(CARD_SPACING).width(Length::Fill);
 
         for (map, listed) in maps {
-            body = body.push(self.view_subchapter(&category, map, listed, fresh, lands));
+            body = body.push(self.view_subchapter(category, *map, listed, fresh, lands));
         }
 
         let card = column![crown, rule::horizontal(1), body].spacing(10).width(Length::Fill);
@@ -1507,7 +1727,7 @@ impl State {
         &'a self,
         category: &Category,
         map: u32,
-        listed: Vec<u32>,
+        listed: &[u32],
         fresh: bool,
         lands: &Lands<'a, '_>,
     ) -> Element<'a, Message> {
@@ -1541,9 +1761,9 @@ impl State {
         }
 
         let chips: Vec<Element<'a, Message>> = listed
-            .into_iter()
+            .iter()
             .map(|stage| {
-                let id = GlobalStageId { category: category.clone(), map, stage };
+                let id = GlobalStageId { category: category.clone(), map, stage: *stage };
 
                 self.view_stage_chip(id, &art, crown, lands.registry, vfs)
             })
@@ -1612,20 +1832,12 @@ impl State {
             .into()
     }
 
-    fn view_enemies<'a>(
-        &'a self,
-        roster: &'a [EnemyEntry],
-        global: GlobalContext<'a>,
-        width: f32,
-    ) -> Element<'a, Message> {
+    fn view_enemies<'a>(&'a self, roster: &'a [EnemyEntry], width: f32) -> Element<'a, Message> {
         let mut body = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
 
-        if !self.fresh_foes.is_empty() {
-            let cards: Vec<Element<'a, Message>> = self
-                .fresh_foes
-                .iter()
-                .map(|id| self.view_foe(*id, None, roster, global))
-                .collect();
+        if !self.ready.foes_new.is_empty() {
+            let cards: Vec<Element<'a, Message>> =
+                self.ready.foes_new.iter().map(|id| self.view_foe(*id, None, roster)).collect();
 
             body = body.push(section(
                 "New",
@@ -1634,11 +1846,25 @@ impl State {
             ));
         }
 
-        if !self.foes.is_empty() {
+        if !self.ready.foes_spoken.is_empty() {
             let cards: Vec<Element<'a, Message>> = self
-                .foes
+                .ready
+                .foes_spoken
                 .iter()
-                .map(|foe| self.view_foe(foe.enemy_id, Some(foe), roster, global))
+                .filter_map(|slot| self.spoken_foes.get(*slot))
+                .map(|held| self.view_spoken_foe(held, roster))
+                .collect();
+
+            body = body.push(section("Localized", Length::Fill, uniform_grid(cards, CARD_SPACING)));
+        }
+
+        if !self.ready.foes_changed.is_empty() {
+            let cards: Vec<Element<'a, Message>> = self
+                .ready
+                .foes_changed
+                .iter()
+                .filter_map(|(slot, diff)| self.foes.get(*slot).map(|foe| (foe, diff)))
+                .map(|(foe, diff)| self.view_foe(foe.enemy_id, Some((foe, diff)), roster))
                 .collect();
 
             body = body.push(section(
@@ -1651,16 +1877,7 @@ impl State {
         body.into()
     }
 
-    fn view_foe<'a>(
-        &'a self,
-        enemy_id: u32,
-        changed: Option<&'a enemies::Changed>,
-        roster: &'a [EnemyEntry],
-        global: GlobalContext<'a>,
-    ) -> Element<'a, Message> {
-        let entry = roster.iter().find(|held| held.id == enemy_id);
-        let stats = changed.map(|foe| &foe.current).or(entry.map(|held| &held.stats));
-
+    fn view_foe_identity<'a>(&'a self, enemy_id: u32, entry: Option<&'a EnemyEntry>) -> Element<'a, Message> {
         let icon = entry.and_then(|held| held.icon_path.as_ref()).and_then(|path| self.thumbnail(path));
         let name = entry.map_or_else(|| format!("Enemy {:03}", enemy_id), EnemyEntry::display_name);
 
@@ -1672,21 +1889,47 @@ impl State {
             None => Space::new().width(Length::Fixed(PORTRAIT_SIZE)).height(Length::Fixed(PORTRAIT_SIZE)).into(),
         };
 
-        let identity = button(
-            row![
-                container(portrait)
-                    .width(Length::Fixed(PORTRAIT_SIZE))
-                    .height(Length::Fixed(PORTRAIT_SIZE))
-                    .align_x(Horizontal::Center)
-                    .align_y(Vertical::Center),
-                strong(name, UNIT_NAME_SIZE),
-            ]
-            .spacing(CELL_SPACING)
-            .align_y(Vertical::Center),
-        )
-        .padding(0)
-        .style(button::text)
-        .on_press_maybe(entry.map(|_| Message::OpenEnemy(enemy_id)));
+        row![
+            container(portrait)
+                .width(Length::Fixed(PORTRAIT_SIZE))
+                .height(Length::Fixed(PORTRAIT_SIZE))
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center),
+            strong(name, UNIT_NAME_SIZE),
+        ]
+        .spacing(CELL_SPACING)
+        .align_y(Vertical::Center)
+        .into()
+    }
+
+    fn view_spoken_foe<'a>(
+        &'a self,
+        held: &'a localized::Localized,
+        roster: &'a [EnemyEntry],
+    ) -> Element<'a, Message> {
+        let entry = roster.iter().find(|known| known.id == held.id);
+
+        let identity = button(self.view_foe_identity(held.id, entry))
+            .padding(0)
+            .style(button::text)
+            .on_press_maybe(entry.map(|_| Message::OpenEnemy(held.id)));
+
+        self.view_tongues(identity.into(), held)
+    }
+
+    fn view_foe<'a>(
+        &'a self,
+        enemy_id: u32,
+        changed: Option<(&'a enemies::Changed, &'a forms::Diff)>,
+        roster: &'a [EnemyEntry],
+    ) -> Element<'a, Message> {
+        let entry = self.foe(roster, enemy_id);
+        let stats = changed.map(|(foe, _)| &foe.current).or(entry.map(|held| &held.stats));
+
+        let identity = button(self.view_foe_identity(enemy_id, entry))
+            .padding(0)
+            .style(button::text)
+            .on_press_maybe(entry.map(|_| Message::OpenEnemy(enemy_id)));
 
         let icons = Icons { cache: &self.icons, sheets: &self.img015_sheets, assets: &self.assets };
 
@@ -1701,21 +1944,12 @@ impl State {
             header = header.push(light_box(trait_row(stats, &icons), Length::Fixed(UNIT_BOX_HEIGHT)));
         }
 
-        let Some(foe) = changed else {
+        let Some((_, diff)) = changed else {
             return container(header).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into();
         };
 
-        let diff = forms::compare(&forms::Subject {
-            global,
-            previous: &foe.previous,
-            current: &foe.current,
-            curve: None,
-            level: 1,
-            frames: entry.map_or((0, 0), |held| (held.atk_anim_frames, held.atk_anim_frames)),
-        });
-
         let mut body = Column::new().spacing(CARD_SPACING).width(Length::Fill);
-        body = body.extend(panels(&diff, &icons));
+        body = body.extend(panels(diff, &icons));
 
         let card = column![header, rule::horizontal(1), body].spacing(10).width(Length::Fill);
 
@@ -2056,6 +2290,14 @@ fn open_file<'a>(content: impl Into<Element<'a, Message>>, name: &str) -> Elemen
         .into()
 }
 
+fn tongues(languages: &[String]) -> String {
+    languages
+        .iter()
+        .map(|code| if code.is_empty() { "BASE".to_string() } else { code.to_uppercase() })
+        .collect::<Vec<String>>()
+        .join(", ")
+}
+
 fn notice<'a>(message: &'a str) -> Element<'a, Message> {
     plain(message, NOTICE_TEXT_SIZE)
         .style(|theme: &Theme| text::Style { color: Some(theme::weak_text_color(theme)) })
@@ -2071,12 +2313,10 @@ fn cards_per_row(available_width: f32, min_width: f32) -> usize {
 
 fn changed_diff<'a>(
     changed: &'a changes::Changed,
-    cats: &'a [CatEntry],
+    cat: Option<&'a CatEntry>,
     global: GlobalContext<'a>,
     settings: &Settings,
 ) -> forms::Diff {
-    let cat = cats.iter().find(|entry| entry.id == changed.cat_id);
-
     forms::compare(&forms::Subject {
         global,
         previous: &changed.previous,
@@ -2269,14 +2509,9 @@ fn explained_ability<'a>(ability: &forms::Ability, icons: &Icons<'_>) -> Element
 fn strict_config(settings: &Settings) -> ScannerConfig {
     let mut config = settings.scanner_config(None);
     config.show_invalid_cats = false;
+    config.show_invalid_enemies = false;
 
     config
-}
-
-fn resolved<'a>(cats: &'a [CatEntry], id: u32, vfs: &Vfs, config: &ScannerConfig) -> Option<&'a CatEntry> {
-    let entry = cats.iter().find(|cat| cat.id == id)?;
-
-    cat_scanner::listable(vfs, entry, config).then_some(entry)
 }
 
 fn trait_row<'a>(stats: &Entity, icons: &Icons<'_>) -> Element<'a, Message> {
