@@ -223,6 +223,7 @@ pub struct BattleCatsApp {
     pub sidebar_open: bool,
     #[serde(skip)]
     pub window_size: Size,
+    window_measured: bool,
     #[serde(skip)]
     active_popups: Vec<ActivePopup>,
     #[serde(skip)]
@@ -324,6 +325,7 @@ impl Default for BattleCatsApp {
             current_page: Page::Home,
             sidebar_open: true,
             window_size: Size::new(800.0, 600.0),
+            window_measured: false,
             active_popups: Vec::new(),
             notice_popup: popup::State::default(),
             notice_open: false,
@@ -838,6 +840,7 @@ impl BattleCatsApp {
         match message {
             Message::WindowResized(size) => {
                 self.window_size = size;
+                self.window_measured = true;
                 self.settings.window.width = size.width;
                 self.settings.window.height = size.height;
                 Task::none()
@@ -1415,7 +1418,9 @@ impl BattleCatsApp {
             .filter_map(|popup| match popup {
                 ActivePopup::InitErrors => self.init_errors.view(self.window_size),
                 ActivePopup::Updater => updater::view(&self.updater_popup, &self.updater_status, self.window_size, self.download_progress, self.updater_never_confirm.is_set()),
-                ActivePopup::VersionNotice => Some(notice::view(&self.notice_popup, self.window_size, self.theme(), &self.notice_items)),
+                ActivePopup::VersionNotice => self
+                    .window_measured
+                    .then(|| notice::view(&self.notice_popup, self.window_size, self.theme(), &self.notice_items)),
                 ActivePopup::HomeChangelog => {
                     if !matches!(self.current_page, Page::Home) {
                         return None;
