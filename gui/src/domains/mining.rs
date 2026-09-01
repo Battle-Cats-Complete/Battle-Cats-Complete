@@ -41,7 +41,7 @@ use crate::common::fonts;
 use crate::common::item_icon;
 use crate::common::{ability_icon, img015, skill_name, CustomAssets, SpriteSheet};
 use iced::widget::image::Handle;
-use crate::widget::{fallback_icon, list_row, section, smooth_scroll, tinted_superscript, uniform_grid};
+use crate::widget::{fallback_icon, list_row, smooth_scroll, tinted_superscript, uniform_grid};
 
 const SIDEBAR_WIDTH: f32 = 110.0;
 const SIDEBAR_PADDING: f32 = 8.0;
@@ -65,7 +65,7 @@ const ART_CANVAS: u32 = 128;
 const FILE_NAME_SIZE: f32 = 13.0;
 const NAME_LINE: f32 = FILE_NAME_SIZE * 1.3;
 const GROUP_TITLE_SIZE: f32 = 14.0;
-const SECTION_SLAB: f32 = 56.0;
+const SECTION_SLAB: f32 = 64.0;
 const GROUP_SLAB: f32 = 30.0;
 const SECTION_HEAD_GAP: f32 = 6.0;
 const VIRTUAL_BUFFER: f32 = 240.0;
@@ -106,6 +106,9 @@ const EMPTY_TEXT_SIZE: f32 = 17.0;
 const TABLE_CELL_WIDTH: f32 = 190.0;
 const TABLE_ROW_HEIGHT: f32 = 26.0;
 const SECTION_TITLE_SIZE: f32 = 18.0;
+const FOLD_TITLE_SIZE: f32 = 24.0;
+const FOLD_NOTE_SIZE: f32 = 13.0;
+const FOLD_LIMIT: usize = 200;
 const TALLY_LABEL_WIDTH: f32 = 150.0;
 const TALLY_VALUE_WIDTH: f32 = 60.0;
 const TALLY_PADDING: f32 = 8.0;
@@ -293,7 +296,7 @@ fn caption(widest: f32, room: f32) -> f32 {
 
 #[derive(Clone, Copy)]
 enum Slab {
-    Section(&'static str),
+    Section(&'static str, usize),
     Group(&'static str),
     Data(Shelf, usize, f32),
     Art(Shelf, usize, f32),
@@ -302,7 +305,7 @@ enum Slab {
 impl Slab {
     fn height(self) -> f32 {
         match self {
-            Self::Section(_) => SECTION_SLAB,
+            Self::Section(..) => SECTION_SLAB,
             Self::Group(_) => GROUP_SLAB,
             Self::Data(_, _, cell) | Self::Art(_, _, cell) => cell + CARD_SPACING,
         }
@@ -359,6 +362,7 @@ pub enum Message {
     ClearDiff,
     WipeExpired,
     OpenFile(String),
+    Fold(Tab, &'static str, bool),
     TilesLoaded(u64, Vec<(PathBuf, Option<Handle>)>),
     LevelChanged(u32, String),
     OpenTalents(u32, usize),
@@ -383,6 +387,7 @@ impl fmt::Debug for Message {
             Self::ClearDiff => write!(f, "ClearDiff"),
             Self::WipeExpired => write!(f, "WipeExpired"),
             Self::OpenFile(name) => write!(f, "OpenFile({})", name),
+            Self::Fold(tab, title, open) => write!(f, "Fold({:?}, {}, {})", tab, title, open),
             Self::TilesLoaded(generation, loaded) => write!(f, "TilesLoaded({}, {})", generation, loaded.len()),
             Self::LevelChanged(cat, value) => write!(f, "LevelChanged({}, {})", cat, value),
             Self::OpenTalents(cat, form) => write!(f, "OpenTalents({}, {})", cat, form),
@@ -423,6 +428,7 @@ pub struct State {
     terrain: Terrain,
     based: bool,
     minable: bool,
+    folds: HashMap<(Tab, &'static str), bool>,
     tag: u64,
     lands: stages::Report,
     levels_raised: Vec<levels::Raised>,
@@ -465,6 +471,7 @@ impl Default for State {
             terrain: Terrain::default(),
             based: false,
             minable: false,
+            folds: HashMap::new(),
             tag: 0,
             lands: stages::Report::default(),
             levels_raised: Vec::new(),
@@ -524,6 +531,7 @@ impl State {
         self.ore = mining::load();
         self.files = self.ore.as_ref().map_or_else(Shelves::default, |ore| shelve(ore, vfs));
         self.tiles.clear();
+        self.folds.clear();
         self.report = self
             .ore
             .as_ref()
@@ -965,6 +973,9 @@ impl State {
             Message::WipeExpired => {
                 self.wipe.expire();
             }
+            Message::Fold(tab, title, open) => {
+                self.folds.insert((tab, title), open);
+            }
             Message::TilesLoaded(generation, loaded) => {
                 self.decoding = false;
 
@@ -1045,6 +1056,44 @@ impl State {
         }
     }
 
+    fn folded(&self, tab: Tab, title: &'static str, count: usize) -> bool {
+        self.folds.get(&(tab, title)).copied().unwrap_or(count > FOLD_LIMIT)
+    }
+
+    fn view_fold<'a>(
+        &'a self,
+        tab: Tab,
+        title: &'static str,
+        count: usize,
+        align: Horizontal,
+        content: impl FnOnce() -> Element<'a, Message>,
+    ) -> Element<'a, Message> {
+        let folded = self.folded(tab, title, count);
+
+        let mut heading = row![strong(title, FOLD_TITLE_SIZE)].spacing(CELL_SPACING).align_y(Vertical::Bottom);
+
+        if folded {
+            heading = heading.push(
+                plain("(collapsed)", FOLD_NOTE_SIZE)
+                    .style(|theme: &Theme| text::Style { color: Some(theme::weak_text_color(theme)) }),
+            );
+        }
+
+        let mut body = Column::new().spacing(SECTION_HEAD_GAP).width(Length::Fill).align_x(align);
+
+        body = body.push(
+            button(heading).padding(0).style(button::text).on_press(Message::Fold(tab, title, !folded)),
+        );
+
+        body = body.push(rule::horizontal(1));
+
+        if !folded {
+            body = body.push(content());
+        }
+
+        body.into()
+    }
+
     fn art_of(&self, shelf: Shelf) -> &[Drawn] {
         match shelf {
             Shelf::FreshArt => &self.files.fresh_art,
@@ -1081,7 +1130,11 @@ impl State {
                 continue;
             }
 
-            slabs.push(Slab::Section(title));
+            slabs.push(Slab::Section(title, named.len() + drawn.len()));
+
+            if self.folded(Tab::Files, title, named.len() + drawn.len()) {
+                continue;
+            }
 
             if !named.is_empty() {
                 slabs.push(Slab::Group("Data"));
@@ -1464,57 +1517,65 @@ impl State {
         if !self.ready.fresh.is_empty() {
             listed = true;
 
-            let cards: Vec<Element<'a, Message>> = self
-                .ready
-                .fresh
-                .iter()
-                .filter_map(|id| self.entry(cats, *id))
-                .map(|cat| self.view_fresh(cat))
-                .collect();
+            body = body.push(self.view_fold(Tab::Cats, "New", self.ready.fresh.len(), Horizontal::Left, || {
+                let cards: Vec<Element<'a, Message>> = self
+                    .ready
+                    .fresh
+                    .iter()
+                    .filter_map(|id| self.entry(cats, *id))
+                    .map(|cat| self.view_fresh(cat))
+                    .collect();
 
-            body = body.push(section("New", Length::Fill, uniform_grid(cards, CARD_SPACING)));
+                uniform_grid(cards, CARD_SPACING).into()
+            }));
         }
 
         if !self.ready.spoken.is_empty() {
             listed = true;
 
-            let cards: Vec<Element<'a, Message>> = self
-                .ready
-                .spoken
-                .iter()
-                .filter_map(|slot| self.spoken_cats.get(*slot))
-                .map(|held| self.view_spoken(held, cats))
-                .collect();
+            body = body.push(self.view_fold(Tab::Cats, "Localized", self.ready.spoken.len(), Horizontal::Left, || {
+                let cards: Vec<Element<'a, Message>> = self
+                    .ready
+                    .spoken
+                    .iter()
+                    .filter_map(|slot| self.spoken_cats.get(*slot))
+                    .map(|held| self.view_spoken(held, cats))
+                    .collect();
 
-            body = body.push(section("Localized", Length::Fill, uniform_grid(cards, CARD_SPACING)));
+                uniform_grid(cards, CARD_SPACING).into()
+            }));
         }
 
         if !self.ready.changed.is_empty() {
             listed = true;
 
-            let cards: Vec<Element<'a, Message>> = self
-                .ready
-                .changed
-                .iter()
-                .filter_map(|(slot, diff)| self.changes.get(*slot).map(|changed| (changed, diff)))
-                .map(|(changed, diff)| self.view_changed(changed, cats, diff))
-                .collect();
+            body = body.push(self.view_fold(Tab::Cats, "Changes", self.ready.changed.len(), Horizontal::Left, || {
+                let cards: Vec<Element<'a, Message>> = self
+                    .ready
+                    .changed
+                    .iter()
+                    .filter_map(|(slot, diff)| self.changes.get(*slot).map(|changed| (changed, diff)))
+                    .map(|(changed, diff)| self.view_changed(changed, cats, diff))
+                    .collect();
 
-            body = body.push(section("Changes", Length::Fill, uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH))));
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH)).into()
+            }));
         }
 
         if !self.ready.unlocked.is_empty() {
             listed = true;
 
-            let cards: Vec<Element<'a, Message>> = self
-                .ready
-                .unlocked
-                .iter()
-                .filter_map(|(slot, diff)| self.forms.get(*slot).map(|held| (held, diff)))
-                .map(|(held, diff)| self.view_unlocked(held, cats, diff))
-                .collect();
+            body = body.push(self.view_fold(Tab::Cats, "Forms", self.ready.unlocked.len(), Horizontal::Left, || {
+                let cards: Vec<Element<'a, Message>> = self
+                    .ready
+                    .unlocked
+                    .iter()
+                    .filter_map(|(slot, diff)| self.forms.get(*slot).map(|held| (held, diff)))
+                    .map(|(held, diff)| self.view_unlocked(held, cats, diff))
+                    .collect();
 
-            body = body.push(section("Forms", Length::Fill, uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH))));
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH)).into()
+            }));
         }
 
         if let Some(report) = &self.report
@@ -1522,33 +1583,33 @@ impl State {
         {
             listed = true;
 
-            let cards: Vec<Element<'a, Message>> = self
-                .ready
-                .talents
-                .iter()
-                .filter_map(|slot| report.finds.get(*slot))
-                .map(|find| self.view_find(find, cats, vfs, settings))
-                .collect();
+            body = body.push(self.view_fold(Tab::Cats, "Talents", self.ready.talents.len(), Horizontal::Left, || {
+                let cards: Vec<Element<'a, Message>> = self
+                    .ready
+                    .talents
+                    .iter()
+                    .filter_map(|slot| report.finds.get(*slot))
+                    .map(|find| self.view_find(find, cats, vfs, settings))
+                    .collect();
 
-            body = body.push(section("Talents", Length::Fill, uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH))));
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH)).into()
+            }));
         }
 
         if !self.ready.raised.is_empty() {
             listed = true;
 
-            let cards: Vec<Element<'a, Message>> = self
-                .ready
-                .raised
-                .iter()
-                .filter_map(|slot| self.levels_raised.get(*slot))
-                .map(|entry| self.view_raised(entry, cats))
-                .collect();
+            body = body.push(self.view_fold(Tab::Cats, "Levels", self.ready.raised.len(), Horizontal::Left, || {
+                let cards: Vec<Element<'a, Message>> = self
+                    .ready
+                    .raised
+                    .iter()
+                    .filter_map(|slot| self.levels_raised.get(*slot))
+                    .map(|entry| self.view_raised(entry, cats))
+                    .collect();
 
-            body = body.push(section(
-                "Levels",
-                Length::Fill,
-                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, LEVEL_MIN_WIDTH)),
-            ));
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, LEVEL_MIN_WIDTH)).into()
+            }));
         }
 
         if !listed {
@@ -1796,12 +1857,10 @@ impl State {
 
     fn view_slab(&self, slab: Slab, data_columns: usize, art_columns: usize) -> Element<'_, Message> {
         let content: Element<'_, Message> = match slab {
-            Slab::Section(title) => column![
+            Slab::Section(title, count) => column![
                 Space::new().height(SECTION_SPACING),
-                strong(title, SECTION_TITLE_SIZE),
-                rule::horizontal(1),
+                self.view_fold(Tab::Files, title, count, Horizontal::Left, || Space::new().into()),
             ]
-            .spacing(SECTION_HEAD_GAP)
             .width(Length::Fill)
             .into(),
             Slab::Group(title) => strong(title, GROUP_TITLE_SIZE).into(),
@@ -1869,64 +1928,24 @@ impl State {
             registry,
         };
 
-        if !self.terrain.fresh.is_empty() {
-            let cards: Vec<Element<'a, Message>> = self
-                .terrain
-                .fresh
-                .iter()
-                .map(|(category, maps)| self.view_land(category, maps, true, &lands))
-                .collect();
+        for (title, grouped, fresh) in [
+            ("New", &self.terrain.fresh, true),
+            ("Localized", &self.terrain.spoken, true),
+            ("Crowns", &self.terrain.crowned, true),
+            ("Changed", &self.terrain.moved, false),
+        ] {
+            if grouped.is_empty() {
+                continue;
+            }
 
-            body = body.push(section(
-                "New",
-                Length::Fill,
-                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, STAGE_MIN_WIDTH)),
-            ));
-        }
+            body = body.push(self.view_fold(Tab::Stages, title, stage_count(grouped), Horizontal::Left, || {
+                let cards: Vec<Element<'a, Message>> = grouped
+                    .iter()
+                    .map(|(category, maps)| self.view_land(category, maps, fresh, &lands))
+                    .collect();
 
-        if !self.terrain.spoken.is_empty() {
-            let cards: Vec<Element<'a, Message>> = self
-                .terrain
-                .spoken
-                .iter()
-                .map(|(category, maps)| self.view_land(category, maps, true, &lands))
-                .collect();
-
-            body = body.push(section(
-                "Localized",
-                Length::Fill,
-                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, STAGE_MIN_WIDTH)),
-            ));
-        }
-
-        if !self.terrain.crowned.is_empty() {
-            let cards: Vec<Element<'a, Message>> = self
-                .terrain
-                .crowned
-                .iter()
-                .map(|(category, maps)| self.view_land(category, maps, true, &lands))
-                .collect();
-
-            body = body.push(section(
-                "Crowns",
-                Length::Fill,
-                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, STAGE_MIN_WIDTH)),
-            ));
-        }
-
-        if !self.terrain.moved.is_empty() {
-            let cards: Vec<Element<'a, Message>> = self
-                .terrain
-                .moved
-                .iter()
-                .map(|(category, maps)| self.view_land(category, maps, false, &lands))
-                .collect();
-
-            body = body.push(section(
-                "Changed",
-                Length::Fill,
-                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, STAGE_MIN_WIDTH)),
-            ));
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, STAGE_MIN_WIDTH)).into()
+            }));
         }
 
         body.into()
@@ -2084,42 +2103,40 @@ impl State {
         let mut body = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
 
         if !self.ready.foes_new.is_empty() {
-            let cards: Vec<Element<'a, Message>> =
-                self.ready.foes_new.iter().map(|id| self.view_foe(*id, None, roster)).collect();
+            body = body.push(self.view_fold(Tab::Enemies, "New", self.ready.foes_new.len(), Horizontal::Left, || {
+                let cards: Vec<Element<'a, Message>> =
+                    self.ready.foes_new.iter().map(|id| self.view_foe(*id, None, roster)).collect();
 
-            body = body.push(section(
-                "New",
-                Length::Fill,
-                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, LEVEL_MIN_WIDTH)),
-            ));
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, LEVEL_MIN_WIDTH)).into()
+            }));
         }
 
         if !self.ready.foes_spoken.is_empty() {
-            let cards: Vec<Element<'a, Message>> = self
-                .ready
-                .foes_spoken
-                .iter()
-                .filter_map(|slot| self.spoken_foes.get(*slot))
-                .map(|held| self.view_spoken_foe(held, roster))
-                .collect();
+            body = body.push(self.view_fold(Tab::Enemies, "Localized", self.ready.foes_spoken.len(), Horizontal::Left, || {
+                let cards: Vec<Element<'a, Message>> = self
+                    .ready
+                    .foes_spoken
+                    .iter()
+                    .filter_map(|slot| self.spoken_foes.get(*slot))
+                    .map(|held| self.view_spoken_foe(held, roster))
+                    .collect();
 
-            body = body.push(section("Localized", Length::Fill, uniform_grid(cards, CARD_SPACING)));
+                uniform_grid(cards, CARD_SPACING).into()
+            }));
         }
 
         if !self.ready.foes_changed.is_empty() {
-            let cards: Vec<Element<'a, Message>> = self
-                .ready
-                .foes_changed
-                .iter()
-                .filter_map(|(slot, diff)| self.foes.get(*slot).map(|foe| (foe, diff)))
-                .map(|(foe, diff)| self.view_foe(foe.enemy_id, Some((foe, diff)), roster))
-                .collect();
+            body = body.push(self.view_fold(Tab::Enemies, "Changed", self.ready.foes_changed.len(), Horizontal::Left, || {
+                let cards: Vec<Element<'a, Message>> = self
+                    .ready
+                    .foes_changed
+                    .iter()
+                    .filter_map(|(slot, diff)| self.foes.get(*slot).map(|foe| (foe, diff)))
+                    .map(|(foe, diff)| self.view_foe(foe.enemy_id, Some((foe, diff)), roster))
+                    .collect();
 
-            body = body.push(section(
-                "Changed",
-                Length::Fill,
-                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH)),
-            ));
+                uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, UNIT_MIN_WIDTH)).into()
+            }));
         }
 
         body.into()

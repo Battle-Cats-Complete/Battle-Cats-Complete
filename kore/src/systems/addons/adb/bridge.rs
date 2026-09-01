@@ -209,7 +209,7 @@ fn pull_region_data(
     emit_log(format!("Pulling {}...", package_name));
 
     if let Some(build) = read_build(current_serial, &package_name) {
-        emit_log(format!("Device reports {} v{}", package_name, build.name));
+        emit_log(format!("Found {} v{}", package_name, build.name));
         pulled.builds.push(build);
     }
 
