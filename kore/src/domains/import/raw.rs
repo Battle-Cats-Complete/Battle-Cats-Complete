@@ -104,6 +104,11 @@ fn sort_raw_folder(
     let mut ledger = manifest::Ledger::load();
     let tracked = ledger.tracks_files();
 
+    if ledger.faulted() {
+        emit(JobEvent::Log("The saved manifest could not be read and was discarded.".to_string()));
+        emit(JobEvent::Log("This import will rebuild the manifest from scratch.".to_string()));
+    }
+
     let total = all_discovered_files.len();
     let update_interval = (total / 100).max(10);
     let progress_step = (total / 100).max(1);
@@ -122,28 +127,36 @@ fn sort_raw_folder(
 
             let target_destination_path = asset_router.resolve_destination(&filename_string, &filename_string);
 
-            if file_path == target_destination_path {
-                return None;
-            }
+            let settled = file_path == target_destination_path;
 
             let Ok(file_data) = fs::read(&file_path) else {
                 return None;
             };
 
             let clean_file_data = audit::strip_carriage_returns(&file_data, &filename_string);
+            let checksum = manifest::hash(&clean_file_data);
 
-            let sample = (tracked && mining::mineable(&filename_string)).then(|| {
+            let sample = (tracked && !settled && mining::mineable(&filename_string)).then(|| {
                 let previous = fs::read(&target_destination_path).ok();
 
                 mining::delta(&filename_string, manifest::NONE, manifest::NONE, previous.as_deref(), &clean_file_data)
             });
 
-            if let Some(parent_directory) = target_destination_path.parent() {
-                let _ = fs::create_dir_all(parent_directory);
-            }
+            if settled {
+                if clean_file_data != file_data {
+                    let _ = fs::write(&target_destination_path, &clean_file_data);
+                }
+            } else {
+                if let Some(parent_directory) = target_destination_path.parent() {
+                    let _ = fs::create_dir_all(parent_directory);
+                }
 
-            let _ = fs::write(&target_destination_path, &clean_file_data);
-            let _ = fs::remove_file(&file_path);
+                if !manifest::holds(&target_destination_path, clean_file_data.len(), checksum) {
+                    let _ = fs::write(&target_destination_path, &clean_file_data);
+                }
+
+                let _ = fs::remove_file(&file_path);
+            }
 
             let current_count = progress.advance();
             if current_count.is_multiple_of(progress_step) || current_count == total {
@@ -163,7 +176,7 @@ fn sort_raw_folder(
                     winner: manifest::NONE.to_string(),
                     size: clean_file_data.len(),
                     encrypted: file_data.len(),
-                    checksum: manifest::hash(&clean_file_data),
+                    checksum,
                 },
             };
 
@@ -186,7 +199,8 @@ fn sort_raw_folder(
     }
 
     if mining::commit(ore, touched, Vec::new()) {
-        emit(JobEvent::Log("This import moved game data. Open the Mining page to read what changed.".to_string()));
+        emit(JobEvent::Log("Changes in previous database content detected.".to_string()));
+        emit(JobEvent::Log("Open the Mining page to read what changed.".to_string()));
     }
 
     mining::enroll(ledger.census());

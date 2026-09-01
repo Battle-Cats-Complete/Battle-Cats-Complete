@@ -56,11 +56,30 @@ pub(crate) struct Placement {
 pub(crate) struct Ledger {
     packs: HashMap<String, HashMap<String, u64>>,
     files: HashMap<String, Placement>,
+    faulted: bool,
 }
 
 impl Ledger {
     pub(crate) fn load() -> Self {
-        Self::from_stored(json::load_state(FILE).unwrap_or_default())
+        let Some(path) = dirs::state().map(|directory| directory.join(FILE)).filter(|path| path.exists()) else {
+            return Self::default();
+        };
+
+        let read = fs::read_to_string(&path).map_err(|error| error.to_string());
+        let parsed = read.and_then(|data| serde_json::from_str::<Stored>(&data).map_err(|error| error.to_string()));
+
+        match parsed {
+            Ok(stored) => Self::from_stored(stored),
+            Err(fault) => {
+                warn!("Discarding {}: {}", FILE, fault);
+
+                Self { faulted: true, ..Self::default() }
+            }
+        }
+    }
+
+    pub(crate) fn faulted(&self) -> bool {
+        self.faulted
     }
 
     pub(crate) fn save(self) {
@@ -86,6 +105,7 @@ impl Ledger {
     }
 
     fn into_stored(self) -> Stored {
+
         let mut stored = Stored::new();
 
         for (pack, checksums) in self.packs {
@@ -176,6 +196,11 @@ pub(crate) fn hash(data: &[u8]) -> u64 {
     current_hash
 }
 
+pub(crate) fn holds(path: &Path, size: usize, checksum: u64) -> bool {
+    fs::metadata(path).is_ok_and(|data| data.len() == size as u64)
+        && hash_file(path).is_ok_and(|hash| hash == checksum)
+}
+
 pub(crate) fn hash_file(path: &Path) -> std::io::Result<u64> {
     let mut file = File::open(path)?;
     let mut current_hash: u64 = 0xcbf29ce484222325;
@@ -216,6 +241,27 @@ mod tests {
 
     // One pack name shipped by several regions stays a single entry, holding a
     // checksum per region, with each file naming the region that actually won it.
+    // A workspace that already holds the exact bytes an import is about to write must be
+    // recognised, so a manifest-less re-import records the placement without rewriting the file.
+    #[test]
+    fn a_file_already_holding_the_winning_bytes_is_recognised() {
+        let directory = std::env::temp_dir().join("bcc-holds-probe");
+        fs::create_dir_all(&directory).expect("probe dir");
+
+        let path = directory.join("unitbuy.csv");
+        let body = b"0,0,50\n0,1,60\n";
+        fs::write(&path, body).expect("probe file");
+
+        let checksum = hash(body);
+
+        assert!(holds(&path, body.len(), checksum));
+        assert!(!holds(&path, body.len() + 1, checksum), "a size mismatch is never a match");
+        assert!(!holds(&path, body.len(), checksum ^ 1), "a checksum mismatch is never a match");
+        assert!(!holds(&directory.join("absent.csv"), body.len(), checksum));
+
+        let _ = fs::remove_dir_all(&directory);
+    }
+
     #[test]
     fn a_shared_pack_name_keeps_one_entry_across_regions() {
         let mut ledger = Ledger::from_stored(stored_with(

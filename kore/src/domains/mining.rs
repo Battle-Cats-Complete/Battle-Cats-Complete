@@ -218,8 +218,16 @@ fn sweep() {
     let _ = fs::remove_file(directory.join(LEGACY_CENSUS));
 }
 
-fn rebase(found: &[(String, PathBuf)], taken: Census) {
+fn rebase(found: &[(String, PathBuf)], mut taken: Census) {
     sweep();
+
+    let strays: Census = found
+        .par_iter()
+        .filter(|(name, _)| !taken.contains_key(name))
+        .filter_map(|(name, path)| manifest::hash_file(path).ok().map(|hash| (name.to_string(), hash)))
+        .collect();
+
+    taken.extend(strays);
 
     let mut base = stored_base();
 

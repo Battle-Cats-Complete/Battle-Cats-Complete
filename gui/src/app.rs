@@ -456,7 +456,7 @@ impl BattleCatsApp {
             Page::Mining => {
                 let settled = self.vault_ready && !self.rebuild_running && !self.cat_state.data.cats.is_empty();
 
-                self.mining_state.enter(&self.cat_state.data.cats, &self.vault.vfs, &self.settings, settled).map(Message::Mining)
+                self.mining_state.enter(&self.cat_state.data.cats, &self.vault.vfs, &self.settings, settled, self.window_size).map(Message::Mining)
             }
             Page::Import => self.import_state.enter().map(Message::Import),
             Page::Help => operation::scroll_to(
@@ -782,7 +782,7 @@ impl BattleCatsApp {
         let sheets = Task::batch([
             self.cat_state.relocalize(&self.vault.vfs).map(Message::Cat),
             self.enemy_state.relocalize(&self.vault.vfs).map(Message::Enemy),
-            self.mining_state.relocalize(&self.vault.vfs).map(Message::Mining),
+            self.mining_state.relocalize(&self.vault.vfs, self.window_size).map(Message::Mining),
         ]);
 
         Task::batch([sheets, self.rescan_units()])
@@ -1126,7 +1126,7 @@ impl BattleCatsApp {
                 }
 
                 let packs = self.files_state.reload_packs().map(Message::Files);
-                let mined = self.mining_state.reload(&self.vault.vfs).map(Message::Mining);
+                let mined = self.mining_state.reload(&self.vault.vfs, self.window_size).map(Message::Mining);
 
                 Task::batch([task, packs, mined, self.rebuild_content()])
             }
@@ -1138,7 +1138,7 @@ impl BattleCatsApp {
             }
             Message::Mining(mining::Message::Mined) => self
                 .mining_state
-                .settle(&self.cat_state.data.cats, &self.vault.vfs, &self.settings)
+                .settle(&self.cat_state.data.cats, &self.vault.vfs, &self.settings, self.window_size)
                 .map(Message::Mining),
             Message::Mining(mining::Message::OpenCategory(category)) => {
                 self.stage_state.reveal();
@@ -1204,7 +1204,7 @@ impl BattleCatsApp {
 
                 Task::batch([jump, self.navigate(Page::Files)])
             }
-            Message::Mining(msg) => self.mining_state.update(msg).map(Message::Mining),
+            Message::Mining(msg) => self.mining_state.update(msg, self.window_size).map(Message::Mining),
             Message::Files(msg) => {
                 let task = self.files_state.update(msg, &self.vault.vfs, &self.settings.files).map(Message::Files);
                 self.files_state.sync_state(&mut self.app_state.files);

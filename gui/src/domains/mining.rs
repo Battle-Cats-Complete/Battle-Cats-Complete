@@ -1,15 +1,19 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::fmt;
 use std::thread;
 use std::time::Duration;
 
+use iced::advanced::graphics::text::Paragraph;
+use iced::advanced::text::{Alignment as TextAlignment, Paragraph as _, Text as Shaped};
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::text::Wrapping;
+use iced::font;
+use iced::widget::text::{LineHeight, Shaping, Wrapping};
 use iced::widget::{button, column, container, image as iced_image, operation, row, rule, scrollable, text, text_input, tooltip, Column, Id, Row, Space, Text};
 use iced::futures::channel::mpsc::unbounded;
-use iced::{Color, ContentFit, Element, Length, Size, Task, Theme};
+use iced::{Color, ContentFit, Element, Length, Pixels, Size, Task, Theme};
 use nyanko::cat::unit::{LevelCurve, TalentCost};
 use nyanko::combat::{Entity, REGISTRY};
 
@@ -34,7 +38,7 @@ use crate::common::fonts;
 use crate::common::item_icon;
 use crate::common::{ability_icon, img015, skill_name, CustomAssets, SpriteSheet};
 use iced::widget::image::Handle;
-use crate::widget::{fallback_icon, list_row, section, smooth_scroll, subsection, tinted_superscript, uniform_grid};
+use crate::widget::{fallback_icon, list_row, section, smooth_scroll, tinted_superscript, uniform_grid};
 
 const SIDEBAR_WIDTH: f32 = 110.0;
 const SIDEBAR_PADDING: f32 = 8.0;
@@ -53,10 +57,15 @@ const STAGE_MIN_WIDTH: f32 = 300.0;
 const NAME_MIN_WIDTH: f32 = 240.0;
 const ART_MIN_WIDTH: f32 = 150.0;
 const ART_TILE_SIZE: f32 = 96.0;
-const ART_CANVAS: u32 = 192;
+const ART_CANVAS: u32 = 128;
 const FILE_NAME_SIZE: f32 = 13.0;
-const DATA_PAGE: usize = 200;
-const ART_PAGE: usize = 60;
+const NAME_LINE: f32 = FILE_NAME_SIZE * 1.3;
+const GROUP_TITLE_SIZE: f32 = 14.0;
+const SECTION_SLAB: f32 = 56.0;
+const GROUP_SLAB: f32 = 30.0;
+const SECTION_HEAD_GAP: f32 = 6.0;
+const VIRTUAL_BUFFER: f32 = 240.0;
+const TILE_BUDGET: usize = 300;
 const SECTION_SPACING: f32 = 18.0;
 const CARD_SPACING: f32 = 8.0;
 const ULTRA_LEVEL: i32 = 60;
@@ -154,12 +163,23 @@ pub enum Shelf {
     MovedArt,
 }
 
+struct Named {
+    name: String,
+    width: f32,
+}
+
+struct Drawn {
+    name: String,
+    path: PathBuf,
+    width: f32,
+}
+
 #[derive(Default)]
 struct Shelves {
-    fresh_data: Vec<String>,
-    fresh_art: Vec<(String, PathBuf)>,
-    moved_data: Vec<String>,
-    moved_art: Vec<(String, PathBuf)>,
+    fresh_data: Vec<Named>,
+    fresh_art: Vec<Drawn>,
+    moved_data: Vec<Named>,
+    moved_art: Vec<Drawn>,
 }
 
 impl Shelves {
@@ -184,27 +204,111 @@ fn shelve(ore: &Ore, vfs: &Vfs) -> Shelves {
 
     for held in &ore.touched {
         let art = pictured(&held.file).then(|| vfs.find(&held.file)).flatten();
+        let width = text_width(&held.file);
 
         match (held.status, art) {
-            (Status::Baseline, Some(path)) => shelves.fresh_art.push((held.file.clone(), path)),
-            (Status::Baseline, None) => shelves.fresh_data.push(held.file.clone()),
-            (Status::Changed, Some(path)) => shelves.moved_art.push((held.file.clone(), path)),
-            (Status::Changed, None) => shelves.moved_data.push(held.file.clone()),
+            (Status::Baseline, Some(path)) => {
+                shelves.fresh_art.push(Drawn { name: held.file.clone(), path, width });
+            }
+            (Status::Baseline, None) => shelves.fresh_data.push(Named { name: held.file.clone(), width }),
+            (Status::Changed, Some(path)) => {
+                shelves.moved_art.push(Drawn { name: held.file.clone(), path, width });
+            }
+            (Status::Changed, None) => shelves.moved_data.push(Named { name: held.file.clone(), width }),
         }
     }
 
-    shelves.fresh_data.sort_unstable();
-    shelves.moved_data.sort_unstable();
-    shelves.fresh_art.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-    shelves.moved_art.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    shelves.fresh_data.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+    shelves.moved_data.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+    shelves.fresh_art.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+    shelves.moved_art.sort_unstable_by(|left, right| left.name.cmp(&right.name));
 
     shelves
 }
 
-fn page_of<T>(items: &[T], page: usize, size: usize) -> &[T] {
-    let start = (page * size).min(items.len());
+fn text_width(content: &str) -> f32 {
+    Paragraph::with_text(Shaped {
+        content,
+        bounds: Size::INFINITE,
+        size: Pixels(FILE_NAME_SIZE),
+        line_height: LineHeight::default(),
+        font: font::Font { weight: font::Weight::Bold, ..font::Font::DEFAULT },
+        align_x: TextAlignment::Default,
+        align_y: Vertical::Top,
+        shaping: Shaping::default(),
+        wrapping: Wrapping::None,
+    })
+    .min_bounds()
+    .width
+}
 
-    &items[start..(start + size).min(items.len())]
+fn cell_width(available: f32, columns: usize) -> f32 {
+    let usable = (available - PAGE_PADDING * 2.0 - SCROLLBAR_RESERVE).max(0.0);
+
+    ((usable - CARD_SPACING * (columns - 1) as f32) / columns as f32).max(1.0)
+}
+
+fn caption(widest: f32, room: f32) -> f32 {
+    let usable = (room - FILE_NAME_SIZE).max(1.0);
+
+    (widest / usable).ceil().max(1.0) * NAME_LINE
+}
+
+#[derive(Clone, Copy)]
+enum Slab {
+    Section(&'static str),
+    Group(&'static str),
+    Data(Shelf, usize, f32),
+    Art(Shelf, usize, f32),
+}
+
+impl Slab {
+    fn height(self) -> f32 {
+        match self {
+            Self::Section(_) => SECTION_SLAB,
+            Self::Group(_) => GROUP_SLAB,
+            Self::Data(_, _, cell) | Self::Art(_, _, cell) => cell + CARD_SPACING,
+        }
+    }
+}
+
+struct Pane {
+    range: Range<usize>,
+    before: f32,
+    after: f32,
+}
+
+fn pane(slabs: &[Slab], offset: f32, viewport: f32) -> Pane {
+    let seen = (offset - PAGE_PADDING).max(0.0);
+    let top = (seen - VIRTUAL_BUFFER).max(0.0);
+    let bottom = seen + viewport + VIRTUAL_BUFFER;
+
+    let mut start = 0;
+    let mut before = 0.0;
+    let mut cursor = 0.0;
+    let mut found = false;
+
+    for (index, slab) in slabs.iter().enumerate() {
+        if found && cursor >= bottom {
+            return Pane {
+                range: start..index,
+                before,
+                after: slabs[index..].iter().map(|slab| slab.height()).sum(),
+            };
+        }
+
+        let height = slab.height();
+
+        if !found && cursor + height > top {
+            found = true;
+            start = index;
+            before = cursor;
+        }
+
+        cursor += height;
+    }
+
+    Pane { range: start..slabs.len(), before, after: 0.0 }
 }
 
 #[derive(Clone)]
@@ -214,9 +318,8 @@ pub enum Message {
     CreateBase,
     CreateDiff,
     Mined,
-    Turn(Shelf, usize),
     OpenFile(String),
-    TileLoaded(u64, PathBuf, Option<Handle>),
+    TilesLoaded(u64, Vec<(PathBuf, Option<Handle>)>),
     LevelChanged(u32, String),
     OpenTalents(u32, usize),
     OpenForm(u32, usize),
@@ -236,9 +339,8 @@ impl fmt::Debug for Message {
             Self::CreateBase => write!(f, "CreateBase"),
             Self::CreateDiff => write!(f, "CreateDiff"),
             Self::Mined => write!(f, "Mined"),
-            Self::Turn(shelf, page) => write!(f, "Turn({:?}, {})", shelf, page),
             Self::OpenFile(name) => write!(f, "OpenFile({})", name),
-            Self::TileLoaded(generation, path, _) => write!(f, "TileLoaded({}, {:?})", generation, path),
+            Self::TilesLoaded(generation, loaded) => write!(f, "TilesLoaded({}, {})", generation, loaded.len()),
             Self::LevelChanged(cat, value) => write!(f, "LevelChanged({}, {})", cat, value),
             Self::OpenTalents(cat, form) => write!(f, "OpenTalents({}, {})", cat, form),
             Self::OpenForm(cat, form) => write!(f, "OpenForm({}, {})", cat, form),
@@ -258,8 +360,8 @@ pub struct State {
     ore: Option<Ore>,
     chore: Option<Chore>,
     files: Shelves,
-    pages: HashMap<Shelf, usize>,
     tiles: HashMap<PathBuf, Option<Handle>>,
+    decoding: bool,
     report: Option<talents::Report>,
     units: Option<units::Report>,
     forms: Vec<forms::Unlocked>,
@@ -287,8 +389,8 @@ impl Default for State {
             ore: None,
             chore: None,
             files: Shelves::default(),
-            pages: HashMap::new(),
             tiles: HashMap::new(),
+            decoding: false,
             report: None,
             units: None,
             forms: Vec::new(),
@@ -311,10 +413,10 @@ impl Default for State {
 }
 
 impl State {
-    pub(crate) fn reload(&mut self, vfs: &Vfs) -> Task<Message> {
+    pub(crate) fn reload(&mut self, vfs: &Vfs, window: Size) -> Task<Message> {
         self.reread(vfs);
 
-        self.ensure_tiles()
+        self.ensure_tiles(window)
     }
 
     fn reconcile(&mut self, cats: &[CatEntry], vfs: &Vfs, settings: &Settings) {
@@ -332,7 +434,6 @@ impl State {
     fn reread(&mut self, vfs: &Vfs) {
         self.ore = mining::load();
         self.files = self.ore.as_ref().map_or_else(Shelves::default, |ore| shelve(ore, vfs));
-        self.pages.clear();
         self.tiles.clear();
         self.report = self
             .ore
@@ -395,6 +496,7 @@ impl State {
         vfs: &Vfs,
         settings: &Settings,
         settled: bool,
+        window: Size,
     ) -> Task<Message> {
         mining::tidy();
 
@@ -404,13 +506,13 @@ impl State {
 
         self.reread(vfs);
 
-        Task::batch([self.check_sheets(vfs), self.ensure_tiles(), self.restore()])
+        Task::batch([self.check_sheets(vfs), self.ensure_tiles(window), self.restore()])
     }
 
-    pub(crate) fn relocalize(&mut self, vfs: &Vfs) -> Task<Message> {
+    pub(crate) fn relocalize(&mut self, vfs: &Vfs, window: Size) -> Task<Message> {
         self.clear_caches();
 
-        Task::batch([self.check_sheets(vfs), self.ensure_tiles()])
+        Task::batch([self.check_sheets(vfs), self.ensure_tiles(window)])
     }
 
     pub(crate) fn clear_caches(&mut self) {
@@ -451,37 +553,42 @@ impl State {
         Task::stream(rx)
     }
 
-    pub(crate) fn settle(&mut self, cats: &[CatEntry], vfs: &Vfs, settings: &Settings) -> Task<Message> {
+    pub(crate) fn settle(&mut self, cats: &[CatEntry], vfs: &Vfs, settings: &Settings, window: Size) -> Task<Message> {
         if self.chore.take() == Some(Chore::Diff) {
             self.reconcile(cats, vfs, settings);
         }
 
         self.reread(vfs);
 
-        self.ensure_tiles()
+        self.ensure_tiles(window)
     }
 
-    pub fn update(&mut self, message: Message) -> Task<Message> {
+    pub fn update(&mut self, message: Message, window: Size) -> Task<Message> {
         match message {
             Message::Select(tab) => {
                 if self.enabled(tab) && self.tab != tab {
                     self.tab = tab;
 
-                    return Task::batch([self.ensure_tiles(), self.restore()]);
+                    return Task::batch([self.ensure_tiles(window), self.restore()]);
                 }
             }
-            Message::Turn(shelf, page) => {
-                self.pages.insert(shelf, page);
+            Message::TilesLoaded(generation, loaded) => {
+                self.decoding = false;
 
-                return self.ensure_tiles();
-            }
-            Message::TileLoaded(generation, path, handle) => {
-                if generation == self.sheet_generation {
+                if generation != self.sheet_generation {
+                    return Task::none();
+                }
+
+                for (path, handle) in loaded {
                     self.tiles.insert(path, handle);
                 }
+
+                return self.ensure_tiles(window);
             }
             Message::Scrolled(offset) => {
                 self.offsets.insert(self.tab, offset);
+
+                return self.ensure_tiles(window);
             }
             Message::LevelChanged(cat_id, value) => {
                 if value.chars().all(|glyph| glyph.is_ascii_digit()) {
@@ -535,37 +642,99 @@ impl State {
         }
     }
 
-    fn art_page(&self, shelf: Shelf) -> &[(String, PathBuf)] {
-        let items = match shelf {
+    fn art_of(&self, shelf: Shelf) -> &[Drawn] {
+        match shelf {
             Shelf::FreshArt => &self.files.fresh_art,
             Shelf::MovedArt => &self.files.moved_art,
-            Shelf::FreshData | Shelf::MovedData => return &[],
-        };
-
-        page_of(items, self.pages.get(&shelf).copied().unwrap_or_default(), ART_PAGE)
+            Shelf::FreshData | Shelf::MovedData => &[],
+        }
     }
 
-    fn data_page(&self, shelf: Shelf) -> &[String] {
-        let items = match shelf {
+    fn data_of(&self, shelf: Shelf) -> &[Named] {
+        match shelf {
             Shelf::FreshData => &self.files.fresh_data,
             Shelf::MovedData => &self.files.moved_data,
-            Shelf::FreshArt | Shelf::MovedArt => return &[],
-        };
-
-        page_of(items, self.pages.get(&shelf).copied().unwrap_or_default(), DATA_PAGE)
+            Shelf::FreshArt | Shelf::MovedArt => &[],
+        }
     }
 
-    fn ensure_tiles(&mut self) -> Task<Message> {
-        if self.tab != Tab::Files {
+    fn slabs(&self, width: f32) -> Vec<Slab> {
+        let data_columns = cards_per_row(width, NAME_MIN_WIDTH);
+        let art_columns = cards_per_row(width, ART_MIN_WIDTH);
+
+        let data_room = cell_width(width, data_columns) - BOX_PADDING * 2.0;
+        let art_room = cell_width(width, art_columns) - CARD_PADDING * 2.0;
+
+        let mut slabs = Vec::new();
+
+        for (title, data, art) in [
+            ("New", Shelf::FreshData, Shelf::FreshArt),
+            ("Changed", Shelf::MovedData, Shelf::MovedArt),
+        ] {
+            let named = self.data_of(data);
+            let drawn = self.art_of(art);
+
+            if named.is_empty() && drawn.is_empty() {
+                continue;
+            }
+
+            slabs.push(Slab::Section(title));
+
+            if !named.is_empty() {
+                slabs.push(Slab::Group("Data"));
+                slabs.extend((0..named.len().div_ceil(data_columns)).map(|row| {
+                    let widest = widest(band(named, row, data_columns).iter().map(|held| held.width));
+
+                    Slab::Data(data, row, caption(widest, data_room) + BOX_PADDING * 2.0)
+                }));
+            }
+
+            if !drawn.is_empty() {
+                slabs.push(Slab::Group("Images"));
+                slabs.extend((0..drawn.len().div_ceil(art_columns)).map(|row| {
+                    let widest = widest(band(drawn, row, art_columns).iter().map(|held| held.width));
+                    let cell = CARD_PADDING * 2.0 + ART_TILE_SIZE + CARD_SPACING + caption(widest, art_room);
+
+                    Slab::Art(art, row, cell)
+                }));
+            }
+        }
+
+        slabs
+    }
+
+    fn visible_art(&self, window: Size) -> Vec<PathBuf> {
+        let width = window.width - SIDEBAR_WIDTH;
+        let columns = cards_per_row(width, ART_MIN_WIDTH);
+        let slabs = self.slabs(width);
+        let pane = pane(&slabs, self.offsets.get(&self.tab).copied().unwrap_or_default(), window.height);
+
+        slabs[pane.range]
+            .iter()
+            .filter_map(|slab| match slab {
+                Slab::Art(shelf, row, _) => Some(band(self.art_of(*shelf), *row, columns)),
+                _ => None,
+            })
+            .flatten()
+            .map(|held| held.path.to_path_buf())
+            .collect()
+    }
+
+    fn ensure_tiles(&mut self, window: Size) -> Task<Message> {
+        if self.tab != Tab::Files || self.decoding {
             return Task::none();
         }
 
-        let wanted: Vec<PathBuf> = [Shelf::FreshArt, Shelf::MovedArt]
-            .into_iter()
-            .flat_map(|shelf| self.art_page(shelf))
-            .filter(|(_, path)| !self.tiles.contains_key(path))
-            .map(|(_, path)| path.to_path_buf())
-            .collect();
+        let visible = self.visible_art(window);
+
+        if self.tiles.len() > TILE_BUDGET {
+            let keep: HashSet<PathBuf> = visible.iter().cloned().collect();
+
+            self.tiles.retain(|path, _| keep.contains(path));
+        }
+
+        let wanted: Vec<PathBuf> =
+            visible.into_iter().filter(|path| !self.tiles.contains_key(path)).collect();
 
         if wanted.is_empty() {
             return Task::none();
@@ -575,15 +744,22 @@ impl State {
             self.tiles.insert(path.to_path_buf(), None);
         }
 
+        self.decoding = true;
+
         let generation = self.sheet_generation;
         let (tx, rx) = unbounded();
 
         thread::spawn(move || {
-            for path in wanted {
-                let handle = item_icon::load_boxed(&path, ART_CANVAS);
+            let loaded = wanted
+                .into_iter()
+                .map(|path| {
+                    let handle = item_icon::load_boxed(&path, ART_CANVAS);
 
-                let _ = tx.unbounded_send(Message::TileLoaded(generation, path, handle));
-            }
+                    (path, handle)
+                })
+                .collect();
+
+            let _ = tx.unbounded_send(Message::TilesLoaded(generation, loaded));
         });
 
         Task::stream(rx)
@@ -659,7 +835,7 @@ impl State {
             Tab::Cats => self.view_cats(cats, global, settings, window.width - SIDEBAR_WIDTH),
             Tab::Enemies => self.view_enemies(foes, global, window.width - SIDEBAR_WIDTH),
             Tab::Stages => self.view_stages(registry, global, window.width - SIDEBAR_WIDTH),
-            Tab::Files => self.view_files(window.width - SIDEBAR_WIDTH),
+            Tab::Files => self.view_files(window),
         };
 
         let page = smooth_scroll(
@@ -1144,102 +1320,58 @@ impl State {
         container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container).into()
     }
 
-    fn view_files(&self, width: f32) -> Element<'_, Message> {
-        let mut body = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
+    fn view_files(&self, window: Size) -> Element<'_, Message> {
+        let width = window.width - SIDEBAR_WIDTH;
+        let slabs = self.slabs(width);
+        let pane = pane(&slabs, self.offsets.get(&self.tab).copied().unwrap_or_default(), window.height);
 
-        for (title, data, art) in [
-            ("New", Shelf::FreshData, Shelf::FreshArt),
-            ("Changed", Shelf::MovedData, Shelf::MovedArt),
-        ] {
-            let named = self.data_page(data);
-            let drawn = self.art_page(art);
+        let data_columns = cards_per_row(width, NAME_MIN_WIDTH);
+        let art_columns = cards_per_row(width, ART_MIN_WIDTH);
 
-            if named.is_empty() && drawn.is_empty() {
-                continue;
-            }
+        let mut body = Column::with_capacity(pane.range.len() + 2).width(Length::Fill);
 
-            let mut group = Column::new().spacing(SECTION_SPACING).width(Length::Fill);
+        body = body.push(Space::new().height(pane.before));
 
-            if !named.is_empty() {
-                let cells: Vec<Element<'_, Message>> = named.iter().map(|name| name_cell(name)).collect();
-
-                group = group.push(subsection(
-                    "Data",
-                    self.view_shelf(
-                        data,
-                        uniform_grid(cells, CARD_SPACING).columns(cards_per_row(width, NAME_MIN_WIDTH)),
-                        DATA_PAGE,
-                    ),
-                ));
-            }
-
-            if !drawn.is_empty() {
-                let tiles: Vec<Element<'_, Message>> =
-                    drawn.iter().map(|(name, path)| self.view_art(name, path)).collect();
-
-                group = group.push(subsection(
-                    "Images",
-                    self.view_shelf(
-                        art,
-                        uniform_grid(tiles, CARD_SPACING).columns(cards_per_row(width, ART_MIN_WIDTH)),
-                        ART_PAGE,
-                    ),
-                ));
-            }
-
-            body = body.push(section(title, Length::Fill, group));
+        for slab in &slabs[pane.range] {
+            body = body.push(self.view_slab(*slab, data_columns, art_columns));
         }
 
-        body.into()
+        body.push(Space::new().height(pane.after)).into()
     }
 
-    fn view_shelf<'a>(
-        &self,
-        shelf: Shelf,
-        grid: impl Into<Element<'a, Message>>,
-        size: usize,
-    ) -> Element<'a, Message> {
-        let total = self.shelf_len(shelf);
-        let pages = total.div_ceil(size).max(1);
+    fn view_slab(&self, slab: Slab, data_columns: usize, art_columns: usize) -> Element<'_, Message> {
+        let content: Element<'_, Message> = match slab {
+            Slab::Section(title) => column![
+                Space::new().height(SECTION_SPACING),
+                strong(title, SECTION_TITLE_SIZE),
+                rule::horizontal(1),
+            ]
+            .spacing(SECTION_HEAD_GAP)
+            .width(Length::Fill)
+            .into(),
+            Slab::Group(title) => strong(title, GROUP_TITLE_SIZE).into(),
+            Slab::Data(shelf, row, cell) => {
+                let cells = band(self.data_of(shelf), row, data_columns)
+                    .iter()
+                    .map(|held| name_cell(&held.name, cell))
+                    .collect();
 
-        let mut body = Column::new().spacing(CARD_SPACING).width(Length::Fill);
-        body = body.push(grid.into());
+                banded(cells, data_columns)
+            }
+            Slab::Art(shelf, row, cell) => {
+                let cells = band(self.art_of(shelf), row, art_columns)
+                    .iter()
+                    .map(|held| self.view_art(&held.name, &held.path, cell))
+                    .collect();
 
-        if pages == 1 {
-            return body.into();
-        }
-
-        let current = self.pages.get(&shelf).copied().unwrap_or_default().min(pages - 1);
-
-        let step = |label: &'static str, target: Option<usize>| {
-            button(theme::centered_text(label).size(FILE_NAME_SIZE))
-                .padding([BOX_PADDING as u16, CHIP_PADDING as u16])
-                .style(theme::primary_button)
-                .on_press_maybe(target.map(|page| Message::Turn(shelf, page)))
+                banded(cells, art_columns)
+            }
         };
 
-        body.push(
-            row![
-                step("Prev", current.checked_sub(1)),
-                plain(format!("Page {} of {} ({} files)", current + 1, pages, total), FILE_NAME_SIZE),
-                step("Next", (current + 1 < pages).then_some(current + 1)),
-            ]
-            .spacing(CELL_SPACING)
-            .align_y(Vertical::Center),
-        )
-        .into()
+        container(content).height(Length::Fixed(slab.height())).width(Length::Fill).into()
     }
 
-    fn shelf_len(&self, shelf: Shelf) -> usize {
-        match shelf {
-            Shelf::FreshData => self.files.fresh_data.len(),
-            Shelf::FreshArt => self.files.fresh_art.len(),
-            Shelf::MovedData => self.files.moved_data.len(),
-            Shelf::MovedArt => self.files.moved_art.len(),
-        }
-    }
-
-    fn view_art<'a>(&self, name: &str, path: &Path) -> Element<'a, Message> {
+    fn view_art<'a>(&self, name: &str, path: &Path, cell: f32) -> Element<'a, Message> {
         let body: Element<'a, Message> = match self.tiles.get(path).cloned().flatten() {
             Some(handle) => iced_image(handle)
                 .width(Length::Fixed(ART_TILE_SIZE))
@@ -1262,7 +1394,11 @@ impl State {
         .width(Length::Fill);
 
         open_file(
-            container(card).padding(CARD_PADDING).width(Length::Fill).style(theme::card_container),
+            container(card)
+                .padding(CARD_PADDING)
+                .width(Length::Fill)
+                .height(Length::Fixed(cell))
+                .style(theme::card_container),
             name,
         )
     }
@@ -1879,11 +2015,36 @@ fn pictured(name: &str) -> bool {
 }
 
 fn file_name<'a>(name: &str) -> Text<'a> {
-    theme::bold_text(name).size(FILE_NAME_SIZE).wrapping(Wrapping::WordOrGlyph)
+    theme::bold_text(name).size(FILE_NAME_SIZE).wrapping(Wrapping::Glyph)
 }
 
-fn name_cell<'a>(name: &str) -> Element<'a, Message> {
-    open_file(light_box(file_name(name).width(Length::Fill), Length::Shrink), name)
+fn name_cell<'a>(name: &str, cell: f32) -> Element<'a, Message> {
+    open_file(light_box(file_name(name).width(Length::Fill), Length::Fixed(cell)), name)
+}
+
+fn widest(widths: impl Iterator<Item = f32>) -> f32 {
+    widths.fold(0.0, f32::max)
+}
+
+fn band<T>(items: &[T], row: usize, columns: usize) -> &[T] {
+    let start = (row * columns).min(items.len());
+
+    &items[start..(start + columns).min(items.len())]
+}
+
+fn banded<'a>(cells: Vec<Element<'a, Message>>, columns: usize) -> Element<'a, Message> {
+    let filled = cells.len();
+    let mut band = Row::with_capacity(columns).spacing(CARD_SPACING).width(Length::Fill);
+
+    for cell in cells {
+        band = band.push(container(cell).width(Length::FillPortion(1)));
+    }
+
+    for _ in filled..columns {
+        band = band.push(Space::new().width(Length::FillPortion(1)));
+    }
+
+    band.into()
 }
 
 fn open_file<'a>(content: impl Into<Element<'a, Message>>, name: &str) -> Element<'a, Message> {

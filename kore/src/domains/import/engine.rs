@@ -142,6 +142,11 @@ pub(crate) fn run_universal_import(
     let mut ledger = manifest::Ledger::load();
     let tracked = ledger.tracks_files();
 
+    if ledger.faulted() {
+        emit(JobEvent::Log("The saved manifest could not be read and was discarded.".to_string()));
+        emit(JobEvent::Log("This import will rebuild the manifest from scratch.".to_string()));
+    }
+
     let asset_router_utility = router::AssetRouter::new(game_root_path, structure).map_err(|error| error.to_string())?;
     let (compiled_regex_set, compiled_exception_rules) = rules::compile();
 
@@ -471,10 +476,17 @@ pub(crate) fn run_universal_import(
     };
 
     let successfully_extracted_count = AtomicI32::new(0);
+    let recognized_count = AtomicUsize::new(0);
     let failed_decryption_count = AtomicUsize::new(0);
     let console_update_interval = (total / 100).max(10);
 
-    emit(JobEvent::Log(format!("Comparing and organizing {} game files...", final_extraction_queue.len())));
+    let reindexing = !tracked && architecture::game_present();
+
+    emit(JobEvent::Log(if reindexing {
+        format!("Rebuilding missing manifest across {} game files...", total)
+    } else {
+        format!("Comparing and organizing {} game files...", total)
+    }));
 
     let updated_placements: Vec<(String, manifest::Placement, Option<mining::FileDelta>)> = final_extraction_queue
         .into_par_iter()
@@ -588,6 +600,8 @@ pub(crate) fn run_universal_import(
                     Verdict::Keep => already_on_disk = true,
                     Verdict::Write => {}
                 }
+            } else {
+                already_on_disk = manifest::holds(&target_destination_path, winning_size, winning_checksum);
             }
 
             let sample = (tracked && !already_on_disk && mining::mineable(&resolved_filename)).then(|| {
@@ -620,6 +634,11 @@ pub(crate) fn run_universal_import(
                 let current_extracted_total = successfully_extracted_count.fetch_add(1, Ordering::Relaxed) + 1;
                 if (current_extracted_total as usize).is_multiple_of(console_update_interval) {
                     emit(JobEvent::Log(format!("Processed {} files | Routing: {}", current_extracted_total, resolved_filename)));
+                }
+            } else {
+                let current_known_total = recognized_count.fetch_add(1, Ordering::Relaxed) + 1;
+                if current_known_total.is_multiple_of(console_update_interval) {
+                    emit(JobEvent::Log(format!("Recorded {} files | Matching: {}", current_known_total, resolved_filename)));
                 }
             }
 
@@ -668,7 +687,8 @@ pub(crate) fn run_universal_import(
     }
 
     if mining::commit(ore, touched, detected_builds) {
-        emit(JobEvent::Log("This import moved game data. Open the Mining page to read what changed.".to_string()));
+        emit(JobEvent::Log("Changes in previous database content detected.".to_string()));
+        emit(JobEvent::Log("Open the Mining page to read what changed.".to_string()));
     }
 
     absorb_pack_hashes(&mut ledger, current_pack_hashes);
@@ -677,7 +697,14 @@ pub(crate) fn run_universal_import(
 
     cleanup_temporary_directories(&global_temporary_directories);
 
-    emit(JobEvent::Log("Files successfully organized and updated.".to_string()));
+    let recognized = recognized_count.load(Ordering::Relaxed);
+
+    emit(JobEvent::Log(if successfully_extracted_count.load(Ordering::Relaxed) == 0 && recognized > 0 {
+        format!("Manifest rebuilt from {} files already on disk.", recognized)
+    } else {
+        "Files successfully organized and updated.".to_string()
+    }));
+
     Ok(())
 }
 #[cfg(test)]
