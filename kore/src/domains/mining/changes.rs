@@ -33,7 +33,7 @@ pub fn read(delta: &FileDelta) -> Vec<Changed> {
         })
         .collect();
 
-    found.sort_by_key(|changed| changed.form);
+    found.sort_by_key(|changed| (changed.cat_id, changed.form));
 
     found
 }

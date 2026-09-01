@@ -12,6 +12,14 @@ const MANIFEST: &str = "AndroidManifest.xml";
 
 const BUNDLE_MANIFEST: &str = "manifest.json";
 
+const JUNK_NAMES: [&str; 2] = ["save_data.old", "stamp-cert-sha256"];
+
+const JUNK_EXTENSIONS: [&str; 3] = ["proto", "properties", "txt"];
+
+const SESSION: &str = "session";
+
+const SESSION_SUFFIXES: [&str; 2] = [".data", ".version"];
+
 pub(crate) fn find_files(
     search_directory: &Path,
     list_paths: &mut Vec<PathBuf>,
@@ -29,6 +37,10 @@ pub(crate) fn find_files(
 
         if item_path.is_dir() {
             find_files(&item_path, list_paths, apk_paths, loose_paths)?;
+            continue;
+        }
+
+        if junk(&item_path) {
             continue;
         }
 
@@ -55,6 +67,24 @@ pub(crate) fn find_files(
     }
 
     Ok(())
+}
+
+fn junk(path: &Path) -> bool {
+    let Some(name) = path.file_name().map(|held| held.to_string_lossy().to_lowercase()) else {
+        return false;
+    };
+
+    if JUNK_NAMES.contains(&name.as_str()) {
+        return true;
+    }
+
+    let extension = path.extension().map(|held| held.to_string_lossy().to_lowercase());
+
+    if extension.is_some_and(|held| JUNK_EXTENSIONS.contains(&held.as_str())) {
+        return true;
+    }
+
+    name.starts_with(SESSION) && SESSION_SUFFIXES.iter().any(|end| name.ends_with(end))
 }
 
 pub(crate) fn builds(apk_paths: &[PathBuf]) -> Vec<Build> {
@@ -211,6 +241,23 @@ pub(crate) fn extract_all(apk_paths: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Save state and build leftovers the game ships alongside its data; importing
+    // them caused bogus one-file imports. PONOS uses csv/tsv, never txt.
+    #[test]
+    fn junk_never_reaches_the_import() {
+        assert!(junk(Path::new("/pull/SAVE_DATA.OLD")));
+        assert!(junk(Path::new("/pull/session_1.data")));
+        assert!(junk(Path::new("/pull/session.version")));
+        assert!(junk(Path::new("/pull/stamp-cert-sha256")));
+        assert!(junk(Path::new("/pull/layout.txt")));
+        assert!(junk(Path::new("/pull/aapt2.proto")));
+        assert!(junk(Path::new("/pull/build.PROPERTIES")));
+
+        assert!(!junk(Path::new("/pull/SAVE_DATA")), "only the .OLD backup is dropped");
+        assert!(!junk(Path::new("/pull/unit001.csv")));
+        assert!(!junk(Path::new("/pull/sessionless.png")), "the suffixes still have to match");
+    }
 
     // An .xapk is a wrapper: no binary AndroidManifest.xml at its root, just the
     // split APKs and a plain-JSON manifest carrying the version.

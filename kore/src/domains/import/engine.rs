@@ -456,7 +456,6 @@ pub(crate) fn run_universal_import(
 
         mining::commit(Vec::new(), Vec::new(), detected_builds);
         absorb_pack_hashes(&mut ledger, current_pack_hashes);
-        mining::enroll(ledger.census());
         ledger.save();
 
         cleanup_temporary_directories(&global_temporary_directories);
@@ -672,7 +671,7 @@ pub(crate) fn run_universal_import(
         emit(JobEvent::Log(format!("Encountered {} errors reading pack chunks. See the log for details.", final_errors)));
     }
 
-    let mut ore = Vec::new();
+    let mut found = Vec::new();
     let mut touched = Vec::new();
 
     for (filename_key, placement, sample) in updated_placements {
@@ -683,16 +682,15 @@ pub(crate) fn run_universal_import(
         }
 
         ledger.place(filename_key, placement);
-        ore.extend(sample);
+        found.extend(sample);
     }
 
-    if mining::commit(ore, touched, detected_builds) {
+    if mining::commit(found, touched, detected_builds) {
         emit(JobEvent::Log("Changes in previous database content detected.".to_string()));
         emit(JobEvent::Log("Open the Mining page to read what changed.".to_string()));
     }
 
     absorb_pack_hashes(&mut ledger, current_pack_hashes);
-    mining::enroll(ledger.census());
     ledger.save();
 
     cleanup_temporary_directories(&global_temporary_directories);

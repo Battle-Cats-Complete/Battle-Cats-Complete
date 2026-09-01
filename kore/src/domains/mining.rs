@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rayon::prelude::*;
 use rustc_hash::FxHasher;
@@ -27,17 +27,21 @@ use crate::domains::enemy::files as enemy_files;
 use crate::domains::import::engine::manifest;
 
 
-const ORE: &str = "ore.json";
+const HOME: &str = "mining";
 
-const BEDROCK: &str = "bedrock.json";
+const DIFF: &str = "diff.json";
 
-const SEAMS: &str = "bedrock";
+const SNAPSHOT: &str = "snapshot.json";
+
+const SHARDS: &str = "shards";
 
 const CENSUS: &str = "census.json";
 
 const EMPTY_MAP: u64 = 2;
 
 const SCHEMA: u32 = 3;
+
+const SNAPSHOT_SCHEMA: u32 = 1;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Keying {
@@ -76,15 +80,15 @@ type Census = HashMap<String, u64>;
 type Tables = HashMap<String, String>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Seam {
+enum Shard {
     Cat,
     Enemy,
     Stage,
 }
 
-const SEAM_ORDER: [Seam; 3] = [Seam::Cat, Seam::Enemy, Seam::Stage];
+const SHARD_ORDER: [Shard; 3] = [Shard::Cat, Shard::Enemy, Shard::Stage];
 
-impl Seam {
+impl Shard {
     fn file(self) -> &'static str {
         match self {
             Self::Cat => "cat.json",
@@ -94,23 +98,30 @@ impl Seam {
     }
 }
 
-fn seam(filename: &str) -> Option<Seam> {
+fn shard(filename: &str) -> Option<Shard> {
     if cat_files::stats_id(filename).is_some()
         || filename == cat_files::UNIT_BUY
         || filename == cat_files::SKILL_ACQUISITION
+        || localized::explains(filename)
     {
-        return Some(Seam::Cat);
+        return Some(Shard::Cat);
     }
 
-    match filename {
-        enemy_files::STATS => Some(Seam::Enemy),
-        stages::MAP_OPTION => Some(Seam::Stage),
-        _ => None,
+    if filename == enemy_files::STATS || localized::describes(filename) {
+        return Some(Shard::Enemy);
     }
+
+    if filename == stages::MAP_OPTION || localized::charts(filename) || stages::mineable(filename) {
+        return Some(Shard::Stage);
+    }
+
+    None
 }
 
 #[derive(Serialize, Deserialize, Default)]
-struct Bedrock {
+struct Snapshot {
+    #[serde(default)]
+    schema: u32,
     #[serde(default)]
     builds: Vec<Build>,
     #[serde(default)]
@@ -121,6 +132,10 @@ struct Bedrock {
     bestiary: Vec<u32>,
     #[serde(default)]
     surfaced: Vec<u32>,
+    #[serde(default)]
+    listed: Vec<u32>,
+    #[serde(default)]
+    sighted: Vec<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -169,7 +184,7 @@ pub struct FileTouch {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Ore {
+pub struct Diff {
     pub schema: u32,
     pub stamp: u64,
     #[serde(default)]
@@ -181,21 +196,14 @@ pub struct Ore {
     pub touched: Vec<FileTouch>,
 }
 
-impl Ore {
-    pub fn age(&self) -> Option<Duration> {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
-            .and_then(|now| now.checked_sub(Duration::from_secs(self.stamp)))
-    }
-
+impl Diff {
     pub fn file(&self, name: &str) -> Option<&FileDelta> {
         self.files.iter().find(|delta| delta.file == name)
     }
 }
 
-pub fn load() -> Option<Ore> {
-    json::load_state::<Ore>(ORE).filter(|ore| ore.schema == SCHEMA)
+pub fn load() -> Option<Diff> {
+    json::load_state::<Diff>(&under(DIFF)).filter(|diff| diff.schema == SCHEMA)
 }
 
 fn walk(root: &Path) -> Vec<(String, PathBuf)> {
@@ -231,28 +239,42 @@ fn census(found: &[(String, PathBuf)]) -> Census {
         .collect()
 }
 
-fn tables(found: &[(String, PathBuf)], wanted: Seam) -> Tables {
+fn tables(found: &[(String, PathBuf)], wanted: Shard) -> Tables {
     found
         .iter()
-        .filter(|(name, _)| seam(name) == Some(wanted))
+        .filter(|(name, _)| shard(name) == Some(wanted))
         .filter_map(|(name, path)| fs::read_to_string(path).ok().map(|text| (name.to_string(), text)))
         .collect()
 }
 
-fn seam_file(name: &str) -> Option<String> {
-    let directory = dirs::state()?.join(SEAMS);
+fn under(name: &str) -> String {
+    format!("{}/{}", HOME, name)
+}
+
+fn kept(name: &str) -> Option<String> {
+    fs::create_dir_all(dirs::state()?.join(HOME)).ok()?;
+
+    Some(under(name))
+}
+
+fn spot(name: &str) -> Option<PathBuf> {
+    Some(dirs::state()?.join(HOME).join(name))
+}
+
+fn shard_file(name: &str) -> Option<String> {
+    let directory = dirs::state()?.join(HOME).join(SHARDS);
 
     fs::create_dir_all(&directory).ok()?;
 
-    Some(format!("{}/{}", SEAMS, name))
+    Some(format!("{}/{}/{}", HOME, SHARDS, name))
 }
 
-fn read_seam<T: DeserializeOwned + Default>(name: &str) -> T {
-    seam_file(name).and_then(|held| json::load_state(&held)).unwrap_or_default()
+fn read_shard<T: DeserializeOwned + Default>(name: &str) -> T {
+    shard_file(name).and_then(|held| json::load_state(&held)).unwrap_or_default()
 }
 
-fn write_seam<T: Serialize>(name: &str, data: &T) {
-    let Some(held) = seam_file(name) else {
+fn write_shard<T: Serialize>(name: &str, data: &T) {
+    let Some(held) = shard_file(name) else {
         return;
     };
 
@@ -262,14 +284,14 @@ fn write_seam<T: Serialize>(name: &str, data: &T) {
 }
 
 fn stored_census() -> Census {
-    read_seam(CENSUS)
+    read_shard(CENSUS)
 }
 
 fn stored_rows() -> Tables {
     let mut all = Tables::new();
 
-    for held in SEAM_ORDER {
-        all.extend(read_seam::<Tables>(held.file()));
+    for held in SHARD_ORDER {
+        all.extend(read_shard::<Tables>(held.file()));
     }
 
     all
@@ -284,36 +306,44 @@ fn rebase(found: &[(String, PathBuf)], mut taken: Census) {
 
     taken.extend(strays);
 
-    write_seam(CENSUS, &taken);
+    write_shard(CENSUS, &taken);
 
-    for held in SEAM_ORDER {
-        write_seam(held.file(), &tables(found, held));
+    for held in SHARD_ORDER {
+        write_shard(held.file(), &tables(found, held));
     }
-}
 
-pub(crate) fn enroll(taken: Census) {
-    rebase(&walk(Path::new(architecture::GAME)), taken);
+    save_snapshot(stored_snapshot());
 }
 
 pub fn arrivals() -> (Vec<u32>, Vec<u32>) {
-    let bedrock = stored_bedrock();
+    let snapshot = stored_snapshot();
 
-    (bedrock.promoted, bedrock.surfaced)
+    (snapshot.promoted, snapshot.surfaced)
 }
 
 pub fn discard() {
-    drop_state(ORE);
+    drop_state(DIFF);
+}
 
-    let mut bedrock = stored_bedrock();
+pub fn forget() {
+    if let Some(directory) = spot(SHARDS) {
+        let _ = fs::remove_dir_all(directory);
+    }
 
-    bedrock.promoted.clear();
-    bedrock.surfaced.clear();
+    let mut snapshot = stored_snapshot();
 
-    save_bedrock(&bedrock);
+    snapshot.listed.clear();
+    snapshot.sighted.clear();
+
+    save_snapshot(snapshot);
+}
+
+pub fn snapped_at() -> Option<SystemTime> {
+    fs::metadata(spot(SHARDS)?.join(CENSUS)).ok()?.modified().ok()
 }
 
 pub fn stamp() -> Option<u64> {
-    let data = fs::metadata(dirs::state()?.join(ORE)).ok()?;
+    let data = fs::metadata(spot(DIFF)?).ok()?;
     let mut hasher = FxHasher::default();
 
     data.len().hash(&mut hasher);
@@ -322,27 +352,39 @@ pub fn stamp() -> Option<u64> {
     Some(hasher.finish())
 }
 
-pub fn has_bedrock() -> bool {
-    dirs::state()
-        .and_then(|directory| fs::metadata(directory.join(SEAMS).join(CENSUS)).ok())
-        .is_some_and(|data| data.len() > EMPTY_MAP)
+pub fn has_snapshot() -> bool {
+    let laid = spot(SHARDS)
+        .and_then(|directory| fs::metadata(directory.join(CENSUS)).ok())
+        .is_some_and(|data| data.len() > EMPTY_MAP);
+
+    laid && stored_snapshot().schema == SNAPSHOT_SCHEMA
 }
 
 pub fn capturable() -> bool {
     architecture::game_present()
 }
 
-pub fn capture() -> usize {
+pub fn capture(listed: Vec<u32>, sighted: Vec<u32>) -> bool {
     let found = walk(Path::new(architecture::GAME));
     let taken = census(&found);
-    let seen = taken.len();
+
+    if taken == stored_census() {
+        return false;
+    }
 
     rebase(&found, taken);
 
-    seen
+    let mut snapshot = stored_snapshot();
+
+    snapshot.listed = listed;
+    snapshot.sighted = sighted;
+
+    save_snapshot(snapshot);
+
+    true
 }
 
-pub fn craft() -> bool {
+pub fn craft(listed: &[u32], sighted: &[u32]) -> bool {
     let held = stored_census();
     let rows = stored_rows();
     let found = walk(Path::new(architecture::GAME));
@@ -357,32 +399,48 @@ pub fn craft() -> bool {
 
     let mut files = Vec::new();
 
-    for (name, path) in found.iter().filter(|(name, _)| seam(name).is_some()) {
-        let Some(before) = rows.get(name) else {
-            continue;
-        };
-
+    for (name, path) in found.iter().filter(|(name, _)| shard(name).is_some()) {
         let Ok(after) = fs::read(path) else {
             continue;
         };
 
-        files.extend(delta(name, "", "", Some(before.as_bytes()), &after));
+        files.extend(delta(name, "", "", rows.get(name).map(String::as_bytes), &after));
     }
 
-    let recorded = commit(files, touched, Vec::new());
+    let struck = commit(files, touched, Vec::new());
 
-    rebase(&found, taken);
+    if struck {
+        mark(listed, sighted);
+    }
 
-    recorded
+    struck
+}
+
+fn mark(listed: &[u32], sighted: &[u32]) {
+    let mut snapshot = stored_snapshot();
+
+    if !snapshot.listed.is_empty() && !listed.is_empty() {
+        snapshot.promoted = gained(&snapshot.listed, listed);
+        snapshot.roster = listed.to_vec();
+    }
+
+    if !snapshot.sighted.is_empty() && !sighted.is_empty() {
+        snapshot.surfaced = gained(&snapshot.sighted, sighted);
+        snapshot.bestiary = sighted.to_vec();
+    }
+
+    save_snapshot(snapshot);
+}
+
+fn gained(before: &[u32], now: &[u32]) -> Vec<u32> {
+    let held: HashSet<u32> = before.iter().copied().collect();
+
+    now.iter().filter(|id| !held.contains(id)).copied().collect()
 }
 
 pub fn clear() {
-    for name in [ORE, BEDROCK] {
-        drop_state(name);
-    }
-
     if let Some(directory) = dirs::state() {
-        let _ = fs::remove_dir_all(directory.join(SEAMS));
+        let _ = fs::remove_dir_all(directory.join(HOME));
     }
 }
 
@@ -391,7 +449,7 @@ fn drop_state(name: &str) {
         return;
     };
 
-    let path = directory.join(name);
+    let path = directory.join(under(name));
 
     if path.exists()
         && let Err(err) = fs::remove_file(&path)
@@ -400,38 +458,54 @@ fn drop_state(name: &str) {
     }
 }
 
-fn stored_bedrock() -> Bedrock {
-    json::load_state::<Bedrock>(BEDROCK).unwrap_or_default()
+fn stored_snapshot() -> Snapshot {
+    json::load_state::<Snapshot>(&under(SNAPSHOT)).unwrap_or_default()
 }
 
-fn save_bedrock(bedrock: &Bedrock) {
-    if let Err(err) = json::save_state(BEDROCK, bedrock) {
-        warn!("Failed to save {}: {}", BEDROCK, err);
+fn save_snapshot(mut snapshot: Snapshot) {
+    snapshot.schema = SNAPSHOT_SCHEMA;
+
+    let Some(held) = kept(SNAPSHOT) else {
+        return;
+    };
+
+    if let Err(err) = json::save_state(&held, &snapshot) {
+        warn!("Failed to save {}: {}", SNAPSHOT, err);
     }
 }
 
 fn builds() -> Vec<Build> {
-    stored_bedrock().builds
+    stored_snapshot().builds
 }
 
 fn set_builds(after: &[Build]) {
-    let mut bedrock = stored_bedrock();
-    bedrock.builds = after.to_vec();
+    let mut snapshot = stored_snapshot();
 
-    save_bedrock(&bedrock);
+    absorb(&mut snapshot.builds, after);
+
+    save_snapshot(snapshot);
+}
+
+fn absorb(held: &mut Vec<Build>, after: &[Build]) {
+    for build in after {
+        match held.iter_mut().find(|kept| kept.label == build.label) {
+            Some(kept) => kept.clone_from(build),
+            None => held.push(build.clone()),
+        }
+    }
 }
 
 pub fn reconcile(listable: &[u32]) -> Vec<u32> {
-    settle(listable, |bedrock| (&mut bedrock.roster, &mut bedrock.promoted))
+    settle(listable, |snapshot| (&mut snapshot.roster, &mut snapshot.promoted))
 }
 
 pub fn reconcile_foes(listable: &[u32]) -> Vec<u32> {
-    settle(listable, |bedrock| (&mut bedrock.bestiary, &mut bedrock.surfaced))
+    settle(listable, |snapshot| (&mut snapshot.bestiary, &mut snapshot.surfaced))
 }
 
-fn settle(listable: &[u32], pick: impl Fn(&mut Bedrock) -> (&mut Vec<u32>, &mut Vec<u32>)) -> Vec<u32> {
-    let mut bedrock = stored_bedrock();
-    let (roster, promoted) = pick(&mut bedrock);
+fn settle(listable: &[u32], pick: impl Fn(&mut Snapshot) -> (&mut Vec<u32>, &mut Vec<u32>)) -> Vec<u32> {
+    let mut snapshot = stored_snapshot();
+    let (roster, promoted) = pick(&mut snapshot);
 
     if listable.is_empty() || listable == roster.as_slice() {
         return promoted.clone();
@@ -448,7 +522,7 @@ fn settle(listable: &[u32], pick: impl Fn(&mut Bedrock) -> (&mut Vec<u32>, &mut 
     *roster = listable.to_vec();
     promoted.clone_from(&arrivals);
 
-    save_bedrock(&bedrock);
+    save_snapshot(snapshot);
 
     arrivals
 }
@@ -465,12 +539,23 @@ pub(crate) fn commit(files: Vec<FileDelta>, touched: Vec<FileTouch>, after: Vec<
     }
 
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    let ore = Ore { schema: SCHEMA, stamp, before, after, files, touched };
+    let diff = Diff { schema: SCHEMA, stamp, before, after, files, touched };
 
-    if let Err(err) = json::save_state(ORE, &ore) {
-        warn!("Failed to save {}: {}", ORE, err);
+    let Some(held) = kept(DIFF) else {
+        return false;
+    };
+
+    if let Err(err) = json::save_state(&held, &diff) {
+        warn!("Failed to save {}: {}", DIFF, err);
         return false;
     }
+
+    let mut snapshot = stored_snapshot();
+
+    snapshot.promoted.clear();
+    snapshot.surfaced.clear();
+
+    save_snapshot(snapshot);
 
     true
 }
@@ -571,6 +656,26 @@ mod tests {
 
     const OLD: &[u8] = b"1,0,10,5,100,200,0,0,0,0,0,0,1,1,0\n2,0,11,5,50,60,0,0,0,0,0,0,2,2,0\n";
 
+    fn build(label: &str, code: u32) -> Build {
+        Build { code, name: format!("v{}", code), label: label.to_string() }
+    }
+
+    // Each import only reports the regions it pulled, so replacing the stored list
+    // dropped every other region's version table off the Information panel.
+    #[test]
+    fn a_region_import_keeps_the_other_regions_versions() {
+        let mut held = vec![build("jp.co.ponos.battlecatsen", 1)];
+
+        absorb(&mut held, &[build("jp.co.ponos.battlecats", 2)]);
+
+        assert_eq!(held.len(), 2, "a japanese import must not evict the english build");
+
+        absorb(&mut held, &[build("jp.co.ponos.battlecatsen", 3)]);
+
+        assert_eq!(held.len(), 2, "re-importing a region replaces it in place");
+        assert_eq!(held.first().map(|found| found.code), Some(3));
+    }
+
     // unitbuy.csv is positional: its first column is rarity, so column keying would
     // collide thousands of rows onto a handful of keys.
     // Every per-unit stats table is mineable, and each of its lines is one form.
@@ -578,14 +683,42 @@ mod tests {
     // moment its art lands, which is a new unit rather than a changed one.
     #[test]
     fn a_first_roster_is_a_baseline_rather_than_a_wall_of_promotions() {
-        let mut bedrock = Bedrock::default();
-        assert!(bedrock.roster.is_empty());
+        let mut snapshot = Snapshot::default();
+        assert!(snapshot.roster.is_empty());
 
-        bedrock.roster = vec![1, 2, 3];
-        let held: HashSet<u32> = bedrock.roster.iter().copied().collect();
+        snapshot.roster = vec![1, 2, 3];
+        let held: HashSet<u32> = snapshot.roster.iter().copied().collect();
         let promoted: Vec<u32> = [1, 2, 3, 4].iter().filter(|id| !held.contains(id)).copied().collect();
 
         assert_eq!(promoted, vec![4]);
+    }
+
+    // Every table the snapshot remembers has to route to a shard, or Diff Snapshot quietly
+    // covers less than an import does.
+    #[test]
+    fn every_remembered_table_routes_to_a_shard() {
+        let cat = [cat_files::UNIT_BUY, cat_files::SKILL_ACQUISITION, "unit440.csv", "Unit_Explanation441_ko.csv"];
+        let foe = [enemy_files::STATS, "Enemyname_en.tsv", "EnemyPictureBook.csv"];
+        let land = [stages::MAP_OPTION, "Map_Name_en.csv", "MapStageDataN_003.csv", "stageRN000_01.csv"];
+
+        for name in cat {
+            assert!(matches!(shard(name), Some(Shard::Cat)), "{name} should be a cat shard");
+        }
+
+        for name in foe {
+            assert!(matches!(shard(name), Some(Shard::Enemy)), "{name} should be an enemy shard");
+        }
+
+        for name in land {
+            assert!(matches!(shard(name), Some(Shard::Stage)), "{name} should be a stage shard");
+        }
+
+        // Everything a shard remembers must also be diffable, or craft() reads it and drops it.
+        for name in cat.iter().chain(foe.iter()).chain(land.iter()) {
+            assert!(mineable(name), "{name} is remembered but not mineable");
+        }
+
+        assert!(shard("unitlevel.csv").is_none(), "a table nothing diffs is not worth remembering");
     }
 
     #[test]

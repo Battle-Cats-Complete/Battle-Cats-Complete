@@ -85,7 +85,7 @@ fn measured(unit: AttrUnit, amount: i32) -> String {
     }
 }
 
-const LOWER_IS_BETTER: &[&str] = &["Atk Cycle", "Cost", "Cooldown", "TBA"];
+const LOWER_IS_BETTER: &[&str] = &["Atk Cycle", "Cost", "Cooldown", "Attack Cooldown"];
 
 fn stat_text(name: &'static str, formatter: fn(i32) -> String, value: i32) -> String {
     if RAW_FRAMES.contains(&name) {
@@ -104,7 +104,6 @@ const ABSENT: &str = "None";
 fn stat_label(name: &'static str, display: &'static str) -> &'static str {
     match name {
         "Atk Cycle" => "Attack Cycle",
-        "TBA" => "Attack Cooldown",
         "Cooldown" => "Deploy Cooldown",
         _ => display,
     }
@@ -143,7 +142,7 @@ pub fn read(delta: &FileDelta) -> Vec<Unlocked> {
         }
     }
 
-    found.sort_by_key(|unlocked| (unlocked.form, unlocked.cat_id));
+    found.sort_by_key(|unlocked| (unlocked.cat_id, unlocked.form));
 
     found
 }
@@ -717,8 +716,8 @@ mod tests {
     #[test]
     fn the_two_timing_stats_are_spelled_out() {
         assert_eq!(stat_label("Atk Cycle", "Atk Cycle"), "Attack Cycle");
-        assert_eq!(stat_label("TBA", "TBA"), "Attack Cooldown");
         assert_eq!(stat_label("Cooldown", "Cooldown"), "Deploy Cooldown");
+        assert_eq!(stat_label("Attack Cooldown", "Attack Cooldown"), "Attack Cooldown", "the registry spells this one out itself");
         assert_eq!(stat_label("Range", "Range"), "Range");
     }
 

@@ -184,7 +184,7 @@ fn sort_raw_folder(
         })
         .collect();
 
-    let mut ore = Vec::new();
+    let mut found = Vec::new();
     let mut touched = Vec::new();
 
     for (filename_key, placement, sample) in updated_placements {
@@ -195,15 +195,14 @@ fn sort_raw_folder(
         }
 
         ledger.place(filename_key, placement);
-        ore.extend(sample);
+        found.extend(sample);
     }
 
-    if mining::commit(ore, touched, Vec::new()) {
+    if mining::commit(found, touched, Vec::new()) {
         emit(JobEvent::Log("Changes in previous database content detected.".to_string()));
         emit(JobEvent::Log("Open the Mining page to read what changed.".to_string()));
     }
 
-    mining::enroll(ledger.census());
     ledger.save();
 
     emit(JobEvent::Log("Raw files successfully structured.".to_string()));

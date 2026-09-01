@@ -1,5 +1,6 @@
 mod addons;
 mod disk;
+mod snapshot;
 mod exceptions;
 pub(crate) mod general;
 mod keys;
@@ -42,6 +43,7 @@ pub enum Tab {
     Mods,
     Files,
     Import,
+    Mining,
     Utilities,
     Animation,
     AddOns,
@@ -69,6 +71,7 @@ pub enum Message {
     OpenKeysPopup,
     Exceptions(exceptions::Message),
     Disk(disk::Message),
+    Snapshot(snapshot::Message),
     Pem(pem::Message),
     Addons(addons::Message),
     ToggleDebugView(bool),
@@ -96,6 +99,7 @@ pub struct State {
     pem: pem::State,
     addons: addons::State,
     disk: disk::State,
+    snapshot: snapshot::State,
 }
 
 impl Default for State {
@@ -112,6 +116,7 @@ impl Default for State {
             pem: pem::State::default(),
             addons: addons::State::default(),
             disk: disk::State::default(),
+            snapshot: snapshot::State::default(),
         }
     }
 }
@@ -130,6 +135,9 @@ impl State {
                     }
                     Tab::Cats => self.default_cat_level_buffer = core_settings.cat_data.default_level.to_string(),
                     Tab::Files => return self.disk.update(disk::Message::Refresh).map(Message::Disk),
+                    Tab::Mining => {
+                        return self.snapshot.update(snapshot::Message::Refresh).map(Message::Snapshot);
+                    }
                     Tab::Animation => {
                         self.showcase_walk_buffer = core_settings.animation.default_showcase_walk.to_string();
                         self.showcase_idle_buffer = core_settings.animation.default_showcase_idle.to_string();
@@ -207,6 +215,7 @@ impl State {
             Message::OpenKeysPopup => self.keys.update(keys::Message::Open).map(Message::Keys),
             Message::Exceptions(msg) => self.exceptions.update(msg).map(Message::Exceptions),
             Message::Disk(msg) => self.disk.update(msg).map(Message::Disk),
+            Message::Snapshot(msg) => self.snapshot.update(msg).map(Message::Snapshot),
 
             Message::Addons(msg) => self.addons.update(msg).map(Message::Addons),
 
@@ -325,6 +334,7 @@ impl State {
             (Tab::Mods, "Mods"),
             (Tab::Files, "Files"),
             (Tab::Import, "Import"),
+            (Tab::Mining, "Mining"),
             (Tab::Utilities, "Utilities"),
             (Tab::Animation, "Animation"),
             (Tab::AddOns, "Add-Ons"),
@@ -360,6 +370,7 @@ impl State {
             Tab::Mods => self.view_mods(core_settings),
             Tab::Files => self.view_files(core_settings),
             Tab::Import => self.view_import(core_settings),
+            Tab::Mining => self.view_mining(),
             Tab::Utilities => self.view_utilities(core_settings),
             Tab::Animation => self.view_animation(core_settings),
             Tab::AddOns => self.addons.view().map(Message::Addons),
@@ -515,6 +526,10 @@ impl State {
         ].spacing(10);
 
         header_section(text("Management").size(24), management_content)
+    }
+
+    fn view_mining(&self) -> Element<'_, Message> {
+        header_section(text("Snapshot").size(24), self.snapshot.view().map(Message::Snapshot))
     }
 
     fn view_files<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {

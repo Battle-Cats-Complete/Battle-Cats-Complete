@@ -127,10 +127,6 @@ impl Ledger {
         !self.files.is_empty()
     }
 
-    pub(crate) fn census(&self) -> HashMap<String, u64> {
-        self.files.iter().map(|(filename, placement)| (filename.to_string(), placement.record.checksum)).collect()
-    }
-
     pub(crate) fn placement(&self, filename: &str) -> Option<&Placement> {
         self.files.get(filename)
     }

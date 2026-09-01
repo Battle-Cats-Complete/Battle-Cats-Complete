@@ -962,7 +962,7 @@ pub(super) fn plan(
 mod tests {
     use std::path::Path;
 
-    use kore::common::preview::Stamp;
+    use kore::common::preview::{self, Stamp};
     use kore::domains::settings::EditorMode;
     use kore::Vfs;
 
@@ -1328,7 +1328,11 @@ mod tests {
         let draft = state.draft.as_mut().expect("a write can only complete on a live draft");
         let (path, body, stamp, token) = draft.prepare_write(vfs).expect("destination must resolve in these fixtures");
 
-        let result = write_now(&path, &body, stamp);
+        // Dropping the returned `Task` cancels the real write, but `blocking::unblock` may have
+        // already run it on the pool. Either way the file ends up holding this body.
+        let result = write_now(&path, &body, stamp)
+            .or_else(|| preview::stamp(&path).and_then(|fresh| write_now(&path, &body, fresh)));
+
         let _ = state.update(Message::Persisted(token, path, result), vfs);
     }
 

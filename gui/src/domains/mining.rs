@@ -1,11 +1,13 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::slice;
 use std::fmt;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use iced::advanced::graphics::text::Paragraph;
 use iced::advanced::text::{Alignment as TextAlignment, Paragraph as _, Text as Shaped};
@@ -27,7 +29,8 @@ use kore::domains::cat::scanner::{self as cat_scanner, CatEntry};
 use kore::domains::enemy::scanner::{self as enemy_scanner, EnemyEntry};
 use kore::domains::stage::{GlobalMapId, GlobalStageId, StageRegistry};
 use nyanko::chapter::Category;
-use kore::domains::mining::{self, changes, enemies, forms, levels, localized, stages, talents, units, Build, Ore, Status};
+use kore::domains::import;
+use kore::domains::mining::{self, changes, enemies, forms, levels, localized, stages, talents, units, Build, Diff, Status};
 
 use kore::domains::settings::{ScannerConfig, Settings};
 use kore::systems::combat::registry::{get_display_def, is_trait, AbilityIcon, STAT_RARITY};
@@ -109,10 +112,13 @@ const SECTION_TITLE_SIZE: f32 = 18.0;
 const FOLD_TITLE_SIZE: f32 = 24.0;
 const FOLD_NOTE_SIZE: f32 = 13.0;
 const FOLD_LIMIT: usize = 200;
+const DEPLOY_COOLDOWN: (&str, &str) = ("Cooldown", "Deploy Cooldown");
 const TALLY_LABEL_WIDTH: f32 = 150.0;
 const TALLY_VALUE_WIDTH: f32 = 60.0;
 const TALLY_PADDING: f32 = 8.0;
 const TALLY_TABLE_WIDTH: f32 = TALLY_LABEL_WIDTH + TALLY_PADDING * 2.0 + TALLY_VALUE_WIDTH;
+const STAMP_LABEL_WIDTH: f32 = 80.0;
+const STAMP_VALUE_WIDTH: f32 = TALLY_TABLE_WIDTH - STAMP_LABEL_WIDTH - TALLY_PADDING * 2.0;
 
 const REGIONS: &[(&str, &str)] = &[
     ("Global", "battlecatsen"),
@@ -122,8 +128,11 @@ const REGIONS: &[(&str, &str)] = &[
 ];
 const META_TEXT_SIZE: f32 = 14.0;
 const NOTICE_TEXT_SIZE: f32 = 15.0;
-const BARREN_LABEL: &str = "No Diff!";
-const STRUCK_LABEL: &str = "Created Diff!";
+const STRUCK_LABEL: &str = "Diff Created!";
+const BARREN_LABEL: &str = "No Diffs!";
+const RAISED_LABEL: &str = "Updated Snapshot!";
+const FOUNDED_LABEL: &str = "Created Snapshot!";
+const STILL_LABEL: &str = "No Updates!";
 const ACTION_PADDING: f32 = 16.0;
 const ACTION_CLEARANCE: f32 = 72.0;
 
@@ -160,8 +169,22 @@ const TABS: &[Tab] = &[Tab::Meta, Tab::Cats, Tab::Enemies, Tab::Stages, Tab::Fil
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Chore {
-    Bedrock,
+    Snapshot,
     Diff,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Seam {
+    Fresh,
+    Spoken,
+    Crowned,
+    Moved,
+}
+
+impl Seam {
+    fn tinted(self) -> bool {
+        self != Self::Moved
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -239,7 +262,7 @@ impl Shelves {
 
 }
 
-fn shelve(ore: &Ore, vfs: &Vfs) -> Shelves {
+fn shelve(ore: &Diff, vfs: &Vfs) -> Shelves {
     let mut shelves = Shelves::default();
 
     for held in &ore.touched {
@@ -405,9 +428,10 @@ impl fmt::Debug for Message {
 pub struct State {
     tab: Tab,
     offsets: HashMap<Tab, f32>,
-    ore: Option<Ore>,
+    diff: Option<Diff>,
     chore: Option<Chore>,
-    outcome: Slot<bool>,
+    outcome: Slot<(Chore, bool)>,
+    creating: bool,
     wipe: Slot<()>,
     files: Shelves,
     tiles: HashMap<PathBuf, Option<Handle>>,
@@ -426,13 +450,16 @@ pub struct State {
     foe_index: HashMap<u32, usize>,
     ready: Ready,
     terrain: Terrain,
-    based: bool,
-    minable: bool,
+    snapped: bool,
+    diggable: bool,
     folds: HashMap<(Tab, &'static str), bool>,
     tag: u64,
     lands: stages::Report,
     levels_raised: Vec<levels::Raised>,
     promoted: Vec<u32>,
+    debuts: HashSet<u32>,
+    listed: Vec<u32>,
+    spotted: Vec<u32>,
     levels: HashMap<u32, String>,
     img015_sheets: Vec<SpriteSheet>,
     sheet_generation: u64,
@@ -448,9 +475,10 @@ impl Default for State {
         Self {
             tab: Tab::Meta,
             offsets: HashMap::new(),
-            ore: None,
+            diff: None,
             chore: None,
             outcome: Slot::default(),
+            creating: false,
             wipe: Slot::default(),
             files: Shelves::default(),
             tiles: HashMap::new(),
@@ -469,13 +497,16 @@ impl Default for State {
             foe_index: HashMap::new(),
             ready: Ready::default(),
             terrain: Terrain::default(),
-            based: false,
-            minable: false,
+            snapped: false,
+            diggable: false,
             folds: HashMap::new(),
             tag: 0,
             lands: stages::Report::default(),
             levels_raised: Vec::new(),
             promoted: Vec::new(),
+            debuts: HashSet::new(),
+            listed: Vec::new(),
+            spotted: Vec::new(),
             levels: HashMap::new(),
             img015_sheets: Vec::new(),
             sheet_generation: 0,
@@ -489,6 +520,20 @@ impl Default for State {
 }
 
 impl State {
+    pub(crate) fn refresh(&mut self, scope: Scope<'_>, window: Size) -> Task<Message> {
+        let vfs = &scope.global.vault.vfs;
+
+        if self.current_tag(scope) == self.tag {
+            self.restock(scope);
+
+            return Task::none();
+        }
+
+        self.reread(scope.cats, scope.foes, scope.registry, scope.global, scope.settings);
+
+        Task::batch([self.check_sheets(vfs), self.ensure_tiles(window)])
+    }
+
     pub(crate) fn reload(&mut self, scope: Scope<'_>, window: Size) -> Task<Message> {
         let vfs = &scope.global.vault.vfs;
 
@@ -509,6 +554,10 @@ impl State {
 
         self.promoted = mining::reconcile(&listable);
 
+        if !listable.is_empty() {
+            self.listed = listable;
+        }
+
         let sighted: Vec<u32> = foes
             .iter()
             .filter(|entry| enemy_scanner::listable(vfs, entry.id, &strict))
@@ -516,6 +565,10 @@ impl State {
             .collect();
 
         self.surfaced = mining::reconcile_foes(&sighted);
+
+        if !sighted.is_empty() {
+            self.spotted = sighted;
+        }
     }
 
     fn reread(
@@ -528,48 +581,56 @@ impl State {
     ) {
         let vfs = &global.vault.vfs;
 
-        self.ore = mining::load();
-        self.files = self.ore.as_ref().map_or_else(Shelves::default, |ore| shelve(ore, vfs));
+        self.diff = mining::load();
+        self.files = self.diff.as_ref().map_or_else(Shelves::default, |held| shelve(held, vfs));
         self.tiles.clear();
         self.folds.clear();
         self.report = self
-            .ore
+            .diff
             .as_ref()
-            .and_then(|ore| ore.file(cat_files::SKILL_ACQUISITION))
+            .and_then(|held| held.file(cat_files::SKILL_ACQUISITION))
             .map(talents::read);
 
         self.units = self
-            .ore
+            .diff
             .as_ref()
-            .and_then(|ore| ore.file(cat_files::UNIT_BUY))
+            .and_then(|held| held.file(cat_files::UNIT_BUY))
             .map(units::read);
 
+        self.debuts = self.diff.as_ref().map_or_else(HashSet::new, |held| {
+            held.files
+                .iter()
+                .filter(|delta| delta.status == Status::Baseline)
+                .filter_map(|delta| cat_files::stats_id(&delta.file))
+                .collect()
+        });
+
         self.forms = self
-            .ore
+            .diff
             .as_ref()
-            .and_then(|ore| ore.file(cat_files::UNIT_BUY))
+            .and_then(|held| held.file(cat_files::UNIT_BUY))
             .map_or_else(Vec::new, forms::read);
 
         self.changes = self
-            .ore
+            .diff
             .as_ref()
-            .map_or_else(Vec::new, |ore| ore.files.iter().flat_map(changes::read).collect());
+            .map_or_else(Vec::new, |held| held.files.iter().flat_map(changes::read).collect());
 
         self.foes = self
-            .ore
+            .diff
             .as_ref()
-            .map_or_else(Vec::new, |ore| ore.files.iter().flat_map(enemies::read).collect());
+            .map_or_else(Vec::new, |held| held.files.iter().flat_map(enemies::read).collect());
 
         self.fresh_foes = self
-            .ore
+            .diff
             .as_ref()
-            .map_or_else(Vec::new, |ore| ore.files.iter().flat_map(enemies::fresh).collect());
+            .map_or_else(Vec::new, |held| held.files.iter().flat_map(enemies::fresh).collect());
 
-        self.spoken_cats = self.ore.as_ref().map_or_else(Vec::new, |ore| localized::cats(ore, vfs));
-        self.spoken_foes = self.ore.as_ref().map_or_else(Vec::new, |ore| localized::enemies(ore, vfs));
-        self.spoken_lands = self.ore.as_ref().map_or_else(Vec::new, |ore| localized::stages(ore, vfs));
+        self.spoken_cats = self.diff.as_ref().map_or_else(Vec::new, |held| localized::cats(held, vfs));
+        self.spoken_foes = self.diff.as_ref().map_or_else(Vec::new, |held| localized::enemies(held, vfs));
+        self.spoken_lands = self.diff.as_ref().map_or_else(Vec::new, |held| localized::stages(held, vfs));
 
-        self.lands = self.ore.as_ref().map_or_else(stages::Report::default, |ore| {
+        self.lands = self.diff.as_ref().map_or_else(stages::Report::default, |ore| {
             ore.files.iter().map(stages::read).fold(stages::Report::default(), |mut all, part| {
                 all.fresh_maps.extend(part.fresh_maps);
                 all.fresh_stages.extend(part.fresh_stages);
@@ -581,9 +642,9 @@ impl State {
         });
 
         self.levels_raised = self
-            .ore
+            .diff
             .as_ref()
-            .and_then(|ore| ore.file(cat_files::UNIT_BUY))
+            .and_then(|held| held.file(cat_files::UNIT_BUY))
             .map_or_else(Vec::new, levels::read);
 
         let scope = Scope { cats, foes, registry, global, settings };
@@ -597,6 +658,7 @@ impl State {
         let mut hasher = FxHasher::default();
 
         mining::stamp().hash(&mut hasher);
+        mining::snapped_at().hash(&mut hasher);
         scope.global.vault.vfs.fingerprint().hash(&mut hasher);
         scope.cats.len().hash(&mut hasher);
         scope.foes.len().hash(&mut hasher);
@@ -609,15 +671,15 @@ impl State {
     }
 
     pub(crate) fn restock(&mut self, scope: Scope<'_>) {
-        (self.promoted, self.surfaced) = mining::arrivals();
+        self.reconcile(scope.cats, scope.foes, &scope.global.vault.vfs, scope.settings);
 
         self.index = scope.cats.iter().enumerate().map(|(slot, entry)| (entry.id, slot)).collect();
         self.foe_index = scope.foes.iter().enumerate().map(|(slot, entry)| (entry.id, slot)).collect();
 
         self.ready = self.derive(scope.cats, scope.foes, scope.global, scope.settings);
         self.terrain = self.survey(scope.registry, &scope.global.vault.vfs);
-        self.based = mining::has_bedrock();
-        self.minable = mining::capturable();
+        self.snapped = mining::has_snapshot();
+        self.diggable = mining::capturable();
 
         if !self.enabled(self.tab) {
             self.tab = Tab::Meta;
@@ -648,18 +710,27 @@ impl State {
             .map(|entry| entry.id)
             .collect();
 
+        let sighted: HashSet<u32> = foes
+            .iter()
+            .filter(|entry| enemy_scanner::listable(vfs, entry.id, &strict))
+            .map(|entry| entry.id)
+            .collect();
+
         let spirits = conjured(cats);
         let mut seen: HashSet<u32> = HashSet::new();
 
         let units = self.units.as_ref().map_or(&[][..], |units| units.fresh.as_slice());
 
-        let fresh: Vec<u32> = units
+        let mut fresh: Vec<u32> = units
             .iter()
-            .chain(self.promoted.iter())
+            .chain(self.risen(&self.promoted))
+            .chain(self.debuts.iter())
             .filter(|id| !spirits.contains(*id) && seen.insert(**id))
             .filter(|id| listable.contains(id))
             .copied()
             .collect();
+
+        fresh.sort_unstable();
 
         let spoken: Vec<usize> = self
             .spoken_cats
@@ -710,7 +781,6 @@ impl State {
 
         if let Some(report) = self.report.as_ref().filter(|report| report.status == Status::Changed) {
             talents = (0..report.finds.len()).collect();
-            talents.sort_by_key(|slot| report.finds.get(*slot).map(talent_rank));
         }
 
         let raised: Vec<usize> = self
@@ -721,13 +791,15 @@ impl State {
             .map(|(slot, _)| slot)
             .collect();
 
-        let foes_new = self.arrivals();
+        let mut foes_new: Vec<u32> = self.arrivals().into_iter().filter(|id| sighted.contains(id)).collect();
+
+        foes_new.sort_unstable();
 
         let foes_changed: Vec<(usize, forms::Diff)> = self
             .foes
             .iter()
             .enumerate()
-            .filter(|(_, foe)| !self.surged(foe.enemy_id))
+            .filter(|(_, foe)| !self.surged(foe.enemy_id) && sighted.contains(&foe.enemy_id))
             .map(|(slot, foe)| {
                 let frames = self.foe(foes, foe.enemy_id).map_or((0, 0), |held| (held.atk_anim_frames, held.atk_anim_frames));
 
@@ -748,7 +820,7 @@ impl State {
             .spoken_foes
             .iter()
             .enumerate()
-            .filter(|(_, held)| !self.surged(held.id))
+            .filter(|(_, held)| !self.surged(held.id) && sighted.contains(&held.id))
             .map(|(slot, _)| slot)
             .collect();
 
@@ -875,12 +947,8 @@ impl State {
         }
     }
 
-    pub(crate) fn enter(&mut self, scope: Scope<'_>, settled: bool, window: Size) -> Task<Message> {
+    pub(crate) fn enter(&mut self, scope: Scope<'_>, window: Size) -> Task<Message> {
         let vfs = &scope.global.vault.vfs;
-
-        if settled {
-            self.reconcile(scope.cats, scope.foes, vfs, scope.settings);
-        }
 
         if self.current_tag(scope) != self.tag {
             self.reread(scope.cats, scope.foes, scope.registry, scope.global, scope.settings);
@@ -925,13 +993,16 @@ impl State {
         }
 
         self.chore = Some(chore);
+        self.creating = !self.snapped;
 
         let (tx, rx) = unbounded();
+        let listed = self.listed.clone();
+        let spotted = self.spotted.clone();
 
         thread::spawn(move || {
             let recorded = match chore {
-                Chore::Bedrock => mining::capture() > 0,
-                Chore::Diff => mining::craft(),
+                Chore::Snapshot => mining::capture(listed, spotted),
+                Chore::Diff => mining::craft(&listed, &spotted),
             };
 
             let _ = tx.unbounded_send(Message::Mined(recorded));
@@ -943,17 +1014,9 @@ impl State {
     pub(crate) fn settle(&mut self, scope: Scope<'_>, recorded: bool, window: Size) -> Task<Message> {
         let chore = self.chore.take();
 
-        if chore == Some(Chore::Diff) {
-            self.reconcile(scope.cats, scope.foes, &scope.global.vault.vfs, scope.settings);
-        }
-
         self.reread(scope.cats, scope.foes, scope.registry, scope.global, scope.settings);
 
-        let rested = if chore == Some(Chore::Diff) {
-            self.outcome.set(recorded, Message::Rested)
-        } else {
-            Task::none()
-        };
+        let rested = chore.map_or_else(Task::none, |held| self.outcome.set((held, recorded), Message::Rested));
 
         Task::batch([rested, self.ensure_tiles(window)])
     }
@@ -1258,11 +1321,17 @@ impl State {
     fn arrivals(&self) -> Vec<u32> {
         let mut seen: HashSet<u32> = HashSet::new();
 
-        self.fresh_foes.iter().chain(self.surfaced.iter()).filter(|id| seen.insert(**id)).copied().collect()
+        self.fresh_foes.iter().chain(self.risen(&self.surfaced)).filter(|id| seen.insert(**id)).copied().collect()
+    }
+
+    fn risen<'a>(&self, arrivals: &'a [u32]) -> slice::Iter<'a, u32> {
+        if self.diff.is_some() { arrivals.iter() } else { [].iter() }
     }
 
     fn debuted(&self, cat_id: u32) -> bool {
-        self.arrived(cat_id) || self.units.as_ref().is_some_and(|units| units.fresh.contains(&cat_id))
+        self.arrived(cat_id)
+            || self.debuts.contains(&cat_id)
+            || self.units.as_ref().is_some_and(|units| units.fresh.contains(&cat_id))
     }
 
     pub fn view<'a>(
@@ -1333,25 +1402,23 @@ impl State {
         let room = window.height - PAGE_PADDING * 2.0;
         let width = window.width - SIDEBAR_WIDTH;
 
-        let Some(ore) = self.ore.as_ref().filter(|_| self.has_diff()) else {
-            let (headline, hint, action) = if self.based {
+        let Some(held) = self.diff.as_ref().filter(|_| self.has_diff()) else {
+            let (headline, hint, action) = if self.snapped {
                 (
-                    "Bedrock laid, but no diff to compare against it",
-                    "Import an update or click the \"Create Diff\" button below",
-                    ("Create Diff", Message::CreateDiff),
+                    "Nothing has changed since your snapshot",
+                    "Import an update, or click \"Diff Snapshot\" to check again",
+                    (Chore::Diff, "Diff Snapshot", Message::CreateDiff),
                 )
             } else {
                 (
-                    "No bedrock laid to reference a future diff",
-                    "Please import or click the \"Lay Bedrock\" button below",
-                    ("Lay Bedrock", Message::CreateBase),
+                    "No changes to report yet",
+                    "Import an update, or take a snapshot to track your own changes",
+                    (Chore::Snapshot, "Create Snapshot", Message::CreateBase),
                 )
             };
 
-            return self.view_empty(headline, hint, self.minable.then_some(action), room);
+            return self.view_empty(headline, hint, self.diggable.then_some(action), room);
         };
-
-        let captured = ore.age().map_or_else(|| "just now".to_string(), ago);
 
         let panes = 2;
 
@@ -1360,8 +1427,8 @@ impl State {
         let room = (usable - SECTION_SPACING * (columns - 1) as f32) / columns as f32;
 
         let known = column![
-            stamp_table(captured),
-            wrapped(version_tables(ore), room, TABLE_CELL_WIDTH, CARD_SPACING),
+            stamp_table(),
+            wrapped(version_tables(held), room, TABLE_CELL_WIDTH, CARD_SPACING),
         ]
         .spacing(CARD_SPACING)
         .align_x(Horizontal::Center)
@@ -1382,17 +1449,29 @@ impl State {
     }
 
     fn actionable(&self) -> bool {
-        self.based && self.minable && self.ore.is_some() && self.has_diff()
+        self.diff.is_some() && self.has_diff()
     }
 
     fn view_actions(&self) -> Element<'_, Message> {
         let wipe = if self.wipe.is_set() { CONFIRM_LABEL } else { "Clear Diff" };
 
-        let buttons = row![
-            self.view_action("Create Diff", Message::CreateDiff),
-            self.view_chore(wipe, theme::danger_button, Message::ClearDiff),
-        ]
-        .spacing(CELL_SPACING);
+        let mut buttons = Row::new().spacing(CELL_SPACING);
+
+        if self.diggable {
+            buttons = buttons.push(if self.snapped {
+                self.view_action(Chore::Snapshot, "Update Snapshot", Message::CreateBase)
+            } else {
+                self.view_action(Chore::Snapshot, "Create Snapshot", Message::CreateBase)
+            });
+
+            buttons = buttons.push(if self.snapped {
+                self.view_action(Chore::Diff, "Diff Snapshot", Message::CreateDiff)
+            } else {
+                self.view_inert("No Snapshot")
+            });
+        }
+
+        let buttons = buttons.push(self.view_chore(wipe, theme::danger_button, Message::ClearDiff));
 
         container(buttons)
             .width(Length::Fill)
@@ -1403,17 +1482,49 @@ impl State {
             .into()
     }
 
-    fn view_action<'a>(&'a self, label: &'a str, message: Message) -> Element<'a, Message> {
-        let (label, style): (&str, theme::ButtonStyleFn) =
-            match (self.chore, self.outcome.get().copied()) {
-                (Some(Chore::Bedrock), _) => ("Laying Bedrock...", theme::warning_button),
-                (Some(Chore::Diff), _) => ("Creating Diff...", theme::warning_button),
-                (None, Some(true)) => (STRUCK_LABEL, theme::success_button),
-                (None, Some(false)) => (BARREN_LABEL, theme::danger_button),
-                (None, None) => (label, theme::primary_button),
-            };
+    fn view_action<'a>(&'a self, chore: Chore, label: &'a str, message: Message) -> Element<'a, Message> {
+        let busy = self.chore == Some(chore);
+        let done = self.outcome.get().copied().filter(|(held, _)| *held == chore).map(|(_, kept)| kept);
+
+        let (label, style): (&str, theme::ButtonStyleFn) = match (busy, done) {
+            (true, _) => (self.busy_label(chore), theme::warning_button),
+            (false, Some(true)) => (self.struck_label(chore), theme::success_button),
+            (false, Some(false)) => (self.barren_label(chore), theme::danger_button),
+            (false, None) => (label, theme::primary_button),
+        };
 
         self.view_chore(label, style, message)
+    }
+
+    fn busy_label(&self, chore: Chore) -> &'static str {
+        match chore {
+            Chore::Snapshot if self.creating => "Creating Snapshot...",
+            Chore::Snapshot => "Updating Snapshot...",
+            Chore::Diff => "Diffing Snapshot...",
+        }
+    }
+
+    fn struck_label(&self, chore: Chore) -> &'static str {
+        match chore {
+            Chore::Snapshot if self.creating => FOUNDED_LABEL,
+            Chore::Snapshot => RAISED_LABEL,
+            Chore::Diff => STRUCK_LABEL,
+        }
+    }
+
+    fn barren_label(&self, chore: Chore) -> &'static str {
+        match chore {
+            Chore::Snapshot => STILL_LABEL,
+            Chore::Diff => BARREN_LABEL,
+        }
+    }
+
+    fn view_inert<'a>(&'a self, label: &'a str) -> Element<'a, Message> {
+        button(theme::centered_text(label).size(TAB_TEXT_SIZE))
+            .padding([6, 16])
+            .width(Length::Fixed(theme::ACTION_BUTTON_WIDTH))
+            .style(theme::neutral_button)
+            .into()
     }
 
     fn view_chore<'a>(&'a self, label: &'a str, style: theme::ButtonStyleFn, message: Message) -> Element<'a, Message> {
@@ -1429,16 +1540,16 @@ impl State {
         &'a self,
         headline: &'a str,
         hint: &'a str,
-        action: Option<(&'a str, Message)>,
+        action: Option<(Chore, &'a str, Message)>,
         room: f32,
     ) -> Element<'a, Message> {
         let mut body = Column::new().spacing(10).align_x(Horizontal::Center);
 
         body = body.push(plain(headline, EMPTY_TEXT_SIZE).align_x(Horizontal::Center));
 
-        if let Some((label, message)) = action {
+        if let Some((chore, label, message)) = action {
             body = body.push(plain(hint, EMPTY_TEXT_SIZE).align_x(Horizontal::Center));
-            body = body.push(self.view_action(label, message));
+            body = body.push(self.view_action(chore, label, message));
         }
 
         container(body).center_x(Length::Fill).center_y(Length::Fixed(room.max(PORTRAIT_SIZE))).into()
@@ -1928,11 +2039,11 @@ impl State {
             registry,
         };
 
-        for (title, grouped, fresh) in [
-            ("New", &self.terrain.fresh, true),
-            ("Localized", &self.terrain.spoken, true),
-            ("Crowns", &self.terrain.crowned, true),
-            ("Changed", &self.terrain.moved, false),
+        for (title, grouped, seam) in [
+            ("New", &self.terrain.fresh, Seam::Fresh),
+            ("Localized", &self.terrain.spoken, Seam::Spoken),
+            ("Crowns", &self.terrain.crowned, Seam::Crowned),
+            ("Changed", &self.terrain.moved, Seam::Moved),
         ] {
             if grouped.is_empty() {
                 continue;
@@ -1941,7 +2052,7 @@ impl State {
             body = body.push(self.view_fold(Tab::Stages, title, stage_count(grouped), Horizontal::Left, || {
                 let cards: Vec<Element<'a, Message>> = grouped
                     .iter()
-                    .map(|(category, maps)| self.view_land(category, maps, fresh, &lands))
+                    .map(|(category, maps)| self.view_land(category, maps, seam, &lands))
                     .collect();
 
                 uniform_grid(cards, CARD_SPACING).columns(cards_per_row(width, STAGE_MIN_WIDTH)).into()
@@ -1955,7 +2066,7 @@ impl State {
         &'a self,
         category: &'a Category,
         maps: &'a BTreeMap<u32, Vec<u32>>,
-        fresh: bool,
+        seam: Seam,
         lands: &Lands<'a, '_>,
     ) -> Element<'a, Message> {
         let heading = button(strong(category.display_name(), UNIT_NAME_SIZE))
@@ -1976,7 +2087,7 @@ impl State {
         let mut body = Column::new().spacing(CARD_SPACING).width(Length::Fill);
 
         for (map, listed) in maps {
-            body = body.push(self.view_subchapter(category, *map, listed, fresh, lands));
+            body = body.push(self.view_subchapter(category, *map, listed, seam, lands));
         }
 
         let card = column![crown, rule::horizontal(1), body].spacing(10).width(Length::Fill);
@@ -1989,7 +2100,7 @@ impl State {
         category: &Category,
         map: u32,
         listed: &[u32],
-        fresh: bool,
+        seam: Seam,
         lands: &Lands<'a, '_>,
     ) -> Element<'a, Message> {
         let key = GlobalMapId { category: category.clone(), map };
@@ -2015,17 +2126,22 @@ impl State {
 
         let mut crown = None;
 
-        if let Some((before, after)) = lands.moves.get(&key) {
+        if seam == Seam::Crowned
+            && let Some((before, after)) = lands.moves.get(&key)
+        {
             crest = crest.push(dark_box(crown_shift(*before, *after), Length::Shrink));
             crown = Some(after.saturating_sub(1));
         }
 
-        if let Some(languages) = lands.tongues.get(&key) {
+        if seam == Seam::Spoken
+            && let Some(languages) = lands.tongues.get(&key)
+        {
             crest = crest.push(dark_box(
-                strong(tongues(languages), VALUE_TEXT_SIZE).color(CHIP_TEXT),
+                theme::bold_text(tongues(languages)).size(VALUE_TEXT_SIZE).color(CHIP_TEXT),
                 Length::Shrink,
             ));
         }
+
 
         let chips: Vec<Element<'a, Message>> = listed
             .iter()
@@ -2036,7 +2152,7 @@ impl State {
             })
             .collect();
 
-        let tint = if fresh { ADDITION_TINT } else { NORMAL_TINT };
+        let tint = if seam.tinted() { ADDITION_TINT } else { NORMAL_TINT };
 
         let block = column![crest, ledger_rule(), uniform_grid(chips, ABILITY_ICON_GAP)]
             .spacing(6)
@@ -2160,7 +2276,7 @@ impl State {
                 .height(Length::Fixed(PORTRAIT_SIZE))
                 .align_x(Horizontal::Center)
                 .align_y(Vertical::Center),
-            strong(name, UNIT_NAME_SIZE),
+            theme::bold_text(name).size(UNIT_NAME_SIZE),
         ]
         .spacing(CELL_SPACING)
         .align_y(Vertical::Center)
@@ -2336,7 +2452,7 @@ impl State {
             .width(Length::Fill);
 
         for line in reading.lines().filter(|line| !ignored(line)) {
-            inner = inner.push(value_row(line));
+            inner = inner.push(value_row(&relabel(line)));
         }
 
         container(inner)
@@ -2468,6 +2584,20 @@ fn strong<'a>(content: impl ToString, size: f32) -> Text<'a> {
 
 fn plain<'a>(content: impl ToString, size: f32) -> Text<'a> {
     text(content.to_string()).size(size).wrapping(Wrapping::None)
+}
+
+fn relabel(line: &str) -> Cow<'_, str> {
+    let Some((label, reading)) = line.split_once(": ") else {
+        return Cow::Borrowed(line);
+    };
+
+    let (from, to) = DEPLOY_COOLDOWN;
+
+    if label != from {
+        return Cow::Borrowed(line);
+    }
+
+    Cow::Owned(format!("{}: {}", to, reading))
 }
 
 fn value_row<'a>(line: &str) -> Element<'a, Message> {
@@ -2834,15 +2964,7 @@ fn kind_badge(find: &talents::Find) -> &'static str {
     }
 }
 
-fn talent_rank(find: &talents::Find) -> u8 {
-    match talent_kinds(find) {
-        (true, true) => 2,
-        (false, true) => 1,
-        _ => 0,
-    }
-}
-
-fn version_tables<'a>(ore: &Ore) -> Vec<Element<'a, Message>> {
+fn version_tables<'a>(ore: &Diff) -> Vec<Element<'a, Message>> {
     let mut stack = Vec::new();
 
     for (label, suffix) in REGIONS {
@@ -3028,25 +3150,40 @@ fn placard<'a>(title: &'a str, content: impl Into<Element<'a, Message>>, room: f
     .into()
 }
 
-fn table_header<'a>(title: &'static str) -> Element<'a, Message> {
-    container(theme::table_cell_text(title, Length::Fixed(TALLY_TABLE_WIDTH)).size(META_TEXT_SIZE))
+fn table_header<'a>(title: &'static str, width: f32) -> Element<'a, Message> {
+    container(theme::table_cell_text(title, Length::Fixed(width)).size(META_TEXT_SIZE))
         .center_y(Length::Fixed(TABLE_ROW_HEIGHT))
         .style(theme::zebra_table_header)
         .into()
 }
 
-fn stamp_table<'a>(captured: String) -> Element<'a, Message> {
-    column![table_header("Captured"), sized_cell(captured, TALLY_TABLE_WIDTH, 0)]
-        .align_x(Horizontal::Center)
-        .width(Length::Shrink)
-        .into()
+fn stamp_table<'a>() -> Element<'a, Message> {
+    let rows = [("Import", since(import::pack_stamp())), ("Snapshot", since(mining::snapped_at()))];
+
+    let mut table = Column::new().push(table_header("Activity", TALLY_TABLE_WIDTH)).width(Length::Shrink);
+
+    for (index, (label, when)) in rows.into_iter().enumerate() {
+        table = table.push(row![
+            tally_label(label, STAMP_LABEL_WIDTH, index),
+            sized_cell(when, STAMP_VALUE_WIDTH, index),
+        ]);
+    }
+
+    table.into()
+}
+
+fn since(stamp: Option<SystemTime>) -> String {
+    stamp
+        .and_then(|held| SystemTime::now().duration_since(held).ok())
+        .map_or_else(|| "N/A".to_string(), ago)
 }
 
 fn tally_table<'a>(title: &'static str, rows: Vec<(&'static str, usize)>) -> Element<'a, Message> {
-    let mut table = Column::new().push(table_header(title)).align_x(Horizontal::Center).width(Length::Shrink);
+    let mut table =
+        Column::new().push(table_header(title, TALLY_TABLE_WIDTH)).align_x(Horizontal::Center).width(Length::Shrink);
 
     for (index, (label, count)) in rows.into_iter().enumerate() {
-        table = table.push(row![tally_label(label, index), sized_cell(count, TALLY_VALUE_WIDTH, index)]);
+        table = table.push(row![tally_label(label, TALLY_LABEL_WIDTH, index), sized_cell(count, TALLY_VALUE_WIDTH, index)]);
     }
 
     table.into()
@@ -3063,15 +3200,15 @@ fn sized_cell<'a>(body: impl ToString, width: f32, index: usize) -> Element<'a, 
         .into()
 }
 
-fn tally_label<'a>(body: &'a str, index: usize) -> Element<'a, Message> {
-    container(plain(body, META_TEXT_SIZE).width(Length::Fixed(TALLY_LABEL_WIDTH)))
+fn tally_label<'a>(body: &'a str, width: f32, index: usize) -> Element<'a, Message> {
+    container(plain(body, META_TEXT_SIZE).width(Length::Fixed(width)))
         .padding([0, TALLY_PADDING as u16])
         .center_y(Length::Fixed(TABLE_ROW_HEIGHT))
         .style(move |theme: &Theme| theme::zebra_table_row(theme, index))
         .into()
 }
 
-fn build_in<'a>(ore: &'a Ore, suffix: &str) -> Option<&'a Build> {
+fn build_in<'a>(ore: &'a Diff, suffix: &str) -> Option<&'a Build> {
     ore.after.iter().chain(ore.before.iter()).find(|build| build.label.ends_with(suffix))
 }
 
@@ -3113,8 +3250,8 @@ mod tests {
         Build { code, name: name.to_string(), label: label.to_string() }
     }
 
-    fn ore(before: Vec<Build>, after: Vec<Build>) -> Ore {
-        Ore { schema: 2, stamp: 0, before, after, files: Vec::new(), touched: Vec::new() }
+    fn ore(before: Vec<Build>, after: Vec<Build>) -> Diff {
+        Diff { schema: 2, stamp: 0, before, after, files: Vec::new(), touched: Vec::new() }
     }
 
     #[test]
@@ -3164,12 +3301,13 @@ mod tests {
         }
     }
 
-    // Plain talents read first, ultra-only next, and the mixed units close the section.
+    // Ordering no longer separates ultra cards, so the badge is the only thing
+    // telling a reader which kind of talent landed.
     #[test]
-    fn talent_cards_rank_plain_then_ultra_then_both() {
-        assert_eq!(talent_rank(&find(&[false, false])), 0);
-        assert_eq!(talent_rank(&find(&[true])), 1);
-        assert_eq!(talent_rank(&find(&[false, true])), 2);
+    fn the_badge_names_which_kinds_of_talent_landed() {
+        assert_eq!(kind_badge(&find(&[false, false])), "TALENT");
+        assert_eq!(kind_badge(&find(&[true])), "ULTRA");
+        assert_eq!(kind_badge(&find(&[false, true])), "TALENT+ULTRA");
     }
 
     #[test]

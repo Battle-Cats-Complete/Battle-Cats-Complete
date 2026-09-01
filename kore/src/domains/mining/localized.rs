@@ -9,7 +9,7 @@ use crate::common::region;
 use crate::domains::settings::lang;
 use crate::Vfs;
 
-use super::{FileDelta, Ore, Status};
+use super::{FileDelta, Diff, Status};
 
 const EXPLANATION: &str = "Unit_Explanation";
 const ENEMY_NAMES: &str = "Enemyname";
@@ -36,13 +36,25 @@ pub struct Localized {
 }
 
 pub(crate) fn mineable(filename: &str) -> bool {
-    explanation(filename).is_some() || roster(filename).is_some() || atlas(filename).is_some()
+    explains(filename) || describes(filename) || charts(filename)
 }
 
-pub fn cats(ore: &Ore, vfs: &Vfs) -> Vec<Localized> {
+pub(crate) fn explains(filename: &str) -> bool {
+    explanation(filename).is_some()
+}
+
+pub(crate) fn describes(filename: &str) -> bool {
+    roster(filename).is_some()
+}
+
+pub(crate) fn charts(filename: &str) -> bool {
+    atlas(filename).is_some()
+}
+
+pub fn cats(diff: &Diff, vfs: &Vfs) -> Vec<Localized> {
     let mut found: Spoken = BTreeMap::new();
 
-    for delta in &ore.files {
+    for delta in &diff.files {
         let Some((id, code)) = explanation(&delta.file) else {
             continue;
         };
@@ -69,10 +81,10 @@ pub fn cats(ore: &Ore, vfs: &Vfs) -> Vec<Localized> {
     gather(found)
 }
 
-pub fn enemies(ore: &Ore, vfs: &Vfs) -> Vec<Localized> {
+pub fn enemies(diff: &Diff, vfs: &Vfs) -> Vec<Localized> {
     let mut found: Spoken = BTreeMap::new();
 
-    for delta in &ore.files {
+    for delta in &diff.files {
         let Some((table, code)) = roster(&delta.file) else {
             continue;
         };
@@ -110,10 +122,10 @@ pub fn enemies(ore: &Ore, vfs: &Vfs) -> Vec<Localized> {
     gather(found)
 }
 
-pub fn stages(ore: &Ore, vfs: &Vfs) -> Vec<Localized> {
+pub fn stages(diff: &Diff, vfs: &Vfs) -> Vec<Localized> {
     let mut found: Spoken = BTreeMap::new();
 
-    for delta in &ore.files {
+    for delta in &diff.files {
         let Some(code) = atlas(&delta.file) else {
             continue;
         };

@@ -454,8 +454,6 @@ impl BattleCatsApp {
                 Task::none()
             }
             Page::Mining => {
-                let settled = self.vault_ready && !self.rebuild_running && !self.cat_state.data.cats.is_empty();
-
                 let scope = mining::Scope {
                     cats: &self.cat_state.data.cats,
                     foes: &self.enemy_state.data.enemies,
@@ -464,7 +462,7 @@ impl BattleCatsApp {
                     settings: &self.settings,
                 };
 
-                self.mining_state.enter(scope, settled, self.window_size).map(Message::Mining)
+                self.mining_state.enter(scope, self.window_size).map(Message::Mining)
             }
             Page::Import => self.import_state.enter().map(Message::Import),
             Page::Help => operation::scroll_to(
@@ -680,7 +678,8 @@ impl BattleCatsApp {
         self.reconcile_caches()
     }
 
-    fn restock_mining(&mut self) {
+    fn restock_mining(&mut self) -> Task<Message> {
+        let window = self.window_size;
         let scope = mining::Scope {
             cats: &self.cat_state.data.cats,
             foes: &self.enemy_state.data.enemies,
@@ -689,7 +688,13 @@ impl BattleCatsApp {
             settings: &self.settings,
         };
 
-        self.mining_state.restock(scope);
+        if self.current_page != Page::Mining {
+            self.mining_state.restock(scope);
+
+            return Task::none();
+        }
+
+        self.mining_state.refresh(scope, window).map(Message::Mining)
     }
 
     pub(crate) fn reconcile_caches(&mut self) -> Task<Message> {
@@ -1060,9 +1065,9 @@ impl BattleCatsApp {
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
 
                 if loaded {
-                    self.restock_mining();
+                    let mined = self.restock_mining();
 
-                    return Task::batch([task, self.reconcile_caches()]);
+                    return Task::batch([task, mined, self.reconcile_caches()]);
                 }
 
                 if retabbed {
@@ -1089,9 +1094,9 @@ impl BattleCatsApp {
                 self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open());
 
                 if enemies_loaded {
-                    self.restock_mining();
+                    let mined = self.restock_mining();
 
-                    return Task::batch([task, self.reconcile_caches()]);
+                    return Task::batch([task, mined, self.reconcile_caches()]);
                 }
 
                 if retabbed {
@@ -1120,9 +1125,9 @@ impl BattleCatsApp {
                 self.sync_popup(ActivePopup::StageFilter, self.stage_state.filter_popup_open());
 
                 if stages_loaded {
-                    self.restock_mining();
+                    let mined = self.restock_mining();
 
-                    return Task::batch([task, self.reconcile_caches()]);
+                    return Task::batch([task, mined, self.reconcile_caches()]);
                 }
 
                 task
@@ -1166,7 +1171,7 @@ impl BattleCatsApp {
                 Task::batch([task, packs, mined, self.rebuild_content()])
             }
             Message::Mining(mining::Message::CreateBase) => {
-                self.mining_state.begin(mining::Chore::Bedrock).map(Message::Mining)
+                self.mining_state.begin(mining::Chore::Snapshot).map(Message::Mining)
             }
             Message::Mining(mining::Message::CreateDiff) => {
                 self.mining_state.begin(mining::Chore::Diff).map(Message::Mining)

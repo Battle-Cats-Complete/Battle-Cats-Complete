@@ -1346,9 +1346,9 @@ pub const STAT_COOLDOWN: StatsDef = StatsDef {
     talent_modifier_fmt: Some(|frames, _| format!("(-{}f)", frames)),
 };
 
-const STAT_TBA: StatsDef = StatsDef {
-    name: "TBA",
-    display_name: "TBA",
+const STAT_ATTACK_COOLDOWN: StatsDef = StatsDef {
+    name: "Attack Cooldown",
+    display_name: "Attack Cooldown",
     get_value: |ctx| ctx.stats.attack_cooldown,
     formatter: |attack_cooldown| format!("{}f", attack_cooldown),
     linked_talent_id: Some(61),
@@ -1375,7 +1375,7 @@ pub(crate) const CAT_STATS_REGISTRY: &[StatsDef] = &[
     STAT_RARITY,
     STAT_COST,
     STAT_COOLDOWN,
-    STAT_TBA,
+    STAT_ATTACK_COOLDOWN,
 ];
 
 pub(crate) const ENEMY_STATS_REGISTRY: &[StatsDef] = &[
