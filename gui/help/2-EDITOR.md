@@ -29,10 +29,42 @@ Numeric input fields accept a buffer character: `!`. When this character is incl
 ## Animation
 Right-clicking a Unit's animation opens the Animation Editor for that Unit's rig. The rest of the Context Menu still offers the usual per-file actions for the rig's own files. The Editor takes over the window, and the red `×` closes it.
 
-Where the viewer normally offers **Export**, the Editor offers **Sync "game"**, which replaces the animation you are editing with the game's own copy. It asks once before doing it, and is unavailable when your Mod has no copy of that file to replace.
+Where the viewer normally offers **Export**, the Editor offers **Sync "game"**, which replaces the Unit's whole rig — its `.mamodel` and every one of its animations — with the game's own copies. It asks once before doing it, and is unavailable when your Mod has no copy of any of them.
+
+It restores all of them together on purpose. Animations address parts by position, so a model and its animations only agree as a set; putting one file back on its own is how you end up with curves driving the wrong parts.
+
+### Modes
+The box in the Editor's top right switches what the panel edits, and names the file it is editing to its left. The viewer, the part tree and the tables under it never move between modes; the panel's lower half changes, and so does what the leftmost table below the viewer reports.
+
+- **Animation** edits the selected clip's `.maanim` keyframes.
+- **Model** edits the rig's `.mamodel` rest pose.
+- **Atlas** is not built yet.
+
+In `Animation` that table reports the selected part's resting **Model** values. In the other modes it reports the **Atlas** instead: which region of the sheet the part draws, where that region sits, how much of it is actually painted, and how much of it is transparent padding — `Margin` reads left, top, right, bottom.
+
+### Model
+Picking a part in the tree fills the table with the thirteen numbers the `.mamodel` gives that part, plus its name. The `#` column is the part's column number in the file itself. Changes reach the viewer as soon as they are written.
+
+An empty cell means the value the game starts a fresh part at, which is what the greyed hint shows. Four fields are held to what the game can actually read, and typing past the edge lands on it: **Parent** stops at `-1` and at the last part, **Sprite** at `-1` and at the last region of the atlas, **Opacity** between nothing and full, and **Glow** across the four blending modes. Everything else is free.
+
+The box beside the two numbers picks which **root offset** you are editing. These are the rows at the bottom of the `.mamodel`, and they place the whole Unit rather than any one part — the same list the viewer's offset picker chooses between, so `Root 0` is the one combat uses. The two numbers are the offset the Unit is placed by, subtracted rather than added, and measured against the root part's own pivot.
+
+### Rearranging Parts
+Parts can be added, removed and moved, in either mode.
+
+- **Right-click a part** for `New "Part n"`, which adds a part under the one you clicked, and `Remove "Part n"`, which asks once. Right-clicking anywhere else offers `New` at the root.
+- **Drag a part** by holding the left mouse button on its row for a moment, until a faded copy of the row lifts under the cursor. Dropping it on the middle of another part makes it that part's child. Dropping in the gap between two rows puts it in that gap: if the row below the gap is a child of the row above, it joins them as another child, and otherwise it becomes a sibling of the row above. The wheel still scrolls the tree while you drag. A part cannot be dropped inside itself. A shorter press is just a click, and selects.
+
+A new part starts drawing immediately, using the Unit's own id, the first region of the atlas, and one layer in front of whatever it hangs off.
+
+**Dragging only changes what a part hangs off. It never renumbers anything**, so no animation is touched and a part keeps the number it has always had.
+
+**Removing a part does renumber**, because everything after it moves up one, and every animation of that Unit is rewritten to match. Curves that pointed at the removed part are dropped, since they no longer point at anything. That is why it asks first, and why it is the one action in the Editor that writes to files you did not open.
+
+Where a part sits in the list is not what decides draw order — **Z Order** is. The list order only breaks ties between parts sharing a depth, which is why moving a part around in the file would buy nothing.
 
 ### Action
-**Locate** centres the view on the part your selected curve drives.
+**Locate** centres the view on the part your selected curve drives, or in Model mode on the part you have picked.
 
 ### Adding and Removing Curves
 Right-clicking a part or one of its curves offers to add a curve for any property that part does not already drive, or to remove one it does. A new curve starts at the value the game treats as no change, which is zero for most properties but the part's own parent, and full scale and opacity, for those.
@@ -51,6 +83,8 @@ A bold part is drawn as a **bright red box** with a **cyan dot** at its anchor, 
 The anchor is the point a part pivots around, not the middle of its box.
 
 A part missing from the overlay is one the game is not drawing. The panel names the reason when you select one of its curves.
+
+A part marked `not in the loaded model` is one the file has but the loaded rig does not, which means the two have drifted apart — reopening the Unit resettles it.
 
 ### Keyframes
 Selecting a curve fills the table below the viewer with its keyframes. The row tinted blue is the one currently driving the animation, and it moves as the animation plays.

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use iced::widget::{button, column, container, stack, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
 
-use nyanko::graphics::rig::{Animation, Rig};
+use nyanko::graphics::rig::{Animation, Model, Rig};
 
 use kore::domains::settings::Settings;
 use kore::systems::animation::ClipSet;
@@ -179,6 +179,18 @@ impl State {
 
     pub fn adopt_anim(&mut self, path: &Path, anim: Arc<Animation>) {
         self.data.adopt_anim(path, anim);
+    }
+
+    pub fn selected_model(&self) -> Option<&Path> {
+        self.data.selected_model()
+    }
+
+    pub fn anim_paths(&self) -> Vec<PathBuf> {
+        self.data.anim_paths()
+    }
+
+    pub fn adopt_model(&mut self, model: Arc<Model>) {
+        self.data.adopt_model(model);
     }
 
     pub fn rig(&self) -> Option<&Rig> {

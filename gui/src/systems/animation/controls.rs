@@ -9,7 +9,7 @@ use crate::widget::{slide, smooth_scroll, Slide};
 
 use super::{canvas, data};
 
-const HOLD_DELAY_SECS: f32 = 0.2;
+pub(crate) const HOLD_DELAY_SECS: f32 = 0.2;
 const TICK_SECS: f32 = 1.0 / 60.0;
 
 const TILE_HEIGHT: f32 = 28.0;

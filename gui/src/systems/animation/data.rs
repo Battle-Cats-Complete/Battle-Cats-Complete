@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use nyanko::graphics::rig::{Animation, BoundingBox, Rig};
+use nyanko::graphics::rig::{Animation, BoundingBox, Model, Rig};
 
 use kore::systems::animation::{cycle, loop_frame, playback_frames, Clip, ClipSet, Loop, Role, RAW_OFFSET};
 
@@ -184,6 +184,38 @@ impl State {
 
         self.selected = Some(index);
         self.load_active();
+    }
+
+    pub fn selected_model(&self) -> Option<&Path> {
+        self.current_clip().map(|clip| clip.rig.model.as_path())
+    }
+
+    pub fn anim_paths(&self) -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = Vec::with_capacity(self.clips.len());
+
+        for path in self.clips.iter().filter_map(|clip| clip.anim.as_ref()) {
+            if !found.contains(path) {
+                found.push(path.clone());
+            }
+        }
+
+        found
+    }
+
+    pub fn adopt_model(&mut self, model: Arc<Model>) {
+        let Some(unit) = self.held_unit.as_deref().filter(|unit| unit.model != *model) else {
+            return;
+        };
+
+        let mut fresh = Rig::clone(unit);
+        fresh.model = Model::clone(&model);
+
+        let fresh = Arc::new(fresh);
+
+        self.held_unit = Some(Arc::clone(&fresh));
+        self.cache.insert(&self.loaded_rig, fresh);
+        self.measured = None;
+        self.bounds = None;
     }
 
     pub fn adopt_anim(&mut self, path: &Path, anim: Arc<Animation>) {

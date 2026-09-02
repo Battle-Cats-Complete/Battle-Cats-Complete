@@ -414,6 +414,8 @@ enum Action {
     Delete { source: PathBuf },
     AddCurve { part: usize, kind: i32 },
     DropCurve { track: usize },
+    AddPart { parent: Option<usize> },
+    DropPart { part: usize },
     EditAnimation(animator::Plan),
     EditFigures(figures::Plan),
     EditProse(prose::Plan),
@@ -828,6 +830,14 @@ impl State {
                 true => Outcome::Done,
                 false => Outcome::Failed,
             },
+            Action::AddPart { parent } => match self.animator.add_part(*parent, vfs) {
+                true => Outcome::Done,
+                false => Outcome::Failed,
+            },
+            Action::DropPart { part } => match self.animator.drop_part(*part, vfs) {
+                true => Outcome::Done,
+                false => Outcome::Failed,
+            },
             Action::EditAnimation(plan) => {
                 self.animator.begin(plan.clone());
 
@@ -916,10 +926,10 @@ impl State {
 }
 
 fn curve_target(app: &BattleCatsApp, target: Option<Target>) -> Option<CurveTarget> {
-    let part = match target? {
-        Target::AnimPart(part) => part,
-        Target::AnimCurve(track) => app.editor.animator.holder(track)?,
-        _ => return None,
+    let part = match target {
+        Some(Target::AnimPart(part)) => Some(part),
+        Some(Target::AnimCurve(track)) => app.editor.animator.holder(track),
+        _ => None,
     };
 
     let curves = app.editor.animator.curves(part)?;

@@ -17,6 +17,8 @@ const NO_CURVE_NOTICE: &str = "This part has no curves in this animation";
 enum Verb {
     AddCurve,
     DropCurve,
+    AddPart,
+    DropPart,
     Animate,
     Edit,
     Replace,
@@ -32,6 +34,8 @@ impl Verb {
         match self {
             Verb::AddCurve => "Add curve",
             Verb::DropCurve => "Remove curve",
+            Verb::AddPart => "New part",
+            Verb::DropPart => "Remove part",
             Verb::Animate => "Edit animation in app",
             Verb::Edit => "Edit in app",
             Verb::Replace => "Replace from disk",
@@ -47,6 +51,8 @@ impl Verb {
         match self {
             Verb::AddCurve => format!("Add a curve to \"{name}\" in \"{mount}\""),
             Verb::DropCurve => format!("Remove a curve from \"{name}\" in \"{mount}\""),
+            Verb::AddPart => format!("New \"{name}\" in \"{mount}\""),
+            Verb::DropPart => format!("Remove \"{name}\" from \"{mount}\""),
             Verb::Animate => format!("Edit \"{name}\" animation in \"{mount}\""),
             Verb::Edit => format!("Edit \"{name}\" in \"{mount}\""),
             Verb::Replace => format!("Replace \"{name}\" in \"{mount}\""),
@@ -188,6 +194,22 @@ fn curves(items: &mut Vec<Item>, target: &CurveTarget) {
     let mount = mount(target.curves.target_mod.as_deref(), target.unlocked);
     let held = &target.curves.present;
     let part = target.curves.part;
+
+    if target.curves.shapeable {
+        let fresh = format!("Part {}", target.curves.slot);
+
+        items.push(mount.item(Verb::AddPart.flat(&fresh, mount.name), Action::AddPart { parent: part }, Confirm::Never));
+
+        if let Some(part) = part {
+            let action = Action::DropPart { part };
+
+            items.push(mount.item(Verb::DropPart.flat(&target.curves.label, mount.name), action, Confirm::Overwrite));
+        }
+    }
+
+    let Some(part) = part.filter(|_| target.curves.curving) else {
+        return;
+    };
 
     let absent: Vec<Item> = authoring::KINDS
         .iter()
