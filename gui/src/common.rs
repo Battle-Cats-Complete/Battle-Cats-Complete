@@ -2,6 +2,7 @@ pub mod ability_icon;
 pub mod dialog;
 pub mod feedback;
 pub mod fonts;
+pub(crate) mod glyphs;
 pub mod header_icon;
 pub mod img015;
 pub mod img022;

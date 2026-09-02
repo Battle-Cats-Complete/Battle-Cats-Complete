@@ -318,15 +318,36 @@ pub fn card_container_muted(theme: &Theme) -> container::Style {
     container::Style { background: faded, ..base }
 }
 
-const CARD_DANGER_SHADE: f32 = 0.55;
-const CARD_DANGER_ALPHA: f32 = 0.5;
+const CARD_TINT_SHADE: f32 = 0.55;
+const CARD_TINT_ALPHA: f32 = 0.5;
 
-pub fn card_container_danger(theme: &Theme) -> container::Style {
-    let base = darken_color(theme.palette().danger, CARD_DANGER_SHADE);
+fn card_container_tinted(theme: &Theme, tint: Color) -> container::Style {
+    let base = darken_color(tint, CARD_TINT_SHADE);
 
     container::Style {
-        background: Some(Background::Color(Color { a: CARD_DANGER_ALPHA, ..base })),
+        background: Some(Background::Color(Color { a: CARD_TINT_ALPHA, ..base })),
         ..card_container(theme)
+    }
+}
+
+pub fn card_container_danger(theme: &Theme) -> container::Style {
+    card_container_tinted(theme, theme.palette().danger)
+}
+
+const CARD_PRIMARY_EDGE: f32 = 0.35;
+const CARD_PRIMARY_BORDER: f32 = 2.0;
+
+pub fn card_container_primary(theme: &Theme) -> container::Style {
+    let primary = theme.palette().primary;
+
+    container::Style {
+        background: Some(Background::Color(primary)),
+        border: Border {
+            color: darken_color(primary, CARD_PRIMARY_EDGE),
+            width: CARD_PRIMARY_BORDER,
+            radius: Radius::from(RADIUS_MD),
+        },
+        ..container::Style::default()
     }
 }
 

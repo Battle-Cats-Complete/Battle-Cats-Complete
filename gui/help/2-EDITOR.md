@@ -29,15 +29,35 @@ Numeric input fields accept a buffer character: `!`. When this character is incl
 ## Animation
 Right-clicking a Unit's animation opens the Animation Editor for that Unit's rig. The rest of the Context Menu still offers the usual per-file actions for the rig's own files. The Editor takes over the window, and the red `×` closes it.
 
+Where the viewer normally offers **Export**, the Editor offers **Sync "game"**, which replaces the animation you are editing with the game's own copy. It asks once before doing it, and is unavailable when your Mod has no copy of that file to replace.
+
+### Action
+**Locate** centres the view on the part your selected curve drives.
+
 ### Part Overlay
 Three buttons control the overlay, blue when on and grey when off. They stack, so a part lit by more than one shows bolder.
 
 - **Rig:** every part the game is drawing, dimly.
 - **Selected:** the part your selected curve drives, boldly.
 - **Hierarchy:** that part boldly, plus its direct children.
+- **Origin:** a green dot at the point the Unit is placed against.
+- **World:** green guides along the ground line and up the Unit's height, spanning only the Unit itself. The upward guide never runs downward, so a Unit dipping below the ground line is showing you a mistake in its animation.
 
 A bold part is drawn as a **bright red box** with a **cyan dot** at its anchor, a **yellow line** showing which way it faces, and a **cyan line** to the anchor of the part it hangs off. A dim part is a **faint red box** and a **faint cyan dot**.
 
 The anchor is the point a part pivots around, not the middle of its box.
 
 A part missing from the overlay is one the game is not drawing. The panel names the reason when you select one of its curves.
+
+### Keyframes
+Selecting a curve fills the table below the viewer with its keyframes. The row tinted blue is the one currently driving the animation, and it moves as the animation plays.
+
+Each row carries two shortcuts. **View** pauses playback and jumps to that keyframe. **Bound** sets the viewer's frame range to that keyframe's segment, stopping one frame before the next keyframe so the following segment never plays. The last keyframe bounds to itself, holding the pose it ends on.
+
+The **Curve** column sets how a keyframe eases into the next one.
+
+A curve that repeats forever never highlights its last keyframe. That keyframe is where the curve wraps back to its first, so the game never rests on it.
+
+A part showing `No children or curves` is one this animation does not touch. Every animation of a Unit shares one model, so a part built for the attack sits unused in the walk.
+
+A part marked `not drawn` or `no sprite` is never drawn at all. One marked `transparent` or `no scale` is only hidden where it rests, and an Opacity or Scale curve can bring it in partway through.

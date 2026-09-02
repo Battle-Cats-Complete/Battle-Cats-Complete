@@ -167,21 +167,21 @@ pub fn kind_label(kind: i32) -> &'static str {
     }
 }
 
+pub const EASES: [&str; 4] = ["Linear", "Hold", "Exponential", "Polynomial"];
+
 pub fn ease_label(ease: i32) -> &'static str {
-    match ease {
-        0 => "Linear",
-        1 => "Hold",
-        2 => "Exponential",
-        3 => "Polynomial",
-        _ => "Unknown",
-    }
+    usize::try_from(ease).ok().and_then(|at| EASES.get(at)).copied().unwrap_or("Unknown")
+}
+
+pub fn ease_value(label: &str) -> Option<i32> {
+    EASES.iter().position(|known| *known == label).and_then(|at| i32::try_from(at).ok())
 }
 
 pub fn loop_label(count: i32) -> String {
     match count {
         -1 => "Forever".to_string(),
-        1 => "Once".to_string(),
-        other => format!("{}x", other),
+        held if held <= 1 => "Once".to_string(),
+        _ => "Count".to_string(),
     }
 }
 
@@ -318,5 +318,16 @@ mod tests {
 
         assert_eq!(held.modifications[0].keyframes[0].value, 50);
         assert_eq!(doc.shared().modifications[0].keyframes[0].value, 900);
+    }
+
+    #[test]
+    fn every_replay_count_reads_as_a_word_or_a_multiplier() {
+        // The engine wraps only on -1 and on counts above one; everything else
+        // rests on the final keyframe, so it plays through exactly once.
+        assert_eq!(loop_label(-1), "Forever");
+        assert_eq!(loop_label(1), "Once");
+        assert_eq!(loop_label(0), "Once");
+        assert_eq!(loop_label(-2), "Once");
+        assert_eq!(loop_label(4), "Count");
     }
 }

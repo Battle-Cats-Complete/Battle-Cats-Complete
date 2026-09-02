@@ -1,5 +1,5 @@
 mod canvas;
-mod controls;
+pub(crate) mod controls;
 mod data;
 mod diagnostics;
 mod export;
@@ -34,6 +34,7 @@ const EXPAND_BUTTON_INSET: f32 = 8.0;
 const CONTROLS_INSET_LEFT: f32 = 7.0;
 
 const ZOOM_SCROLL_STRENGTH: f32 = 2.5;
+const CULL_SCALE: f32 = 100.0;
 
 const DEBUG_LABEL_SIZE: f32 = 12.0;
 const DEBUG_TOGGLE_GAP: f32 = 6.0;
@@ -44,10 +45,12 @@ pub fn debug_toggles<'a, M: Clone + 'a>(
     settings: &Settings,
     origin: impl Fn(bool) -> M + 'a,
     parts: impl Fn(bool) -> M + 'a,
+    world: impl Fn(bool) -> M + 'a,
 ) -> Element<'a, M> {
     column![
-        toggle_row(settings.animation.show_origin, text("Show Origin").size(DEBUG_LABEL_SIZE), Some(origin)),
         toggle_row(settings.animation.show_rig, text("Show Rig").size(DEBUG_LABEL_SIZE), Some(parts)),
+        toggle_row(settings.animation.show_origin, text("Show Origin").size(DEBUG_LABEL_SIZE), Some(origin)),
+        toggle_row(settings.animation.show_world, text("Show World").size(DEBUG_LABEL_SIZE), Some(world)),
     ]
     .spacing(DEBUG_TOGGLE_GAP)
     .into()
@@ -68,6 +71,13 @@ fn frame_border<'a>() -> Element<'a, Message> {
         .into()
 }
 
+#[derive(Clone, Copy)]
+pub struct Action {
+    pub label: &'static str,
+    pub danger: bool,
+    pub enabled: bool,
+}
+
 pub struct State {
     data: data::State,
     canvas: canvas::State,
@@ -76,6 +86,7 @@ pub struct State {
     overlay: overlay::State,
     export_open: bool,
     highlight: Option<usize>,
+    action: Option<Action>,
     is_expanded: bool,
     playhead_rig: String,
     playhead_clip: Option<usize>,
@@ -102,6 +113,7 @@ impl State {
             overlay: overlay::State::default(),
             export_open: false,
             highlight: None,
+            action: None,
             is_expanded: false,
             playhead_rig: String::new(),
             playhead_clip: None,
@@ -112,6 +124,7 @@ impl State {
     pub fn sync(&mut self, key: &str, build: impl FnOnce() -> ClipSet, settings: &Settings, anim_state: &AnimState) {
         self.data.restore_offset(anim_state.offset_row);
         self.data.sync(key, build);
+        self.data.measure(settings.animation.bounds_cull as f32 / CULL_SCALE);
         self.export.sync(&self.data, settings, anim_state);
         self.sync_playhead();
     }
@@ -170,6 +183,47 @@ impl State {
 
     pub fn rig(&self) -> Option<&Rig> {
         self.data.held_unit.as_deref()
+    }
+
+    pub fn frame(&self) -> i32 {
+        self.data.playback_frame(self.canvas.current_frame).floor() as i32
+    }
+
+    pub fn seek(&mut self, frame: f32) {
+        self.canvas.is_playing = false;
+        self.canvas.current_frame = frame.max(0.0);
+    }
+
+    pub fn bound(&mut self, start: f32, end: f32) {
+        let (start, end) = (start.max(0.0), end.max(0.0));
+
+        self.canvas.loop_start = Some(start.min(end));
+        self.canvas.loop_end = Some(start.max(end));
+        self.controls.set_range(start.min(end), start.max(end));
+    }
+
+    pub fn set_action(&mut self, action: Option<Action>) {
+        self.action = action;
+    }
+
+    pub fn playing(&self) -> bool {
+        self.canvas.is_playing
+    }
+
+    pub fn locatable(&self) -> bool {
+        self.highlight.is_some()
+    }
+
+    pub fn locate(&mut self) {
+        let Some(part) = self.highlight else {
+            return;
+        };
+
+        let Some(anchor) = diagnostics::anchor(&self.data, self.canvas.current_frame, part) else {
+            return;
+        };
+
+        self.canvas.pan = iced::Vector::new(-anchor.x, -anchor.y);
     }
 
     pub fn set_highlight(&mut self, part: Option<usize>) {
@@ -323,10 +377,10 @@ impl State {
         let viewport = smooth_scroll(self.canvas.view(&self.data).map(Message::Canvas)).strength(ZOOM_SCROLL_STRENGTH);
 
         let selection_overlay = self.overlay
-            .view(&self.canvas, self.export.camera_region(self.export_open), settings.animation.show_origin)
+            .view(&self.canvas, self.export.camera_region(self.export_open))
             .map(Message::Overlay);
 
-        let controls_overlay = container(self.controls.view(&self.canvas, &self.data, anim_state).map(Message::Controls))
+        let controls_overlay = container(self.controls.view(&self.canvas, &self.data, anim_state, self.action).map(Message::Controls))
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(iced::alignment::Horizontal::Left)

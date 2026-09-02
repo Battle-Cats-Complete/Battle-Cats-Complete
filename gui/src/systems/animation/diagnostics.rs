@@ -4,25 +4,32 @@ use iced::widget::canvas as canvas_widget;
 use iced::{Color, Element, Length, Point, Rectangle, Renderer, Theme, Vector};
 
 use nyanko::graphics::animate::{resolve_frame, FrameData};
-use nyanko::graphics::part;
+use nyanko::graphics::rig::Rig;
+use nyanko::graphics::tools::part;
 
 use kore::domains::settings::AnimSettings;
 
 use super::canvas as viewer;
 use super::data;
 
+const WORLD_COLOR: Color = Color::from_rgba(0.0, 1.0, 0.0, 0.5);
+const ORIGIN_COLOR_MARK: Color = Color::from_rgb(0.0, 1.0, 0.0);
+const WORLD_WIDTH: f32 = 1.5;
+const ORIGIN_MARK_RADIUS: f32 = 5.0;
+
 const PART_COLOR: Color = Color::from_rgba(1.0, 0.35, 0.35, 0.32);
 const PICKED_COLOR: Color = Color::from_rgba(1.0, 0.18, 0.18, 0.95);
-const AXIS_COLOR: Color = Color::from_rgba(1.0, 0.85, 0.15, 0.95);
-const PARENT_COLOR: Color = Color::from_rgba(0.3, 0.9, 1.0, 0.9);
-const ORIGIN_COLOR: Color = Color::from_rgba(0.3, 0.9, 1.0, 0.55);
+const AXIS_COLOR: Color = Color::from_rgba(1.0, 0.86, 0.15, 1.0);
+const PARENT_COLOR: Color = Color::from_rgba(0.3, 0.9, 1.0, 1.0);
+const ORIGIN_COLOR: Color = Color::from_rgba(0.3, 0.9, 1.0, 0.82);
 const PICKED_ORIGIN_COLOR: Color = Color::from_rgba(0.3, 0.9, 1.0, 1.0);
 
-const PART_WIDTH: f32 = 1.0;
+const PART_WIDTH: f32 = 1.5;
 const PICKED_WIDTH: f32 = 2.0;
-const AXIS_WIDTH: f32 = 1.5;
-const ORIGIN_RADIUS: f32 = 1.5;
-const PICKED_RADIUS: f32 = 3.0;
+const AXIS_WIDTH: f32 = 2.5;
+const PARENT_WIDTH: f32 = 2.0;
+const ORIGIN_RADIUS: f32 = 2.4;
+const PICKED_RADIUS: f32 = 4.0;
 const DEGENERATE: f32 = 1.5;
 
 pub fn view<'a, M: 'a>(
@@ -39,6 +46,8 @@ pub fn view<'a, M: 'a>(
         rig: anim.show_rig,
         selected: anim.show_selected,
         hierarchy: anim.show_hierarchy,
+        origin: anim.show_origin,
+        world: anim.show_world,
         picked,
     };
 
@@ -53,6 +62,8 @@ struct Parts<'a> {
     rig: bool,
     selected: bool,
     hierarchy: bool,
+    origin: bool,
+    world: bool,
     picked: Option<usize>,
 }
 
@@ -65,6 +76,10 @@ impl Parts<'_> {
         let frame = self.data.playback_frame(self.frame).floor() as i32;
         let anim = self.data.current_anim.as_deref();
         let offset = self.data.offset();
+
+        if !self.rig && !self.selected && !self.hierarchy {
+            return resolve_frame(unit, anim, frame, offset).into_iter().map(|frame| (None, frame)).collect();
+        }
 
         match part::resolve(unit, anim, frame, offset) {
             Ok(mapped) => mapped.into_iter().map(|entry| (Some(entry.part), entry.frame)).collect(),
@@ -99,22 +114,7 @@ impl Parts<'_> {
     }
 
     fn pivot(&self, part: Option<usize>, geometry: &FrameData, quad: &[Point; 4]) -> Option<Point> {
-        let unit = self.data.held_unit.as_ref()?;
-        let declared = unit.model.parts.get(part?)?;
-        let cut = unit.sheet.cuts.get(geometry.sprite_index)?;
-
-        if cut.width == 0 || cut.height == 0 {
-            return None;
-        }
-
-        let across = declared.pivot_x as f32 / cut.width as f32;
-        let down = declared.pivot_y as f32 / cut.height as f32;
-        let [top_left, bottom_left, top_right, _] = *quad;
-
-        Some(Point::new(
-            top_left.x + across * (top_right.x - top_left.x) + down * (bottom_left.x - top_left.x),
-            top_left.y + across * (top_right.y - top_left.y) + down * (bottom_left.y - top_left.y),
-        ))
+        pivot_of(self.data.held_unit.as_ref()?, part?, geometry, quad)
     }
 }
 
@@ -122,6 +122,38 @@ fn corners(frame: &FrameData, to_screen: &impl Fn(f32, f32) -> Point) -> [Point;
     let at = |index: usize| to_screen(frame.vertices[index * 2], frame.vertices[index * 2 + 1]);
 
     [at(0), at(1), at(2), at(3)]
+}
+
+fn placed_corners(frame: &FrameData) -> [Point; 4] {
+    corners(frame, &|x, y| Point::new(x, y))
+}
+
+fn pivot_of(unit: &Rig, part: usize, geometry: &FrameData, quad: &[Point; 4]) -> Option<Point> {
+    let declared = unit.model.parts.get(part)?;
+    let cut = unit.sheet.cuts.get(geometry.sprite_index)?;
+
+    if cut.width == 0 || cut.height == 0 {
+        return None;
+    }
+
+    let across = declared.pivot_x as f32 / cut.width as f32;
+    let down = declared.pivot_y as f32 / cut.height as f32;
+    let [top_left, bottom_left, top_right, _] = *quad;
+
+    Some(Point::new(
+        top_left.x + across * (top_right.x - top_left.x) + down * (bottom_left.x - top_left.x),
+        top_left.y + across * (top_right.y - top_left.y) + down * (bottom_left.y - top_left.y),
+    ))
+}
+
+pub fn anchor(data: &data::State, frame: f32, part: usize) -> Option<Point> {
+    let unit = data.held_unit.as_ref()?;
+    let at = data.playback_frame(frame).floor() as i32;
+    let mapped = part::resolve(unit, data.current_anim.as_deref(), at, data.offset()).ok()?;
+    let found = mapped.iter().find(|entry| entry.part == part)?;
+    let quad = placed_corners(&found.frame);
+
+    pivot_of(unit, part, &found.frame, &quad).or_else(|| Some(centroid(&quad)))
 }
 
 fn centroid(corners: &[Point; 4]) -> Point {
@@ -153,7 +185,7 @@ impl<M> canvas::Program<M> for Parts<'_> {
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
-        if !self.rig && !self.selected && !self.hierarchy {
+        if !self.rig && !self.selected && !self.hierarchy && !self.origin && !self.world {
             return Vec::new();
         }
 
@@ -183,6 +215,25 @@ impl<M> canvas::Program<M> for Parts<'_> {
             placed.iter().find(|(index, _, _)| *index == Some(wanted)).map(|(_, _, origin)| *origin)
         };
 
+        let ground = to_screen(0.0, 0.0);
+
+        if let Some(reach) = self.world.then(|| self.data.bounds()).flatten() {
+            let stroke = Stroke::default().with_color(WORLD_COLOR).with_width(WORLD_WIDTH);
+            let left = to_screen(reach.min_x, 0.0).x;
+            let right = to_screen(reach.max_x, 0.0).x;
+            let top = to_screen(0.0, reach.min_y).y;
+
+            frame.stroke(&Path::line(Point::new(left, ground.y), Point::new(right, ground.y)), stroke);
+
+            if top < ground.y {
+                frame.stroke(&Path::line(ground, Point::new(ground.x, top)), stroke);
+            }
+        }
+
+        if self.origin {
+            frame.fill(&Path::circle(ground, ORIGIN_MARK_RADIUS), ORIGIN_COLOR_MARK);
+        }
+
         for (index, quad, origin) in &placed {
             let level = self.level(*index);
 
@@ -200,7 +251,7 @@ impl<M> canvas::Program<M> for Parts<'_> {
             if let Some(anchor) = index.and_then(|part| self.parent_of(part)).and_then(anchor_of) {
                 frame.stroke(
                     &Path::line(*origin, anchor),
-                    Stroke::default().with_color(PARENT_COLOR).with_width(PART_WIDTH),
+                    Stroke::default().with_color(PARENT_COLOR).with_width(PARENT_WIDTH),
                 );
                 frame.fill(&Path::circle(anchor, ORIGIN_RADIUS), PARENT_COLOR);
             }

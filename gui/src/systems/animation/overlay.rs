@@ -40,13 +40,12 @@ pub struct Region {
 }
 
 impl State {
-    pub fn view(&self, viewer_state: &viewer::State, region: Option<Region>, debug_origin: bool) -> Element<'_, Message> {
+    pub fn view(&self, viewer_state: &viewer::State, region: Option<Region>) -> Element<'_, Message> {
         canvas(Selector {
             selecting: self.selecting,
             pan: viewer_state.pan,
             zoom: viewer_state.zoom,
             region,
-            debug_origin,
         })
         .width(Length::Fill)
         .height(Length::Fill)
@@ -115,7 +114,6 @@ struct Selector {
     pan: Vector,
     zoom: f32,
     region: Option<Region>,
-    debug_origin: bool,
 }
 
 #[derive(Default)]
@@ -189,7 +187,7 @@ impl canvas::Program<Message> for Selector {
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
-        if !self.selecting && self.region.is_none() && !self.debug_origin {
+        if !self.selecting && self.region.is_none() {
             return Vec::new();
         }
 
@@ -227,21 +225,6 @@ impl canvas::Program<Message> for Selector {
             frame.stroke(
                 &Path::rectangle(min, size),
                 Stroke::default().with_color(yellow).with_width(1.0),
-            );
-        }
-
-        if self.debug_origin {
-            let center = frame.center();
-            let origin = Point::new(center.x + self.pan.x * self.zoom, center.y + self.pan.y * self.zoom);
-            let cross_size = 15.0;
-            let stroke = Stroke::default().with_color(Color::from_rgb8(0, 255, 0)).with_width(2.0);
-            frame.stroke(
-                &Path::line(Point::new(origin.x - cross_size, origin.y), Point::new(origin.x + cross_size, origin.y)),
-                stroke,
-            );
-            frame.stroke(
-                &Path::line(Point::new(origin.x, origin.y - cross_size), Point::new(origin.x, origin.y + cross_size)),
-                stroke,
             );
         }
 

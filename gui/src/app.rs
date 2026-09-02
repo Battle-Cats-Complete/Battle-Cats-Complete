@@ -395,11 +395,8 @@ impl BattleCatsApp {
             subs.push(iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::DownloadTick));
         }
 
-        if self.editor.animating().is_some() {
-            subs.push(
-                iced::time::every(std::time::Duration::from_millis(16))
-                    .map(|_| Message::Editor(editor::State::animator_tick())),
-            );
+        if let Some(pace) = self.editor.animator_pace() {
+            subs.push(iced::time::every(pace).map(|_| Message::Editor(editor::State::animator_tick())));
         }
 
         if !self.window_shown {
@@ -1302,7 +1299,15 @@ impl BattleCatsApp {
                     enemies: &self.enemy_state.data.enemies,
                 };
 
-                self.editor.update_animator(msg, feed).map(Message::Editor)
+                let task = self.editor.update_animator(msg, feed).map(Message::Editor);
+
+                match self.editor.take_animation_handoff() {
+                    Some((Page::Cats, clip)) => self.cat_state.select_animation(&clip),
+                    Some((Page::Enemies, clip)) => self.enemy_state.select_animation(&clip),
+                    _ => {}
+                }
+
+                task
             }
             Message::Editor(msg) => self.editor.update(msg, &self.vault.vfs).map(Message::Editor),
             Message::Settings(msg) => {

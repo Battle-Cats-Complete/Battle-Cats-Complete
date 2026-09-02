@@ -3,11 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use iced::alignment::Vertical;
-use iced::widget::{button, column, container, row, rule, scrollable, space, stack, text, text_input, Column, Space};
+use iced::alignment::{Horizontal, Vertical};
+use iced::widget::{button, column, container, pick_list, row, rule, scrollable, space, stack, text, text_input, Column, Space};
 use iced::widget::responsive;
-use iced::{widget, Element, Font, Length, Padding, Size, Task, Theme};
-use tracing::warn;
+use iced::{widget, Color, Element, Font, Length, Padding, Size, Task, Theme};
+use tracing::{info, warn};
 
 use kore::common::architecture;
 use kore::common::preview::{self, Stamp};
@@ -17,39 +17,44 @@ use kore::domains::enemy::animation as enemy_animation;
 use kore::domains::enemy::scanner::EnemyEntry;
 use kore::domains::mods;
 use kore::domains::settings::{AnimSettings, Settings};
-use kore::systems::animation::authoring::{ease_label, kind_label, loop_label, Maanim};
+use kore::systems::animation::authoring::{ease_label, ease_value, kind_label, loop_label, Maanim, EASES};
 use kore::systems::animation::ClipSet;
-use nyanko::graphics::rig::{Model, ModelPart, Rig};
+use nyanko::graphics::rig::{Keyframe, Model, ModelPart, Rig};
+use nyanko::graphics::tools::timeline;
 use kore::Vfs;
 
 use crate::app::state::AnimState;
 use crate::app::{theme, Page};
-use crate::systems::animation as viewer;
+use crate::systems::animation::{self as viewer, controls};
+use crate::common::feedback::Slot;
+use crate::common::glyphs;
 use crate::common::row_window::{self, RowWindow};
 use crate::widget::{list_row, popup, smooth_scroll};
 
-const PANEL_WIDTH: f32 = 296.0;
-const STRIP_HEIGHT: f32 = 178.0;
-const PANEL_PADDING: f32 = 10.0;
-const PANEL_TITLE_SIZE: f32 = 16.0;
-const BODY_PADDING: f32 = 10.0;
-const GAP: f32 = 8.0;
-const ROW_GAP: f32 = 4.0;
+const PANEL_WIDTH: f32 = 372.0;
+const PANEL_PADDING: f32 = 6.0;
+const PANEL_TITLE_SIZE: f32 = 14.0;
+const BODY_PADDING: f32 = 6.0;
+const GAP: f32 = 6.0;
+const ROW_GAP: f32 = 3.0;
 
 const CLOSE_LABEL: &str = "\u{00d7}";
+const CONFIRM_MARK: &str = "?";
+const REVERT_LABEL: &str = "Sync \"game\"";
+const REVERT_ARMED: &str = "Continue?";
 const CLOSE_TEXT_SIZE: f32 = 24.0;
 
 const LABEL_SIZE: f32 = 12.0;
 const CELL_SIZE: f32 = 12.0;
-const CELL_PADDING: f32 = 4.0;
-const INDEX_WIDTH: f32 = 26.0;
+const CELL_PADDING: f32 = 3.0;
+const INDEX_WIDTH: f32 = 22.0;
 const ROW_HEIGHT: f32 = 21.0;
 const ROW_SPACING: f32 = 0.0;
 const ROW_PADDING: f32 = 6.0;
 const INDENT: f32 = 11.0;
 
 const TREE_TEXT_SIZE: f32 = 11.0;
-const CHAR_WIDTH: f32 = TREE_TEXT_SIZE * 0.65;
+const CHAR_WIDTH: f32 = TREE_TEXT_SIZE * 0.6;
 
 const MARKER_SIZE: f32 = 18.0;
 const MARKER_LINE_HEIGHT: f32 = ROW_HEIGHT / MARKER_SIZE;
@@ -57,31 +62,41 @@ const MARKER_WIDTH: f32 = 14.0;
 
 const SCROLLBAR_WIDTH: f32 = 6.0;
 const SCROLLBAR_MARGIN: f32 = 2.0;
-const SCROLLBAR_ALLOWANCE: f32 = 14.0;
+const SCROLLBAR_ALLOWANCE: f32 = SCROLLBAR_WIDTH + SCROLLBAR_MARGIN * 2.0;
 const SCROLL_TAIL: f32 = 14.0;
-const KEY_ROW_HEIGHT: f32 = 26.0;
+const KEY_ROW_HEIGHT: f32 = 44.0;
+const KEY_ROW_PAD: f32 = 3.0;
+const KEY_ROW_INSET: f32 = 2.0;
+
+const PLAYING_TICK: std::time::Duration = std::time::Duration::from_millis(16);
+const RESTING_TICK: std::time::Duration = std::time::Duration::from_millis(200);
+const KEY_HEAD_HEIGHT: f32 = 19.0;
+const DEBUG_WIDTH: f32 = 104.0;
 
 const FOLDER_OPEN: &str = "\u{25be}";
 const FOLDER_SHUT: &str = "\u{25b8}";
-const EASE_WIDTH: f32 = 66.0;
-const DROP_WIDTH: f32 = 20.0;
-const FACT_LABEL: f32 = 72.0;
+const EASE_WIDTH: f32 = 86.0;
+const DROP_WIDTH: f32 = 18.0;
+const STEP_WIDTH: f32 = 44.0;
+const ACTIVE_TINT: f32 = 0.68;
+const FACT_ROW_HEIGHT: f32 = 20.0;
+const FACT_ROW_PAD: f32 = 4.0;
+const FACT_LABEL: f32 = 62.0;
 const LOOP_WIDTH: f32 = 56.0;
+const LOOP_CARD_PAD: f32 = 3.0;
+const LOOP_DEFAULT: i32 = 1;
+const LOOP_HINT: &str = "1";
+const CELL_HINT: &str = "0";
 
 const LOADING_NOTICE: &str = "Loading animation\u{2026}";
-const NO_CLIP_NOTICE: &str = "Select an animation in the viewer to edit its curves.";
+const NO_CLIP_NOTICE: &str = "This clip has no curves to edit.";
 const UNREADABLE_NOTICE: &str = "This animation could not be read.";
 const EMPTY_TRACK_NOTICE: &str = "This curve holds no keyframes.";
 const WRITE_FAILED_NOTICE: &str = "The last change could not be saved.";
-const NEVER_DRAWN_NOTICE: &str = "The engine never draws this part, so edits to it will not show.";
-const NO_SPRITE_NOTICE: &str = "This part has no sprite, so the engine never draws it.";
-const TRANSPARENT_NOTICE: &str = "Transparent at rest. It stays invisible until an Opacity curve raises it.";
-const FLAT_NOTICE: &str = "Zero scale at rest. It stays invisible until a Scale curve grows it.";
+const NO_PART_NOTICE: &str = "This curve drives a part the model does not declare.";
 const LOOSE_LABEL: &str = "Curves with no declared part";
 const BARREN_LABEL: &str = "No children or curves";
-const NOT_DRAWN_MARK: &str = "not drawn";
 const SHADOWED_MARK: &str = "overridden";
-const NO_PART_NOTICE: &str = "This curve drives a part the model does not declare.";
 
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(0);
 
@@ -109,16 +124,20 @@ pub enum Lens {
     Rig,
     Selected,
     Hierarchy,
+    Origin,
+    World,
 }
 
 impl Lens {
-    const ALL: [Lens; 3] = [Lens::Rig, Lens::Selected, Lens::Hierarchy];
+    const ALL: [Lens; 5] = [Lens::Rig, Lens::Selected, Lens::Hierarchy, Lens::Origin, Lens::World];
 
     fn label(self) -> &'static str {
         match self {
             Lens::Rig => "Rig",
             Lens::Selected => "Selected",
             Lens::Hierarchy => "Hierarchy",
+            Lens::Origin => "Origin",
+            Lens::World => "World",
         }
     }
 
@@ -127,6 +146,8 @@ impl Lens {
             Lens::Rig => &mut anim.show_rig,
             Lens::Selected => &mut anim.show_selected,
             Lens::Hierarchy => &mut anim.show_hierarchy,
+            Lens::Origin => &mut anim.show_origin,
+            Lens::World => &mut anim.show_world,
         }
     }
 
@@ -135,6 +156,8 @@ impl Lens {
             Lens::Rig => anim.show_rig,
             Lens::Selected => anim.show_selected,
             Lens::Hierarchy => anim.show_hierarchy,
+            Lens::Origin => anim.show_origin,
+            Lens::World => anim.show_world,
         }
     }
 }
@@ -149,6 +172,7 @@ pub enum Field {
 
 impl Field {
     const ALL: [Field; 4] = [Field::Frame, Field::Value, Field::Ease, Field::Power];
+    const TYPED: [Field; 3] = [Field::Frame, Field::Value, Field::Power];
 
     fn label(self) -> &'static str {
         match self {
@@ -161,6 +185,10 @@ impl Field {
 
     fn slot(self) -> usize {
         self as usize
+    }
+
+    fn default(self) -> i32 {
+        0
     }
 }
 
@@ -193,7 +221,13 @@ pub enum Message {
     LoopChanged(String),
     AddKey,
     DropKey(usize),
+    Seek(usize),
+    Bound(usize),
+    EaseChanged(usize, i32),
+    DropExpired,
+    RevertExpired,
     Overlay(Lens),
+    Locate,
     Persisted(u64, PathBuf, Option<Stamp>),
 }
 
@@ -225,6 +259,7 @@ impl Feed<'_> {
 #[derive(Default)]
 pub(super) struct State {
     session: Option<Session>,
+    handoff: Option<(Page, String)>,
 }
 
 struct Session {
@@ -235,16 +270,20 @@ struct Session {
     expanded: HashSet<usize>,
     rows: Vec<TreeRow>,
     widest: f32,
+    seeded: bool,
     listed_rig: bool,
     scroll: f32,
     scroll_id: widget::Id,
     strip_scroll: f32,
     strip_id: widget::Id,
+    confirm: Slot<usize>,
+    revert: Slot<()>,
     primed: bool,
 }
 
 impl State {
     pub(super) fn begin(&mut self, plan: Plan) {
+        self.handoff = None;
         self.session = Some(Session {
             plan,
             viewer: viewer::State::with_popup(popup::Kind::Animator),
@@ -253,11 +292,14 @@ impl State {
             expanded: HashSet::new(),
             rows: Vec::new(),
             widest: 0.0,
+            seeded: false,
             listed_rig: false,
             scroll: 0.0,
             scroll_id: widget::Id::unique(),
             strip_scroll: 0.0,
             strip_id: widget::Id::unique(),
+            confirm: Slot::default(),
+            revert: Slot::default(),
             primed: false,
         });
     }
@@ -266,8 +308,15 @@ impl State {
         self.session.is_some()
     }
 
-    pub(super) fn page(&self) -> Option<Page> {
-        self.session.as_ref().map(|session| session.plan.subject.page())
+    pub(super) fn take_handoff(&mut self) -> Option<(Page, String)> {
+        self.handoff.take()
+    }
+
+    pub(super) fn pace(&self) -> Option<std::time::Duration> {
+        let session = self.session.as_ref()?;
+        let live = session.viewer.playing() || session.draft.as_ref().is_some_and(Draft::busy);
+
+        Some(if live { PLAYING_TICK } else { RESTING_TICK })
     }
 
     pub(super) fn flush_now(&mut self, vfs: &Vfs) {
@@ -289,6 +338,10 @@ impl State {
                     draft.persist_now(feed.vfs);
                 }
 
+                self.handoff = session
+                    .viewer
+                    .selected_label()
+                    .map(|label| (session.plan.subject.page(), label));
                 self.session = None;
 
                 Task::none()
@@ -301,6 +354,20 @@ impl State {
                     session.draft.as_mut().map_or_else(Task::none, |draft| draft.persist_if_dirty(feed.vfs));
 
                 Task::batch([priming, flush])
+            }
+            Message::Viewer(viewer::Message::Controls(controls::Message::OpenExport)) => {
+                if !session.revert.take(&()) {
+                    return session.revert.set((), Message::RevertExpired);
+                }
+
+                session.restore();
+
+                Task::none()
+            }
+            Message::RevertExpired => {
+                session.revert.expire();
+
+                Task::none()
             }
             Message::Viewer(msg) => {
                 session.viewer.update(msg, feed.settings, feed.anim).map(Message::Viewer)
@@ -340,6 +407,11 @@ impl State {
 
                 Task::none()
             }
+            Message::Locate => {
+                session.viewer.locate();
+
+                Task::none()
+            }
             Message::Overlay(lens) => {
                 let flag = lens.of(&mut feed.settings.animation);
                 *flag = !*flag;
@@ -364,12 +436,44 @@ impl State {
 
                 draft.persist_if_dirty(feed.vfs)
             }
+            Message::Seek(at) => {
+                if let Some(frame) = session.draft.as_ref().and_then(|draft| draft.key_at(at)) {
+                    session.viewer.seek(frame as f32);
+                }
+
+                Task::none()
+            }
+            Message::Bound(at) => {
+                if let Some((start, end)) = session.draft.as_ref().and_then(|draft| draft.key_span(at)) {
+                    session.viewer.bound(start as f32, end as f32);
+                }
+
+                Task::none()
+            }
             Message::DropKey(at) => {
+                if !session.confirm.take(&at) {
+                    return session.confirm.set(at, Message::DropExpired);
+                }
+
                 let Some(draft) = session.draft.as_mut() else {
                     return Task::none();
                 };
 
                 draft.drop_key(at);
+
+                draft.persist_if_dirty(feed.vfs)
+            }
+            Message::DropExpired => {
+                session.confirm.expire();
+
+                Task::none()
+            }
+            Message::EaseChanged(at, ease) => {
+                let Some(draft) = session.draft.as_mut() else {
+                    return Task::none();
+                };
+
+                draft.set_ease(at, ease);
 
                 draft.persist_if_dirty(feed.vfs)
             }
@@ -440,6 +544,8 @@ impl Session {
                 self.relist();
             }
 
+            self.arm();
+
             return priming;
         }
 
@@ -449,20 +555,70 @@ impl Session {
             .and_then(|anim| Draft::load(anim, self.plan.target_mod.as_deref(), feed.vfs));
 
         self.aim();
+        self.arm();
         self.relist();
 
         priming
     }
 
     fn relist(&mut self) {
-        let listed = match self.draft.as_ref() {
-            Some(draft) => listing(&draft.doc, self.viewer.rig().map(|rig| &rig.model), &self.expanded),
-            None => Vec::new(),
-        };
+        self.seed();
+
+        let listed =
+            listing(self.draft.as_ref().map(|draft| &draft.doc), self.viewer.rig().map(|rig| &rig.model), &self.expanded);
 
         self.listed_rig = self.viewer.rig().is_some();
         self.widest = listed.iter().map(TreeRow::span).fold(0.0, f32::max);
         self.rows = listed;
+    }
+
+    fn seed(&mut self) {
+        if self.seeded {
+            return;
+        }
+
+        let Some(model) = self.viewer.rig().map(|rig| &rig.model) else {
+            return;
+        };
+
+        self.seeded = true;
+
+        if let [only] = roots(model).as_slice() {
+            self.expanded.insert(*only);
+        }
+    }
+
+    fn restore(&mut self) {
+        let Some(draft) = self.draft.as_ref() else {
+            return;
+        };
+
+        let (Some(name), file, game) = (draft.target_mod.clone(), draft.file.clone(), draft.game.clone())
+        else {
+            return;
+        };
+
+        match mods::place(&name, &game, &file) {
+            Ok(path) => {
+                info!(path = %path.display(), "Animation editor restored a file from game");
+
+                self.opened = None;
+                self.draft = None;
+                self.viewer.invalidate_paths();
+            }
+            Err(err) => warn!(file, "Animation editor could not restore the file from game: {}", err),
+        }
+    }
+
+    fn arm(&mut self) {
+        let revertable = self
+            .draft
+            .as_ref()
+            .is_some_and(|draft| draft.target_mod.is_some() && draft.read_from != draft.game);
+
+        let label = if self.revert.is_set() { REVERT_ARMED } else { REVERT_LABEL };
+
+        self.viewer.set_action(Some(viewer::Action { label, danger: true, enabled: revertable }));
     }
 
     fn aim(&mut self) {
@@ -485,7 +641,8 @@ impl Session {
 
         let stage = container(showing).width(Length::Fill).height(Length::Fill);
 
-        let body = row![self.side(settings), column![stage, self.strip()].spacing(GAP)].spacing(GAP);
+        let body =
+            row![self.side(), column![stage, self.strip(settings)].spacing(GAP)].spacing(GAP);
 
         let content = container(body)
             .width(Length::Fill)
@@ -505,21 +662,11 @@ impl Session {
         layers.into()
     }
 
-    fn side<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
-        let toggle = outlines_row(&settings.animation);
+    fn side(&self) -> Element<'_, Message> {
+        let title = self.draft.as_ref().map_or(self.plan.key.as_str(), |draft| draft.file.as_str());
+        let body = column![self.tree(), self.keys()].spacing(GAP).height(Length::Fill);
 
-        let Some(draft) = self.draft.as_ref() else {
-            let body =
-                column![toggle, text(self.vacancy()).size(LABEL_SIZE)].spacing(GAP).height(Length::Fill);
-
-            return panel_frame(body.into(), &self.plan.key);
-        };
-
-        let body = column![toggle, self.tree(), draft.inspector(self.viewer.rig())]
-            .spacing(GAP)
-            .height(Length::Fill);
-
-        panel_frame(body.into(), &draft.file)
+        panel_frame(body.into(), title)
     }
 
     fn tree(&self) -> Element<'_, Message> {
@@ -578,74 +725,131 @@ impl Session {
         .into()
     }
 
-    fn strip(&self) -> Element<'_, Message> {
-        let Some(draft) = self.draft.as_ref() else {
-            return Space::new().height(Length::Fixed(0.0)).into();
+    fn strip<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
+        let rows: Element<'_, Message> = match self.draft.as_ref() {
+            Some(draft) => draft.inspector(self.viewer.rig()),
+            None => Space::new().width(Length::Fill).into(),
         };
+
+        let facts: Element<'_, Message> = column![fact_header(), rows].width(Length::Fill).into();
+
+        let body = row![facts, self.actions(), outlines_row(&settings.animation)].spacing(GAP);
+
+        container(body).width(Length::Fill).into()
+    }
+
+    fn actions(&self) -> Element<'_, Message> {
+        let ready = self.viewer.locatable();
+        let locate = button(theme::centered_text("Locate").size(LABEL_SIZE).width(Length::Fill))
+            .width(Length::Fill)
+            .padding([1, 4])
+            .on_press_maybe(ready.then_some(Message::Locate))
+            .style(move |theme: &Theme, status| theme::toggle_button(theme, status, ready));
+
+        column![
+            panel_head("Action"),
+            container(locate)
+                .height(Length::Fixed(FACT_ROW_HEIGHT))
+                .align_y(Vertical::Center)
+                .padding([0, 3])
+                .style(|theme: &Theme| theme::zebra_table_row(theme, 0)),
+        ]
+        .width(Length::Fixed(DEBUG_WIDTH))
+        .into()
+    }
+
+    fn keys(&self) -> Element<'_, Message> {
+        let draft = self.draft.as_ref();
 
         let add = button(theme::button_label("Add Keyframe").size(LABEL_SIZE))
             .width(Length::Fill)
             .padding([3, 6])
-            .on_press(Message::AddKey)
+            .on_press_maybe(draft.map(|_| Message::AddKey))
             .style(theme::primary_button);
 
-        if draft.inputs.is_empty() {
-            let body = column![text(EMPTY_TRACK_NOTICE).size(LABEL_SIZE), add].spacing(ROW_GAP);
+        let active = draft
+            .and_then(|draft| draft.doc.track(draft.track))
+            .and_then(|track| timeline::playhead(track, self.viewer.frame()))
+            .map(|playhead| playhead.key);
 
-            return container(body).width(Length::Fill).padding(PANEL_PADDING).into();
-        }
-
-        let table = column![keys_header(), responsive(move |size: Size| self.view_keys(draft, size))]
-            .spacing(ROW_GAP)
-            .height(Length::Fill);
-
-        let notice: Element<'_, Message> = match draft.failed {
+        let notice: Element<'_, Message> = match draft.is_some_and(|draft| draft.failed) {
             true => text(WRITE_FAILED_NOTICE).size(LABEL_SIZE).style(text::danger).into(),
             false => Space::new().height(Length::Fixed(0.0)).into(),
         };
 
-        container(column![notice, table, add].spacing(ROW_GAP))
-            .width(Length::Fill)
-            .height(Length::Fixed(STRIP_HEIGHT))
-            .padding(PANEL_PADDING)
-            .into()
+        let table = container(
+            container(responsive(move |size: Size| self.view_keys(size, active)))
+                .padding(theme::CONSOLE_BORDER_WIDTH),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(theme::mock_console_container);
+
+        let footer: Element<'_, Message> = match draft {
+            Some(draft) => row![draft.looping(), add].spacing(GAP).align_y(Vertical::Center).into(),
+            None => add.into(),
+        };
+
+        column![notice, table, footer].spacing(ROW_GAP).height(Length::Fill).into()
     }
 
-    fn view_keys<'a>(&'a self, draft: &'a Draft, size: Size) -> Element<'a, Message> {
-        let RowWindow { range, pad_before, pad_after } = row_window::compute_with(
-            draft.inputs.len(),
-            size.height,
-            self.strip_scroll,
-            KEY_ROW_HEIGHT,
-            ROW_GAP,
-        );
+    fn view_keys(&self, size: Size, active: Option<usize>) -> Element<'_, Message> {
+        let draft = self.draft.as_ref();
+        let rows = draft.map_or(0, |draft| draft.inputs.len());
+        let body = (size.height - KEY_HEAD_HEIGHT).max(0.0);
+        let spans = rows as f32 * KEY_ROW_HEIGHT;
+        let tail = if spans > body { SCROLLBAR_ALLOWANCE } else { 0.0 };
 
-        let mut list = Column::with_capacity(range.len() + 2).spacing(ROW_GAP);
+        let RowWindow { range, pad_before, pad_after } =
+            row_window::compute_with(rows, body, self.strip_scroll, KEY_ROW_HEIGHT, 0.0);
+
+        let width = (size.width - tail).max(0.0);
+        let mut list = Column::with_capacity(range.len() + 2).width(Length::Fixed(width));
 
         if pad_before > 0.0 {
             list = list.push(space().height(Length::Fixed(pad_before)));
         }
 
         for at in range {
-            list = list.push(draft.key_row(at));
+            if let Some(draft) = draft {
+                let armed = self.confirm.armed_for(&at);
+
+                list = list.push(draft.key_row(at, active == Some(at), at, armed, width));
+            }
         }
 
         if pad_after > 0.0 {
             list = list.push(space().height(Length::Fixed(pad_after)));
         }
 
-        smooth_scroll(
+        if rows == 0 {
+            let blank = container(theme::centered_text(self.vacancy()).size(LABEL_SIZE))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill);
+
+            return column![keys_header(0.0), blank].width(Length::Fill).height(Length::Fill).into();
+        }
+
+        let scrolled = smooth_scroll(
             scrollable(list)
                 .id(self.strip_id.clone())
+                .direction(scrollable::Direction::Vertical(bar()))
                 .on_scroll(|viewport| Message::StripScrolled(viewport.absolute_offset().y))
                 .width(Length::Fill)
                 .height(Length::Fill),
-        )
-        .into()
+        );
+
+        column![keys_header(tail), scrolled].width(Length::Fill).height(Length::Fill).into()
     }
 
     fn vacancy(&self) -> &'static str {
-        if self.opened.is_some() { UNREADABLE_NOTICE } else { NO_CLIP_NOTICE }
+        match (self.draft.is_some(), self.opened.is_some()) {
+            (true, _) => EMPTY_TRACK_NOTICE,
+            (false, true) => UNREADABLE_NOTICE,
+            (false, false) => NO_CLIP_NOTICE,
+        }
     }
 }
 
@@ -665,7 +869,7 @@ impl TreeRow {
         ROW_PADDING * 2.0
             + MARKER_WIDTH
             + INDENT * f32::from(self.depth)
-            + CHAR_WIDTH * self.label.chars().count() as f32
+            + CHAR_WIDTH * glyphs::columns(&self.label)
     }
 
     fn view(&self, index: usize, picked: Option<usize>, width: f32) -> Element<'_, Message> {
@@ -705,21 +909,36 @@ impl TreeRow {
     }
 }
 
-fn keys_header<'a>() -> Element<'a, Message> {
-    Field::ALL
+fn keys_header<'a>(tail: f32) -> Element<'a, Message> {
+    let row = Field::TYPED
         .iter()
         .fold(
-            row![Space::new().width(Length::Fixed(INDEX_WIDTH))].spacing(ROW_GAP),
+            row![theme::centered_text("#").size(LABEL_SIZE).width(Length::Fixed(INDEX_WIDTH))].spacing(ROW_GAP),
             |header, field| header.push(theme::centered_text(field.label()).size(LABEL_SIZE).width(Length::Fill)),
         )
         .push(theme::centered_text("Curve").size(LABEL_SIZE).width(Length::Fixed(EASE_WIDTH)))
-        .push(Space::new().width(Length::Fixed(DROP_WIDTH)))
+        .push(theme::centered_text("Action").size(LABEL_SIZE).width(Length::Fixed(STEP_WIDTH)))
+        .push(theme::centered_text(CLOSE_LABEL).size(CELL_SIZE).width(Length::Fixed(DROP_WIDTH)));
+
+    let inset = Padding { top: 0.0, right: KEY_ROW_INSET + tail, bottom: 0.0, left: KEY_ROW_INSET };
+
+    container(row.width(Length::Fill))
+        .width(Length::Fill)
+        .height(Length::Fixed(KEY_HEAD_HEIGHT))
+        .align_y(Vertical::Center)
+        .padding(inset)
+        .style(theme::zebra_table_header)
         .into()
 }
 
-fn both_ways() -> scrollable::Direction {
-    let bar = || scrollable::Scrollbar::new().width(SCROLLBAR_WIDTH).margin(SCROLLBAR_MARGIN);
+fn bar() -> scrollable::Scrollbar {
+    scrollable::Scrollbar::new()
+        .width(SCROLLBAR_WIDTH)
+        .scroller_width(SCROLLBAR_WIDTH)
+        .margin(SCROLLBAR_MARGIN)
+}
 
+fn both_ways() -> scrollable::Direction {
     scrollable::Direction::Both { vertical: bar(), horizontal: bar() }
 }
 
@@ -761,8 +980,8 @@ fn part_label(model: &Model, at: usize) -> String {
         name => format!("Part {} \u{00b7} {}", at, name),
     };
 
-    if hidden(declared).is_some() {
-        label.push_str(&format!(" \u{00b7} {}", NOT_DRAWN_MARK));
+    if let Some(mark) = hidden(declared) {
+        label.push_str(&format!(" \u{00b7} {}", mark));
     }
 
     label
@@ -772,10 +991,14 @@ fn leaf(label: String, depth: u16, track: Option<usize>, warn: bool) -> TreeRow 
     TreeRow { label, depth, mark: "", part: None, track, warn, inert: false }
 }
 
-fn listing(doc: &Maanim, model: Option<&Model>, expanded: &HashSet<usize>) -> Vec<TreeRow> {
+fn listing(doc: Option<&Maanim>, model: Option<&Model>, expanded: &HashSet<usize>) -> Vec<TreeRow> {
+    let tracks = doc.map_or(0, |doc| doc.tracks().len());
+
     let Some(model) = model else {
-        return (0..doc.tracks().len())
-            .filter_map(|at| curve_label(doc, at).map(|(label, warn)| leaf(label, 0, Some(at), warn)))
+        return (0..tracks)
+            .filter_map(|at| doc.and_then(|doc| curve_label(doc, at)))
+            .enumerate()
+            .map(|(at, (label, warn))| leaf(label, 0, Some(at), warn))
             .collect();
     };
 
@@ -783,8 +1006,10 @@ fn listing(doc: &Maanim, model: Option<&Model>, expanded: &HashSet<usize>) -> Ve
     let count = model.parts.len();
 
     for (part, depth) in rows(model, expanded) {
-        let curves: Vec<usize> = (0..doc.tracks().len())
-            .filter(|at| doc.track(*at).is_some_and(|track| usize::try_from(track.part) == Ok(part)))
+        let curves: Vec<usize> = (0..tracks)
+            .filter(|at| {
+                doc.and_then(|doc| doc.track(*at)).is_some_and(|track| usize::try_from(track.part) == Ok(part))
+            })
             .collect();
 
         let open = expanded.contains(&part);
@@ -817,21 +1042,24 @@ fn listing(doc: &Maanim, model: Option<&Model>, expanded: &HashSet<usize>) -> Ve
         }
 
         for at in curves {
-            if let Some((label, warn)) = curve_label(doc, at) {
+            if let Some((label, warn)) = doc.and_then(|doc| curve_label(doc, at)) {
                 listed.push(leaf(label, depth + 1, Some(at), warn));
             }
         }
     }
 
-    let loose: Vec<usize> = (0..doc.tracks().len())
-        .filter(|at| doc.track(*at).is_none_or(|track| !usize::try_from(track.part).is_ok_and(|part| part < count)))
+    let loose: Vec<usize> = (0..tracks)
+        .filter(|at| {
+            doc.and_then(|doc| doc.track(*at))
+                .is_none_or(|track| !usize::try_from(track.part).is_ok_and(|part| part < count))
+        })
         .collect();
 
     if !loose.is_empty() {
         listed.push(leaf(LOOSE_LABEL.to_string(), 0, None, true));
 
         for at in loose {
-            if let Some((label, warn)) = curve_label(doc, at) {
+            if let Some((label, warn)) = doc.and_then(|doc| curve_label(doc, at)) {
                 listed.push(leaf(label, 1, Some(at), warn));
             }
         }
@@ -840,7 +1068,7 @@ fn listing(doc: &Maanim, model: Option<&Model>, expanded: &HashSet<usize>) -> Ve
     listed
 }
 
-fn rows(model: &Model, expanded: &HashSet<usize>) -> Vec<(usize, usize)> {
+fn lineage(model: &Model) -> (Vec<Vec<usize>>, Vec<usize>) {
     let count = model.parts.len();
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); count];
     let mut roots = Vec::new();
@@ -853,6 +1081,17 @@ fn rows(model: &Model, expanded: &HashSet<usize>) -> Vec<(usize, usize)> {
             None => roots.push(at),
         }
     }
+
+    (children, roots)
+}
+
+fn roots(model: &Model) -> Vec<usize> {
+    lineage(model).1
+}
+
+fn rows(model: &Model, expanded: &HashSet<usize>) -> Vec<(usize, usize)> {
+    let count = model.parts.len();
+    let (children, roots) = lineage(model);
 
     let mut listed = Vec::with_capacity(count);
     let mut seen = vec![false; count];
@@ -896,22 +1135,41 @@ fn descend(
 
 fn hidden(part: &ModelPart) -> Option<&'static str> {
     if part.id < 0 {
-        return Some(NEVER_DRAWN_NOTICE);
+        return Some("not drawn");
     }
 
     if part.sprite < 0 {
-        return Some(NO_SPRITE_NOTICE);
+        return Some("no sprite");
     }
 
     if part.opacity == 0 {
-        return Some(TRANSPARENT_NOTICE);
+        return Some("transparent");
     }
 
     if part.scale_x == 0 || part.scale_y == 0 {
-        return Some(FLAT_NOTICE);
+        return Some("no scale");
     }
 
     None
+}
+
+fn fact<'a>(label: &'a str, value: Element<'a, Message>, stripe: usize) -> Element<'a, Message> {
+    let body = row![text(label).size(LABEL_SIZE).width(Length::Fixed(FACT_LABEL)), value]
+        .spacing(ROW_GAP)
+        .align_y(Vertical::Center);
+
+    container(body)
+        .width(Length::Fill)
+        .padding([FACT_ROW_PAD, 6.0])
+        .style(move |theme: &Theme| theme::zebra_table_row(theme, stripe))
+        .into()
+}
+
+fn span_of(keys: &[Keyframe], at: usize) -> Option<(i32, i32)> {
+    let here = keys.get(at)?.frame;
+    let end = keys.get(at + 1).map_or(here, |next| next.frame.saturating_sub(1).max(here));
+
+    Some((here, end))
 }
 
 fn bears(model: &Model, part: usize) -> bool {
@@ -920,31 +1178,48 @@ fn bears(model: &Model, part: usize) -> bool {
     model.parts.iter().enumerate().any(|(at, other)| at != part && Some(other.parent) == wanted)
 }
 
-fn outlines_row(anim: &AnimSettings) -> Element<'_, Message> {
-    Lens::ALL
-        .iter()
-        .fold(row![].spacing(ROW_GAP), |listed, lens| {
-            let on = lens.on(anim);
-
-            listed.push(
-                button(theme::centered_text(lens.label()).size(LABEL_SIZE).width(Length::Fill))
-                    .width(Length::Fill)
-                    .padding([3, 4])
-                    .on_press(Message::Overlay(*lens))
-                    .style(move |theme: &Theme, status| theme::toggle_button(theme, status, on)),
-            )
-        })
+fn fact_header<'a>() -> Element<'a, Message> {
+    container(theme::centered_text("Model").size(LABEL_SIZE).width(Length::Fill))
+        .width(Length::Fill)
+        .height(Length::Fixed(KEY_HEAD_HEIGHT))
+        .align_y(Vertical::Center)
+        .style(theme::zebra_table_header)
         .into()
 }
 
-fn fact<'a>(label: &'a str, value: String) -> Element<'a, Message> {
-    row![
-        text(label).size(LABEL_SIZE).width(Length::Fixed(FACT_LABEL)),
-        text(value).size(LABEL_SIZE),
-    ]
-    .spacing(ROW_GAP)
-    .align_y(Vertical::Center)
-    .into()
+fn panel_head<'a>(label: &'a str) -> Element<'a, Message> {
+    container(theme::centered_text(label).size(LABEL_SIZE).width(Length::Fill))
+        .height(Length::Fixed(KEY_HEAD_HEIGHT))
+        .align_y(Vertical::Center)
+        .style(theme::zebra_table_header)
+        .into()
+}
+
+fn outlines_row(anim: &AnimSettings) -> Element<'_, Message> {
+    let header = panel_head("Debug");
+
+    Lens::ALL
+        .iter()
+        .enumerate()
+        .fold(column![header], |listed, (stripe, lens)| {
+            let on = lens.on(anim);
+
+            let toggle = button(theme::centered_text(lens.label()).size(LABEL_SIZE).width(Length::Fill))
+                .width(Length::Fill)
+                .padding([1, 4])
+                .on_press(Message::Overlay(*lens))
+                .style(move |theme: &Theme, status| theme::toggle_button(theme, status, on));
+
+            listed.push(
+                container(toggle)
+                    .height(Length::Fixed(FACT_ROW_HEIGHT))
+                    .align_y(Vertical::Center)
+                    .padding([0, 3])
+                    .style(move |theme: &Theme| theme::zebra_table_row(theme, stripe)),
+            )
+        })
+        .width(Length::Fixed(DEBUG_WIDTH))
+        .into()
 }
 
 fn panel_frame<'a>(body: Element<'a, Message>, title: &str) -> Element<'a, Message> {
@@ -1052,6 +1327,10 @@ impl Draft {
         Some(draft)
     }
 
+    fn busy(&self) -> bool {
+        self.dirty || self.writing
+    }
+
     fn drifted(&self) -> bool {
         !self.dirty && !self.writing && preview::stamp(&self.read_from) != Some(self.stamp)
     }
@@ -1068,14 +1347,16 @@ impl Draft {
     fn restate(&mut self) {
         let track = self.doc.track(self.track);
 
-        self.looping = track.map_or_else(String::new, |track| track.loop_count.to_string());
+        self.looping = track.map_or_else(String::new, |track| shown(track.loop_count, LOOP_DEFAULT));
         self.inputs = track
             .map(|track| {
                 track
                     .keyframes
                     .iter()
                     .map(|key| {
-                        [key.frame, key.value, key.ease, key.ease_power].map(|cell| cell.to_string())
+                        let cells = [key.frame, key.value, key.ease, key.ease_power];
+
+                        std::array::from_fn(|at| shown(cells[at], Field::ALL[at].default()))
                     })
                     .collect()
             })
@@ -1089,7 +1370,7 @@ impl Draft {
 
         self.looping = value.to_owned();
 
-        let Ok(parsed) = value.parse::<i32>() else {
+        let Some(parsed) = settled(value, LOOP_DEFAULT) else {
             return;
         };
 
@@ -1102,6 +1383,22 @@ impl Draft {
         }
 
         track.loop_count = parsed;
+        self.dirty = true;
+    }
+
+    fn set_ease(&mut self, at: usize, ease: i32) {
+        let track = self.track;
+
+        let Some(key) = self.doc.edit(track).and_then(|track| track.keyframes.get_mut(at)) else {
+            return;
+        };
+
+        if key.ease == ease {
+            return;
+        }
+
+        key.ease = ease;
+        self.restate();
         self.dirty = true;
     }
 
@@ -1123,6 +1420,14 @@ impl Draft {
         self.dirty = true;
     }
 
+    fn key_at(&self, at: usize) -> Option<i32> {
+        Some(self.doc.track(self.track)?.keyframes.get(at)?.frame)
+    }
+
+    fn key_span(&self, at: usize) -> Option<(i32, i32)> {
+        span_of(&self.doc.track(self.track)?.keyframes, at)
+    }
+
     fn part(&self) -> Option<i32> {
         self.doc.track(self.track).map(|track| track.part)
     }
@@ -1138,7 +1443,7 @@ impl Draft {
 
         *slot = value.to_owned();
 
-        let Ok(parsed) = value.parse::<i32>() else {
+        let Some(parsed) = settled(value, field.default()) else {
             return;
         };
 
@@ -1252,10 +1557,50 @@ impl Draft {
     }
 
     fn inspector(&self, rig: Option<&Rig>) -> Element<'_, Message> {
+        let index = self.part();
+        let part = index
+            .and_then(|index| usize::try_from(index).ok())
+            .zip(rig)
+            .and_then(|(at, rig)| rig.model.parts.get(at));
+
+        let named = match (index, part) {
+            (Some(index), Some(part)) => match part.name.trim() {
+                "" => index.to_string(),
+                name => format!("{} \u{00b7} {}", index, name),
+            },
+            (Some(index), None) => format!("{} \u{00b7} {}", index, NO_PART_NOTICE),
+            (None, _) => String::new(),
+        };
+
+        let pair = |left: i32, right: i32| format!("{}, {}", left, right);
+        let facts = [
+            ("Part", named),
+            ("Parent", part.map_or_else(String::new, |part| part.parent.to_string())),
+            ("Sprite", part.map_or_else(String::new, |part| part.sprite.to_string())),
+            ("Z Order", part.map_or_else(String::new, |part| part.z.to_string())),
+            ("Offset", part.map_or_else(String::new, |part| pair(part.x, part.y))),
+            ("Pivot", part.map_or_else(String::new, |part| pair(part.pivot_x, part.pivot_y))),
+            ("Scale", part.map_or_else(String::new, |part| pair(part.scale_x, part.scale_y))),
+            ("Opacity", part.map_or_else(String::new, |part| part.opacity.to_string())),
+        ];
+
+        facts
+            .into_iter()
+            .enumerate()
+            .fold(column![].width(Length::Fill), |listed, (stripe, (label, value))| {
+                let cell = text(value).size(LABEL_SIZE).width(Length::Fill).into();
+
+                listed.push(fact(label, cell, stripe))
+            })
+            .into()
+    }
+
+    fn looping(&self) -> Element<'_, Message> {
         let count = self.doc.track(self.track).map_or(0, |track| track.loop_count);
-        let looping = row![
-            text("Loop").size(LABEL_SIZE).width(Length::Fixed(FACT_LABEL)),
-            text_input("", &self.looping)
+
+        let body = row![
+            text("Loop").size(LABEL_SIZE),
+            text_input(LOOP_HINT, &self.looping)
                 .on_input(Message::LoopChanged)
                 .size(CELL_SIZE)
                 .padding(CELL_PADDING)
@@ -1266,41 +1611,10 @@ impl Draft {
         .spacing(ROW_GAP)
         .align_y(Vertical::Center);
 
-        let Some(index) = self.part() else {
-            return looping.into();
-        };
-
-        let part = usize::try_from(index).ok().zip(rig).and_then(|(at, rig)| rig.model.parts.get(at));
-
-        let Some(part) = part else {
-            return column![looping, text(NO_PART_NOTICE).size(LABEL_SIZE)].spacing(ROW_GAP).into();
-        };
-
-        let named = match part.name.trim() {
-            "" => index.to_string(),
-            name => format!("{} · {}", index, name),
-        };
-
-        let mut facts = column![
-            Element::from(looping),
-            fact("Part", named),
-            fact("Parent", part.parent.to_string()),
-            fact("Sprite", part.sprite.to_string()),
-            fact("Z Order", part.z.to_string()),
-            fact("Offset", format!("{}, {}", part.x, part.y)),
-            fact("Pivot", format!("{}, {}", part.pivot_x, part.pivot_y)),
-            fact("Scale", format!("{}, {}", part.scale_x, part.scale_y)),
-        ]
-        .spacing(ROW_GAP);
-
-        if let Some(reason) = hidden(part) {
-            facts = facts.push(text(reason).size(LABEL_SIZE).style(text::danger));
-        }
-
-        facts.into()
+        container(body).padding([LOOP_CARD_PAD, LOOP_CARD_PAD * 2.0]).style(theme::card_container_primary).into()
     }
 
-    fn key_row(&self, at: usize) -> Element<'_, Message> {
+    fn key_row(&self, at: usize, active: bool, stripe: usize, armed: bool, width: f32) -> Element<'_, Message> {
         let cells = self.inputs.get(at).map_or(&[][..], |row| row.as_slice());
         let ease = self.doc.track(self.track).and_then(|track| track.keyframes.get(at)).map_or(0, |key| key.ease);
 
@@ -1308,30 +1622,80 @@ impl Draft {
             .size(LABEL_SIZE)
             .width(Length::Fixed(INDEX_WIDTH))]
         .spacing(ROW_GAP)
-        .height(Length::Fixed(KEY_ROW_HEIGHT))
+        .width(Length::Fill)
+        .height(Length::Fixed(KEY_ROW_HEIGHT - KEY_ROW_PAD * 2.0))
         .align_y(Vertical::Center);
 
-        for field in Field::ALL {
+        for field in Field::TYPED {
             let value = cells.get(field.slot()).map_or("", String::as_str);
 
             line = line.push(
-                text_input("", value)
+                text_input(CELL_HINT, value)
                     .on_input(move |typed| Message::Changed(at, field, typed))
                     .size(CELL_SIZE)
                     .padding(CELL_PADDING)
+                    .align_x(Horizontal::Center)
                     .width(Length::Fill)
                     .style(theme::rounded_input),
             );
         }
 
-        let drop = button(theme::centered_text(CLOSE_LABEL).size(CELL_SIZE))
+        let curve = pick_list(EASES, Some(ease_label(ease)), move |label| {
+            Message::EaseChanged(at, ease_value(label).unwrap_or(0))
+        })
+        .width(Length::Fixed(EASE_WIDTH))
+        .padding([1, 4])
+        .text_size(LABEL_SIZE)
+        .style(theme::combo_box)
+        .menu_style(theme::combo_box_menu);
+
+        let act = |label, message| {
+            button(theme::centered_text(label).size(LABEL_SIZE).width(Length::Fill))
+                .width(Length::Fixed(STEP_WIDTH))
+                .padding([0, 2])
+                .on_press(message)
+                .style(theme::neutral_button)
+        };
+
+        let actions =
+            column![act("View", Message::Seek(at)), act("Bound", Message::Bound(at))].spacing(2.0);
+
+        let mark = if armed { CONFIRM_MARK } else { CLOSE_LABEL };
+        let drop = button(theme::centered_text(mark).size(CELL_SIZE))
             .width(Length::Fixed(DROP_WIDTH))
             .padding(0)
             .on_press(Message::DropKey(at))
             .style(theme::danger_button);
 
-        line.push(text(ease_label(ease)).size(LABEL_SIZE).width(Length::Fixed(EASE_WIDTH))).push(drop).into()
+        let body = line.push(curve).push(actions).push(drop);
+
+        let inset =
+            Padding { top: KEY_ROW_PAD, right: KEY_ROW_INSET, bottom: KEY_ROW_PAD, left: KEY_ROW_INSET };
+
+        container(body)
+            .width(Length::Fixed(width))
+            .padding(inset)
+            .style(move |theme: &Theme| match active {
+                true => container::Style {
+                    background: Some(Color { a: ACTIVE_TINT, ..theme.palette().primary }.into()),
+                    ..container::Style::default()
+                },
+                false => theme::zebra_table_row(theme, stripe),
+            })
+            .into()
     }
+}
+
+fn shown(value: i32, default: i32) -> String {
+    if value == default { String::new() } else { value.to_string() }
+}
+
+fn settled(value: &str, default: i32) -> Option<i32> {
+    if value.is_empty() {
+        return Some(default);
+    }
+
+    value.parse().ok()
 }
 
 fn typable(value: &str) -> bool {
@@ -1371,10 +1735,40 @@ mod tests {
         Maanim::parse(SAMPLE.as_bytes()).expect("the sample parses")
     }
 
+
+    fn keys(frames: &[i32]) -> Vec<Keyframe> {
+        frames.iter().map(|frame| Keyframe { frame: *frame, ..Keyframe::default() }).collect()
+    }
+
+    #[test]
+    fn a_bound_stops_one_frame_short_of_the_next_key() {
+        // Ending on the next key would play the first frame of the following segment.
+        let keys = keys(&[0, 10, 25]);
+
+        assert_eq!(span_of(&keys, 0), Some((0, 9)));
+        assert_eq!(span_of(&keys, 1), Some((10, 24)));
+    }
+
+    #[test]
+    fn the_last_key_bounds_itself_rather_than_repeating_its_neighbour() {
+        // It used to reach backwards and hand back the previous key's span verbatim.
+        let keys = keys(&[0, 10, 25]);
+
+        assert_eq!(span_of(&keys, 2), Some((25, 25)));
+        assert_ne!(span_of(&keys, 2), span_of(&keys, 1));
+    }
+
+    #[test]
+    fn keys_sharing_a_frame_do_not_invert_the_bound() {
+        let keys = keys(&[4, 4]);
+
+        assert_eq!(span_of(&keys, 0), Some((4, 4)));
+    }
+
     #[test]
     fn a_part_owns_its_curves_and_its_children_sit_beside_them() {
         // Part 0 is the root and part 1 hangs off it, each driven by one curve.
-        let listed = listing(&doc(), Some(&model(&[-1, 0])), &HashSet::from([0, 1]));
+        let listed = listing(Some(&doc()), Some(&model(&[-1, 0])), &HashSet::from([0, 1]));
 
         let shape: Vec<(u16, bool)> =
             listed.iter().map(|row| (row.depth, row.track.is_some())).collect();
@@ -1382,9 +1776,28 @@ mod tests {
         assert_eq!(shape, vec![(0, false), (1, true), (1, false), (2, true)]);
     }
 
+
+    #[test]
+    fn a_clip_with_no_document_still_lists_the_part_tree() {
+        // Selecting the Model leaves no curves, but the hierarchy is still worth browsing.
+        let listed = listing(None, Some(&model(&[-1, 0])), &HashSet::from([0, 1]));
+
+        assert_eq!(listed.len(), 3);
+        assert!(listed.iter().all(|row| row.track.is_none()));
+        assert!(listed.iter().any(|row| row.label == BARREN_LABEL && row.inert));
+    }
+
+
+    #[test]
+    fn a_lone_root_is_worth_opening_but_several_are_not() {
+        // Most units hang everything off part 0, so opening it saves a click every time.
+        assert_eq!(roots(&model(&[-1, 0, 1])), vec![0]);
+        assert_eq!(roots(&model(&[-1, -1, 0])), vec![0, 1]);
+    }
+
     #[test]
     fn a_tree_starts_fully_collapsed() {
-        let listed = listing(&doc(), Some(&model(&[-1, 0])), &HashSet::new());
+        let listed = listing(Some(&doc()), Some(&model(&[-1, 0])), &HashSet::new());
 
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].mark, FOLDER_SHUT);
@@ -1393,7 +1806,7 @@ mod tests {
     #[test]
     fn a_part_with_nothing_under_it_still_opens_onto_a_notice() {
         // Every part folds, so an empty one has to say why rather than doing nothing.
-        let listed = listing(&doc(), Some(&model(&[-1, 0, 1])), &HashSet::from([0, 1, 2]));
+        let listed = listing(Some(&doc()), Some(&model(&[-1, 0, 1])), &HashSet::from([0, 1, 2]));
         let barren = listed.iter().find(|row| row.label == BARREN_LABEL).expect("the notice is listed");
 
         assert!(barren.inert);
@@ -1403,7 +1816,7 @@ mod tests {
     #[test]
     fn a_curve_naming_a_part_the_model_lacks_still_gets_listed() {
         // The engine does not bound check the part index, so the curve has to stay reachable.
-        let listed = listing(&doc(), Some(&model(&[-1])), &HashSet::from([0])); 
+        let listed = listing(Some(&doc()), Some(&model(&[-1])), &HashSet::from([0])); 
 
         assert!(listed.iter().any(|row| row.label == LOOSE_LABEL && row.warn));
         assert_eq!(listed.iter().filter(|row| row.track.is_some()).count(), 2);
@@ -1411,7 +1824,7 @@ mod tests {
 
     #[test]
     fn without_a_model_every_curve_still_lists_flat() {
-        let listed = listing(&doc(), None, &HashSet::new());
+        let listed = listing(Some(&doc()), None, &HashSet::new());
 
         assert_eq!(listed.len(), 2);
         assert!(listed.iter().all(|row| row.depth == 0 && row.track.is_some()));

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use nyanko::graphics::rig::{Animation, Rig};
+use nyanko::graphics::rig::{Animation, BoundingBox, Rig};
 
 use kore::systems::animation::{cycle, loop_frame, playback_frames, Clip, ClipSet, Loop, Role, RAW_OFFSET};
 
@@ -26,6 +26,8 @@ pub struct State {
     loaded_rig: String,
     failed_rig: String,
     loaded_clip: Option<usize>,
+    bounds: Option<BoundingBox>,
+    measured: Option<(String, Option<usize>, Option<usize>)>,
     cache: RigCache,
 }
 
@@ -139,6 +141,28 @@ impl State {
         (&self.loaded_rig, self.selected)
     }
 
+    pub fn bounds(&self) -> Option<BoundingBox> {
+        self.bounds
+    }
+
+    pub fn measure(&mut self, tolerance: f32) {
+        let offset = self.offset();
+        let fresh = self.measured.as_ref().is_some_and(|(rig, clip, row)| {
+            rig == &self.loaded_rig && *clip == self.loaded_clip && *row == offset
+        });
+
+        if fresh {
+            return;
+        }
+
+        self.measured = Some((self.loaded_rig.clone(), self.loaded_clip, offset));
+        self.bounds = self.held_unit.as_ref().and_then(|unit| {
+            let anims: Vec<&Animation> = self.current_anim.as_deref().into_iter().collect();
+
+            unit.calculate_bounds(&anims, tolerance, None, offset)
+        });
+    }
+
     pub fn resolved(&self) -> bool {
         self.held_unit.is_some() || !self.failed_rig.is_empty()
     }
@@ -194,6 +218,8 @@ impl State {
         self.loaded_rig.clear();
         self.failed_rig.clear();
         self.loaded_clip = None;
+        self.bounds = None;
+        self.measured = None;
     }
 
     pub fn sync(&mut self, key: &str, build: impl FnOnce() -> ClipSet) {

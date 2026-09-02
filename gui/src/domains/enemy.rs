@@ -81,6 +81,7 @@ pub enum Message {
     SelectTab(DetailTab),
     ToggleOrigin(bool),
     ToggleParts(bool),
+    ToggleWorld(bool),
     MagnificationChanged(String),
     NavigateAppearances(u32),
     List(list::Message),
@@ -103,6 +104,7 @@ impl std::fmt::Debug for Message {
             Self::SelectTab(t) => write!(f, "SelectTab({:?})", t),
             Self::ToggleOrigin(b) => write!(f, "ToggleOrigin({})", b),
             Self::ToggleParts(b) => write!(f, "ToggleParts({})", b),
+            Self::ToggleWorld(b) => write!(f, "ToggleWorld({})", b),
             Self::MagnificationChanged(s) => write!(f, "MagnificationChanged({})", s),
             Self::NavigateAppearances(id) => write!(f, "NavigateAppearances({})", id),
             Self::List(msg) => write!(f, "List({:?})", msg),
@@ -449,6 +451,10 @@ impl EnemyState {
                 settings.animation.show_rig = val;
                 Task::none()
             }
+            Message::ToggleWorld(val) => {
+                settings.animation.show_world = val;
+                Task::none()
+            }
             Message::MagnificationChanged(input) => {
                 if !typable_magnification(&input) {
                     return Task::none();
@@ -504,6 +510,10 @@ impl EnemyState {
 
     pub(crate) fn animation_clip(&self) -> Option<String> {
         self.animation.selected_label()
+    }
+
+    pub(crate) fn select_animation(&mut self, label: &str) {
+        self.animation.select_label(label);
     }
 
     pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
@@ -695,7 +705,7 @@ impl EnemyState {
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(DETAIL_RULE_GAP)));
                 detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(DETAIL_RULE_HEIGHT)));
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-                detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts));
+                detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts, Message::ToggleWorld));
             }
         }
 

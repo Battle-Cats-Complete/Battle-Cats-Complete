@@ -599,8 +599,12 @@ impl State {
         Message::Animator(animator::Message::Tick)
     }
 
-    pub(crate) fn animating(&self) -> Option<Page> {
-        self.animator.page()
+    pub(crate) fn take_animation_handoff(&mut self) -> Option<(Page, String)> {
+        self.animator.take_handoff()
+    }
+
+    pub(crate) fn animator_pace(&self) -> Option<std::time::Duration> {
+        self.animator.pace()
     }
 
     pub(crate) fn animator_view<'a>(&'a self, app: &'a BattleCatsApp) -> Option<Element<'a, Message>> {

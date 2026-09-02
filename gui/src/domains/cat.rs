@@ -99,6 +99,7 @@ pub enum Message {
     ToggleTalents(bool),
     ToggleOrigin(bool),
     ToggleParts(bool),
+    ToggleWorld(bool),
     List(list::Message),
     Filter(filter::Message),
     Abilities(abilities::Message),
@@ -129,6 +130,7 @@ impl std::fmt::Debug for Message {
             Self::ToggleTalents(b) => write!(f, "ToggleTalents({})", b),
             Self::ToggleOrigin(b) => write!(f, "ToggleOrigin({})", b),
             Self::ToggleParts(b) => write!(f, "ToggleParts({})", b),
+            Self::ToggleWorld(b) => write!(f, "ToggleWorld({})", b),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
             Self::Abilities(msg) => write!(f, "Abilities({:?})", msg),
@@ -640,6 +642,10 @@ impl State {
                 settings.animation.show_rig = val;
                 Task::none()
             }
+            Message::ToggleWorld(val) => {
+                settings.animation.show_world = val;
+                Task::none()
+            }
             Message::ToggleTalents(is_ultra) => {
                 let talent_data = self.selected_cat
                     .and_then(|id| self.data.cats.iter().find(|c| c.id == id))
@@ -716,6 +722,10 @@ impl State {
 
     pub(crate) fn animation_clip(&self) -> Option<String> {
         self.animation.selected_label()
+    }
+
+    pub(crate) fn select_animation(&mut self, label: &str) {
+        self.animation.select_label(label);
     }
 
     pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
@@ -941,7 +951,7 @@ impl State {
             detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
             detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
             detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts));
+            detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts, Message::ToggleWorld));
         }
 
         column![
