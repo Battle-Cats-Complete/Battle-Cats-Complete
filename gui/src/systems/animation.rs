@@ -200,6 +200,8 @@ impl State {
         self.canvas.loop_start = Some(start.min(end));
         self.canvas.loop_end = Some(start.max(end));
         self.controls.set_range(start.min(end), start.max(end));
+
+        controls::clamp_frame(&mut self.canvas, &self.data);
     }
 
     pub fn set_action(&mut self, action: Option<Action>) {

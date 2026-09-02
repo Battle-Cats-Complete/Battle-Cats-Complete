@@ -17,7 +17,7 @@ use kore::domains::enemy::animation as enemy_animation;
 use kore::domains::enemy::scanner::EnemyEntry;
 use kore::domains::mods;
 use kore::domains::settings::{AnimSettings, Settings};
-use kore::systems::animation::authoring::{ease_label, ease_value, kind_label, loop_label, Maanim, EASES};
+use kore::systems::animation::authoring::{self as authoring, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, Maanim, EASES};
 use kore::systems::animation::ClipSet;
 use nyanko::graphics::rig::{Keyframe, Model, ModelPart, Rig};
 use nyanko::graphics::tools::timeline;
@@ -26,6 +26,8 @@ use kore::Vfs;
 use crate::app::state::AnimState;
 use crate::app::{theme, Page};
 use crate::systems::animation::{self as viewer, controls};
+
+use super::{target, Target};
 use crate::common::feedback::Slot;
 use crate::common::glyphs;
 use crate::common::row_window::{self, RowWindow};
@@ -87,6 +89,7 @@ const LOOP_CARD_PAD: f32 = 3.0;
 const LOOP_DEFAULT: i32 = 1;
 const LOOP_HINT: &str = "1";
 const CELL_HINT: &str = "0";
+const BUFFER_MARK: char = '!';
 
 const LOADING_NOTICE: &str = "Loading animation\u{2026}";
 const NO_CLIP_NOTICE: &str = "This clip has no curves to edit.";
@@ -190,6 +193,12 @@ impl Field {
     fn default(self) -> i32 {
         0
     }
+}
+
+pub(super) struct Curves {
+    pub(super) part: usize,
+    pub(super) present: Vec<(i32, usize)>,
+    pub(super) target_mod: Option<String>,
 }
 
 #[derive(Clone)]
@@ -308,6 +317,79 @@ impl State {
         self.session.is_some()
     }
 
+    pub(super) fn curves(&self, part: usize) -> Option<Curves> {
+        let session = self.session.as_ref()?;
+        let draft = session.draft.as_ref()?;
+        let wanted = i32::try_from(part).ok()?;
+
+        let present = draft
+            .doc
+            .tracks()
+            .iter()
+            .enumerate()
+            .filter(|(_, track)| track.part == wanted)
+            .map(|(at, track)| (track.kind, at))
+            .collect();
+
+        Some(Curves { part, present, target_mod: session.plan.target_mod.clone() })
+    }
+
+    pub(super) fn holder(&self, track: usize) -> Option<usize> {
+        let draft = self.session.as_ref()?.draft.as_ref()?;
+
+        usize::try_from(draft.doc.track(track)?.part).ok()
+    }
+
+    pub(super) fn add_curve(&mut self, part: usize, kind: i32) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+
+        let declared = session
+            .viewer
+            .rig()
+            .and_then(|rig| rig.model.parts.get(part))
+            .map(|declared| authoring::resting_curve(part, kind, Some(declared)))
+            .unwrap_or_else(|| authoring::resting_curve(part, kind, None));
+
+        let Some(draft) = session.draft.as_mut() else {
+            return false;
+        };
+
+        let at = draft.doc.tracks().len();
+        draft.doc.insert(at, declared);
+        draft.retrack(at);
+        draft.dirty = true;
+
+        session.aim();
+        session.relist();
+
+        true
+    }
+
+    pub(super) fn drop_curve(&mut self, track: usize) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+
+        let Some(draft) = session.draft.as_mut() else {
+            return false;
+        };
+
+        if draft.doc.remove(track).is_none() {
+            return false;
+        }
+
+        draft.track = draft.track.min(draft.doc.tracks().len().saturating_sub(1));
+        draft.restate();
+        draft.dirty = true;
+
+        session.aim();
+        session.relist();
+
+        true
+    }
+
     pub(super) fn take_handoff(&mut self) -> Option<(Page, String)> {
         self.handoff.take()
     }
@@ -331,6 +413,14 @@ impl State {
         let Some(session) = self.session.as_mut() else {
             return Task::none();
         };
+
+        if let Some(draft) = session.draft.as_mut() {
+            let typing = matches!(&message, Message::Changed(at, field, _) if draft.buffering(*at, *field));
+
+            if !typing {
+                draft.resolve_buffer();
+            }
+        }
 
         match message {
             Message::Close => {
@@ -425,7 +515,10 @@ impl State {
 
                 draft.set_looping(&value);
 
-                draft.persist_if_dirty(feed.vfs)
+                let task = draft.persist_if_dirty(feed.vfs);
+                session.relist();
+
+                task
             }
             Message::AddKey => {
                 let Some(draft) = session.draft.as_mut() else {
@@ -434,7 +527,10 @@ impl State {
 
                 draft.add_key();
 
-                draft.persist_if_dirty(feed.vfs)
+                let task = draft.persist_if_dirty(feed.vfs);
+                session.relist();
+
+                task
             }
             Message::Seek(at) => {
                 if let Some(frame) = session.draft.as_ref().and_then(|draft| draft.key_at(at)) {
@@ -461,7 +557,10 @@ impl State {
 
                 draft.drop_key(at);
 
-                draft.persist_if_dirty(feed.vfs)
+                let task = draft.persist_if_dirty(feed.vfs);
+                session.relist();
+
+                task
             }
             Message::DropExpired => {
                 session.confirm.expire();
@@ -904,8 +1003,13 @@ impl TreeRow {
         }
 
         let selected = self.track.is_some() && self.track == picked;
+        let row = list_row(content, selected, false, Length::Fixed(width), Message::Row(index));
 
-        list_row(content, selected, false, Length::Fixed(width), Message::Row(index))
+        match (self.part, self.track) {
+            (Some(part), _) => target::target(row, Target::AnimPart(part)),
+            (_, Some(track)) => target::target(row, Target::AnimCurve(track)),
+            _ => row,
+        }
     }
 }
 
@@ -951,16 +1055,10 @@ fn curve_label(doc: &Maanim, at: usize) -> Option<(String, bool)> {
         .skip(at + 1)
         .any(|later| later.part == track.part && later.kind == track.kind);
 
-    let mut label = format!("{} \u{00b7} {} keys", kind_label(track.kind), track.keyframes.len());
+    let mut label = format!("{} \u{00b7} {}", kind_label(track.kind), key_label(track.keyframes.len()));
 
     if track.loop_count != 1 {
         label.push_str(&format!(" \u{00b7} {}", loop_label(track.loop_count)));
-    }
-
-    let name = track.name.trim();
-
-    if !name.is_empty() {
-        label.push_str(&format!(" \u{00b7} {}", name));
     }
 
     if shadowed {
@@ -1278,6 +1376,7 @@ struct Draft {
     track: usize,
     inputs: Vec<[String; 4]>,
     looping: String,
+    buffer: Option<(usize, Field)>,
     dirty: bool,
     writing: bool,
     failed: bool,
@@ -1316,6 +1415,7 @@ impl Draft {
             track: 0,
             inputs: Vec::new(),
             looping: String::new(),
+            buffer: None,
             dirty: false,
             writing: false,
             failed: false,
@@ -1432,16 +1532,51 @@ impl Draft {
         self.doc.track(self.track).map(|track| track.part)
     }
 
+    fn buffering(&self, at: usize, field: Field) -> bool {
+        self.buffer == Some((at, field))
+    }
+
+    fn resolve_buffer(&mut self) {
+        let Some((at, field)) = self.buffer.take() else {
+            return;
+        };
+
+        let Some(typed) = self
+            .inputs
+            .get(at)
+            .and_then(|row| row.get(field.slot()))
+            .and_then(|slot| slot.strip_prefix(BUFFER_MARK))
+        else {
+            return;
+        };
+
+        let typed = typed.to_owned();
+
+        self.edit(at, field, &typed);
+    }
+
     fn edit(&mut self, at: usize, field: Field, value: &str) {
         if !typable(value) {
             return;
         }
+
+        let held = value.starts_with(BUFFER_MARK);
 
         let Some(slot) = self.inputs.get_mut(at).and_then(|row| row.get_mut(field.slot())) else {
             return;
         };
 
         *slot = value.to_owned();
+
+        if held {
+            self.buffer = Some((at, field));
+
+            return;
+        }
+
+        if self.buffering(at, field) {
+            self.buffer = None;
+        }
 
         let Some(parsed) = settled(value, field.default()) else {
             return;
@@ -1467,9 +1602,24 @@ impl Draft {
         self.dirty = true;
 
         if field == Field::Frame {
-            self.doc.sort_keys(track);
-            self.restate();
+            self.reorder(track);
         }
+    }
+
+    fn reorder(&mut self, track: usize) {
+        let Some(keys) = self.doc.track(track).map(|track| &track.keyframes) else {
+            return;
+        };
+
+        let mut order: Vec<usize> = (0..keys.len()).collect();
+        order.sort_by_key(|at| keys[*at].frame);
+
+        if order.iter().enumerate().all(|(to, from)| to == *from) {
+            return;
+        }
+
+        self.doc.sort_keys(track);
+        self.inputs = order.iter().filter_map(|at| self.inputs.get(*at).cloned()).collect();
     }
 
     fn destination(&self, vfs: &Vfs) -> Option<(PathBuf, Stamp)> {
@@ -1628,16 +1778,20 @@ impl Draft {
 
         for field in Field::TYPED {
             let value = cells.get(field.slot()).map_or("", String::as_str);
+            let live = field != Field::Power || ease_takes_power(ease);
 
-            line = line.push(
-                text_input(CELL_HINT, value)
-                    .on_input(move |typed| Message::Changed(at, field, typed))
-                    .size(CELL_SIZE)
-                    .padding(CELL_PADDING)
-                    .align_x(Horizontal::Center)
-                    .width(Length::Fill)
-                    .style(theme::rounded_input),
-            );
+            let mut cell = text_input(CELL_HINT, value)
+                .size(CELL_SIZE)
+                .padding(CELL_PADDING)
+                .align_x(Horizontal::Center)
+                .width(Length::Fill)
+                .style(theme::rounded_input);
+
+            if live {
+                cell = cell.on_input(move |typed| Message::Changed(at, field, typed));
+            }
+
+            line = line.push(cell);
         }
 
         let curve = pick_list(EASES, Some(ease_label(ease)), move |label| {
@@ -1699,7 +1853,7 @@ fn settled(value: &str, default: i32) -> Option<i32> {
 }
 
 fn typable(value: &str) -> bool {
-    let mut chars = value.chars();
+    let mut chars = value.strip_prefix(BUFFER_MARK).unwrap_or(value).chars();
 
     match chars.next() {
         None => true,

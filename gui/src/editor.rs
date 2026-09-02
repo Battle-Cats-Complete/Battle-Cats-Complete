@@ -47,6 +47,8 @@ pub enum Target {
     EnemyAttributes,
     CatAnimation,
     EnemyAnimation,
+    AnimPart(usize),
+    AnimCurve(usize),
     CatIcon,
     EnemyIcon,
     CatExplanation,
@@ -67,6 +69,12 @@ pub(crate) struct Context {
     prose: Vec<ProseTarget>,
     levels: Vec<LevelTarget>,
     animation: Option<AnimTarget>,
+    curves: Option<CurveTarget>,
+}
+
+struct CurveTarget {
+    curves: animator::Curves,
+    unlocked: bool,
 }
 
 struct AnimTarget {
@@ -404,6 +412,8 @@ fn shared_hint(children: &[Item]) -> Option<String> {
 enum Action {
     Add { source: PathBuf, target_mod: String },
     Delete { source: PathBuf },
+    AddCurve { part: usize, kind: i32 },
+    DropCurve { track: usize },
     EditAnimation(animator::Plan),
     EditFigures(figures::Plan),
     EditProse(prose::Plan),
@@ -810,6 +820,14 @@ impl State {
                     }
                 }
             }
+            Action::AddCurve { part, kind } => match self.animator.add_curve(*part, *kind) {
+                true => Outcome::Done,
+                false => Outcome::Failed,
+            },
+            Action::DropCurve { track } => match self.animator.drop_curve(*track) {
+                true => Outcome::Done,
+                false => Outcome::Failed,
+            },
             Action::EditAnimation(plan) => {
                 self.animator.begin(plan.clone());
 
@@ -897,11 +915,19 @@ impl State {
     }
 }
 
-fn takeover(app: &BattleCatsApp) -> bool {
-    if app.editor.animator.active() {
-        return true;
-    }
+fn curve_target(app: &BattleCatsApp, target: Option<Target>) -> Option<CurveTarget> {
+    let part = match target? {
+        Target::AnimPart(part) => part,
+        Target::AnimCurve(track) => app.editor.animator.holder(track)?,
+        _ => return None,
+    };
 
+    let curves = app.editor.animator.curves(part)?;
+
+    Some(CurveTarget { curves, unlocked: app.settings.files.unlock_game_mount })
+}
+
+fn expanded(app: &BattleCatsApp) -> bool {
     match app.current_page {
         Page::Cats => app.cat_state.animation_expanded(),
         Page::Enemies => app.enemy_state.animation_expanded(),
@@ -914,7 +940,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
     let broad = app.settings.files.context_scope == ContextScope::Broad;
     let reached = |wanted: Target| target == Some(wanted) || broad;
 
-    if takeover(app) {
+    if app.editor.animator.active() || expanded(app) {
         return Context {
             enabled: app.settings.general.enable_nightly,
             values: app.settings.files.editor_mode,
@@ -928,6 +954,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
             prose: Vec::new(),
             levels: Vec::new(),
             animation: None,
+            curves: curve_target(app, target),
         };
     }
 
@@ -947,6 +974,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
             .chain(talent_payloads(app, reached(Target::CatTalents)))
             .collect(),
         animation: anim_target(app, reached(Target::CatAnimation), reached(Target::EnemyAnimation)),
+        curves: None,
     }
 }
 

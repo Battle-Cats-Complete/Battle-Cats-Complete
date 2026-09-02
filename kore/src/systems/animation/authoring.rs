@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use nyanko::common::{scrub, Separator};
-use nyanko::graphics::rig::{AnimModification, Animation, Keyframe, RigError};
+use nyanko::graphics::rig::{AnimModification, Animation, Keyframe, ModelPart, RigError};
 
 const BOM: [u8; 3] = [0xef, 0xbb, 0xbf];
 const NAME_FIELD: usize = 5;
@@ -146,6 +146,40 @@ impl Maanim {
     }
 }
 
+pub const KINDS: [i32; 15] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+
+pub fn rest_value(part: &ModelPart, kind: i32) -> i32 {
+    match kind {
+        0 => part.parent,
+        1 => part.id,
+        2 => part.sprite,
+        3 => part.z,
+        4 => part.x,
+        5 => part.y,
+        6 => part.pivot_x,
+        7 => part.pivot_y,
+        8 | 9 => part.scale_x,
+        10 => part.scale_y,
+        11 => part.angle,
+        12 => part.opacity,
+        _ => 0,
+    }
+}
+
+pub fn resting_curve(part: usize, kind: i32, declared: Option<&ModelPart>) -> AnimModification {
+    let value = declared.map_or(0, |declared| rest_value(declared, kind));
+
+    AnimModification {
+        part: i32::try_from(part).unwrap_or(0),
+        kind,
+        loop_count: 1,
+        min_value: 0,
+        max_value: 0,
+        name: String::new(),
+        keyframes: vec![Keyframe { frame: 0, value, ease: 0, ease_power: 0 }],
+    }
+}
+
 pub fn kind_label(kind: i32) -> &'static str {
     match kind {
         0 => "Parent",
@@ -169,12 +203,25 @@ pub fn kind_label(kind: i32) -> &'static str {
 
 pub const EASES: [&str; 4] = ["Linear", "Hold", "Exponential", "Polynomial"];
 
+const EASE_EXPONENTIAL: i32 = 2;
+
 pub fn ease_label(ease: i32) -> &'static str {
     usize::try_from(ease).ok().and_then(|at| EASES.get(at)).copied().unwrap_or("Unknown")
 }
 
+pub fn ease_takes_power(ease: i32) -> bool {
+    ease == EASE_EXPONENTIAL
+}
+
 pub fn ease_value(label: &str) -> Option<i32> {
     EASES.iter().position(|known| *known == label).and_then(|at| i32::try_from(at).ok())
+}
+
+pub fn key_label(keys: usize) -> String {
+    match keys {
+        1 => "1 key".to_string(),
+        other => format!("{} keys", other),
+    }
 }
 
 pub fn loop_label(count: i32) -> String {
@@ -329,5 +376,41 @@ mod tests {
         assert_eq!(loop_label(0), "Once");
         assert_eq!(loop_label(-2), "Once");
         assert_eq!(loop_label(4), "Count");
+    }
+
+    #[test]
+    fn a_new_curve_starts_where_the_part_already_rests() {
+        // Seeding a Scale curve at zero would collapse the part the moment it is added.
+        let part = ModelPart { scale_x: 1000, opacity: 800, angle: 45, ..ModelPart::default() };
+
+        assert_eq!(resting_curve(3, 9, Some(&part)).keyframes[0].value, 1000);
+        assert_eq!(resting_curve(3, 12, Some(&part)).keyframes[0].value, 800);
+        assert_eq!(resting_curve(3, 11, Some(&part)).keyframes[0].value, 45);
+        assert_eq!(resting_curve(3, 13, Some(&part)).keyframes[0].value, 0);
+    }
+
+    #[test]
+    fn a_new_curve_names_its_part_and_plays_once() {
+        let track = resting_curve(7, 4, None);
+
+        assert_eq!((track.part, track.kind, track.loop_count), (7, 4, 1));
+        assert_eq!(track.keyframes.len(), 1);
+    }
+
+    #[test]
+    fn a_single_keyframe_is_not_plural() {
+        assert_eq!(key_label(0), "0 keys");
+        assert_eq!(key_label(1), "1 key");
+        assert_eq!(key_label(9), "9 keys");
+    }
+
+    #[test]
+    fn only_the_exponential_ease_reads_a_power() {
+        // Linear, Hold and Polynomial never touch ease_power in the engine.
+        assert!(ease_takes_power(2));
+        assert!(!ease_takes_power(0));
+        assert!(!ease_takes_power(1));
+        assert!(!ease_takes_power(3));
+        assert_eq!(EASES[2], "Exponential");
     }
 }

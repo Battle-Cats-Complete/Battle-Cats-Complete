@@ -34,6 +34,9 @@ Where the viewer normally offers **Export**, the Editor offers **Sync "game"**, 
 ### Action
 **Locate** centres the view on the part your selected curve drives.
 
+### Adding and Removing Curves
+Right-clicking a part or one of its curves offers to add a curve for any property that part does not already drive, or to remove one it does. A new curve starts at the part's own resting value, so adding one changes nothing until you edit it.
+
 ### Part Overlay
 Three buttons control the overlay, blue when on and grey when off. They stack, so a part lit by more than one shows bolder.
 
@@ -52,9 +55,11 @@ A part missing from the overlay is one the game is not drawing. The panel names 
 ### Keyframes
 Selecting a curve fills the table below the viewer with its keyframes. The row tinted blue is the one currently driving the animation, and it moves as the animation plays.
 
+Frame, Value and Power accept the buffer character described above, which is worth using on **Frame**: keyframes stay in frame order, so committing a frame moves its row.
+
 Each row carries two shortcuts. **View** pauses playback and jumps to that keyframe. **Bound** sets the viewer's frame range to that keyframe's segment, stopping one frame before the next keyframe so the following segment never plays. The last keyframe bounds to itself, holding the pose it ends on.
 
-The **Curve** column sets how a keyframe eases into the next one.
+The **Curve** column sets how a keyframe eases into the next one. **Power** applies only to `Exponential`, where it bends the motion: negative values start fast and slow down, positive values start slow and speed up, and a larger number bends it harder. It is greyed out on the other curves, which ignore it.
 
 A curve that repeats forever never highlights its last keyframe. That keyframe is where the curve wraps back to its first, so the game never rests on it.
 

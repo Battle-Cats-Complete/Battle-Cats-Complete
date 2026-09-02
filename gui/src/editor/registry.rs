@@ -6,12 +6,17 @@ use kore::domains::settings::EditorMode;
 use crate::app::{theme, Page};
 use crate::common::feedback::LOCKED_NOTICE;
 
-use super::{animator, classify, figures, prose, Action, AnimTarget, CatTarget, Context, EnemyTarget, FileTarget, Format, Item, LevelTarget, ProseTarget, Scope};
+use kore::systems::animation::authoring;
+
+use super::{animator, classify, figures, prose, Action, AnimTarget, CatTarget, Context, CurveTarget, EnemyTarget, FileTarget, Format, Item, LevelTarget, ProseTarget, Scope};
 
 const BINARY_NOTICE: &str = "Cannot open binary format";
+const NO_CURVE_NOTICE: &str = "This part has no curves in this animation";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Verb {
+    AddCurve,
+    DropCurve,
     Animate,
     Edit,
     Replace,
@@ -25,6 +30,8 @@ enum Verb {
 impl Verb {
     fn nested(self) -> &'static str {
         match self {
+            Verb::AddCurve => "Add curve",
+            Verb::DropCurve => "Remove curve",
             Verb::Animate => "Edit animation in app",
             Verb::Edit => "Edit in app",
             Verb::Replace => "Replace from disk",
@@ -38,6 +45,8 @@ impl Verb {
 
     fn flat(self, name: &str, mount: &str) -> String {
         match self {
+            Verb::AddCurve => format!("Add a curve to \"{name}\" in \"{mount}\""),
+            Verb::DropCurve => format!("Remove a curve from \"{name}\" in \"{mount}\""),
             Verb::Animate => format!("Edit \"{name}\" animation in \"{mount}\""),
             Verb::Edit => format!("Edit \"{name}\" in \"{mount}\""),
             Verb::Replace => format!("Replace \"{name}\" in \"{mount}\""),
@@ -155,6 +164,12 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
         return items;
     }
 
+    if let Some(target) = context.curves.as_ref() {
+        curves(&mut items, target);
+
+        return items;
+    }
+
     if let Some(target) = context.animation.as_ref() {
         items.push(animate(target));
     }
@@ -167,6 +182,47 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
     }
 
     items
+}
+
+fn curves(items: &mut Vec<Item>, target: &CurveTarget) {
+    let mount = mount(target.curves.target_mod.as_deref(), target.unlocked);
+    let held = &target.curves.present;
+    let part = target.curves.part;
+
+    let absent: Vec<Item> = authoring::KINDS
+        .iter()
+        .filter(|kind| !held.iter().any(|(known, _)| known == *kind))
+        .map(|kind| {
+            let label = authoring::kind_label(*kind);
+            let action = Action::AddCurve { part, kind: *kind };
+
+            mount.item(label.to_owned(), action, Confirm::Never)
+        })
+        .collect();
+
+    let present: Vec<Item> = held
+        .iter()
+        .map(|(kind, track)| {
+            let label = authoring::kind_label(*kind);
+            let action = Action::DropCurve { track: *track };
+
+            mount.item(label.to_owned(), action, Confirm::Overwrite)
+        })
+        .collect();
+
+    let subject = format!("Part {}", part);
+
+    if !absent.is_empty() {
+        items.push(Item::list(Verb::AddCurve.flat(&subject, mount.name), absent));
+    }
+
+    if present.is_empty() {
+        items.push(Item::disabled(Verb::DropCurve.flat(&subject, mount.name), NO_CURVE_NOTICE));
+
+        return;
+    }
+
+    items.push(Item::list(Verb::DropCurve.flat(&subject, mount.name), present));
 }
 
 fn animate(target: &AnimTarget) -> Item {
