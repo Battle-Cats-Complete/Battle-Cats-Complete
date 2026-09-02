@@ -293,7 +293,7 @@ impl State {
         let canvas: Element<'_, Message> = match (&self.choice, &self.cropped, self.loaded.as_deref()) {
             (Choice::Cut(_, _), Some(cropped), _) => self.picture.view(cropped).map(Message::Picture),
             (Choice::Sheet, _, Some(loaded)) => {
-                self.picture.view_outlined(&loaded.full, &loaded.outlines).map(Message::Picture)
+                self.picture.view_outlined(&loaded.full, &loaded.outlines, false).map(Message::Picture)
             }
             _ => {
                 let label = if self.reading { LOADING_LABEL } else { EMPTY_LABEL };
@@ -326,6 +326,7 @@ fn assemble(png: &Path, cut: &Path) -> Result<Arc<Loaded>, String> {
             y: cut.y as f32,
             width: cut.width as f32,
             height: cut.height as f32,
+            bold: false,
         })
         .collect();
 

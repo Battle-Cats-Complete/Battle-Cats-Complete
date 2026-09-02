@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use kore::systems::animation::authoring::{Maanim, Mamodel};
+use kore::systems::animation::authoring::{Imgcut, Maanim, Mamodel};
 
 fn main() {
     let Some(root) = std::env::args().nth(1) else {
@@ -29,7 +29,7 @@ fn main() {
 
             let kind = path.extension().and_then(|kind| kind.to_str()).unwrap_or_default();
 
-            if !matches!(kind, "maanim" | "mamodel") {
+            if !matches!(kind, "maanim" | "mamodel" | "imgcut") {
                 continue;
             }
 
@@ -41,6 +41,7 @@ fn main() {
 
             let written = match kind {
                 "maanim" => Maanim::parse(&bytes).map(|doc| doc.write()).ok(),
+                "imgcut" => Imgcut::parse(&bytes).map(|doc| doc.write()).ok(),
                 _ => Mamodel::parse(&bytes).map(|doc| doc.write()).ok(),
             };
 
@@ -54,7 +55,7 @@ fn main() {
 
     println!("total {} exact {} drifted {} unreadable {}", total, exact, drifted.len(), unread.len());
 
-    for path in drifted.iter().chain(unread.iter()).take(20) {
+    for path in drifted.iter().take(6).chain(unread.iter().take(6)) {
         println!("  {}", path.display());
     }
 }

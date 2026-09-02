@@ -38,9 +38,31 @@ The box in the Editor's top right switches what the panel edits, and names the f
 
 - **Animation** edits the selected clip's `.maanim` keyframes.
 - **Model** edits the rig's `.mamodel` rest pose.
-- **Atlas** is not built yet.
+- **Atlas** replaces the Unit's sprite sheet and edits its cut list.
 
-In `Animation` that table reports the selected part's resting **Model** values. In the other modes it reports the **Atlas** instead: which region of the sheet the part draws, where that region sits, how much of it is actually painted, and how much of it is transparent padding — `Margin` reads left, top, right, bottom.
+In `Animation` that table reports the selected part's resting **Model** values. In `Model` it reports the **Atlas** instead: which region of the sheet the part draws, where that region sits, how much of it is actually painted, and how much of it is transparent padding — `Margin` reads left, top, right, bottom.
+
+`Atlas` mode has no tables under the viewer at all. It gives that space to the sheet itself, and swaps the animation for an image viewer — drag to pan, wheel to zoom, the same one the Utilities and Files pages use.
+
+### Atlas
+Three buttons load files into the Unit's rig. **The file you pick keeps nothing but its contents** — feeding `apple.png` to `030_f` gives you `030_f.png` holding apple's image, so the rig still finds it.
+
+- **Atlas** takes a `.png` or an `.imgcut`, drops the extension, and loads both files of that name from the same folder.
+- **Sheet** takes a `.png` and replaces the sprite sheet alone.
+- **Cuts** takes an `.imgcut` and replaces the cut list alone.
+
+Below them, every region of the cut list gets a row: its number, its position and size, its name, and three buttons.
+
+- **Set** arms the viewer, exactly as `Set Camera` works in the animation exporter: the sheet dims the moment it is armed, the hint slides down, and right click and drag across it to draw the region. The region's own numbers are blanked and its outline hidden while you are redrawing it. A single right click, or a drag too small to be one, cancels and puts them back. A region may be drawn past the edge of the sheet.
+- **Trim** shrinks a region to the pixels actually painted inside it, dropping the transparent border.
+- **Find** centres the viewer on that region.
+- **Select** picks the region out, and picks it again to let it go.
+
+Clicking inside a region on the sheet selects it too — where regions overlap, the highest numbered one wins. The selected row is tinted and its region is drawn thicker than the rest. Only one at a time.
+
+The sheet's own edge is outlined in green. A region reaching past it still draws, and **only the number actually at fault** turns red — hovering it says so. The game does not draw a part whose region falls outside the sheet.
+
+**Removing a region renumbers the ones after it**, so the model's `Sprite` fields and every `Sprite` curve of every animation are rewritten to match. It asks once, and the last region cannot be removed.
 
 ### Model
 Picking a part in the tree fills the table with the thirteen numbers the `.mamodel` gives that part, plus its name. The `#` column is the part's column number in the file itself. Changes reach the viewer as soon as they are written.
@@ -89,7 +111,7 @@ A part marked `not in the loaded model` is one the file has but the loaded rig d
 ### Keyframes
 Selecting a curve fills the table below the viewer with its keyframes. The row tinted blue is the one currently driving the animation, and it moves as the animation plays.
 
-Frame, Value and Power accept the buffer character described above, which is worth using on **Frame**: keyframes stay in frame order, so committing a frame moves its row.
+Every numeric field in the Editor takes the buffer character described above — keyframes, `Loop`, a part's rest pose, the root offsets and the atlas regions. It is worth using on **Frame**: keyframes stay in frame order, so committing a frame moves its row.
 
 Each row carries two shortcuts. **View** pauses playback and jumps to that keyframe. **Bound** sets the viewer's frame range to that keyframe's segment, stopping one frame before the next keyframe so the following segment never plays. The last keyframe bounds to itself, holding the pose it ends on.
 

@@ -28,7 +28,7 @@ pub(crate) fn slide<'a, Message>(
     open: bool,
     direction: Slide,
 ) -> Sliding<'a, Message> {
-    Sliding { content: content.into(), open, direction, snap: false }
+    Sliding { content: content.into(), open, direction, snap: false, floating: false }
 }
 
 pub(crate) struct Sliding<'a, Message> {
@@ -36,12 +36,32 @@ pub(crate) struct Sliding<'a, Message> {
     open: bool,
     direction: Slide,
     snap: bool,
+    floating: bool,
 }
 
 impl<Message> Sliding<'_, Message> {
     pub(crate) fn snap(mut self, snap: bool) -> Self {
         self.snap = snap;
         self
+    }
+
+    pub(crate) fn floating(mut self) -> Self {
+        self.floating = true;
+        self
+    }
+
+    fn shift(&self, natural: Size, factor: f32) -> Vector {
+        let (visible, span) = match self.direction.is_horizontal() {
+            true => (natural.width * factor, natural.width),
+            false => (natural.height * factor, natural.height),
+        };
+
+        match self.direction {
+            Slide::Left => Vector::new(visible - span, 0.0),
+            Slide::Right => Vector::new(span - visible, 0.0),
+            Slide::Up => Vector::new(0.0, visible - span),
+            Slide::Down => Vector::new(0.0, span - visible),
+        }
     }
 }
 
@@ -83,6 +103,10 @@ impl<'a, Message> Widget<Message, Theme, iced::Renderer> for Sliding<'a, Message
     fn size(&self) -> Size<Length> {
         let inner = self.content.as_widget().size();
 
+        if self.floating {
+            return inner;
+        }
+
         if self.direction.is_horizontal() {
             Size { width: Length::Shrink, height: inner.height }
         } else {
@@ -107,6 +131,10 @@ impl<'a, Message> Widget<Message, Theme, iced::Renderer> for Sliding<'a, Message
 
         let node = self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits);
         let natural = node.size();
+
+        if self.floating {
+            return layout::Node::with_children(natural, vec![node]);
+        }
 
         let (size, offset) = if self.direction.is_horizontal() {
             let visible = natural.width * factor;
@@ -172,7 +200,7 @@ impl<'a, Message> Widget<Message, Theme, iced::Renderer> for Sliding<'a, Message
         let state: &mut SlideState = tree.state.downcast_mut();
         let animating = state.animation.is_animating(*now);
 
-        if animating || state.was_animating {
+        if !self.floating && (animating || state.was_animating) {
             shell.invalidate_layout();
         }
 
@@ -231,8 +259,15 @@ impl<'a, Message> Widget<Message, Theme, iced::Renderer> for Sliding<'a, Message
             return;
         };
 
-        renderer.with_layer(clipped, |renderer| {
-            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, child, cursor, &clipped);
+        let shift = self.floating.then(|| self.shift(layout.bounds().size(), state.factor));
+
+        renderer.with_layer(clipped, |renderer| match shift {
+            Some(shift) => renderer.with_translation(shift, |renderer| {
+                self.content.as_widget().draw(&tree.children[0], renderer, theme, style, child, cursor, &clipped);
+            }),
+            None => {
+                self.content.as_widget().draw(&tree.children[0], renderer, theme, style, child, cursor, &clipped);
+            }
         });
     }
 

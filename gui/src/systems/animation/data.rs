@@ -202,6 +202,14 @@ impl State {
         found
     }
 
+    pub fn selected_sheet(&self) -> Option<&Path> {
+        self.current_clip().map(|clip| clip.rig.png.as_path())
+    }
+
+    pub fn selected_cuts(&self) -> Option<&Path> {
+        self.current_clip().map(|clip| clip.rig.cut.as_path())
+    }
+
     pub fn adopt_model(&mut self, model: Arc<Model>) {
         let Some(unit) = self.held_unit.as_deref().filter(|unit| unit.model != *model) else {
             return;

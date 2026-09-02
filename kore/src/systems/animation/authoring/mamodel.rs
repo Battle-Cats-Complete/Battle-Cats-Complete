@@ -26,6 +26,13 @@ enum Role {
     Skip,
 }
 
+struct Layout {
+    roles: Vec<Option<Role>>,
+    raws: Vec<String>,
+    rows: Vec<String>,
+    tails: [&'static str; 2],
+}
+
 #[derive(Clone)]
 pub struct Mamodel {
     bom: bool,
@@ -34,6 +41,7 @@ pub struct Mamodel {
     roles: Vec<Option<Role>>,
     raws: Vec<String>,
     rows: Vec<String>,
+    tails: [&'static str; 2],
     parts: usize,
     aligns: usize,
     model: Arc<Model>,
@@ -48,10 +56,10 @@ impl Mamodel {
         let body = String::from_utf8_lossy(if bom { &bytes[BOM.len()..] } else { bytes }).into_owned();
 
         let lines = split(&body);
-        let (roles, raws, rows) = roles(&lines, &model);
+        let Layout { roles, raws, rows, tails } = roles(&lines, &model);
         let (parts, aligns) = (model.parts.len(), model.alignment.len());
 
-        Ok(Self { bom, delimiter, lines, roles, raws, rows, parts, aligns, model: Arc::new(model) })
+        Ok(Self { bom, delimiter, lines, roles, raws, rows, tails, parts, aligns, model: Arc::new(model) })
     }
 
     pub fn shared(&self) -> Arc<Model> {
@@ -177,6 +185,29 @@ impl Mamodel {
         Some(moved)
     }
 
+    pub fn retarget_sprites(&mut self, moved: &[Option<usize>]) -> bool {
+        let shifted = self.model.parts.iter().any(|part| {
+            usize::try_from(part.sprite)
+                .ok()
+                .and_then(|at| moved.get(at))
+                .is_some_and(|landed| landed.and_then(|at| i32::try_from(at).ok()) != Some(part.sprite))
+        });
+
+        if !shifted {
+            return false;
+        }
+
+        for part in Arc::make_mut(&mut self.model).parts.iter_mut() {
+            let Some(landed) = usize::try_from(part.sprite).ok().and_then(|at| moved.get(at)) else {
+                continue;
+            };
+
+            part.sprite = landed.and_then(|at| i32::try_from(at).ok()).unwrap_or(NOT_DRAWN);
+        }
+
+        true
+    }
+
     pub fn reparent(&mut self, at: usize, parent: Option<usize>) -> bool {
         let wanted = parent.and_then(|at| i32::try_from(at).ok()).unwrap_or(NO_PARENT);
 
@@ -241,6 +272,7 @@ impl Mamodel {
     }
 
     fn push_parts(&self, body: &mut String, end: &str) {
+        let last = self.model.parts.len().saturating_sub(1);
         let end = if end.is_empty() { "\n" } else { end };
 
         for (at, part) in self.model.parts.iter().enumerate() {
@@ -248,11 +280,12 @@ impl Mamodel {
             let values: Vec<i32> = (0..PART_CELLS).map(|cell| field(part, cell)).collect();
 
             body.push_str(&cells(raw, &values, Some(part.name.as_str()), self.delimiter));
-            body.push_str(end);
+            body.push_str(if at == last { self.tails[0] } else { end });
         }
     }
 
     fn push_aligns(&self, body: &mut String, end: &str) {
+        let last = self.model.alignment.len().saturating_sub(1);
         let end = if end.is_empty() { "\n" } else { end };
 
         for (at, row) in self.model.alignment.iter().enumerate() {
@@ -260,7 +293,7 @@ impl Mamodel {
             let values = [row.unknown_0, row.unknown_1, row.x, row.y, row.unknown_4, row.unknown_5];
 
             body.push_str(&cells(raw, &values, Some(row.name.as_str()), self.delimiter));
-            body.push_str(end);
+            body.push_str(if at == last { self.tails[1] } else { end });
         }
     }
 
@@ -414,7 +447,7 @@ fn split(body: &str) -> Vec<Line> {
     lines
 }
 
-fn roles(lines: &[Line], model: &Model) -> (Vec<Option<Role>>, Vec<String>, Vec<String>) {
+fn roles(lines: &[Line], model: &Model) -> Layout {
     let mut roles = vec![None; lines.len()];
     let live: Vec<usize> = lines
         .iter()
@@ -432,7 +465,7 @@ fn roles(lines: &[Line], model: &Model) -> (Vec<Option<Role>>, Vec<String>, Vec<
 
     cursor += 1;
 
-    let raws = block(lines, &live, cursor, model.parts.len(), Role::Parts, &mut roles);
+    let (raws, held) = block(lines, &live, cursor, model.parts.len(), Role::Parts, &mut roles);
     cursor += model.parts.len();
 
     if let Some(at) = live.get(cursor) {
@@ -447,9 +480,9 @@ fn roles(lines: &[Line], model: &Model) -> (Vec<Option<Role>>, Vec<String>, Vec<
 
     cursor += 1;
 
-    let rows = block(lines, &live, cursor, model.alignment.len(), Role::Aligns, &mut roles);
+    let (rows, trailing) = block(lines, &live, cursor, model.alignment.len(), Role::Aligns, &mut roles);
 
-    (roles, raws, rows)
+    Layout { roles, raws, rows, tails: [held, trailing] }
 }
 
 fn block(
@@ -459,8 +492,9 @@ fn block(
     count: usize,
     lead: Role,
     roles: &mut [Option<Role>],
-) -> Vec<String> {
+) -> (Vec<String>, &'static str) {
     let mut raws = Vec::with_capacity(count);
+    let mut tail = "\n";
 
     for at in 0..count {
         let Some(line) = live.get(cursor + at) else {
@@ -470,10 +504,11 @@ fn block(
         };
 
         roles[*line] = Some(if at == 0 { lead } else { Role::Skip });
+        tail = lines[*line].end;
         raws.push(lines[*line].text.clone());
     }
 
-    raws
+    (raws, tail)
 }
 
 fn cells(raw: &str, values: &[i32], name: Option<&str>, delimiter: char) -> String {
@@ -525,18 +560,18 @@ fn count_line(raw: &str, was: usize, now: usize) -> String {
     declared.saturating_add(now).saturating_sub(was).to_string()
 }
 
-fn clean(cell: &str) -> Cow<'_, str> {
+pub(super) fn clean(cell: &str) -> Cow<'_, str> {
     match cell.contains(['\0', '\u{feff}']) {
         true => Cow::Owned(cell.replace(['\0', '\u{feff}'], "")),
         false => Cow::Borrowed(cell),
     }
 }
 
-fn read(cell: Option<&str>) -> i32 {
+pub(super) fn read(cell: Option<&str>) -> i32 {
     cell.and_then(|text| clean(text).trim().parse().ok()).unwrap_or(0)
 }
 
-fn keep(cell: Option<&str>, value: i32) -> String {
+pub(super) fn keep(cell: Option<&str>, value: i32) -> String {
     cell.filter(|text| read(Some(text)) == value)
         .map_or_else(|| value.to_string(), |text| text.to_owned())
 }

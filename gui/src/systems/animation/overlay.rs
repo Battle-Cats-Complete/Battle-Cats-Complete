@@ -53,20 +53,24 @@ impl State {
     }
 
     pub fn hint_view<'a, M: 'a>(&self) -> Element<'a, M> {
-        let label = container(text(HINT_TEXT).size(HINT_TEXT_SIZE).color(Color::WHITE))
-            .width(Length::Fixed(HINT_WIDTH))
-            .height(Length::Fixed(HINT_HEIGHT))
-            .align_x(Horizontal::Center)
-            .align_y(Vertical::Center)
-            .style(hint_style);
-
-        container(slide(label, self.selecting, Slide::Up))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(Horizontal::Center)
-            .align_y(Vertical::Top)
-            .into()
+        hint(HINT_TEXT, self.selecting)
     }
+}
+
+pub fn hint<'a, M: 'a>(label: &'a str, showing: bool) -> Element<'a, M> {
+    let banner = container(text(label).size(HINT_TEXT_SIZE).color(Color::WHITE))
+        .width(Length::Fixed(HINT_WIDTH))
+        .height(Length::Fixed(HINT_HEIGHT))
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Center)
+        .style(hint_style);
+
+    container(slide(banner, showing, Slide::Up).floating())
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Top)
+        .into()
 }
 
 fn hint_style(theme: &Theme) -> container::Style {

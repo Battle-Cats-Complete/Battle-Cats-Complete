@@ -15,9 +15,14 @@ const MIN_LEVEL: u32 = 128;
 const DILATE_PASSES: usize = 2;
 
 const OUTLINE_COLOR: Color = Color::from_rgb(0.9, 0.16, 0.16);
-const OUTLINE_THICKNESS: f32 = 0.5;
-const OUTLINE_MIN_THICKNESS: f32 = 1.0;
-const OUTLINE_MAX_THICKNESS: f32 = 3.0;
+const THIN_WIDTH: f32 = 1.0;
+const BOLD_WIDTH: f32 = 2.5;
+
+const BOUNDS_COLOR: Color = Color::from_rgb(0.24, 0.78, 0.36);
+const BOUNDS_WIDTH: f32 = 2.0;
+const DIM_ALPHA: f32 = 125.0 / 255.0;
+const CLICK_SLOP: f32 = 4.0;
+const MIN_FRAME_AREA: f32 = 25.0;
 
 fn dilate(pixels: &mut RgbaImage) {
     let (width, height) = (pixels.width(), pixels.height());
@@ -186,6 +191,10 @@ impl Source {
         self.levels.first().map_or(Size::ZERO, |(size, _)| *size)
     }
 
+    pub(crate) fn native(&self) -> Size {
+        self.size()
+    }
+
     fn level(&self, target: f32) -> Option<&(Size, Handle)> {
         self.levels.iter().rev().find(|(size, _)| size.width >= target).or_else(|| self.levels.first())
     }
@@ -194,6 +203,9 @@ impl Source {
 #[derive(Debug, Clone, Copy)]
 pub enum Message {
     Moved { center: Vector, zoom: f32 },
+    Framed(Outline),
+    Cancelled,
+    Picked(Point),
 }
 
 pub(crate) struct State {
@@ -213,28 +225,42 @@ impl State {
         self.zoom = 1.0;
     }
 
+    pub(crate) fn focus(&mut self, source: &Source, at: Point) {
+        let native = source.native();
+
+        self.center = Vector::new(at.x - native.width / 2.0, at.y - native.height / 2.0);
+    }
+
     pub(crate) fn update(&mut self, message: Message) {
-        let Message::Moved { center, zoom } = message;
+        let Message::Moved { center, zoom } = message else {
+            return;
+        };
 
         self.center = center;
         self.zoom = zoom;
     }
 
     pub(crate) fn view<'a>(&self, source: &'a Source) -> Element<'a, Message> {
-        self.view_outlined(source, &[])
+        self.view_outlined(source, &[], false)
     }
 
-    pub(crate) fn view_outlined<'a>(&self, source: &'a Source, outlines: &'a [Outline]) -> Element<'a, Message> {
-        Canvas { source, center: self.center, zoom: self.zoom, outlines }.into()
+    pub(crate) fn view_outlined<'a>(
+        &self,
+        source: &'a Source,
+        outlines: &'a [Outline],
+        framing: bool,
+    ) -> Element<'a, Message> {
+        Canvas { source, center: self.center, zoom: self.zoom, outlines, framing }.into()
     }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct Outline {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Outline {
     pub x: f32,
     pub y: f32,
     pub width: f32,
     pub height: f32,
+    pub bold: bool,
 }
 
 struct Canvas<'a> {
@@ -242,11 +268,15 @@ struct Canvas<'a> {
     center: Vector,
     zoom: f32,
     outlines: &'a [Outline],
+    framing: bool,
 }
 
 #[derive(Default)]
 struct Interaction {
     drag_origin: Option<Point>,
+    travel: f32,
+    frame_origin: Option<Point>,
+    frame_now: Option<Point>,
     remaining: f32,
     last_frame: Option<Instant>,
 }
@@ -274,6 +304,34 @@ impl Canvas<'_> {
         }
     }
 
+    fn pixel(&self, bounds: Rectangle, local: Point) -> Option<Point> {
+        let frame = self.frame(bounds);
+        let native = self.source.size();
+
+        if frame.width <= 0.0 || native.width <= 0.0 {
+            return None;
+        }
+
+        let scale = frame.width / native.width;
+
+        Some(Point::new(
+            (local.x + bounds.x - frame.x) / scale,
+            (local.y + bounds.y - frame.y) / scale,
+        ))
+    }
+
+    fn framed(&self, bounds: Rectangle, origin: Point, settled: Point) -> Option<Outline> {
+        let near = self.pixel(bounds, origin)?;
+        let far = self.pixel(bounds, settled)?;
+
+        let x = near.x.min(far.x).round();
+        let y = near.y.min(far.y).round();
+        let width = near.x.max(far.x).round() - x;
+        let height = near.y.max(far.y).round() - y;
+
+        (width >= 1.0 && height >= 1.0).then_some(Outline { x, y, width, height, bold: true })
+    }
+
     fn settle(&self, center: Vector) -> Vector {
         let native = self.source.size();
         let padding = native.width.max(native.height) * WORLD_PADDING;
@@ -282,6 +340,50 @@ impl Canvas<'_> {
         let vertical = native.height / 2.0 + padding;
 
         Vector::new(center.x.clamp(-horizontal, horizontal), center.y.clamp(-vertical, vertical))
+    }
+}
+
+fn edge(renderer: &mut iced::Renderer, seat: Rectangle, color: Color, width: f32) {
+    renderer.fill_quad(
+        renderer::Quad {
+            bounds: seat,
+            border: Border { color, width, radius: 0.0.into() },
+            ..renderer::Quad::default()
+        },
+        Color::TRANSPARENT,
+    );
+}
+
+fn shroud(renderer: &mut iced::Renderer, clip: Rectangle, keep: Option<Rectangle>) {
+    let shade = Color { a: DIM_ALPHA, ..Color::BLACK };
+
+    let Some(keep) = keep else {
+        renderer.fill_quad(renderer::Quad { bounds: clip, ..renderer::Quad::default() }, shade);
+
+        return;
+    };
+
+    let top = keep.y.clamp(clip.y, clip.y + clip.height);
+    let bottom = (keep.y + keep.height).clamp(clip.y, clip.y + clip.height);
+
+    let bands = [
+        Rectangle { x: clip.x, y: clip.y, width: clip.width, height: top - clip.y },
+        Rectangle { x: clip.x, y: bottom, width: clip.width, height: clip.y + clip.height - bottom },
+        Rectangle { x: clip.x, y: top, width: (keep.x - clip.x).max(0.0), height: bottom - top },
+        Rectangle {
+            x: (keep.x + keep.width).max(clip.x),
+            y: top,
+            width: (clip.x + clip.width - (keep.x + keep.width)).max(0.0),
+            height: bottom - top,
+        },
+    ];
+
+    for band in bands {
+        if band.width <= 0.0 || band.height <= 0.0 {
+            continue;
+        }
+
+        renderer.fill_quad(renderer::Quad { bounds: band, ..renderer::Quad::default() }, shade);
     }
 }
 
@@ -323,20 +425,60 @@ impl Widget<Message, Theme, iced::Renderer> for Canvas<'_> {
         let interaction: &mut Interaction = tree.state.downcast_mut();
 
         match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) if self.framing => {
+                let Some(position) = cursor.position_in(bounds) else {
+                    return;
+                };
+
+                interaction.frame_origin = Some(position);
+                interaction.frame_now = Some(position);
+                shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right))
+                if interaction.frame_origin.is_some() =>
+            {
+                let origin = interaction.frame_origin.take();
+                let settled = interaction.frame_now.take();
+
+                let drawn = origin
+                    .zip(settled)
+                    .and_then(|(origin, settled)| self.framed(bounds, origin, settled))
+                    .filter(|outline| outline.width * outline.height >= MIN_FRAME_AREA);
+
+                shell.publish(drawn.map_or(Message::Cancelled, Message::Framed));
+                shell.capture_event();
+            }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let Some(position) = cursor.position_in(bounds) else {
                     return;
                 };
 
                 interaction.drag_origin = Some(position);
+                interaction.travel = 0.0;
                 shell.capture_event();
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
                 if interaction.drag_origin.take().is_some() =>
             {
+                if interaction.travel <= CLICK_SLOP
+                    && let Some(position) = cursor.position_in(bounds)
+                    && let Some(point) = self.pixel(bounds, position)
+                {
+                    shell.publish(Message::Picked(point));
+                }
+
                 shell.capture_event();
             }
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                if interaction.frame_origin.is_some() {
+                    interaction.frame_now = Some(Point::new(position.x - bounds.x, position.y - bounds.y));
+
+                    shell.capture_event();
+                    shell.request_redraw();
+
+                    return;
+                }
+
                 let Some(origin) = interaction.drag_origin else {
                     return;
                 };
@@ -349,6 +491,8 @@ impl Widget<Message, Theme, iced::Renderer> for Canvas<'_> {
                 if scale <= 0.0 {
                     return;
                 }
+
+                interaction.travel += (local.x - origin.x).abs() + (local.y - origin.y).abs();
 
                 let travel = Vector::new((local.x - origin.x) / scale, (local.y - origin.y) / scale);
                 let center = self.settle(self.center - travel);
@@ -443,9 +587,11 @@ impl Widget<Message, Theme, iced::Renderer> for Canvas<'_> {
 
         renderer.draw_image(Image::new(handle.clone()).filter_method(filter), frame, clip);
 
-        if self.outlines.is_empty() {
-            return;
-        }
+        let interaction: &Interaction = _tree.state.downcast_ref();
+        let drawing = interaction
+            .frame_origin
+            .zip(interaction.frame_now)
+            .and_then(|(origin, now)| self.framed(bounds, origin, now));
 
         let native = self.source.size();
 
@@ -454,29 +600,30 @@ impl Widget<Message, Theme, iced::Renderer> for Canvas<'_> {
         }
 
         let scale = frame.width / native.width;
-        let thickness = (scale * OUTLINE_THICKNESS).clamp(OUTLINE_MIN_THICKNESS, OUTLINE_MAX_THICKNESS);
+        let placed = |outline: &Outline| Rectangle {
+            x: frame.x + outline.x * scale,
+            y: frame.y + outline.y * scale,
+            width: outline.width * scale,
+            height: outline.height * scale,
+        };
 
         renderer.with_layer(clip, |renderer| {
-            for outline in self.outlines {
-                let placed = Rectangle {
-                    x: frame.x + outline.x * scale,
-                    y: frame.y + outline.y * scale,
-                    width: outline.width * scale,
-                    height: outline.height * scale,
-                };
+            if self.framing {
+                shroud(renderer, clip, drawing.map(|drawn| placed(&drawn)));
+            }
 
-                if placed.width <= 0.0 || placed.height <= 0.0 {
+            edge(renderer, frame, BOUNDS_COLOR, BOUNDS_WIDTH);
+
+            for outline in self.outlines.iter().chain(drawing.iter()) {
+                let seat = placed(outline);
+
+                if seat.width <= 0.0 || seat.height <= 0.0 {
                     continue;
                 }
 
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: placed,
-                        border: Border { color: OUTLINE_COLOR, width: thickness, radius: 0.0.into() },
-                        ..renderer::Quad::default()
-                    },
-                    Color::TRANSPARENT,
-                );
+                let width = if outline.bold { BOLD_WIDTH } else { THIN_WIDTH };
+
+                edge(renderer, seat, OUTLINE_COLOR, width);
             }
         });
     }
@@ -491,12 +638,19 @@ impl Widget<Message, Theme, iced::Renderer> for Canvas<'_> {
     ) -> mouse::Interaction {
         let interaction: &Interaction = tree.state.downcast_ref();
 
+        if interaction.frame_origin.is_some() {
+            return mouse::Interaction::Crosshair;
+        }
+
         if interaction.drag_origin.is_some() {
             return mouse::Interaction::Grabbing;
         }
 
         if cursor.is_over(layout.bounds()) {
-            return mouse::Interaction::Grab;
+            return match self.framing {
+                true => mouse::Interaction::Crosshair,
+                false => mouse::Interaction::Grab,
+            };
         }
 
         mouse::Interaction::default()

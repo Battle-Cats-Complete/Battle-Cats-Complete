@@ -1,8 +1,10 @@
+mod imgcut;
 mod maanim;
 mod mamodel;
 
 use nyanko::graphics::rig::{AnimModification, Keyframe, Model};
 
+pub use imgcut::{Imgcut, CUT_FIELDS, CUT_NAME_FIELD};
 pub use maanim::Maanim;
 pub use mamodel::{bound, defaults, nameable, Mamodel, FIELDS, NAME_FIELD};
 

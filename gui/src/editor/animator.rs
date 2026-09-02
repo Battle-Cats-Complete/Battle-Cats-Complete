@@ -3,12 +3,13 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::mouse;
 use iced::widget::{button, column, container, pick_list, row, rule, scrollable, space, stack, text, text_input, Column, Space};
-use iced::widget::{mouse_area, operation, responsive};
+use iced::widget::{mouse_area, operation, responsive, tooltip};
 use iced::border::Border;
 use iced::{widget, Color, Element, Font, Length, Padding, Point, Size, Task, Theme};
 use tracing::{info, warn};
@@ -21,21 +22,22 @@ use kore::domains::enemy::animation as enemy_animation;
 use kore::domains::enemy::scanner::EnemyEntry;
 use kore::domains::mods;
 use kore::domains::settings::{AnimSettings, Settings};
-use kore::systems::animation::authoring::{self as authoring, bound, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, nameable, Maanim, Mamodel, EASES, FIELDS, NAME_FIELD};
+use kore::systems::animation::authoring::{self as authoring, bound, Imgcut, CUT_FIELDS, CUT_NAME_FIELD, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, nameable, Maanim, Mamodel, EASES, FIELDS, NAME_FIELD};
 use kore::systems::animation::ClipSet;
+use image::RgbaImage;
 use nyanko::graphics::rig::{Keyframe, Model, ModelPart, Opaque, Rig, SpriteCut};
 use nyanko::graphics::tools::timeline;
 use kore::Vfs;
 
 use crate::app::state::AnimState;
 use crate::app::{theme, Page};
-use crate::systems::animation::{self as viewer, controls};
+use crate::systems::animation::{self as viewer, controls, overlay};
 
 use super::{target, Target};
 use crate::common::feedback::Slot;
-use crate::common::glyphs;
+use crate::common::{dialog, glyphs};
 use crate::common::row_window::{self, RowWindow};
-use crate::widget::{list_row, popup, smooth_scroll};
+use crate::widget::{list_row, picture, popup, smooth_scroll};
 
 const PANEL_WIDTH: f32 = 372.0;
 const PANEL_PADDING: f32 = 6.0;
@@ -111,9 +113,12 @@ const GHOST_EDGE: f32 = 0.55;
 const GHOST_INK: f32 = 0.7;
 const GHOST_PAD: f32 = 3.0;
 const OFFSET_WIDTH: f32 = 74.0;
+const ATLAS_PANEL_WIDTH: f32 = 470.0;
+const CUT_CELL_WIDTH: f32 = 34.0;
+const CUT_STEP_WIDTH: f32 = 50.0;
+const LOADER_HEIGHT: f32 = 22.0;
+const FRAME_HINT: &str = "Right click & drag to set the cut";
 const ALIGN_WIDTH: f32 = 44.0;
-const ATLAS_NOTICE: &str = "Sprite sheet editing arrives in a later update.";
-const MODEL_NOTICE: &str = "Model editing arrives in the next update.";
 const BUFFER_MARK: char = '!';
 
 const LOADING_NOTICE: &str = "Loading animation\u{2026}";
@@ -126,6 +131,12 @@ const PAST_ATLAS_NOTICE: &str = "past the atlas";
 const BLANK_CUT_NOTICE: &str = "nothing visible";
 const NO_PART_NOTICE: &str = "This curve drives a part the model does not declare";
 const LOST_PART_NOTICE: &str = "This part is no longer in the loaded model";
+const SPRITE_KIND: i32 = 2;
+const ALPHA_FLOOR: u8 = 8;
+const ADRIFT_TINT: f32 = 0.35;
+const OUT_OF_BOUNDS: &str = "Coordinate is out of bounds";
+const NO_ATLAS_NOTICE: &str = "This atlas could not be read.";
+const NO_CUTS_NOTICE: &str = "This atlas declares no regions.";
 const NO_PART_CHOSEN: &str = "Select a part to edit its rest pose.";
 const NO_MODEL_NOTICE: &str = "This model could not be read.";
 const LEAF_LABEL: &str = "No children";
@@ -173,6 +184,13 @@ impl Mode {
         }
     }
 
+    fn panel(self) -> f32 {
+        match self {
+            Mode::Atlas => ATLAS_PANEL_WIDTH,
+            _ => PANEL_WIDTH,
+        }
+    }
+
     fn suffix(self) -> &'static str {
         match self {
             Mode::Atlas => ".png",
@@ -181,13 +199,6 @@ impl Mode {
         }
     }
 
-    fn pending(self) -> &'static str {
-        match self {
-            Mode::Atlas => ATLAS_NOTICE,
-            Mode::Model => MODEL_NOTICE,
-            Mode::Animation => "",
-        }
-    }
 }
 
 impl std::fmt::Display for Mode {
@@ -323,6 +334,18 @@ pub enum Message {
     DragMove(Point),
     DragEnd,
     Offset(usize),
+    Picture(picture::Message),
+    Load(Asset),
+    Loaded(Asset, Option<PathBuf>),
+    Carved(Option<Arc<Sheet>>),
+    Adopted,
+    Cut(usize, usize, String),
+    Frame(usize),
+    Trim(usize),
+    Slice(usize),
+    Find(usize),
+    DropCut(usize),
+    DropCutExpired,
     Field(usize, String),
     OffsetChanged(usize, String),
     AddPart,
@@ -395,6 +418,33 @@ impl Drag {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Asset {
+    Atlas,
+    Sheet,
+    Cuts,
+}
+
+impl Asset {
+    const ALL: [Asset; 3] = [Asset::Atlas, Asset::Sheet, Asset::Cuts];
+
+    fn label(self) -> &'static str {
+        match self {
+            Asset::Atlas => "Atlas",
+            Asset::Sheet => "Sheet",
+            Asset::Cuts => "Cuts",
+        }
+    }
+
+    fn filter(self) -> (&'static str, &'static [&'static str]) {
+        match self {
+            Asset::Atlas => ("Atlas", &["png", "imgcut"]),
+            Asset::Sheet => ("PNG Image", &["png"]),
+            Asset::Cuts => ("Cut List", &["imgcut"]),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Landing {
     Onto(usize),
@@ -446,9 +496,11 @@ struct Session {
     viewer: viewer::State,
     draft: Option<Draft>,
     pose: Option<Pose>,
+    atlas: Option<Sheet>,
     mode: Mode,
     opened: Option<PathBuf>,
     posed: Option<PathBuf>,
+    cutting: Option<PathBuf>,
     expanded: HashSet<usize>,
     wanted: Option<Held>,
     wanted_part: Option<usize>,
@@ -461,6 +513,11 @@ struct Session {
     strip_scroll: f32,
     strip_id: widget::Id,
     fields_id: widget::Id,
+    picture: picture::State,
+    framing: Option<usize>,
+    slice: Option<usize>,
+    carving: bool,
+    slicing: Slot<usize>,
     drag: Drag,
     confirm: Slot<usize>,
     revert: Slot<()>,
@@ -509,9 +566,11 @@ impl State {
             viewer: viewer::State::with_popup(popup::Kind::Animator),
             draft: None,
             pose: None,
+            atlas: None,
             mode: Mode::Animation,
             opened: None,
             posed: None,
+            cutting: None,
             expanded,
             wanted,
             wanted_part,
@@ -524,6 +583,11 @@ impl State {
             strip_scroll: 0.0,
             strip_id: widget::Id::unique(),
             fields_id: widget::Id::unique(),
+            picture: picture::State::default(),
+            framing: None,
+            slice: None,
+            carving: false,
+            slicing: Slot::default(),
             drag: Drag::default(),
             confirm: Slot::default(),
             revert: Slot::default(),
@@ -669,7 +733,8 @@ impl State {
         let session = self.session.as_ref()?;
         let live = session.viewer.playing()
             || session.draft.as_ref().is_some_and(|draft| draft.backing.busy())
-            || session.pose.as_ref().is_some_and(|pose| pose.backing.busy());
+            || session.pose.as_ref().is_some_and(|pose| pose.backing.busy())
+            || session.atlas.as_ref().is_some_and(|atlas| atlas.backing.busy());
 
         Some(if live { PLAYING_TICK } else { RESTING_TICK })
     }
@@ -686,6 +751,10 @@ impl State {
         if let Some(pose) = session.pose.as_mut() {
             pose.persist_now(vfs);
         }
+
+        if let Some(atlas) = session.atlas.as_mut() {
+            atlas.persist_now(vfs);
+        }
     }
 
     pub(super) fn update(&mut self, message: Message, feed: Feed<'_>) -> Task<Message> {
@@ -699,6 +768,30 @@ impl State {
             if !typing {
                 draft.resolve_buffer();
             }
+
+            if !matches!(&message, Message::LoopChanged(_)) {
+                draft.resolve_looping();
+            }
+        }
+
+        if let Some(pose) = session.pose.as_mut() {
+            let typing = match &message {
+                Message::Field(at, _) => pose.buffering(Slotted::Cell(*at)),
+                Message::OffsetChanged(axis, _) => pose.buffering(Slotted::Axis(*axis)),
+                _ => false,
+            };
+
+            if !typing {
+                pose.resolve_buffer();
+            }
+        }
+
+        if let Some(atlas) = session.atlas.as_mut() {
+            let typing = matches!(&message, Message::Cut(at, cell, _) if atlas.buffering(*at, *cell));
+
+            if !typing {
+                atlas.resolve_buffer();
+            }
         }
 
         match message {
@@ -709,6 +802,10 @@ impl State {
 
                 if let Some(pose) = session.pose.as_mut() {
                     pose.persist_now(feed.vfs);
+                }
+
+                if let Some(atlas) = session.atlas.as_mut() {
+                    atlas.persist_now(feed.vfs);
                 }
 
                 let handoff = session
@@ -728,12 +825,15 @@ impl State {
                 session.viewer.tick();
                 session.repose(feed.vfs);
 
+                let carving = session.recarve(feed.vfs);
                 let flush =
                     session.draft.as_mut().map_or_else(Task::none, |draft| draft.persist_if_dirty(feed.vfs));
                 let shaped =
                     session.pose.as_mut().map_or_else(Task::none, |pose| pose.persist_if_dirty(feed.vfs));
+                let carved =
+                    session.atlas.as_mut().map_or_else(Task::none, |atlas| atlas.persist_if_dirty(feed.vfs));
 
-                Task::batch([priming, flush, shaped])
+                Task::batch([priming, carving, flush, shaped, carved])
             }
             Message::Viewer(viewer::Message::Controls(controls::Message::OpenExport)) => {
                 if !session.revert.take(&()) {
@@ -784,6 +884,136 @@ impl State {
                     Drag::Moving { part, onto: Some(onto), .. } => session.land(part, onto, feed.vfs),
                     _ => {}
                 }
+
+                Task::none()
+            }
+            Message::Picture(picture::Message::Framed(outline)) => {
+                let Some(at) = session.framing.take() else {
+                    return Task::none();
+                };
+
+                let Some(atlas) = session.atlas.as_mut() else {
+                    return Task::none();
+                };
+
+                let region =
+                    [outline.x as i32, outline.y as i32, outline.width as i32, outline.height as i32];
+
+                atlas.place(at, region);
+                atlas.hidden = None;
+
+                atlas.persist_if_dirty(feed.vfs)
+            }
+            Message::Picture(picture::Message::Cancelled) => {
+                session.framing = None;
+                session.redraw();
+
+                Task::none()
+            }
+            Message::Picture(picture::Message::Picked(at)) => {
+                let hit = session.atlas.as_ref().and_then(|atlas| atlas.over(at));
+
+                session.reslice(hit);
+
+                Task::none()
+            }
+            Message::Picture(msg) => {
+                session.picture.update(msg);
+
+                Task::none()
+            }
+            Message::Slice(at) => {
+                session.reslice(Some(at));
+
+                Task::none()
+            }
+            Message::Find(at) => {
+                if let Some(atlas) = session.atlas.as_ref()
+                    && let Some(centre) = atlas.find(at)
+                {
+                    session.picture.focus(&atlas.source, centre);
+                }
+
+                Task::none()
+            }
+            Message::Load(asset) => {
+                let (label, extensions) = asset.filter();
+
+                Task::perform(dialog::file(label, extensions), move |picked| Message::Loaded(asset, picked))
+            }
+            Message::Loaded(asset, picked) => {
+                let Some(source) = picked else {
+                    return Task::none();
+                };
+
+                let staged = session.stage(asset, &source, feed.vfs);
+
+                if staged.is_empty() {
+                    return Task::none();
+                }
+
+                Task::perform(smol::unblock(move || copy_assets(staged)), |()| Message::Adopted)
+            }
+            Message::Adopted => {
+                session.atlas = None;
+                session.reload(feed.vfs);
+
+                session.recarve(feed.vfs)
+            }
+            Message::Carved(carved) => {
+                session.carving = false;
+                session.atlas = carved.and_then(Arc::into_inner);
+                session.framing = None;
+                session.slice = None;
+                session.picture.reset();
+
+                Task::none()
+            }
+            Message::Cut(at, cell, value) => {
+                let Some(atlas) = session.atlas.as_mut() else {
+                    return Task::none();
+                };
+
+                atlas.edit(at, cell, &value);
+
+                atlas.persist_if_dirty(feed.vfs)
+            }
+            Message::Frame(at) => {
+                session.framing = match session.framing {
+                    Some(held) if held == at => None,
+                    _ => Some(at),
+                };
+
+                session.redraw();
+
+                Task::none()
+            }
+            Message::Trim(at) => {
+                let region = session.atlas.as_ref().and_then(|atlas| atlas.opaque(at));
+
+                let (Some(region), Some(atlas)) = (region, session.atlas.as_mut()) else {
+                    return Task::none();
+                };
+
+                atlas.place(at, region);
+
+                atlas.persist_if_dirty(feed.vfs)
+            }
+            Message::DropCut(at) => {
+                if !session.slicing.take(&at) {
+                    return session.slicing.set(at, Message::DropCutExpired);
+                }
+
+                let Some(moved) = session.atlas.as_mut().and_then(|atlas| atlas.doc.remove_cut(at)) else {
+                    return Task::none();
+                };
+
+                session.recut(moved, feed.vfs);
+
+                Task::none()
+            }
+            Message::DropCutExpired => {
+                session.slicing.expire();
 
                 Task::none()
             }
@@ -842,11 +1072,12 @@ impl State {
             }
             Message::Switch(mode) => {
                 session.mode = mode;
+                session.framing = None;
                 session.repose(feed.vfs);
                 session.aim();
                 session.relist();
 
-                Task::none()
+                session.recarve(feed.vfs)
             }
             Message::Field(at, value) => {
                 let Some(pose) = session.pose.as_mut() else {
@@ -970,6 +1201,14 @@ impl State {
                 }
             }
             Message::Persisted(token, path, stamp) => {
+                if let Some(atlas) = session.atlas.as_mut().filter(|atlas| atlas.backing.token == token) {
+                    if atlas.backing.settle(path, stamp) == Settled::Moved {
+                        session.cutting = None;
+                    }
+
+                    return Task::none();
+                }
+
                 if let Some(pose) = session.pose.as_mut().filter(|pose| pose.backing.token == token) {
                     let settled = pose.backing.settle(path, stamp);
                     let updated = pose.doc.shared();
@@ -1071,13 +1310,18 @@ impl Session {
     }
 
     fn repose(&mut self, vfs: &Vfs) {
-        let path = self.viewer.selected_model().map(Path::to_path_buf);
-        let stale =
-            path != self.posed || self.pose.as_ref().is_some_and(|pose| pose.backing.drifted());
+        let Some(path) = self.viewer.selected_model().map(Path::to_path_buf) else {
+            return;
+        };
+
+        let stale = Some(&path) != self.posed.as_ref()
+            || self.pose.as_ref().is_some_and(|pose| pose.backing.drifted());
 
         if !stale {
             return;
         }
+
+        let path = Some(path);
 
         let held = self.pose.as_ref().and_then(|pose| pose.part).or(self.wanted_part.take());
 
@@ -1259,9 +1503,121 @@ impl Session {
     fn reload(&mut self, vfs: &Vfs) {
         self.opened = None;
         self.posed = None;
+        self.cutting = None;
         self.wanted = None;
         self.viewer.invalidate_paths();
         self.repose(vfs);
+    }
+
+    fn recarve(&mut self, vfs: &Vfs) -> Task<Message> {
+        if self.mode != Mode::Atlas || self.carving {
+            return Task::none();
+        }
+
+        let Some(path) = self.viewer.selected_cuts().map(Path::to_path_buf) else {
+            return Task::none();
+        };
+
+        let stale = Some(&path) != self.cutting.as_ref()
+            || self.atlas.as_ref().is_some_and(|atlas| atlas.backing.drifted());
+
+        if !stale {
+            return Task::none();
+        }
+
+        self.cutting = Some(path.clone());
+
+        let opened = Backing::open(&path, self.plan.target_mod.as_deref(), vfs);
+        let art = self.viewer.selected_sheet().map(fs::read).and_then(Result::ok);
+
+        let Some(((backing, bytes), art)) = opened.zip(art) else {
+            self.atlas = None;
+
+            return Task::none();
+        };
+
+        self.carving = true;
+
+        Task::perform(
+            smol::unblock(move || Sheet::assemble(backing, bytes, art).map(Arc::new)),
+            Message::Carved,
+        )
+    }
+
+    fn stage(&self, asset: Asset, source: &Path, vfs: &Vfs) -> Vec<(PathBuf, PathBuf)> {
+        let sheet = self.viewer.selected_sheet().and_then(named);
+        let cuts = self.viewer.selected_cuts().and_then(named);
+
+        let target = self.plan.target_mod.clone();
+        let seat = |from: &Path, name: Option<String>| {
+            name.and_then(|name| slot_for(&name, target.as_deref(), vfs))
+                .map(|into| (from.to_path_buf(), into))
+        };
+
+        match asset {
+            Asset::Sheet => seat(source, sheet).into_iter().collect(),
+            Asset::Cuts => seat(source, cuts).into_iter().collect(),
+            Asset::Atlas => {
+                let base = source.with_extension("");
+                let art = base.with_extension("png");
+                let list = base.with_extension("imgcut");
+
+                [art.is_file().then(|| seat(&art, sheet)), list.is_file().then(|| seat(&list, cuts))]
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .collect()
+            }
+        }
+    }
+
+    fn reslice(&mut self, at: Option<usize>) {
+        let held = self.slice;
+        self.slice = at.filter(|at| held != Some(*at));
+
+        self.redraw();
+    }
+
+    fn redraw(&mut self) {
+        let (picked, hidden) = (self.slice, self.framing);
+
+        if let Some(atlas) = self.atlas.as_mut() {
+            atlas.picked = picked;
+            atlas.hidden = hidden;
+            atlas.restate();
+        }
+    }
+
+    fn recut(&mut self, moved: Vec<Option<usize>>, vfs: &Vfs) {
+        let Some(atlas) = self.atlas.as_mut() else {
+            return;
+        };
+
+        atlas.backing.dirty = true;
+        atlas.picked = None;
+        atlas.hidden = None;
+        atlas.restate();
+        atlas.persist_now(vfs);
+
+        if let Some(pose) = self.pose.as_mut()
+            && pose.doc.retarget_sprites(&moved)
+        {
+            pose.backing.dirty = true;
+            pose.persist_now(vfs);
+        }
+
+        if let Some(draft) = self.draft.as_mut() {
+            draft.persist_now(vfs);
+        }
+
+        let target_mod = self.plan.target_mod.clone();
+
+        for path in self.viewer.anim_paths() {
+            revalue_file(&path, target_mod.as_deref(), &moved, vfs);
+        }
+
+        self.framing = None;
+        self.reload(vfs);
     }
 
     fn chosen(&self) -> Option<usize> {
@@ -1316,10 +1672,9 @@ impl Session {
         };
 
         let mut paths = self.viewer.anim_paths();
+        let rig = [self.viewer.selected_model(), self.viewer.selected_sheet(), self.viewer.selected_cuts()];
 
-        if let Some(model) = self.viewer.selected_model() {
-            paths.push(model.to_path_buf());
-        }
+        paths.extend(rig.into_iter().flatten().map(Path::to_path_buf));
 
         let restored = paths.iter().filter(|path| restore_file(&name, path, vfs)).count();
 
@@ -1331,6 +1686,8 @@ impl Session {
 
         self.draft = None;
         self.pose = None;
+        self.atlas = None;
+        self.cutting = None;
         self.reload(vfs);
     }
 
@@ -1384,8 +1741,12 @@ impl Session {
 
         let stage = container(showing).width(Length::Fill).height(Length::Fill);
 
-        let body =
-            row![self.side(), column![stage, self.strip(settings)].spacing(GAP)].spacing(GAP);
+        let right: Element<'_, Message> = match self.mode {
+            Mode::Atlas => self.canvas(),
+            _ => column![stage, self.strip(settings)].spacing(GAP).into(),
+        };
+
+        let body = row![self.side(), right].spacing(GAP);
 
         let content = container(body)
             .width(Length::Fill)
@@ -1435,10 +1796,154 @@ impl Session {
         let body = match self.mode {
             Mode::Animation => column![self.tree(), self.keys()],
             Mode::Model => column![self.tree(), self.fields()],
-            mode => column![self.tree(), pending(mode.pending())],
+            Mode::Atlas => column![self.loaders(), self.cuts()],
         };
 
         panel_frame(self.mode, title, body.spacing(GAP).height(Length::Fill).into())
+    }
+
+    fn canvas(&self) -> Element<'_, Message> {
+        let showing: Element<'_, Message> = match self.atlas.as_ref() {
+            Some(atlas) => self
+                .picture
+                .view_outlined(&atlas.source, &atlas.outlines, self.framing.is_some())
+                .map(Message::Picture),
+            None => theme::centered_text(NO_ATLAS_NOTICE)
+                .size(LABEL_SIZE)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+        };
+
+        let framing = self.framing.is_some();
+        let framed = container(showing)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(theme::CONSOLE_BORDER_WIDTH)
+            .style(theme::mock_console_container);
+
+        stack![target::suppress(framed, framing), overlay::hint(FRAME_HINT, framing), console_edge()]
+            .into()
+    }
+
+    fn loaders(&self) -> Element<'_, Message> {
+        let picking = Asset::ALL.iter().fold(row![].spacing(ROW_GAP), |listed, asset| {
+            let pick = button(theme::centered_text(asset.label()).size(LABEL_SIZE).width(Length::Fill))
+                .width(Length::Fill)
+                .padding([1, 4])
+                .on_press(Message::Load(*asset))
+                .style(theme::primary_button);
+
+            listed.push(container(pick).height(Length::Fixed(LOADER_HEIGHT)).align_y(Vertical::Center))
+        });
+
+        let sheet = self.viewer.selected_sheet().and_then(named).unwrap_or_default();
+        let cuts = self.viewer.selected_cuts().and_then(named).unwrap_or_default();
+        let atlas = self.atlas.as_ref();
+
+        let size = self
+            .viewer
+            .rig()
+            .and_then(|rig| rig.sheet.image_data.as_ref())
+            .map_or_else(String::new, |art| format!("{} \u{00d7} {}", art.width(), art.height()));
+
+        let facts = [
+            ("Sheet", sheet),
+            ("Cuts", cuts),
+            ("Size", size),
+            ("Regions", atlas.map_or_else(String::new, |atlas| atlas.doc.count().to_string())),
+        ];
+
+        let listed = facts.into_iter().enumerate().fold(
+            column![].width(Length::Fill),
+            |listed, (stripe, (label, value))| {
+                let cell = text(value)
+                    .size(LABEL_SIZE)
+                    .width(Length::Fill)
+                    .wrapping(text::Wrapping::WordOrGlyph)
+                    .into();
+
+                listed.push(fact(label, cell, stripe))
+            },
+        );
+
+        let body = column![picking, listed].spacing(ROW_GAP).width(Length::Fill);
+
+        container(container(body).padding(theme::CONSOLE_BORDER_WIDTH))
+            .width(Length::Fill)
+            .style(theme::mock_console_container)
+            .into()
+    }
+
+    fn cuts(&self) -> Element<'_, Message> {
+        let table = container(
+            container(responsive(move |size: Size| self.view_cuts(size)))
+                .padding(theme::CONSOLE_BORDER_WIDTH),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(theme::mock_console_container);
+
+        let notice: Element<'_, Message> =
+            match self.atlas.as_ref().is_some_and(|atlas| atlas.backing.failed) {
+                true => text(WRITE_FAILED_NOTICE).size(LABEL_SIZE).style(text::danger).into(),
+                false => Space::new().height(Length::Fixed(0.0)).into(),
+            };
+
+        column![notice, table].spacing(ROW_GAP).height(Length::Fill).into()
+    }
+
+    fn view_cuts(&self, size: Size) -> Element<'_, Message> {
+        let atlas = self.atlas.as_ref();
+        let rows = atlas.map_or(0, |atlas| atlas.inputs.len());
+
+        if rows == 0 {
+            let blank = container(theme::centered_text(NO_CUTS_NOTICE).size(LABEL_SIZE))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill);
+
+            return column![cuts_header(0.0), blank].width(Length::Fill).height(Length::Fill).into();
+        }
+
+        let body = (size.height - KEY_HEAD_HEIGHT).max(0.0);
+        let tail = if rows as f32 * KEY_ROW_HEIGHT > body { SCROLLBAR_ALLOWANCE } else { 0.0 };
+        let width = (size.width - tail).max(0.0);
+
+        let RowWindow { range, pad_before, pad_after } =
+            row_window::compute_with(rows, body, self.strip_scroll, KEY_ROW_HEIGHT, 0.0);
+
+        let mut list = Column::with_capacity(range.len() + 2).width(Length::Fixed(width));
+
+        if pad_before > 0.0 {
+            list = list.push(space().height(Length::Fixed(pad_before)));
+        }
+
+        for at in range {
+            if let Some(atlas) = atlas {
+                let framing = self.framing == Some(at);
+
+                let armed = self.slicing.armed_for(&at);
+
+                list = list.push(atlas.cut_row(at, framing, armed, self.slice == Some(at), width));
+            }
+        }
+
+        if pad_after > 0.0 {
+            list = list.push(space().height(Length::Fixed(pad_after)));
+        }
+
+        let scrolled = smooth_scroll(
+            scrollable(list)
+                .id(self.strip_id.clone())
+                .direction(scrollable::Direction::Vertical(bar()))
+                .on_scroll(|viewport| Message::StripScrolled(viewport.absolute_offset().y))
+                .width(Length::Fill)
+                .height(Length::Fill),
+        );
+
+        column![cuts_header(tail), scrolled].width(Length::Fill).height(Length::Fill).into()
     }
 
     fn tree(&self) -> Element<'_, Message> {
@@ -1864,6 +2369,68 @@ fn seat(theme: &Theme, carried: bool, onto: Option<Mark>) -> container::Style {
         },
         ..container::Style::default()
     }
+}
+
+fn adrift_input(theme: &Theme, status: text_input::Status, adrift: bool) -> text_input::Style {
+    let style = theme::rounded_input(theme, status);
+
+    if !adrift {
+        return style;
+    }
+
+    let palette = theme.palette();
+    let iced::Background::Color(base) = style.background else {
+        return style;
+    };
+
+    let blend = |base: f32, over: f32| base * (1.0 - ADRIFT_TINT) + over * ADRIFT_TINT;
+    let tinted = Color {
+        r: blend(base.r, palette.danger.r),
+        g: blend(base.g, palette.danger.g),
+        b: blend(base.b, palette.danger.b),
+        a: 1.0,
+    };
+
+    text_input::Style { background: tinted.into(), border: style.border.color(palette.danger), ..style }
+}
+
+fn console_edge<'a>() -> Element<'a, Message> {
+    container(Space::new().width(Length::Fill).height(Length::Fill))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(|theme: &Theme| container::Style {
+            border: theme::mock_console_container(theme).border,
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn cuts_header<'a>(tail: f32) -> Element<'a, Message> {
+    let head = CUT_FIELDS.iter().enumerate().fold(
+        row![theme::centered_text("#").size(LABEL_SIZE).width(Length::Fixed(INDEX_WIDTH))].spacing(ROW_GAP),
+        |listed, (cell, label)| {
+            let span = match cell == CUT_NAME_FIELD {
+                true => Length::Fill,
+                false => Length::Fixed(CUT_CELL_WIDTH),
+            };
+
+            listed.push(theme::centered_text(*label).size(LABEL_SIZE).width(span))
+        },
+    );
+
+    let head = head
+        .push(theme::centered_text("Action").size(LABEL_SIZE).width(Length::Fixed(CUT_STEP_WIDTH * 2.0 + 2.0)))
+        .push(theme::centered_text(CLOSE_LABEL).size(CELL_SIZE).width(Length::Fixed(DROP_WIDTH)));
+
+    let inset = Padding { top: 0.0, right: KEY_ROW_INSET + tail, bottom: 0.0, left: KEY_ROW_INSET };
+
+    container(head.width(Length::Fill))
+        .width(Length::Fill)
+        .height(Length::Fixed(KEY_HEAD_HEIGHT))
+        .align_y(Vertical::Center)
+        .padding(inset)
+        .style(theme::zebra_table_header)
+        .into()
 }
 
 fn fields_header<'a>(tail: f32) -> Element<'a, Message> {
@@ -2295,19 +2862,6 @@ fn options(anim: &AnimSettings) -> Element<'_, Message> {
         .into()
 }
 
-fn pending<'a>(notice: &'a str) -> Element<'a, Message> {
-    let body = container(theme::centered_text(notice).size(LABEL_SIZE))
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .center_x(Length::Fill)
-        .center_y(Length::Fill);
-
-    container(container(body).padding(theme::CONSOLE_BORDER_WIDTH))
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .style(theme::mock_console_container)
-        .into()
-}
 
 fn clipped(title: &str, room: f32) -> String {
     let per = PANEL_TITLE_SIZE * TITLE_GLYPH;
@@ -2362,7 +2916,7 @@ fn panel_frame<'a>(mode: Mode, title: Cow<'a, str>, body: Element<'a, Message>) 
         column![panel_title(mode, title), rule::horizontal(1), body].spacing(ROW_GAP).height(Length::Fill);
 
     container(framed)
-        .width(Length::Fixed(PANEL_WIDTH))
+        .width(Length::Fixed(mode.panel()))
         .height(Length::Fill)
         .padding(PANEL_PADDING)
         .into()
@@ -2520,6 +3074,7 @@ struct Draft {
     hint: String,
     looping: String,
     buffer: Option<(usize, Field)>,
+    looped: bool,
 }
 
 impl Draft {
@@ -2540,6 +3095,7 @@ impl Draft {
             hint: CELL_HINT.to_string(),
             looping: String::new(),
             buffer: None,
+            looped: false,
         };
 
         draft.restate();
@@ -2593,6 +3149,14 @@ impl Draft {
         }
 
         self.looping = value.to_owned();
+
+        if value.starts_with(BUFFER_MARK) {
+            self.looped = true;
+
+            return;
+        }
+
+        self.looped = false;
 
         let Some(parsed) = settled(value, LOOP_DEFAULT) else {
             return;
@@ -2676,6 +3240,18 @@ impl Draft {
 
     fn buffering(&self, at: usize, field: Field) -> bool {
         self.buffer == Some((at, field))
+    }
+
+    fn resolve_looping(&mut self) {
+        if !std::mem::take(&mut self.looped) {
+            return;
+        }
+
+        let Some(typed) = self.looping.strip_prefix(BUFFER_MARK).map(str::to_owned) else {
+            return;
+        };
+
+        self.set_looping(&typed);
     }
 
     fn resolve_buffer(&mut self) {
@@ -2903,6 +3479,344 @@ impl std::fmt::Display for Offset {
     }
 }
 
+pub struct Sheet {
+    backing: Backing,
+    doc: Imgcut,
+    art: RgbaImage,
+    source: picture::Source,
+    outlines: Vec<picture::Outline>,
+    inputs: Vec<[String; 5]>,
+    picked: Option<usize>,
+    hidden: Option<usize>,
+    buffer: Option<(usize, usize)>,
+}
+
+impl std::fmt::Debug for Sheet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sheet").field("cuts", &self.doc.count()).finish()
+    }
+}
+
+impl Sheet {
+    fn assemble(backing: Backing, bytes: Vec<u8>, art: Vec<u8>) -> Option<Sheet> {
+        let doc = Imgcut::parse(&bytes)
+            .inspect_err(|err| warn!(path = %backing.read_from.display(), "Animation editor could not parse the cut list: {}", err))
+            .ok()?;
+
+        let decoded = image::load_from_memory(&art)
+            .inspect_err(|err| warn!("Animation editor could not decode the atlas: {}", err))
+            .ok()?
+            .to_rgba8();
+
+        let (width, height) = (decoded.width(), decoded.height());
+
+        let mut sheet = Sheet {
+            backing,
+            doc,
+            art: decoded,
+            source: picture::Source::new(art, width, height),
+            outlines: Vec::new(),
+            inputs: Vec::new(),
+            picked: None,
+            hidden: None,
+            buffer: None,
+        };
+
+        sheet.restate();
+
+        Some(sheet)
+    }
+
+    fn span(&self) -> (i32, i32) {
+        (self.art.width() as i32, self.art.height() as i32)
+    }
+
+    fn outside(&self, at: usize, cell: usize) -> bool {
+        let (width, height) = self.span();
+        let Some(cut) = self.doc.cut(at) else {
+            return false;
+        };
+
+        match cell {
+            0 => cut.x < 0 || cut.x > width,
+            1 => cut.y < 0 || cut.y > height,
+            2 => cut.width < 0 || cut.x.saturating_add(cut.width) > width,
+            3 => cut.height < 0 || cut.y.saturating_add(cut.height) > height,
+            _ => false,
+        }
+    }
+
+    fn opaque(&self, at: usize) -> Option<[i32; 4]> {
+        let cut = self.doc.cut(at)?;
+        let (span_x, span_y) = self.span();
+
+        let left = cut.x.clamp(0, span_x);
+        let top = cut.y.clamp(0, span_y);
+        let right = cut.x.saturating_add(cut.width).clamp(0, span_x);
+        let bottom = cut.y.saturating_add(cut.height).clamp(0, span_y);
+
+        let raw = self.art.as_raw();
+        let stride = span_x as usize * 4;
+        let mut seen: Option<[i32; 4]> = None;
+
+        for y in top..bottom {
+            let row = y as usize * stride;
+
+            for x in left..right {
+                if raw.get(row + x as usize * 4 + 3).copied().unwrap_or(0) < ALPHA_FLOOR {
+                    continue;
+                }
+
+                seen = Some(match seen {
+                    None => [x, y, x, y],
+                    Some([near_x, near_y, far_x, far_y]) => {
+                        [near_x.min(x), near_y.min(y), far_x.max(x), far_y.max(y)]
+                    }
+                });
+            }
+        }
+
+        let [near_x, near_y, far_x, far_y] = seen?;
+        let region = [near_x, near_y, far_x - near_x + 1, far_y - near_y + 1];
+
+        (region != [cut.x, cut.y, cut.width, cut.height]).then_some(region)
+    }
+
+    fn find(&self, at: usize) -> Option<Point> {
+        let cut = self.doc.cut(at)?;
+
+        Some(Point::new(
+            cut.x as f32 + cut.width as f32 / 2.0,
+            cut.y as f32 + cut.height as f32 / 2.0,
+        ))
+    }
+
+    fn restate(&mut self) {
+        let (picked, hidden) = (self.picked, self.hidden);
+
+        self.outlines = (0..self.doc.count())
+            .filter(|at| hidden != Some(*at))
+            .filter_map(|at| Some((at, self.doc.cut(at)?)))
+            .map(|(at, cut)| picture::Outline {
+                x: cut.x as f32,
+                y: cut.y as f32,
+                width: cut.width as f32,
+                height: cut.height as f32,
+                bold: picked == Some(at),
+            })
+            .collect();
+
+        self.inputs = (0..self.doc.count())
+            .map(|at| {
+                std::array::from_fn(|cell| match cell {
+                    CUT_NAME_FIELD => self.doc.name(at).unwrap_or_default().to_owned(),
+                    cell => self.doc.field(at, cell).unwrap_or(0).to_string(),
+                })
+            })
+            .collect();
+    }
+
+    fn buffering(&self, at: usize, cell: usize) -> bool {
+        self.buffer == Some((at, cell))
+    }
+
+    fn resolve_buffer(&mut self) {
+        let Some((at, cell)) = self.buffer.take() else {
+            return;
+        };
+
+        let Some(typed) = self
+            .inputs
+            .get(at)
+            .and_then(|row| row.get(cell))
+            .and_then(|slot| slot.strip_prefix(BUFFER_MARK))
+            .map(str::to_owned)
+        else {
+            return;
+        };
+
+        self.edit(at, cell, &typed);
+    }
+
+    fn edit(&mut self, at: usize, cell: usize, value: &str) {
+        let named = cell == CUT_NAME_FIELD;
+
+        if named && !authoring::nameable(value) {
+            return;
+        }
+
+        if !named && !typable(value) {
+            return;
+        }
+
+        let Some(slot) = self.inputs.get_mut(at).and_then(|row| row.get_mut(cell)) else {
+            return;
+        };
+
+        *slot = value.to_owned();
+
+        if value.starts_with(BUFFER_MARK) {
+            self.buffer = Some((at, cell));
+
+            return;
+        }
+
+        if self.buffering(at, cell) {
+            self.buffer = None;
+        }
+
+        let changed = match named {
+            true => self.doc.set_name(at, value),
+            false => settled(value, 0).is_some_and(|parsed| self.doc.set_field(at, cell, parsed.max(0))),
+        };
+
+        if changed {
+            self.backing.dirty = true;
+            self.restate();
+        }
+    }
+
+    fn place(&mut self, at: usize, region: [i32; 4]) {
+        if self.doc.place(at, region) {
+            self.backing.dirty = true;
+            self.restate();
+        }
+    }
+
+    fn over(&self, at: Point) -> Option<usize> {
+        (0..self.doc.count()).rev().find(|held| {
+            self.doc.cut(*held).is_some_and(|cut| {
+                let (x, y) = (at.x.floor() as i32, at.y.floor() as i32);
+
+                x >= cut.x && y >= cut.y && x < cut.x + cut.width && y < cut.y + cut.height
+            })
+        })
+    }
+
+    fn persist_if_dirty(&mut self, vfs: &Vfs) -> Task<Message> {
+        if !self.backing.dirty || self.backing.writing {
+            return Task::none();
+        }
+
+        let Some((path, stamp, token)) = self.backing.prepare(vfs) else {
+            return Task::none();
+        };
+
+        let doc = self.doc.clone();
+        let reported = path.clone();
+
+        Task::perform(
+            smol::unblock(move || write_now(&path, &doc.write(), stamp)),
+            move |stamp| Message::Persisted(token, reported.clone(), stamp),
+        )
+    }
+
+    fn persist_now(&mut self, vfs: &Vfs) -> Settled {
+        if !self.backing.busy() {
+            return Settled::Saved;
+        }
+
+        let Some((path, stamp, _)) = self.backing.prepare(vfs) else {
+            return Settled::Failed;
+        };
+
+        let written = write_now(&path, &self.doc.write(), stamp);
+
+        self.backing.settle(path, written)
+    }
+
+    fn cut_row(&self, at: usize, framing: bool, armed: bool, picked: bool, width: f32) -> Element<'_, Message> {
+        let cells = self.inputs.get(at).map_or(&[][..], |row| row.as_slice());
+
+        let mut line = row![theme::centered_text(at.to_string())
+            .size(LABEL_SIZE)
+            .width(Length::Fixed(INDEX_WIDTH))]
+        .spacing(ROW_GAP)
+        .width(Length::Fill)
+        .height(Length::Fixed(KEY_ROW_HEIGHT - KEY_ROW_PAD * 2.0))
+        .align_y(Vertical::Center);
+
+        for cell in 0..CUT_FIELDS.len() {
+            let named = cell == CUT_NAME_FIELD;
+            let adrift = !named && self.outside(at, cell);
+            let value = match framing && !named {
+                true => "",
+                false => cells.get(cell).map_or("", String::as_str),
+            };
+
+            let entry = text_input(if named { "" } else { CELL_HINT }, value)
+                .on_input(move |typed| Message::Cut(at, cell, typed))
+                .size(CELL_SIZE)
+                .padding(CELL_PADDING)
+                .width(match named {
+                    true => Length::Fill,
+                    false => Length::Fixed(CUT_CELL_WIDTH),
+                })
+                .style(move |theme: &Theme, status| adrift_input(theme, status, adrift));
+
+            let entry = match named {
+                true => entry,
+                false => entry.align_x(Horizontal::Center),
+            };
+
+            let cell: Element<'_, Message> = match adrift {
+                true => {
+                    let tip = container(text(OUT_OF_BOUNDS).size(LABEL_SIZE))
+                        .padding(CELL_PADDING)
+                        .style(container::bordered_box);
+
+                    tooltip(entry, tip, tooltip::Position::Top).into()
+                }
+                false => entry.into(),
+            };
+
+            line = line.push(cell);
+        }
+
+        let act = |label: &'static str, message, lit: bool| {
+            button(theme::centered_text(label).size(LABEL_SIZE).width(Length::Fill))
+                .width(Length::Fixed(CUT_STEP_WIDTH))
+                .padding([0, 2])
+                .on_press(message)
+                .style(move |theme: &Theme, status| match lit {
+                    true => theme::toggle_button(theme, status, true),
+                    false => theme::neutral_button(theme, status),
+                })
+        };
+
+        let actions = column![
+            row![act("Set", Message::Frame(at), framing), act("Trim", Message::Trim(at), false)]
+                .spacing(2.0),
+            row![act("Find", Message::Find(at), false), act("Select", Message::Slice(at), false)]
+                .spacing(2.0),
+        ]
+        .spacing(2.0)
+        .width(Length::Fixed(CUT_STEP_WIDTH * 2.0 + 2.0));
+
+        let mark = if armed { CONFIRM_MARK } else { CLOSE_LABEL };
+        let drop = button(theme::centered_text(mark).size(CELL_SIZE))
+            .width(Length::Fixed(DROP_WIDTH))
+            .padding(0)
+            .on_press(Message::DropCut(at))
+            .style(theme::danger_button);
+
+        let inset =
+            Padding { top: KEY_ROW_PAD, right: KEY_ROW_INSET, bottom: KEY_ROW_PAD, left: KEY_ROW_INSET };
+
+        container(line.push(actions).push(drop))
+            .width(Length::Fixed(width))
+            .padding(inset)
+            .style(move |theme: &Theme| match picked {
+                true => container::Style {
+                    background: Some(Color { a: ACTIVE_TINT, ..theme.palette().primary }.into()),
+                    ..container::Style::default()
+                },
+                false => theme::zebra_table_row(theme, at),
+            })
+            .into()
+    }
+}
+
 struct Pose {
     backing: Backing,
     doc: Mamodel,
@@ -2913,6 +3827,13 @@ struct Pose {
     hints: Vec<String>,
     cuts: usize,
     align: [String; 2],
+    buffer: Option<Slotted>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Slotted {
+    Cell(usize),
+    Axis(usize),
 }
 
 impl Pose {
@@ -2933,6 +3854,7 @@ impl Pose {
             hints: Vec::new(),
             cuts: 0,
             align: [String::new(), String::new()],
+            buffer: None,
         };
 
         pose.reseat();
@@ -3007,6 +3929,30 @@ impl Pose {
         self.cursors = self.inputs.iter().map(|_| widget::Id::unique()).collect();
     }
 
+    fn buffering(&self, held: Slotted) -> bool {
+        self.buffer == Some(held)
+    }
+
+    fn resolve_buffer(&mut self) {
+        let Some(held) = self.buffer.take() else {
+            return;
+        };
+
+        let typed = match held {
+            Slotted::Cell(at) => self.inputs.get(at),
+            Slotted::Axis(axis) => self.align.get(axis),
+        };
+
+        let Some(typed) = typed.and_then(|slot| slot.strip_prefix(BUFFER_MARK)).map(str::to_owned) else {
+            return;
+        };
+
+        match held {
+            Slotted::Cell(at) => self.edit(at, &typed),
+            Slotted::Axis(axis) => self.shift(axis, &typed),
+        }
+    }
+
     fn edit(&mut self, at: usize, value: &str) {
         let Some(part) = self.part else {
             return;
@@ -3028,6 +3974,16 @@ impl Pose {
 
         *slot = value.to_owned();
 
+        if !named && value.starts_with(BUFFER_MARK) {
+            self.buffer = Some(Slotted::Cell(at));
+
+            return;
+        }
+
+        if self.buffering(Slotted::Cell(at)) {
+            self.buffer = None;
+        }
+
         let changed = match named {
             true => self.doc.set_name(part, value),
             false => settled(value, self.fallback(at))
@@ -3048,6 +4004,16 @@ impl Pose {
         };
 
         *slot = value.to_owned();
+
+        if value.starts_with(BUFFER_MARK) {
+            self.buffer = Some(Slotted::Axis(axis));
+
+            return;
+        }
+
+        if self.buffering(Slotted::Axis(axis)) {
+            self.buffer = None;
+        }
 
         let Some(parsed) = settled(value, 0) else {
             return;
@@ -3182,6 +4148,63 @@ fn typable(value: &str) -> bool {
         Some('-') => chars.all(|digit| digit.is_ascii_digit()),
         Some(first) if first.is_ascii_digit() => chars.all(|digit| digit.is_ascii_digit()),
         Some(_) => false,
+    }
+}
+
+fn named(path: &Path) -> Option<String> {
+    path.file_name().and_then(|name| name.to_str()).map(str::to_owned)
+}
+
+fn slot_for(file: &str, target_mod: Option<&str>, vfs: &Vfs) -> Option<PathBuf> {
+    let Some(game) = vfs.rooted(architecture::GAME, file) else {
+        warn!(file, "Animation editor could not place an asset the game does not declare");
+
+        return None;
+    };
+
+    let Some(name) = target_mod else {
+        return Some(game);
+    };
+
+    mods::ensure_as(vfs, name, &game, file)
+        .inspect(|path| {
+            if let Err(err) = vfs.create((name, path.as_path())) {
+                warn!(path = %path.display(), "Animation editor could not index the staged asset: {}", err);
+            }
+        })
+        .inspect_err(|err| warn!(file, "Animation editor could not stage the asset: {}", err))
+        .ok()
+}
+
+fn copy_assets(staged: Vec<(PathBuf, PathBuf)>) {
+    for (from, into) in staged {
+        if let Err(err) = fs::copy(&from, &into) {
+            warn!(source = %from.display(), "Animation editor could not save the asset: {}", err);
+        }
+    }
+}
+
+fn revalue_file(anim: &Path, target_mod: Option<&str>, moved: &[Option<usize>], vfs: &Vfs) {
+    let Some((mut backing, bytes)) = Backing::open(anim, target_mod, vfs) else {
+        return;
+    };
+
+    let Ok(mut doc) = Maanim::parse(&bytes) else {
+        return;
+    };
+
+    if !doc.revalue(SPRITE_KIND, moved) {
+        return;
+    }
+
+    backing.dirty = true;
+
+    let Some((path, stamp, _)) = backing.prepare(vfs) else {
+        return;
+    };
+
+    if write_now(&path, &doc.write(), stamp).is_none() {
+        warn!(path = %path.display(), "Animation editor could not save a recut animation");
     }
 }
 

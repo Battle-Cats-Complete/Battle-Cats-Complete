@@ -127,6 +127,37 @@ impl Maanim {
         true
     }
 
+    pub fn revalue(&mut self, kind: i32, moved: &[Option<usize>]) -> bool {
+        let landed = |value: i32| {
+            usize::try_from(value)
+                .ok()
+                .and_then(|at| moved.get(at))
+                .map(|landed| landed.and_then(|at| i32::try_from(at).ok()).unwrap_or(-1))
+        };
+
+        let shifted = self.animation.modifications.iter().filter(|track| track.kind == kind).any(|track| {
+            track.keyframes.iter().any(|key| landed(key.value).is_some_and(|value| value != key.value))
+        });
+
+        if !shifted {
+            return false;
+        }
+
+        for track in Arc::make_mut(&mut self.animation).modifications.iter_mut() {
+            if track.kind != kind {
+                continue;
+            }
+
+            for key in track.keyframes.iter_mut() {
+                if let Some(value) = landed(key.value) {
+                    key.value = value;
+                }
+            }
+        }
+
+        true
+    }
+
     pub fn sort_keys(&mut self, track: usize) {
         if let Some(track) = Arc::make_mut(&mut self.animation).modifications.get_mut(track) {
             track.keyframes.sort_by_key(|key| key.frame);

@@ -5,7 +5,7 @@ mod diagnostics;
 mod export;
 mod expand;
 mod offscreen;
-mod overlay;
+pub(crate) mod overlay;
 mod pipeline;
 
 use std::path::{Path, PathBuf};
@@ -187,6 +187,14 @@ impl State {
 
     pub fn anim_paths(&self) -> Vec<PathBuf> {
         self.data.anim_paths()
+    }
+
+    pub fn selected_sheet(&self) -> Option<&Path> {
+        self.data.selected_sheet()
+    }
+
+    pub fn selected_cuts(&self) -> Option<&Path> {
+        self.data.selected_cuts()
     }
 
     pub fn adopt_model(&mut self, model: Arc<Model>) {
