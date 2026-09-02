@@ -35,7 +35,7 @@ Where the viewer normally offers **Export**, the Editor offers **Sync "game"**, 
 **Locate** centres the view on the part your selected curve drives.
 
 ### Adding and Removing Curves
-Right-clicking a part or one of its curves offers to add a curve for any property that part does not already drive, or to remove one it does. A new curve starts at the part's own resting value, so adding one changes nothing until you edit it.
+Right-clicking a part or one of its curves offers to add a curve for any property that part does not already drive, or to remove one it does. A new curve starts at the value the game treats as no change, which is zero for most properties but the part's own parent, and full scale and opacity, for those.
 
 ### Part Overlay
 Three buttons control the overlay, blue when on and grey when off. They stack, so a part lit by more than one shows bolder.

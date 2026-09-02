@@ -23,9 +23,9 @@ pub const MANIFEST_MISSING_NOTICE: &str = "Import manifest missing\nReverting to
 
 pub const MANIFEST_MALFORMED_NOTICE: &str = "Import manifest malformed\nReverting to previous selection";
 
-pub const NO_FILES_LABEL: &str = "No files available";
+pub const NO_ACTIONS_LABEL: &str = "No actions available";
 
-pub const NO_FILES_NOTICE: &str = "Couldn't find any files within this Context Scope";
+pub const NO_ACTIONS_NOTICE: &str = "Couldn't find any actions within this Context Scope";
 
 pub struct Slot<T> {
     value: Option<T>,

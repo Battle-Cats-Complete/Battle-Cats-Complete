@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, column, container, pick_list, row, rule, scrollable, space, stack, text, text_input, Column, Space};
-use iced::widget::responsive;
+use iced::widget::{operation, responsive};
 use iced::{widget, Color, Element, Font, Length, Padding, Size, Task, Theme};
 use tracing::{info, warn};
 
@@ -19,7 +19,7 @@ use kore::domains::mods;
 use kore::domains::settings::{AnimSettings, Settings};
 use kore::systems::animation::authoring::{self as authoring, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, Maanim, EASES};
 use kore::systems::animation::ClipSet;
-use nyanko::graphics::rig::{Keyframe, Model, ModelPart, Rig};
+use nyanko::graphics::rig::{Keyframe, Model, ModelPart};
 use nyanko::graphics::tools::timeline;
 use kore::Vfs;
 
@@ -72,6 +72,7 @@ const KEY_ROW_INSET: f32 = 2.0;
 
 const PLAYING_TICK: std::time::Duration = std::time::Duration::from_millis(16);
 const RESTING_TICK: std::time::Duration = std::time::Duration::from_millis(200);
+const RECALL_CAP: usize = 5;
 const KEY_HEAD_HEIGHT: f32 = 19.0;
 const DEBUG_WIDTH: f32 = 104.0;
 
@@ -190,8 +191,11 @@ impl Field {
         self as usize
     }
 
-    fn default(self) -> i32 {
-        0
+    fn default(self, neutral: i32) -> i32 {
+        match self {
+            Field::Value => neutral,
+            _ => 0,
+        }
     }
 }
 
@@ -265,9 +269,24 @@ impl Feed<'_> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Held {
+    part: i32,
+    kind: i32,
+    ordinal: usize,
+}
+
+struct Recall {
+    key: String,
+    expanded: HashSet<usize>,
+    clip: Option<String>,
+    curve: Option<Held>,
+}
+
 #[derive(Default)]
 pub(super) struct State {
     session: Option<Session>,
+    recalled: Vec<Recall>,
     handoff: Option<(Page, String)>,
 }
 
@@ -277,10 +296,11 @@ struct Session {
     draft: Option<Draft>,
     opened: Option<PathBuf>,
     expanded: HashSet<usize>,
+    wanted: Option<Held>,
     rows: Vec<TreeRow>,
     widest: f32,
-    seeded: bool,
     listed_rig: bool,
+    seeded: bool,
     scroll: f32,
     scroll_id: widget::Id,
     strip_scroll: f32,
@@ -291,18 +311,51 @@ struct Session {
 }
 
 impl State {
-    pub(super) fn begin(&mut self, plan: Plan) {
+    fn stash(&mut self) {
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+
+        let held = Recall {
+            key: session.plan.key.clone(),
+            expanded: session.expanded.clone(),
+            clip: session.viewer.selected_label(),
+            curve: session.draft.as_ref().and_then(|draft| held_curve(&draft.doc, draft.track?)),
+        };
+
+        self.recalled.retain(|known| known.key != held.key);
+        self.recalled.push(held);
+
+        while self.recalled.len() > RECALL_CAP {
+            self.recalled.remove(0);
+        }
+    }
+
+    pub(super) fn begin(&mut self, mut plan: Plan) {
+        self.stash();
         self.handoff = None;
+
+        let held = self.recalled.iter().find(|known| known.key == plan.key);
+        let expanded = held.map(|held| held.expanded.clone()).unwrap_or_default();
+        let seeded = held.is_some();
+
+        let wanted = held.and_then(|held| held.curve);
+
+        if let Some(clip) = held.and_then(|held| held.clip.clone()) {
+            plan.clip = Some(clip);
+        }
+
         self.session = Some(Session {
             plan,
             viewer: viewer::State::with_popup(popup::Kind::Animator),
             draft: None,
             opened: None,
-            expanded: HashSet::new(),
+            expanded,
+            wanted,
             rows: Vec::new(),
             widest: 0.0,
-            seeded: false,
             listed_rig: false,
+            seeded,
             scroll: 0.0,
             scroll_id: widget::Id::unique(),
             strip_scroll: 0.0,
@@ -345,19 +398,14 @@ impl State {
             return false;
         };
 
-        let declared = session
-            .viewer
-            .rig()
-            .and_then(|rig| rig.model.parts.get(part))
-            .map(|declared| authoring::resting_curve(part, kind, Some(declared)))
-            .unwrap_or_else(|| authoring::resting_curve(part, kind, None));
+        let seeded = authoring::blank_curve(part, kind, session.viewer.rig().map(|rig| &rig.model));
 
         let Some(draft) = session.draft.as_mut() else {
             return false;
         };
 
         let at = draft.doc.tracks().len();
-        draft.doc.insert(at, declared);
+        draft.doc.insert(at, seeded);
         draft.retrack(at);
         draft.dirty = true;
 
@@ -380,7 +428,12 @@ impl State {
             return false;
         }
 
-        draft.track = draft.track.min(draft.doc.tracks().len().saturating_sub(1));
+        draft.track = match draft.track {
+            Some(held) if held == track => None,
+            Some(held) if held > track => Some(held - 1),
+            held => held,
+        };
+
         draft.restate();
         draft.dirty = true;
 
@@ -428,10 +481,14 @@ impl State {
                     draft.persist_now(feed.vfs);
                 }
 
-                self.handoff = session
+                let handoff = session
                     .viewer
                     .selected_label()
                     .map(|label| (session.plan.subject.page(), label));
+
+                self.stash();
+
+                self.handoff = handoff;
                 self.session = None;
 
                 Task::none()
@@ -581,9 +638,17 @@ impl State {
                     return Task::none();
                 };
 
-                draft.edit(at, field, &value);
+                let moved = draft.edit(at, field, &value);
+                let chase = moved
+                    .and_then(|to| Field::TYPED.iter().position(|known| *known == field).map(|column| (to, column)))
+                    .map(|(to, column)| operation::focus(draft.cursor(to, column)));
 
-                draft.persist_if_dirty(feed.vfs)
+                let flush = draft.persist_if_dirty(feed.vfs);
+
+                match chase {
+                    Some(chase) => Task::batch([flush, chase]),
+                    None => flush,
+                }
             }
             Message::Persisted(token, path, stamp) => {
                 let Some(draft) = session.draft.as_mut().filter(|draft| draft.token == token) else {
@@ -652,6 +717,13 @@ impl Session {
         self.draft = selected
             .as_deref()
             .and_then(|anim| Draft::load(anim, self.plan.target_mod.as_deref(), feed.vfs));
+
+        if let Some(draft) = self.draft.as_mut()
+            && let Some(wanted) = self.wanted.take()
+            && let Some(at) = locate_curve(&draft.doc, &wanted)
+        {
+            draft.retrack(at);
+        }
 
         self.aim();
         self.arm();
@@ -722,6 +794,20 @@ impl Session {
 
     fn aim(&mut self) {
         let part = self.draft.as_ref().and_then(Draft::part).and_then(|part| usize::try_from(part).ok());
+        let kind = self.draft.as_ref().and_then(|draft| draft.curve()).map(|track| track.kind);
+
+        let neutral = match (part, kind) {
+            (Some(part), Some(kind)) => {
+                authoring::neutral_value(kind, part, self.viewer.rig().map(|rig| &rig.model))
+            }
+            _ => 0,
+        };
+
+        if let Some(draft) = self.draft.as_mut() {
+            draft.neutral = neutral;
+            draft.hint = neutral.to_string();
+            draft.restate();
+        }
 
         self.viewer.set_highlight(part);
     }
@@ -769,7 +855,7 @@ impl Session {
     }
 
     fn tree(&self) -> Element<'_, Message> {
-        let picked = self.draft.as_ref().map(|draft| draft.track);
+        let picked = self.draft.as_ref().and_then(|draft| draft.track);
         let body = responsive(move |size: Size| self.view_rows(size, picked));
 
         container(container(body).padding(theme::CONSOLE_BORDER_WIDTH))
@@ -825,14 +911,16 @@ impl Session {
     }
 
     fn strip<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
-        let rows: Element<'_, Message> = match self.draft.as_ref() {
-            Some(draft) => draft.inspector(self.viewer.rig()),
-            None => Space::new().width(Length::Fill).into(),
-        };
+        let index = self.draft.as_ref().and_then(Draft::part);
+        let part = index
+            .and_then(|index| usize::try_from(index).ok())
+            .zip(self.viewer.rig())
+            .and_then(|(at, rig)| rig.model.parts.get(at));
 
-        let facts: Element<'_, Message> = column![fact_header(), rows].width(Length::Fill).into();
+        let facts: Element<'_, Message> =
+            column![fact_header(), model_rows(index, part)].width(Length::Fill).into();
 
-        let body = row![facts, self.actions(), outlines_row(&settings.animation)].spacing(GAP);
+        let body = row![facts, self.actions(), options(&settings.animation)].spacing(GAP);
 
         container(body).width(Length::Fill).into()
     }
@@ -867,7 +955,7 @@ impl Session {
             .style(theme::primary_button);
 
         let active = draft
-            .and_then(|draft| draft.doc.track(draft.track))
+            .and_then(|draft| draft.curve())
             .and_then(|track| timeline::playhead(track, self.viewer.frame()))
             .map(|playhead| playhead.key);
 
@@ -958,6 +1046,7 @@ struct TreeRow {
     depth: u16,
     mark: &'static str,
     part: Option<usize>,
+    owner: Option<usize>,
     track: Option<usize>,
     warn: bool,
     inert: bool,
@@ -998,16 +1087,18 @@ impl TreeRow {
                     .right(ROW_PADDING),
             );
 
-        if self.inert {
-            return container(content).width(Length::Fixed(width)).into();
-        }
+        let row: Element<'_, Message> = match self.inert {
+            true => container(content).width(Length::Fixed(width)).into(),
+            false => {
+                let selected = self.track.is_some() && self.track == picked;
 
-        let selected = self.track.is_some() && self.track == picked;
-        let row = list_row(content, selected, false, Length::Fixed(width), Message::Row(index));
+                list_row(content, selected, false, Length::Fixed(width), Message::Row(index))
+            }
+        };
 
-        match (self.part, self.track) {
-            (Some(part), _) => target::target(row, Target::AnimPart(part)),
-            (_, Some(track)) => target::target(row, Target::AnimCurve(track)),
+        match (self.track, self.owner) {
+            (Some(track), _) => target::target(row, Target::AnimCurve(track)),
+            (_, Some(part)) => target::target(row, Target::AnimPart(part)),
             _ => row,
         }
     }
@@ -1086,7 +1177,7 @@ fn part_label(model: &Model, at: usize) -> String {
 }
 
 fn leaf(label: String, depth: u16, track: Option<usize>, warn: bool) -> TreeRow {
-    TreeRow { label, depth, mark: "", part: None, track, warn, inert: false }
+    TreeRow { label, depth, mark: "", part: None, owner: None, track, warn, inert: false }
 }
 
 fn listing(doc: Option<&Maanim>, model: Option<&Model>, expanded: &HashSet<usize>) -> Vec<TreeRow> {
@@ -1118,6 +1209,7 @@ fn listing(doc: Option<&Maanim>, model: Option<&Model>, expanded: &HashSet<usize
             depth,
             mark: if open { FOLDER_OPEN } else { FOLDER_SHUT },
             part: Some(part),
+            owner: Some(part),
             track: None,
             warn: false,
             inert: false,
@@ -1133,6 +1225,7 @@ fn listing(doc: Option<&Maanim>, model: Option<&Model>, expanded: &HashSet<usize
                 depth: depth + 1,
                 mark: "",
                 part: None,
+                owner: Some(part),
                 track: None,
                 warn: false,
                 inert: true,
@@ -1263,6 +1356,27 @@ fn fact<'a>(label: &'a str, value: Element<'a, Message>, stripe: usize) -> Eleme
         .into()
 }
 
+fn held_curve(doc: &Maanim, at: usize) -> Option<Held> {
+    let track = doc.track(at)?;
+    let ordinal = doc
+        .tracks()
+        .iter()
+        .take(at)
+        .filter(|other| other.part == track.part && other.kind == track.kind)
+        .count();
+
+    Some(Held { part: track.part, kind: track.kind, ordinal })
+}
+
+fn locate_curve(doc: &Maanim, held: &Held) -> Option<usize> {
+    doc.tracks()
+        .iter()
+        .enumerate()
+        .filter(|(_, track)| track.part == held.part && track.kind == held.kind)
+        .nth(held.ordinal)
+        .map(|(at, _)| at)
+}
+
 fn span_of(keys: &[Keyframe], at: usize) -> Option<(i32, i32)> {
     let here = keys.get(at)?.frame;
     let end = keys.get(at + 1).map_or(here, |next| next.frame.saturating_sub(1).max(here));
@@ -1274,6 +1388,39 @@ fn bears(model: &Model, part: usize) -> bool {
     let wanted = i32::try_from(part).ok();
 
     model.parts.iter().enumerate().any(|(at, other)| at != part && Some(other.parent) == wanted)
+}
+
+fn model_rows<'a>(index: Option<i32>, part: Option<&ModelPart>) -> Element<'a, Message> {
+    let named = match (index, part) {
+        (Some(index), Some(part)) => match part.name.trim() {
+            "" => index.to_string(),
+            name => format!("{} \u{00b7} {}", index, name),
+        },
+        (Some(index), None) => format!("{} \u{00b7} {}", index, NO_PART_NOTICE),
+        (None, _) => String::new(),
+    };
+
+    let pair = |left: i32, right: i32| format!("{}, {}", left, right);
+    let facts = [
+        ("Part", named),
+        ("Parent", part.map_or_else(String::new, |part| part.parent.to_string())),
+        ("Sprite", part.map_or_else(String::new, |part| part.sprite.to_string())),
+        ("Z Order", part.map_or_else(String::new, |part| part.z.to_string())),
+        ("Offset", part.map_or_else(String::new, |part| pair(part.x, part.y))),
+        ("Pivot", part.map_or_else(String::new, |part| pair(part.pivot_x, part.pivot_y))),
+        ("Scale", part.map_or_else(String::new, |part| pair(part.scale_x, part.scale_y))),
+        ("Opacity", part.map_or_else(String::new, |part| part.opacity.to_string())),
+    ];
+
+    facts
+        .into_iter()
+        .enumerate()
+        .fold(column![].width(Length::Fill), |listed, (stripe, (label, value))| {
+            let cell = text(value).size(LABEL_SIZE).width(Length::Fill).into();
+
+            listed.push(fact(label, cell, stripe))
+        })
+        .into()
 }
 
 fn fact_header<'a>() -> Element<'a, Message> {
@@ -1293,8 +1440,8 @@ fn panel_head<'a>(label: &'a str) -> Element<'a, Message> {
         .into()
 }
 
-fn outlines_row(anim: &AnimSettings) -> Element<'_, Message> {
-    let header = panel_head("Debug");
+fn options(anim: &AnimSettings) -> Element<'_, Message> {
+    let header = panel_head("Option");
 
     Lens::ALL
         .iter()
@@ -1373,8 +1520,11 @@ struct Draft {
     read_from: PathBuf,
     stamp: Stamp,
     doc: Maanim,
-    track: usize,
+    track: Option<usize>,
     inputs: Vec<[String; 4]>,
+    cursors: Vec<[widget::Id; 3]>,
+    neutral: i32,
+    hint: String,
     looping: String,
     buffer: Option<(usize, Field)>,
     dirty: bool,
@@ -1412,8 +1562,11 @@ impl Draft {
             read_from,
             stamp,
             doc,
-            track: 0,
+            track: None,
             inputs: Vec::new(),
+            cursors: Vec::new(),
+            neutral: 0,
+            hint: CELL_HINT.to_string(),
             looping: String::new(),
             buffer: None,
             dirty: false,
@@ -1440,14 +1593,19 @@ impl Draft {
             return;
         }
 
-        self.track = at;
+        self.track = Some(at);
         self.restate();
     }
 
-    fn restate(&mut self) {
-        let track = self.doc.track(self.track);
+    fn curve(&self) -> Option<&nyanko::graphics::rig::AnimModification> {
+        self.doc.track(self.track?)
+    }
 
-        self.looping = track.map_or_else(String::new, |track| shown(track.loop_count, LOOP_DEFAULT));
+    fn restate(&mut self) {
+        let neutral = self.neutral;
+        let looping = self.curve().map_or_else(String::new, |track| shown(track.loop_count, LOOP_DEFAULT));
+        let track = self.curve();
+
         self.inputs = track
             .map(|track| {
                 track
@@ -1456,15 +1614,22 @@ impl Draft {
                     .map(|key| {
                         let cells = [key.frame, key.value, key.ease, key.ease_power];
 
-                        std::array::from_fn(|at| shown(cells[at], Field::ALL[at].default()))
+                        std::array::from_fn(|at| shown(cells[at], Field::ALL[at].default(neutral)))
                     })
                     .collect()
             })
             .unwrap_or_default();
+
+        self.cursors = self
+            .inputs
+            .iter()
+            .map(|_| std::array::from_fn(|_| widget::Id::unique()))
+            .collect();
+        self.looping = looping;
     }
 
     fn set_looping(&mut self, value: &str) {
-        if !typable(value) {
+        if !typable(value) || self.track.is_none() {
             return;
         }
 
@@ -1474,7 +1639,7 @@ impl Draft {
             return;
         };
 
-        let Some(track) = self.doc.edit(self.track) else {
+        let Some(track) = self.track.and_then(|at| self.doc.edit(at)) else {
             return;
         };
 
@@ -1487,7 +1652,9 @@ impl Draft {
     }
 
     fn set_ease(&mut self, at: usize, ease: i32) {
-        let track = self.track;
+        let Some(track) = self.track else {
+            return;
+        };
 
         let Some(key) = self.doc.edit(track).and_then(|track| track.keyframes.get_mut(at)) else {
             return;
@@ -1503,7 +1670,11 @@ impl Draft {
     }
 
     fn add_key(&mut self) {
-        if self.doc.add_key(self.track).is_none() {
+        let Some(track) = self.track else {
+            return;
+        };
+
+        if self.doc.add_key(track).is_none() {
             return;
         }
 
@@ -1512,7 +1683,11 @@ impl Draft {
     }
 
     fn drop_key(&mut self, at: usize) {
-        if !self.doc.remove_key(self.track, at) {
+        let Some(track) = self.track else {
+            return;
+        };
+
+        if !self.doc.remove_key(track, at) {
             return;
         }
 
@@ -1520,16 +1695,24 @@ impl Draft {
         self.dirty = true;
     }
 
+    fn cursor(&self, at: usize, column: usize) -> widget::Id {
+        self.cursors
+            .get(at)
+            .and_then(|row| row.get(column))
+            .cloned()
+            .unwrap_or_else(widget::Id::unique)
+    }
+
     fn key_at(&self, at: usize) -> Option<i32> {
-        Some(self.doc.track(self.track)?.keyframes.get(at)?.frame)
+        Some(self.curve()?.keyframes.get(at)?.frame)
     }
 
     fn key_span(&self, at: usize) -> Option<(i32, i32)> {
-        span_of(&self.doc.track(self.track)?.keyframes, at)
+        span_of(&self.curve()?.keyframes, at)
     }
 
     fn part(&self) -> Option<i32> {
-        self.doc.track(self.track).map(|track| track.part)
+        self.curve().map(|track| track.part)
     }
 
     fn buffering(&self, at: usize, field: Field) -> bool {
@@ -1555,37 +1738,32 @@ impl Draft {
         self.edit(at, field, &typed);
     }
 
-    fn edit(&mut self, at: usize, field: Field, value: &str) {
+    fn edit(&mut self, at: usize, field: Field, value: &str) -> Option<usize> {
         if !typable(value) {
-            return;
+            return None;
         }
 
         let held = value.starts_with(BUFFER_MARK);
 
-        let Some(slot) = self.inputs.get_mut(at).and_then(|row| row.get_mut(field.slot())) else {
-            return;
-        };
+        let slot = self.inputs.get_mut(at).and_then(|row| row.get_mut(field.slot()))?;
 
         *slot = value.to_owned();
 
         if held {
             self.buffer = Some((at, field));
 
-            return;
+            return None;
         }
 
         if self.buffering(at, field) {
             self.buffer = None;
         }
 
-        let Some(parsed) = settled(value, field.default()) else {
-            return;
-        };
+        let parsed = settled(value, field.default(self.neutral))?;
 
-        let track = self.track;
-        let Some(key) = self.doc.edit(track).and_then(|track| track.keyframes.get_mut(at)) else {
-            return;
-        };
+        let track = self.track?;
+
+        let key = self.doc.edit(track).and_then(|track| track.keyframes.get_mut(at))?;
 
         let cell = match field {
             Field::Frame => &mut key.frame,
@@ -1595,31 +1773,34 @@ impl Draft {
         };
 
         if *cell == parsed {
-            return;
+            return None;
         }
 
         *cell = parsed;
         self.dirty = true;
 
-        if field == Field::Frame {
-            self.reorder(track);
+        if field != Field::Frame {
+            return None;
         }
+
+        self.reorder(track, at)
     }
 
-    fn reorder(&mut self, track: usize) {
-        let Some(keys) = self.doc.track(track).map(|track| &track.keyframes) else {
-            return;
-        };
+    fn reorder(&mut self, track: usize, moved: usize) -> Option<usize> {
+        let keys = &self.doc.track(track)?.keyframes;
 
         let mut order: Vec<usize> = (0..keys.len()).collect();
         order.sort_by_key(|at| keys[*at].frame);
 
         if order.iter().enumerate().all(|(to, from)| to == *from) {
-            return;
+            return None;
         }
 
         self.doc.sort_keys(track);
         self.inputs = order.iter().filter_map(|at| self.inputs.get(*at).cloned()).collect();
+        self.cursors = order.iter().filter_map(|at| self.cursors.get(*at).cloned()).collect();
+
+        order.iter().position(|from| *from == moved)
     }
 
     fn destination(&self, vfs: &Vfs) -> Option<(PathBuf, Stamp)> {
@@ -1706,47 +1887,8 @@ impl Draft {
         if moved { Settled::Moved } else { Settled::Saved }
     }
 
-    fn inspector(&self, rig: Option<&Rig>) -> Element<'_, Message> {
-        let index = self.part();
-        let part = index
-            .and_then(|index| usize::try_from(index).ok())
-            .zip(rig)
-            .and_then(|(at, rig)| rig.model.parts.get(at));
-
-        let named = match (index, part) {
-            (Some(index), Some(part)) => match part.name.trim() {
-                "" => index.to_string(),
-                name => format!("{} \u{00b7} {}", index, name),
-            },
-            (Some(index), None) => format!("{} \u{00b7} {}", index, NO_PART_NOTICE),
-            (None, _) => String::new(),
-        };
-
-        let pair = |left: i32, right: i32| format!("{}, {}", left, right);
-        let facts = [
-            ("Part", named),
-            ("Parent", part.map_or_else(String::new, |part| part.parent.to_string())),
-            ("Sprite", part.map_or_else(String::new, |part| part.sprite.to_string())),
-            ("Z Order", part.map_or_else(String::new, |part| part.z.to_string())),
-            ("Offset", part.map_or_else(String::new, |part| pair(part.x, part.y))),
-            ("Pivot", part.map_or_else(String::new, |part| pair(part.pivot_x, part.pivot_y))),
-            ("Scale", part.map_or_else(String::new, |part| pair(part.scale_x, part.scale_y))),
-            ("Opacity", part.map_or_else(String::new, |part| part.opacity.to_string())),
-        ];
-
-        facts
-            .into_iter()
-            .enumerate()
-            .fold(column![].width(Length::Fill), |listed, (stripe, (label, value))| {
-                let cell = text(value).size(LABEL_SIZE).width(Length::Fill).into();
-
-                listed.push(fact(label, cell, stripe))
-            })
-            .into()
-    }
-
     fn looping(&self) -> Element<'_, Message> {
-        let count = self.doc.track(self.track).map_or(0, |track| track.loop_count);
+        let count = self.curve().map_or(0, |track| track.loop_count);
 
         let body = row![
             text("Loop").size(LABEL_SIZE),
@@ -1766,7 +1908,7 @@ impl Draft {
 
     fn key_row(&self, at: usize, active: bool, stripe: usize, armed: bool, width: f32) -> Element<'_, Message> {
         let cells = self.inputs.get(at).map_or(&[][..], |row| row.as_slice());
-        let ease = self.doc.track(self.track).and_then(|track| track.keyframes.get(at)).map_or(0, |key| key.ease);
+        let ease = self.curve().and_then(|track| track.keyframes.get(at)).map_or(0, |key| key.ease);
 
         let mut line = row![theme::centered_text(at.to_string())
             .size(LABEL_SIZE)
@@ -1776,11 +1918,13 @@ impl Draft {
         .height(Length::Fixed(KEY_ROW_HEIGHT - KEY_ROW_PAD * 2.0))
         .align_y(Vertical::Center);
 
-        for field in Field::TYPED {
+        for (column, field) in Field::TYPED.into_iter().enumerate() {
             let value = cells.get(field.slot()).map_or("", String::as_str);
             let live = field != Field::Power || ease_takes_power(ease);
 
-            let mut cell = text_input(CELL_HINT, value)
+            let hint = if field == Field::Value { self.hint.as_str() } else { CELL_HINT };
+            let mut cell = text_input(hint, value)
+                .id(self.cursor(at, column))
                 .size(CELL_SIZE)
                 .padding(CELL_PADDING)
                 .align_x(Horizontal::Center)
@@ -1892,6 +2036,33 @@ mod tests {
 
     fn keys(frames: &[i32]) -> Vec<Keyframe> {
         frames.iter().map(|frame| Keyframe { frame: *frame, ..Keyframe::default() }).collect()
+    }
+
+
+    const DOUBLED: &str = "[modelanim:animation]\n1\n3\n5,11,-1,0,0,\n1\n0,0,0,0\n2,4,-1,0,0,\n1\n0,0,0,0\n5,11,-1,0,0,\n1\n0,0,0,0\n";
+
+    #[test]
+    fn a_remembered_curve_survives_another_curve_being_inserted_before_it() {
+        // Two curves share part 5 and kind 11, so an index alone cannot name one.
+        let mut doc = Maanim::parse(DOUBLED.as_bytes()).expect("the sample parses");
+        let held = held_curve(&doc, 2).expect("the track exists");
+
+        assert_eq!(held, Held { part: 5, kind: 11, ordinal: 1 });
+
+        doc.insert(0, authoring::blank_curve(9, 12, None));
+
+        assert_eq!(locate_curve(&doc, &held), Some(3));
+    }
+
+    #[test]
+    fn a_remembered_curve_is_gone_once_its_occurrence_is() {
+        let mut doc = Maanim::parse(DOUBLED.as_bytes()).expect("the sample parses");
+        let held = held_curve(&doc, 2).expect("the track exists");
+
+        doc.remove(2);
+
+        assert_eq!(locate_curve(&doc, &held), None);
+        assert_eq!(locate_curve(&doc, &Held { part: 5, kind: 11, ordinal: 0 }), Some(0));
     }
 
     #[test]

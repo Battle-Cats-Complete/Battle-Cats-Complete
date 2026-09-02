@@ -29,7 +29,7 @@ use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;
 use crate::domains::enemy::DetailTab as EnemyTab;
 use crate::common::dialog;
-use crate::common::feedback::{Slot, NO_FILES_LABEL, NO_FILES_NOTICE, UNSUPPORTED_NOTICE};
+use crate::common::feedback::{Slot, NO_ACTIONS_LABEL, NO_ACTIONS_NOTICE, UNSUPPORTED_NOTICE};
 
 pub(crate) use animator::Feed;
 pub(crate) use target::{suppress, target};
@@ -544,7 +544,7 @@ impl State {
             );
 
             if context.enabled {
-                items.push(Item::disabled(NO_FILES_LABEL, NO_FILES_NOTICE));
+                items.push(Item::disabled(NO_ACTIONS_LABEL, NO_ACTIONS_NOTICE));
             }
         }
 

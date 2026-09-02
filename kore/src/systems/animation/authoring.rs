@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use nyanko::common::{scrub, Separator};
-use nyanko::graphics::rig::{AnimModification, Animation, Keyframe, ModelPart, RigError};
+use nyanko::graphics::rig::{AnimModification, Animation, Keyframe, Model, RigError};
 
 const BOM: [u8; 3] = [0xef, 0xbb, 0xbf];
 const NAME_FIELD: usize = 5;
@@ -148,26 +148,21 @@ impl Maanim {
 
 pub const KINDS: [i32; 15] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
 
-pub fn rest_value(part: &ModelPart, kind: i32) -> i32 {
+pub fn neutral_value(kind: i32, part: usize, model: Option<&Model>) -> i32 {
+    let Some(model) = model else {
+        return 0;
+    };
+
     match kind {
-        0 => part.parent,
-        1 => part.id,
-        2 => part.sprite,
-        3 => part.z,
-        4 => part.x,
-        5 => part.y,
-        6 => part.pivot_x,
-        7 => part.pivot_y,
-        8 | 9 => part.scale_x,
-        10 => part.scale_y,
-        11 => part.angle,
-        12 => part.opacity,
+        0 => model.parts.get(part).map_or(0, |declared| declared.parent),
+        8..=10 => model.scale_unit,
+        12 => model.opacity_unit,
         _ => 0,
     }
 }
 
-pub fn resting_curve(part: usize, kind: i32, declared: Option<&ModelPart>) -> AnimModification {
-    let value = declared.map_or(0, |declared| rest_value(declared, kind));
+pub fn blank_curve(part: usize, kind: i32, model: Option<&Model>) -> AnimModification {
+    let value = neutral_value(kind, part, model);
 
     AnimModification {
         part: i32::try_from(part).unwrap_or(0),
@@ -268,6 +263,8 @@ fn names(lines: &[&str], body: &str, tracks: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use nyanko::graphics::rig::ModelPart;
+
     use super::*;
 
     const PADDED: &str = "[modelanim:animation]\n1\n2\n20,11,-1,0,0,\tネスト\t\n2\n-30,50,2,2\n10,50,0,0\n21,4,1,0,0,\n1\n0,0,0,0\n";
@@ -379,22 +376,29 @@ mod tests {
     }
 
     #[test]
-    fn a_new_curve_starts_where_the_part_already_rests() {
-        // Seeding a Scale curve at zero would collapse the part the moment it is added.
-        let part = ModelPart { scale_x: 1000, opacity: 800, angle: 45, ..ModelPart::default() };
+    fn a_new_curve_names_its_part_and_plays_once() {
+        let track = blank_curve(7, 4, None);
 
-        assert_eq!(resting_curve(3, 9, Some(&part)).keyframes[0].value, 1000);
-        assert_eq!(resting_curve(3, 12, Some(&part)).keyframes[0].value, 800);
-        assert_eq!(resting_curve(3, 11, Some(&part)).keyframes[0].value, 45);
-        assert_eq!(resting_curve(3, 13, Some(&part)).keyframes[0].value, 0);
+        assert_eq!((track.part, track.kind, track.loop_count), (7, 4, 1));
+        assert_eq!(track.keyframes, vec![Keyframe::default()]);
     }
 
     #[test]
-    fn a_new_curve_names_its_part_and_plays_once() {
-        let track = resting_curve(7, 4, None);
+    fn a_new_curve_starts_where_the_engine_treats_it_as_absent() {
+        // The pose clears to the model's units for scale and opacity, and parent
+        // is stored as a difference from the part's own, so zero is not neutral there.
+        let model = Model {
+            parts: vec![ModelPart { parent: 4, ..ModelPart::default() }],
+            scale_unit: 1000,
+            opacity_unit: 1000,
+            ..Model::default()
+        };
 
-        assert_eq!((track.part, track.kind, track.loop_count), (7, 4, 1));
-        assert_eq!(track.keyframes.len(), 1);
+        assert_eq!(neutral_value(0, 0, Some(&model)), 4);
+        assert_eq!(neutral_value(9, 0, Some(&model)), 1000);
+        assert_eq!(neutral_value(12, 0, Some(&model)), 1000);
+        assert_eq!(neutral_value(5, 0, Some(&model)), 0);
+        assert_eq!(neutral_value(11, 0, Some(&model)), 0);
     }
 
     #[test]
