@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -90,6 +91,11 @@ const LOOP_CARD_PAD: f32 = 3.0;
 const LOOP_DEFAULT: i32 = 1;
 const LOOP_HINT: &str = "1";
 const CELL_HINT: &str = "0";
+const MODE_WIDTH: f32 = 104.0;
+const HEAD_HEIGHT: f32 = 22.0;
+const TITLE_GLYPH: f32 = 0.62;
+const ATLAS_NOTICE: &str = "Sprite sheet editing arrives in a later update.";
+const MODEL_NOTICE: &str = "Model editing arrives in the next update.";
 const BUFFER_MARK: char = '!';
 
 const LOADING_NOTICE: &str = "Loading animation\u{2026}";
@@ -120,6 +126,47 @@ impl Subject {
             Subject::Cat { .. } => Page::Cats,
             Subject::Enemy { .. } => Page::Enemies,
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mode {
+    Atlas,
+    Model,
+    Animation,
+}
+
+impl Mode {
+    const ALL: [Mode; 3] = [Mode::Atlas, Mode::Model, Mode::Animation];
+
+    fn label(self) -> &'static str {
+        match self {
+            Mode::Atlas => "Atlas",
+            Mode::Model => "Model",
+            Mode::Animation => "Animation",
+        }
+    }
+
+    fn suffix(self) -> &'static str {
+        match self {
+            Mode::Atlas => ".png",
+            Mode::Model => ".mamodel",
+            Mode::Animation => "",
+        }
+    }
+
+    fn pending(self) -> &'static str {
+        match self {
+            Mode::Atlas => ATLAS_NOTICE,
+            Mode::Model => MODEL_NOTICE,
+            Mode::Animation => "",
+        }
+    }
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
     }
 }
 
@@ -241,6 +288,7 @@ pub enum Message {
     RevertExpired,
     Overlay(Lens),
     Locate,
+    Switch(Mode),
     Persisted(u64, PathBuf, Option<Stamp>),
 }
 
@@ -294,6 +342,7 @@ struct Session {
     plan: Plan,
     viewer: viewer::State,
     draft: Option<Draft>,
+    mode: Mode,
     opened: Option<PathBuf>,
     expanded: HashSet<usize>,
     wanted: Option<Held>,
@@ -349,6 +398,7 @@ impl State {
             plan,
             viewer: viewer::State::with_popup(popup::Kind::Animator),
             draft: None,
+            mode: Mode::Animation,
             opened: None,
             expanded,
             wanted,
@@ -554,6 +604,12 @@ impl State {
 
                 Task::none()
             }
+            Message::Switch(mode) => {
+                session.mode = mode;
+                session.relist();
+
+                Task::none()
+            }
             Message::Locate => {
                 session.viewer.locate();
 
@@ -735,8 +791,12 @@ impl Session {
     fn relist(&mut self) {
         self.seed();
 
-        let listed =
-            listing(self.draft.as_ref().map(|draft| &draft.doc), self.viewer.rig().map(|rig| &rig.model), &self.expanded);
+        let curves = match self.mode {
+            Mode::Animation => self.draft.as_ref().map(|draft| &draft.doc),
+            _ => None,
+        };
+
+        let listed = listing(curves, self.viewer.rig().map(|rig| &rig.model), &self.expanded);
 
         self.listed_rig = self.viewer.rig().is_some();
         self.widest = listed.iter().map(TreeRow::span).fold(0.0, f32::max);
@@ -848,10 +908,20 @@ impl Session {
     }
 
     fn side(&self) -> Element<'_, Message> {
-        let title = self.draft.as_ref().map_or(self.plan.key.as_str(), |draft| draft.file.as_str());
-        let body = column![self.tree(), self.keys()].spacing(GAP).height(Length::Fill);
+        let title = match self.mode {
+            Mode::Animation => self
+                .draft
+                .as_ref()
+                .map_or(Cow::Borrowed(self.plan.key.as_str()), |draft| Cow::Borrowed(draft.file.as_str())),
+            mode => Cow::Owned(format!("{}{}", self.plan.key, mode.suffix())),
+        };
 
-        panel_frame(body.into(), title)
+        let body = match self.mode {
+            Mode::Animation => column![self.tree(), self.keys()],
+            mode => column![self.tree(), pending(mode.pending())],
+        };
+
+        panel_frame(self.mode, title, body.spacing(GAP).height(Length::Fill).into())
     }
 
     fn tree(&self) -> Element<'_, Message> {
@@ -1467,10 +1537,71 @@ fn options(anim: &AnimSettings) -> Element<'_, Message> {
         .into()
 }
 
-fn panel_frame<'a>(body: Element<'a, Message>, title: &str) -> Element<'a, Message> {
-    let framed = column![theme::bold_text(title).size(PANEL_TITLE_SIZE), rule::horizontal(1), body]
-        .spacing(ROW_GAP)
-        .height(Length::Fill);
+fn pending<'a>(notice: &'a str) -> Element<'a, Message> {
+    let body = container(theme::centered_text(notice).size(LABEL_SIZE))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill);
+
+    container(container(body).padding(theme::CONSOLE_BORDER_WIDTH))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(theme::mock_console_container)
+        .into()
+}
+
+fn clipped(title: &str, room: f32) -> String {
+    let per = PANEL_TITLE_SIZE * TITLE_GLYPH;
+    let budget = (room / per).floor().max(0.0);
+
+    if glyphs::columns(title) <= budget {
+        return title.to_owned();
+    }
+
+    let keep = (budget - 1.0).max(0.0);
+    let mut used = 0.0;
+    let mut kept = String::new();
+
+    for glyph in title.chars() {
+        let span = if glyphs::wide(glyph) { 2.0 } else { 1.0 };
+
+        if used + span > keep {
+            break;
+        }
+
+        used += span;
+        kept.push(glyph);
+    }
+
+    kept.push('\u{2026}');
+    kept
+}
+
+fn panel_title<'a>(mode: Mode, title: Cow<'a, str>) -> Element<'a, Message> {
+    let head = responsive(move |size: Size| {
+        let switch = pick_list(Mode::ALL, Some(mode), Message::Switch)
+            .width(Length::Fixed(MODE_WIDTH))
+            .padding([1, 4])
+            .text_size(LABEL_SIZE)
+            .style(theme::combo_box)
+            .menu_style(theme::combo_box_menu);
+
+        let room = (size.width - MODE_WIDTH - ROW_GAP).max(0.0);
+        let named = theme::bold_text(clipped(&title, room))
+            .size(PANEL_TITLE_SIZE)
+            .wrapping(text::Wrapping::None)
+            .width(Length::Fill);
+
+        row![named, switch].spacing(ROW_GAP).align_y(Vertical::Center).into()
+    });
+
+    container(head).width(Length::Fill).height(Length::Fixed(HEAD_HEIGHT)).into()
+}
+
+fn panel_frame<'a>(mode: Mode, title: Cow<'a, str>, body: Element<'a, Message>) -> Element<'a, Message> {
+    let framed =
+        column![panel_title(mode, title), rule::horizontal(1), body].spacing(ROW_GAP).height(Length::Fill);
 
     container(framed)
         .width(Length::Fixed(PANEL_WIDTH))
