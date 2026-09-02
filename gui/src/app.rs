@@ -280,7 +280,7 @@ pub struct BattleCatsApp {
     #[serde(skip)]
     pub settings_state: gui_settings::State,
     #[serde(skip)]
-    editor: editor::State,
+    pub(crate) editor: editor::State,
 
     pub settings: Settings,
 
@@ -393,6 +393,13 @@ impl BattleCatsApp {
 
         if self.updater_popup_open && matches!(self.updater_status, UpdateStatus::Downloading(_)) {
             subs.push(iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::DownloadTick));
+        }
+
+        if self.editor.animating().is_some() {
+            subs.push(
+                iced::time::every(std::time::Duration::from_millis(16))
+                    .map(|_| Message::Editor(editor::State::animator_tick())),
+            );
         }
 
         if !self.window_shown {
@@ -1286,6 +1293,17 @@ impl BattleCatsApp {
                 self.editor.open(at, &context);
                 Task::none()
             }
+            Message::Editor(editor::Message::Animator(msg)) => {
+                let feed = editor::Feed {
+                    settings: &mut self.settings,
+                    anim: &mut self.app_state.animation,
+                    vfs: &self.vault.vfs,
+                    cats: &self.cat_state.data.cats,
+                    enemies: &self.enemy_state.data.enemies,
+                };
+
+                self.editor.update_animator(msg, feed).map(Message::Editor)
+            }
             Message::Editor(msg) => self.editor.update(msg, &self.vault.vfs).map(Message::Editor),
             Message::Settings(msg) => {
                 if matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ManualUpdateCheck)) {
@@ -1354,6 +1372,10 @@ impl BattleCatsApp {
         let content_container = container(content)
             .width(Length::Fill)
             .height(Length::Fill);
+
+        if let Some(animator) = self.editor.animator_view(self) {
+            return editor::watch(animator.map(Message::Editor), &self.editor, Message::Editor);
+        }
 
         let sidebar_overlay = self.view_sidebar_overlay();
 

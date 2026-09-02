@@ -153,6 +153,10 @@ impl State {
         self.viewer.sync(&key, || builder::clips(png, cut, model, anims, frames), settings, anim_state);
     }
 
+    pub(crate) fn is_expanded(&self) -> bool {
+        self.viewer.is_expanded()
+    }
+
     pub fn export_popup_visible(&self) -> bool {
         self.viewer.export_popup_open()
     }

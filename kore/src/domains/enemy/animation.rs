@@ -1,4 +1,4 @@
-use crate::systems::animation::{self, Clip, ClipSet, Loop};
+use crate::systems::animation::{self, Clip, ClipSet, Loop, RigFiles};
 use crate::Vfs;
 
 use super::files;
@@ -8,6 +8,13 @@ const ZOMBIE_MARK: &str = "_zombie";
 
 pub fn set_id(enemy: &EnemyEntry) -> String {
     enemy.id_str()
+}
+
+pub fn rig_files(enemy: &EnemyEntry, vfs: &Vfs) -> Option<RigFiles> {
+    let plain = files::anim_base_filename(enemy.id);
+    let bases = vec![plain.clone(), format!("i{}", plain)];
+
+    animation::rig_files(vfs, &set_id(enemy), &bases)
 }
 
 pub fn clips(enemy: &EnemyEntry, vfs: &Vfs) -> ClipSet {

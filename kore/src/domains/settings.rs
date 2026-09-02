@@ -292,7 +292,12 @@ impl Default for GameDataSettings {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct AnimSettings {
-    pub debug_view: bool,
+    #[serde(alias = "debug_view")]
+    pub show_origin: bool,
+    #[serde(alias = "show_parts")]
+    pub show_rig: bool,
+    pub show_selected: bool,
+    pub show_hierarchy: bool,
     pub auto_set_camera_region: bool,
     pub bounds_cull: i32,
     pub default_showcase_walk: i32,
@@ -303,7 +308,10 @@ pub struct AnimSettings {
 impl Default for AnimSettings {
     fn default() -> Self {
         Self {
-            debug_view: false,
+            show_origin: false,
+            show_rig: false,
+            show_selected: false,
+            show_hierarchy: false,
             auto_set_camera_region: false,
             bounds_cull: 100,
             default_showcase_walk: 90,

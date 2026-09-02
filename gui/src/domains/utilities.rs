@@ -78,6 +78,10 @@ impl State {
         self.animation.export_popup_view(window).map(|view| view.map(Message::Animation))
     }
 
+    pub(crate) fn animation_expanded(&self) -> bool {
+        self.tool == Tool::Animation && self.animation.is_expanded()
+    }
+
     pub fn expanded_view(&self, settings: &Settings, app_state: &AppState) -> Option<Element<'_, Message>> {
         if self.tool != Tool::Animation {
             return None;

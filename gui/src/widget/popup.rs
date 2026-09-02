@@ -75,9 +75,10 @@ pub enum Kind {
     Explanation,
     EnemyName,
     EnemyDescription,
+    Animator,
 }
 
-const KIND_COUNT: usize = 23;
+const KIND_COUNT: usize = 24;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -103,6 +104,7 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::Explanation,
     Kind::EnemyName,
     Kind::EnemyDescription,
+    Kind::Animator,
 ];
 
 impl Kind {
@@ -131,6 +133,7 @@ impl Kind {
             Self::Explanation => "explanation",
             Self::EnemyName => "enemy_name",
             Self::EnemyDescription => "enemy_description",
+            Self::Animator => "animator",
         }
     }
 

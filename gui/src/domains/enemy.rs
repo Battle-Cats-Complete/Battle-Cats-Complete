@@ -79,6 +79,8 @@ pub enum Message {
     SelectEnemy(u32),
     JumpToEnemyMagnified(u32, String),
     SelectTab(DetailTab),
+    ToggleOrigin(bool),
+    ToggleParts(bool),
     MagnificationChanged(String),
     NavigateAppearances(u32),
     List(list::Message),
@@ -99,6 +101,8 @@ impl std::fmt::Debug for Message {
             Self::SelectEnemy(id) => write!(f, "SelectEnemy({})", id),
             Self::JumpToEnemyMagnified(id, mag_input) => write!(f, "JumpToEnemyMagnified({}, {})", id, mag_input),
             Self::SelectTab(t) => write!(f, "SelectTab({:?})", t),
+            Self::ToggleOrigin(b) => write!(f, "ToggleOrigin({})", b),
+            Self::ToggleParts(b) => write!(f, "ToggleParts({})", b),
             Self::MagnificationChanged(s) => write!(f, "MagnificationChanged({})", s),
             Self::NavigateAppearances(id) => write!(f, "NavigateAppearances({})", id),
             Self::List(msg) => write!(f, "List({:?})", msg),
@@ -437,6 +441,14 @@ impl EnemyState {
                 self.selected_tab = tab;
                 Task::none()
             }
+            Message::ToggleOrigin(val) => {
+                settings.animation.show_origin = val;
+                Task::none()
+            }
+            Message::ToggleParts(val) => {
+                settings.animation.show_rig = val;
+                Task::none()
+            }
             Message::MagnificationChanged(input) => {
                 if !typable_magnification(&input) {
                     return Task::none();
@@ -484,6 +496,14 @@ impl EnemyState {
             }
             Message::Animation(msg) => self.animation.update(msg, settings, &mut app_state.animation).map(Message::Animation),
         }
+    }
+
+    pub(crate) fn animation_expanded(&self) -> bool {
+        self.animation.is_expanded()
+    }
+
+    pub(crate) fn animation_clip(&self) -> Option<String> {
+        self.animation.selected_label()
     }
 
     pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
@@ -609,12 +629,15 @@ impl EnemyState {
                 .into();
         };
 
-        let header = self.view_header(enemy, &global_ctx.vault.vfs);
+        let header = self.view_header(enemy, &global_ctx.vault.vfs, settings);
 
         let content = match self.selected_tab {
             DetailTab::Abilities => self.view_abilities(enemy, settings, global_ctx),
             DetailTab::Details => details::view(enemy),
-            DetailTab::Animation => self.animation.view(settings, &app_state.animation).map(Message::Animation),
+            DetailTab::Animation => editor::target(
+                self.animation.view(settings, &app_state.animation).map(Message::Animation),
+                editor::Target::EnemyAnimation,
+            ),
         };
 
         column![
@@ -630,7 +653,7 @@ impl EnemyState {
             .into()
     }
 
-    fn view_header<'a>(&'a self, enemy: &'a EnemyEntry, vfs: &Vfs) -> Element<'a, Message> {
+    fn view_header<'a>(&'a self, enemy: &'a EnemyEntry, vfs: &Vfs, settings: &'a Settings) -> Element<'a, Message> {
         let mut tab_row = row![].spacing(4);
         let tabs = [
             (DetailTab::Abilities, "Abilities"),
@@ -668,7 +691,12 @@ impl EnemyState {
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
                 detail_row = detail_row.push(self.view_appearances_button(enemy.id));
             }
-            DetailTab::Animation => {}
+            DetailTab::Animation => {
+                detail_row = detail_row.push(Space::new().width(Length::Fixed(DETAIL_RULE_GAP)));
+                detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(DETAIL_RULE_HEIGHT)));
+                detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
+                detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts));
+            }
         }
 
         column![

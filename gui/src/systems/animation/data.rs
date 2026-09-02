@@ -139,6 +139,20 @@ impl State {
         (&self.loaded_rig, self.selected)
     }
 
+    pub fn resolved(&self) -> bool {
+        self.held_unit.is_some() || !self.failed_rig.is_empty()
+    }
+
+    pub fn selected_label(&self) -> Option<String> {
+        self.current_clip().map(Clip::label)
+    }
+
+    pub fn select_label(&mut self, label: &str) {
+        if let Some(index) = self.clips.iter().position(|clip| clip.label() == label) {
+            self.select(index);
+        }
+    }
+
     pub fn select(&mut self, index: usize) {
         if self.selected == Some(index) || index >= self.clips.len() {
             return;
@@ -146,6 +160,19 @@ impl State {
 
         self.selected = Some(index);
         self.load_active();
+    }
+
+    pub fn adopt_anim(&mut self, path: &Path, anim: Arc<Animation>) {
+        self.cache.replace_anim(&self.loaded_rig, path, anim.clone());
+
+        let showing = self
+            .selected
+            .and_then(|index| self.clips.get(index))
+            .and_then(|clip| clip.anim.as_deref());
+
+        if showing == Some(path) {
+            self.current_anim = Some(anim);
+        }
     }
 
     pub fn invalidate_paths(&mut self) {
@@ -519,6 +546,17 @@ impl RigCache {
 
         if !slot.anims.iter().any(|(known, _)| known == path) {
             slot.anims.push((path.to_path_buf(), anim));
+        }
+    }
+
+    fn replace_anim(&mut self, id: &str, path: &Path, anim: Arc<Animation>) {
+        let Some(slot) = self.slots.iter_mut().find(|slot| slot.id == id) else {
+            return;
+        };
+
+        match slot.anims.iter_mut().find(|(known, _)| known == path) {
+            Some((_, held)) => *held = anim,
+            None => slot.anims.push((path.to_path_buf(), anim)),
         }
     }
 

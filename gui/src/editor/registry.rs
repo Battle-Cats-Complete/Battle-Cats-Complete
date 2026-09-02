@@ -6,12 +6,13 @@ use kore::domains::settings::EditorMode;
 use crate::app::{theme, Page};
 use crate::common::feedback::LOCKED_NOTICE;
 
-use super::{classify, figures, prose, Action, CatTarget, Context, EnemyTarget, FileTarget, Format, Item, LevelTarget, ProseTarget, Scope};
+use super::{animator, classify, figures, prose, Action, AnimTarget, CatTarget, Context, EnemyTarget, FileTarget, Format, Item, LevelTarget, ProseTarget, Scope};
 
 const BINARY_NOTICE: &str = "Cannot open binary format";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Verb {
+    Animate,
     Edit,
     Replace,
     Open,
@@ -24,6 +25,7 @@ enum Verb {
 impl Verb {
     fn nested(self) -> &'static str {
         match self {
+            Verb::Animate => "Edit animation in app",
             Verb::Edit => "Edit in app",
             Verb::Replace => "Replace from disk",
             Verb::Open => "Open in program",
@@ -36,6 +38,7 @@ impl Verb {
 
     fn flat(self, name: &str, mount: &str) -> String {
         match self {
+            Verb::Animate => format!("Edit \"{name}\" animation in \"{mount}\""),
             Verb::Edit => format!("Edit \"{name}\" in \"{mount}\""),
             Verb::Replace => format!("Replace \"{name}\" in \"{mount}\""),
             Verb::Open => format!("Open \"{name}\" in \"{mount}\""),
@@ -152,6 +155,10 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
         return items;
     }
 
+    if let Some(target) = context.animation.as_ref() {
+        items.push(animate(target));
+    }
+
     let payloads = payloads(context);
     let style = Style::for_payloads(&payloads);
 
@@ -162,8 +169,29 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
     items
 }
 
+fn animate(target: &AnimTarget) -> Item {
+    let mount = mount(target.active_mod.as_deref(), target.unlocked);
+    let key = target.asset.key();
+    let plan =
+        animator::plan(target.subject, key.to_owned(), mount.target.map(str::to_owned), target.clip.clone());
+
+    mount.item(Verb::Animate.flat(key, mount.name), Action::EditAnimation(plan), Confirm::Never)
+}
+
 fn payloads(context: &Context) -> Vec<Payload<'_>> {
     let mut payloads = Vec::new();
+
+    if let Some(target) = context.animation.as_ref() {
+        let mount = mount(target.active_mod.as_deref(), target.unlocked);
+
+        payloads.push(Payload {
+            key: target.asset.key(),
+            scopes: target.asset.scopes(mount.target.is_some()),
+            mount,
+            primary: Primary::Unsupported(Verb::Edit),
+            values: context.values,
+        });
+    }
 
     if context.page == Page::Cats {
         for cat in &context.cats {

@@ -1,4 +1,4 @@
-use crate::systems::animation::{self, Clip, ClipSet, Loop};
+use crate::systems::animation::{self, Clip, ClipSet, Loop, RigFiles};
 use crate::Vfs;
 
 use super::files;
@@ -15,6 +15,13 @@ pub fn set_id(cat: &CatEntry, form: usize) -> String {
     };
 
     format!("{:03}_{}", cat.id, form_char)
+}
+
+pub fn rig_files(cat: &CatEntry, form: usize, vfs: &Vfs) -> Option<RigFiles> {
+    let egg_ids = cat.egg_ids.unwrap_or((-1, -1));
+    let base = vec![files::anim_base_filename(cat.id, form, egg_ids)];
+
+    animation::rig_files(vfs, &set_id(cat, form), &base)
 }
 
 pub fn clips(cat: &CatEntry, form: usize, vfs: &Vfs) -> ClipSet {

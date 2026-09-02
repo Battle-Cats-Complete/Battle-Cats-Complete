@@ -97,6 +97,8 @@ pub enum Message {
     LevelInputChanged(String),
     ChangeTalentLevel(u8, u8),
     ToggleTalents(bool),
+    ToggleOrigin(bool),
+    ToggleParts(bool),
     List(list::Message),
     Filter(filter::Message),
     Abilities(abilities::Message),
@@ -125,6 +127,8 @@ impl std::fmt::Debug for Message {
             Self::LevelInputChanged(s) => write!(f, "LevelInputChanged({})", s),
             Self::ChangeTalentLevel(i, l) => write!(f, "ChangeTalentLevel({}, {})", i, l),
             Self::ToggleTalents(b) => write!(f, "ToggleTalents({})", b),
+            Self::ToggleOrigin(b) => write!(f, "ToggleOrigin({})", b),
+            Self::ToggleParts(b) => write!(f, "ToggleParts({})", b),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
             Self::Abilities(msg) => write!(f, "Abilities({:?})", msg),
@@ -628,6 +632,14 @@ impl State {
                 self.talents.set_level(index, level, self.talent_levels.entry(cat_id).or_default(), &mut self.talent_level_inputs);
                 Task::none()
             }
+            Message::ToggleOrigin(val) => {
+                settings.animation.show_origin = val;
+                Task::none()
+            }
+            Message::ToggleParts(val) => {
+                settings.animation.show_rig = val;
+                Task::none()
+            }
             Message::ToggleTalents(is_ultra) => {
                 let talent_data = self.selected_cat
                     .and_then(|id| self.data.cats.iter().find(|c| c.id == id))
@@ -696,6 +708,14 @@ impl State {
             }
             Message::Animation(msg) => self.animation.update(msg, settings, &mut app_state.animation).map(Message::Animation),
         }
+    }
+
+    pub(crate) fn animation_expanded(&self) -> bool {
+        self.animation.is_expanded()
+    }
+
+    pub(crate) fn animation_clip(&self) -> Option<String> {
+        self.animation.selected_label()
     }
 
     pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
@@ -821,13 +841,16 @@ impl State {
                 .into();
         };
 
-        let header = self.view_header(cat, &global_ctx.vault.vfs);
+        let header = self.view_header(cat, &global_ctx.vault.vfs, settings);
 
         let content = match self.selected_tab {
             DetailTab::Abilities => self.view_abilities(cat, settings, global_ctx),
             DetailTab::Talents => self.view_talents(cat, global_ctx),
             DetailTab::Details => self.view_details(cat, global_ctx),
-            DetailTab::Animation => self.animation.view(settings, &app_state.animation).map(Message::Animation),
+            DetailTab::Animation => editor::target(
+                self.animation.view(settings, &app_state.animation).map(Message::Animation),
+                editor::Target::CatAnimation,
+            ),
         };
 
         column![
@@ -843,7 +866,7 @@ impl State {
             .into()
     }
 
-    fn view_header<'a>(&'a self, cat: &'a CatEntry, vfs: &Vfs) -> Element<'a, Message> {
+    fn view_header<'a>(&'a self, cat: &'a CatEntry, vfs: &Vfs, settings: &'a Settings) -> Element<'a, Message> {
         let mut form_row = row![].spacing(4);
         let form_labels = ["Normal", "Evolved", "True", "Ultra"];
 
@@ -914,6 +937,11 @@ impl State {
                     .header_view(talent_data, self.talent_levels.get(&cat.id), &cat.talent_costs, &self.img022_sheets)
                     .map(Message::Talents),
             );
+        } else if self.selected_tab == DetailTab::Animation {
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
+            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
+            detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts));
         }
 
         column![

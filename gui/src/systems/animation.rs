@@ -1,16 +1,20 @@
 mod canvas;
 mod controls;
 mod data;
+mod diagnostics;
 mod export;
 mod expand;
 mod offscreen;
 mod overlay;
 mod pipeline;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use iced::widget::{button, column, container, stack, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
+
+use nyanko::graphics::rig::{Animation, Rig};
 
 use kore::domains::settings::Settings;
 use kore::systems::animation::ClipSet;
@@ -18,7 +22,7 @@ use kore::systems::animation::ClipSet;
 use crate::app::state::AnimState;
 use crate::app::theme;
 use crate::editor;
-use crate::widget::smooth_scroll;
+use crate::widget::{smooth_scroll, toggle_row};
 
 const FRAME_BORDER_WIDTH: f32 = 4.0;
 const FRAME_BORDER_RADIUS: f32 = 5.0;
@@ -31,7 +35,23 @@ const CONTROLS_INSET_LEFT: f32 = 7.0;
 
 const ZOOM_SCROLL_STRENGTH: f32 = 2.5;
 
+const DEBUG_LABEL_SIZE: f32 = 12.0;
+const DEBUG_TOGGLE_GAP: f32 = 6.0;
+
 const MISSING_FILES_NOTICE: &str = "Missing essential files needed to load Entity";
+
+pub fn debug_toggles<'a, M: Clone + 'a>(
+    settings: &Settings,
+    origin: impl Fn(bool) -> M + 'a,
+    parts: impl Fn(bool) -> M + 'a,
+) -> Element<'a, M> {
+    column![
+        toggle_row(settings.animation.show_origin, text("Show Origin").size(DEBUG_LABEL_SIZE), Some(origin)),
+        toggle_row(settings.animation.show_rig, text("Show Rig").size(DEBUG_LABEL_SIZE), Some(parts)),
+    ]
+    .spacing(DEBUG_TOGGLE_GAP)
+    .into()
+}
 
 fn frame_border<'a>() -> Element<'a, Message> {
     container(Space::new().width(Length::Fill).height(Length::Fill))
@@ -55,6 +75,7 @@ pub struct State {
     export: export::State,
     overlay: overlay::State,
     export_open: bool,
+    highlight: Option<usize>,
     is_expanded: bool,
     playhead_rig: String,
     playhead_clip: Option<usize>,
@@ -80,6 +101,7 @@ impl State {
             export: export::State::new(kind),
             overlay: overlay::State::default(),
             export_open: false,
+            highlight: None,
             is_expanded: false,
             playhead_rig: String::new(),
             playhead_clip: None,
@@ -140,6 +162,35 @@ impl State {
 
     pub fn invalidate_paths(&mut self) {
         self.data.invalidate_paths();
+    }
+
+    pub fn adopt_anim(&mut self, path: &Path, anim: Arc<Animation>) {
+        self.data.adopt_anim(path, anim);
+    }
+
+    pub fn rig(&self) -> Option<&Rig> {
+        self.data.held_unit.as_deref()
+    }
+
+    pub fn set_highlight(&mut self, part: Option<usize>) {
+        self.highlight = part;
+    }
+
+    pub fn resolved(&self) -> bool {
+        self.data.resolved()
+    }
+
+    pub fn selected_label(&self) -> Option<String> {
+        self.data.selected_label()
+    }
+
+    pub fn select_label(&mut self, label: &str) {
+        self.data.select_label(label);
+        self.sync_playhead();
+    }
+
+    pub fn is_expanded(&self) -> bool {
+        self.is_expanded
     }
 
     pub fn tick(&mut self) {
@@ -272,7 +323,7 @@ impl State {
         let viewport = smooth_scroll(self.canvas.view(&self.data).map(Message::Canvas)).strength(ZOOM_SCROLL_STRENGTH);
 
         let selection_overlay = self.overlay
-            .view(&self.canvas, self.export.camera_region(self.export_open), settings.animation.debug_view)
+            .view(&self.canvas, self.export.camera_region(self.export_open), settings.animation.show_origin)
             .map(Message::Overlay);
 
         let controls_overlay = container(self.controls.view(&self.canvas, &self.data, anim_state).map(Message::Controls))
@@ -295,6 +346,7 @@ impl State {
 
         let layers = stack![
             viewport,
+            diagnostics::view(&self.data, &self.canvas, &settings.animation, self.highlight),
             selection_overlay,
             self.overlay.hint_view(),
             expand_button,

@@ -1,3 +1,4 @@
+mod animator;
 mod menu;
 mod registry;
 mod figures;
@@ -13,8 +14,10 @@ use iced::{Element, Point, Size, Task};
 use rustc_hash::FxHashMap;
 use tracing::{info, trace, warn};
 
+use kore::domains::cat::animation as cat_animation;
 use kore::domains::cat::files as cat_files;
 use kore::domains::cat::waiter as cat_waiter;
+use kore::domains::enemy::animation as enemy_animation;
 use kore::domains::enemy::files as enemy_files;
 use kore::domains::enemy::scanner::EnemyEntry;
 use kore::common::architecture;
@@ -28,6 +31,7 @@ use crate::domains::enemy::DetailTab as EnemyTab;
 use crate::common::dialog;
 use crate::common::feedback::{Slot, NO_FILES_LABEL, NO_FILES_NOTICE, UNSUPPORTED_NOTICE};
 
+pub(crate) use animator::Feed;
 pub(crate) use target::{suppress, target};
 pub(crate) use watch::watch;
 
@@ -41,6 +45,8 @@ pub enum Target {
     CatTalents,
     CatAttributes,
     EnemyAttributes,
+    CatAnimation,
+    EnemyAnimation,
     CatIcon,
     EnemyIcon,
     CatExplanation,
@@ -60,6 +66,15 @@ pub(crate) struct Context {
     assets: Vec<AssetTarget>,
     prose: Vec<ProseTarget>,
     levels: Vec<LevelTarget>,
+    animation: Option<AnimTarget>,
+}
+
+struct AnimTarget {
+    subject: animator::Subject,
+    clip: Option<String>,
+    asset: Asset,
+    unlocked: bool,
+    active_mod: Option<String>,
 }
 
 struct LevelTarget {
@@ -326,6 +341,7 @@ pub enum Message {
     Replaced(bool),
     Figures(figures::Subject, figures::Message),
     Prose(prose::Subject, prose::Message),
+    Animator(animator::Message),
 }
 
 struct Item {
@@ -388,6 +404,7 @@ fn shared_hint(children: &[Item]) -> Option<String> {
 enum Action {
     Add { source: PathBuf, target_mod: String },
     Delete { source: PathBuf },
+    EditAnimation(animator::Plan),
     EditFigures(figures::Plan),
     EditProse(prose::Plan),
     Replace { file: String, target_mod: Option<String>, game: Option<PathBuf> },
@@ -472,6 +489,7 @@ pub(crate) struct State {
     failed: Slot<Trail>,
     figures: [figures::State; figures::COUNT],
     prose: [prose::State; prose::COUNT],
+    animator: animator::State,
     synced: Option<Key>,
 }
 
@@ -569,8 +587,26 @@ impl State {
                 .subject_mut(subject)
                 .update(msg, vfs)
                 .map(move |inner| Message::Figures(subject, inner)),
-            Message::Opened(..) => Task::none(),
+            Message::Animator(..) | Message::Opened(..) => Task::none(),
         }
+    }
+
+    pub(crate) fn update_animator(&mut self, message: animator::Message, feed: Feed<'_>) -> Task<Message> {
+        self.animator.update(message, feed).map(Message::Animator)
+    }
+
+    pub(crate) fn animator_tick() -> Message {
+        Message::Animator(animator::Message::Tick)
+    }
+
+    pub(crate) fn animating(&self) -> Option<Page> {
+        self.animator.page()
+    }
+
+    pub(crate) fn animator_view<'a>(&'a self, app: &'a BattleCatsApp) -> Option<Element<'a, Message>> {
+        self.animator
+            .view(&app.settings, &app.app_state.animation)
+            .map(|view| view.map(Message::Animator))
     }
 
     pub(crate) fn popup_view<'a>(
@@ -624,6 +660,8 @@ impl State {
     }
 
     pub(crate) fn flush_now(&mut self, vfs: &Vfs) {
+        self.animator.flush_now(vfs);
+
         for slot in &mut self.figures {
             slot.flush_now(vfs);
         }
@@ -768,6 +806,11 @@ impl State {
                     }
                 }
             }
+            Action::EditAnimation(plan) => {
+                self.animator.begin(plan.clone());
+
+                Outcome::Done
+            }
             Action::EditFigures(plan) => {
                 let subject = plan.subject();
                 let already = self.figures[subject.slot()].drafting();
@@ -850,9 +893,39 @@ impl State {
     }
 }
 
+fn takeover(app: &BattleCatsApp) -> bool {
+    if app.editor.animator.active() {
+        return true;
+    }
+
+    match app.current_page {
+        Page::Cats => app.cat_state.animation_expanded(),
+        Page::Enemies => app.enemy_state.animation_expanded(),
+        Page::Utilities => app.utilities_state.animation_expanded(),
+        _ => false,
+    }
+}
+
 pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
     let broad = app.settings.files.context_scope == ContextScope::Broad;
     let reached = |wanted: Target| target == Some(wanted) || broad;
+
+    if takeover(app) {
+        return Context {
+            enabled: app.settings.general.enable_nightly,
+            values: app.settings.files.editor_mode,
+            page: app.current_page,
+            file: None,
+            cats: Vec::new(),
+            enemies: Vec::new(),
+            icon: None,
+            banner: None,
+            assets: Vec::new(),
+            prose: Vec::new(),
+            levels: Vec::new(),
+            animation: None,
+        };
+    }
 
     Context {
         enabled: app.settings.general.enable_nightly,
@@ -869,7 +942,65 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
             .into_iter()
             .chain(talent_payloads(app, reached(Target::CatTalents)))
             .collect(),
+        animation: anim_target(app, reached(Target::CatAnimation), reached(Target::EnemyAnimation)),
     }
+}
+
+fn named_files(app: &BattleCatsApp, names: Vec<String>) -> Vec<AssetFile> {
+    let copies: Vec<Option<PathBuf>> = {
+        let located = mod_copies(app, names.iter().map(String::as_str));
+
+        names.iter().map(|name| located.get(name.as_str()).cloned()).collect()
+    };
+
+    names
+        .into_iter()
+        .zip(copies)
+        .map(|(name, mod_copy)| {
+            let game = app.vault.vfs.rooted(architecture::GAME, &name);
+
+            AssetFile { name, game, mod_copy }
+        })
+        .collect()
+}
+
+fn anim_target(app: &BattleCatsApp, cats: bool, enemies: bool) -> Option<AnimTarget> {
+    let vfs = &app.vault.vfs;
+
+    let (subject, files, clip) = match app.current_page {
+        Page::Cats if cats => {
+            let id = app.app_state.cat.selected_cat?;
+            let form = app.app_state.cat.selected_form;
+            let cat = app.cat_state.data.cats.iter().find(|cat| cat.id == id)?;
+
+            (
+                animator::Subject::Cat { id, form },
+                cat_animation::rig_files(cat, form, vfs)?,
+                app.cat_state.animation_clip(),
+            )
+        }
+        Page::Enemies if enemies => {
+            let id = app.app_state.enemy.selected_enemy?;
+            let enemy = app.enemy_state.data.enemies.iter().find(|enemy| enemy.id == id)?;
+
+            (
+                animator::Subject::Enemy { id },
+                enemy_animation::rig_files(enemy, vfs)?,
+                app.enemy_state.animation_clip(),
+            )
+        }
+        _ => return None,
+    };
+
+    let asset = Asset::Variants { key: files.key.clone(), files: named_files(app, files.names()) };
+
+    Some(AnimTarget {
+        subject,
+        clip,
+        asset,
+        unlocked: app.settings.files.unlock_game_mount,
+        active_mod: app.mods_state.active_mod(),
+    })
 }
 
 fn figures_tab(app: &BattleCatsApp, subject: figures::Subject) -> bool {

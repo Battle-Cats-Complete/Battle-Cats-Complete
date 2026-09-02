@@ -1,3 +1,4 @@
+pub mod authoring;
 pub mod export;
 
 use std::ffi::OsStr;
@@ -130,8 +131,8 @@ fn owns(suffix: &str) -> bool {
     suffix.starts_with('_') || suffix.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-pub(crate) fn maanims(vfs: &Vfs, bases: &[String]) -> Vec<(String, PathBuf)> {
-    let mut found: Vec<(String, PathBuf)> = Vec::new();
+fn maanim_files(vfs: &Vfs, bases: &[String]) -> Vec<(String, String, PathBuf)> {
+    let mut found: Vec<(String, String, PathBuf)> = Vec::new();
 
     for base in bases {
         for name in vfs.glob(base) {
@@ -146,18 +147,57 @@ pub(crate) fn maanims(vfs: &Vfs, bases: &[String]) -> Vec<(String, PathBuf)> {
                 continue;
             }
 
-            if found.iter().any(|(existing, _)| existing == suffix) {
+            if found.iter().any(|(existing, _, _)| existing == suffix) {
                 continue;
             }
 
             if let Some(path) = vfs.find(&canonical) {
-                found.push((suffix.to_string(), path));
+                found.push((suffix.to_string(), canonical, path));
             }
         }
     }
 
     found.sort_by(|left, right| left.0.cmp(&right.0));
     found
+}
+
+pub(crate) fn maanims(vfs: &Vfs, bases: &[String]) -> Vec<(String, PathBuf)> {
+    maanim_files(vfs, bases).into_iter().map(|(suffix, _, path)| (suffix, path)).collect()
+}
+
+pub struct RigFiles {
+    pub key: String,
+    pub sheet: String,
+    pub cuts: String,
+    pub model: String,
+    pub anims: Vec<(String, String)>,
+}
+
+impl RigFiles {
+    pub fn names(&self) -> Vec<String> {
+        let rig = [self.sheet.as_str(), self.cuts.as_str(), self.model.as_str()];
+
+        rig.into_iter().map(str::to_owned).chain(self.anims.iter().map(|(_, name)| name.clone())).collect()
+    }
+}
+
+pub(crate) fn rig_files(vfs: &Vfs, id: &str, bases: &[String]) -> Option<RigFiles> {
+    let resolve = |ext: &str| -> Option<String> {
+        let names: Vec<String> = bases.iter().map(|base| format!("{}.{}", base, ext)).collect();
+        let path = vfs.find(names.as_slice())?;
+
+        path.file_name().and_then(OsStr::to_str).map(str::to_owned)
+    };
+
+    let anims = maanim_files(vfs, bases).into_iter().map(|(suffix, name, _)| (suffix, name)).collect();
+
+    Some(RigFiles {
+        key: id.to_string(),
+        sheet: resolve("png")?,
+        cuts: resolve("imgcut")?,
+        model: resolve("mamodel")?,
+        anims,
+    })
 }
 
 pub fn loop_frame(animation: &Animation, frame: f32) -> f32 {

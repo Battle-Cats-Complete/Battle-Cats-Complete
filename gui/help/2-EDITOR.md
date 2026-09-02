@@ -26,3 +26,18 @@ When editing a clamped field, you may sometimes notice that BCC resolves the val
 
 Numeric input fields accept a buffer character: `!`. When this character is included at the start of a field, your value will not be resolved or written until the field is "unfocused." Fields become "unfocused" when you click anywhere outside the input field.
 
+## Animation
+Right-clicking a Unit's animation opens the Animation Editor for that Unit's rig. The rest of the Context Menu still offers the usual per-file actions for the rig's own files. The Editor takes over the window, and the red `×` closes it.
+
+### Part Overlay
+Three buttons control the overlay, blue when on and grey when off. They stack, so a part lit by more than one shows bolder.
+
+- **Rig:** every part the game is drawing, dimly.
+- **Selected:** the part your selected curve drives, boldly.
+- **Hierarchy:** that part boldly, plus its direct children.
+
+A bold part is drawn as a **bright red box** with a **cyan dot** at its anchor, a **yellow line** showing which way it faces, and a **cyan line** to the anchor of the part it hangs off. A dim part is a **faint red box** and a **faint cyan dot**.
+
+The anchor is the point a part pivots around, not the middle of its box.
+
+A part missing from the overlay is one the game is not drawing. The panel names the reason when you select one of its curves.

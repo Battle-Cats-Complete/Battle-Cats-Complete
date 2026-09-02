@@ -74,7 +74,6 @@ pub enum Message {
     Snapshot(snapshot::Message),
     Pem(pem::Message),
     Addons(addons::Message),
-    ToggleDebugView(bool),
     ToggleUnlockGameMount(bool),
     Utf8ModeSelected(Utf8Mode),
     ContextScopeSelected(ContextScope),
@@ -233,10 +232,6 @@ impl State {
             }
             Message::ToggleUnlockGameMount(val) => {
                 core_settings.files.unlock_game_mount = val;
-                Task::none()
-            }
-            Message::ToggleDebugView(val) => {
-                core_settings.animation.debug_view = val;
                 Task::none()
             }
             Message::ToggleAutoCamera(val) => {
@@ -611,8 +606,6 @@ impl State {
     }
 
     fn view_animation<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
-        let viewer_content = toggle_row(core_settings.animation.debug_view, text("Enable Debug View"), Some(Message::ToggleDebugView));
-
         let exporter_content = column![
             hover_hint(
                 toggle_row(core_settings.animation.auto_set_camera_region, text("Auto-Set Camera Region"), Some(Message::ToggleAutoCamera)),
@@ -627,7 +620,6 @@ impl State {
         ].spacing(10);
 
         column![
-            header_section(text("Viewer").size(24), viewer_content),
             header_section(text("Exporter").size(24), exporter_content),
             header_section(text("Showcase").size(18), showcase_content),
         ].spacing(SECTION_SPACING).into()
