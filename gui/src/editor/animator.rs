@@ -139,7 +139,6 @@ const NO_ATLAS_NOTICE: &str = "This atlas could not be read";
 const NO_CUTS_NOTICE: &str = "This atlas declares no regions";
 const NO_PART_CHOSEN: &str = "Select a part to edit its rest pose";
 const NO_MODEL_NOTICE: &str = "This model could not be read";
-const LEAF_LABEL: &str = "No children";
 const ROOT_LABEL: &str = "the model root";
 const LOOSE_LABEL: &str = "Curves with no declared part";
 const BARREN_LABEL: &str = "No children or curves";
@@ -1640,10 +1639,7 @@ impl Session {
             _ => None,
         };
 
-        let barren = match self.mode {
-            Mode::Animation => BARREN_LABEL,
-            _ => LEAF_LABEL,
-        };
+        let barren = (self.mode == Mode::Animation).then_some(BARREN_LABEL);
 
         let listed = listing(curves, self.viewer.rig().map(|rig| &rig.model), &self.expanded, barren);
 
@@ -2527,7 +2523,7 @@ fn listing(
     doc: Option<&Maanim>,
     model: Option<&Model>,
     expanded: &HashSet<usize>,
-    barren: &'static str,
+    barren: Option<&'static str>,
 ) -> Vec<TreeRow> {
     let tracks = doc.map_or(0, |doc| doc.tracks().len());
 
@@ -2551,11 +2547,16 @@ fn listing(
 
         let open = expanded.contains(&part);
         let depth = depth as u16;
+        let barest = curves.is_empty() && !bears(model, part);
 
         listed.push(TreeRow {
             label: part_label(model, part),
             depth,
-            mark: if open { FOLDER_OPEN } else { FOLDER_SHUT },
+            mark: match (barest, barren) {
+                (true, None) => "",
+                _ if open => FOLDER_OPEN,
+                _ => FOLDER_SHUT,
+            },
             part: Some(part),
             owner: Some(part),
             track: None,
@@ -2567,7 +2568,7 @@ fn listing(
             continue;
         }
 
-        if curves.is_empty() && !bears(model, part) {
+        if let Some(barren) = barren.filter(|_| barest) {
             listed.push(TreeRow {
                 label: barren.to_string(),
                 depth: depth + 1,
@@ -4352,7 +4353,7 @@ mod tests {
     #[test]
     fn a_part_owns_its_curves_and_its_children_sit_beside_them() {
         // Part 0 is the root and part 1 hangs off it, each driven by one curve.
-        let listed = listing(Some(&doc()), Some(&model(&[-1, 0])), &HashSet::from([0, 1]), BARREN_LABEL);
+        let listed = listing(Some(&doc()), Some(&model(&[-1, 0])), &HashSet::from([0, 1]), Some(BARREN_LABEL));
 
         let shape: Vec<(u16, bool)> =
             listed.iter().map(|row| (row.depth, row.track.is_some())).collect();
@@ -4362,19 +4363,21 @@ mod tests {
 
 
     #[test]
-    fn the_model_mode_tree_lists_parts_alone_and_names_an_empty_one_for_children() {
-        // Model mode passes no document, so "no curves" would be a lie rather than a notice.
-        let listed = listing(None, Some(&model(&[-1, 0])), &HashSet::from([0, 1]), LEAF_LABEL);
+    fn a_model_leaf_says_nothing_and_shows_no_folder_mark() {
+        // The tree has to end somewhere, so a part with no children is not an empty state.
+        let listed = listing(None, Some(&model(&[-1, 0])), &HashSet::from([0, 1]), None);
 
+        assert_eq!(listed.len(), 2);
         assert!(listed.iter().all(|row| row.track.is_none()));
-        assert!(listed.iter().any(|row| row.label == LEAF_LABEL && row.inert));
         assert!(!listed.iter().any(|row| row.label == BARREN_LABEL));
+        assert_eq!(listed[1].mark, "", "a childless part drops its caret");
+        assert_eq!(listed[0].mark, FOLDER_OPEN, "one that bears a child keeps it");
     }
 
     #[test]
     fn a_clip_with_no_document_still_lists_the_part_tree() {
         // Selecting the Model leaves no curves, but the hierarchy is still worth browsing.
-        let listed = listing(None, Some(&model(&[-1, 0])), &HashSet::from([0, 1]), BARREN_LABEL);
+        let listed = listing(None, Some(&model(&[-1, 0])), &HashSet::from([0, 1]), Some(BARREN_LABEL));
 
         assert_eq!(listed.len(), 3);
         assert!(listed.iter().all(|row| row.track.is_none()));
@@ -4391,7 +4394,7 @@ mod tests {
 
     #[test]
     fn a_tree_starts_fully_collapsed() {
-        let listed = listing(Some(&doc()), Some(&model(&[-1, 0])), &HashSet::new(), BARREN_LABEL);
+        let listed = listing(Some(&doc()), Some(&model(&[-1, 0])), &HashSet::new(), Some(BARREN_LABEL));
 
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].mark, FOLDER_SHUT);
@@ -4400,7 +4403,7 @@ mod tests {
     #[test]
     fn a_part_with_nothing_under_it_still_opens_onto_a_notice() {
         // Every part folds, so an empty one has to say why rather than doing nothing.
-        let listed = listing(Some(&doc()), Some(&model(&[-1, 0, 1])), &HashSet::from([0, 1, 2]), BARREN_LABEL);
+        let listed = listing(Some(&doc()), Some(&model(&[-1, 0, 1])), &HashSet::from([0, 1, 2]), Some(BARREN_LABEL));
         let barren = listed.iter().find(|row| row.label == BARREN_LABEL).expect("the notice is listed");
 
         assert!(barren.inert);
@@ -4410,7 +4413,7 @@ mod tests {
     #[test]
     fn a_curve_naming_a_part_the_model_lacks_still_gets_listed() {
         // The engine does not bound check the part index, so the curve has to stay reachable.
-        let listed = listing(Some(&doc()), Some(&model(&[-1])), &HashSet::from([0]), BARREN_LABEL); 
+        let listed = listing(Some(&doc()), Some(&model(&[-1])), &HashSet::from([0]), Some(BARREN_LABEL)); 
 
         assert!(listed.iter().any(|row| row.label == LOOSE_LABEL && row.warn));
         assert_eq!(listed.iter().filter(|row| row.track.is_some()).count(), 2);
@@ -4418,7 +4421,7 @@ mod tests {
 
     #[test]
     fn without_a_model_every_curve_still_lists_flat() {
-        let listed = listing(Some(&doc()), None, &HashSet::new(), BARREN_LABEL);
+        let listed = listing(Some(&doc()), None, &HashSet::new(), Some(BARREN_LABEL));
 
         assert_eq!(listed.len(), 2);
         assert!(listed.iter().all(|row| row.depth == 0 && row.track.is_some()));

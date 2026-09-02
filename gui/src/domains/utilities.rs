@@ -78,6 +78,22 @@ impl State {
         self.animation.export_popup_view(window).map(|view| view.map(Message::Animation))
     }
 
+    pub fn settings_popup_visible(&self) -> bool {
+        self.tool == Tool::Animation && self.animation.settings_popup_visible()
+    }
+
+    pub fn settings_popup_view<'a>(
+        &'a self,
+        settings: &'a Settings,
+        window: Size,
+    ) -> Option<Element<'a, Message>> {
+        if self.tool != Tool::Animation {
+            return None;
+        }
+
+        self.animation.settings_popup_view(settings, window).map(|view| view.map(Message::Animation))
+    }
+
     pub(crate) fn animation_expanded(&self) -> bool {
         self.tool == Tool::Animation && self.animation.is_expanded()
     }

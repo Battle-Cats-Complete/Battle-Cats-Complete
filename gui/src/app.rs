@@ -173,6 +173,7 @@ enum ActivePopup {
     SettingsExceptions,
     SettingsPem,
     UtilityExport,
+    UtilitySettings,
 }
 
 #[derive(Clone, Debug)]
@@ -1283,6 +1284,7 @@ impl BattleCatsApp {
             Message::Utilities(msg) => {
                 let task = self.utilities_state.update(msg, &mut self.settings, &mut self.app_state).map(Message::Utilities);
                 self.sync_popup(ActivePopup::UtilityExport, self.utilities_state.export_popup_visible());
+                self.sync_popup(ActivePopup::UtilitySettings, self.utilities_state.settings_popup_visible());
                 task
             }
             Message::Editor(editor::Message::Opened(at, target)) => {
@@ -1524,6 +1526,15 @@ impl BattleCatsApp {
                     }
 
                     self.utilities_state.export_popup_view(self.window_size).map(|view| view.map(Message::Utilities))
+                }
+                ActivePopup::UtilitySettings => {
+                    if !matches!(self.current_page, Page::Utilities) {
+                        return None;
+                    }
+
+                    self.utilities_state
+                        .settings_popup_view(&self.settings, self.window_size)
+                        .map(|view| view.map(Message::Utilities))
                 }
                 ActivePopup::SettingsPem => {
                     if !matches!(self.current_page, Page::Settings) {

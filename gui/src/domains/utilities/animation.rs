@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use iced::alignment::Horizontal;
 use iced::widget::{column, container, row};
-use iced::{Alignment, Element, Length, Size, Task};
+use iced::{Alignment, Element, Length, Padding, Size, Task};
 
 use kore::domains::settings::Settings;
 use kore::domains::utilities::animation as builder;
@@ -19,6 +19,11 @@ use super::picker;
 const PANEL_PADDING: f32 = 12.0;
 const ROW_GAP: f32 = 8.0;
 
+const SETTINGS_POPUP: popup::Spec =
+    popup::Spec::new(popup::Kind::UtilityAnimationSettings, Size::new(150.0, 123.0));
+const SETTINGS_PADDING: f32 = 3.0;
+const SETTINGS_LIFT: f32 = 8.0;
+
 #[derive(Debug, Clone)]
 pub enum Message {
     PickPng,
@@ -34,6 +39,11 @@ pub enum Message {
     WipeAnims,
     WipeConfirmExpired,
     Viewer(viewer::Message),
+    OpenSettings,
+    SettingsPopup(popup::Message),
+    ToggleOrigin(bool),
+    ToggleParts(bool),
+    ToggleWorld(bool),
     Tick,
 }
 
@@ -45,6 +55,8 @@ pub struct State {
     confirm_remove: feedback::Slot<PathBuf>,
     confirm_wipe: feedback::Slot<()>,
     viewer: viewer::State,
+    settings_open: bool,
+    settings_popup: popup::State,
 }
 
 impl Default for State {
@@ -57,6 +69,8 @@ impl Default for State {
             confirm_remove: feedback::Slot::default(),
             confirm_wipe: feedback::Slot::default(),
             viewer: viewer::State::with_popup(popup::Kind::UtilityAnimationExport),
+            settings_open: false,
+            settings_popup: popup::State::default(),
         }
     }
 }
@@ -124,6 +138,29 @@ impl State {
                 self.viewer.tick();
                 Task::none()
             }
+            Message::OpenSettings => {
+                self.settings_open = true;
+                Task::none()
+            }
+            Message::SettingsPopup(msg) => {
+                if self.settings_popup.update(msg, SETTINGS_POPUP) {
+                    self.settings_open = false;
+                }
+
+                Task::none()
+            }
+            Message::ToggleOrigin(on) => {
+                settings.animation.show_origin = on;
+                Task::none()
+            }
+            Message::ToggleParts(on) => {
+                settings.animation.show_rig = on;
+                Task::none()
+            }
+            Message::ToggleWorld(on) => {
+                settings.animation.show_world = on;
+                Task::none()
+            }
             Message::Viewer(msg) => {
                 self.viewer.update(msg, settings, &mut app_state.animation).map(Message::Viewer)
             }
@@ -161,6 +198,27 @@ impl State {
         self.viewer.export_popup_open()
     }
 
+    pub fn settings_popup_visible(&self) -> bool {
+        self.settings_open
+    }
+
+    pub fn settings_popup_view<'a>(
+        &'a self,
+        settings: &'a Settings,
+        window: Size,
+    ) -> Option<Element<'a, Message>> {
+        self.settings_open.then(|| {
+            self.settings_popup.view(
+                "Settings",
+                SETTINGS_POPUP,
+                window,
+                Message::SettingsPopup,
+                move || settings_content(settings),
+                None,
+            )
+        })
+    }
+
     pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
         self.viewer.export_popup_view(window).map(|view| view.map(Message::Viewer))
     }
@@ -187,6 +245,7 @@ impl State {
         let tracks = row![
             picker::action("Add MAANIM", Message::AddAnims).style(theme::primary_button),
             self.maanim_button(),
+            self.settings_button(),
         ]
         .spacing(ROW_GAP)
         .align_y(Alignment::Center);
@@ -194,6 +253,10 @@ impl State {
         let body = column![centered(files), centered(tracks)].spacing(ROW_GAP);
 
         container(body).padding(PANEL_PADDING).into()
+    }
+
+    fn settings_button(&self) -> Element<'_, Message> {
+        picker::action("Settings", Message::OpenSettings).style(theme::primary_button).into()
     }
 
     fn maanim_button(&self) -> Element<'_, Message> {
@@ -221,6 +284,21 @@ impl State {
             .height(Length::Fill)
             .into()
     }
+}
+
+fn settings_content(settings: &Settings) -> Element<'_, Message> {
+    let toggles = viewer::debug_toggles(
+        settings,
+        Message::ToggleOrigin,
+        Message::ToggleParts,
+        Message::ToggleWorld,
+    );
+
+    container(toggles)
+        .width(Length::Fill)
+        .center_x(Length::Fill)
+        .padding(Padding::from(SETTINGS_PADDING).top(SETTINGS_LIFT))
+        .into()
 }
 
 fn centered<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {

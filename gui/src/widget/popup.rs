@@ -60,6 +60,7 @@ pub enum Kind {
     CatAnimationExport,
     EnemyAnimationExport,
     UtilityAnimationExport,
+    UtilityAnimationSettings,
     Keys,
     Pem,
     Exceptions,
@@ -78,7 +79,7 @@ pub enum Kind {
     Animator,
 }
 
-const KIND_COUNT: usize = 24;
+const KIND_COUNT: usize = 25;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -105,6 +106,7 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::EnemyName,
     Kind::EnemyDescription,
     Kind::Animator,
+    Kind::UtilityAnimationSettings,
 ];
 
 impl Kind {
@@ -114,6 +116,7 @@ impl Kind {
             Self::EnemyFilter => "enemy_filter",
             Self::StageFilter => "stage_filter",
             Self::UtilityAnimationExport => "utility_animation_export",
+            Self::UtilityAnimationSettings => "utility_animation_settings",
             Self::ModImport => "mod_import",
             Self::ModExport => "mod_export",
             Self::CatAnimationExport => "cat_animation_export",
