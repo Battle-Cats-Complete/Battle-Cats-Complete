@@ -113,19 +113,19 @@ const GHOST_EDGE: f32 = 0.55;
 const GHOST_INK: f32 = 0.7;
 const GHOST_PAD: f32 = 3.0;
 const OFFSET_WIDTH: f32 = 74.0;
-const ATLAS_PANEL_WIDTH: f32 = 470.0;
-const CUT_CELL_WIDTH: f32 = 34.0;
-const CUT_STEP_WIDTH: f32 = 50.0;
+const CUT_CELL_WIDTH: f32 = 30.0;
+const CUT_STEP_WIDTH: f32 = 46.0;
 const LOADER_HEIGHT: f32 = 22.0;
 const FRAME_HINT: &str = "Right click & drag to set the cut";
 const ALIGN_WIDTH: f32 = 44.0;
 const BUFFER_MARK: char = '!';
 
 const LOADING_NOTICE: &str = "Loading animation\u{2026}";
-const NO_CLIP_NOTICE: &str = "This clip has no curves to edit.";
-const UNREADABLE_NOTICE: &str = "This animation could not be read.";
-const EMPTY_TRACK_NOTICE: &str = "This curve holds no keyframes.";
-const WRITE_FAILED_NOTICE: &str = "The last change could not be saved.";
+const NO_CLIP_NOTICE: &str = "This clip has no curves to edit";
+const UNREADABLE_NOTICE: &str = "This animation could not be read";
+const EMPTY_TRACK_NOTICE: &str = "This curve holds no keyframes";
+const NO_CURVE_CHOSEN: &str = "Select a curve to edit its keyframes";
+const WRITE_FAILED_NOTICE: &str = "The last change could not be saved";
 const NO_SPRITE_NOTICE: &str = "none";
 const PAST_ATLAS_NOTICE: &str = "past the atlas";
 const BLANK_CUT_NOTICE: &str = "nothing visible";
@@ -135,10 +135,10 @@ const SPRITE_KIND: i32 = 2;
 const ALPHA_FLOOR: u8 = 8;
 const ADRIFT_TINT: f32 = 0.35;
 const OUT_OF_BOUNDS: &str = "Coordinate is out of bounds";
-const NO_ATLAS_NOTICE: &str = "This atlas could not be read.";
-const NO_CUTS_NOTICE: &str = "This atlas declares no regions.";
-const NO_PART_CHOSEN: &str = "Select a part to edit its rest pose.";
-const NO_MODEL_NOTICE: &str = "This model could not be read.";
+const NO_ATLAS_NOTICE: &str = "This atlas could not be read";
+const NO_CUTS_NOTICE: &str = "This atlas declares no regions";
+const NO_PART_CHOSEN: &str = "Select a part to edit its rest pose";
+const NO_MODEL_NOTICE: &str = "This model could not be read";
 const LEAF_LABEL: &str = "No children";
 const ROOT_LABEL: &str = "the model root";
 const LOOSE_LABEL: &str = "Curves with no declared part";
@@ -181,13 +181,6 @@ impl Mode {
             Mode::Atlas => "Atlas",
             Mode::Model => "Model",
             Mode::Animation => "Animation",
-        }
-    }
-
-    fn panel(self) -> f32 {
-        match self {
-            Mode::Atlas => ATLAS_PANEL_WIDTH,
-            _ => PANEL_WIDTH,
         }
     }
 
@@ -436,6 +429,14 @@ impl Asset {
         }
     }
 
+    fn hint(self) -> &'static str {
+        match self {
+            Asset::Atlas => "Upload file pair of PNG and IMGCUT",
+            Asset::Sheet => "Upload independent PNG",
+            Asset::Cuts => "Upload independent IMGCUT",
+        }
+    }
+
     fn filter(self) -> (&'static str, &'static [&'static str]) {
         match self {
             Asset::Atlas => ("Atlas", &["png", "imgcut"]),
@@ -600,7 +601,7 @@ impl State {
     }
 
     pub(super) fn curves(&self, part: Option<usize>) -> Option<Curves> {
-        let session = self.session.as_ref()?;
+        let session = self.session.as_ref().filter(|session| session.mode != Mode::Atlas)?;
         let pose = session.pose.as_ref();
         let part = part.filter(|at| pose.is_none_or(|pose| *at < pose.doc.count()));
 
@@ -899,8 +900,9 @@ impl State {
                 let region =
                     [outline.x as i32, outline.y as i32, outline.width as i32, outline.height as i32];
 
-                atlas.place(at, region);
                 atlas.hidden = None;
+                atlas.place(at, region);
+                atlas.restate();
 
                 atlas.persist_if_dirty(feed.vfs)
             }
@@ -1834,7 +1836,11 @@ impl Session {
                 .on_press(Message::Load(*asset))
                 .style(theme::primary_button);
 
-            listed.push(container(pick).height(Length::Fixed(LOADER_HEIGHT)).align_y(Vertical::Center))
+            let seated = container(tip(pick, asset.hint()))
+                .height(Length::Fixed(LOADER_HEIGHT))
+                .align_y(Vertical::Center);
+
+            listed.push(seated)
         });
 
         let sheet = self.viewer.selected_sheet().and_then(named).unwrap_or_default();
@@ -2223,10 +2229,13 @@ impl Session {
     }
 
     fn vacancy(&self) -> &'static str {
-        match (self.draft.is_some(), self.opened.is_some()) {
-            (true, _) => EMPTY_TRACK_NOTICE,
-            (false, true) => UNREADABLE_NOTICE,
-            (false, false) => NO_CLIP_NOTICE,
+        let holding = self.draft.as_ref().map(|draft| draft.track.is_some());
+
+        match (holding, self.opened.is_some()) {
+            (Some(true), _) => EMPTY_TRACK_NOTICE,
+            (Some(false), _) => NO_CURVE_CHOSEN,
+            (None, true) => UNREADABLE_NOTICE,
+            (None, false) => NO_CLIP_NOTICE,
         }
     }
 }
@@ -2392,6 +2401,14 @@ fn adrift_input(theme: &Theme, status: text_input::Status, adrift: bool) -> text
     };
 
     text_input::Style { background: tinted.into(), border: style.border.color(palette.danger), ..style }
+}
+
+fn tip<'a>(content: impl Into<Element<'a, Message>>, label: &'a str) -> Element<'a, Message> {
+    let banner = container(text(label).size(LABEL_SIZE))
+        .padding(CELL_PADDING)
+        .style(container::bordered_box);
+
+    tooltip(content, banner, tooltip::Position::Top).into()
 }
 
 fn console_edge<'a>() -> Element<'a, Message> {
@@ -2916,7 +2933,7 @@ fn panel_frame<'a>(mode: Mode, title: Cow<'a, str>, body: Element<'a, Message>) 
         column![panel_title(mode, title), rule::horizontal(1), body].spacing(ROW_GAP).height(Length::Fill);
 
     container(framed)
-        .width(Length::Fixed(mode.panel()))
+        .width(Length::Fixed(PANEL_WIDTH))
         .height(Length::Fill)
         .padding(PANEL_PADDING)
         .into()
@@ -3760,13 +3777,7 @@ impl Sheet {
             };
 
             let cell: Element<'_, Message> = match adrift {
-                true => {
-                    let tip = container(text(OUT_OF_BOUNDS).size(LABEL_SIZE))
-                        .padding(CELL_PADDING)
-                        .style(container::bordered_box);
-
-                    tooltip(entry, tip, tooltip::Position::Top).into()
-                }
+                true => tip(entry, OUT_OF_BOUNDS),
                 false => entry.into(),
             };
 
