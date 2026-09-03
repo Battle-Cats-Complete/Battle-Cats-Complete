@@ -724,10 +724,6 @@ impl State {
         self.animation.selected_label()
     }
 
-    pub(crate) fn select_animation(&mut self, label: &str) {
-        self.animation.select_label(label);
-    }
-
     pub fn expanded_animation_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
         self.animation.expanded_view(settings, &app_state.animation).map(|view| view.map(Message::Animation))
     }

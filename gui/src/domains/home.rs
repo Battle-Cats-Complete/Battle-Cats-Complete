@@ -268,7 +268,7 @@ impl State {
 
             text("Other").size(18.0),
             Space::new().height(10.0),
-            nav_row(&[("Utilities", Page::Utilities), ("Help", Page::Help), ("Settings", Page::Settings)]),
+            nav_row(&[("Studio", Page::Studio), ("Utilities", Page::Utilities), ("Help", Page::Help), ("Settings", Page::Settings)]),
         ]
             .align_x(Alignment::Center)
             .into()

@@ -16,6 +16,7 @@ const DISABLED_BUTTON_SHADE: f32 = 0.6;
 
 pub const WEAK_TEXT_ALPHA: f32 = 0.4;
 
+
 pub fn weak_text_color(theme: &Theme) -> Color {
     Color { a: WEAK_TEXT_ALPHA, ..theme.palette().text }
 }
@@ -73,7 +74,27 @@ impl AppTheme {
     }
 }
 
-fn feedback_color_button(color: Color, status: button::Status, text_override: Option<Color>) -> button::Style {
+fn disabled_button(theme: &Theme) -> button::Style {
+    let pair = theme.extended_palette().background.strong;
+
+    button::Style {
+        background: Some(Background::Color(pair.color)),
+        text_color: pair.text,
+        border: Border { radius: Radius::from(RADIUS_SM), ..Border::default() },
+        ..button::Style::default()
+    }
+}
+
+fn feedback_color_button(
+    theme: &Theme,
+    color: Color,
+    status: button::Status,
+    text_override: Option<Color>,
+) -> button::Style {
+    if status == button::Status::Disabled {
+        return disabled_button(theme);
+    }
+
     let background = if status == button::Status::Hovered { Color { a: 0.8, ..color } } else { color };
     let style = solid_button(background);
 
@@ -84,19 +105,19 @@ fn feedback_color_button(color: Color, status: button::Status, text_override: Op
 }
 
 pub fn primary_button(theme: &Theme, status: button::Status) -> button::Style {
-    feedback_color_button(theme.palette().primary, status, None)
+    feedback_color_button(theme, theme.palette().primary, status, None)
 }
 
 pub fn danger_button(theme: &Theme, status: button::Status) -> button::Style {
-    feedback_color_button(theme.palette().danger, status, None)
+    feedback_color_button(theme, theme.palette().danger, status, None)
 }
 
 pub fn success_button(theme: &Theme, status: button::Status) -> button::Style {
-    feedback_color_button(theme.palette().success, status, Some(theme.palette().text))
+    feedback_color_button(theme, theme.palette().success, status, Some(theme.palette().text))
 }
 
 pub fn warning_button(theme: &Theme, status: button::Status) -> button::Style {
-    feedback_color_button(theme.palette().warning, status, Some(theme.palette().text))
+    feedback_color_button(theme, theme.palette().warning, status, Some(theme.palette().text))
 }
 
 pub type ButtonStyleFn = fn(&Theme, button::Status) -> button::Style;

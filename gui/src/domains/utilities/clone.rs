@@ -15,7 +15,7 @@ use crate::app::theme;
 use crate::common::dialog;
 use crate::widget::ConsoleState;
 
-use super::picker;
+use crate::widget::picker;
 
 const PANEL_PADDING: f32 = 12.0;
 const ROW_GAP: f32 = 8.0;

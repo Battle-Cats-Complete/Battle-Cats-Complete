@@ -1,7 +1,6 @@
 mod animation;
 mod clone;
 mod imgcut;
-mod picker;
 
 use iced::widget::{column, container, row, scrollable};
 use iced::{Element, Length, Size, Subscription, Task};

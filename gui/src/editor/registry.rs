@@ -8,18 +8,21 @@ use crate::common::feedback::LOCKED_NOTICE;
 
 use kore::systems::animation::authoring;
 
-use super::{animator, classify, figures, prose, Action, AnimTarget, CatTarget, Context, CurveTarget, EnemyTarget, FileTarget, Format, Item, LevelTarget, ProseTarget, Scope};
+use crate::domains::studio;
+
+use super::{classify, figures, prose, Action, AnimTarget, CatTarget, Context, EnemyTarget, FileTarget, Format, Item, LevelTarget, ProseTarget, Scope};
 
 const BINARY_NOTICE: &str = "Cannot open binary format";
-const NO_CURVE_NOTICE: &str = "This part has no curves in this animation";
+const NO_CHANNEL_NOTICE: &str = "This part has no channels in this animation";
+const EVERY_CHANNEL_NOTICE: &str = "This part already has every channel";
+const NO_CLIP_NOTICE: &str = "Select an animation clip to add channels";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Verb {
-    AddCurve,
-    DropCurve,
+    AddChannel,
+    DropChannel,
     AddPart,
     DropPart,
-    Animate,
     Edit,
     Replace,
     Open,
@@ -32,11 +35,10 @@ enum Verb {
 impl Verb {
     fn nested(self) -> &'static str {
         match self {
-            Verb::AddCurve => "Add curve",
-            Verb::DropCurve => "Remove curve",
+            Verb::AddChannel => "Add channel",
+            Verb::DropChannel => "Remove channel",
             Verb::AddPart => "New part",
             Verb::DropPart => "Remove part",
-            Verb::Animate => "Edit animation in app",
             Verb::Edit => "Edit in app",
             Verb::Replace => "Replace from disk",
             Verb::Open => "Open in program",
@@ -49,11 +51,10 @@ impl Verb {
 
     fn flat(self, name: &str, mount: &str) -> String {
         match self {
-            Verb::AddCurve => format!("Add a curve to \"{name}\" in \"{mount}\""),
-            Verb::DropCurve => format!("Remove a curve from \"{name}\" in \"{mount}\""),
+            Verb::AddChannel => format!("Add a channel to \"{name}\" in \"{mount}\""),
+            Verb::DropChannel => format!("Remove a channel from \"{name}\" in \"{mount}\""),
             Verb::AddPart => format!("New \"{name}\" in \"{mount}\""),
             Verb::DropPart => format!("Remove \"{name}\" from \"{mount}\""),
-            Verb::Animate => format!("Edit \"{name}\" animation in \"{mount}\""),
             Verb::Edit => format!("Edit \"{name}\" in \"{mount}\""),
             Verb::Replace => format!("Replace \"{name}\" in \"{mount}\""),
             Verb::Open => format!("Open \"{name}\" in \"{mount}\""),
@@ -140,6 +141,7 @@ impl Mount<'_> {
 
 enum Primary<'a> {
     Replace,
+    Animation(&'a AnimTarget),
     Cat(&'a CatTarget),
     Enemy(&'a EnemyTarget),
     Prose(&'a ProseTarget),
@@ -170,14 +172,10 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
         return items;
     }
 
-    if let Some(target) = context.curves.as_ref() {
-        curves(&mut items, target);
+    if let Some(target) = context.channels.as_ref() {
+        items.push(channels(&target.channels));
 
         return items;
-    }
-
-    if let Some(target) = context.animation.as_ref() {
-        items.push(animate(target));
     }
 
     let payloads = payloads(context);
@@ -190,70 +188,41 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
     items
 }
 
-fn curves(items: &mut Vec<Item>, target: &CurveTarget) {
-    let mount = mount(target.curves.target_mod.as_deref(), target.unlocked);
-    let held = &target.curves.present;
-    let part = target.curves.part;
-
-    if target.curves.shapeable {
-        let fresh = format!("Part {}", target.curves.slot);
-
-        items.push(mount.item(Verb::AddPart.flat(&fresh, mount.name), Action::AddPart { parent: part }, Confirm::Never));
-
-        if let Some(part) = part {
-            let action = Action::DropPart { part };
-
-            items.push(mount.item(Verb::DropPart.flat(&target.curves.label, mount.name), action, Confirm::Overwrite));
-        }
-    }
-
-    let Some(part) = part.filter(|_| target.curves.curving) else {
-        return;
-    };
+fn channels(target: &studio::Channels) -> Item {
+    let part = target.part;
+    let held = &target.present;
 
     let absent: Vec<Item> = authoring::KINDS
         .iter()
         .filter(|kind| !held.iter().any(|(known, _)| known == *kind))
         .map(|kind| {
-            let label = authoring::kind_label(*kind);
-            let action = Action::AddCurve { part, kind: *kind };
-
-            mount.item(label.to_owned(), action, Confirm::Never)
+            Item::new(authoring::kind_label(*kind).to_owned(), Action::AddChannel { part, kind: *kind })
         })
         .collect();
 
     let present: Vec<Item> = held
         .iter()
         .map(|(kind, track)| {
-            let label = authoring::kind_label(*kind);
-            let action = Action::DropCurve { track: *track };
-
-            mount.item(label.to_owned(), action, Confirm::Overwrite)
+            Item::new(authoring::kind_label(*kind).to_owned(), Action::DropChannel { track: *track })
+                .confirming()
         })
         .collect();
 
-    let subject = format!("Part {}", part);
+    let children = vec![
+        Item::new(Verb::AddPart.nested().to_owned(), Action::AddPart { parent: Some(part) }),
+        match (target.channelled, absent.is_empty()) {
+            (false, _) => Item::disabled(Verb::AddChannel.nested(), NO_CLIP_NOTICE),
+            (_, true) => Item::disabled(Verb::AddChannel.nested(), EVERY_CHANNEL_NOTICE),
+            _ => Item::list(Verb::AddChannel.nested().to_owned(), absent),
+        },
+        match present.is_empty() {
+            true => Item::disabled(Verb::DropChannel.nested(), NO_CHANNEL_NOTICE),
+            false => Item::list(Verb::DropChannel.nested().to_owned(), present),
+        },
+        Item::new(Verb::DropPart.nested().to_owned(), Action::DropPart { part }).confirming(),
+    ];
 
-    if !absent.is_empty() {
-        items.push(Item::list(Verb::AddCurve.flat(&subject, mount.name), absent));
-    }
-
-    if present.is_empty() {
-        items.push(Item::disabled(Verb::DropCurve.flat(&subject, mount.name), NO_CURVE_NOTICE));
-
-        return;
-    }
-
-    items.push(Item::list(Verb::DropCurve.flat(&subject, mount.name), present));
-}
-
-fn animate(target: &AnimTarget) -> Item {
-    let mount = mount(target.active_mod.as_deref(), target.unlocked);
-    let key = target.asset.key();
-    let plan =
-        animator::plan(target.subject, key.to_owned(), mount.target.map(str::to_owned), target.clip.clone());
-
-    mount.item(Verb::Animate.flat(key, mount.name), Action::EditAnimation(plan), Confirm::Never)
+    Item::list(manage(&target.label, &Mount { name: &target.mount, target: None, locked: false }), children)
 }
 
 fn payloads(context: &Context) -> Vec<Payload<'_>> {
@@ -266,7 +235,7 @@ fn payloads(context: &Context) -> Vec<Payload<'_>> {
             key: target.asset.key(),
             scopes: target.asset.scopes(mount.target.is_some()),
             mount,
-            primary: Primary::Unsupported(Verb::Edit),
+            primary: Primary::Animation(target),
             values: context.values,
         });
     }
@@ -479,6 +448,18 @@ impl Payload<'_> {
                         ),
                     ));
                 }
+            }
+            Primary::Animation(target) => {
+                let plan = super::anim_plan(target, self.mount.target.map(str::to_owned));
+                let item =
+                    Item::new(Verb::Edit.label(scope.name, &self.mount, labelling), Action::EditAnimation(plan));
+
+                let item = match (self.mount.target, self.mount.locked) {
+                    (None, false) => item.confirming(),
+                    _ => item,
+                };
+
+                items.push((Verb::Edit, item));
             }
             Primary::Replace => items.push((Verb::Replace, replace(scope, &self.mount, labelling))),
             Primary::Cat(cat) => items.push((

@@ -71,13 +71,6 @@ fn frame_border<'a>() -> Element<'a, Message> {
         .into()
 }
 
-#[derive(Clone, Copy)]
-pub struct Action {
-    pub label: &'static str,
-    pub danger: bool,
-    pub enabled: bool,
-}
-
 pub struct State {
     data: data::State,
     canvas: canvas::State,
@@ -86,7 +79,6 @@ pub struct State {
     overlay: overlay::State,
     export_open: bool,
     highlight: Option<usize>,
-    action: Option<Action>,
     is_expanded: bool,
     playhead_rig: String,
     playhead_clip: Option<usize>,
@@ -113,7 +105,6 @@ impl State {
             overlay: overlay::State::default(),
             export_open: false,
             highlight: None,
-            action: None,
             is_expanded: false,
             playhead_rig: String::new(),
             playhead_clip: None,
@@ -224,10 +215,6 @@ impl State {
         controls::clamp_frame(&mut self.canvas, &self.data);
     }
 
-    pub fn set_action(&mut self, action: Option<Action>) {
-        self.action = action;
-    }
-
     pub fn playing(&self) -> bool {
         self.canvas.is_playing
     }
@@ -250,6 +237,10 @@ impl State {
 
     pub fn set_highlight(&mut self, part: Option<usize>) {
         self.highlight = part;
+    }
+
+    pub fn loaded_rig(&self) -> &str {
+        self.data.loaded_rig()
     }
 
     pub fn resolved(&self) -> bool {
@@ -402,7 +393,7 @@ impl State {
             .view(&self.canvas, self.export.camera_region(self.export_open))
             .map(Message::Overlay);
 
-        let controls_overlay = container(self.controls.view(&self.canvas, &self.data, anim_state, self.action).map(Message::Controls))
+        let controls_overlay = container(self.controls.view(&self.canvas, &self.data, anim_state).map(Message::Controls))
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(iced::alignment::Horizontal::Left)

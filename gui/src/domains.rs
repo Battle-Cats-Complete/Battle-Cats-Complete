@@ -2,6 +2,7 @@ pub(crate) mod cat;
 pub(crate) mod enemy;
 pub(crate) mod settings;
 pub(crate) mod stage;
+pub(crate) mod studio;
 pub(crate) mod home;
 pub(crate) mod files;
 pub(crate) mod help;

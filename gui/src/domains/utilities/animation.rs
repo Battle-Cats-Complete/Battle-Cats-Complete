@@ -12,9 +12,7 @@ use crate::app::theme;
 use crate::common::dialog;
 use crate::common::feedback;
 use crate::systems::animation as viewer;
-use crate::widget::popup;
-
-use super::picker;
+use crate::widget::{picker, popup};
 
 const PANEL_PADDING: f32 = 12.0;
 const ROW_GAP: f32 = 8.0;

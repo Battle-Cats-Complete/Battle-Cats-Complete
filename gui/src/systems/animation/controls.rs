@@ -451,7 +451,7 @@ impl State {
         self.step(canvas, data, delta);
     }
 
-    pub fn view<'a>(&'a self, canvas: &'a canvas::State, data: &'a data::State, anim_state: &AnimState, action: Option<super::Action>) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, canvas: &'a canvas::State, data: &'a data::State, anim_state: &AnimState) -> Element<'a, Message> {
         let is_expanded = anim_state.controls_expanded;
         let expand_icon = if is_expanded { "▼" } else { "▲" };
 
@@ -476,7 +476,7 @@ impl State {
                 .padding(Padding { top: GRID_PAD, right: 0.0, bottom: GRID_PAD, left: 0.0 })
                 .align_x(alignment::Horizontal::Center),
             rule::horizontal(1),
-            container(self.transport_row(canvas, data, action))
+            container(self.transport_row(canvas, data))
                 .padding(Padding { top: GRID_PAD, right: 0.0, bottom: 0.0, left: 0.0 }),
         ]
         .spacing(ROW_GAP)
@@ -490,7 +490,7 @@ impl State {
         opaque(container(panel).padding(PANEL_PAD).style(panel_style))
     }
 
-    fn transport_row<'a>(&'a self, canvas: &'a canvas::State, data: &'a data::State, action: Option<super::Action>) -> Element<'a, Message> {
+    fn transport_row<'a>(&'a self, canvas: &'a canvas::State, data: &'a data::State) -> Element<'a, Message> {
         let base_available = data.held_unit.is_some();
         let anim_loaded = base_available && data.current_clip().is_some();
 
@@ -539,26 +539,13 @@ impl State {
             .style(theme::combo_box)
             .menu_style(theme::combo_box_menu);
 
-        let slot = match action {
-            Some(action) => control_button(
-                action.label,
-                Font::DEFAULT,
-                TILE_TEXT_SIZE,
-                COL3_W,
-                action.enabled.then_some(Message::OpenExport),
-            )
-            .style(move |t: &Theme, status| match action.danger {
-                true => theme::danger_button(t, status),
-                false => control_style(t, status, false),
-            }),
-            None => control_button(
-                "Export",
-                Font::DEFAULT,
-                TILE_TEXT_SIZE,
-                COL3_W,
-                base_available.then_some(Message::OpenExport),
-            ),
-        };
+        let slot = control_button(
+            "Export",
+            Font::DEFAULT,
+            TILE_TEXT_SIZE,
+            COL3_W,
+            base_available.then_some(Message::OpenExport),
+        );
 
         let output = column![slot, offset_row]
         .spacing(GAP);

@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,41 +15,38 @@ use tracing::{info, warn};
 
 use kore::common::architecture;
 use kore::common::preview::{self, Stamp};
-use kore::domains::cat::animation as cat_animation;
-use kore::domains::cat::scanner::CatEntry;
-use kore::domains::enemy::animation as enemy_animation;
-use kore::domains::enemy::scanner::EnemyEntry;
-use kore::domains::mods;
 use kore::domains::settings::{AnimSettings, Settings};
+use kore::domains::studio as sets;
 use kore::systems::animation::authoring::{self as authoring, bound, Imgcut, CUT_FIELDS, CUT_NAME_FIELD, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, nameable, Maanim, Mamodel, EASES, FIELDS, NAME_FIELD};
-use kore::systems::animation::ClipSet;
 use image::RgbaImage;
 use nyanko::graphics::rig::{Keyframe, Model, ModelPart, Opaque, Rig, SpriteCut};
 use nyanko::graphics::tools::timeline;
-use kore::Vfs;
 
 use crate::app::state::AnimState;
-use crate::app::{theme, Page};
+use crate::app::theme;
+use crate::editor::{self, Target};
 use crate::systems::animation::{self as viewer, controls, overlay};
 
-use super::{target, Target};
-use crate::common::feedback::Slot;
+use crate::common::feedback::{Slot, LOCKED_NOTICE};
 use crate::common::{dialog, glyphs};
 use crate::common::row_window::{self, RowWindow};
-use crate::widget::{list_row, picture, popup, smooth_scroll};
+use crate::widget::{list_row, picture, popup, slide, smooth_scroll, Slide};
+
+mod history;
+mod manage;
+
+use history::{History, Tag};
+
+pub(crate) use sets::Set;
 
 const PANEL_WIDTH: f32 = 372.0;
 const PANEL_PADDING: f32 = 6.0;
-const PANEL_TITLE_SIZE: f32 = 14.0;
 const BODY_PADDING: f32 = 6.0;
 const GAP: f32 = 6.0;
 const ROW_GAP: f32 = 3.0;
 
 const CLOSE_LABEL: &str = "\u{00d7}";
 const CONFIRM_MARK: &str = "?";
-const REVERT_LABEL: &str = "Sync \"game\"";
-const REVERT_ARMED: &str = "Continue?";
-const CLOSE_TEXT_SIZE: f32 = 24.0;
 
 const LABEL_SIZE: f32 = 12.0;
 const CELL_SIZE: f32 = 12.0;
@@ -79,6 +75,12 @@ const KEY_ROW_INSET: f32 = 2.0;
 const PLAYING_TICK: Duration = Duration::from_millis(16);
 const RESTING_TICK: Duration = Duration::from_millis(200);
 const RECALL_CAP: usize = 5;
+const NOTICE_EXPIRY: Duration = Duration::from_secs(6);
+const NOTICE_PAD_X: f32 = 7.0;
+const NOTICE_PAD_Y: f32 = 7.0;
+const NOTICE_OVERHANG: f32 = 4.0;
+const NOTICE_TEXT_SIZE: f32 = 13.0;
+const RENAME_DELAY: Duration = Duration::from_millis(700);
 const KEY_HEAD_HEIGHT: f32 = 19.0;
 const DEBUG_WIDTH: f32 = 104.0;
 
@@ -96,9 +98,7 @@ const LOOP_CARD_PAD: f32 = 3.0;
 const LOOP_DEFAULT: i32 = 1;
 const LOOP_HINT: &str = "1";
 const CELL_HINT: &str = "0";
-const MODE_WIDTH: f32 = 104.0;
 const HEAD_HEIGHT: f32 = 22.0;
-const TITLE_GLYPH: f32 = 0.62;
 const FIELD_ROW_HEIGHT: f32 = 24.0;
 const TREE_TOP: f32 = BODY_PADDING + PANEL_PADDING + HEAD_HEIGHT + ROW_GAP + 1.0 + ROW_GAP + theme::CONSOLE_BORDER_WIDTH;
 const TREE_LEFT: f32 = BODY_PADDING + PANEL_PADDING + theme::CONSOLE_BORDER_WIDTH;
@@ -115,21 +115,24 @@ const GHOST_PAD: f32 = 3.0;
 const OFFSET_WIDTH: f32 = 74.0;
 const CUT_CELL_WIDTH: f32 = 30.0;
 const CUT_STEP_WIDTH: f32 = 46.0;
-const LOADER_HEIGHT: f32 = 22.0;
 const FRAME_HINT: &str = "Right click & drag to set the cut";
 const ALIGN_WIDTH: f32 = 44.0;
 const BUFFER_MARK: char = '!';
 
 const LOADING_NOTICE: &str = "Loading animation\u{2026}";
-const NO_CLIP_NOTICE: &str = "This clip has no curves to edit";
+const NO_SET_NOTICE: &str = "No set is loaded";
+const NO_SET_HINT: &str = "Open Manage to import, pick or create a set";
+const NO_CLIP_NOTICE: &str = "This clip has no channels to edit";
 const UNREADABLE_NOTICE: &str = "This animation could not be read";
-const EMPTY_TRACK_NOTICE: &str = "This curve holds no keyframes";
-const NO_CURVE_CHOSEN: &str = "Select a curve to edit its keyframes";
+const EMPTY_TRACK_NOTICE: &str = "This channel holds no keyframes";
+const NO_CURVE_CHOSEN: &str = "Select a channel to edit its keyframes";
 const WRITE_FAILED_NOTICE: &str = "The last change could not be saved";
 const NO_SPRITE_NOTICE: &str = "none";
 const PAST_ATLAS_NOTICE: &str = "past the atlas";
 const BLANK_CUT_NOTICE: &str = "nothing visible";
-const NO_PART_NOTICE: &str = "This curve drives a part the model does not declare";
+const WHOLE_CUT_NOTICE: &str = "the whole cut";
+const UNNAMED_CUT_NOTICE: &str = "unnamed";
+const NO_PART_NOTICE: &str = "This channel drives a part the model does not declare";
 const LOST_PART_NOTICE: &str = "This part is no longer in the loaded model";
 const SPRITE_KIND: i32 = 2;
 const ALPHA_FLOOR: u8 = 8;
@@ -139,9 +142,7 @@ const NO_ATLAS_NOTICE: &str = "This atlas could not be read";
 const NO_CUTS_NOTICE: &str = "This atlas declares no regions";
 const NO_PART_CHOSEN: &str = "Select a part to edit its rest pose";
 const NO_MODEL_NOTICE: &str = "This model could not be read";
-const ROOT_LABEL: &str = "the model root";
-const LOOSE_LABEL: &str = "Curves with no declared part";
-const BARREN_LABEL: &str = "No children or curves";
+const LOOSE_LABEL: &str = "Channels with no declared part";
 const SHADOWED_MARK: &str = "overridden";
 
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(0);
@@ -150,53 +151,40 @@ fn next_token() -> u64 {
     NEXT_TOKEN.fetch_add(1, Ordering::Relaxed)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Subject {
-    Cat { id: u32, form: usize },
-    Enemy { id: u32 },
-}
-
-impl Subject {
-    fn page(self) -> Page {
-        match self {
-            Subject::Cat { .. } => Page::Cats,
-            Subject::Enemy { .. } => Page::Enemies,
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Mode {
     Atlas,
-    Model,
-    Animation,
+    #[default]
+    Entity,
 }
 
 impl Mode {
-    const ALL: [Mode; 3] = [Mode::Atlas, Mode::Model, Mode::Animation];
+    fn other(self) -> Mode {
+        match self {
+            Mode::Atlas => Mode::Entity,
+            Mode::Entity => Mode::Atlas,
+        }
+    }
 
     fn label(self) -> &'static str {
         match self {
             Mode::Atlas => "Atlas",
-            Mode::Model => "Model",
-            Mode::Animation => "Animation",
+            Mode::Entity => "Entity",
         }
     }
-
-    fn suffix(self) -> &'static str {
-        match self {
-            Mode::Atlas => ".png",
-            Mode::Model => ".mamodel",
-            Mode::Animation => "",
-        }
-    }
-
 }
 
-impl std::fmt::Display for Mode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.label())
-    }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Swap {
+    Same,
+    Fresh,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Focus {
+    #[default]
+    Curve,
+    Part,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -275,36 +263,27 @@ impl Field {
     }
 }
 
-pub(super) struct Curves {
-    pub(super) part: Option<usize>,
-    pub(super) label: String,
-    pub(super) slot: usize,
-    pub(super) present: Vec<(i32, usize)>,
-    pub(super) curving: bool,
-    pub(super) shapeable: bool,
-    pub(super) target_mod: Option<String>,
+pub(crate) struct Channels {
+    pub(crate) part: usize,
+    pub(crate) label: String,
+    pub(crate) present: Vec<(i32, usize)>,
+    pub(crate) channelled: bool,
+    pub(crate) mount: String,
 }
 
 #[derive(Clone)]
-pub(super) struct Plan {
-    subject: Subject,
-    key: String,
+pub(crate) struct Plan {
+    set: sets::Set,
     target_mod: Option<String>,
     clip: Option<String>,
 }
 
-pub(super) fn plan(
-    subject: Subject,
-    key: String,
-    target_mod: Option<String>,
-    clip: Option<String>,
-) -> Plan {
-    Plan { subject, key, target_mod, clip }
+pub(crate) fn plan(set: sets::Set, target_mod: Option<String>, clip: Option<String>) -> Plan {
+    Plan { set, target_mod, clip }
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Close,
     Tick,
     Viewer(viewer::Message),
     Row(usize),
@@ -318,7 +297,6 @@ pub enum Message {
     Bound(usize),
     EaseChanged(usize, i32),
     DropExpired,
-    RevertExpired,
     Overlay(Lens),
     Locate,
     Switch(Mode),
@@ -327,10 +305,7 @@ pub enum Message {
     DragEnd,
     Offset(usize),
     Picture(picture::Message),
-    Load(Asset),
-    Loaded(Asset, Option<PathBuf>),
     Carved(Option<Arc<Sheet>>),
-    Adopted,
     Cut(usize, usize, String),
     Frame(usize),
     Trim(usize),
@@ -341,32 +316,13 @@ pub enum Message {
     Field(usize, String),
     OffsetChanged(usize, String),
     AddPart,
+    AddCut,
+    Undo,
     Persisted(u64, PathBuf, Option<Stamp>),
-}
-
-pub(crate) struct Feed<'a> {
-    pub settings: &'a mut Settings,
-    pub anim: &'a mut AnimState,
-    pub vfs: &'a Vfs,
-    pub cats: &'a [CatEntry],
-    pub enemies: &'a [EnemyEntry],
-}
-
-impl Feed<'_> {
-    fn clips(&self, subject: Subject) -> ClipSet {
-        match subject {
-            Subject::Cat { id, form } => self
-                .cats
-                .iter()
-                .find(|cat| cat.id == id)
-                .map_or_else(ClipSet::default, |cat| cat_animation::clips(cat, form, self.vfs)),
-            Subject::Enemy { id } => self
-                .enemies
-                .iter()
-                .find(|enemy| enemy.id == id)
-                .map_or_else(ClipSet::default, |enemy| enemy_animation::clips(enemy, self.vfs)),
-        }
-    }
+    OpenManage,
+    ManagePopup(popup::Message),
+    Manage(manage::Message),
+    Export,
 }
 
 #[derive(Default, Clone, Copy, PartialEq)]
@@ -410,41 +366,6 @@ impl Drag {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Asset {
-    Atlas,
-    Sheet,
-    Cuts,
-}
-
-impl Asset {
-    const ALL: [Asset; 3] = [Asset::Atlas, Asset::Sheet, Asset::Cuts];
-
-    fn label(self) -> &'static str {
-        match self {
-            Asset::Atlas => "Atlas",
-            Asset::Sheet => "Sheet",
-            Asset::Cuts => "Cuts",
-        }
-    }
-
-    fn hint(self) -> &'static str {
-        match self {
-            Asset::Atlas => "Upload file pair of PNG and IMGCUT",
-            Asset::Sheet => "Upload independent PNG",
-            Asset::Cuts => "Upload independent IMGCUT",
-        }
-    }
-
-    fn filter(self) -> (&'static str, &'static [&'static str]) {
-        match self {
-            Asset::Atlas => ("Atlas", &["png", "imgcut"]),
-            Asset::Sheet => ("PNG Image", &["png"]),
-            Asset::Cuts => ("Cut List", &["imgcut"]),
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Landing {
     Onto(usize),
@@ -482,13 +403,67 @@ struct Recall {
     clip: Option<String>,
     curve: Option<Held>,
     part: Option<usize>,
+    focus: Focus,
 }
 
-#[derive(Default)]
-pub(super) struct State {
+pub struct State {
+    unlocked: bool,
     session: Option<Session>,
+    idle: viewer::State,
     recalled: Vec<Recall>,
-    handoff: Option<(Page, String)>,
+    manage: manage::State,
+    managing: bool,
+    popup: popup::State,
+    mode: Mode,
+    notice: Option<Instant>,
+    notice_text: String,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            unlocked: false,
+            session: None,
+            idle: viewer::State::with_popup(popup::Kind::Animator),
+            recalled: Vec::new(),
+            manage: manage::State::default(),
+            managing: false,
+            popup: popup::State::default(),
+            mode: Mode::default(),
+            notice: None,
+            notice_text: String::new(),
+        }
+    }
+}
+
+struct Showing {
+    viewer: viewer::State,
+    draft: Option<Draft>,
+    pose: Option<Pose>,
+    atlas: Option<Sheet>,
+    opened: Option<PathBuf>,
+    posed: Option<PathBuf>,
+    cutting: Option<PathBuf>,
+    rows: Vec<TreeRow>,
+    widest: f32,
+    listed: String,
+}
+
+impl Default for Showing {
+    fn default() -> Self {
+        Self {
+            viewer: viewer::State::with_popup(popup::Kind::Animator),
+            draft: None,
+            pose: None,
+            atlas: None,
+            opened: None,
+            posed: None,
+            cutting: None,
+            rows: Vec::new(),
+            widest: 0.0,
+            listed: String::new(),
+        }
+    }
 }
 
 struct Session {
@@ -506,7 +481,7 @@ struct Session {
     wanted_part: Option<usize>,
     rows: Vec<TreeRow>,
     widest: f32,
-    listed_rig: bool,
+    listed: String,
     seeded: bool,
     scroll: f32,
     scroll_id: widget::Id,
@@ -520,7 +495,10 @@ struct Session {
     slicing: Slot<usize>,
     drag: Drag,
     confirm: Slot<usize>,
-    revert: Slot<()>,
+    focus: Focus,
+    loose_open: bool,
+    history: History,
+    key: String,
     primed: bool,
 }
 
@@ -531,11 +509,12 @@ impl State {
         };
 
         let held = Recall {
-            key: session.plan.key.clone(),
+            key: session.plan.set.name.clone(),
             expanded: session.expanded.clone(),
             clip: session.viewer.selected_label(),
             curve: session.draft.as_ref().and_then(|draft| held_curve(&draft.doc, draft.track?)),
             part: session.pose.as_ref().and_then(|pose| pose.part),
+            focus: session.focus,
         };
 
         self.recalled.retain(|known| known.key != held.key);
@@ -546,37 +525,53 @@ impl State {
         }
     }
 
-    pub(super) fn begin(&mut self, mut plan: Plan) {
+    pub(crate) fn begin(&mut self, mut plan: Plan) {
+        self.flush_now();
         self.stash();
-        self.handoff = None;
 
-        let held = self.recalled.iter().find(|known| known.key == plan.key);
+        let Showing {
+            viewer,
+            draft,
+            pose,
+            atlas,
+            opened,
+            posed,
+            cutting,
+            rows,
+            widest,
+            listed,
+        } = self.session.take().map_or_else(Showing::default, Session::showing);
+
+        let held = self.recalled.iter().find(|known| known.key == plan.set.name);
         let expanded = held.map(|held| held.expanded.clone()).unwrap_or_default();
         let seeded = held.is_some();
 
         let wanted = held.and_then(|held| held.curve);
         let wanted_part = held.and_then(|held| held.part);
+        let focus = held.map_or_else(Focus::default, |held| held.focus);
 
         if let Some(clip) = held.and_then(|held| held.clip.clone()) {
             plan.clip = Some(clip);
         }
 
+        let key = plan.set.key();
+
         self.session = Some(Session {
             plan,
-            viewer: viewer::State::with_popup(popup::Kind::Animator),
-            draft: None,
-            pose: None,
-            atlas: None,
-            mode: Mode::Animation,
-            opened: None,
-            posed: None,
-            cutting: None,
+            viewer,
+            draft,
+            pose,
+            atlas,
+            mode: self.mode,
+            opened,
+            posed,
+            cutting,
             expanded,
             wanted,
             wanted_part,
-            rows: Vec::new(),
-            widest: 0.0,
-            listed_rig: false,
+            rows,
+            widest,
+            listed,
             seeded,
             scroll: 0.0,
             scroll_id: widget::Id::unique(),
@@ -590,59 +585,88 @@ impl State {
             slicing: Slot::default(),
             drag: Drag::default(),
             confirm: Slot::default(),
-            revert: Slot::default(),
+            focus,
+            loose_open: false,
+            history: History::default(),
+            key,
             primed: false,
         });
     }
 
-    pub(super) fn active(&self) -> bool {
-        self.session.is_some()
+    pub(crate) fn adopt(
+        &mut self,
+        set: Set,
+        target_mod: Option<String>,
+        clip: Option<String>,
+        copied: bool,
+    ) {
+        let name = set.name.clone();
+
+        match copied {
+            true => self.manage.adopt(set.clone()),
+            false => self.manage.seal(set.clone()),
+        }
+
+        self.begin(plan(set, target_mod, clip));
+
+        if !copied {
+            return;
+        }
+
+        self.raise(format!(
+            "{}\nAnimation data copied to \"{}/{}\"",
+            LOCKED_NOTICE,
+            architecture::STUDIO,
+            name
+        ));
     }
 
-    pub(super) fn curves(&self, part: Option<usize>) -> Option<Curves> {
-        let session = self.session.as_ref().filter(|session| session.mode != Mode::Atlas)?;
-        let pose = session.pose.as_ref();
-        let part = part.filter(|at| pose.is_none_or(|pose| *at < pose.doc.count()));
+    pub(crate) fn channels(&self, part: Option<usize>) -> Option<Channels> {
+        let session = self.session.as_ref().filter(|session| session.mode == Mode::Entity)?;
+        let pose = session.pose.as_ref()?;
+        let part = part.filter(|at| *at < pose.doc.count())?;
+        let wanted = i32::try_from(part).ok();
 
-        let curving = session.mode == Mode::Animation && part.is_some();
-        let wanted = part.and_then(|at| i32::try_from(at).ok());
-
-        let present = match (curving, session.draft.as_ref()) {
-            (true, Some(draft)) => draft
+        let present = session.draft.as_ref().map_or_else(Vec::new, |draft| {
+            draft
                 .doc
                 .tracks()
                 .iter()
                 .enumerate()
                 .filter(|(_, track)| Some(track.part) == wanted)
                 .map(|(at, track)| (track.kind, at))
-                .collect(),
-            _ => Vec::new(),
-        };
+                .collect()
+        });
 
-        let label = part.map_or_else(|| ROOT_LABEL.to_owned(), |at| format!("Part {}", at));
-
-        Some(Curves {
+        Some(Channels {
             part,
-            label,
-            slot: pose.map_or(0, |pose| pose.doc.count()),
+            label: format!("Part {}", part),
             present,
-            curving: curving && session.draft.is_some(),
-            shapeable: pose.is_some(),
-            target_mod: session.plan.target_mod.clone(),
+            channelled: session.draft.is_some(),
+            mount: session.mount(),
         })
     }
 
-    pub(super) fn holder(&self, track: usize) -> Option<usize> {
-        let session = self.session.as_ref().filter(|session| session.mode == Mode::Animation)?;
+    fn mount_of(plan: &Plan) -> String {
+        plan.target_mod.clone().unwrap_or_else(|| match sets::folder_name(&plan.set) {
+            Some(folder) => format!("{}/{}", architecture::STUDIO, folder),
+            None => architecture::GAME.to_owned(),
+        })
+    }
+
+    pub(crate) fn holder(&self, track: usize) -> Option<usize> {
+        let session = self.session.as_ref().filter(|session| session.mode == Mode::Entity)?;
         let draft = session.draft.as_ref()?;
 
         usize::try_from(draft.doc.track(track)?.part).ok()
     }
 
-    pub(super) fn add_part(&mut self, parent: Option<usize>, vfs: &Vfs) -> bool {
+    pub(crate) fn add_part(&mut self, parent: Option<usize>) -> bool {
         let Some(session) = self.session.as_mut() else {
             return false;
         };
+
+        session.remember(Tag::Parts);
 
         let Some(pose) = session.pose.as_mut() else {
             return false;
@@ -650,35 +674,40 @@ impl State {
 
         pose.grow(parent);
 
-        let settled = pose.persist_now(vfs);
+        let settled = pose.persist_now();
 
         if let Some(parent) = parent {
             session.expanded.insert(parent);
         }
 
-        session.settle_pose(settled, vfs);
+        session.focus = Focus::Part;
+        session.settle_pose();
 
         settled != Settled::Failed
     }
 
-    pub(super) fn drop_part(&mut self, part: usize, vfs: &Vfs) -> bool {
+    pub(crate) fn drop_part(&mut self, part: usize) -> bool {
         let Some(session) = self.session.as_mut() else {
             return false;
         };
+
+        session.remember(Tag::Bulk);
 
         let Some(moved) = session.pose.as_mut().and_then(|pose| pose.doc.remove_part(part)) else {
             return false;
         };
 
-        session.restructure(moved, vfs);
+        session.restructure(moved);
 
         true
     }
 
-    pub(super) fn add_curve(&mut self, part: usize, kind: i32) -> bool {
+    pub(crate) fn add_channel(&mut self, part: usize, kind: i32) -> bool {
         let Some(session) = self.session.as_mut() else {
             return false;
         };
+
+        session.remember(Tag::Keys);
 
         let seeded = authoring::blank_curve(part, kind, session.viewer.rig().map(|rig| &rig.model));
 
@@ -691,16 +720,19 @@ impl State {
         draft.retrack(at);
         draft.backing.dirty = true;
 
+        session.focus = Focus::Curve;
         session.aim();
         session.relist();
 
         true
     }
 
-    pub(super) fn drop_curve(&mut self, track: usize) -> bool {
+    pub(crate) fn drop_channel(&mut self, track: usize) -> bool {
         let Some(session) = self.session.as_mut() else {
             return false;
         };
+
+        session.remember(Tag::Keys);
 
         let Some(draft) = session.draft.as_mut() else {
             return false;
@@ -725,11 +757,7 @@ impl State {
         true
     }
 
-    pub(super) fn take_handoff(&mut self) -> Option<(Page, String)> {
-        self.handoff.take()
-    }
-
-    pub(super) fn pace(&self) -> Option<Duration> {
+    pub(crate) fn pace(&self) -> Option<Duration> {
         let session = self.session.as_ref()?;
         let live = session.viewer.playing()
             || session.draft.as_ref().is_some_and(|draft| draft.backing.busy())
@@ -739,25 +767,24 @@ impl State {
         Some(if live { PLAYING_TICK } else { RESTING_TICK })
     }
 
-    pub(super) fn flush_now(&mut self, vfs: &Vfs) {
-        let Some(session) = self.session.as_mut() else {
-            return;
-        };
-
-        if let Some(draft) = session.draft.as_mut() {
-            draft.persist_now(vfs);
-        }
-
-        if let Some(pose) = session.pose.as_mut() {
-            pose.persist_now(vfs);
-        }
-
-        if let Some(atlas) = session.atlas.as_mut() {
-            atlas.persist_now(vfs);
+    pub(crate) fn flush_now(&mut self) {
+        if let Some(session) = self.session.as_mut() {
+            session.flush();
         }
     }
 
-    pub(super) fn update(&mut self, message: Message, feed: Feed<'_>) -> Task<Message> {
+    pub(crate) fn update(
+        &mut self,
+        message: Message,
+        settings: &mut Settings,
+        anim: &mut AnimState,
+    ) -> Task<Message> {
+        self.unlocked = settings.files.unlock_game_mount;
+
+        if let Some(task) = self.chrome(&message) {
+            return task;
+        }
+
         let Some(session) = self.session.as_mut() else {
             return Task::none();
         };
@@ -795,62 +822,23 @@ impl State {
         }
 
         match message {
-            Message::Close => {
-                if let Some(draft) = session.draft.as_mut() {
-                    draft.persist_now(feed.vfs);
-                }
-
-                if let Some(pose) = session.pose.as_mut() {
-                    pose.persist_now(feed.vfs);
-                }
-
-                if let Some(atlas) = session.atlas.as_mut() {
-                    atlas.persist_now(feed.vfs);
-                }
-
-                let handoff = session
-                    .viewer
-                    .selected_label()
-                    .map(|label| (session.plan.subject.page(), label));
-
-                self.stash();
-
-                self.handoff = handoff;
-                self.session = None;
-
-                Task::none()
-            }
             Message::Tick => {
-                let priming = session.sync(&feed);
+                let priming = session.sync(settings, anim);
                 session.viewer.tick();
-                session.repose(feed.vfs);
+                session.repose();
 
-                let carving = session.recarve(feed.vfs);
+                let carving = session.recarve();
                 let flush =
-                    session.draft.as_mut().map_or_else(Task::none, |draft| draft.persist_if_dirty(feed.vfs));
+                    session.draft.as_mut().map_or_else(Task::none, |draft| draft.persist_if_dirty());
                 let shaped =
-                    session.pose.as_mut().map_or_else(Task::none, |pose| pose.persist_if_dirty(feed.vfs));
+                    session.pose.as_mut().map_or_else(Task::none, |pose| pose.persist_if_dirty());
                 let carved =
-                    session.atlas.as_mut().map_or_else(Task::none, |atlas| atlas.persist_if_dirty(feed.vfs));
+                    session.atlas.as_mut().map_or_else(Task::none, |atlas| atlas.persist_if_dirty());
 
                 Task::batch([priming, carving, flush, shaped, carved])
             }
-            Message::Viewer(viewer::Message::Controls(controls::Message::OpenExport)) => {
-                if !session.revert.take(&()) {
-                    return session.revert.set((), Message::RevertExpired);
-                }
-
-                session.restore(feed.vfs);
-
-                Task::none()
-            }
-            Message::RevertExpired => {
-                session.revert.expire();
-
-                Task::none()
-            }
             Message::Viewer(msg) => {
-                session.viewer.update(msg, feed.settings, feed.anim).map(Message::Viewer)
+                session.viewer.update(msg, settings, anim).map(Message::Viewer)
             }
             Message::Press(index) => {
                 let part = session.rows.get(index).and_then(|row| row.part);
@@ -879,9 +867,13 @@ impl State {
                 let settled = std::mem::take(&mut session.drag);
 
                 match settled {
-                    Drag::Pressed { row, .. } => return self.update(Message::Row(row), feed),
+                    Drag::Pressed { row, .. } => {
+                        session.select(row);
+
+                        return Task::none();
+                    }
                     Drag::Moving { onto: None, .. } => {}
-                    Drag::Moving { part, onto: Some(onto), .. } => session.land(part, onto, feed.vfs),
+                    Drag::Moving { part, onto: Some(onto), .. } => session.land(part, onto),
                     _ => {}
                 }
 
@@ -891,6 +883,8 @@ impl State {
                 let Some(at) = session.framing.take() else {
                     return Task::none();
                 };
+
+                session.remember(Tag::Cuts);
 
                 let Some(atlas) = session.atlas.as_mut() else {
                     return Task::none();
@@ -903,7 +897,7 @@ impl State {
                 atlas.place(at, region);
                 atlas.restate();
 
-                atlas.persist_if_dirty(feed.vfs)
+                atlas.persist_if_dirty()
             }
             Message::Picture(picture::Message::Cancelled) => {
                 session.framing = None;
@@ -937,30 +931,6 @@ impl State {
 
                 Task::none()
             }
-            Message::Load(asset) => {
-                let (label, extensions) = asset.filter();
-
-                Task::perform(dialog::file(label, extensions), move |picked| Message::Loaded(asset, picked))
-            }
-            Message::Loaded(asset, picked) => {
-                let Some(source) = picked else {
-                    return Task::none();
-                };
-
-                let staged = session.stage(asset, &source, feed.vfs);
-
-                if staged.is_empty() {
-                    return Task::none();
-                }
-
-                Task::perform(smol::unblock(move || copy_assets(staged)), |()| Message::Adopted)
-            }
-            Message::Adopted => {
-                session.atlas = None;
-                session.reload(feed.vfs);
-
-                session.recarve(feed.vfs)
-            }
             Message::Carved(carved) => {
                 session.carving = false;
                 session.atlas = carved.and_then(Arc::into_inner);
@@ -971,13 +941,15 @@ impl State {
                 Task::none()
             }
             Message::Cut(at, cell, value) => {
+                session.remember(Tag::Cut(at, cell));
+
                 let Some(atlas) = session.atlas.as_mut() else {
                     return Task::none();
                 };
 
                 atlas.edit(at, cell, &value);
 
-                atlas.persist_if_dirty(feed.vfs)
+                atlas.persist_if_dirty()
             }
             Message::Frame(at) => {
                 session.framing = match session.framing {
@@ -990,6 +962,8 @@ impl State {
                 Task::none()
             }
             Message::Trim(at) => {
+                session.remember(Tag::Cuts);
+
                 let region = session.atlas.as_ref().and_then(|atlas| atlas.opaque(at));
 
                 let (Some(region), Some(atlas)) = (region, session.atlas.as_mut()) else {
@@ -998,18 +972,20 @@ impl State {
 
                 atlas.place(at, region);
 
-                atlas.persist_if_dirty(feed.vfs)
+                atlas.persist_if_dirty()
             }
             Message::DropCut(at) => {
                 if !session.slicing.take(&at) {
                     return session.slicing.set(at, Message::DropCutExpired);
                 }
 
+                session.remember(Tag::Bulk);
+
                 let Some(moved) = session.atlas.as_mut().and_then(|atlas| atlas.doc.remove_cut(at)) else {
                     return Task::none();
                 };
 
-                session.recut(moved, feed.vfs);
+                session.recut(moved);
 
                 Task::none()
             }
@@ -1026,34 +1002,7 @@ impl State {
                 Task::none()
             }
             Message::Row(index) => {
-                let Some((part, track)) = session.rows.get(index).map(|row| (row.part, row.track)) else {
-                    return Task::none();
-                };
-
-                if let Some(track) = track {
-                    if let Some(draft) = session.draft.as_mut() {
-                        draft.retrack(track);
-                    }
-
-                    session.aim();
-
-                    return Task::none();
-                }
-
-                if let Some(part) = part {
-                    if session.mode == Mode::Model
-                        && let Some(pose) = session.pose.as_mut()
-                    {
-                        pose.pick(part);
-                        session.aim();
-                    }
-
-                    if !session.expanded.remove(&part) {
-                        session.expanded.insert(part);
-                    }
-
-                    session.relist();
-                }
+                session.select(index);
 
                 Task::none()
             }
@@ -1073,35 +1022,40 @@ impl State {
             }
             Message::Switch(mode) => {
                 session.mode = mode;
+                session.focus = Focus::Curve;
                 session.framing = None;
-                session.repose(feed.vfs);
+                session.repose();
                 session.aim();
                 session.relist();
 
-                session.recarve(feed.vfs)
+                session.recarve()
             }
             Message::Field(at, value) => {
+                session.remember(Tag::Field(at));
+
                 let Some(pose) = session.pose.as_mut() else {
                     return Task::none();
                 };
 
                 pose.edit(at, &value);
 
-                pose.persist_if_dirty(feed.vfs)
+                pose.persist_if_dirty()
             }
             Message::OffsetChanged(axis, value) => {
+                session.remember(Tag::Axis(axis));
+
                 let Some(pose) = session.pose.as_mut() else {
                     return Task::none();
                 };
 
                 pose.shift(axis, &value);
 
-                pose.persist_if_dirty(feed.vfs)
+                pose.persist_if_dirty()
             }
             Message::AddPart => {
                 let parent = session.pose.as_ref().and_then(|pose| pose.part);
 
-                self.add_part(parent, feed.vfs);
+                self.add_part(parent);
 
                 Task::none()
             }
@@ -1111,31 +1065,35 @@ impl State {
                 Task::none()
             }
             Message::Overlay(lens) => {
-                let flag = lens.of(&mut feed.settings.animation);
+                let flag = lens.of(&mut settings.animation);
                 *flag = !*flag;
 
                 Task::none()
             }
             Message::LoopChanged(value) => {
+                session.remember(Tag::Loop);
+
                 let Some(draft) = session.draft.as_mut() else {
                     return Task::none();
                 };
 
                 draft.set_looping(&value);
 
-                let task = draft.persist_if_dirty(feed.vfs);
+                let task = draft.persist_if_dirty();
                 session.relist();
 
                 task
             }
             Message::AddKey => {
+                session.remember(Tag::Keys);
+
                 let Some(draft) = session.draft.as_mut() else {
                     return Task::none();
                 };
 
                 draft.add_key();
 
-                let task = draft.persist_if_dirty(feed.vfs);
+                let task = draft.persist_if_dirty();
                 session.relist();
 
                 task
@@ -1159,13 +1117,15 @@ impl State {
                     return session.confirm.set(at, Message::DropExpired);
                 }
 
+                session.remember(Tag::Keys);
+
                 let Some(draft) = session.draft.as_mut() else {
                     return Task::none();
                 };
 
                 draft.drop_key(at);
 
-                let task = draft.persist_if_dirty(feed.vfs);
+                let task = draft.persist_if_dirty();
                 session.relist();
 
                 task
@@ -1176,15 +1136,19 @@ impl State {
                 Task::none()
             }
             Message::EaseChanged(at, ease) => {
+                session.remember(Tag::Ease(at));
+
                 let Some(draft) = session.draft.as_mut() else {
                     return Task::none();
                 };
 
                 draft.set_ease(at, ease);
 
-                draft.persist_if_dirty(feed.vfs)
+                draft.persist_if_dirty()
             }
             Message::Changed(at, field, value) => {
+                session.remember(Tag::Key(at, field));
+
                 let Some(draft) = session.draft.as_mut() else {
                     return Task::none();
                 };
@@ -1194,7 +1158,7 @@ impl State {
                     .and_then(|to| Field::TYPED.iter().position(|known| *known == field).map(|column| (to, column)))
                     .map(|(to, column)| operation::focus(draft.cursor(to, column)));
 
-                let flush = draft.persist_if_dirty(feed.vfs);
+                let flush = draft.persist_if_dirty();
 
                 match chase {
                     Some(chase) => Task::batch([flush, chase]),
@@ -1203,25 +1167,17 @@ impl State {
             }
             Message::Persisted(token, path, stamp) => {
                 if let Some(atlas) = session.atlas.as_mut().filter(|atlas| atlas.backing.token == token) {
-                    if atlas.backing.settle(path, stamp) == Settled::Moved {
-                        session.cutting = None;
-                    }
+                    atlas.backing.settle(path, stamp);
 
                     return Task::none();
                 }
 
                 if let Some(pose) = session.pose.as_mut().filter(|pose| pose.backing.token == token) {
-                    let settled = pose.backing.settle(path, stamp);
+                    let saved = pose.backing.settle(path, stamp) == Settled::Saved;
                     let updated = pose.doc.shared();
 
-                    match settled {
-                        Settled::Failed => {}
-                        Settled::Saved => session.viewer.adopt_model(updated),
-                        Settled::Moved => {
-                            session.wanted_part = pose.part;
-                            session.posed = None;
-                            session.viewer.invalidate_paths();
-                        }
+                    if saved {
+                        session.viewer.adopt_model(updated);
                     }
 
                     session.relist();
@@ -1233,46 +1189,491 @@ impl State {
                     return Task::none();
                 };
 
-                let settled = draft.backing.settle(path, stamp);
+                let saved = draft.backing.settle(path, stamp) == Settled::Saved;
                 let updated = draft.doc.shared();
 
-                match settled {
-                    Settled::Failed => {}
-                    Settled::Saved => {
-                        if let Some(showing) = session.viewer.selected_anim().cloned() {
-                            session.viewer.adopt_anim(&showing, updated);
-                        }
-                    }
-                    Settled::Moved => {
-                        session.opened = None;
-                        session.viewer.invalidate_paths();
+                if saved && let Some(showing) = session.viewer.selected_anim().cloned() {
+                    session.viewer.adopt_anim(&showing, updated);
+                }
+
+                Task::none()
+            }
+            Message::AddCut => {
+                session.remember(Tag::Cuts);
+
+                let Some(atlas) = session.atlas.as_mut() else {
+                    return Task::none();
+                };
+
+                let added = atlas.doc.add_cut();
+
+                atlas.backing.dirty = true;
+                atlas.restate();
+
+                let task = atlas.persist_if_dirty();
+
+                session.reslice(Some(added));
+
+                task
+            }
+            Message::Undo => session.undo(),
+            Message::OpenManage
+            | Message::ManagePopup(_)
+            | Message::Manage(_)
+            | Message::Export => Task::none(),
+        }
+    }
+
+    fn chrome(&mut self, message: &Message) -> Option<Task<Message>> {
+        match message {
+            Message::OpenManage => {
+                self.managing = true;
+                self.manage.restock();
+
+                Some(Task::none())
+            }
+            Message::ManagePopup(msg) => {
+                if self.popup.update(msg.clone(), manage::SPEC) {
+                    self.managing = false;
+                }
+
+                Some(Task::none())
+            }
+            Message::Manage(msg) => Some(self.manage(msg.clone())),
+            Message::Switch(mode) => {
+                self.mode = *mode;
+
+                None
+            }
+            Message::Export => {
+                let set = self.manage.set().clone();
+
+                match sets::export(&set) {
+                    Ok(path) => info!(path = %path.display(), "Studio exported a set"),
+                    Err(err) => warn!("Studio could not export the set: {}", err),
+                }
+
+                Some(Task::none())
+            }
+            _ => None,
+        }
+    }
+
+    fn sealed(&self) -> bool {
+        self.manage.sealed()
+    }
+
+    fn droppable(&self) -> bool {
+        self.session.as_ref().is_some_and(|session| session.viewer.selected_anim().is_some())
+    }
+
+    fn manage(&mut self, message: manage::Message) -> Task<Message> {
+        match message {
+            manage::Message::NameChanged(typed) => {
+                if self.sealed() {
+                    return Task::none();
+                }
+
+                self.manage.rename(typed);
+
+                self.manage
+                    .renamer
+                    .set_after((), Message::Manage(manage::Message::Rename), RENAME_DELAY)
+            }
+            manage::Message::Rename => {
+                self.manage.renamer.expire();
+                self.resettle(Swap::Same)
+            }
+            manage::Message::Import => {
+                if self.manage.set().rigged() && !self.manage.importing.take(&()) {
+                    return self
+                        .manage
+                        .importing
+                        .set((), Message::Manage(manage::Message::ImportExpired));
+                }
+
+                Task::perform(dialog::file("Animation Set", &["png", "imgcut", "mamodel"]), |picked| {
+                    Message::Manage(manage::Message::Imported(picked))
+                })
+            }
+            manage::Message::ImportExpired => {
+                self.manage.importing.expire();
+
+                Task::none()
+            }
+            manage::Message::Imported(picked) => {
+                let Some(source) = picked else {
+                    return Task::none();
+                };
+
+                self.manage.adopt(sets::siblings(&source));
+
+                self.resettle(Swap::Fresh)
+            }
+            manage::Message::New => {
+                let name = sets::vacant(self.manage.name());
+
+                match sets::seed(&name) {
+                    Ok(set) => self.manage.adopt(set),
+                    Err(err) => {
+                        warn!(name, "Studio could not seed a new set: {}", err);
+
+                        return Task::none();
                     }
                 }
+
+                self.resettle(Swap::Fresh)
+            }
+            manage::Message::Recall(name) => {
+                let picked = match name == manage::NONE_ENTRY {
+                    true => sets::Set::default(),
+                    false => sets::load(&name),
+                };
+
+                self.manage.adopt(picked);
+
+                self.resettle(Swap::Fresh)
+            }
+            manage::Message::Pick(slot) => {
+                if self.manage.set().slot(slot).is_some() && !self.manage.picking.take(&slot) {
+                    return self
+                        .manage
+                        .picking
+                        .set(slot, Message::Manage(manage::Message::PickExpired));
+                }
+
+                Task::perform(dialog::file(slot.label(), slot.filter()), move |picked| {
+                    Message::Manage(manage::Message::Picked(slot, picked))
+                })
+            }
+            manage::Message::PickExpired => {
+                self.manage.picking.expire();
+
+                Task::none()
+            }
+            manage::Message::Picked(slot, picked) => {
+                let Some(source) = picked else {
+                    return Task::none();
+                };
+
+                let seated = self.manage.set().slot(slot).map(Path::to_path_buf);
+                let replaceable = seated.as_deref().is_some_and(|held| sets::home(held) != sets::Home::Loose);
+
+                let Some(seated) = seated.filter(|_| replaceable) else {
+                    self.manage.place(slot, source);
+
+                    return self.resettle(Swap::Same);
+                };
+
+                if source == seated {
+                    return Task::none();
+                }
+
+                if let Some(session) = self.session.as_mut() {
+                    session.remember(Tag::Bulk);
+                }
+
+                if let Err(err) = fs::copy(&source, &seated) {
+                    warn!(path = %seated.display(), "Studio could not replace the file: {}", err);
+
+                    return Task::none();
+                }
+
+                self.reopen()
+            }
+            manage::Message::AddAnims => {
+                Task::perform(dialog::files("Animation", &["maanim"]), |picked| {
+                    Message::Manage(manage::Message::AnimsPicked(picked))
+                })
+            }
+            manage::Message::AnimsPicked(picked) => {
+                if picked.is_empty() {
+                    return Task::none();
+                }
+
+                for path in picked {
+                    if !self.manage.set().anims.contains(&path) {
+                        self.manage.anims_mut().push(path);
+                    }
+                }
+
+                self.resettle(Swap::Same)
+            }
+            manage::Message::DropAnim => {
+                if !self.manage.dropping.take(&()) {
+                    return self.manage.dropping.set((), Message::Manage(manage::Message::DropExpired));
+                }
+
+                let Some(held) =
+                    self.session.as_ref().and_then(|session| session.viewer.selected_anim().cloned())
+                else {
+                    return Task::none();
+                };
+
+                self.flush_now();
+
+                if sets::home(&held) == sets::Home::Studio
+                    && let Err(err) = fs::remove_file(&held)
+                {
+                    warn!(path = %held.display(), "Studio could not delete the track: {}", err);
+                }
+
+                self.manage.anims_mut().retain(|path| *path != held);
+
+                self.resettle(Swap::Same)
+            }
+            manage::Message::DropExpired => {
+                self.manage.dropping.expire();
 
                 Task::none()
             }
         }
     }
 
-    pub(super) fn view<'a>(
+    fn resettle(&mut self, swap: Swap) -> Task<Message> {
+        self.settle_folder();
+
+        if !self.manage.set().rigged() {
+            self.flush_now();
+            self.stash();
+            self.session = None;
+
+            return Task::none();
+        }
+
+        if self.session.as_ref().is_some_and(|session| session.plan.set == *self.manage.set()) {
+            return Task::none();
+        }
+
+        let wanted = self.manage.set().clone();
+
+        if swap == Swap::Same
+            && let Some(session) = self.session.as_mut()
+        {
+            session.reseat(wanted);
+            self.manage.restock();
+
+            return Task::none();
+        }
+
+        let target_mod = self.session.as_ref().and_then(|session| session.plan.target_mod.clone());
+        let clip = self.session.as_ref().and_then(|session| session.viewer.selected_label());
+
+        self.begin(plan(wanted, target_mod, clip));
+        self.manage.restock();
+
+        Task::none()
+    }
+
+    fn reopen(&mut self) -> Task<Message> {
+        if let Some(session) = self.session.as_mut() {
+            session.draft = None;
+            session.pose = None;
+            session.atlas = None;
+            session.reload();
+        }
+
+        Task::none()
+    }
+
+    fn settle_folder(&mut self) {
+        if self.manage.set().files().is_empty() || self.sealed() {
+            return;
+        }
+
+        self.pull_in();
+        self.rename_folder();
+    }
+
+    fn pull_in(&mut self) {
+        if !sets::pullable(self.manage.set(), self.unlocked) {
+            return;
+        }
+
+        let name = sets::folder_name(self.manage.set())
+            .unwrap_or_else(|| sets::vacant(&sets::sanitize(self.manage.name())));
+
+        match sets::adopt(&name, self.manage.set()) {
+            Ok(adopted) => self.manage.adopt(adopted),
+            Err(err) => warn!(name, "Studio could not adopt the set: {}", err),
+        }
+    }
+
+    fn rename_folder(&mut self) {
+        let Some(held) = sets::folder_name(self.manage.set()) else {
+            return;
+        };
+
+        let wanted = sets::sanitize(self.manage.name());
+
+        if wanted == held {
+            return;
+        }
+
+        let name = sets::vacant(&wanted);
+
+        if let Err(err) = sets::rename(&held, &name) {
+            warn!(from = %held, to = %name, "Studio could not rename the set folder: {}", err);
+
+            return;
+        }
+
+        self.manage.adopt(sets::load(&name));
+    }
+
+    pub(crate) fn view<'a>(
+        &'a self,
+        settings: &'a Settings,
+        anim: &'a AnimState,
+    ) -> Element<'a, Message> {
+        let body = match self.session.as_ref() {
+            Some(session) => session.view(settings, anim),
+            None => self.vacant_view(settings, anim),
+        };
+
+        stack![body, self.view_notice()].into()
+    }
+
+
+    fn vacant_view<'a>(
+        &'a self,
+        settings: &'a Settings,
+        anim: &'a AnimState,
+    ) -> Element<'a, Message> {
+        let (side, stage): (Element<'_, Message>, Element<'_, Message>) = match self.mode {
+            Mode::Atlas => (
+                column![vacant_cuts(), vacant_slices()].spacing(GAP).height(Length::Fill).into(),
+                stack![console_card(centred(NO_SET_HINT)), console_edge()].into(),
+            ),
+            Mode::Entity => (
+                column![console_card(centred(NO_SET_NOTICE)), vacant_keys()]
+                    .spacing(GAP)
+                    .height(Length::Fill)
+                    .into(),
+                column![
+                    container(self.idle.view(settings, anim).map(Message::Viewer))
+                        .width(Length::Fill)
+                        .height(Length::Fill),
+                    strip(Focus::Curve, None, None, None, false, &settings.animation)
+                ]
+                .spacing(GAP)
+                .into(),
+            ),
+        };
+
+        let body = row![panel_frame(self.mode, false, side), stage].spacing(GAP);
+
+        container(body)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(BODY_PADDING)
+            .style(|theme: &Theme| container::Style {
+                background: Some(theme.palette().background.into()),
+                ..container::Style::default()
+            })
+            .into()
+    }
+
+    fn view_notice(&self) -> Element<'_, Message> {
+        let banner = container(theme::centered_text(self.notice_text.as_str()).size(NOTICE_TEXT_SIZE))
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center)
+            .padding(Padding {
+                top: NOTICE_OVERHANG + NOTICE_PAD_Y,
+                right: NOTICE_PAD_X,
+                bottom: NOTICE_PAD_Y,
+                left: NOTICE_PAD_X,
+            })
+            .style(theme::notice_banner);
+
+        container(slide(banner, self.noticing(), Slide::Up).floating())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Top)
+            .padding(Padding::default().top(-NOTICE_OVERHANG))
+            .into()
+    }
+
+    fn noticing(&self) -> bool {
+        self.notice.is_some_and(|at| at.elapsed() < NOTICE_EXPIRY)
+    }
+
+    fn raise(&mut self, text: String) {
+        self.notice_text = text;
+        self.notice = Some(Instant::now());
+    }
+
+
+
+    pub(crate) fn managing(&self) -> bool {
+        self.managing
+    }
+
+    pub(crate) fn manage_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.managing.then(|| {
+            self.popup.view(
+                manage::TITLE,
+                manage::SPEC,
+                window,
+                Message::ManagePopup,
+                || self.manage.view(self.sealed(), self.droppable()).map(Message::Manage),
+                None,
+            )
+        })
+    }
+
+    pub(crate) fn export_popup_visible(&self) -> bool {
+        self.session.as_ref().is_some_and(|session| session.viewer.export_popup_open())
+    }
+
+    pub(crate) fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.session
+            .as_ref()
+            .and_then(|session| session.viewer.export_popup_view(window))
+            .map(|view| view.map(Message::Viewer))
+    }
+
+    pub(crate) fn expanded(&self) -> bool {
+        self.session.as_ref().is_some_and(|session| session.viewer.is_expanded())
+    }
+
+    pub(crate) fn expanded_view<'a>(
         &'a self,
         settings: &'a Settings,
         anim: &'a AnimState,
     ) -> Option<Element<'a, Message>> {
-        self.session.as_ref().map(|session| session.view(settings, anim))
+        self.session
+            .as_ref()
+            .and_then(|session| session.viewer.expanded_view(settings, anim))
+            .map(|view| view.map(Message::Viewer))
     }
 }
 
 impl Session {
-    fn sync(&mut self, feed: &Feed<'_>) -> Task<Message> {
-        let subject = self.plan.subject;
+    fn showing(self) -> Showing {
+        Showing {
+            viewer: self.viewer,
+            draft: self.draft,
+            pose: self.pose,
+            atlas: self.atlas,
+            opened: self.opened,
+            posed: self.posed,
+            cutting: self.cutting,
+            rows: self.rows,
+            widest: self.widest,
+            listed: self.listed,
+        }
+    }
+
+    fn sync(&mut self, settings: &Settings, anim: &AnimState) -> Task<Message> {
+        let set = self.plan.set.clone();
         let mut priming = Task::none();
 
         if std::mem::replace(&mut self.primed, true) {
-            self.viewer.sync(&self.plan.key, || feed.clips(subject), feed.settings, feed.anim);
+            self.viewer.sync(&self.key, || set.clips(), settings, anim);
         } else {
-            priming =
-                self.viewer.preload(&self.plan.key, || feed.clips(subject), feed.anim).map(Message::Viewer);
+            priming = self.viewer.preload(&self.key, || set.clips(), anim).map(Message::Viewer);
 
             if let Some(label) = self.plan.clip.as_deref() {
                 self.viewer.select_label(label);
@@ -1282,35 +1683,264 @@ impl Session {
         let selected = self.viewer.selected_anim().cloned();
 
         if selected == self.opened && !self.draft.as_ref().is_some_and(|draft| draft.backing.drifted()) {
-            if self.draft.is_some() && self.listed_rig != self.viewer.rig().is_some() {
+            if self.listed != self.viewer.loaded_rig() {
                 self.relist();
             }
-
-            self.arm();
 
             return priming;
         }
 
-        self.opened = selected.clone();
-        self.draft = selected
-            .as_deref()
-            .and_then(|anim| Draft::load(anim, self.plan.target_mod.as_deref(), feed.vfs));
+        let wanted = self
+            .draft
+            .as_ref()
+            .and_then(|draft| held_curve(&draft.doc, draft.track?))
+            .or_else(|| self.wanted.take());
 
-        if let Some(draft) = self.draft.as_mut()
-            && let Some(wanted) = self.wanted.take()
-            && let Some(at) = locate_curve(&draft.doc, &wanted)
-        {
-            draft.retrack(at);
+        self.wanted = None;
+        self.opened = selected.clone();
+        self.draft = selected.as_deref().and_then(Draft::load);
+
+        if let Some(wanted) = wanted {
+            self.recover(wanted);
         }
 
         self.aim();
-        self.arm();
         self.relist();
 
         priming
     }
 
-    fn repose(&mut self, vfs: &Vfs) {
+    fn reseat(&mut self, set: sets::Set) {
+        let rigged = |set: &sets::Set| (set.sheet.clone(), set.cuts.clone(), set.model.clone());
+        let moved = rigged(&self.plan.set) != rigged(&set);
+
+        self.plan.set = set;
+        self.key = self.plan.set.key();
+
+        if !moved {
+            return;
+        }
+
+        self.wanted = self.draft.as_ref().and_then(|draft| held_curve(&draft.doc, draft.track?));
+        self.wanted_part = self.pose.as_ref().and_then(|pose| pose.part);
+        self.plan.clip = self.viewer.selected_label();
+
+        self.history.clear();
+        self.primed = false;
+
+        self.opened = None;
+        self.posed = None;
+        self.cutting = None;
+    }
+
+    fn select(&mut self, index: usize) {
+        let Some(row) = self.rows.get(index) else {
+            return;
+        };
+
+        let (part, track, bucket) = (row.part, row.track, row.bucket);
+
+        if bucket {
+            self.loose_open = !self.loose_open;
+            self.relist();
+
+            return;
+        }
+
+        if let Some(track) = track {
+            self.focus = Focus::Curve;
+
+            if let Some(draft) = self.draft.as_mut() {
+                draft.retrack(track);
+            }
+
+            self.aim();
+
+            return;
+        }
+
+        let Some(part) = part else {
+            return;
+        };
+
+        let held =
+            self.focus == Focus::Part && self.pose.as_ref().is_some_and(|pose| pose.part == Some(part));
+
+        self.focus = Focus::Part;
+
+        if let Some(pose) = self.pose.as_mut() {
+            pose.pick(part);
+        }
+
+        self.aim();
+
+        if held && !self.expanded.remove(&part) {
+            self.expanded.insert(part);
+        }
+
+        self.relist();
+    }
+
+    fn recover(&mut self, wanted: Held) {
+        let found = self.draft.as_ref().and_then(|draft| locate_curve(&draft.doc, &wanted));
+
+        if let Some(at) = found
+            && let Some(draft) = self.draft.as_mut()
+        {
+            draft.retrack(at);
+            self.focus = Focus::Curve;
+
+            return;
+        }
+
+        let Ok(part) = usize::try_from(wanted.part) else {
+            return;
+        };
+
+        if let Some(pose) = self.pose.as_mut().filter(|pose| part < pose.doc.count()) {
+            pose.pick(part);
+            self.focus = Focus::Part;
+        }
+    }
+
+    fn mount(&self) -> String {
+        State::mount_of(&self.plan)
+    }
+
+    fn remember(&mut self, tag: Tag) {
+        let anchor = match tag.subject() {
+            history::Subject::Anim => self.draft.as_ref().map(|draft| draft.backing.read_from.clone()),
+            history::Subject::Model => self.pose.as_ref().map(|pose| pose.backing.read_from.clone()),
+            history::Subject::Cuts => self.atlas.as_ref().map(|atlas| atlas.backing.read_from.clone()),
+            history::Subject::Rig => None,
+        };
+
+        if !self.history.wanted(tag, anchor.as_deref()) {
+            return;
+        }
+
+        let shot = match (tag.subject(), anchor) {
+            (history::Subject::Anim, Some(path)) => {
+                self.draft.as_ref().map(|draft| history::Shot::Anim(path, draft.doc.clone()))
+            }
+            (history::Subject::Model, Some(path)) => {
+                self.pose.as_ref().map(|pose| history::Shot::Model(path, pose.doc.clone()))
+            }
+            (history::Subject::Cuts, Some(path)) => {
+                self.atlas.as_ref().map(|atlas| history::Shot::Cuts(path, atlas.doc.clone()))
+            }
+            (history::Subject::Rig, _) => {
+                self.flush();
+
+                Some(history::Shot::Rig(self.bytes()))
+            }
+            _ => None,
+        };
+
+        if let Some(shot) = shot {
+            self.history.push(tag, shot);
+        }
+    }
+
+    fn bytes(&self) -> Vec<(PathBuf, Vec<u8>)> {
+        self.plan
+            .set
+            .files()
+            .into_iter()
+            .filter_map(|path| fs::read(&path).ok().map(|body| (path, body)))
+            .collect()
+    }
+
+    fn undo(&mut self) -> Task<Message> {
+        let Some(shot) = self.history.pop() else {
+            return Task::none();
+        };
+
+        match shot {
+            history::Shot::Anim(path, doc) => {
+                if let Some(draft) = self.draft.as_mut().filter(|draft| draft.backing.read_from == path) {
+                    draft.doc = doc;
+                    draft.retrack_clamped();
+                    draft.backing.dirty = true;
+
+                    let task = draft.persist_if_dirty();
+                    self.relist();
+
+                    return task;
+                }
+
+                self.rewrite(&path, &doc.write());
+            }
+            history::Shot::Model(path, doc) => {
+                if let Some(pose) = self.pose.as_mut().filter(|pose| pose.backing.read_from == path) {
+                    pose.doc = doc;
+                    pose.reseat();
+                    pose.restate();
+                    pose.backing.dirty = true;
+
+                    let task = pose.persist_if_dirty();
+
+                    self.settle_pose();
+
+                    return task;
+                }
+
+                self.rewrite(&path, &doc.write());
+            }
+            history::Shot::Cuts(path, doc) => {
+                if let Some(atlas) = self.atlas.as_mut().filter(|atlas| atlas.backing.read_from == path) {
+                    atlas.doc = doc;
+                    atlas.restate();
+                    atlas.backing.dirty = true;
+
+                    return atlas.persist_if_dirty();
+                }
+
+                self.rewrite(&path, &doc.write());
+            }
+            history::Shot::Rig(files) => {
+                self.flush();
+
+                for (path, body) in files {
+                    self.rewrite(&path, &body);
+                }
+
+                self.draft = None;
+                self.pose = None;
+                self.atlas = None;
+            }
+        }
+
+        self.reload();
+
+        Task::none()
+    }
+
+    fn rewrite(&self, path: &Path, body: &[u8]) {
+        let Some(stamp) = preview::stamp(path) else {
+            warn!(path = %path.display(), "Studio could not stamp a file it is undoing");
+
+            return;
+        };
+
+        write_now(path, body, stamp);
+    }
+
+    fn flush(&mut self) {
+        if let Some(draft) = self.draft.as_mut() {
+            draft.persist_now();
+        }
+
+        if let Some(pose) = self.pose.as_mut() {
+            pose.persist_now();
+        }
+
+        if let Some(atlas) = self.atlas.as_mut() {
+            atlas.persist_now();
+        }
+    }
+
+    fn repose(&mut self) {
         let Some(path) = self.viewer.selected_model().map(Path::to_path_buf) else {
             return;
         };
@@ -1327,8 +1957,7 @@ impl Session {
         let held = self.pose.as_ref().and_then(|pose| pose.part).or(self.wanted_part.take());
 
         self.posed = path.clone();
-        self.pose =
-            path.as_deref().and_then(|path| Pose::load(path, self.plan.target_mod.as_deref(), vfs));
+        self.pose = path.as_deref().and_then(Pose::load);
 
         if let Some(pose) = self.pose.as_mut()
             && let Some(at) = held.filter(|at| *at < pose.doc.count())
@@ -1425,10 +2054,16 @@ impl Session {
         }
     }
 
-    fn land(&mut self, part: usize, onto: Landing, vfs: &Vfs) {
+    fn land(&mut self, part: usize, onto: Landing) {
         let Some(parent) = self.settle(part, onto) else {
             return;
         };
+
+        if self.pose.as_ref().is_none_or(|pose| pose.doc.parent(part) == parent) {
+            return;
+        }
+
+        self.remember(Tag::Parts);
 
         let Some(pose) = self.pose.as_mut() else {
             return;
@@ -1440,7 +2075,7 @@ impl Session {
 
         pose.backing.dirty = true;
 
-        let settled = pose.persist_now(vfs);
+        pose.persist_now();
 
         if let Some(parent) = parent {
             self.expanded.insert(parent);
@@ -1450,16 +2085,10 @@ impl Session {
             pose.pick(part);
         }
 
-        self.settle_pose(settled, vfs);
+        self.settle_pose();
     }
 
-    fn settle_pose(&mut self, settled: Settled, vfs: &Vfs) {
-        if settled == Settled::Moved {
-            self.reload(vfs);
-
-            return;
-        }
-
+    fn settle_pose(&mut self) {
         if let Some(model) = self.pose.as_ref().map(|pose| pose.doc.shared()) {
             self.viewer.adopt_model(model);
         }
@@ -1468,13 +2097,13 @@ impl Session {
         self.relist();
     }
 
-    fn restructure(&mut self, moved: Vec<Option<usize>>, vfs: &Vfs) {
+    fn restructure(&mut self, moved: Vec<Option<usize>>) {
         let Some(pose) = self.pose.as_mut() else {
             return;
         };
 
         pose.backing.dirty = true;
-        pose.persist_now(vfs);
+        pose.persist_now();
 
         self.wanted_part = self
             .pose
@@ -1483,13 +2112,11 @@ impl Session {
             .and_then(|at| moved.get(at).copied().flatten());
 
         if let Some(draft) = self.draft.as_mut() {
-            draft.persist_now(vfs);
+            draft.persist_now();
         }
 
-        let target_mod = self.plan.target_mod.clone();
-
         for path in self.viewer.anim_paths() {
-            retarget_file(&path, target_mod.as_deref(), &moved, vfs);
+            retarget_file(&path, &moved);
         }
 
         self.expanded = self
@@ -1498,19 +2125,19 @@ impl Session {
             .filter_map(|at| moved.get(*at).copied().flatten())
             .collect();
 
-        self.reload(vfs);
+        self.reload();
     }
 
-    fn reload(&mut self, vfs: &Vfs) {
+    fn reload(&mut self) {
         self.opened = None;
         self.posed = None;
         self.cutting = None;
         self.wanted = None;
         self.viewer.invalidate_paths();
-        self.repose(vfs);
+        self.repose();
     }
 
-    fn recarve(&mut self, vfs: &Vfs) -> Task<Message> {
+    fn recarve(&mut self) -> Task<Message> {
         if self.mode != Mode::Atlas || self.carving {
             return Task::none();
         }
@@ -1528,7 +2155,7 @@ impl Session {
 
         self.cutting = Some(path.clone());
 
-        let opened = Backing::open(&path, self.plan.target_mod.as_deref(), vfs);
+        let opened = Backing::open(&path);
         let art = self.viewer.selected_sheet().map(fs::read).and_then(Result::ok);
 
         let Some(((backing, bytes), art)) = opened.zip(art) else {
@@ -1543,33 +2170,6 @@ impl Session {
             smol::unblock(move || Sheet::assemble(backing, bytes, art).map(Arc::new)),
             Message::Carved,
         )
-    }
-
-    fn stage(&self, asset: Asset, source: &Path, vfs: &Vfs) -> Vec<(PathBuf, PathBuf)> {
-        let sheet = self.viewer.selected_sheet().and_then(named);
-        let cuts = self.viewer.selected_cuts().and_then(named);
-
-        let target = self.plan.target_mod.clone();
-        let seat = |from: &Path, name: Option<String>| {
-            name.and_then(|name| slot_for(&name, target.as_deref(), vfs))
-                .map(|into| (from.to_path_buf(), into))
-        };
-
-        match asset {
-            Asset::Sheet => seat(source, sheet).into_iter().collect(),
-            Asset::Cuts => seat(source, cuts).into_iter().collect(),
-            Asset::Atlas => {
-                let base = source.with_extension("");
-                let art = base.with_extension("png");
-                let list = base.with_extension("imgcut");
-
-                [art.is_file().then(|| seat(&art, sheet)), list.is_file().then(|| seat(&list, cuts))]
-                    .into_iter()
-                    .flatten()
-                    .flatten()
-                    .collect()
-            }
-        }
     }
 
     fn reslice(&mut self, at: Option<usize>) {
@@ -1589,7 +2189,7 @@ impl Session {
         }
     }
 
-    fn recut(&mut self, moved: Vec<Option<usize>>, vfs: &Vfs) {
+    fn recut(&mut self, moved: Vec<Option<usize>>) {
         let Some(atlas) = self.atlas.as_mut() else {
             return;
         };
@@ -1598,52 +2198,53 @@ impl Session {
         atlas.picked = None;
         atlas.hidden = None;
         atlas.restate();
-        atlas.persist_now(vfs);
+        atlas.persist_now();
 
         if let Some(pose) = self.pose.as_mut()
             && pose.doc.retarget_sprites(&moved)
         {
             pose.backing.dirty = true;
-            pose.persist_now(vfs);
+            pose.persist_now();
         }
 
         if let Some(draft) = self.draft.as_mut() {
-            draft.persist_now(vfs);
+            draft.persist_now();
         }
 
-        let target_mod = self.plan.target_mod.clone();
-
         for path in self.viewer.anim_paths() {
-            revalue_file(&path, target_mod.as_deref(), &moved, vfs);
+            revalue_file(&path, &moved);
         }
 
         self.framing = None;
-        self.reload(vfs);
+        self.reload();
     }
 
     fn chosen(&self) -> Option<usize> {
-        match self.mode {
-            Mode::Animation => {
+        match (self.mode, self.focus) {
+            (Mode::Atlas, _) => None,
+            (_, Focus::Part) => self.pose.as_ref().and_then(|pose| pose.part),
+            (_, Focus::Curve) => {
                 self.draft.as_ref().and_then(Draft::part).and_then(|part| usize::try_from(part).ok())
             }
-            Mode::Model => self.pose.as_ref().and_then(|pose| pose.part),
-            Mode::Atlas => None,
         }
     }
 
     fn relist(&mut self) {
+        if !self.rows.is_empty() && self.viewer.loaded_rig() != self.plan.set.rig_id() {
+            return;
+        }
+
         self.seed();
 
-        let curves = match self.mode {
-            Mode::Animation => self.draft.as_ref().map(|draft| &draft.doc),
-            _ => None,
+        let tracks = match self.mode {
+            Mode::Entity => self.draft.as_ref().map(|draft| &draft.doc),
+            Mode::Atlas => None,
         };
 
-        let barren = (self.mode == Mode::Animation).then_some(BARREN_LABEL);
+        let listed =
+            listing(tracks, self.viewer.rig().map(|rig| &rig.model), &self.expanded, self.loose_open);
 
-        let listed = listing(curves, self.viewer.rig().map(|rig| &rig.model), &self.expanded, barren);
-
-        self.listed_rig = self.viewer.rig().is_some();
+        self.listed = self.viewer.loaded_rig().to_owned();
         self.widest = listed.iter().map(TreeRow::span).fold(0.0, f32::max);
         self.rows = listed;
     }
@@ -1662,41 +2263,6 @@ impl Session {
         if let [only] = roots(model).as_slice() {
             self.expanded.insert(*only);
         }
-    }
-
-    fn restore(&mut self, vfs: &Vfs) {
-        let Some(name) = self.plan.target_mod.clone() else {
-            return;
-        };
-
-        let mut paths = self.viewer.anim_paths();
-        let rig = [self.viewer.selected_model(), self.viewer.selected_sheet(), self.viewer.selected_cuts()];
-
-        paths.extend(rig.into_iter().flatten().map(Path::to_path_buf));
-
-        let restored = paths.iter().filter(|path| restore_file(&name, path, vfs)).count();
-
-        if restored == 0 {
-            return;
-        }
-
-        info!(rig = %self.plan.key, restored, "Animation editor restored a rig from game");
-
-        self.draft = None;
-        self.pose = None;
-        self.atlas = None;
-        self.cutting = None;
-        self.reload(vfs);
-    }
-
-    fn arm(&mut self) {
-        let staged = |backing: &Backing| backing.target_mod.is_some() && backing.read_from != backing.game;
-        let revertable = self.draft.as_ref().is_some_and(|draft| staged(&draft.backing))
-            || self.pose.as_ref().is_some_and(|pose| staged(&pose.backing));
-
-        let label = if self.revert.is_set() { REVERT_ARMED } else { REVERT_LABEL };
-
-        self.viewer.set_action(Some(viewer::Action { label, danger: true, enabled: revertable }));
     }
 
     fn aim(&mut self) {
@@ -1755,7 +2321,7 @@ impl Session {
                 ..container::Style::default()
             });
 
-        let mut layers = stack![content, close_button()];
+        let mut layers = stack![content];
 
         if self.drag != Drag::Idle {
             let carried = self.drag.carrying();
@@ -1775,29 +2341,17 @@ impl Session {
             );
         }
 
-        if let Some(expanded) = self.viewer.expanded_view(settings, anim) {
-            layers = layers.push(expanded.map(Message::Viewer));
-        }
-
         layers.into()
     }
 
     fn side(&self) -> Element<'_, Message> {
-        let title = match self.mode {
-            Mode::Animation => self
-                .draft
-                .as_ref()
-                .map_or(Cow::Borrowed(self.plan.key.as_str()), |draft| Cow::Borrowed(draft.backing.file.as_str())),
-            mode => Cow::Owned(format!("{}{}", self.plan.key, mode.suffix())),
+        let body = match (self.mode, self.focus) {
+            (Mode::Atlas, _) => column![self.loaders(), self.cuts()],
+            (Mode::Entity, Focus::Curve) => column![self.tree(), self.keys()],
+            (Mode::Entity, Focus::Part) => column![self.tree(), self.fields()],
         };
 
-        let body = match self.mode {
-            Mode::Animation => column![self.tree(), self.keys()],
-            Mode::Model => column![self.tree(), self.fields()],
-            Mode::Atlas => column![self.loaders(), self.cuts()],
-        };
-
-        panel_frame(self.mode, title, body.spacing(GAP).height(Length::Fill).into())
+        panel_frame(self.mode, true, body.spacing(GAP).height(Length::Fill).into())
     }
 
     fn canvas(&self) -> Element<'_, Message> {
@@ -1806,39 +2360,20 @@ impl Session {
                 .picture
                 .view_outlined(&atlas.source, &atlas.outlines, self.framing.is_some())
                 .map(Message::Picture),
-            None => theme::centered_text(NO_ATLAS_NOTICE)
-                .size(LABEL_SIZE)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
+            None => centred(NO_ATLAS_NOTICE),
         };
 
         let framing = self.framing.is_some();
-        let framed = container(showing)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .padding(theme::CONSOLE_BORDER_WIDTH)
-            .style(theme::mock_console_container);
 
-        stack![target::suppress(framed, framing), overlay::hint(FRAME_HINT, framing), console_edge()]
-            .into()
+        stack![
+            editor::suppress(console_card(showing), framing),
+            overlay::hint(FRAME_HINT, framing),
+            console_edge()
+        ]
+        .into()
     }
 
     fn loaders(&self) -> Element<'_, Message> {
-        let picking = Asset::ALL.iter().fold(row![].spacing(ROW_GAP), |listed, asset| {
-            let pick = button(theme::centered_text(asset.label()).size(LABEL_SIZE).width(Length::Fill))
-                .width(Length::Fill)
-                .padding([1, 4])
-                .on_press(Message::Load(*asset))
-                .style(theme::primary_button);
-
-            let seated = container(tip(pick, asset.hint()))
-                .height(Length::Fixed(LOADER_HEIGHT))
-                .align_y(Vertical::Center);
-
-            listed.push(seated)
-        });
-
         let sheet = self.viewer.selected_sheet().and_then(named).unwrap_or_default();
         let cuts = self.viewer.selected_cuts().and_then(named).unwrap_or_default();
         let atlas = self.atlas.as_ref();
@@ -1856,25 +2391,7 @@ impl Session {
             ("Regions", atlas.map_or_else(String::new, |atlas| atlas.doc.count().to_string())),
         ];
 
-        let listed = facts.into_iter().enumerate().fold(
-            column![].width(Length::Fill),
-            |listed, (stripe, (label, value))| {
-                let cell = text(value)
-                    .size(LABEL_SIZE)
-                    .width(Length::Fill)
-                    .wrapping(text::Wrapping::WordOrGlyph)
-                    .into();
-
-                listed.push(fact(label, cell, stripe))
-            },
-        );
-
-        let body = column![picking, listed].spacing(ROW_GAP).width(Length::Fill);
-
-        container(container(body).padding(theme::CONSOLE_BORDER_WIDTH))
-            .width(Length::Fill)
-            .style(theme::mock_console_container)
-            .into()
+        facts_card(facts)
     }
 
     fn cuts(&self) -> Element<'_, Message> {
@@ -1892,7 +2409,9 @@ impl Session {
                 false => Space::new().height(Length::Fixed(0.0)).into(),
             };
 
-        column![notice, table].spacing(ROW_GAP).height(Length::Fill).into()
+        let add = footer_button("Add Cut", self.atlas.as_ref().map(|_| Message::AddCut));
+
+        column![notice, table, add].spacing(ROW_GAP).height(Length::Fill).into()
     }
 
     fn view_cuts(&self, size: Size) -> Element<'_, Message> {
@@ -1949,7 +2468,7 @@ impl Session {
     }
 
     fn tree(&self) -> Element<'_, Message> {
-        let by_part = self.mode != Mode::Animation;
+        let by_part = self.focus == Focus::Part;
         let picked = match by_part {
             true => self.pose.as_ref().and_then(|pose| pose.part),
             false => self.draft.as_ref().and_then(|draft| draft.track),
@@ -2022,57 +2541,20 @@ impl Session {
     }
 
     fn strip<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
-        let index = match self.mode {
-            Mode::Animation => self.draft.as_ref().and_then(Draft::part),
-            _ => self.chosen().and_then(|at| i32::try_from(at).ok()),
-        };
+        let index = self.chosen().and_then(|at| i32::try_from(at).ok());
 
         let part = index
             .and_then(|index| usize::try_from(index).ok())
             .zip(self.viewer.rig())
             .and_then(|(at, rig)| rig.model.parts.get(at));
 
-        let table = match self.mode {
-            Mode::Animation => model_rows(index, part),
-            _ => atlas_rows(index, part, self.viewer.rig()),
-        };
-
-        let facts: Element<'_, Message> =
-            column![fact_header(self.mode), table].width(Length::Fill).into();
-
-        let body = row![facts, self.actions(), options(&settings.animation)].spacing(GAP);
-
-        container(body).width(Length::Fill).into()
-    }
-
-    fn actions(&self) -> Element<'_, Message> {
-        let ready = self.viewer.locatable();
-        let locate = button(theme::centered_text("Locate").size(LABEL_SIZE).width(Length::Fill))
-            .width(Length::Fill)
-            .padding([1, 4])
-            .on_press_maybe(ready.then_some(Message::Locate))
-            .style(move |theme: &Theme, status| theme::toggle_button(theme, status, ready));
-
-        column![
-            panel_head("Action"),
-            container(locate)
-                .height(Length::Fixed(FACT_ROW_HEIGHT))
-                .align_y(Vertical::Center)
-                .padding([0, 3])
-                .style(|theme: &Theme| theme::zebra_table_row(theme, 0)),
-        ]
-        .width(Length::Fixed(DEBUG_WIDTH))
-        .into()
+        strip(self.focus, index, part, self.viewer.rig(), self.viewer.locatable(), &settings.animation)
     }
 
     fn keys(&self) -> Element<'_, Message> {
         let draft = self.draft.as_ref();
 
-        let add = button(theme::button_label("Add Keyframe").size(LABEL_SIZE))
-            .width(Length::Fill)
-            .padding([3, 6])
-            .on_press_maybe(draft.map(|_| Message::AddKey))
-            .style(theme::primary_button);
+        let add = footer_button("Add Keyframe", draft.map(|_| Message::AddKey));
 
         let active = draft
             .and_then(|draft| draft.curve())
@@ -2094,7 +2576,7 @@ impl Session {
 
         let footer: Element<'_, Message> = match draft {
             Some(draft) => row![draft.looping(), add].spacing(GAP).align_y(Vertical::Center).into(),
-            None => add.into(),
+            None => add,
         };
 
         column![notice, table, footer].spacing(ROW_GAP).height(Length::Fill).into()
@@ -2154,11 +2636,7 @@ impl Session {
     fn fields(&self) -> Element<'_, Message> {
         let pose = self.pose.as_ref();
 
-        let add = button(theme::button_label("Add Part").size(LABEL_SIZE))
-            .width(Length::Fill)
-            .padding([3, 6])
-            .on_press_maybe(pose.map(|_| Message::AddPart))
-            .style(theme::primary_button);
+        let add = footer_button("Add Part", pose.map(|_| Message::AddPart));
 
         let notice: Element<'_, Message> = match pose.is_some_and(|pose| pose.backing.failed) {
             true => text(WRITE_FAILED_NOTICE).size(LABEL_SIZE).style(text::danger).into(),
@@ -2175,7 +2653,7 @@ impl Session {
 
         let footer: Element<'_, Message> = match pose {
             Some(pose) => row![pose.aligning(), add].spacing(GAP).align_y(Vertical::Center).into(),
-            None => add.into(),
+            None => add,
         };
 
         column![notice, table, footer].spacing(ROW_GAP).height(Length::Fill).into()
@@ -2245,7 +2723,7 @@ struct TreeRow {
     owner: Option<usize>,
     track: Option<usize>,
     warn: bool,
-    inert: bool,
+    bucket: bool,
 }
 
 impl TreeRow {
@@ -2291,33 +2769,26 @@ impl TreeRow {
                     .right(ROW_PADDING),
             );
 
-        let row: Element<'_, Message> = match self.inert {
-            true => container(content).width(Length::Fixed(width)).into(),
-            false => {
-                let held = if by_part { self.part } else { self.track };
-                let selected = held.is_some() && held == picked;
+        let held = if by_part { self.part } else { self.track };
+        let selected = held.is_some() && held == picked;
 
-                let seated = match self.part.is_some() {
-                    true => {
-                        let grip = mouse_area(content)
-                            .interaction(mouse::Interaction::Grab)
-                            .on_press(Message::Press(index));
+        let seated = match self.part.is_some() {
+            true => {
+                let grip = mouse_area(content).on_press(Message::Press(index));
 
-                        list_row(grip, selected, false, Length::Fixed(width), Message::DragEnd)
-                    }
-                    false => list_row(content, selected, false, Length::Fixed(width), Message::Row(index)),
-                };
-
-                container(seated)
-                    .width(Length::Fixed(width))
-                    .style(move |theme: &Theme| seat(theme, carried, onto))
-                    .into()
+                list_row(grip, selected, false, Length::Fixed(width), Message::DragEnd)
             }
+            false => list_row(content, selected, false, Length::Fixed(width), Message::Row(index)),
         };
 
+        let row: Element<'_, Message> = container(seated)
+            .width(Length::Fixed(width))
+            .style(move |theme: &Theme| seat(theme, carried, onto))
+            .into();
+
         match (self.track, self.owner) {
-            (Some(track), _) => target::target(row, Target::AnimCurve(track)),
-            (_, Some(part)) => target::target(row, Target::AnimPart(part)),
+            (Some(track), _) => editor::target(row, Target::AnimCurve(track)),
+            (_, Some(part)) => editor::target(row, Target::AnimPart(part)),
             _ => row,
         }
     }
@@ -2516,14 +2987,14 @@ fn part_label(model: &Model, at: usize) -> String {
 }
 
 fn leaf(label: String, depth: u16, track: Option<usize>, warn: bool) -> TreeRow {
-    TreeRow { label, depth, mark: "", part: None, owner: None, track, warn, inert: false }
+    TreeRow { label, depth, mark: "", part: None, owner: None, track, warn, bucket: false }
 }
 
 fn listing(
     doc: Option<&Maanim>,
     model: Option<&Model>,
     expanded: &HashSet<usize>,
-    barren: Option<&'static str>,
+    loose_open: bool,
 ) -> Vec<TreeRow> {
     let tracks = doc.map_or(0, |doc| doc.tracks().len());
 
@@ -2552,33 +3023,20 @@ fn listing(
         listed.push(TreeRow {
             label: part_label(model, part),
             depth,
-            mark: match (barest, barren) {
-                (true, None) => "",
-                _ if open => FOLDER_OPEN,
-                _ => FOLDER_SHUT,
+            mark: match (barest, open) {
+                (true, _) => "",
+                (_, true) => FOLDER_OPEN,
+                (_, false) => FOLDER_SHUT,
             },
             part: Some(part),
             owner: Some(part),
             track: None,
             warn: false,
-            inert: false,
+            bucket: false,
         });
 
         if !open {
             continue;
-        }
-
-        if let Some(barren) = barren.filter(|_| barest) {
-            listed.push(TreeRow {
-                label: barren.to_string(),
-                depth: depth + 1,
-                mark: "",
-                part: None,
-                owner: Some(part),
-                track: None,
-                warn: false,
-                inert: true,
-            });
         }
 
         for at in curves {
@@ -2595,13 +3053,28 @@ fn listing(
         })
         .collect();
 
-    if !loose.is_empty() {
-        listed.push(leaf(LOOSE_LABEL.to_string(), 0, None, true));
+    if loose.is_empty() {
+        return listed;
+    }
 
-        for at in loose {
-            if let Some((label, warn)) = doc.and_then(|doc| curve_label(doc, at)) {
-                listed.push(leaf(label, 1, Some(at), warn));
-            }
+    listed.push(TreeRow {
+        label: format!("{} \u{00b7} {}", LOOSE_LABEL, key_label(loose.len())),
+        depth: 0,
+        mark: if loose_open { FOLDER_OPEN } else { FOLDER_SHUT },
+        part: None,
+        owner: None,
+        track: None,
+        warn: true,
+        bucket: true,
+    });
+
+    if !loose_open {
+        return listed;
+    }
+
+    for at in loose {
+        if let Some((label, warn)) = doc.and_then(|doc| curve_label(doc, at)) {
+            listed.push(leaf(label, 1, Some(at), warn));
         }
     }
 
@@ -2803,7 +3276,7 @@ fn atlas_rows<'a>(index: Option<i32>, part: Option<&ModelPart>, rig: Option<&Rig
         ("Size", cut.map_or_else(String::new, |cut| span(cut.width, cut.height))),
         ("Drawn", opaque.map_or_else(|| cut.map_or_else(String::new, |_| BLANK_CUT_NOTICE.to_owned()), |seen| span(seen.width, seen.height))),
         ("Margin", margin(cut, opaque)),
-        ("Region", cut.map_or_else(String::new, |cut| cut.name.clone())),
+        ("Region", cut.map_or_else(String::new, |cut| named_cut(&cut.name))),
         ("File", sheet.map_or_else(String::new, |sheet| sheet.image_name.clone())),
     ];
 
@@ -2818,9 +3291,20 @@ fn atlas_rows<'a>(index: Option<i32>, part: Option<&ModelPart>, rig: Option<&Rig
         .into()
 }
 
+fn named_cut(name: &str) -> String {
+    match name.trim() {
+        "" => UNNAMED_CUT_NOTICE.to_owned(),
+        named => named.to_owned(),
+    }
+}
+
 fn margin(cut: Option<&SpriteCut>, opaque: Option<Opaque>) -> String {
-    let (Some(cut), Some(seen)) = (cut, opaque) else {
+    let Some(cut) = cut else {
         return String::new();
+    };
+
+    let Some(seen) = opaque else {
+        return WHOLE_CUT_NOTICE.to_owned();
     };
 
     let left = seen.x.saturating_sub(cut.x);
@@ -2831,10 +3315,10 @@ fn margin(cut: Option<&SpriteCut>, opaque: Option<Opaque>) -> String {
     format!("{}, {}, {}, {}", left, top, right, bottom)
 }
 
-fn fact_header<'a>(mode: Mode) -> Element<'a, Message> {
-    let label = match mode {
-        Mode::Animation => "Model",
-        _ => "Atlas",
+fn fact_header<'a>(focus: Focus) -> Element<'a, Message> {
+    let label = match focus {
+        Focus::Curve => "Model",
+        Focus::Part => "Atlas",
     };
 
     container(theme::centered_text(label).size(LABEL_SIZE).width(Length::Fill))
@@ -2881,57 +3365,118 @@ fn options(anim: &AnimSettings) -> Element<'_, Message> {
 }
 
 
-fn clipped(title: &str, room: f32) -> String {
-    let per = PANEL_TITLE_SIZE * TITLE_GLYPH;
-    let budget = (room / per).floor().max(0.0);
-
-    if glyphs::columns(title) <= budget {
-        return title.to_owned();
-    }
-
-    let keep = (budget - 1.0).max(0.0);
-    let mut used = 0.0;
-    let mut kept = String::new();
-
-    for glyph in title.chars() {
-        let span = if glyphs::wide(glyph) { 2.0 } else { 1.0 };
-
-        if used + span > keep {
-            break;
-        }
-
-        used += span;
-        kept.push(glyph);
-    }
-
-    kept.push('\u{2026}');
-    kept
+fn console_card<'a>(body: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(container(body).padding(theme::CONSOLE_BORDER_WIDTH))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(theme::mock_console_container)
+        .into()
 }
 
-fn panel_title<'a>(mode: Mode, title: Cow<'a, str>) -> Element<'a, Message> {
-    let head = responsive(move |size: Size| {
-        let switch = pick_list(Mode::ALL, Some(mode), Message::Switch)
-            .width(Length::Fixed(MODE_WIDTH))
-            .padding([1, 4])
-            .text_size(LABEL_SIZE)
-            .style(theme::combo_box)
-            .menu_style(theme::combo_box_menu);
-
-        let room = (size.width - MODE_WIDTH - ROW_GAP).max(0.0);
-        let named = theme::bold_text(clipped(&title, room))
-            .size(PANEL_TITLE_SIZE)
-            .wrapping(text::Wrapping::None)
-            .width(Length::Fill);
-
-        row![named, switch].spacing(ROW_GAP).align_y(Vertical::Center).into()
-    });
-
-    container(head).width(Length::Fill).height(Length::Fixed(HEAD_HEIGHT)).into()
+fn centred<'a>(notice: &'a str) -> Element<'a, Message> {
+    container(theme::centered_text(notice).size(LABEL_SIZE))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .into()
 }
 
-fn panel_frame<'a>(mode: Mode, title: Cow<'a, str>, body: Element<'a, Message>) -> Element<'a, Message> {
-    let framed =
-        column![panel_title(mode, title), rule::horizontal(1), body].spacing(ROW_GAP).height(Length::Fill);
+fn facts_card<'a>(facts: [(&'a str, String); 4]) -> Element<'a, Message> {
+    let listed = facts.into_iter().enumerate().fold(
+        column![].width(Length::Fill),
+        |listed, (stripe, (label, value))| {
+            let cell = text(value)
+                .size(LABEL_SIZE)
+                .width(Length::Fill)
+                .wrapping(text::Wrapping::WordOrGlyph)
+                .into();
+
+            listed.push(fact(label, cell, stripe))
+        },
+    );
+
+    container(container(listed).padding(theme::CONSOLE_BORDER_WIDTH))
+        .width(Length::Fill)
+        .style(theme::mock_console_container)
+        .into()
+}
+
+fn footer_button<'a>(label: &'a str, message: Option<Message>) -> Element<'a, Message> {
+    button(theme::button_label(label).size(LABEL_SIZE))
+        .width(Length::Fill)
+        .padding([3, 6])
+        .on_press_maybe(message)
+        .style(theme::primary_button)
+        .into()
+}
+
+fn actions<'a>(ready: bool) -> Element<'a, Message> {
+    let locate = button(theme::centered_text("Locate").size(LABEL_SIZE).width(Length::Fill))
+        .width(Length::Fill)
+        .padding([1, 4])
+        .on_press_maybe(ready.then_some(Message::Locate))
+        .style(move |theme: &Theme, status| theme::toggle_button(theme, status, ready));
+
+    column![
+        panel_head("Action"),
+        container(locate)
+            .height(Length::Fixed(FACT_ROW_HEIGHT))
+            .align_y(Vertical::Center)
+            .padding([0, 3])
+            .style(|theme: &Theme| theme::zebra_table_row(theme, 0)),
+    ]
+    .width(Length::Fixed(DEBUG_WIDTH))
+    .into()
+}
+
+fn strip<'a>(
+    focus: Focus,
+    index: Option<i32>,
+    part: Option<&ModelPart>,
+    rig: Option<&Rig>,
+    ready: bool,
+    anim: &'a AnimSettings,
+) -> Element<'a, Message> {
+    let table = match focus {
+        Focus::Curve => model_rows(index, part),
+        Focus::Part => atlas_rows(index, part, rig),
+    };
+
+    let facts: Element<'_, Message> = column![fact_header(focus), table].width(Length::Fill).into();
+    let body = row![facts, actions(ready), options(anim)].spacing(GAP);
+
+    container(body).width(Length::Fill).into()
+}
+
+fn head_button<'a>(label: &'a str, message: Option<Message>) -> Element<'a, Message> {
+    button(theme::centered_text(label).size(LABEL_SIZE).width(Length::Fill))
+        .width(Length::Fill)
+        .height(Length::Fixed(HEAD_HEIGHT))
+        .padding([1, 4])
+        .on_press_maybe(message)
+        .style(theme::primary_button)
+        .into()
+}
+
+fn panel_head_row<'a>(mode: Mode, live: bool) -> Element<'a, Message> {
+    let other = mode.other();
+
+    let row = row![
+        head_button(other.label(), Some(Message::Switch(other))),
+        head_button("Manage", Some(Message::OpenManage)),
+        head_button("Export", live.then_some(Message::Export)),
+    ]
+    .spacing(ROW_GAP)
+    .align_y(Vertical::Center);
+
+    container(row).width(Length::Fill).height(Length::Fixed(HEAD_HEIGHT)).into()
+}
+
+fn panel_frame<'a>(mode: Mode, live: bool, body: Element<'a, Message>) -> Element<'a, Message> {
+    let framed = column![panel_head_row(mode, live), rule::horizontal(1), body]
+        .spacing(ROW_GAP)
+        .height(Length::Fill);
 
     container(framed)
         .width(Length::Fixed(PANEL_WIDTH))
@@ -2940,45 +3485,34 @@ fn panel_frame<'a>(mode: Mode, title: Cow<'a, str>, body: Element<'a, Message>) 
         .into()
 }
 
-fn close_button<'a>() -> Element<'a, Message> {
-    let close = button(
-        theme::centered_text(CLOSE_LABEL)
-            .size(CLOSE_TEXT_SIZE)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_y(Vertical::Center),
-    )
-    .width(Length::Fixed(theme::NAV_TOGGLE_SIZE))
-    .height(Length::Fixed(theme::NAV_TOGGLE_SIZE))
-    .padding(0)
-    .on_press(Message::Close)
-    .style(theme::danger_button);
+fn vacant_cuts<'a>() -> Element<'a, Message> {
+    facts_card([
+        ("Sheet", String::new()),
+        ("Cuts", String::new()),
+        ("Size", String::new()),
+        ("Regions", String::new()),
+    ])
+}
 
-    let slot = column![close].padding(Padding {
-        top: theme::NAV_TOGGLE_TOP,
-        right: theme::NAV_TOGGLE_RIGHT,
-        bottom: 0.0,
-        left: 0.0,
-    });
+fn vacant_slices<'a>() -> Element<'a, Message> {
+    let table = console_card(column![cuts_header(0.0), centred(NO_SET_NOTICE)].width(Length::Fill));
 
-    container(row![slot].height(Length::Fill))
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .align_right(Length::Fill)
-        .into()
+    column![table, footer_button("Add Cut", None)].spacing(ROW_GAP).height(Length::Fill).into()
+}
+
+fn vacant_keys<'a>() -> Element<'a, Message> {
+    let table = console_card(column![keys_header(0.0), centred(NO_SET_HINT)].width(Length::Fill));
+
+    column![table, footer_button("Add Keyframe", None)].spacing(ROW_GAP).height(Length::Fill).into()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Settled {
     Saved,
-    Moved,
     Failed,
 }
 
 struct Backing {
-    file: String,
-    game: PathBuf,
-    target_mod: Option<String>,
     read_from: PathBuf,
     stamp: Stamp,
     dirty: bool,
@@ -2988,27 +3522,20 @@ struct Backing {
 }
 
 impl Backing {
-    fn open(source: &Path, target_mod: Option<&str>, vfs: &Vfs) -> Option<(Backing, Vec<u8>)> {
-        let file = source.file_name()?.to_str()?.to_owned();
-        let game = vfs.rooted(architecture::GAME, &file).unwrap_or_else(|| source.to_path_buf());
-        let read_from = target_mod
-            .and_then(|name| mods::find(vfs, name, &game))
-            .unwrap_or_else(|| game.clone());
+    fn open(source: &Path) -> Option<(Backing, Vec<u8>)> {
+        let read_from = source.to_path_buf();
 
         let bytes = fs::read(&read_from)
-            .inspect_err(|err| warn!(path = %read_from.display(), "Animation editor could not read the file: {}", err))
+            .inspect_err(|err| warn!(path = %read_from.display(), "Studio could not read the file: {}", err))
             .ok()?;
 
         let Some(stamp) = preview::stamp(&read_from) else {
-            warn!(path = %read_from.display(), "Animation editor could not stamp the file");
+            warn!(path = %read_from.display(), "Studio could not stamp the file");
 
             return None;
         };
 
         let backing = Backing {
-            file,
-            game,
-            target_mod: target_mod.map(str::to_owned),
             read_from,
             stamp,
             dirty: false,
@@ -3028,39 +3555,11 @@ impl Backing {
         !self.dirty && !self.writing && preview::stamp(&self.read_from) != Some(self.stamp)
     }
 
-    fn destination(&self, vfs: &Vfs) -> Option<(PathBuf, Stamp)> {
-        let Some(name) = self.target_mod.as_deref() else {
-            return Some((self.game.clone(), self.stamp));
-        };
-
-        if self.read_from != self.game {
-            return Some((self.read_from.clone(), self.stamp));
-        }
-
-        let path = mods::ensure_as(vfs, name, &self.game, &self.file)
-            .inspect_err(|err| warn!(source = %self.game.display(), "Animation editor could not stage the file: {}", err))
-            .ok()?;
-
-        if let Err(err) = vfs.create((name, path.as_path())) {
-            warn!(path = %path.display(), "Animation editor could not index the staged file: {}", err);
-        }
-
-        let stamp = preview::stamp(&path)?;
-
-        Some((path, stamp))
-    }
-
-    fn prepare(&mut self, vfs: &Vfs) -> Option<(PathBuf, Stamp, u64)> {
-        let Some((path, stamp)) = self.destination(vfs) else {
-            self.failed = true;
-
-            return None;
-        };
-
+    fn prepare(&mut self) -> (PathBuf, Stamp, u64) {
         self.dirty = false;
         self.writing = true;
 
-        Some((path, stamp, self.token))
+        (self.read_from.clone(), self.stamp, self.token)
     }
 
     fn settle(&mut self, path: PathBuf, stamp: Option<Stamp>) -> Settled {
@@ -3072,13 +3571,11 @@ impl Backing {
             return Settled::Failed;
         };
 
-        let moved = self.read_from != path;
-
         self.read_from = path;
         self.stamp = stamp;
         self.failed = false;
 
-        if moved { Settled::Moved } else { Settled::Saved }
+        Settled::Saved
     }
 }
 
@@ -3096,8 +3593,8 @@ struct Draft {
 }
 
 impl Draft {
-    fn load(anim: &Path, target_mod: Option<&str>, vfs: &Vfs) -> Option<Draft> {
-        let (backing, bytes) = Backing::open(anim, target_mod, vfs)?;
+    fn load(anim: &Path) -> Option<Draft> {
+        let (backing, bytes) = Backing::open(anim)?;
 
         let doc = Maanim::parse(&bytes)
             .inspect_err(|err| warn!(path = %backing.read_from.display(), "Animation editor could not parse the file: {}", err))
@@ -3127,6 +3624,11 @@ impl Draft {
         }
 
         self.track = Some(at);
+        self.restate();
+    }
+
+    fn retrack_clamped(&mut self) {
+        self.track = self.track.filter(|at| *at < self.doc.tracks().len());
         self.restate();
     }
 
@@ -3356,14 +3858,12 @@ impl Draft {
         order.iter().position(|from| *from == moved)
     }
 
-    fn persist_if_dirty(&mut self, vfs: &Vfs) -> Task<Message> {
+    fn persist_if_dirty(&mut self) -> Task<Message> {
         if !self.backing.dirty || self.backing.writing {
             return Task::none();
         }
 
-        let Some((path, stamp, token)) = self.backing.prepare(vfs) else {
-            return Task::none();
-        };
+        let (path, stamp, token) = self.backing.prepare();
 
         let doc = self.doc.clone();
         let reported = path.clone();
@@ -3374,14 +3874,12 @@ impl Draft {
         )
     }
 
-    fn persist_now(&mut self, vfs: &Vfs) {
+    fn persist_now(&mut self) {
         if !self.backing.busy() {
             return;
         }
 
-        let Some((path, stamp, _)) = self.backing.prepare(vfs) else {
-            return;
-        };
+        let (path, stamp, _) = self.backing.prepare();
 
         let written = write_now(&path, &self.doc.write(), stamp);
 
@@ -3711,14 +4209,12 @@ impl Sheet {
         })
     }
 
-    fn persist_if_dirty(&mut self, vfs: &Vfs) -> Task<Message> {
+    fn persist_if_dirty(&mut self) -> Task<Message> {
         if !self.backing.dirty || self.backing.writing {
             return Task::none();
         }
 
-        let Some((path, stamp, token)) = self.backing.prepare(vfs) else {
-            return Task::none();
-        };
+        let (path, stamp, token) = self.backing.prepare();
 
         let doc = self.doc.clone();
         let reported = path.clone();
@@ -3729,14 +4225,12 @@ impl Sheet {
         )
     }
 
-    fn persist_now(&mut self, vfs: &Vfs) -> Settled {
+    fn persist_now(&mut self) -> Settled {
         if !self.backing.busy() {
             return Settled::Saved;
         }
 
-        let Some((path, stamp, _)) = self.backing.prepare(vfs) else {
-            return Settled::Failed;
-        };
+        let (path, stamp, _) = self.backing.prepare();
 
         let written = write_now(&path, &self.doc.write(), stamp);
 
@@ -3849,8 +4343,8 @@ enum Slotted {
 }
 
 impl Pose {
-    fn load(model: &Path, target_mod: Option<&str>, vfs: &Vfs) -> Option<Pose> {
-        let (backing, bytes) = Backing::open(model, target_mod, vfs)?;
+    fn load(model: &Path) -> Option<Pose> {
+        let (backing, bytes) = Backing::open(model)?;
 
         let doc = Mamodel::parse(&bytes)
             .inspect_err(|err| warn!(path = %backing.read_from.display(), "Animation editor could not parse the model: {}", err))
@@ -4041,14 +4535,12 @@ impl Pose {
         self.pick(added);
     }
 
-    fn persist_if_dirty(&mut self, vfs: &Vfs) -> Task<Message> {
+    fn persist_if_dirty(&mut self) -> Task<Message> {
         if !self.backing.dirty || self.backing.writing {
             return Task::none();
         }
 
-        let Some((path, stamp, token)) = self.backing.prepare(vfs) else {
-            return Task::none();
-        };
+        let (path, stamp, token) = self.backing.prepare();
 
         let doc = self.doc.clone();
         let reported = path.clone();
@@ -4059,14 +4551,12 @@ impl Pose {
         )
     }
 
-    fn persist_now(&mut self, vfs: &Vfs) -> Settled {
+    fn persist_now(&mut self) -> Settled {
         if !self.backing.busy() {
             return Settled::Saved;
         }
 
-        let Some((path, stamp, _)) = self.backing.prepare(vfs) else {
-            return Settled::Failed;
-        };
+        let (path, stamp, _) = self.backing.prepare();
 
         let written = write_now(&path, &self.doc.write(), stamp);
 
@@ -4167,37 +4657,8 @@ fn named(path: &Path) -> Option<String> {
     path.file_name().and_then(|name| name.to_str()).map(str::to_owned)
 }
 
-fn slot_for(file: &str, target_mod: Option<&str>, vfs: &Vfs) -> Option<PathBuf> {
-    let Some(game) = vfs.rooted(architecture::GAME, file) else {
-        warn!(file, "Animation editor could not place an asset the game does not declare");
-
-        return None;
-    };
-
-    let Some(name) = target_mod else {
-        return Some(game);
-    };
-
-    mods::ensure_as(vfs, name, &game, file)
-        .inspect(|path| {
-            if let Err(err) = vfs.create((name, path.as_path())) {
-                warn!(path = %path.display(), "Animation editor could not index the staged asset: {}", err);
-            }
-        })
-        .inspect_err(|err| warn!(file, "Animation editor could not stage the asset: {}", err))
-        .ok()
-}
-
-fn copy_assets(staged: Vec<(PathBuf, PathBuf)>) {
-    for (from, into) in staged {
-        if let Err(err) = fs::copy(&from, &into) {
-            warn!(source = %from.display(), "Animation editor could not save the asset: {}", err);
-        }
-    }
-}
-
-fn revalue_file(anim: &Path, target_mod: Option<&str>, moved: &[Option<usize>], vfs: &Vfs) {
-    let Some((mut backing, bytes)) = Backing::open(anim, target_mod, vfs) else {
+fn revalue_file(anim: &Path, moved: &[Option<usize>]) {
+    let Some((mut backing, bytes)) = Backing::open(anim) else {
         return;
     };
 
@@ -4211,40 +4672,20 @@ fn revalue_file(anim: &Path, target_mod: Option<&str>, moved: &[Option<usize>], 
 
     backing.dirty = true;
 
-    let Some((path, stamp, _)) = backing.prepare(vfs) else {
-        return;
-    };
+    let (path, stamp, _) = backing.prepare();
 
     if write_now(&path, &doc.write(), stamp).is_none() {
-        warn!(path = %path.display(), "Animation editor could not save a recut animation");
+        warn!(path = %path.display(), "Studio could not save a recut animation");
     }
 }
 
-fn restore_file(name: &str, path: &Path, vfs: &Vfs) -> bool {
-    let Some(file) = path.file_name().and_then(|file| file.to_str()) else {
-        return false;
-    };
-
-    let Some(game) = vfs.rooted(architecture::GAME, file) else {
-        return false;
-    };
-
-    if game == path {
-        return false;
-    }
-
-    mods::place(name, &game, file)
-        .inspect_err(|err| warn!(file, "Animation editor could not restore the file from game: {}", err))
-        .is_ok()
-}
-
-fn retarget_file(anim: &Path, target_mod: Option<&str>, moved: &[Option<usize>], vfs: &Vfs) {
-    let Some((mut backing, bytes)) = Backing::open(anim, target_mod, vfs) else {
+fn retarget_file(anim: &Path, moved: &[Option<usize>]) {
+    let Some((mut backing, bytes)) = Backing::open(anim) else {
         return;
     };
 
     let parsed = Maanim::parse(&bytes)
-        .inspect_err(|err| warn!(path = %anim.display(), "Animation editor could not reindex the file: {}", err));
+        .inspect_err(|err| warn!(path = %anim.display(), "Studio could not reindex the file: {}", err));
 
     let Ok(mut doc) = parsed else {
         return;
@@ -4256,20 +4697,16 @@ fn retarget_file(anim: &Path, target_mod: Option<&str>, moved: &[Option<usize>],
 
     backing.dirty = true;
 
-    let Some((path, stamp, _)) = backing.prepare(vfs) else {
-        warn!(path = %anim.display(), "Animation editor could not stage a reindexed animation");
-
-        return;
-    };
+    let (path, stamp, _) = backing.prepare();
 
     if write_now(&path, &doc.write(), stamp).is_none() {
-        warn!(path = %path.display(), "Animation editor could not save a reindexed animation");
+        warn!(path = %path.display(), "Studio could not save a reindexed animation");
     }
 }
 
 fn write_now(path: &Path, body: &[u8], stamp: Stamp) -> Option<Stamp> {
     preview::save(path, body, stamp)
-        .inspect_err(|err| warn!(path = %path.display(), "Animation editor could not write the file: {}", err))
+        .inspect_err(|err| warn!(path = %path.display(), "Studio could not write the file: {}", err))
         .ok()
 }
 
@@ -4302,8 +4739,8 @@ mod tests {
     const DOUBLED: &str = "[modelanim:animation]\n1\n3\n5,11,-1,0,0,\n1\n0,0,0,0\n2,4,-1,0,0,\n1\n0,0,0,0\n5,11,-1,0,0,\n1\n0,0,0,0\n";
 
     #[test]
-    fn a_remembered_curve_survives_another_curve_being_inserted_before_it() {
-        // Two curves share part 5 and kind 11, so an index alone cannot name one.
+    fn a_remembered_channel_survives_another_being_inserted_before_it() {
+        // Two channels share part 5 and kind 11, so an index alone cannot name one.
         let mut doc = Maanim::parse(DOUBLED.as_bytes()).expect("the sample parses");
         let held = held_curve(&doc, 2).expect("the track exists");
 
@@ -4315,7 +4752,7 @@ mod tests {
     }
 
     #[test]
-    fn a_remembered_curve_is_gone_once_its_occurrence_is() {
+    fn a_remembered_channel_is_gone_once_its_occurrence_is() {
         let mut doc = Maanim::parse(DOUBLED.as_bytes()).expect("the sample parses");
         let held = held_curve(&doc, 2).expect("the track exists");
 
@@ -4351,9 +4788,9 @@ mod tests {
     }
 
     #[test]
-    fn a_part_owns_its_curves_and_its_children_sit_beside_them() {
-        // Part 0 is the root and part 1 hangs off it, each driven by one curve.
-        let listed = listing(Some(&doc()), Some(&model(&[-1, 0])), &HashSet::from([0, 1]), Some(BARREN_LABEL));
+    fn a_part_owns_its_channels_and_its_children_sit_beside_them() {
+        // Part 0 is the root and part 1 hangs off it, each driven by one channel.
+        let listed = listing(Some(&doc()), Some(&model(&[-1, 0])), &HashSet::from([0, 1]), false);
 
         let shape: Vec<(u16, bool)> =
             listed.iter().map(|row| (row.depth, row.track.is_some())).collect();
@@ -4363,25 +4800,15 @@ mod tests {
 
 
     #[test]
-    fn a_model_leaf_says_nothing_and_shows_no_folder_mark() {
-        // The tree has to end somewhere, so a part with no children is not an empty state.
-        let listed = listing(None, Some(&model(&[-1, 0])), &HashSet::from([0, 1]), None);
+    fn a_leaf_says_nothing_and_shows_no_folder_mark() {
+        // The tree has to end somewhere, so a part with nothing under it is not an
+        // empty state to announce — it simply does not open.
+        let listed = listing(None, Some(&model(&[-1, 0])), &HashSet::from([0, 1]), false);
 
         assert_eq!(listed.len(), 2);
         assert!(listed.iter().all(|row| row.track.is_none()));
-        assert!(!listed.iter().any(|row| row.label == BARREN_LABEL));
         assert_eq!(listed[1].mark, "", "a childless part drops its caret");
         assert_eq!(listed[0].mark, FOLDER_OPEN, "one that bears a child keeps it");
-    }
-
-    #[test]
-    fn a_clip_with_no_document_still_lists_the_part_tree() {
-        // Selecting the Model leaves no curves, but the hierarchy is still worth browsing.
-        let listed = listing(None, Some(&model(&[-1, 0])), &HashSet::from([0, 1]), Some(BARREN_LABEL));
-
-        assert_eq!(listed.len(), 3);
-        assert!(listed.iter().all(|row| row.track.is_none()));
-        assert!(listed.iter().any(|row| row.label == BARREN_LABEL && row.inert));
     }
 
 
@@ -4394,34 +4821,30 @@ mod tests {
 
     #[test]
     fn a_tree_starts_fully_collapsed() {
-        let listed = listing(Some(&doc()), Some(&model(&[-1, 0])), &HashSet::new(), Some(BARREN_LABEL));
+        let listed = listing(Some(&doc()), Some(&model(&[-1, 0])), &HashSet::new(), false);
 
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].mark, FOLDER_SHUT);
     }
 
     #[test]
-    fn a_part_with_nothing_under_it_still_opens_onto_a_notice() {
-        // Every part folds, so an empty one has to say why rather than doing nothing.
-        let listed = listing(Some(&doc()), Some(&model(&[-1, 0, 1])), &HashSet::from([0, 1, 2]), Some(BARREN_LABEL));
-        let barren = listed.iter().find(|row| row.label == BARREN_LABEL).expect("the notice is listed");
+    fn a_channel_naming_a_part_the_model_lacks_folds_away_but_stays_reachable() {
+        // The engine does not bound check the part index, so the channel has to stay
+        // reachable — but a broken file can hold hundreds, so the bucket starts shut.
+        let model = model(&[-1]);
+        let shut = listing(Some(&doc()), Some(&model), &HashSet::from([0]), false);
 
-        assert!(barren.inert);
-        assert!(barren.track.is_none() && barren.part.is_none());
+        let bucket = shut.iter().find(|row| row.bucket).expect("the bucket is listed");
+        assert!(bucket.warn && bucket.mark == FOLDER_SHUT);
+        assert_eq!(shut.iter().filter(|row| row.track.is_some()).count(), 1, "only part 0's own");
+
+        let open = listing(Some(&doc()), Some(&model), &HashSet::from([0]), true);
+        assert_eq!(open.iter().filter(|row| row.track.is_some()).count(), 2);
     }
 
     #[test]
-    fn a_curve_naming_a_part_the_model_lacks_still_gets_listed() {
-        // The engine does not bound check the part index, so the curve has to stay reachable.
-        let listed = listing(Some(&doc()), Some(&model(&[-1])), &HashSet::from([0]), Some(BARREN_LABEL)); 
-
-        assert!(listed.iter().any(|row| row.label == LOOSE_LABEL && row.warn));
-        assert_eq!(listed.iter().filter(|row| row.track.is_some()).count(), 2);
-    }
-
-    #[test]
-    fn without_a_model_every_curve_still_lists_flat() {
-        let listed = listing(Some(&doc()), None, &HashSet::new(), Some(BARREN_LABEL));
+    fn without_a_model_every_channel_still_lists_flat() {
+        let listed = listing(Some(&doc()), None, &HashSet::new(), false);
 
         assert_eq!(listed.len(), 2);
         assert!(listed.iter().all(|row| row.depth == 0 && row.track.is_some()));

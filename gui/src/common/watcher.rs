@@ -97,7 +97,7 @@ fn spawn_watcher(sender: Sender<Hit>) -> Result<RecommendedWatcher, Lapse> {
         Lapse::Broken
     })?;
 
-    for root in [architecture::MODS, architecture::GAME] {
+    for root in [architecture::MODS, architecture::GAME, architecture::STUDIO] {
         let path = Path::new(root);
 
         if !path.exists() && let Err(err) = fs::create_dir_all(path) {
@@ -165,7 +165,11 @@ fn is_relevant(path: &Path) -> bool {
         })
         .collect();
 
-    let Some(root) = parts.iter().position(|part| part == architecture::GAME || part == architecture::MODS) else {
+    let watched = |part: &String| {
+        part == architecture::GAME || part == architecture::MODS || part == architecture::STUDIO
+    };
+
+    let Some(root) = parts.iter().position(watched) else {
         return false;
     };
 
@@ -337,7 +341,9 @@ pub(crate) fn mount_of(path: &Path) -> Option<String> {
         })
         .collect();
 
-    let root = parts.iter().position(|part| *part == architecture::GAME || *part == architecture::MODS)?;
+    let root = parts
+        .iter()
+        .position(|part| *part == architecture::GAME || *part == architecture::MODS)?;
 
     if parts[root] == architecture::GAME {
         return Some(architecture::GAME.to_string());

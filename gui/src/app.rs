@@ -26,7 +26,7 @@ use kore::{ContentStore, Vault};
 use crate::common::feedback::Slot;
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
-use crate::domains::{cat, enemy, files, help, home, import, mining, mods, settings as gui_settings, stage, utilities};
+use crate::domains::{cat, enemy, files, help, home, import, mining, mods, settings as gui_settings, stage, studio, utilities};
 use crate::editor;
 use crate::widget::{nightly_label, popup, slide, Slide};
 
@@ -52,6 +52,7 @@ pub enum Page {
     Files,
     Import,
     Mining,
+    Studio,
     Utilities,
     Help,
     Settings,
@@ -68,6 +69,7 @@ impl Page {
             Self::Files => "Files",
             Self::Import => "Import",
             Self::Mining => "Mining",
+            Self::Studio => "Studio",
             Self::Utilities => "Utilities",
             Self::Help => "Help",
             Self::Settings => "Settings",
@@ -77,6 +79,19 @@ impl Page {
     pub(crate) fn nightly(self) -> bool {
         false
     }
+}
+
+fn undo_key(event: iced::keyboard::Event) -> Option<Message> {
+    let iced::keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
+        return None;
+    };
+
+    let iced::keyboard::Key::Character(typed) = key else {
+        return None;
+    };
+
+    (modifiers.command() && typed.as_str().eq_ignore_ascii_case("z"))
+        .then_some(Message::Studio(studio::Message::Undo))
 }
 
 pub(crate) const WINDOW_SHOW_FALLBACK: Duration = Duration::from_millis(400);
@@ -89,9 +104,9 @@ const INDEX_QUIET_WINDOW: Duration = Duration::from_secs(3);
 
 const TAB_TEXT_SIZE: f32 = 16.0;
 
-const TAB_HEIGHT: f32 = 45.0;
+const TAB_HEIGHT: f32 = 42.0;
 
-const TAB_SPACING: f32 = 7.5;
+const TAB_SPACING: f32 = 6.0;
 
 const SIDEBAR_PADDING: f32 = 15.0;
 
@@ -106,6 +121,7 @@ const ALL_PAGES: &[Page] = &[
     Page::Files,
     Page::Import,
     Page::Mining,
+    Page::Studio,
     Page::Utilities,
     Page::Help,
     Page::Settings,
@@ -174,6 +190,8 @@ enum ActivePopup {
     SettingsPem,
     UtilityExport,
     UtilitySettings,
+    StudioManage,
+    StudioExport,
 }
 
 #[derive(Clone, Debug)]
@@ -209,6 +227,7 @@ pub enum Message {
     Files(files::Message),
     Import(import::Message),
     Mining(mining::Message),
+    Studio(studio::Message),
     Help(help::Message),
     Utilities(utilities::Message),
     Settings(gui_settings::Message),
@@ -274,6 +293,8 @@ pub struct BattleCatsApp {
     pub import_state: import::State,
     #[serde(skip)]
     pub mining_state: mining::State,
+    #[serde(skip)]
+    pub studio_state: studio::State,
     #[serde(skip)]
     pub help_state: help::State,
     #[serde(skip)]
@@ -351,6 +372,7 @@ impl Default for BattleCatsApp {
             files_state: files::State::default(),
             import_state: import::State::default(),
             mining_state: mining::State::default(),
+            studio_state: studio::State::default(),
             help_state: help::State::default(),
             utilities_state: utilities::State::default(),
             settings_state: gui_settings::State::default(),
@@ -396,8 +418,12 @@ impl BattleCatsApp {
             subs.push(iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::DownloadTick));
         }
 
-        if let Some(pace) = self.editor.animator_pace() {
-            subs.push(iced::time::every(pace).map(|_| Message::Editor(editor::State::animator_tick())));
+        if self.current_page == Page::Studio {
+            if let Some(pace) = self.studio_state.pace() {
+                subs.push(iced::time::every(pace).map(|_| Message::Studio(studio::Message::Tick)));
+            }
+
+            subs.push(iced::keyboard::listen().filter_map(undo_key));
         }
 
         if !self.window_shown {
@@ -423,6 +449,10 @@ impl BattleCatsApp {
 
         if self.current_page == Page::Files && page != Page::Files {
             self.files_state.leave(&self.vault.vfs);
+        }
+
+        if self.current_page == Page::Studio && page != Page::Studio {
+            self.studio_state.flush_now();
         }
 
         self.current_page = page;
@@ -494,6 +524,13 @@ impl BattleCatsApp {
 
     fn apply_changes(&mut self, paths: Vec<PathBuf>) -> Task<Message> {
         if !self.vault_ready {
+            return Task::none();
+        }
+
+        let paths: Vec<PathBuf> =
+            paths.into_iter().filter(|path| watcher::mount_of(path).is_some()).collect();
+
+        if paths.is_empty() {
             return Task::none();
         }
 
@@ -933,6 +970,7 @@ impl BattleCatsApp {
             }
             Message::CloseRequested(id) => {
                 self.editor.flush_now(&self.vault.vfs);
+                self.studio_state.flush_now();
                 self.mods_state.flush_metadata();
                 self.files_state.leave(&self.vault.vfs);
                 architecture::work_cleanup();
@@ -1292,26 +1330,29 @@ impl BattleCatsApp {
                 self.editor.open(at, &context);
                 Task::none()
             }
-            Message::Editor(editor::Message::Animator(msg)) => {
-                let feed = editor::Feed {
-                    settings: &mut self.settings,
-                    anim: &mut self.app_state.animation,
-                    vfs: &self.vault.vfs,
-                    cats: &self.cat_state.data.cats,
-                    enemies: &self.enemy_state.data.enemies,
-                };
+            Message::Studio(msg) => {
+                let task = self
+                    .studio_state
+                    .update(msg, &mut self.settings, &mut self.app_state.animation)
+                    .map(Message::Studio);
 
-                let task = self.editor.update_animator(msg, feed).map(Message::Editor);
-
-                match self.editor.take_animation_handoff() {
-                    Some((Page::Cats, clip)) => self.cat_state.select_animation(&clip),
-                    Some((Page::Enemies, clip)) => self.enemy_state.select_animation(&clip),
-                    _ => {}
-                }
+                self.sync_popup(ActivePopup::StudioManage, self.studio_state.managing());
+                self.sync_popup(ActivePopup::StudioExport, self.studio_state.export_popup_visible());
 
                 task
             }
-            Message::Editor(msg) => self.editor.update(msg, &self.vault.vfs).map(Message::Editor),
+            Message::Editor(msg) => {
+                let task = self
+                    .editor
+                    .update(msg, &self.vault.vfs, &mut self.studio_state)
+                    .map(Message::Editor);
+
+                let Some(page) = self.editor.take_opened() else {
+                    return task;
+                };
+
+                Task::batch([task, self.navigate(page)])
+            }
             Message::Settings(msg) => {
                 if matches!(msg, gui_settings::Message::General(gui_settings::general::Message::ManualUpdateCheck)) {
                     info!("Manual update check requested from Settings");
@@ -1368,6 +1409,10 @@ impl BattleCatsApp {
             Page::Files => self.files_state.view().map(Message::Files),
             Page::Import => self.import_state.view(&self.app_state).map(Message::Import),
             Page::Mining => self.mining_state.view(&self.cat_state.data.cats, &self.enemy_state.data.enemies, &self.stage_state.data.registry, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault }, &self.settings, self.window_size).map(Message::Mining),
+            Page::Studio => self
+                .studio_state
+                .view(&self.settings, &self.app_state.animation)
+                .map(Message::Studio),
             Page::Utilities => self.utilities_state.view(&self.settings, &self.app_state).map(Message::Utilities),
             Page::Help => {
                 let ui_theme = self.theme();
@@ -1380,16 +1425,16 @@ impl BattleCatsApp {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        if let Some(animator) = self.editor.animator_view(self) {
-            return editor::watch(animator.map(Message::Editor), &self.editor, Message::Editor);
-        }
-
         let sidebar_overlay = self.view_sidebar_overlay();
 
         let expanded: Option<Element<'_, Message>> = match self.current_page {
             Page::Cats => self.cat_state.expanded_animation_view(&self.settings, &self.app_state).map(|view| view.map(Message::Cat)),
             Page::Enemies => self.enemy_state.expanded_animation_view(&self.settings, &self.app_state).map(|view| view.map(Message::Enemy)),
             Page::Utilities => self.utilities_state.expanded_view(&self.settings, &self.app_state).map(|view| view.map(Message::Utilities)),
+            Page::Studio => self
+                .studio_state
+                .expanded_view(&self.settings, &self.app_state.animation)
+                .map(|view| view.map(Message::Studio)),
             _ => None,
         };
 
@@ -1536,6 +1581,20 @@ impl BattleCatsApp {
                         .settings_popup_view(&self.settings, self.window_size)
                         .map(|view| view.map(Message::Utilities))
                 }
+                ActivePopup::StudioManage => {
+                    if !matches!(self.current_page, Page::Studio) {
+                        return None;
+                    }
+
+                    self.studio_state.manage_popup_view(self.window_size).map(|view| view.map(Message::Studio))
+                }
+                ActivePopup::StudioExport => {
+                    if !matches!(self.current_page, Page::Studio) {
+                        return None;
+                    }
+
+                    self.studio_state.export_popup_view(self.window_size).map(|view| view.map(Message::Studio))
+                }
                 ActivePopup::SettingsPem => {
                     if !matches!(self.current_page, Page::Settings) {
                         return None;
@@ -1652,7 +1711,8 @@ mod tests {
 
     // The list is top-aligned, so its margins only match when the tabs fill the smallest
     // window exactly: the panel padding is then the whole gap at both ends. Adding a page
-    // or resizing a tab breaks that balance, and this catches it.
+    // or resizing a tab breaks that balance, and this catches it. Studio's arrival is what
+    // took the tabs from 45/7.5 to 42/6.
     #[test]
     fn the_nav_list_fills_the_smallest_window_exactly() {
         let tabs = ALL_PAGES.len() as f32;

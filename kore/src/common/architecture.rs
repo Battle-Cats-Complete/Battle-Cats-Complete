@@ -9,6 +9,7 @@ use tracing::{debug, warn};
 
 pub const GAME: &str = "game";
 pub const MODS: &str = "mods";
+pub const STUDIO: &str = "studio";
 pub const WORK: &str = ".work";
 
 struct Anchor {

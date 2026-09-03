@@ -1,4 +1,3 @@
-mod animator;
 mod menu;
 mod registry;
 mod figures;
@@ -27,11 +26,12 @@ use kore::Vfs;
 
 use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;
+use crate::domains::studio;
+use kore::domains::studio as kore_studio;
 use crate::domains::enemy::DetailTab as EnemyTab;
 use crate::common::dialog;
 use crate::common::feedback::{Slot, NO_ACTIONS_LABEL, NO_ACTIONS_NOTICE, UNSUPPORTED_NOTICE};
 
-pub(crate) use animator::Feed;
 pub(crate) use target::{suppress, target};
 pub(crate) use watch::watch;
 
@@ -69,16 +69,15 @@ pub(crate) struct Context {
     prose: Vec<ProseTarget>,
     levels: Vec<LevelTarget>,
     animation: Option<AnimTarget>,
-    curves: Option<CurveTarget>,
+    channels: Option<ChannelTarget>,
 }
 
-struct CurveTarget {
-    curves: animator::Curves,
-    unlocked: bool,
+struct ChannelTarget {
+    channels: studio::Channels,
 }
 
 struct AnimTarget {
-    subject: animator::Subject,
+    key: String,
     clip: Option<String>,
     asset: Asset,
     unlocked: bool,
@@ -238,6 +237,15 @@ impl Asset {
         }
     }
 
+    fn names(&self) -> Vec<String> {
+        match self {
+            Asset::Exception(exception) => {
+                exception.variants.iter().map(|file| file.name.clone()).collect()
+            }
+            Asset::Variants { files, .. } => files.iter().map(|file| file.name.clone()).collect(),
+        }
+    }
+
     fn scopes(&self, in_mod: bool) -> Vec<Scope<'_>> {
         match self {
             Asset::Exception(exception) => exception.scopes(in_mod),
@@ -349,7 +357,6 @@ pub enum Message {
     Replaced(bool),
     Figures(figures::Subject, figures::Message),
     Prose(prose::Subject, prose::Message),
-    Animator(animator::Message),
 }
 
 struct Item {
@@ -412,11 +419,11 @@ fn shared_hint(children: &[Item]) -> Option<String> {
 enum Action {
     Add { source: PathBuf, target_mod: String },
     Delete { source: PathBuf },
-    AddCurve { part: usize, kind: i32 },
-    DropCurve { track: usize },
+    AddChannel { part: usize, kind: i32 },
+    DropChannel { track: usize },
     AddPart { parent: Option<usize> },
     DropPart { part: usize },
-    EditAnimation(animator::Plan),
+    EditAnimation(AnimPlan),
     EditFigures(figures::Plan),
     EditProse(prose::Plan),
     Replace { file: String, target_mod: Option<String>, game: Option<PathBuf> },
@@ -427,6 +434,7 @@ enum Action {
 
 enum Outcome {
     Done,
+    Opened(Page),
     Deferred(Task<Message>),
     Failed,
 }
@@ -496,12 +504,12 @@ fn panels<'a>(items: &'a [Item], trail: &[usize]) -> Vec<&'a [Item]> {
 #[derive(Default)]
 pub(crate) struct State {
     open: Option<Open>,
+    opened: Option<Page>,
     pending: Option<Trail>,
     confirm: Slot<Trail>,
     failed: Slot<Trail>,
     figures: [figures::State; figures::COUNT],
     prose: [prose::State; prose::COUNT],
-    animator: animator::State,
     synced: Option<Key>,
 }
 
@@ -556,9 +564,9 @@ impl State {
         self.open = (!items.is_empty()).then_some(Open { at, items, trail: Trail::new() });
     }
 
-    pub(crate) fn update(&mut self, message: Message, vfs: &Vfs) -> Task<Message> {
+    pub(crate) fn update(&mut self, message: Message, vfs: &Vfs, studio: &mut studio::State) -> Task<Message> {
         match message {
-            Message::Invoked(trail) => self.invoke(trail, vfs),
+            Message::Invoked(trail) => self.invoke(trail, vfs, studio),
             Message::Hovered(trail) => {
                 if let Some(open) = self.open.as_mut() {
                     open.trail = trail;
@@ -599,30 +607,12 @@ impl State {
                 .subject_mut(subject)
                 .update(msg, vfs)
                 .map(move |inner| Message::Figures(subject, inner)),
-            Message::Animator(..) | Message::Opened(..) => Task::none(),
+            Message::Opened(..) => Task::none(),
         }
     }
 
-    pub(crate) fn update_animator(&mut self, message: animator::Message, feed: Feed<'_>) -> Task<Message> {
-        self.animator.update(message, feed).map(Message::Animator)
-    }
-
-    pub(crate) fn animator_tick() -> Message {
-        Message::Animator(animator::Message::Tick)
-    }
-
-    pub(crate) fn take_animation_handoff(&mut self) -> Option<(Page, String)> {
-        self.animator.take_handoff()
-    }
-
-    pub(crate) fn animator_pace(&self) -> Option<std::time::Duration> {
-        self.animator.pace()
-    }
-
-    pub(crate) fn animator_view<'a>(&'a self, app: &'a BattleCatsApp) -> Option<Element<'a, Message>> {
-        self.animator
-            .view(&app.settings, &app.app_state.animation)
-            .map(|view| view.map(Message::Animator))
+    pub(crate) fn take_opened(&mut self) -> Option<Page> {
+        self.opened.take()
     }
 
     pub(crate) fn popup_view<'a>(
@@ -676,8 +666,6 @@ impl State {
     }
 
     pub(crate) fn flush_now(&mut self, vfs: &Vfs) {
-        self.animator.flush_now(vfs);
-
         for slot in &mut self.figures {
             slot.flush_now(vfs);
         }
@@ -764,7 +752,7 @@ impl State {
         &mut self.prose[subject.slot()]
     }
 
-    fn perform(&mut self, action: &Action, vfs: &Vfs) -> Outcome {
+    fn perform(&mut self, action: &Action, vfs: &Vfs, studio: &mut studio::State) -> Outcome {
         match action {
             Action::Add { source, target_mod } => match mods::adopt(target_mod, source) {
                 Ok(path) => {
@@ -822,27 +810,30 @@ impl State {
                     }
                 }
             }
-            Action::AddCurve { part, kind } => match self.animator.add_curve(*part, *kind) {
+            Action::AddChannel { part, kind } => match studio.add_channel(*part, *kind) {
                 true => Outcome::Done,
                 false => Outcome::Failed,
             },
-            Action::DropCurve { track } => match self.animator.drop_curve(*track) {
+            Action::DropChannel { track } => match studio.drop_channel(*track) {
                 true => Outcome::Done,
                 false => Outcome::Failed,
             },
-            Action::AddPart { parent } => match self.animator.add_part(*parent, vfs) {
+            Action::AddPart { parent } => match studio.add_part(*parent) {
                 true => Outcome::Done,
                 false => Outcome::Failed,
             },
-            Action::DropPart { part } => match self.animator.drop_part(*part, vfs) {
+            Action::DropPart { part } => match studio.drop_part(*part) {
                 true => Outcome::Done,
                 false => Outcome::Failed,
             },
-            Action::EditAnimation(plan) => {
-                self.animator.begin(plan.clone());
+            Action::EditAnimation(plan) => match adopt_set(plan, vfs) {
+                Some((set, copied)) => {
+                    studio.adopt(set, plan.target_mod.clone(), plan.clip.clone(), copied);
 
-                Outcome::Done
-            }
+                    Outcome::Opened(Page::Studio)
+                }
+                None => Outcome::Failed,
+            },
             Action::EditFigures(plan) => {
                 let subject = plan.subject();
                 let already = self.figures[subject.slot()].drafting();
@@ -879,7 +870,7 @@ impl State {
         }
     }
 
-    fn invoke(&mut self, trail: Trail, vfs: &Vfs) -> Task<Message> {
+    fn invoke(&mut self, trail: Trail, vfs: &Vfs, studio: &mut studio::State) -> Task<Message> {
         let Some((actionable, confirms)) = self
             .open
             .as_ref()
@@ -906,10 +897,15 @@ impl State {
 
         let outcome = pick(&open.items, &trail)
             .and_then(|item| item.action.as_ref())
-            .map_or(Outcome::Done, |action| self.perform(action, vfs));
+            .map_or(Outcome::Done, |action| self.perform(action, vfs, studio));
 
         match outcome {
             Outcome::Done => Task::none(),
+            Outcome::Opened(page) => {
+                self.opened = Some(page);
+
+                Task::none()
+            }
             Outcome::Deferred(task) => {
                 self.open = Some(open);
                 self.pending = Some(trail);
@@ -925,16 +921,14 @@ impl State {
     }
 }
 
-fn curve_target(app: &BattleCatsApp, target: Option<Target>) -> Option<CurveTarget> {
+fn channel_target(app: &BattleCatsApp, target: Option<Target>) -> Option<ChannelTarget> {
     let part = match target {
         Some(Target::AnimPart(part)) => Some(part),
-        Some(Target::AnimCurve(track)) => app.editor.animator.holder(track),
+        Some(Target::AnimCurve(track)) => app.studio_state.holder(track),
         _ => None,
     };
 
-    let curves = app.editor.animator.curves(part)?;
-
-    Some(CurveTarget { curves, unlocked: app.settings.files.unlock_game_mount })
+    Some(ChannelTarget { channels: app.studio_state.channels(part)? })
 }
 
 fn expanded(app: &BattleCatsApp) -> bool {
@@ -942,6 +936,7 @@ fn expanded(app: &BattleCatsApp) -> bool {
         Page::Cats => app.cat_state.animation_expanded(),
         Page::Enemies => app.enemy_state.animation_expanded(),
         Page::Utilities => app.utilities_state.animation_expanded(),
+        Page::Studio => app.studio_state.expanded(),
         _ => false,
     }
 }
@@ -950,7 +945,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
     let broad = app.settings.files.context_scope == ContextScope::Broad;
     let reached = |wanted: Target| target == Some(wanted) || broad;
 
-    if app.editor.animator.active() || expanded(app) {
+    if app.current_page == Page::Studio || expanded(app) {
         return Context {
             enabled: app.settings.general.enable_nightly,
             values: app.settings.files.editor_mode,
@@ -964,7 +959,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
             prose: Vec::new(),
             levels: Vec::new(),
             animation: None,
-            curves: curve_target(app, target),
+            channels: channel_target(app, target),
         };
     }
 
@@ -984,7 +979,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
             .chain(talent_payloads(app, reached(Target::CatTalents)))
             .collect(),
         animation: anim_target(app, reached(Target::CatAnimation), reached(Target::EnemyAnimation)),
-        curves: None,
+        channels: None,
     }
 }
 
@@ -1009,40 +1004,110 @@ fn named_files(app: &BattleCatsApp, names: Vec<String>) -> Vec<AssetFile> {
 fn anim_target(app: &BattleCatsApp, cats: bool, enemies: bool) -> Option<AnimTarget> {
     let vfs = &app.vault.vfs;
 
-    let (subject, files, clip) = match app.current_page {
+    let (files, clip) = match app.current_page {
         Page::Cats if cats => {
             let id = app.app_state.cat.selected_cat?;
             let form = app.app_state.cat.selected_form;
             let cat = app.cat_state.data.cats.iter().find(|cat| cat.id == id)?;
 
-            (
-                animator::Subject::Cat { id, form },
-                cat_animation::rig_files(cat, form, vfs)?,
-                app.cat_state.animation_clip(),
-            )
+            (cat_animation::rig_files(cat, form, vfs)?, app.cat_state.animation_clip())
         }
         Page::Enemies if enemies => {
             let id = app.app_state.enemy.selected_enemy?;
             let enemy = app.enemy_state.data.enemies.iter().find(|enemy| enemy.id == id)?;
 
-            (
-                animator::Subject::Enemy { id },
-                enemy_animation::rig_files(enemy, vfs)?,
-                app.enemy_state.animation_clip(),
-            )
+            (enemy_animation::rig_files(enemy, vfs)?, app.enemy_state.animation_clip())
         }
         _ => return None,
     };
 
+    let key = files.key.clone();
     let asset = Asset::Variants { key: files.key.clone(), files: named_files(app, files.names()) };
 
     Some(AnimTarget {
-        subject,
+        key,
         clip,
         asset,
         unlocked: app.settings.files.unlock_game_mount,
         active_mod: app.mods_state.active_mod(),
     })
+}
+
+#[derive(Clone)]
+pub(crate) struct AnimPlan {
+    key: String,
+    files: Vec<String>,
+    target_mod: Option<String>,
+    unlocked: bool,
+    clip: Option<String>,
+}
+
+fn anim_plan(target: &AnimTarget, target_mod: Option<String>) -> AnimPlan {
+    AnimPlan {
+        key: target.key.clone(),
+        files: target.asset.names(),
+        target_mod,
+        unlocked: target.unlocked,
+        clip: target.clip.clone(),
+    }
+}
+fn adopt_set(plan: &AnimPlan, vfs: &Vfs) -> Option<(studio::Set, bool)> {
+    let mut set = studio::Set { name: plan.key.clone(), ..studio::Set::default() };
+
+    for file in &plan.files {
+        let seated = match plan.target_mod.as_deref() {
+            Some(name) => stage_into(vfs, name, file),
+            None => vfs.rooted(architecture::GAME, file),
+        };
+
+        let Some(seated) = seated else {
+            continue;
+        };
+
+        match seated.extension().and_then(|ext| ext.to_str()) {
+            Some("png") => set.sheet = Some(seated),
+            Some("imgcut") => set.cuts = Some(seated),
+            Some("mamodel") => set.model = Some(seated),
+            Some("maanim") => set.anims.push(seated),
+            _ => {}
+        }
+    }
+
+    if !set.rigged() {
+        return None;
+    }
+
+    if plan.target_mod.is_some() || plan.unlocked {
+        return Some((set, false));
+    }
+
+    let name = kore_studio::vacant(&plan.key);
+
+    match kore_studio::adopt(&name, &set) {
+        Ok(copied) => Some((copied, true)),
+        Err(err) => {
+            warn!(name, "Failed to copy a locked rig into studio: {}", err);
+
+            None
+        }
+    }
+}
+
+fn stage_into(vfs: &Vfs, name: &str, file: &str) -> Option<PathBuf> {
+    if let Some(held) = vfs.rooted(name, file) {
+        return Some(held);
+    }
+
+    let game = vfs.rooted(architecture::GAME, file)?;
+    let staged = mods::ensure_as(vfs, name, &game, file)
+        .inspect_err(|err| warn!(file, "Failed to copy a rig file into the mod: {}", err))
+        .ok()?;
+
+    if let Err(err) = vfs.create((name, staged.as_path())) {
+        warn!(path = %staged.display(), "Failed to index a staged rig file: {}", err);
+    }
+
+    Some(staged)
 }
 
 fn figures_tab(app: &BattleCatsApp, subject: figures::Subject) -> bool {

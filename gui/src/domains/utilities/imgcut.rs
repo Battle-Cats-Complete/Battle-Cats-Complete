@@ -15,7 +15,7 @@ use crate::common::dialog;
 use crate::common::feedback::{Slot, FAILURE_LABEL};
 use crate::widget::picture;
 
-use super::picker;
+use crate::widget::picker;
 
 const PANEL_PADDING: f32 = 12.0;
 const ROW_GAP: f32 = 8.0;

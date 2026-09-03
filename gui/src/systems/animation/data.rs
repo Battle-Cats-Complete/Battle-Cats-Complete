@@ -163,6 +163,10 @@ impl State {
         });
     }
 
+    pub fn loaded_rig(&self) -> &str {
+        &self.loaded_rig
+    }
+
     pub fn resolved(&self) -> bool {
         self.held_unit.is_some() || !self.failed_rig.is_empty()
     }

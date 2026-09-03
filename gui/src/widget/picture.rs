@@ -241,7 +241,8 @@ impl State {
     }
 
     pub(crate) fn view<'a>(&self, source: &'a Source) -> Element<'a, Message> {
-        self.view_outlined(source, &[], false)
+        Canvas { source, center: self.center, zoom: self.zoom, outlines: &[], framing: false, bounded: false }
+            .into()
     }
 
     pub(crate) fn view_outlined<'a>(
@@ -250,7 +251,7 @@ impl State {
         outlines: &'a [Outline],
         framing: bool,
     ) -> Element<'a, Message> {
-        Canvas { source, center: self.center, zoom: self.zoom, outlines, framing }.into()
+        Canvas { source, center: self.center, zoom: self.zoom, outlines, framing, bounded: true }.into()
     }
 }
 
@@ -269,6 +270,7 @@ struct Canvas<'a> {
     zoom: f32,
     outlines: &'a [Outline],
     framing: bool,
+    bounded: bool,
 }
 
 #[derive(Default)]
@@ -612,7 +614,9 @@ impl Widget<Message, Theme, iced::Renderer> for Canvas<'_> {
                 shroud(renderer, clip, drawing.map(|drawn| placed(&drawn)));
             }
 
-            edge(renderer, frame, BOUNDS_COLOR, BOUNDS_WIDTH);
+            if self.bounded {
+                edge(renderer, frame, BOUNDS_COLOR, BOUNDS_WIDTH);
+            }
 
             for outline in self.outlines.iter().chain(drawing.iter()) {
                 let seat = placed(outline);

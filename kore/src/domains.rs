@@ -5,4 +5,5 @@ pub mod mining;
 pub mod mods;
 pub mod settings;
 pub mod stage;
+pub mod studio;
 pub mod utilities;
