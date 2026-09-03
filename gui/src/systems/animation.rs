@@ -15,6 +15,7 @@ use iced::widget::{button, column, container, stack, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
 
 use nyanko::graphics::rig::{Animation, Model, Rig};
+use nyanko::graphics::tools::part;
 
 use kore::domains::settings::Settings;
 use kore::systems::animation::ClipSet;
@@ -241,6 +242,38 @@ impl State {
 
     pub fn offset(&self) -> Option<usize> {
         self.data.offset()
+    }
+
+    pub fn camera(&self) -> (iced::Vector, f32) {
+        (self.canvas.pan, self.canvas.zoom)
+    }
+
+    pub fn animation(&self) -> Option<&Animation> {
+        self.data.current_anim.as_deref()
+    }
+
+    pub fn holding(&self) -> bool {
+        self.controls.holding()
+    }
+
+    pub fn selecting(&self) -> bool {
+        self.overlay.selecting
+    }
+
+    pub fn pause(&mut self) {
+        self.canvas.is_playing = false;
+    }
+
+    pub fn posed(&self) -> Vec<(usize, [f32; 8])> {
+        let Some(unit) = self.data.held_unit.as_ref() else {
+            return Vec::new();
+        };
+
+        let frame = self.data.playback_frame(self.canvas.current_frame).floor() as i32;
+
+        part::resolve(unit, self.data.current_anim.as_deref(), frame, self.data.offset())
+            .map(|mapped| mapped.into_iter().map(|entry| (entry.part, entry.frame.vertices)).collect())
+            .unwrap_or_default()
     }
 
     pub fn loaded_rig(&self) -> &str {

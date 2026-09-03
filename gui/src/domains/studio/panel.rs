@@ -1,5 +1,5 @@
 use super::*;
-use iced::widget::{button, column, container, row, rule, scrollable, text, text_input, Space};
+use iced::widget::{button, column, container, pick_list, row, rule, scrollable, stack, text, text_input, Space};
 
 impl State {
     pub(crate) fn view<'a>(
@@ -34,7 +34,7 @@ impl State {
                     container(self.idle.view(settings, anim).map(Message::Viewer))
                         .width(Length::Fill)
                         .height(Length::Fill),
-                    strip(Focus::Curve, None, None, None, false, &settings.animation)
+                    strip(Focus::Curve, None, None, None, false, &settings.animation, false)
                 ]
                 .spacing(GAP)
                 .into(),
@@ -130,6 +130,23 @@ impl Session {
                 .center_x(Length::Fill)
                 .center_y(Length::Fill)
                 .into()
+        };
+
+        let handled = self.viewer.resolved() && !self.viewer.selecting();
+        let showing = match handled {
+            true => editor::deflect(
+                stack![
+                    showing,
+                    self.gizmo.view(
+                        self.chosen_part(),
+                        self.pivot_bias(),
+                        self.viewer.posed(),
+                        self.viewer.camera(),
+                    ),
+                ],
+                true,
+            ),
+            false => showing,
         };
 
         let stage = container(showing).width(Length::Fill).height(Length::Fill);
@@ -365,7 +382,7 @@ impl Session {
             scrollable(list)
                 .id(self.scroll_id.clone())
                 .direction(both_ways())
-                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+                .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y, viewport.bounds().height))
                 .width(Length::Fill)
                 .height(Length::Fill),
         )
@@ -380,7 +397,15 @@ impl Session {
             .zip(self.viewer.rig())
             .and_then(|(at, rig)| rig.model.parts.get(at));
 
-        strip(self.focus, index, part, self.viewer.rig(), self.viewer.locatable(), &settings.animation)
+        strip(
+            self.focus,
+            index,
+            part,
+            self.viewer.rig(),
+            self.viewer.locatable(),
+            &settings.animation,
+            self.animated(),
+        )
     }
 
     fn keys(&self) -> Element<'_, Message> {
@@ -805,13 +830,37 @@ fn panel_head<'a>(label: &'a str) -> Element<'a, Message> {
         .into()
 }
 
-fn options(anim: &AnimSettings) -> Element<'_, Message> {
+fn options(anim: &AnimSettings, animated: bool) -> Element<'_, Message> {
     let header = panel_head("Option");
+    let hand: Element<'_, Message> = match animated {
+        true => pick_list(Hand::ALL, Some(anim.hand), Message::Handed)
+            .width(Length::Fill)
+            .padding([1, 4])
+            .text_size(LABEL_SIZE)
+            .style(theme::combo_box)
+            .menu_style(theme::combo_box_menu)
+            .into(),
+        false => container(
+            text(Hand::Model.label())
+                .size(LABEL_SIZE)
+                .style(|theme: &Theme| text::Style { color: Some(theme::weak_text_color(theme)) }),
+        )
+        .width(Length::Fill)
+        .padding([1, 4])
+        .style(theme::combo_box_idle)
+        .into(),
+    };
+
+    let seated = container(hand)
+        .height(Length::Fixed(FACT_ROW_HEIGHT))
+        .align_y(Vertical::Center)
+        .padding([0, 3])
+        .style(|theme: &Theme| theme::zebra_table_row(theme, 0));
 
     Lens::ALL
         .iter()
         .enumerate()
-        .fold(column![header], |listed, (stripe, lens)| {
+        .fold(column![header, seated], |listed, (stripe, lens)| {
             let on = lens.on(anim);
 
             let toggle = button(theme::centered_text(lens.label()).size(LABEL_SIZE).width(Length::Fill))
@@ -825,7 +874,7 @@ fn options(anim: &AnimSettings) -> Element<'_, Message> {
                     .height(Length::Fixed(FACT_ROW_HEIGHT))
                     .align_y(Vertical::Center)
                     .padding([0, 3])
-                    .style(move |theme: &Theme| theme::zebra_table_row(theme, stripe)),
+                    .style(move |theme: &Theme| theme::zebra_table_row(theme, stripe + 1)),
             )
         })
         .width(Length::Fixed(DEBUG_WIDTH))
@@ -904,6 +953,7 @@ pub(super) fn strip<'a>(
     rig: Option<&Rig>,
     ready: bool,
     anim: &'a AnimSettings,
+    animated: bool,
 ) -> Element<'a, Message> {
     let table = match focus {
         Focus::Curve => model_rows(index, part),
@@ -911,7 +961,7 @@ pub(super) fn strip<'a>(
     };
 
     let facts: Element<'_, Message> = column![fact_header(focus), table].width(Length::Fill).into();
-    let body = row![facts, actions(ready), options(anim)].spacing(GAP);
+    let body = row![facts, actions(ready), options(anim, animated)].spacing(GAP);
 
     container(body).width(Length::Fill).into()
 }

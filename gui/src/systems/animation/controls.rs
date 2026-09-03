@@ -431,6 +431,10 @@ impl State {
         };
     }
 
+    pub fn holding(&self) -> bool {
+        self.hold_dir != 0
+    }
+
     pub fn set_range(&mut self, start: f32, end: f32) {
         self.range_start_input = (start.trunc() as i32).to_string();
         self.range_end_input = (end.trunc() as i32).to_string();

@@ -299,6 +299,7 @@ pub struct AnimSettings {
     pub show_selected: bool,
     pub show_hierarchy: bool,
     pub show_world: bool,
+    pub hand: crate::systems::animation::posing::Hand,
     pub auto_set_camera_region: bool,
     pub bounds_cull: i32,
     pub default_showcase_walk: i32,
@@ -309,6 +310,7 @@ pub struct AnimSettings {
 impl Default for AnimSettings {
     fn default() -> Self {
         Self {
+            hand: crate::systems::animation::posing::Hand::default(),
             show_origin: false,
             show_rig: false,
             show_selected: false,

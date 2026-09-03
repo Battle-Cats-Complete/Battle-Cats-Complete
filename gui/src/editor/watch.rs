@@ -209,15 +209,15 @@ impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Watch<'a, M> {
             return;
         }
 
-        if target::vetoed() {
+        let Some(position) = cursor.position() else {
+            return;
+        };
+
+        if target::vetoed(Some(position)) {
             let _ = target::take();
 
             return;
         }
-
-        let Some(position) = cursor.position() else {
-            return;
-        };
 
         shell.publish((self.to_message)(Message::Opened(position, target::take())));
         shell.capture_event();

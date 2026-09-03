@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use kore::systems::animation::authoring::{Imgcut, Maanim, Mamodel};
 
-use super::Field;
+use super::{Field, Hand};
 
 const DEPTH: usize = 25;
 const COALESCE: Duration = Duration::from_millis(700);
@@ -19,6 +19,7 @@ pub(super) enum Tag {
     Parts,
     Cut(usize, usize),
     Cuts,
+    Gizmo(usize, Hand),
     Bulk,
 }
 
@@ -28,6 +29,8 @@ impl Tag {
             Tag::Key(..) | Tag::Loop | Tag::Ease(_) | Tag::Keys => Subject::Anim,
             Tag::Field(_) | Tag::Axis(_) | Tag::Parts => Subject::Model,
             Tag::Cut(..) | Tag::Cuts => Subject::Cuts,
+            Tag::Gizmo(_, Hand::Channel) => Subject::Anim,
+            Tag::Gizmo(_, Hand::Model) => Subject::Model,
             Tag::Bulk => Subject::Rig,
         }
     }

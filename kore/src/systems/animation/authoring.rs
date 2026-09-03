@@ -3,22 +3,45 @@ mod maanim;
 mod mamodel;
 
 use nyanko::graphics::rig::{AnimModification, Keyframe, Model};
+use nyanko::graphics::tools::property;
 
 pub use imgcut::{Imgcut, CUT_FIELDS, CUT_NAME_FIELD};
 pub use maanim::Maanim;
 pub use mamodel::{bound, defaults, nameable, Mamodel, FIELDS, NAME_FIELD};
 
-pub const KINDS: [i32; 15] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+pub fn kinds() -> Vec<i32> {
+    property::PROPERTIES.iter().map(|entry| entry.kind).collect()
+}
+
+pub fn offsets(kind: i32) -> bool {
+    property::property(kind).is_some_and(|entry| entry.blend == property::Blend::Offset)
+}
 
 pub fn neutral_value(kind: i32, part: usize, model: Option<&Model>) -> i32 {
     let Some(model) = model else {
         return 0;
     };
 
-    match kind {
-        0 => model.parts.get(part).map_or(0, |declared| declared.parent),
-        8..=10 => model.scale_unit,
-        12 => model.opacity_unit,
+    let Some(entry) = property::property(kind) else {
+        return 0;
+    };
+
+    if entry.blend == property::Blend::Offset {
+        let Some(declared) = model.parts.get(part) else {
+            return 0;
+        };
+
+        return match entry.field {
+            "parent" => declared.parent,
+            "id" => declared.id,
+            "sprite" => declared.sprite,
+            _ => declared.z,
+        };
+    }
+
+    match entry.field {
+        "scale" | "scale_x" | "scale_y" => model.scale_unit,
+        "opacity" => model.opacity_unit,
         _ => 0,
     }
 }
@@ -38,23 +61,27 @@ pub fn blank_curve(part: usize, kind: i32, model: Option<&Model>) -> AnimModific
 }
 
 pub fn kind_label(kind: i32) -> &'static str {
-    match kind {
-        0 => "Parent",
-        1 => "Unit ID",
-        2 => "Sprite",
-        3 => "Z Order",
-        4 => "X",
-        5 => "Y",
-        6 => "Pivot X",
-        7 => "Pivot Y",
-        8 => "Scale",
-        9 => "Scale X",
-        10 => "Scale Y",
-        11 => "Angle",
-        12 => "Opacity",
-        13 => "Flip X",
-        14 => "Flip Y",
-        _ => "Unknown",
+    let Some(entry) = property::property(kind) else {
+        return "Unknown";
+    };
+
+    match entry.field {
+        "parent" => "Parent",
+        "id" => "Unit ID",
+        "sprite" => "Sprite",
+        "depth" => "Z Order",
+        "x" => "X",
+        "y" => "Y",
+        "pivot_x" => "Pivot X",
+        "pivot_y" => "Pivot Y",
+        "scale" => "Scale",
+        "scale_x" => "Scale X",
+        "scale_y" => "Scale Y",
+        "angle" => "Angle",
+        "opacity" => "Opacity",
+        "flip_x" => "Flip X",
+        "flip_y" => "Flip Y",
+        other => other,
     }
 }
 
@@ -107,6 +134,25 @@ mod tests {
     }
 
     #[test]
+    fn every_label_comes_from_the_engines_own_table() {
+        // The map used to be mirrored by hand here; nyanko publishes it now, so a
+        // reorder upstream can no longer silently relabel a channel.
+        assert_eq!(kinds().len(), 15);
+        assert_eq!(kind_label(4), "X");
+        assert_eq!(kind_label(11), "Angle");
+        assert_eq!(kind_label(99), "Unknown");
+    }
+
+    #[test]
+    fn only_the_leading_kinds_are_stored_as_a_difference_from_rest() {
+        // Kinds 0-3 store `value - rest`; everything else is the pose outright, and
+        // seeding a new channel has to know which.
+        assert!(offsets(0) && offsets(3));
+        assert!(!offsets(4) && !offsets(12));
+        assert!(!offsets(99));
+    }
+
+    #[test]
     fn a_new_curve_names_its_part_and_plays_once() {
         let track = blank_curve(7, 4, None);
 
@@ -119,7 +165,7 @@ mod tests {
         // The pose clears to the model's units for scale and opacity, and parent
         // is stored as a difference from the part's own, so zero is not neutral there.
         let model = Model {
-            parts: vec![ModelPart { parent: 4, ..ModelPart::default() }],
+            parts: vec![ModelPart { parent: 4, z: 6, ..ModelPart::default() }],
             scale_unit: 1000,
             opacity_unit: 1000,
             ..Model::default()
@@ -130,6 +176,7 @@ mod tests {
         assert_eq!(neutral_value(12, 0, Some(&model)), 1000);
         assert_eq!(neutral_value(5, 0, Some(&model)), 0);
         assert_eq!(neutral_value(11, 0, Some(&model)), 0);
+        assert_eq!(neutral_value(3, 0, Some(&model)), 6);
     }
 
     #[test]

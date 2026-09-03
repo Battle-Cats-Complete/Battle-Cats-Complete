@@ -32,7 +32,7 @@ use crate::domains::enemy::DetailTab as EnemyTab;
 use crate::common::dialog;
 use crate::common::feedback::{Slot, NO_ACTIONS_LABEL, NO_ACTIONS_NOTICE, UNSUPPORTED_NOTICE};
 
-pub(crate) use target::{suppress, target};
+pub(crate) use target::{deflect, suppress, target};
 pub(crate) use watch::watch;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

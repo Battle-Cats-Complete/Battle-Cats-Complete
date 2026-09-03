@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use nyanko::common::{scrub, Separator};
-use nyanko::graphics::rig::{AnimModification, Animation, Keyframe, RigError};
+use nyanko::graphics::rig::{AnimModification, Animation, Keyframe, Model, RigError};
+use nyanko::graphics::tools::timeline;
+
+use super::blank_curve;
 
 const BOM: [u8; 3] = [0xef, 0xbb, 0xbf];
 const NAME_FIELD: usize = 5;
@@ -71,6 +74,84 @@ impl Maanim {
         keyframes.insert(at, key);
 
         Some(at)
+    }
+
+    pub fn effective(&self, part: i32, kind: i32) -> Option<usize> {
+        self.tracks()
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, track)| track.part == part && track.kind == kind)
+            .map(|(at, _)| at)
+    }
+
+    pub fn ensure_track(&mut self, part: usize, kind: i32, model: Option<&Model>) -> Option<usize> {
+        let wanted = i32::try_from(part).ok()?;
+
+        if let Some(at) = self.effective(wanted, kind) {
+            return Some(at);
+        }
+
+        let at = self.tracks().len();
+
+        self.insert(at, blank_curve(part, kind, model));
+
+        Some(at)
+    }
+
+    pub fn ensure_key(&mut self, track: usize, frame: i32) -> Option<usize> {
+        let held = self.track(track)?;
+
+        if let Some(at) = held.keyframes.iter().position(|key| key.frame == frame) {
+            return Some(at);
+        }
+
+        let seeded = timeline::value(held, frame).unwrap_or(0);
+        let ease = held.keyframes.last().map_or(0, |key| key.ease);
+        let key = Keyframe { frame, value: seeded, ease, ease_power: 0 };
+
+        let keyframes = &mut Arc::make_mut(&mut self.animation).modifications.get_mut(track)?.keyframes;
+        let at = keyframes.partition_point(|existing| existing.frame < frame);
+
+        keyframes.insert(at, key);
+
+        Some(at)
+    }
+
+    pub fn pose(
+        &mut self,
+        part: usize,
+        kind: i32,
+        frame: i32,
+        value: i32,
+        model: Option<&Model>,
+    ) -> bool {
+        let Some(track) = self.ensure_track(part, kind, model) else {
+            return false;
+        };
+
+        let Some(at) = self.ensure_key(track, frame) else {
+            return false;
+        };
+
+        let Some(key) = self.edit(track).and_then(|track| track.keyframes.get_mut(at)) else {
+            return false;
+        };
+
+        if key.value == value {
+            return false;
+        }
+
+        key.value = value;
+
+        true
+    }
+
+    pub fn posed(&self, part: usize, kind: i32, frame: i32) -> Option<i32> {
+        let wanted = i32::try_from(part).ok()?;
+        let track = self.effective(wanted, kind)?;
+
+        timeline::value(self.track(track)?, frame)
     }
 
     pub fn remove_key(&mut self, track: usize, at: usize) -> bool {
@@ -257,6 +338,56 @@ mod tests {
         let doc = Maanim::parse(source).expect("the sample parses");
 
         doc.write()
+    }
+
+    const POSED: &str = "[modelanim:animation]\n1\n1\n0,4,1,0,0,\n2\n0,0,0,0\n20,100,0,0\n";
+
+    #[test]
+    fn a_pose_lands_on_the_channel_the_engine_actually_applies() {
+        // Two channels drive the same part and kind; the later one wins in the engine,
+        // so editing the earlier one would look like nothing happened.
+        let doubled = "[modelanim:animation]\n1\n2\n0,4,1,0,0,\n1\n0,0,0,0\n0,4,1,0,0,\n1\n0,50,0,0\n";
+        let mut doc = Maanim::parse(doubled.as_bytes()).expect("the sample parses");
+
+        assert_eq!(doc.effective(0, 4), Some(1));
+        assert!(doc.pose(0, 4, 0, 90, None));
+        assert_eq!(doc.track(1).map(|t| t.keyframes[0].value), Some(90));
+        assert_eq!(doc.track(0).map(|t| t.keyframes[0].value), Some(0), "the shadowed one is untouched");
+    }
+
+    #[test]
+    fn a_key_inserted_between_two_others_changes_nothing_on_its_own() {
+        // Grabbing a part mid-segment must not make the animation jump, so the new key
+        // is seeded with whatever the channel already resolved to there.
+        let mut doc = Maanim::parse(POSED.as_bytes()).expect("the sample parses");
+        let held = doc.posed(0, 4, 10).expect("the channel resolves");
+
+        let track = doc.effective(0, 4).expect("the channel exists");
+        let at = doc.ensure_key(track, 10).expect("a key lands on the frame");
+
+        assert_eq!(doc.track(track).map(|t| t.keyframes[at].value), Some(held));
+        assert_eq!(doc.posed(0, 4, 10), Some(held));
+        assert_eq!(doc.track(track).map(|t| t.keyframes.len()), Some(3));
+    }
+
+    #[test]
+    fn posing_a_part_with_no_channel_of_that_kind_appends_one() {
+        let mut doc = Maanim::parse(POSED.as_bytes()).expect("the sample parses");
+
+        assert_eq!(doc.effective(0, 11), None);
+        assert!(doc.pose(0, 11, 5, 900, None));
+
+        let track = doc.effective(0, 11).expect("the channel now exists");
+        assert_eq!(track, 1, "appended, so it wins over anything already there");
+        assert_eq!(doc.posed(0, 11, 5), Some(900));
+    }
+
+    #[test]
+    fn posing_the_same_value_twice_reports_no_change() {
+        let mut doc = Maanim::parse(POSED.as_bytes()).expect("the sample parses");
+
+        assert!(doc.pose(0, 4, 0, 42, None));
+        assert!(!doc.pose(0, 4, 0, 42, None));
     }
 
     #[test]

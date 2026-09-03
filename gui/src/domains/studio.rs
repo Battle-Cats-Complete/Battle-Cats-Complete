@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::mouse;
-use iced::widget::{space, stack, Column};
+use iced::widget::{space, Column};
 use iced::widget::{mouse_area, operation, responsive, tooltip};
 use iced::border::Border;
 use iced::{widget, Color, Element, Font, Length, Padding, Point, Size, Task, Theme};
@@ -17,6 +17,7 @@ use kore::common::architecture;
 use kore::common::preview::{self, Stamp};
 use kore::domains::settings::{AnimSettings, Settings};
 use kore::domains::studio as sets;
+use kore::systems::animation::posing::{self, Hand, Probe};
 use kore::systems::animation::authoring::{self as authoring, bound, Imgcut, CUT_FIELDS, CUT_NAME_FIELD, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, nameable, Maanim, Mamodel, EASES, FIELDS, NAME_FIELD};
 use image::RgbaImage;
 use nyanko::graphics::rig::{Keyframe, Model, ModelPart, Opaque, Rig, SpriteCut};
@@ -33,9 +34,11 @@ use crate::common::row_window::{self, RowWindow};
 use crate::widget::{list_row, picture, popup, slide, smooth_scroll, Slide};
 
 mod documents;
+mod gizmo;
 mod history;
 mod manage;
 mod panel;
+mod handle;
 mod set;
 mod tree;
 
@@ -60,6 +63,7 @@ const CELL_SIZE: f32 = 12.0;
 const CELL_PADDING: f32 = 3.0;
 const INDEX_WIDTH: f32 = 22.0;
 const ROW_HEIGHT: f32 = 21.0;
+const MIN_TREE_ROWS: f32 = 8.0;
 const ROW_SPACING: f32 = 0.0;
 const ROW_PADDING: f32 = 6.0;
 const INDENT: f32 = 11.0;
@@ -320,7 +324,7 @@ pub enum Message {
     Tick,
     Viewer(viewer::Message),
     Row(usize),
-    Scrolled(f32),
+    Scrolled(f32, f32),
     StripScrolled(f32),
     Changed(usize, Field, String),
     LoopChanged(String),
@@ -354,6 +358,8 @@ pub enum Message {
     OpenManage,
     ManagePopup(popup::Message),
     Manage(manage::Message),
+    Gizmo(gizmo::Turn),
+    Handed(Hand),
     Export,
     Exported(bool),
     ExportExpired,
@@ -515,6 +521,7 @@ struct Session {
     listed: String,
     seeded: bool,
     scroll: f32,
+    window: f32,
     scroll_id: widget::Id,
     strip_scroll: f32,
     strip_id: widget::Id,
@@ -524,6 +531,8 @@ struct Session {
     slice: Option<usize>,
     carving: bool,
     slicing: Slot<usize>,
+    gizmo: gizmo::State,
+    drift: Vec<(usize, f32)>,
     drag: Drag,
     confirm: Slot<usize>,
     focus: Focus,
@@ -605,6 +614,7 @@ impl State {
             listed,
             seeded,
             scroll: 0.0,
+            window: 0.0,
             scroll_id: widget::Id::unique(),
             strip_scroll: 0.0,
             strip_id: widget::Id::unique(),
@@ -614,6 +624,8 @@ impl State {
             slice: None,
             carving: false,
             slicing: Slot::default(),
+            gizmo: gizmo::State::default(),
+            drift: Vec::new(),
             drag: Drag::default(),
             confirm: Slot::default(),
             focus,
@@ -835,6 +847,7 @@ impl State {
         };
 
         let live = session.viewer.playing()
+            || session.viewer.holding()
             || session.draft.as_ref().is_some_and(|draft| draft.backing.busy())
             || session.pose.as_ref().is_some_and(|pose| pose.backing.busy())
             || session.atlas.as_ref().is_some_and(|atlas| atlas.backing.busy());
@@ -1083,8 +1096,9 @@ impl State {
 
                 Task::none()
             }
-            Message::Scrolled(offset) => {
+            Message::Scrolled(offset, window) => {
                 session.scroll = offset;
+                session.window = window;
 
                 if let Drag::Moving { part, at, .. } = session.drag {
                     session.drag = Drag::Moving { part, at, onto: session.landing(part, at) };
@@ -1295,6 +1309,45 @@ impl State {
                 task
             }
             Message::Undo => session.undo(),
+            Message::Handed(hand) => {
+                settings.animation.hand = hand;
+
+                Task::none()
+            }
+            Message::Gizmo(gizmo::Turn::Halt) => {
+                session.gizmo.show(false);
+
+                Task::none()
+            }
+            Message::Gizmo(gizmo::Turn::Pick(part)) => {
+                session.gizmo.show(false);
+
+                if session.chosen_part() != Some(part) {
+                    return session.spotlight(part);
+                }
+
+                session.shed();
+
+                Task::none()
+            }
+            Message::Gizmo(gizmo::Turn::Grab(part)) => {
+                session.viewer.pause();
+                session.gizmo.show(true);
+
+                session.spotlight(part)
+            }
+            Message::Gizmo(gizmo::Turn::Begin(part, _)) => {
+                session.grasp(part, session.hand(settings));
+
+                Task::none()
+            }
+            Message::Gizmo(gizmo::Turn::Drag(sweep)) => session.haul(sweep, session.hand(settings)),
+            Message::Gizmo(gizmo::Turn::Drop) => {
+                session.gizmo.seize(false);
+
+                Task::none()
+            }
+            Message::Gizmo(gizmo::Turn::Fade(step)) => session.tint(step, session.hand(settings)),
             Message::OpenManage
             | Message::ManagePopup(_)
             | Message::Manage(_)
@@ -1534,6 +1587,77 @@ impl Session {
         }
 
         self.relist();
+    }
+
+    fn spotlight(&mut self, part: usize) -> Task<Message> {
+        self.focus = Focus::Part;
+        self.unfold(part);
+
+        if let Some(pose) = self.pose.as_mut() {
+            pose.pick(part);
+        }
+
+        self.aim();
+        self.relist();
+
+        self.reveal(part)
+    }
+
+    fn shed(&mut self) {
+        self.focus = Focus::Part;
+
+        if let Some(pose) = self.pose.as_mut() {
+            pose.part = None;
+            pose.restate();
+        }
+
+        self.aim();
+        self.relist();
+    }
+
+    fn unfold(&mut self, part: usize) {
+        let Some(pose) = self.pose.as_ref() else {
+            return;
+        };
+
+        let mut at = part;
+
+        for _ in 0..pose.doc.count() {
+            self.expanded.insert(at);
+
+            let Some(parent) = pose.doc.field(at, 0).and_then(|parent| usize::try_from(parent).ok()) else {
+                return;
+            };
+
+            if parent == at || parent >= pose.doc.count() {
+                return;
+            }
+
+            at = parent;
+        }
+    }
+
+    fn reveal(&mut self, part: usize) -> Task<Message> {
+        let Some(row) = self.rows.iter().position(|row| row.part == Some(part) && row.track.is_none())
+        else {
+            return Task::none();
+        };
+
+        let seat = row as f32 * ROW_HEIGHT;
+        let window = self.window.max(ROW_HEIGHT * MIN_TREE_ROWS);
+
+        if seat >= self.scroll && seat + ROW_HEIGHT <= self.scroll + window {
+            return Task::none();
+        }
+
+        let wanted = (seat - window / 2.0).max(0.0);
+
+        self.scroll = wanted;
+
+        operation::scroll_to(
+            self.scroll_id.clone(),
+            iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: wanted },
+        )
     }
 
     fn recover(&mut self, wanted: Held) {

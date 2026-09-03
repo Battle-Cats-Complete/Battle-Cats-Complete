@@ -1,5 +1,6 @@
 pub mod authoring;
 pub mod export;
+pub mod posing;
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};

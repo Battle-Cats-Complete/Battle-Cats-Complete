@@ -1,21 +1,33 @@
 use std::cell::Cell;
 
 use iced::advanced::{layout, mouse, overlay, renderer, widget, Clipboard, Layout, Shell, Widget};
-use iced::{Element, Event, Length, Rectangle, Size, Theme, Vector};
+use iced::{Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
 
 use super::Target;
 
 thread_local! {
     static HIT: Cell<Option<Target>> = const { Cell::new(None) };
-    static VETO: Cell<bool> = const { Cell::new(false) };
+    static VETO: Cell<Veto> = const { Cell::new(Veto::None) };
+}
+
+#[derive(Clone, Copy, Default)]
+enum Veto {
+    #[default]
+    None,
+    Everywhere,
+    Over(Rectangle),
 }
 
 pub(super) fn take() -> Option<Target> {
     HIT.with(Cell::take)
 }
 
-pub(super) fn vetoed() -> bool {
-    VETO.with(Cell::take)
+pub(super) fn vetoed(at: Option<Point>) -> bool {
+    match VETO.with(Cell::take) {
+        Veto::None => false,
+        Veto::Everywhere => true,
+        Veto::Over(bounds) => at.is_some_and(|at| bounds.contains(at)),
+    }
 }
 
 fn claim(target: Target) {
@@ -34,25 +46,34 @@ pub(crate) fn suppress<'a, M: 'a>(content: impl Into<Element<'a, M>>, active: bo
     Element::new(Region { content: content.into(), target: Role::Veto(active) })
 }
 
+pub(crate) fn deflect<'a, M: 'a>(content: impl Into<Element<'a, M>>, active: bool) -> Element<'a, M> {
+    Element::new(Region { content: content.into(), target: Role::Deflect(active) })
+}
+
 #[derive(Clone, Copy)]
 enum Role {
     Claim(Target),
     Veto(bool),
+    Deflect(bool),
 }
 
 impl Role {
-    fn apply(self, over: bool) {
+    fn apply(self, over: bool, bounds: Rectangle) {
         match self {
             Self::Claim(target) => {
                 if over {
                     claim(target);
                 }
             }
-            Self::Veto(active) => {
-                if active {
-                    VETO.with(|veto| veto.set(true));
-                }
+            Self::Veto(true) => VETO.with(|veto| veto.set(Veto::Everywhere)),
+            Self::Deflect(true) => {
+                VETO.with(|veto| {
+                    if matches!(veto.get(), Veto::None) {
+                        veto.set(Veto::Over(bounds));
+                    }
+                });
             }
+            Self::Veto(false) | Self::Deflect(false) => {}
         }
     }
 }
@@ -110,9 +131,10 @@ impl<'a, M> Widget<M, Theme, iced::Renderer> for Region<'a, M> {
             return;
         }
 
-        let over = layout.bounds().intersection(viewport).is_some_and(|visible| cursor.is_over(visible));
+        let bounds = layout.bounds();
+        let over = bounds.intersection(viewport).is_some_and(|visible| cursor.is_over(visible));
 
-        self.target.apply(over);
+        self.target.apply(over, bounds);
     }
 
     fn mouse_interaction(

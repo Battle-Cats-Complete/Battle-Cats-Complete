@@ -192,11 +192,11 @@ fn channels(target: &studio::Channels) -> Item {
     let part = target.part;
     let held = &target.present;
 
-    let absent: Vec<Item> = authoring::KINDS
-        .iter()
-        .filter(|kind| !held.iter().any(|(known, _)| known == *kind))
+    let absent: Vec<Item> = authoring::kinds()
+        .into_iter()
+        .filter(|kind| !held.iter().any(|(known, _)| known == kind))
         .map(|kind| {
-            Item::new(authoring::kind_label(*kind).to_owned(), Action::AddChannel { part, kind: *kind })
+            Item::new(authoring::kind_label(kind).to_owned(), Action::AddChannel { part, kind })
         })
         .collect();
 
