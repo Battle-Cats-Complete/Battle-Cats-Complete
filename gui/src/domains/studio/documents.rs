@@ -9,9 +9,10 @@ fn next_token() -> u64 {
 
 pub(super) fn span_of(keys: &[Keyframe], at: usize) -> Option<(i32, i32)> {
     let here = keys.get(at)?.frame;
-    let end = keys.get(at + 1).map_or(here, |next| next.frame.saturating_sub(1).max(here));
 
-    Some((here, end))
+    let reaching = keys.get(at + 1).map_or(here, |next| next.frame);
+
+    Some((here, reaching.max(here)))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1215,17 +1216,21 @@ mod tests {
     }
 
     #[test]
-    fn a_bound_stops_one_frame_short_of_the_next_key() {
-        // Ending on the next key would play the first frame of the following segment.
-        let keys = keys(&[0, 10, 25]);
+    fn a_bound_reaches_the_next_key_rather_than_stopping_short_of_it() {
+        // The strip marks a segment across both of its keys, so the bound has to hold both.
+        // Stopping a frame short cut off the pose being animated towards, and collapsed to a
+        // single frame outright wherever two keys sit next to each other.
+        let spread = keys(&[0, 10, 25]);
 
-        assert_eq!(span_of(&keys, 0), Some((0, 9)));
-        assert_eq!(span_of(&keys, 1), Some((10, 24)));
+        assert_eq!(span_of(&spread, 0), Some((0, 10)));
+        assert_eq!(span_of(&spread, 1), Some((10, 25)));
+
+        assert_eq!(span_of(&keys(&[3, 4]), 0), Some((3, 4)));
     }
 
     #[test]
     fn the_last_key_bounds_itself_rather_than_repeating_its_neighbour() {
-        // It used to reach backwards and hand back the previous key's span verbatim.
+        // The strip marks it alone, having nothing to reach towards, and the bound matches.
         let keys = keys(&[0, 10, 25]);
 
         assert_eq!(span_of(&keys, 2), Some((25, 25)));

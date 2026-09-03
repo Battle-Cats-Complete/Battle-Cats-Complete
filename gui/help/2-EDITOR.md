@@ -24,7 +24,4 @@ Abstracts away from raw file values to provide an easy-to-use but slightly more 
 ## Buffer Character
 When editing a clamped field, you may sometimes notice that BCC resolves the value mid-write, making it difficult to write the value you want as it transforms inputs such as `100` into `200` when you start writing the value at `1`.
 
-Numeric input fields accept a buffer character: `!`. When this character is included at the start of a field, your value will not be resolved or written until the field is "unfocused." Fields become "unfocused" when you click anywhere outside the input field.
-
-## Animation
-Docs coming soon.
+Numeric input fields accept a buffer character: `!`. When this character is included at the start of a field, your value will not be resolved or written until the field is "unfocused." Fields become "unfocused" when you click anywhere outside the input field.gui
