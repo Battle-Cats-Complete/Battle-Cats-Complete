@@ -70,8 +70,8 @@ impl Probe {
         self.resting
     }
 
-    fn swing(&mut self, field: usize, held: i32) -> Option<[f32; 8]> {
-        set_field(&mut self.rig.model, self.part, field, held.wrapping_add(PROBE));
+    fn swing(&mut self, field: usize, held: i32, step: i32) -> Option<[f32; 8]> {
+        set_field(&mut self.rig.model, self.part, field, held.wrapping_add(step));
 
         let moved = self.quad();
 
@@ -80,10 +80,10 @@ impl Probe {
         moved
     }
 
-    fn swung(&mut self, doc: &Maanim, kind: i32, held: i32) -> Option<[f32; 8]> {
+    fn swung(&mut self, doc: &Maanim, kind: i32, held: i32, step: i32) -> Option<[f32; 8]> {
         let mut probed = doc.clone();
 
-        probed.pose(self.part, kind, self.frame, held.wrapping_add(PROBE), Some(&self.rig.model));
+        probed.pose(self.part, kind, self.frame, held.wrapping_add(step), Some(&self.rig.model));
 
         let put_back = self.anim.replace((*probed.shared()).clone());
         let moved = self.quad();
@@ -94,12 +94,18 @@ impl Probe {
     }
 
     pub fn rest_reach(&mut self, fields: (usize, usize), spots: &[Spot]) -> Option<Vec<[(f32, f32); 2]>> {
-        let held = (field(self.model(), self.part, fields.0)?, field(self.model(), self.part, fields.1)?);
-        let resting = self.resting()?;
-        let across = self.swing(fields.0, held.0)?;
-        let down = self.swing(fields.1, held.1)?;
+        let across = self.rest_sweep(fields.0, PROBE, spots)?;
+        let down = self.rest_sweep(fields.1, PROBE, spots)?;
 
-        Some(self.columns(&resting, &across, &down, spots))
+        Some(across.into_iter().zip(down).map(|(across, down)| [across, down]).collect())
+    }
+
+    pub fn rest_sweep(&mut self, field_at: usize, step: i32, spots: &[Spot]) -> Option<Vec<(f32, f32)>> {
+        let held = field(self.model(), self.part, field_at)?;
+        let resting = self.resting()?;
+        let moved = self.swing(field_at, held, step)?;
+
+        Some(self.column(&resting, &moved, step, spots))
     }
 
     pub fn channel_reach(
@@ -109,27 +115,35 @@ impl Probe {
         held: (i32, i32),
         spots: &[Spot],
     ) -> Option<Vec<[(f32, f32); 2]>> {
-        let resting = self.resting()?;
-        let across = self.swung(doc, kinds.0, held.0)?;
-        let down = self.swung(doc, kinds.1, held.1)?;
+        let across = self.channel_sweep(doc, kinds.0, held.0, PROBE, spots)?;
+        let down = self.channel_sweep(doc, kinds.1, held.1, PROBE, spots)?;
 
-        Some(self.columns(&resting, &across, &down, spots))
+        Some(across.into_iter().zip(down).map(|(across, down)| [across, down]).collect())
     }
 
-    fn columns(
-        &self,
-        resting: &[f32; 8],
-        across: &[f32; 8],
-        down: &[f32; 8],
+    pub fn channel_sweep(
+        &mut self,
+        doc: &Maanim,
+        kind: i32,
+        held: i32,
+        step: i32,
         spots: &[Spot],
-    ) -> Vec<[(f32, f32); 2]> {
-        let slope = |moved: &[f32; 8], spot: Spot| {
-            let (was, now) = (self.locate(resting, spot), self.locate(moved, spot));
+    ) -> Option<Vec<(f32, f32)>> {
+        let resting = self.resting()?;
+        let moved = self.swung(doc, kind, held, step)?;
 
-            ((now.0 - was.0) / PROBE as f32, (now.1 - was.1) / PROBE as f32)
-        };
+        Some(self.column(&resting, &moved, step, spots))
+    }
 
-        spots.iter().map(|spot| [slope(across, *spot), slope(down, *spot)]).collect()
+    fn column(&self, resting: &[f32; 8], moved: &[f32; 8], step: i32, spots: &[Spot]) -> Vec<(f32, f32)> {
+        spots
+            .iter()
+            .map(|spot| {
+                let (was, now) = (self.locate(resting, *spot), self.locate(moved, *spot));
+
+                ((now.0 - was.0) / step as f32, (now.1 - was.1) / step as f32)
+            })
+            .collect()
     }
 
     fn locate(&self, quad: &[f32; 8], spot: Spot) -> (f32, f32) {

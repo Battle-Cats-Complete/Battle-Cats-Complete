@@ -99,7 +99,19 @@ impl Maanim {
         Some(at)
     }
 
+    pub fn reachable(&self, track: usize, frame: i32) -> Option<i32> {
+        let held = self.track(track)?;
+        let last = held.keyframes.last()?.frame;
+        let local = timeline::local_frame(held, frame)?;
+
+        Some(match local == last {
+            true => frame,
+            false => local,
+        })
+    }
+
     pub fn ensure_key(&mut self, track: usize, frame: i32) -> Option<usize> {
+        let frame = self.reachable(track, frame).unwrap_or(frame);
         let held = self.track(track)?;
 
         if let Some(at) = held.keyframes.iter().position(|key| key.frame == frame) {
@@ -494,5 +506,43 @@ mod tests {
 
         assert_eq!(held.modifications[0].keyframes[0].value, 50);
         assert_eq!(doc.shared().modifications[0].keyframes[0].value, 900);
+    }
+
+    #[test]
+    fn posing_past_a_looping_curve_edits_the_key_the_engine_actually_reads() {
+        // A looping curve folds a playhead past its last key back inside its span, so a
+        // key written at the raw frame is one the engine never evaluates: the value reads
+        // back unchanged and the part refuses to budge. Found on Anubis part 36, whose
+        // idle angle curve loops over frames 0..60.
+        let mut doc = Maanim::parse(POSED.as_bytes()).expect("the sample parses");
+        let track = doc.effective(0, 4).expect("the sample declares the curve");
+
+        if let Some(curve) = doc.edit(track) {
+            curve.loop_count = -1;
+        }
+
+        assert_eq!(doc.reachable(track, 4), Some(4));
+        assert_eq!(doc.reachable(track, 20), Some(0));
+        assert_eq!(doc.reachable(track, 25), Some(5));
+
+        doc.pose(0, 4, 20, 999, None);
+
+        assert_eq!(doc.posed(0, 4, 20), Some(999));
+        assert_eq!(doc.posed(0, 4, 0), Some(999));
+    }
+
+    #[test]
+    fn posing_past_a_resting_curve_extends_it_rather_than_folding_back() {
+        // A curve that does not loop holds its last value forever, so the playhead really
+        // is past the end and a new key there is the right answer.
+        let mut doc = Maanim::parse(POSED.as_bytes()).expect("the sample parses");
+        let track = doc.effective(0, 4).expect("the sample declares the curve");
+
+        assert_eq!(doc.reachable(track, 40), Some(40));
+
+        doc.pose(0, 4, 40, 999, None);
+
+        assert_eq!(doc.posed(0, 4, 40), Some(999));
+        assert_eq!(doc.posed(0, 4, 20), Some(100));
     }
 }

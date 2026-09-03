@@ -305,7 +305,6 @@ pub(crate) struct Channels {
     pub(crate) label: String,
     pub(crate) present: Vec<(i32, usize)>,
     pub(crate) channelled: bool,
-    pub(crate) mount: String,
 }
 
 #[derive(Clone)]
@@ -533,6 +532,7 @@ struct Session {
     slicing: Slot<usize>,
     gizmo: gizmo::State,
     drift: Vec<(usize, f32)>,
+    winding: f32,
     drag: Drag,
     confirm: Slot<usize>,
     focus: Focus,
@@ -626,6 +626,7 @@ impl State {
             slicing: Slot::default(),
             gizmo: gizmo::State::default(),
             drift: Vec::new(),
+            winding: 1.0,
             drag: Drag::default(),
             confirm: Slot::default(),
             focus,
@@ -686,7 +687,6 @@ impl State {
             label: format!("Part {}", part),
             present,
             channelled: session.draft.is_some(),
-            mount: session.mount(),
         })
     }
 
@@ -1336,14 +1336,14 @@ impl State {
 
                 session.spotlight(part)
             }
-            Message::Gizmo(gizmo::Turn::Begin(part, _)) => {
-                session.grasp(part, session.hand(settings));
+            Message::Gizmo(gizmo::Turn::Begin(part, grip)) => {
+                session.grasp(part, grip, session.hand(settings));
 
                 Task::none()
             }
             Message::Gizmo(gizmo::Turn::Drag(sweep)) => session.haul(sweep, session.hand(settings)),
             Message::Gizmo(gizmo::Turn::Drop) => {
-                session.gizmo.seize(false);
+                session.gizmo.seize(None);
 
                 Task::none()
             }
@@ -1680,10 +1680,6 @@ impl Session {
             pose.pick(part);
             self.focus = Focus::Part;
         }
-    }
-
-    fn mount(&self) -> String {
-        State::mount_of(&self.plan)
     }
 
     fn remember(&mut self, tag: Tag) {

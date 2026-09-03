@@ -19,10 +19,6 @@ const NO_CLIP_NOTICE: &str = "Select an animation clip to add channels";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Verb {
-    AddChannel,
-    DropChannel,
-    AddPart,
-    DropPart,
     Edit,
     Replace,
     Open,
@@ -35,10 +31,6 @@ enum Verb {
 impl Verb {
     fn nested(self) -> &'static str {
         match self {
-            Verb::AddChannel => "Add channel",
-            Verb::DropChannel => "Remove channel",
-            Verb::AddPart => "New part",
-            Verb::DropPart => "Remove part",
             Verb::Edit => "Edit in app",
             Verb::Replace => "Replace from disk",
             Verb::Open => "Open in program",
@@ -51,10 +43,6 @@ impl Verb {
 
     fn flat(self, name: &str, mount: &str) -> String {
         match self {
-            Verb::AddChannel => format!("Add a channel to \"{name}\" in \"{mount}\""),
-            Verb::DropChannel => format!("Remove a channel from \"{name}\" in \"{mount}\""),
-            Verb::AddPart => format!("New \"{name}\" in \"{mount}\""),
-            Verb::DropPart => format!("Remove \"{name}\" from \"{mount}\""),
             Verb::Edit => format!("Edit \"{name}\" in \"{mount}\""),
             Verb::Replace => format!("Replace \"{name}\" in \"{mount}\""),
             Verb::Open => format!("Open \"{name}\" in \"{mount}\""),
@@ -173,9 +161,7 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
     }
 
     if let Some(target) = context.channels.as_ref() {
-        items.push(channels(&target.channels));
-
-        return items;
+        return channels(&target.channels);
     }
 
     let payloads = payloads(context);
@@ -188,41 +174,57 @@ pub(super) fn items(context: &Context) -> Vec<Item> {
     items
 }
 
-fn channels(target: &studio::Channels) -> Item {
+fn channels(target: &studio::Channels) -> Vec<Item> {
     let part = target.part;
+    let subject = &target.label;
     let held = &target.present;
 
-    let absent: Vec<Item> = authoring::kinds()
+    let absent: Vec<(i32, String)> = authoring::kinds()
         .into_iter()
         .filter(|kind| !held.iter().any(|(known, _)| known == kind))
-        .map(|kind| {
-            Item::new(authoring::kind_label(kind).to_owned(), Action::AddChannel { part, kind })
-        })
+        .map(|kind| (kind, authoring::kind_label(kind).to_owned()))
         .collect();
 
-    let present: Vec<Item> = held
-        .iter()
-        .map(|(kind, track)| {
-            Item::new(authoring::kind_label(*kind).to_owned(), Action::DropChannel { track: *track })
-                .confirming_terse()
-        })
-        .collect();
+    let adding = match (target.channelled, absent.as_slice()) {
+        (false, _) => Item::disabled(format!("Add channel to \"{subject}\""), NO_CLIP_NOTICE),
+        (_, []) => Item::disabled(format!("Add channel to \"{subject}\""), EVERY_CHANNEL_NOTICE),
+        (_, [(kind, label)]) => Item::new(
+            format!("Add \"{label}\" to \"{subject}\""),
+            Action::AddChannel { part, kind: *kind },
+        ),
+        _ => Item::list(
+            format!("Add channel to \"{subject}\""),
+            absent
+                .into_iter()
+                .map(|(kind, label)| Item::new(label, Action::AddChannel { part, kind }))
+                .collect(),
+        ),
+    };
 
-    let children = vec![
-        Item::new(Verb::AddPart.nested().to_owned(), Action::AddPart { parent: Some(part) }),
-        match (target.channelled, absent.is_empty()) {
-            (false, _) => Item::disabled(Verb::AddChannel.nested(), NO_CLIP_NOTICE),
-            (_, true) => Item::disabled(Verb::AddChannel.nested(), EVERY_CHANNEL_NOTICE),
-            _ => Item::list(Verb::AddChannel.nested().to_owned(), absent),
-        },
-        match present.is_empty() {
-            true => Item::disabled(Verb::DropChannel.nested(), NO_CHANNEL_NOTICE),
-            false => Item::list(Verb::DropChannel.nested().to_owned(), present),
-        },
-        Item::new(Verb::DropPart.nested().to_owned(), Action::DropPart { part }).confirming(),
-    ];
+    let dropping = match held.as_slice() {
+        [] => Item::disabled(format!("Remove channel from \"{subject}\""), NO_CHANNEL_NOTICE),
+        [(kind, track)] => Item::new(
+            format!("Remove \"{}\" from \"{subject}\"", authoring::kind_label(*kind)),
+            Action::DropChannel { track: *track },
+        )
+        .confirming(),
+        _ => Item::list(
+            format!("Remove channel from \"{subject}\""),
+            held.iter()
+                .map(|(kind, track)| {
+                    Item::new(authoring::kind_label(*kind).to_owned(), Action::DropChannel { track: *track })
+                        .confirming_terse()
+                })
+                .collect(),
+        ),
+    };
 
-    Item::list(manage(&target.label, &Mount { name: &target.mount, target: None, locked: false }), children)
+    vec![
+        Item::new(format!("New part in \"{subject}\""), Action::AddPart { parent: Some(part) }),
+        adding,
+        dropping,
+        Item::new(format!("Delete \"{subject}\""), Action::DropPart { part }).confirming(),
+    ]
 }
 
 fn payloads(context: &Context) -> Vec<Payload<'_>> {

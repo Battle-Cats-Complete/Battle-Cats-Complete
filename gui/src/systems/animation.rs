@@ -72,6 +72,29 @@ fn frame_border<'a>() -> Element<'a, Message> {
         .into()
 }
 
+pub struct Posed {
+    pub part: usize,
+    pub quad: [f32; 8],
+    pub origin: (f32, f32),
+}
+
+fn seated(unit: &Rig, entry: part::PartFrame) -> Posed {
+    let quad = entry.frame.vertices;
+    let corners: [iced::Point; 4] =
+        std::array::from_fn(|at| iced::Point::new(quad[at * 2], quad[at * 2 + 1]));
+
+    let origin = diagnostics::pivot_of(unit, entry.part, &entry.frame, &corners)
+        .map_or_else(|| midpoint(&corners), |found| (found.x, found.y));
+
+    Posed { part: entry.part, quad, origin }
+}
+
+fn midpoint(corners: &[iced::Point; 4]) -> (f32, f32) {
+    let sum = corners.iter().fold((0.0, 0.0), |held, at| (held.0 + at.x, held.1 + at.y));
+
+    (sum.0 / 4.0, sum.1 / 4.0)
+}
+
 pub struct State {
     data: data::State,
     canvas: canvas::State,
@@ -264,7 +287,7 @@ impl State {
         self.canvas.is_playing = false;
     }
 
-    pub fn posed(&self) -> Vec<(usize, [f32; 8])> {
+    pub fn posed(&self) -> Vec<Posed> {
         let Some(unit) = self.data.held_unit.as_ref() else {
             return Vec::new();
         };
@@ -272,7 +295,7 @@ impl State {
         let frame = self.data.playback_frame(self.canvas.current_frame).floor() as i32;
 
         part::resolve(unit, self.data.current_anim.as_deref(), frame, self.data.offset())
-            .map(|mapped| mapped.into_iter().map(|entry| (entry.part, entry.frame.vertices)).collect())
+            .map(|mapped| mapped.into_iter().map(|entry| seated(unit, entry)).collect())
             .unwrap_or_default()
     }
 

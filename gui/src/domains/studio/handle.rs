@@ -16,6 +16,8 @@ const SCALE_Y_KIND: i32 = 10;
 const ANGLE_KIND: i32 = 11;
 const OPACITY_KIND: i32 = 12;
 
+const TURN_PROBE: i32 = 8;
+
 type Step = (usize, i32, f32);
 
 impl Session {
@@ -34,18 +36,16 @@ impl Session {
         self.pose.as_ref().and_then(|pose| pose.part)
     }
 
-    pub(super) fn pivot_bias(&self) -> (f32, f32) {
-        self.chosen_part()
-            .zip(self.viewer.rig())
-            .and_then(|(part, rig)| posing::pivot_bias(rig, part))
-            .unwrap_or((0.5, 0.5))
-    }
-
-    pub(super) fn grasp(&mut self, part: usize, hand: Hand) {
+    pub(super) fn grasp(&mut self, part: usize, grip: gizmo::Grip, hand: Hand) {
         self.gizmo.show(true);
-        self.gizmo.seize(true);
+        self.gizmo.seize(Some(grip));
         self.viewer.pause();
         self.drift.clear();
+
+        if grip == gizmo::Grip::Rotate {
+            self.winding = self.wound(part, hand).unwrap_or(1.0);
+        }
+
         self.remember(Tag::Gizmo(part, hand));
     }
 
@@ -140,9 +140,39 @@ impl Session {
 
     fn spin(&mut self, part: usize, spun: f32, hand: Hand) -> Task<Message> {
         let unit = self.viewer.rig().map_or(3600, |rig| rig.model.angle_unit).max(1) as f32;
-        let step = spun / std::f32::consts::TAU * unit;
+        let step = spun / std::f32::consts::TAU * unit * self.winding;
 
         self.apply(part, &[(ANGLE_FIELD, ANGLE_KIND, step)], hand)
+    }
+
+    fn wound(&self, part: usize, hand: Hand) -> Option<f32> {
+        let spots = [posing::Spot::Corner(0), posing::Spot::Corner(3)];
+        let mut probe = self.probe(part)?;
+
+        let swept = match hand {
+            Hand::Model => probe.rest_sweep(ANGLE_FIELD, TURN_PROBE, &spots),
+            Hand::Channel => {
+                let doc = &self.draft.as_ref()?.doc;
+                let held = self.held(part, ANGLE_FIELD, ANGLE_KIND, hand)?;
+
+                probe.channel_sweep(doc, ANGLE_KIND, held, TURN_PROBE, &spots)
+            }
+        }?;
+
+        let found = self.viewer.posed().into_iter().find(|entry| entry.part == part)?;
+        let seat = |at: usize| (found.quad[at * 2], found.quad[at * 2 + 1]);
+
+        let turning = [0, 3]
+            .into_iter()
+            .zip(swept)
+            .map(|(corner, reach)| {
+                let arm = span(found.origin, seat(corner));
+
+                arm.0 * reach.1 - arm.1 * reach.0
+            })
+            .max_by(|turn, other| turn.abs().total_cmp(&other.abs()))?;
+
+        (turning.abs() > f32::EPSILON).then(|| turning.signum())
     }
 
     fn worldly(&self, travel: Vector) -> Option<(f32, f32)> {
@@ -286,4 +316,8 @@ impl Session {
 
 fn lessen(pulled: (f32, f32), held: (f32, f32)) -> (f32, f32) {
     (pulled.0 - held.0, pulled.1 - held.1)
+}
+
+fn span(from: (f32, f32), to: (f32, f32)) -> (f32, f32) {
+    (to.0 - from.0, to.1 - from.1)
 }

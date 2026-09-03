@@ -128,7 +128,7 @@ fn placed_corners(frame: &FrameData) -> [Point; 4] {
     corners(frame, &|x, y| Point::new(x, y))
 }
 
-fn pivot_of(unit: &Rig, part: usize, geometry: &FrameData, quad: &[Point; 4]) -> Option<Point> {
+pub(crate) fn pivot_of(unit: &Rig, part: usize, geometry: &FrameData, quad: &[Point; 4]) -> Option<Point> {
     let declared = unit.model.parts.get(part)?;
     let cut = unit.sheet.cuts.get(geometry.sprite_index)?;
 

@@ -137,12 +137,7 @@ impl Session {
             true => editor::deflect(
                 stack![
                     showing,
-                    self.gizmo.view(
-                        self.chosen_part(),
-                        self.pivot_bias(),
-                        self.viewer.posed(),
-                        self.viewer.camera(),
-                    ),
+                    self.gizmo.view(self.chosen_part(), self.viewer.posed(), self.viewer.camera()),
                 ],
                 true,
             ),
