@@ -365,15 +365,16 @@ struct Item {
     action: Option<Action>,
     children: Vec<Item>,
     confirm: bool,
+    terse: bool,
 }
 
 impl Item {
     fn new(label: impl Into<String>, action: Action) -> Self {
-        Self { label: label.into(), hint: None, action: Some(action), children: Vec::new(), confirm: false }
+        Self { label: label.into(), hint: None, action: Some(action), children: Vec::new(), confirm: false, terse: false }
     }
 
     fn disabled(label: impl Into<String>, hint: impl Into<String>) -> Self {
-        Self { label: label.into(), hint: Some(hint.into()), action: None, children: Vec::new(), confirm: false }
+        Self { label: label.into(), hint: Some(hint.into()), action: None, children: Vec::new(), confirm: false, terse: false }
     }
 
     fn unsupported(label: impl Into<String>) -> Self {
@@ -383,7 +384,7 @@ impl Item {
     fn list(label: impl Into<String>, children: Vec<Item>) -> Self {
         let hint = shared_hint(&children);
 
-        Self { label: label.into(), hint, action: None, children, confirm: false }
+        Self { label: label.into(), hint, action: None, children, confirm: false, terse: false }
     }
 
     fn opens(&self) -> bool {
@@ -401,6 +402,12 @@ impl Item {
 
     fn confirming(mut self) -> Self {
         self.confirm = true;
+        self
+    }
+
+    fn confirming_terse(mut self) -> Self {
+        self.confirm = true;
+        self.terse = true;
         self
     }
 }

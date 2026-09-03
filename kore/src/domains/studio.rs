@@ -22,6 +22,7 @@ const CUTS_EXT: &str = "imgcut";
 const MODEL_EXT: &str = "mamodel";
 const ANIM_EXT: &str = "maanim";
 const DEFAULT_NAME: &str = "New Set";
+pub const SEED_NAME: &str = "New";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Slot {
@@ -306,7 +307,7 @@ pub fn vacant(wanted: &str) -> String {
     }
 
     (1..)
-        .map(|at| format!("{} {}", base, at))
+        .map(|at| format!("{}{}", base, at))
         .find(|name| !root().join(name).exists())
         .unwrap_or(base)
 }

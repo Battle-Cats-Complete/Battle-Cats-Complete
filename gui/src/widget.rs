@@ -1,5 +1,6 @@
 mod ability_fallback;
 mod combo;
+mod fade;
 mod fit_text;
 mod hint;
 mod toggle;
@@ -26,6 +27,7 @@ pub mod statblock_export;
 
 pub(crate) use ability_fallback::{fallback_icon, ICON_SIZE};
 pub(crate) use combo::combo_row;
+pub(crate) use fade::fade;
 pub(crate) use fit_text::fit_column;
 pub(crate) use hint::hover_hint;
 pub(crate) use toggle::{toggle_label, toggle_row};

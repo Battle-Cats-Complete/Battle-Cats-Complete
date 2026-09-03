@@ -22,9 +22,24 @@ pub struct AppState {
     pub(crate) files: FilesState,
     pub(crate) data: GameDataState,
     pub(crate) animation: AnimState,
+    pub(crate) studio: StudioState,
     pub(crate) notice: NoticeState,
     pub(crate) help: HelpState,
     pub(crate) popups: BTreeMap<String, StoredSize>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub(crate) struct StudioState {
+    pub name: String,
+    pub sheet: Option<PathBuf>,
+    pub cuts: Option<PathBuf>,
+    pub model: Option<PathBuf>,
+    pub anims: Vec<PathBuf>,
+    pub sealed: bool,
+    pub target_mod: Option<String>,
+    pub atlas: bool,
+    pub clip: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]

@@ -37,9 +37,10 @@ pub(super) fn cuts(name: &str) -> String {
 
 pub(super) fn model() -> String {
     let half = BOX_SPAN / 2;
+    let (align_x, align_y) = (half, BOX_SPAN);
 
     format!(
-        "[modelanim:model]\n1\n1\n-1,0,0,0,0,0,{half},{half},1000,1000,0,1000,0,box\n1000,3600,1000\n2\n0,0,0,0,0,0,combat\n0,0,0,0,0,0,gacha\n"
+        "[modelanim:model]\n1\n1\n-1,0,0,0,0,0,{half},{half},1000,1000,0,1000,0,box\n1000,3600,1000\n2\n0,0,{align_x},{align_y},0,0,combat\n0,0,{align_x},{align_y},0,0,gacha\n"
     )
 }
 
@@ -67,6 +68,26 @@ mod tests {
 
         let parsed = Maanim::parse(anim().as_bytes()).expect("the animation parses");
         assert_eq!(parsed.tracks().len(), 1);
+    }
+
+    #[test]
+    fn the_seeded_entity_stands_on_the_ground_line() {
+        // A box hanging below the origin is an authoring mistake, so the seed must not
+        // ship one. Both numbers come straight from `animate::shift` and `engine::deploy`.
+        let model = Model::parse(model().as_bytes()).expect("the model parses");
+        let root = model.parts.first().expect("the root part");
+        let align = model.alignment.first().expect("the combat row");
+
+        let unit = model.scale_unit as f32;
+        let shift = |offset: i32, pivot: i32, scale: i32| {
+            (-(offset as f32) + pivot as f32) * (scale as f32 / unit)
+        };
+
+        let top = -(root.pivot_y as f32) + shift(align.y, root.pivot_y, root.scale_y);
+        let left = -(root.pivot_x as f32) + shift(align.x, root.pivot_x, root.scale_x);
+
+        assert_eq!(top + BOX_SPAN as f32, 0.0, "its feet rest on the origin");
+        assert_eq!(left, -(BOX_SPAN as f32) / 2.0, "and it is centred on it");
     }
 
     #[test]

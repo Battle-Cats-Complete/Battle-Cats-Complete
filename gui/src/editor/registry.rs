@@ -204,7 +204,7 @@ fn channels(target: &studio::Channels) -> Item {
         .iter()
         .map(|(kind, track)| {
             Item::new(authoring::kind_label(*kind).to_owned(), Action::DropChannel { track: *track })
-                .confirming()
+                .confirming_terse()
         })
         .collect();
 

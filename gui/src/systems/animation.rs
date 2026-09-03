@@ -239,6 +239,10 @@ impl State {
         self.highlight = part;
     }
 
+    pub fn offset(&self) -> Option<usize> {
+        self.data.offset()
+    }
+
     pub fn loaded_rig(&self) -> &str {
         self.data.loaded_rig()
     }

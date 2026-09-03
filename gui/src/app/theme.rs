@@ -3,7 +3,7 @@ use iced::border::Radius;
 use iced::theme::Palette;
 use iced::widget::overlay::menu;
 use iced::widget::text::Text;
-use iced::widget::{button, container, markdown, pick_list, progress_bar, text, text_editor, text_input, toggler, Button};
+use iced::widget::{button, container, markdown, pick_list, progress_bar, scrollable, text, text_editor, text_input, toggler, Button};
 use iced::{font, Background, Border, Color, Length, Padding, Theme};
 
 pub const HEADER_SEPARATOR: &str = " :: ";
@@ -443,6 +443,32 @@ pub fn status_badge(theme: &Theme, ok: bool) -> container::Style {
 }
 
 const PROGRESS_TRACK_SHADE: f32 = 0.55;
+
+pub fn fading_rail(theme: &Theme, reveal: f32) -> scrollable::Style {
+    let palette = theme.extended_palette();
+    let veiled = |color: Color| Color { a: color.a * reveal, ..color };
+    let base = scrollable::default(theme, scrollable::Status::Active {
+        is_horizontal_scrollbar_disabled: false,
+        is_vertical_scrollbar_disabled: false,
+    });
+
+    let rail = scrollable::Rail {
+        background: None,
+        border: Border::default(),
+        scroller: scrollable::Scroller {
+            background: Background::Color(veiled(palette.background.strongest.color)),
+            border: Border { radius: Radius::from(RADIUS_SM), ..Border::default() },
+        },
+    };
+
+    scrollable::Style {
+        container: container::Style::default(),
+        vertical_rail: rail,
+        horizontal_rail: rail,
+        gap: None,
+        ..base
+    }
+}
 
 pub fn progress_track(theme: &Theme) -> progress_bar::Style {
     let palette = theme.palette();

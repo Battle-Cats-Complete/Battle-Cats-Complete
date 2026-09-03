@@ -28,7 +28,7 @@ use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
 use crate::domains::{cat, enemy, files, help, home, import, mining, mods, settings as gui_settings, stage, studio, utilities};
 use crate::editor;
-use crate::widget::{nightly_label, popup, slide, Slide};
+use crate::widget::{fade, nightly_label, popup, slide, smooth_scroll, Slide};
 
 use state::AppState;
 
@@ -111,6 +111,10 @@ const TAB_SPACING: f32 = 6.0;
 const SIDEBAR_PADDING: f32 = 15.0;
 
 const SIDEBAR_WIDTH: f32 = 180.0;
+
+const SIDEBAR_BAR_WIDTH: f32 = 6.0;
+
+const SIDEBAR_BAR_MARGIN: f32 = 4.0;
 
 const ALL_PAGES: &[Page] = &[
     Page::Home,
@@ -1180,8 +1184,14 @@ impl BattleCatsApp {
             }
             Message::Mod(msg) => {
                 let mount_settled = matches!(msg, mods::Message::MountFinished { .. });
+                let mounted = self.mods_state.active_mod();
                 let task = self.mods_state.update(msg, &self.settings, &self.vault).map(Message::Mod);
                 self.mods_state.sync_state(&mut self.app_state.mods);
+
+                if self.mods_state.active_mod() != mounted {
+                    self.studio_state.unlatch();
+                }
+
                 self.sync_popup(ActivePopup::ModsImport, self.mods_state.import_popup_open());
                 self.sync_popup(ActivePopup::ModsExport, self.mods_state.export_popup_open());
 
@@ -1336,6 +1346,7 @@ impl BattleCatsApp {
                     .update(msg, &mut self.settings, &mut self.app_state.animation)
                     .map(Message::Studio);
 
+                self.studio_state.sync_state(&mut self.app_state.studio);
                 self.sync_popup(ActivePopup::StudioManage, self.studio_state.managing());
                 self.sync_popup(ActivePopup::StudioExport, self.studio_state.export_popup_visible());
 
@@ -1651,10 +1662,33 @@ impl BattleCatsApp {
             tabs = tabs.push(btn);
         }
 
-        let sidebar_panel = container(tabs)
+        let listed = fade(|reveal| {
+            let rail = scrollable::Scrollbar::new()
+                .width(SIDEBAR_BAR_WIDTH)
+                .scroller_width(SIDEBAR_BAR_WIDTH)
+                .margin(SIDEBAR_BAR_MARGIN);
+
+            let inset = container(tabs).padding(iced::Padding::default().right(SIDEBAR_PADDING));
+
+            smooth_scroll(
+                scrollable(inset)
+                    .direction(scrollable::Direction::Vertical(rail))
+                    .style(move |theme: &Theme, _| theme::fading_rail(theme, reveal.get()))
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+            )
+            .into()
+        });
+
+        let sidebar_panel = container(listed)
             .width(Length::Fixed(SIDEBAR_WIDTH))
             .height(Length::Fill)
-            .padding(SIDEBAR_PADDING)
+            .padding(iced::Padding {
+                top: SIDEBAR_PADDING,
+                right: 0.0,
+                bottom: SIDEBAR_PADDING,
+                left: SIDEBAR_PADDING,
+            })
             .style(theme::sidebar_container);
 
         let layer = row![toggle_container, opaque(slide(sidebar_panel, self.sidebar_open, Slide::Right))]
@@ -1701,23 +1735,5 @@ impl BattleCatsApp {
             }
             self.last_saved_state_hash = current_hash;
         }
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::{ALL_PAGES, SIDEBAR_PADDING, TAB_HEIGHT, TAB_SPACING};
-
-    const MINIMUM_WINDOW_HEIGHT: f32 = 600.0;
-
-    // The list is top-aligned, so its margins only match when the tabs fill the smallest
-    // window exactly: the panel padding is then the whole gap at both ends. Adding a page
-    // or resizing a tab breaks that balance, and this catches it. Studio's arrival is what
-    // took the tabs from 45/7.5 to 42/6.
-    #[test]
-    fn the_nav_list_fills_the_smallest_window_exactly() {
-        let tabs = ALL_PAGES.len() as f32;
-        let used = tabs * TAB_HEIGHT + (tabs - 1.0) * TAB_SPACING;
-
-        assert_eq!(used, MINIMUM_WINDOW_HEIGHT - SIDEBAR_PADDING * 2.0);
     }
 }

@@ -4,7 +4,7 @@ use iced::widget::{button, container, mouse_area, row, text as text_widget, tool
 use iced::{Border, Element, Length, Padding, Pixels, Size, Theme};
 
 use crate::app::theme;
-use crate::common::feedback::{CONFIRM_LABEL, FAILURE_LABEL};
+use crate::common::feedback::{CONFIRM_LABEL, CONFIRM_SHORT_LABEL, FAILURE_LABEL};
 use crate::common::fonts;
 
 use super::{Item, Message, Trail};
@@ -55,8 +55,9 @@ impl Marks<'_> {
 }
 
 impl Mark {
-    fn label(self, idle: &str) -> &str {
+    fn label(self, idle: &str, terse: bool) -> &str {
         match self {
+            Mark::Armed if terse => CONFIRM_SHORT_LABEL,
             Mark::Armed => CONFIRM_LABEL,
             Mark::Failed => FAILURE_LABEL,
             Mark::Idle => idle,
@@ -73,7 +74,8 @@ pub(super) fn measure(renderer: &iced::Renderer, items: &[Item]) -> Size {
 
     let (width, height) = items.iter().fold((0.0_f32, 0.0_f32), |(width, height), item| {
         let bounds = label_bounds(renderer, &item.label);
-        let armed = if item.confirm { label_bounds(renderer, CONFIRM_LABEL).width } else { 0.0 };
+        let confirm = if item.terse { CONFIRM_SHORT_LABEL } else { CONFIRM_LABEL };
+        let armed = if item.confirm { label_bounds(renderer, confirm).width } else { 0.0 };
         let failed = if item.action.is_some() { label_bounds(renderer, FAILURE_LABEL).width } else { 0.0 };
         let arrow = if item.opens() { ARROW_GAP + TEXT_SIZE } else { 0.0 };
 
@@ -140,7 +142,7 @@ fn entry<'a, M: Clone + 'a>(
 ) -> Element<'a, M> {
     let mark = marks.at(&trail);
 
-    let label = text_widget(mark.label(item.label.as_str()))
+    let label = text_widget(mark.label(item.label.as_str(), item.terse))
         .size(TEXT_SIZE)
         .shaping(SHAPING)
         .wrapping(WRAPPING);

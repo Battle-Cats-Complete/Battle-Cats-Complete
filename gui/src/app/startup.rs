@@ -73,6 +73,8 @@ impl BattleCatsApp {
         app.mods_state.restore_state(&app.app_state.mods);
         app.files_state.restore_state(&app.app_state.files);
         app.help_state.restore_state(&app.app_state.help);
+        let mounted = app.mods_state.active_mod();
+        app.studio_state.restore_state(&app.app_state.studio, mounted.as_deref());
         popup::restore(&app.app_state.popups);
 
         if notice::should_show(&app.app_state.notice.acknowledged) {

@@ -10,7 +10,7 @@ use crate::common::feedback::{self, Slot as Confirm};
 use crate::widget::{picker, popup};
 
 pub(super) const TITLE: &str = "Manage";
-pub(super) const SPEC: popup::Spec = popup::Spec::new(popup::Kind::StudioManage, Size::new(372.0, 246.0));
+pub(super) const SPEC: popup::Spec = popup::Spec::new(popup::Kind::StudioManage, Size::new(372.0, 284.0));
 
 const PADDING: f32 = 10.0;
 const GAP: f32 = 8.0;
@@ -35,6 +35,7 @@ pub enum Message {
     AnimsPicked(Vec<PathBuf>),
     DropAnim,
     DropExpired,
+    Reveal,
 }
 
 #[derive(Default)]
@@ -91,8 +92,19 @@ impl State {
         self.known = sets::sets();
     }
 
-    pub(super) fn view(&self, sealed: bool, droppable: bool) -> Element<'_, Message> {
-        let name = text_input(if sealed { SEALED_HINT } else { NAME_HINT }, &self.name)
+    pub(super) fn view(
+        &self,
+        mount: Option<String>,
+        droppable: bool,
+        folder: bool,
+    ) -> Element<'_, Message> {
+        let sealed = mount.is_some();
+        let seated = match mount {
+            Some(mount) => format!("\"{}\" in \"{}\"", self.name, mount),
+            None => self.name.clone(),
+        };
+
+        let name = text_input(if sealed { SEALED_HINT } else { NAME_HINT }, &seated)
             .size(LABEL_SIZE)
             .padding(picker::COMBO_PADDING)
             .width(Length::Fill)
@@ -139,7 +151,13 @@ impl State {
         .spacing(GAP)
         .align_y(Alignment::Center);
 
-        let body = column![name, sourcing, recall, files, tracks].spacing(GAP).width(Length::Fill);
+        let reveal = picker::action("Open Folder", Message::Reveal)
+            .width(Length::Fill)
+            .on_press_maybe(folder.then_some(Message::Reveal))
+            .style(theme::primary_button);
+
+        let body =
+            column![name, sourcing, recall, files, tracks, reveal].spacing(GAP).width(Length::Fill);
 
         container(body)
             .width(Length::Fill)

@@ -11,7 +11,7 @@ use iced::widget::{button, column, container, pick_list, row, rule, scrollable, 
 use iced::widget::{mouse_area, operation, responsive, tooltip};
 use iced::border::Border;
 use iced::{widget, Color, Element, Font, Length, Padding, Point, Size, Task, Theme};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use kore::common::architecture;
 use kore::common::preview::{self, Stamp};
@@ -22,12 +22,12 @@ use image::RgbaImage;
 use nyanko::graphics::rig::{Keyframe, Model, ModelPart, Opaque, Rig, SpriteCut};
 use nyanko::graphics::tools::timeline;
 
-use crate::app::state::AnimState;
+use crate::app::state::{AnimState, StudioState};
 use crate::app::theme;
 use crate::editor::{self, Target};
 use crate::systems::animation::{self as viewer, controls, overlay};
 
-use crate::common::feedback::{Slot, LOCKED_NOTICE};
+use crate::common::feedback::{self, Slot, LOCKED_NOTICE};
 use crate::common::{dialog, glyphs};
 use crate::common::row_window::{self, RowWindow};
 use crate::widget::{list_row, picture, popup, slide, smooth_scroll, Slide};
@@ -90,6 +90,8 @@ const EASE_WIDTH: f32 = 86.0;
 const DROP_WIDTH: f32 = 18.0;
 const STEP_WIDTH: f32 = 44.0;
 const ACTIVE_TINT: f32 = 0.68;
+const SEGMENT_TOP: f32 = 0.3;
+const SEGMENT_BOTTOM: f32 = 0.88;
 const FACT_ROW_HEIGHT: f32 = 20.0;
 const FACT_ROW_PAD: f32 = 4.0;
 const FACT_LABEL: f32 = 62.0;
@@ -112,11 +114,10 @@ const GHOST_FILL: f32 = 0.22;
 const GHOST_EDGE: f32 = 0.55;
 const GHOST_INK: f32 = 0.7;
 const GHOST_PAD: f32 = 3.0;
-const OFFSET_WIDTH: f32 = 74.0;
 const CUT_CELL_WIDTH: f32 = 30.0;
 const CUT_STEP_WIDTH: f32 = 46.0;
 const FRAME_HINT: &str = "Right click & drag to set the cut";
-const ALIGN_WIDTH: f32 = 44.0;
+const ALIGN_WIDTH: f32 = 36.0;
 const BUFFER_MARK: char = '!';
 
 const LOADING_NOTICE: &str = "Loading animation\u{2026}";
@@ -125,7 +126,7 @@ const NO_SET_HINT: &str = "Open Manage to import, pick or create a set";
 const NO_CLIP_NOTICE: &str = "This clip has no channels to edit";
 const UNREADABLE_NOTICE: &str = "This animation could not be read";
 const EMPTY_TRACK_NOTICE: &str = "This channel holds no keyframes";
-const NO_CURVE_CHOSEN: &str = "Select a channel to edit its keyframes";
+const NO_ENTRY_CHOSEN: &str = "Select a part or channel to edit";
 const WRITE_FAILED_NOTICE: &str = "The last change could not be saved";
 const NO_SPRITE_NOTICE: &str = "none";
 const PAST_ATLAS_NOTICE: &str = "past the atlas";
@@ -178,6 +179,37 @@ impl Mode {
 enum Swap {
     Same,
     Fresh,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Span {
+    Head,
+    Tail,
+    Only,
+}
+
+impl Span {
+    fn tint(self) -> f32 {
+        match self {
+            Span::Head => SEGMENT_TOP,
+            Span::Tail | Span::Only => SEGMENT_BOTTOM,
+        }
+    }
+}
+
+fn spanned(at: usize, active: Option<usize>, rows: usize) -> Option<Span> {
+    let anchor = active?;
+    let reaching = anchor + 1;
+
+    if reaching >= rows {
+        return (at == anchor).then_some(Span::Only);
+    }
+
+    match at {
+        _ if at == anchor => Some(Span::Head),
+        _ if at == reaching => Some(Span::Tail),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -303,7 +335,6 @@ pub enum Message {
     Press(usize),
     DragMove(Point),
     DragEnd,
-    Offset(usize),
     Picture(picture::Message),
     Carved(Option<Arc<Sheet>>),
     Cut(usize, usize, String),
@@ -323,6 +354,8 @@ pub enum Message {
     ManagePopup(popup::Message),
     Manage(manage::Message),
     Export,
+    Exported(bool),
+    ExportExpired,
 }
 
 #[derive(Default, Clone, Copy, PartialEq)]
@@ -417,6 +450,8 @@ pub struct State {
     mode: Mode,
     notice: Option<Instant>,
     notice_text: String,
+    exporting: bool,
+    exported: Slot<bool>,
 }
 
 impl Default for State {
@@ -432,6 +467,8 @@ impl Default for State {
             mode: Mode::default(),
             notice: None,
             notice_text: String::new(),
+            exporting: false,
+            exported: Slot::default(),
         }
     }
 }
@@ -757,8 +794,52 @@ impl State {
         true
     }
 
+    pub(crate) fn sync_state(&self, state: &mut StudioState) {
+        let set = self.manage.set();
+
+        state.name = self.manage.name().to_owned();
+        state.sheet = set.sheet.clone();
+        state.cuts = set.cuts.clone();
+        state.model = set.model.clone();
+        state.anims = set.anims.clone();
+        state.sealed = self.sealed();
+        state.target_mod = self.session.as_ref().and_then(|session| session.plan.target_mod.clone());
+        state.atlas = self.mode == Mode::Atlas;
+        state.clip = self.session.as_ref().and_then(|session| session.viewer.selected_label());
+    }
+
+    pub(crate) fn restore_state(&mut self, state: &StudioState, mounted: Option<&str>) {
+        self.mode = if state.atlas { Mode::Atlas } else { Mode::Entity };
+
+        if state.sealed && state.target_mod.as_deref() != mounted {
+            return;
+        }
+
+        let set = sets::Set {
+            name: state.name.clone(),
+            sheet: state.sheet.clone(),
+            cuts: state.cuts.clone(),
+            model: state.model.clone(),
+            anims: state.anims.iter().filter(|path| path.is_file()).cloned().collect(),
+        };
+
+        if !set.rigged() || !set.files().iter().all(|path| path.is_file()) {
+            return;
+        }
+
+        match state.sealed {
+            true => self.manage.seal(set.clone()),
+            false => self.manage.adopt(set.clone()),
+        }
+
+        self.begin(plan(set, state.target_mod.clone(), state.clip.clone()));
+    }
+
     pub(crate) fn pace(&self) -> Option<Duration> {
-        let session = self.session.as_ref()?;
+        let Some(session) = self.session.as_ref() else {
+            return self.managing.then_some(RESTING_TICK);
+        };
+
         let live = session.viewer.playing()
             || session.draft.as_ref().is_some_and(|draft| draft.backing.busy())
             || session.pose.as_ref().is_some_and(|pose| pose.backing.busy())
@@ -823,8 +904,17 @@ impl State {
 
         match message {
             Message::Tick => {
+                if session.vanished() {
+                    self.manage.adopt(sets::Set::default());
+                    self.stash();
+                    self.session = None;
+
+                    return Task::none();
+                }
+
                 let priming = session.sync(settings, anim);
                 session.viewer.tick();
+                session.realign();
                 session.repose();
 
                 let carving = session.recarve();
@@ -991,13 +1081,6 @@ impl State {
             }
             Message::DropCutExpired => {
                 session.slicing.expire();
-
-                Task::none()
-            }
-            Message::Offset(row) => {
-                if let Some(pose) = session.pose.as_mut() {
-                    pose.aim(row);
-                }
 
                 Task::none()
             }
@@ -1198,6 +1281,7 @@ impl State {
 
                 Task::none()
             }
+            Message::Exported(_) | Message::ExportExpired => Task::none(),
             Message::AddCut => {
                 session.remember(Tag::Cuts);
 
@@ -1226,6 +1310,13 @@ impl State {
 
     fn chrome(&mut self, message: &Message) -> Option<Task<Message>> {
         match message {
+            Message::Tick => {
+                if self.managing {
+                    self.manage.restock();
+                }
+
+                None
+            }
             Message::OpenManage => {
                 self.managing = true;
                 self.manage.restock();
@@ -1246,12 +1337,24 @@ impl State {
                 None
             }
             Message::Export => {
+                if self.exporting {
+                    return Some(Task::none());
+                }
+
                 let set = self.manage.set().clone();
 
-                match sets::export(&set) {
-                    Ok(path) => info!(path = %path.display(), "Studio exported a set"),
-                    Err(err) => warn!("Studio could not export the set: {}", err),
-                }
+                self.exporting = true;
+                self.exported.clear();
+
+                Some(Task::perform(smol::unblock(move || shipped(&set)), Message::Exported))
+            }
+            Message::Exported(placed) => {
+                self.exporting = false;
+
+                Some(self.exported.set(*placed, Message::ExportExpired))
+            }
+            Message::ExportExpired => {
+                self.exported.expire();
 
                 Some(Task::none())
             }
@@ -1261,6 +1364,27 @@ impl State {
 
     fn sealed(&self) -> bool {
         self.manage.sealed()
+    }
+
+    fn mount(&self) -> Option<String> {
+        let session = self.session.as_ref().filter(|_| self.sealed())?;
+
+        Some(State::mount_of(&session.plan))
+    }
+
+    pub(crate) fn unlatch(&mut self) {
+        if !self.sealed() {
+            return;
+        }
+
+        self.flush_now();
+        self.stash();
+        self.session = None;
+        self.manage.adopt(sets::Set::default());
+    }
+
+    fn foldered(&self) -> bool {
+        sets::folder_name(self.manage.set()).is_some()
     }
 
     fn droppable(&self) -> bool {
@@ -1311,7 +1435,7 @@ impl State {
                 self.resettle(Swap::Fresh)
             }
             manage::Message::New => {
-                let name = sets::vacant(self.manage.name());
+                let name = sets::vacant(sets::SEED_NAME);
 
                 match sets::seed(&name) {
                     Ok(set) => self.manage.adopt(set),
@@ -1427,6 +1551,18 @@ impl State {
 
                 Task::none()
             }
+            manage::Message::Reveal => {
+                let Some(folder) = sets::folder_name(self.manage.set()).map(|name| sets::root().join(name))
+                else {
+                    return Task::none();
+                };
+
+                if let Err(err) = open::that(&folder) {
+                    warn!(path = %folder.display(), "Studio could not open the set folder: {}", err);
+                }
+
+                Task::none()
+            }
         }
     }
 
@@ -1527,7 +1663,7 @@ impl State {
         anim: &'a AnimState,
     ) -> Element<'a, Message> {
         let body = match self.session.as_ref() {
-            Some(session) => session.view(settings, anim),
+            Some(session) => session.view(settings, anim, self.shipping()),
             None => self.vacant_view(settings, anim),
         };
 
@@ -1561,7 +1697,7 @@ impl State {
             ),
         };
 
-        let body = row![panel_frame(self.mode, false, side), stage].spacing(GAP);
+        let body = row![panel_frame(self.mode, false, self.shipping(), side), stage].spacing(GAP);
 
         container(body)
             .width(Length::Fill)
@@ -1595,6 +1731,15 @@ impl State {
             .into()
     }
 
+    fn shipping(&self) -> Shipping {
+        match (self.exporting, self.exported.get()) {
+            (true, _) => Shipping::Running,
+            (_, Some(true)) => Shipping::Placed,
+            (_, Some(false)) => Shipping::Failed,
+            _ => Shipping::Idle,
+        }
+    }
+
     fn noticing(&self) -> bool {
         self.notice.is_some_and(|at| at.elapsed() < NOTICE_EXPIRY)
     }
@@ -1617,7 +1762,7 @@ impl State {
                 manage::SPEC,
                 window,
                 Message::ManagePopup,
-                || self.manage.view(self.sealed(), self.droppable()).map(Message::Manage),
+                || self.manage.view(self.mount(), self.droppable(), self.foldered()).map(Message::Manage),
                 None,
             )
         })
@@ -1651,6 +1796,10 @@ impl State {
 }
 
 impl Session {
+    fn vanished(&self) -> bool {
+        !self.plan.set.rigged() || !self.plan.set.files().iter().all(|path| path.is_file())
+    }
+
     fn showing(self) -> Showing {
         Showing {
             viewer: self.viewer,
@@ -1940,6 +2089,14 @@ impl Session {
         }
     }
 
+    fn realign(&mut self) {
+        let row = self.viewer.offset();
+
+        if let Some(pose) = self.pose.as_mut() {
+            pose.aim(row);
+        }
+    }
+
     fn repose(&mut self) {
         let Some(path) = self.viewer.selected_model().map(Path::to_path_buf) else {
             return;
@@ -2125,14 +2282,20 @@ impl Session {
             .filter_map(|at| moved.get(*at).copied().flatten())
             .collect();
 
-        self.reload();
+        self.resplice();
     }
 
     fn reload(&mut self) {
+        self.cutting = None;
+        self.resplice();
+    }
+
+    fn resplice(&mut self) {
+        self.plan.clip = self.viewer.selected_label();
         self.opened = None;
         self.posed = None;
-        self.cutting = None;
         self.wanted = None;
+        self.primed = false;
         self.viewer.invalidate_paths();
         self.repose();
     }
@@ -2216,7 +2379,8 @@ impl Session {
         }
 
         self.framing = None;
-        self.reload();
+        self.slice = None;
+        self.resplice();
     }
 
     fn chosen(&self) -> Option<usize> {
@@ -2272,6 +2436,8 @@ impl Session {
             pose.cuts = cuts;
         }
 
+        self.realign();
+
         let part = self.chosen();
         let kind = self.draft.as_ref().and_then(|draft| draft.curve()).map(|track| track.kind);
 
@@ -2291,7 +2457,12 @@ impl Session {
         self.viewer.set_highlight(part);
     }
 
-    fn view<'a>(&'a self, settings: &'a Settings, anim: &'a AnimState) -> Element<'a, Message> {
+    fn view<'a>(
+        &'a self,
+        settings: &'a Settings,
+        anim: &'a AnimState,
+        shipping: Shipping,
+    ) -> Element<'a, Message> {
         let showing: Element<'_, Message> = if self.viewer.resolved() {
             self.viewer.view(settings, anim).map(Message::Viewer)
         } else {
@@ -2310,7 +2481,7 @@ impl Session {
             _ => column![stage, self.strip(settings)].spacing(GAP).into(),
         };
 
-        let body = row![self.side(), right].spacing(GAP);
+        let body = row![self.side(shipping), right].spacing(GAP);
 
         let content = container(body)
             .width(Length::Fill)
@@ -2344,14 +2515,17 @@ impl Session {
         layers.into()
     }
 
-    fn side(&self) -> Element<'_, Message> {
-        let body = match (self.mode, self.focus) {
+    fn side(&self, shipping: Shipping) -> Element<'_, Message> {
+        let channelled =
+            self.focus == Focus::Curve && self.draft.as_ref().is_some_and(|draft| draft.track.is_some());
+
+        let body = match (self.mode, channelled) {
             (Mode::Atlas, _) => column![self.loaders(), self.cuts()],
-            (Mode::Entity, Focus::Curve) => column![self.tree(), self.keys()],
-            (Mode::Entity, Focus::Part) => column![self.tree(), self.fields()],
+            (Mode::Entity, true) => column![self.tree(), self.keys()],
+            (Mode::Entity, false) => column![self.tree(), self.fields()],
         };
 
-        panel_frame(self.mode, true, body.spacing(GAP).height(Length::Fill).into())
+        panel_frame(self.mode, true, shipping, body.spacing(GAP).height(Length::Fill).into())
     }
 
     fn canvas(&self) -> Element<'_, Message> {
@@ -2603,7 +2777,7 @@ impl Session {
             if let Some(draft) = draft {
                 let armed = self.confirm.armed_for(&at);
 
-                list = list.push(draft.key_row(at, active == Some(at), at, armed, width));
+                list = list.push(draft.key_row(at, spanned(at, active, rows), at, armed, width));
             }
         }
 
@@ -2707,7 +2881,7 @@ impl Session {
 
         match (holding, self.opened.is_some()) {
             (Some(true), _) => EMPTY_TRACK_NOTICE,
-            (Some(false), _) => NO_CURVE_CHOSEN,
+            (Some(false), _) => NO_ENTRY_CHOSEN,
             (None, true) => UNREADABLE_NOTICE,
             (None, false) => NO_CLIP_NOTICE,
         }
@@ -3449,23 +3623,28 @@ fn strip<'a>(
     container(body).width(Length::Fill).into()
 }
 
-fn head_button<'a>(label: &'a str, message: Option<Message>) -> Element<'a, Message> {
+fn head_button<'a>(
+    label: &'a str,
+    message: Option<Message>,
+    style: theme::ButtonStyleFn,
+) -> Element<'a, Message> {
     button(theme::centered_text(label).size(LABEL_SIZE).width(Length::Fill))
         .width(Length::Fill)
         .height(Length::Fixed(HEAD_HEIGHT))
         .padding([1, 4])
         .on_press_maybe(message)
-        .style(theme::primary_button)
+        .style(style)
         .into()
 }
 
-fn panel_head_row<'a>(mode: Mode, live: bool) -> Element<'a, Message> {
+fn panel_head_row<'a>(mode: Mode, live: bool, shipping: Shipping) -> Element<'a, Message> {
     let other = mode.other();
+    let (label, style, message) = shipping.button(live);
 
     let row = row![
-        head_button(other.label(), Some(Message::Switch(other))),
-        head_button("Manage", Some(Message::OpenManage)),
-        head_button("Export", live.then_some(Message::Export)),
+        head_button(other.label(), Some(Message::Switch(other)), theme::primary_button),
+        head_button("Manage", Some(Message::OpenManage), theme::primary_button),
+        head_button(label, message, style),
     ]
     .spacing(ROW_GAP)
     .align_y(Vertical::Center);
@@ -3473,8 +3652,32 @@ fn panel_head_row<'a>(mode: Mode, live: bool) -> Element<'a, Message> {
     container(row).width(Length::Fill).height(Length::Fixed(HEAD_HEIGHT)).into()
 }
 
-fn panel_frame<'a>(mode: Mode, live: bool, body: Element<'a, Message>) -> Element<'a, Message> {
-    let framed = column![panel_head_row(mode, live), rule::horizontal(1), body]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shipping {
+    Idle,
+    Running,
+    Placed,
+    Failed,
+}
+
+impl Shipping {
+    fn button(self, live: bool) -> (&'static str, theme::ButtonStyleFn, Option<Message>) {
+        match self {
+            Shipping::Running => ("Exporting\u{2026}", theme::warning_button, None),
+            Shipping::Placed => ("Exported!", theme::success_button, None),
+            Shipping::Failed => (feedback::FAILURE_LABEL, theme::danger_button, None),
+            Shipping::Idle => ("Export", theme::primary_button, live.then_some(Message::Export)),
+        }
+    }
+}
+
+fn panel_frame<'a>(
+    mode: Mode,
+    live: bool,
+    shipping: Shipping,
+    body: Element<'a, Message>,
+) -> Element<'a, Message> {
+    let framed = column![panel_head_row(mode, live, shipping), rule::horizontal(1), body]
         .spacing(ROW_GAP)
         .height(Length::Fill);
 
@@ -3895,6 +4098,7 @@ impl Draft {
                 .on_input(Message::LoopChanged)
                 .size(CELL_SIZE)
                 .padding(CELL_PADDING)
+                .align_x(Horizontal::Center)
                 .width(Length::Fixed(LOOP_WIDTH))
                 .style(theme::rounded_input),
             text(loop_label(count)).size(LABEL_SIZE),
@@ -3905,7 +4109,14 @@ impl Draft {
         container(body).padding([LOOP_CARD_PAD, LOOP_CARD_PAD * 2.0]).style(theme::card_container_primary).into()
     }
 
-    fn key_row(&self, at: usize, active: bool, stripe: usize, armed: bool, width: f32) -> Element<'_, Message> {
+    fn key_row(
+        &self,
+        at: usize,
+        span: Option<Span>,
+        stripe: usize,
+        armed: bool,
+        width: f32,
+    ) -> Element<'_, Message> {
         let cells = self.inputs.get(at).map_or(&[][..], |row| row.as_slice());
         let ease = self.curve().and_then(|track| track.keyframes.get(at)).map_or(0, |key| key.ease);
 
@@ -3969,29 +4180,18 @@ impl Draft {
         let inset =
             Padding { top: KEY_ROW_PAD, right: KEY_ROW_INSET, bottom: KEY_ROW_PAD, left: KEY_ROW_INSET };
 
-        container(body)
+        let seated = container(body)
             .width(Length::Fixed(width))
             .padding(inset)
-            .style(move |theme: &Theme| match active {
-                true => container::Style {
-                    background: Some(Color { a: ACTIVE_TINT, ..theme.palette().primary }.into()),
+            .style(move |theme: &Theme| match span {
+                Some(span) => container::Style {
+                    background: Some(Color { a: span.tint(), ..theme.palette().primary }.into()),
                     ..container::Style::default()
                 },
-                false => theme::zebra_table_row(theme, stripe),
-            })
-            .into()
-    }
-}
+                None => theme::zebra_table_row(theme, stripe),
+            });
 
-#[derive(Clone, PartialEq, Eq)]
-struct Offset {
-    row: usize,
-    label: String,
-}
-
-impl std::fmt::Display for Offset {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.label)
+        seated.into()
     }
 }
 
@@ -4327,7 +4527,7 @@ struct Pose {
     backing: Backing,
     doc: Mamodel,
     part: Option<usize>,
-    row: usize,
+    row: Option<usize>,
     inputs: Vec<String>,
     cursors: Vec<widget::Id>,
     hints: Vec<String>,
@@ -4354,7 +4554,7 @@ impl Pose {
             backing,
             doc,
             part: None,
-            row: 0,
+            row: None,
             inputs: Vec::new(),
             cursors: Vec::new(),
             hints: Vec::new(),
@@ -4379,22 +4579,15 @@ impl Pose {
             .collect();
     }
 
-    fn aim(&mut self, row: usize) {
-        if row >= self.doc.offsets() {
+    fn aim(&mut self, row: Option<usize>) {
+        let row = row.filter(|row| *row < self.doc.offsets());
+
+        if self.row == row {
             return;
         }
 
         self.row = row;
         self.restate();
-    }
-
-    fn offset(&self, row: usize) -> Offset {
-        let label = match self.doc.offset_name(row).unwrap_or_default().trim() {
-            "" => format!("Root {}", row),
-            named => named.to_owned(),
-        };
-
-        Offset { row, label }
     }
 
     fn hint(&self, at: usize) -> &str {
@@ -4415,7 +4608,7 @@ impl Pose {
     }
 
     fn restate(&mut self) {
-        let (x, y) = self.doc.offset(self.row).unwrap_or_default();
+        let (x, y) = self.row.and_then(|row| self.doc.offset(row)).unwrap_or_default();
         self.align = [x.to_string(), y.to_string()];
 
         let Some(part) = self.part else {
@@ -4525,7 +4718,11 @@ impl Pose {
             return;
         };
 
-        self.backing.dirty |= self.doc.set_offset(self.row, axis, parsed);
+        let Some(row) = self.row else {
+            return;
+        };
+
+        self.backing.dirty |= self.doc.set_offset(row, axis, parsed);
     }
 
     fn grow(&mut self, parent: Option<usize>) {
@@ -4564,7 +4761,7 @@ impl Pose {
     }
 
     fn aligning(&self) -> Element<'_, Message> {
-        let live = self.doc.offset(self.row).is_some();
+        let live = self.row.is_some_and(|row| self.doc.offset(row).is_some());
 
         let axis = |at: usize| {
             let cell = text_input(CELL_HINT, self.align.get(at).map_or("", String::as_str))
@@ -4580,15 +4777,9 @@ impl Pose {
             }
         };
 
-        let rows: Vec<Offset> = (0..self.doc.offsets()).map(|row| self.offset(row)).collect();
-        let picker = pick_list(rows, Some(self.offset(self.row)), |offset| Message::Offset(offset.row))
-            .width(Length::Fixed(OFFSET_WIDTH))
-            .padding([1, 4])
-            .text_size(LABEL_SIZE)
-            .style(theme::combo_box)
-            .menu_style(theme::combo_box_menu);
-
-        let body = row![picker, axis(0), axis(1)].spacing(ROW_GAP).align_y(Vertical::Center);
+        let body = row![text("Offset").size(LABEL_SIZE), axis(0), axis(1)]
+            .spacing(ROW_GAP)
+            .align_y(Vertical::Center);
 
         container(body)
             .padding([LOOP_CARD_PAD, LOOP_CARD_PAD * 2.0])
@@ -4704,6 +4895,21 @@ fn retarget_file(anim: &Path, moved: &[Option<usize>]) {
     }
 }
 
+fn shipped(set: &sets::Set) -> bool {
+    match sets::export(set) {
+        Ok(path) => {
+            info!(path = %path.display(), "Studio exported a set");
+
+            true
+        }
+        Err(err) => {
+            error!(set = %set.name, "Studio could not export the set: {}", err);
+
+            false
+        }
+    }
+}
+
 fn write_now(path: &Path, body: &[u8], stamp: Stamp) -> Option<Stamp> {
     preview::save(path, body, stamp)
         .inspect_err(|err| warn!(path = %path.display(), "Studio could not write the file: {}", err))
@@ -4760,6 +4966,26 @@ mod tests {
 
         assert_eq!(locate_curve(&doc, &held), None);
         assert_eq!(locate_curve(&doc, &Held { part: 5, kind: 11, ordinal: 0 }), Some(0));
+    }
+
+    #[test]
+    fn the_segment_spans_the_key_we_left_and_the_one_we_are_reaching() {
+        // Both rows light up; the lighter one is the key being left and carries the
+        // weaker tint, so the pair reads in the direction the pose is travelling.
+        assert_eq!(spanned(0, Some(0), 3), Some(Span::Head));
+        assert_eq!(spanned(1, Some(0), 3), Some(Span::Tail));
+        assert_eq!(spanned(2, Some(0), 3), None);
+
+        assert!(Span::Head.tint() < Span::Tail.tint());
+    }
+
+    #[test]
+    fn the_final_and_only_keys_span_themselves_rather_than_orphaning() {
+        // The last key holds its pose to the end, and a lone key is the whole track,
+        // so neither has a partner to reach — but neither may go unmarked either.
+        assert_eq!(spanned(2, Some(2), 3), Some(Span::Only));
+        assert_eq!(spanned(0, Some(0), 1), Some(Span::Only));
+        assert_eq!(spanned(0, None, 3), None);
     }
 
     #[test]
