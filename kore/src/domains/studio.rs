@@ -17,7 +17,7 @@ pub use crate::domains::mods::patch_root;
 
 use crate::common::architecture::{GAME, MODS, STUDIO};
 use crate::systems::animation::authoring::Mamodel;
-use crate::systems::animation::{self, Clip, ClipSet, Loop, Rigging};
+use crate::systems::animation::{Clip, ClipSet, Loop, Rigging};
 
 pub use blank::SEED_SUFFIX;
 
@@ -145,24 +145,16 @@ impl Set {
             model: model.clone(),
         });
 
-        let stem = stem_of(model);
         let mut clips: Vec<Clip> = self
             .anims
             .iter()
-            .map(|anim| {
-                let named = ordinal(anim, &stem).and_then(animation::standard);
-
-                Clip {
-                    name: named.map(|(name, _, _)| name.to_owned()),
-                    slot: named.map(|(_, slot, _)| slot),
-                    role: named.map(|(_, _, role)| role),
-                    looping: match named.is_some_and(|(_, _, role)| role.loops()) {
-                        true => Loop::Exact,
-                        false => Loop::Frames,
-                    },
-                    rig: Arc::clone(&rig),
-                    anim: Some(anim.clone()),
-                }
+            .map(|anim| Clip {
+                name: None,
+                slot: None,
+                role: None,
+                looping: Loop::Auto,
+                rig: Arc::clone(&rig),
+                anim: Some(anim.clone()),
             })
             .collect();
 
@@ -541,23 +533,9 @@ fn stem_of(path: &Path) -> String {
     path.file_stem().map_or_else(|| DEFAULT_NAME.to_owned(), |stem| stem.to_string_lossy().into_owned())
 }
 
-fn ordinal(anim: &Path, stem: &str) -> Option<usize> {
-    anim.file_stem()
-        .and_then(OsStr::to_str)
-        .and_then(|name| name.strip_prefix(stem))
-        .and_then(|suffix| suffix.parse().ok())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_standard_ordinal_names_its_clip_and_anything_else_stays_bare() {
-        assert_eq!(ordinal(Path::new("game/044_f02.maanim"), "044_f"), Some(2));
-        assert_eq!(ordinal(Path::new("game/044_f_zombie00.maanim"), "044_f"), None);
-        assert_eq!(ordinal(Path::new("game/other.maanim"), "044_f"), None);
-    }
 
     #[test]
     fn a_name_loses_path_separators_but_keeps_the_rest() {
@@ -567,9 +545,9 @@ mod tests {
     }
 
     #[test]
-    fn a_set_names_its_standard_clips_and_leaves_the_rest_bare() {
-        // The four leading ordinals are the engine's own roles; anything else is
-        // just a file the viewer lists by name.
+    fn a_set_lists_every_anim_by_file_name_and_claims_no_roles() {
+        // Studio is an editor, not an entity browser. A file called 044_f02.maanim is not
+        // promised to be an attack, so nothing here guesses one.
         let set = Set {
             name: "044_f".to_owned(),
             sheet: Some(PathBuf::from("studio/a/044_f.png")),
@@ -582,17 +560,15 @@ mod tests {
             ],
         };
 
-        let named: Vec<Option<String>> = set.clips().clips.iter().map(|clip| clip.name.clone()).collect();
+        let clips = set.clips().clips;
+        let labelled: Vec<String> = clips.iter().map(Clip::label).collect();
 
-        assert_eq!(
-            named,
-            vec![
-                Some("Walk".to_owned()),
-                Some("Attack".to_owned()),
-                None,
-                Some("Model".to_owned()),
-            ]
-        );
+        assert_eq!(labelled, vec!["044_f00", "044_f02", "044_f_zombie00", "Model"]);
+        assert!(clips.iter().all(|clip| clip.role.is_none()), "no clip claims a role");
+
+        // Slots are what pinned a clip to a fixed grid cell; without them the buttons
+        // follow the file order exactly.
+        assert!(clips.iter().filter(|clip| clip.anim.is_some()).all(|clip| clip.slot.is_none()));
     }
 
     #[test]
