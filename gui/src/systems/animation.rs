@@ -17,7 +17,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size,
 use nyanko::graphics::rig::{Animation, Model, Rig};
 use nyanko::graphics::tools::part;
 
-use kore::domains::settings::Settings;
+use kore::domains::settings::{Scope, Settings};
 use kore::systems::animation::ClipSet;
 
 use crate::app::state::AnimState;
@@ -49,9 +49,9 @@ pub fn debug_toggles<'a, M: Clone + 'a>(
     world: impl Fn(bool) -> M + 'a,
 ) -> Element<'a, M> {
     column![
-        toggle_row(settings.animation.show_rig, text("Show Rig").size(DEBUG_LABEL_SIZE), Some(parts)),
-        toggle_row(settings.animation.show_origin, text("Show Origin").size(DEBUG_LABEL_SIZE), Some(origin)),
-        toggle_row(settings.animation.show_world, text("Show World").size(DEBUG_LABEL_SIZE), Some(world)),
+        toggle_row(settings.studio.rig.on(), text("Show Rig").size(DEBUG_LABEL_SIZE), Some(parts)),
+        toggle_row(settings.studio.origin.on(), text("Show Origin").size(DEBUG_LABEL_SIZE), Some(origin)),
+        toggle_row(settings.studio.world.on(), text("Show World").size(DEBUG_LABEL_SIZE), Some(world)),
     ]
     .spacing(DEBUG_TOGGLE_GAP)
     .into()
@@ -72,10 +72,28 @@ fn frame_border<'a>() -> Element<'a, Message> {
         .into()
 }
 
+#[derive(Clone, Copy)]
 pub struct Posed {
     pub part: usize,
     pub quad: [f32; 8],
     pub origin: (f32, f32),
+}
+
+pub(crate) fn shows(
+    model: &nyanko::graphics::rig::Model,
+    entity: Scope,
+    picked: Option<usize>,
+    part: usize,
+) -> bool {
+    let parent_of =
+        |part: usize| model.parts.get(part).and_then(|held| usize::try_from(held.parent).ok());
+
+    match entity {
+        Scope::Rig => true,
+        Scope::None => false,
+        Scope::Selected => picked == Some(part),
+        Scope::Hierarchy => picked == Some(part) || picked == parent_of(part),
+    }
 }
 
 fn seated(unit: &Rig, entry: part::PartFrame) -> Posed {
@@ -104,6 +122,7 @@ pub struct State {
     export_open: bool,
     highlight: Option<usize>,
     is_expanded: bool,
+    authoring: bool,
     playhead_rig: String,
     playhead_clip: Option<usize>,
     playhead_reset: bool,
@@ -120,6 +139,11 @@ pub enum Message {
 }
 
 impl State {
+    pub fn authoring(mut self) -> Self {
+        self.authoring = true;
+        self
+    }
+
     pub fn with_popup(kind: crate::widget::popup::Kind) -> Self {
         Self {
             data: data::State::default(),
@@ -130,6 +154,7 @@ impl State {
             export_open: false,
             highlight: None,
             is_expanded: false,
+            authoring: false,
             playhead_rig: String::new(),
             playhead_clip: None,
             playhead_reset: false,
@@ -243,20 +268,18 @@ impl State {
         self.canvas.is_playing
     }
 
-    pub fn locatable(&self) -> bool {
-        self.highlight.is_some()
+    pub fn reachable(&self, part: usize) -> bool {
+        diagnostics::anchor(&self.data, self.canvas.current_frame, part).is_some()
     }
 
-    pub fn locate(&mut self) {
-        let Some(part) = self.highlight else {
-            return;
-        };
-
+    pub fn locate(&mut self, part: usize) -> bool {
         let Some(anchor) = diagnostics::anchor(&self.data, self.canvas.current_frame, part) else {
-            return;
+            return false;
         };
 
         self.canvas.pan = iced::Vector::new(-anchor.x, -anchor.y);
+
+        true
     }
 
     pub fn set_highlight(&mut self, part: Option<usize>) {
@@ -287,15 +310,22 @@ impl State {
         self.canvas.is_playing = false;
     }
 
-    pub fn posed(&self) -> Vec<Posed> {
+    pub fn posed(&self, entity: Scope) -> Vec<Posed> {
         let Some(unit) = self.data.held_unit.as_ref() else {
             return Vec::new();
         };
 
         let frame = self.data.playback_frame(self.canvas.current_frame).floor() as i32;
+        let picked = self.highlight;
 
         part::resolve(unit, self.data.current_anim.as_deref(), frame, self.data.offset())
-            .map(|mapped| mapped.into_iter().map(|entry| seated(unit, entry)).collect())
+            .map(|mapped| {
+                mapped
+                    .into_iter()
+                    .filter(|entry| shows(&unit.model, entity, picked, entry.part))
+                    .map(|entry| seated(unit, entry))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -377,7 +407,7 @@ impl State {
         }
     }
 
-    pub fn view(&self, settings: &Settings, anim_state: &AnimState) -> Element<'_, Message> {
+    pub fn view<'a>(&'a self, settings: &'a Settings, anim_state: &'a AnimState) -> Element<'a, Message> {
         if self.data.held_unit.is_none() {
             let notice = container(text(MISSING_FILES_NOTICE))
                 .width(Length::Fill)
@@ -429,7 +459,11 @@ impl State {
             .then(|| self.export.view(window).map(Message::Export))
     }
 
-    pub fn expanded_view(&self, settings: &Settings, anim_state: &AnimState) -> Option<Element<'_, Message>> {
+    pub fn expanded_view<'a>(
+        &'a self,
+        settings: &'a Settings,
+        anim_state: &'a AnimState,
+    ) -> Option<Element<'a, Message>> {
         if !self.is_expanded || self.data.held_unit.is_none() {
             return None;
         }
@@ -446,19 +480,25 @@ impl State {
         )
     }
 
-    fn viewer_view(&self, settings: &Settings, anim_state: &AnimState) -> Element<'_, Message> {
-        let viewport = smooth_scroll(self.canvas.view(&self.data).map(Message::Canvas)).strength(ZOOM_SCROLL_STRENGTH);
+    fn viewer_view<'a>(&'a self, settings: &'a Settings, anim_state: &'a AnimState) -> Element<'a, Message> {
+        let layers = stack![self.stage_view(settings), self.controls_view(anim_state)];
+
+        editor::suppress(
+            container(layers).width(Length::Fill).height(Length::Fill),
+            self.overlay.selecting,
+        )
+    }
+
+    pub(crate) fn stage_view<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
+        let viewport = smooth_scroll(
+            self.canvas.view(&self.data, self.authoring.then_some(&settings.studio), self.highlight)
+                .map(Message::Canvas),
+        )
+        .strength(ZOOM_SCROLL_STRENGTH);
 
         let selection_overlay = self.overlay
             .view(&self.canvas, self.export.camera_region(self.export_open))
             .map(Message::Overlay);
-
-        let controls_overlay = container(self.controls.view(&self.canvas, &self.data, anim_state).map(Message::Controls))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(iced::alignment::Horizontal::Left)
-            .align_y(iced::alignment::Vertical::Bottom)
-            .padding(Padding { left: CONTROLS_INSET_LEFT, ..Padding::ZERO });
 
         let is_expanded = self.is_expanded;
         let expand_button = container(
@@ -471,19 +511,24 @@ impl State {
         )
         .padding(EXPAND_BUTTON_INSET);
 
-        let layers = stack![
+        stack![
             viewport,
-            diagnostics::view(&self.data, &self.canvas, &settings.animation, self.highlight),
+            diagnostics::view(&self.data, &self.canvas, &settings.studio, self.highlight),
             selection_overlay,
             self.overlay.hint_view(),
             expand_button,
-            controls_overlay,
-            frame_border(),
-        ];
+        ]
+        .into()
+    }
 
-        editor::suppress(
-            container(layers).width(Length::Fill).height(Length::Fill),
-            self.overlay.selecting,
-        )
+    pub(crate) fn controls_view<'a>(&'a self, anim_state: &'a AnimState) -> Element<'a, Message> {
+        let controls_overlay = container(self.controls.view(&self.canvas, &self.data, anim_state).map(Message::Controls))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::alignment::Horizontal::Left)
+            .align_y(iced::alignment::Vertical::Bottom)
+            .padding(Padding { left: CONTROLS_INSET_LEFT, ..Padding::ZERO });
+
+        stack![controls_overlay, frame_border()].into()
     }
 }

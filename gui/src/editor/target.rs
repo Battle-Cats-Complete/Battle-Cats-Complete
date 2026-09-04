@@ -67,6 +67,10 @@ impl Role {
             }
             Self::Veto(true) => VETO.with(|veto| veto.set(Veto::Everywhere)),
             Self::Deflect(true) => {
+                if !over {
+                    return;
+                }
+
                 VETO.with(|veto| {
                     if matches!(veto.get(), Veto::None) {
                         veto.set(Veto::Over(bounds));

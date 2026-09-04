@@ -14,6 +14,7 @@ use super::{classify, figures, prose, Action, AnimTarget, CatTarget, Context, En
 
 const BINARY_NOTICE: &str = "Cannot open binary format";
 const NO_CHANNEL_NOTICE: &str = "This part has no channels in this animation";
+const NOT_DRAWN_NOTICE: &str = "This part is not drawn on the current frame";
 const EVERY_CHANNEL_NOTICE: &str = "This part already has every channel";
 const NO_CLIP_NOTICE: &str = "Select an animation clip to add channels";
 
@@ -219,7 +220,13 @@ fn channels(target: &studio::Channels) -> Vec<Item> {
         ),
     };
 
+    let finding = match target.locatable {
+        true => Item::new(format!("Find \"{subject}\""), Action::Locate { part }),
+        false => Item::disabled(format!("Find \"{subject}\""), NOT_DRAWN_NOTICE),
+    };
+
     vec![
+        finding,
         Item::new(format!("New part in \"{subject}\""), Action::AddPart { parent: Some(part) }),
         adding,
         dropping,
@@ -598,7 +605,7 @@ fn plans(target: &ProseTarget, scopes: &[Scope<'_>], target_mod: Option<&str>) -
             Some(prose::plan(
                 target.subject,
                 target.row,
-                [scope.name, target.label.as_str()].join(theme::HEADER_SEPARATOR),
+                [target.label.as_str(), scope.name].join(theme::HEADER_SEPARATOR),
                 scope.name.to_owned(),
                 source,
                 target_mod.map(str::to_owned),

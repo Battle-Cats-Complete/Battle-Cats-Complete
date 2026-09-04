@@ -4,7 +4,7 @@ use iced::alignment::Horizontal;
 use iced::widget::{column, container, row};
 use iced::{Alignment, Element, Length, Padding, Size, Task};
 
-use kore::domains::settings::Settings;
+use kore::domains::settings::{Settings, Shown, Tier};
 use kore::domains::utilities::animation as builder;
 
 use crate::app::state::{AnimState, AppState};
@@ -148,15 +148,15 @@ impl State {
                 Task::none()
             }
             Message::ToggleOrigin(on) => {
-                settings.animation.show_origin = on;
+                settings.studio.origin = Shown::of(on);
                 Task::none()
             }
             Message::ToggleParts(on) => {
-                settings.animation.show_rig = on;
+                settings.studio.rig = Tier::of(on);
                 Task::none()
             }
             Message::ToggleWorld(on) => {
-                settings.animation.show_world = on;
+                settings.studio.world = Shown::of(on);
                 Task::none()
             }
             Message::Viewer(msg) => {
@@ -221,11 +221,15 @@ impl State {
         self.viewer.export_popup_view(window).map(|view| view.map(Message::Viewer))
     }
 
-    pub fn expanded_view(&self, settings: &Settings, app_state: &AppState) -> Option<Element<'_, Message>> {
+    pub fn expanded_view<'a>(
+        &'a self,
+        settings: &'a Settings,
+        app_state: &'a AppState,
+    ) -> Option<Element<'a, Message>> {
         self.viewer.expanded_view(settings, &app_state.animation).map(|view| view.map(Message::Viewer))
     }
 
-    pub fn view<'a>(&'a self, settings: &Settings, app_state: &AppState) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Element<'a, Message> {
         column![self.view_controls(), self.view_viewer(settings, app_state)]
             .spacing(ROW_GAP)
             .height(Length::Fill)
@@ -276,7 +280,7 @@ impl State {
         picker::action(label, Message::RemoveAnim).style(theme::danger_button).into()
     }
 
-    fn view_viewer<'a>(&'a self, settings: &Settings, app_state: &AppState) -> Element<'a, Message> {
+    fn view_viewer<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Element<'a, Message> {
         container(self.viewer.view(settings, &app_state.animation).map(Message::Viewer))
             .width(Length::Fill)
             .height(Length::Fill)

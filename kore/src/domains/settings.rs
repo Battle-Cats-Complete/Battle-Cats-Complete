@@ -58,6 +58,7 @@ pub struct Settings {
     pub enemy_data: EnemyDataSettings,
     pub game_data: GameDataSettings,
     pub animation: AnimSettings,
+    pub studio: StudioSettings,
     pub mods: ModsSettings,
     pub stages: StageDataSettings,
     pub files: FilesSettings,
@@ -289,17 +290,260 @@ impl Default for GameDataSettings {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub enum Tier {
+    #[default]
+    None,
+    Line,
+    Bold,
+}
+
+impl Tier {
+    pub const ALL: [Tier; 3] = [Tier::Bold, Tier::Line, Tier::None];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Tier::None => "None",
+            Tier::Line => "Line",
+            Tier::Bold => "Bold",
+        }
+    }
+
+    pub fn rank(self) -> u8 {
+        match self {
+            Tier::None => 0,
+            Tier::Line => 1,
+            Tier::Bold => 2,
+        }
+    }
+
+    pub fn of(on: bool) -> Tier {
+        match on {
+            true => Tier::Line,
+            false => Tier::None,
+        }
+    }
+
+    pub fn on(self) -> bool {
+        self != Tier::None
+    }
+}
+
+impl std::fmt::Display for Tier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Scope {
+    #[default]
+    Rig,
+    Hierarchy,
+    Selected,
+    None,
+}
+
+impl Scope {
+    pub const ALL: [Scope; 4] = [Scope::Rig, Scope::Hierarchy, Scope::Selected, Scope::None];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Scope::Rig => "Rig",
+            Scope::Hierarchy => "Hierarchy",
+            Scope::Selected => "Selected",
+            Scope::None => "None",
+        }
+    }
+}
+
+impl std::fmt::Display for Scope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Shown {
+    Visible,
+    #[default]
+    Invisible,
+}
+
+impl Shown {
+    pub const ALL: [Shown; 2] = [Shown::Visible, Shown::Invisible];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Shown::Visible => "Visible",
+            Shown::Invisible => "Invisible",
+        }
+    }
+
+    pub fn of(on: bool) -> Shown {
+        match on {
+            true => Shown::Visible,
+            false => Shown::Invisible,
+        }
+    }
+
+    pub fn on(self) -> bool {
+        self == Shown::Visible
+    }
+}
+
+impl std::fmt::Display for Shown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+pub const ONION_SKINS: i32 = 3;
+pub const ONION_LIFE: i32 = 20;
+pub const ONION_ALPHA: i32 = 100;
+
+const TINT_GAIN: f32 = 2.0;
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Switch {
+    Enabled,
+    #[default]
+    Disabled,
+}
+
+impl Switch {
+    pub const ALL: [Switch; 2] = [Switch::Enabled, Switch::Disabled];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Switch::Enabled => "Enabled",
+            Switch::Disabled => "Disabled",
+        }
+    }
+
+    pub fn on(self) -> bool {
+        self == Switch::Enabled
+    }
+}
+
+impl std::fmt::Display for Switch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+pub fn washed(color: &str) -> [f32; 4] {
+    inked(color).map_or([0.0, 0.0, 0.0, 0.0], |[red, green, blue]| {
+        [red * TINT_GAIN, green * TINT_GAIN, blue * TINT_GAIN, 1.0]
+    })
+}
+
+pub fn inked(color: &str) -> Option<[f32; 3]> {
+    let held = color.trim().trim_start_matches('#');
+
+    if held.is_empty() || held.len() > 6 || !held.chars().all(|glyph| glyph.is_ascii_hexdigit()) {
+        return None;
+    }
+
+    let widened = format!("{:0<6}", held);
+
+    let channel = |at: usize| u8::from_str_radix(widened.get(at..at + 2)?, 16).ok();
+
+    Some([
+        f32::from(channel(0)?) / 255.0,
+        f32::from(channel(2)?) / 255.0,
+        f32::from(channel(4)?) / 255.0,
+    ])
+}
+pub const ONION_GAP: i32 = 5;
+pub const ONION_MOST: i32 = 8;
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct StudioSettings {
+    pub gizmo: crate::systems::animation::posing::Hand,
+    pub entity: Scope,
+    pub origin: Shown,
+    pub rig: Tier,
+    pub selected: Tier,
+    pub hierarchy: Tier,
+    pub world: Shown,
+    pub onion: Switch,
+    pub onion_before: String,
+    pub onion_after: String,
+    pub onion_before_color: String,
+    pub onion_after_color: String,
+    pub onion_gap: String,
+    pub onion_life: String,
+    pub onion_alpha: String,
+}
+
+impl StudioSettings {
+    pub fn onion_behind(&self) -> Option<i32> {
+        counted(&self.onion_before).map(|skins| skins.min(ONION_MOST))
+    }
+
+    pub fn onion_ahead(&self) -> Option<i32> {
+        counted(&self.onion_after).map(|skins| skins.min(ONION_MOST))
+    }
+
+    pub fn onion_step(&self) -> Option<i32> {
+        counted(&self.onion_gap)
+    }
+
+    pub fn onion_life(&self) -> Option<i32> {
+        counted(&self.onion_life)
+    }
+
+    pub fn onion_alpha(&self) -> f32 {
+        counted(&self.onion_alpha).unwrap_or(ONION_ALPHA).min(ONION_ALPHA) as f32 / ONION_ALPHA as f32
+    }
+
+    pub fn onion_before_wash(&self) -> [f32; 4] {
+        washed(&self.onion_before_color)
+    }
+
+    pub fn onion_after_wash(&self) -> [f32; 4] {
+        washed(&self.onion_after_color)
+    }
+
+    pub fn onion_on(&self) -> bool {
+        let skinned = self.onion_behind().is_some() || self.onion_ahead().is_some();
+
+        self.onion.on() && skinned && self.onion_step().is_some() && self.onion_life().is_some()
+    }
+
+    pub fn onion_arm(&mut self, live: bool) {
+        self.onion = match live {
+            true => Switch::Enabled,
+            false => Switch::Disabled,
+        };
+
+        if !live {
+            return;
+        }
+
+        if counted(&self.onion_before).is_none() && counted(&self.onion_after).is_none() {
+            self.onion_before = ONION_SKINS.to_string();
+        }
+
+        for (slot, fallback) in
+            [(&mut self.onion_gap, ONION_GAP), (&mut self.onion_life, ONION_LIFE), (&mut self.onion_alpha, ONION_ALPHA)]
+        {
+            if counted(slot).is_none() {
+                *slot = fallback.to_string();
+            }
+        }
+    }
+}
+
+fn counted(text: &str) -> Option<i32> {
+    text.trim().parse::<i32>().ok().filter(|held| *held >= 1)
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct AnimSettings {
-    #[serde(alias = "debug_view")]
-    pub show_origin: bool,
-    #[serde(alias = "show_parts")]
-    pub show_rig: bool,
-    pub show_selected: bool,
-    pub show_hierarchy: bool,
-    pub show_world: bool,
-    pub hand: crate::systems::animation::posing::Hand,
     pub auto_set_camera_region: bool,
     pub bounds_cull: i32,
     pub default_showcase_walk: i32,
@@ -310,12 +554,6 @@ pub struct AnimSettings {
 impl Default for AnimSettings {
     fn default() -> Self {
         Self {
-            hand: crate::systems::animation::posing::Hand::default(),
-            show_origin: false,
-            show_rig: false,
-            show_selected: false,
-            show_hierarchy: false,
-            show_world: false,
             auto_set_camera_region: false,
             bounds_cull: 100,
             default_showcase_walk: 90,
@@ -543,5 +781,101 @@ impl UserKeys {
             (check_hash(&self.tw.key, EXPECTED_HASHES[2].0), check_hash(&self.tw.iv, EXPECTED_HASHES[2].1)),
             (check_hash(&self.ko.key, EXPECTED_HASHES[3].0), check_hash(&self.ko.iv, EXPECTED_HASHES[3].1)),
         ]
+    }
+}
+#[cfg(test)]
+mod onion_tests {
+    use super::*;
+
+    fn seeded(before: &str, after: &str) -> StudioSettings {
+        StudioSettings {
+            onion: Switch::Enabled,
+            onion_before: before.to_owned(),
+            onion_after: after.to_owned(),
+            onion_gap: ONION_GAP.to_string(),
+            onion_life: ONION_LIFE.to_string(),
+            onion_alpha: ONION_ALPHA.to_string(),
+            ..StudioSettings::default()
+        }
+    }
+
+    #[test]
+    fn the_switch_gates_everything_even_with_valid_numbers() {
+        let mut held = seeded("3", "");
+
+        assert!(held.onion_on());
+
+        held.onion = Switch::Disabled;
+
+        assert!(!held.onion_on(), "the combo is the on/off, not the fields");
+    }
+
+    #[test]
+    fn arming_seeds_only_what_is_missing_and_disarming_keeps_it() {
+        let mut held = StudioSettings::default();
+
+        held.onion_arm(true);
+
+        assert!(held.onion_on());
+        assert_eq!(held.onion_behind(), Some(ONION_SKINS));
+        assert_eq!(held.onion_ahead(), None, "the trailing direction is the default");
+        assert_eq!(held.onion_step(), Some(ONION_GAP));
+
+        held.onion_before = "7".to_owned();
+        held.onion_arm(false);
+
+        assert!(!held.onion_on());
+        assert_eq!(held.onion_before, "7", "disarming never clears what was typed");
+
+        held.onion_arm(true);
+
+        assert_eq!(held.onion_before, "7", "and arming does not overwrite it");
+    }
+
+    #[test]
+    fn either_direction_alone_is_enough_to_draw() {
+        assert!(seeded("3", "").onion_on());
+        assert!(seeded("", "3").onion_on());
+        assert!(!seeded("", "").onion_on());
+        assert!(!seeded("0", "0").onion_on());
+    }
+
+    #[test]
+    fn the_counts_are_capped_and_opacity_reads_as_a_share() {
+        assert_eq!(seeded("400", "").onion_behind(), Some(ONION_MOST));
+        assert_eq!(seeded("3", "").onion_alpha(), 1.0);
+
+        let half = StudioSettings { onion_alpha: "50".to_owned(), ..StudioSettings::default() };
+
+        assert_eq!(half.onion_alpha(), 0.5);
+    }
+
+    #[test]
+    fn a_half_typed_colour_pads_with_zeros_so_it_shows_at_once() {
+        assert_eq!(inked("#ff0000"), Some([1.0, 0.0, 0.0]));
+        assert_eq!(inked("ff0000"), Some([1.0, 0.0, 0.0]));
+        assert_eq!(inked("  0000ff "), Some([0.0, 0.0, 1.0]));
+
+        // Every prefix of a red is already some colour, so typing recolours as you go.
+        assert_eq!(inked("f"), Some([240.0 / 255.0, 0.0, 0.0]), "one digit already reads bright");
+        assert_eq!(inked("ff"), Some([1.0, 0.0, 0.0]));
+        assert_eq!(inked("ff00"), Some([1.0, 0.0, 0.0]));
+
+        assert_eq!(inked(""), None);
+        assert_eq!(inked("nope"), None);
+        assert_eq!(inked("#gggggg"), None);
+        assert_eq!(inked("ff00000"), None, "seven digits is not a colour");
+    }
+
+    #[test]
+    fn a_colour_becomes_a_tint_at_double_gain() {
+        assert_eq!(washed("#ff0000"), [2.0, 0.0, 0.0, 1.0]);
+        let grey = 128.0 / 255.0 * 2.0;
+
+        assert_eq!(washed("#808080"), [grey, grey, grey, 1.0]);
+
+        // Alpha is a presence flag, so only a missing colour reads as untinted.
+        assert_eq!(washed(""), [0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(washed("nope"), [0.0, 0.0, 0.0, 0.0]);
     }
 }

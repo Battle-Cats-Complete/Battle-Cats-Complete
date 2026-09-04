@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn a_leaf_says_nothing_and_shows_no_folder_mark() {
         // The tree has to end somewhere, so a part with nothing under it is not an
-        // empty state to announce — it simply does not open.
+        // empty state to announce, it simply does not open.
         let listed = listing(None, Some(&model(&[-1, 0])), &HashSet::from([0, 1]), false);
 
         assert_eq!(listed.len(), 2);
@@ -449,7 +449,7 @@ mod tests {
     #[test]
     fn a_channel_naming_a_part_the_model_lacks_folds_away_but_stays_reachable() {
         // The engine does not bound check the part index, so the channel has to stay
-        // reachable — but a broken file can hold hundreds, so the bucket starts shut.
+        // reachable, but a broken file can hold hundreds, so the bucket starts shut.
         let model = model(&[-1]);
         let shut = listing(Some(&doc()), Some(&model), &HashSet::from([0]), false);
 

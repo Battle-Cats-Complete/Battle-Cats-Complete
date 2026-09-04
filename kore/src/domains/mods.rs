@@ -135,6 +135,13 @@ pub fn find_all<'a>(vfs: &Vfs, mod_name: &str, names: impl IntoIterator<Item = &
         .collect()
 }
 
+pub fn patch_root(mod_name: &str) -> PathBuf {
+    let root = Path::new(MODS_ROOT).join(mod_name);
+    let patch = root.join(PATCH);
+
+    if patch.is_dir() { patch } else { root }
+}
+
 fn slot(mod_name: &str, name: &OsStr) -> PathBuf {
     let root = Path::new(MODS_ROOT).join(mod_name);
     let patch = root.join(PATCH);

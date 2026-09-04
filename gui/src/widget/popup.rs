@@ -16,6 +16,8 @@ pub(crate) const CHROME_HEIGHT: f32 = HEADER_HEIGHT + FRAME_BORDER_WIDTH * 2.0;
 const HEADER_MARGIN_X: f32 = 50.0;
 const HEADER_MARGIN_Y: f32 = 30.0;
 const DEFAULT_BODY_ALPHA: f32 = 1.0;
+
+pub const GLASS: f32 = 0.95;
 const FRAME_BORDER_WIDTH: f32 = 3.0;
 const MINIMUM_WINDOW: Size = Size::new(800.0, 600.0);
 const GRIP_OUTSET: f32 = 5.0;
@@ -78,9 +80,11 @@ pub enum Kind {
     EnemyDescription,
     Animator,
     StudioManage,
+    StudioOnion,
+    StudioShipout,
 }
 
-const KIND_COUNT: usize = 26;
+const KIND_COUNT: usize = 28;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -109,6 +113,8 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::Animator,
     Kind::UtilityAnimationSettings,
     Kind::StudioManage,
+    Kind::StudioOnion,
+    Kind::StudioShipout,
 ];
 
 impl Kind {
@@ -140,6 +146,8 @@ impl Kind {
             Self::EnemyDescription => "enemy_description",
             Self::Animator => "animator",
             Self::StudioManage => "studio_manage",
+            Self::StudioOnion => "studio_onion",
+            Self::StudioShipout => "studio_shipout",
         }
     }
 

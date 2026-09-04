@@ -4,6 +4,8 @@ use std::sync::Arc;
 use nyanko::common::{scrub, Separator};
 use nyanko::graphics::rig::{Model, ModelPart, RigError};
 
+use super::hazards::SHEET_FIELD;
+
 const BOM: [u8; 3] = [0xef, 0xbb, 0xbf];
 const PART_CELLS: usize = 13;
 const GLOW_MODES: i32 = 3;
@@ -98,6 +100,14 @@ impl Mamodel {
 
     pub fn name(&self, part: usize) -> Option<&str> {
         self.model.parts.get(part).map(|part| part.name.as_str())
+    }
+
+    pub fn restamp(&mut self, unit: i32) -> usize {
+        let borrowed: Vec<usize> = (0..self.count())
+            .filter(|part| self.field(*part, SHEET_FIELD).is_some_and(|id| id >= 0 && id != unit))
+            .collect();
+
+        borrowed.iter().filter(|part| self.set_field(**part, SHEET_FIELD, unit)).count()
     }
 
     pub fn set_name(&mut self, part: usize, name: &str) -> bool {
@@ -318,7 +328,7 @@ impl Mamodel {
 }
 
 pub const FIELDS: [&str; 14] = [
-    "Parent", "Unit ID", "Sprite", "Z Order", "X", "Y", "Pivot X", "Pivot Y", "Scale X", "Scale Y",
+    "Parent", "Sheet ID", "Sprite", "Z Order", "X", "Y", "Pivot X", "Pivot Y", "Scale X", "Scale Y",
     "Angle", "Opacity", "Glow", "Name",
 ];
 

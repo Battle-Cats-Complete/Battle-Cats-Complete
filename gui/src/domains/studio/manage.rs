@@ -16,7 +16,7 @@ const PADDING: f32 = 10.0;
 const GAP: f32 = 8.0;
 const LABEL_SIZE: f32 = 13.0;
 const NAME_HINT: &str = "Name";
-pub(super) const NONE_ENTRY: &str = "\u{2014}";
+pub(super) const NONE_ENTRY: &str = "";
 const SEALED_HINT: &str = "Named by the mount it lives in";
 
 #[derive(Debug, Clone)]

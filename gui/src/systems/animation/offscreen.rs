@@ -16,7 +16,7 @@ use kore::systems::animation::export::process::calculate_export_time;
 use kore::systems::animation::export::{EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
 use kore::systems::animation::{multiply_mat3, Role};
 
-use super::pipeline::{build_vertices, Pipeline};
+use super::pipeline::{build_vertices, Painted, Pipeline};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
@@ -124,7 +124,8 @@ impl Renderer {
             && !parts.is_empty() {
             self.pipeline.upload_atlas(&self.device, &self.queue, image);
 
-            let (vertex_data, index_data, batches) = build_vertices(parts, &view_proj);
+            let plain: Vec<Painted> = parts.iter().cloned().map(Painted::plain).collect();
+            let (vertex_data, index_data, batches) = build_vertices(&plain, &view_proj);
             self.pipeline.batches = batches;
             self.pipeline.upload_vertices(&self.device, &self.queue, &vertex_data);
             self.pipeline.upload_indices(&self.device, &self.queue, &index_data);

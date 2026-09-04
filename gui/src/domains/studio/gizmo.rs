@@ -514,13 +514,18 @@ impl canvas::Program<Message> for Gizmo {
 
                 Some(canvas::Action::publish(Message::Gizmo(Turn::Drag(sweep))).and_capture())
             }
-            mouse::Event::WheelScrolled { delta } if track.grip.is_some() => {
+            mouse::Event::WheelScrolled { delta } if track.grip.is_some() && self.held.is_some() => {
                 let step = match delta {
                     mouse::ScrollDelta::Lines { y, .. } => *y,
                     mouse::ScrollDelta::Pixels { y, .. } => *y / 40.0,
                 };
 
                 Some(canvas::Action::publish(Message::Gizmo(Turn::Fade(fade(step)))).and_capture())
+            }
+            mouse::Event::WheelScrolled { .. } => {
+                track.grip = None;
+
+                None
             }
             _ => None,
         }

@@ -7,7 +7,7 @@ use nyanko::graphics::animate::{resolve_frame, FrameData};
 use nyanko::graphics::rig::Rig;
 use nyanko::graphics::tools::part;
 
-use kore::domains::settings::AnimSettings;
+use kore::domains::settings::{StudioSettings, Tier};
 
 use super::canvas as viewer;
 use super::data;
@@ -35,7 +35,7 @@ const DEGENERATE: f32 = 1.5;
 pub fn view<'a, M: 'a>(
     data: &'a data::State,
     state: &'a viewer::State,
-    anim: &AnimSettings,
+    anim: &StudioSettings,
     picked: Option<usize>,
 ) -> Element<'a, M> {
     let overlay = Parts {
@@ -43,11 +43,11 @@ pub fn view<'a, M: 'a>(
         frame: state.current_frame,
         pan: state.pan,
         zoom: state.zoom,
-        rig: anim.show_rig,
-        selected: anim.show_selected,
-        hierarchy: anim.show_hierarchy,
-        origin: anim.show_origin,
-        world: anim.show_world,
+        rig: anim.rig,
+        selected: anim.selected,
+        hierarchy: anim.hierarchy,
+        origin: anim.origin.on(),
+        world: anim.world.on(),
         picked,
     };
 
@@ -59,9 +59,9 @@ struct Parts<'a> {
     frame: f32,
     pan: Vector,
     zoom: f32,
-    rig: bool,
-    selected: bool,
-    hierarchy: bool,
+    rig: Tier,
+    selected: Tier,
+    hierarchy: Tier,
     origin: bool,
     world: bool,
     picked: Option<usize>,
@@ -77,7 +77,7 @@ impl Parts<'_> {
         let anim = self.data.current_anim.as_deref();
         let offset = self.data.offset();
 
-        if !self.rig && !self.selected && !self.hierarchy {
+        if !self.rig.on() && !self.selected.on() && !self.hierarchy.on() {
             return resolve_frame(unit, anim, frame, offset).into_iter().map(|frame| (None, frame)).collect();
         }
 
@@ -88,19 +88,19 @@ impl Parts<'_> {
     }
 
     fn level(&self, part: Option<usize>) -> u8 {
-        let mut score = u8::from(self.rig);
+        let mut tier = self.rig;
 
         let Some(part) = part else {
-            return score;
+            return tier.rank();
         };
 
         if self.picked == Some(part) {
-            score += 2 * u8::from(self.selected) + 2 * u8::from(self.hierarchy);
-        } else if self.hierarchy && self.picked == self.parent_of(part) {
-            score += 1;
+            tier = tier.max(self.selected).max(self.hierarchy);
+        } else if self.hierarchy.on() && self.picked == self.parent_of(part) {
+            tier = tier.max(self.hierarchy);
         }
 
-        score
+        tier.rank()
     }
 
     fn parent_of(&self, part: usize) -> Option<usize> {
@@ -185,7 +185,7 @@ impl<M> canvas::Program<M> for Parts<'_> {
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
-        if !self.rig && !self.selected && !self.hierarchy && !self.origin && !self.world {
+        if !self.rig.on() && !self.selected.on() && !self.hierarchy.on() && !self.origin && !self.world {
             return Vec::new();
         }
 

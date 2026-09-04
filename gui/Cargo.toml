@@ -30,3 +30,5 @@ sha2 = "0.10.9"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1.12"
+[dev-dependencies]
+naga = { version = "27", features = ["wgsl-in"] }

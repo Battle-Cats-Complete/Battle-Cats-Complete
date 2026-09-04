@@ -104,6 +104,27 @@ fn feedback_color_button(
     }
 }
 
+fn status_color_button(color: Color, text_override: Option<Color>) -> button::Style {
+    let style = solid_button(color);
+
+    match text_override {
+        Some(text_color) => button::Style { text_color, ..style },
+        None => style,
+    }
+}
+
+pub fn warning_status(theme: &Theme, _status: button::Status) -> button::Style {
+    status_color_button(theme.palette().warning, Some(theme.palette().text))
+}
+
+pub fn success_status(theme: &Theme, _status: button::Status) -> button::Style {
+    status_color_button(theme.palette().success, Some(theme.palette().text))
+}
+
+pub fn danger_status(theme: &Theme, _status: button::Status) -> button::Style {
+    status_color_button(theme.palette().danger, None)
+}
+
 pub fn primary_button(theme: &Theme, status: button::Status) -> button::Style {
     feedback_color_button(theme, theme.palette().primary, status, None)
 }

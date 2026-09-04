@@ -233,8 +233,8 @@ impl State {
 
     fn disk_button<'a>(&'a self, name: &str, phase: Phase, target: Target, can_delete: bool, size: Option<u64>) -> Element<'a, Message> {
         match phase {
-            Phase::Deleting => theme::sized_button(format!("Deleting \"{}\"...", name), theme::ACTION_BUTTON_WIDTH, theme::warning_button).into(),
-            Phase::Done => theme::sized_button(format!("Deleted \"{}\"!", name), theme::ACTION_BUTTON_WIDTH, theme::success_button).into(),
+            Phase::Deleting => theme::sized_button(format!("Deleting \"{}\"...", name), theme::ACTION_BUTTON_WIDTH, theme::warning_status).into(),
+            Phase::Done => theme::sized_button(format!("Deleted \"{}\"!", name), theme::ACTION_BUTTON_WIDTH, theme::success_status).into(),
             Phase::Idle if can_delete => {
                 let label = if self.confirm.armed_for(&target) {
                     CONFIRM_LABEL.to_string()
@@ -253,8 +253,8 @@ impl State {
 
     fn cache_button<'a>(&'a self, phase: Phase, can_delete: bool) -> Element<'a, Message> {
         match phase {
-            Phase::Deleting => theme::sized_button("Clearing Cache...", theme::ACTION_BUTTON_WIDTH, theme::warning_button).into(),
-            Phase::Done => theme::sized_button("Cache Cleared!", theme::ACTION_BUTTON_WIDTH, theme::success_button).into(),
+            Phase::Deleting => theme::sized_button("Clearing Cache...", theme::ACTION_BUTTON_WIDTH, theme::warning_status).into(),
+            Phase::Done => theme::sized_button("Cache Cleared!", theme::ACTION_BUTTON_WIDTH, theme::success_status).into(),
             Phase::Idle if can_delete => {
                 let label = if self.confirm.armed_for(&Target::Cache) {
                     CONFIRM_LABEL.to_string()

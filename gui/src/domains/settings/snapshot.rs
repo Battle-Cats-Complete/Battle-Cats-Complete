@@ -95,10 +95,10 @@ impl State {
     pub fn view(&self) -> Element<'_, Message> {
         match self.phase {
             Phase::Deleting => {
-                theme::sized_button("Deleting Snapshot...", theme::ACTION_BUTTON_WIDTH, theme::warning_button).into()
+                theme::sized_button("Deleting Snapshot...", theme::ACTION_BUTTON_WIDTH, theme::warning_status).into()
             }
             Phase::Done => {
-                theme::sized_button("Deleted Snapshot!", theme::ACTION_BUTTON_WIDTH, theme::success_button).into()
+                theme::sized_button("Deleted Snapshot!", theme::ACTION_BUTTON_WIDTH, theme::success_status).into()
             }
             Phase::Idle if self.present => {
                 let label = if self.confirm.is_set() { CONFIRM_LABEL } else { "Delete Snapshot" };

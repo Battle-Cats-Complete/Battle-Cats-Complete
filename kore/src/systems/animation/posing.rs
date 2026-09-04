@@ -18,8 +18,8 @@ impl Hand {
 
     pub fn label(self) -> &'static str {
         match self {
-            Hand::Channel => "ChannelHand",
-            Hand::Model => "ModelHand",
+            Hand::Channel => "Channel",
+            Hand::Model => "Model",
         }
     }
 }
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn a_degenerate_pair_reports_nothing_rather_than_a_wild_answer() {
         // A part scaled to nothing, or two fields that move it the same way, has no
-        // unique split — dividing by that determinant would fling it across the screen.
+        // unique split. Dividing by that determinant would fling it across the screen.
         assert_eq!(split([(0.0, 0.0), (0.0, 0.0)], (5.0, 5.0)), None);
         assert_eq!(split([(1.0, 1.0), (2.0, 2.0)], (5.0, 5.0)), None);
     }

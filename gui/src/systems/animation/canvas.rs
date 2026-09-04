@@ -7,13 +7,16 @@ use iced::{Element, Event, Length, Point, Rectangle, Vector};
 use image::RgbaImage;
 
 use nyanko::graphics::animate::{resolve_frame, FrameData};
+use nyanko::graphics::tools::part;
+
+use kore::domains::settings::{Scope, StudioSettings};
 
 use kore::systems::animation::multiply_mat3;
 
 use crate::widget::LINE_PIXELS;
 
 use super::data;
-use super::pipeline::{build_vertices, Pipeline};
+use super::pipeline::{build_vertices, Painted, Pipeline};
 
 const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 10.0;
@@ -82,8 +85,13 @@ impl State {
         }
     }
 
-    pub fn view<'a>(&'a self, data: &'a data::State) -> Element<'a, Message> {
-        Shader::new(Viewport { state: self, data })
+    pub fn view<'a>(
+        &'a self,
+        data: &'a data::State,
+        anim: Option<&'a StudioSettings>,
+        picked: Option<usize>,
+    ) -> Element<'a, Message> {
+        Shader::new(Viewport { state: self, data, anim, picked })
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -93,11 +101,96 @@ impl State {
 struct Viewport<'a> {
     state: &'a State,
     data: &'a data::State,
+    anim: Option<&'a StudioSettings>,
+    picked: Option<usize>,
 }
 
 #[derive(Default)]
 struct Interaction {
     drag_origin: Option<Point>,
+}
+
+impl Viewport<'_> {
+    fn scoped(&self, unit: &nyanko::graphics::rig::Rig, frame: i32) -> Vec<FrameData> {
+        let clip = self.data.current_anim.as_deref();
+        let offset = self.data.offset();
+        let entity = self.anim.map_or(Scope::Rig, |held| held.entity);
+
+        if entity == Scope::Rig {
+            return resolve_frame(unit, clip, frame, offset);
+        }
+
+        if entity == Scope::None {
+            return Vec::new();
+        }
+
+        let Ok(mapped) = part::resolve(unit, clip, frame, offset) else {
+            return resolve_frame(unit, clip, frame, offset);
+        };
+
+        mapped
+            .into_iter()
+            .filter(|entry| super::shows(&unit.model, entity, self.picked, entry.part))
+            .map(|entry| entry.frame)
+            .collect()
+    }
+
+    fn seated(&self, at: f32) -> i32 {
+        self.data.playback_frame(at).floor() as i32
+    }
+
+    fn trailed(&self, at: f32) -> Option<i32> {
+        self.data.trailed(at).map(|frame| frame.floor() as i32)
+    }
+
+    fn drawn(&self, unit: &nyanko::graphics::rig::Rig) -> Vec<Painted> {
+        let now = self.state.current_frame;
+        let live: Vec<Painted> =
+            self.scoped(unit, self.seated(now)).into_iter().map(Painted::plain).collect();
+
+        let Some(anim) = self.anim.filter(|held| held.onion_on()) else {
+            return live;
+        };
+
+        let (Some(gap), Some(life)) = (anim.onion_step(), anim.onion_life()) else {
+            return live;
+        };
+
+        let (behind, ahead) = (anim.onion_behind().unwrap_or(0), anim.onion_ahead().unwrap_or(0));
+        let gap = gap as f32;
+        let span = (life as f32).max((behind.max(ahead) + 1) as f32 * gap);
+        let alpha = anim.onion_alpha();
+        let reach = (behind + ahead) as usize;
+
+        let mut layered = Vec::with_capacity(live.len() * (reach + 1));
+
+        for (skins, way, tint) in [
+            (behind, -1.0, anim.onion_before_wash()),
+            (ahead, 1.0, anim.onion_after_wash()),
+        ] {
+            for step in (1..=skins).rev() {
+                let aged = step as f32 * gap;
+                let fade = (1.0 - aged / span) * alpha;
+
+                if fade <= 0.0 {
+                    continue;
+                }
+
+                let Some(at) = self.trailed(now + way * aged) else {
+                    continue;
+                };
+
+                layered.extend(self.scoped(unit, at).into_iter().filter_map(|mut ghost| {
+                    ghost.opacity *= fade;
+
+                    (ghost.opacity > 0.0).then_some(Painted { frame: ghost, tint })
+                }));
+            }
+        }
+
+        layered.extend(live);
+        layered
+    }
 }
 
 impl<'a> shader::Program<Message> for Viewport<'a> {
@@ -149,10 +242,8 @@ impl<'a> shader::Program<Message> for Viewport<'a> {
     }
 
     fn draw(&self, _interaction: &Interaction, _cursor: mouse::Cursor, _bounds: Rectangle) -> Scene {
-        let frame = self.data.playback_frame(self.state.current_frame).floor() as i32;
-
         let (parts, image) = self.data.held_unit.as_ref().map_or((Vec::new(), None), |unit| {
-            (resolve_frame(unit, self.data.current_anim.as_deref(), frame, self.data.offset()), unit.sheet.image_data.clone())
+            (self.drawn(unit), unit.sheet.image_data.clone())
         });
 
         Scene {
@@ -176,7 +267,7 @@ impl<'a> shader::Program<Message> for Viewport<'a> {
 
 struct Scene {
     image: Option<Arc<RgbaImage>>,
-    parts: Vec<FrameData>,
+    parts: Vec<Painted>,
     pan: Vector,
     zoom: f32,
 }

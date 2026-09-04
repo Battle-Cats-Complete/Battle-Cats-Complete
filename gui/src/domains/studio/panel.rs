@@ -34,7 +34,12 @@ impl State {
                     container(self.idle.view(settings, anim).map(Message::Viewer))
                         .width(Length::Fill)
                         .height(Length::Fill),
-                    strip(Focus::Curve, None, None, None, false, &settings.animation, false)
+                    strip(
+                        facts_table(Focus::Curve, None, None, None),
+                        &settings.studio,
+                        false,
+                        Readout::default(),
+                    )
                 ]
                 .spacing(GAP)
                 .into(),
@@ -121,7 +126,22 @@ impl Session {
         anim: &'a AnimState,
         shipping: Shipping,
     ) -> Element<'a, Message> {
-        let showing: Element<'_, Message> = if self.viewer.resolved() {
+        let handled = self.viewer.resolved() && !self.viewer.selecting();
+
+        let showing: Element<'_, Message> = if handled {
+            editor::deflect(
+                stack![
+                    self.viewer.stage_view(settings).map(Message::Viewer),
+                    self.gizmo.view(
+                        self.chosen_part(),
+                        self.placed.clone(),
+                        self.viewer.camera(),
+                    ),
+                    self.viewer.controls_view(anim).map(Message::Viewer),
+                ],
+                true,
+            )
+        } else if self.viewer.resolved() {
             self.viewer.view(settings, anim).map(Message::Viewer)
         } else {
             container(text(LOADING_NOTICE).size(LABEL_SIZE))
@@ -130,18 +150,6 @@ impl Session {
                 .center_x(Length::Fill)
                 .center_y(Length::Fill)
                 .into()
-        };
-
-        let handled = self.viewer.resolved() && !self.viewer.selecting();
-        let showing = match handled {
-            true => editor::deflect(
-                stack![
-                    showing,
-                    self.gizmo.view(self.chosen_part(), self.viewer.posed(), self.viewer.camera()),
-                ],
-                true,
-            ),
-            false => showing,
         };
 
         let stage = container(showing).width(Length::Fill).height(Length::Fill);
@@ -392,15 +400,28 @@ impl Session {
             .zip(self.viewer.rig())
             .and_then(|(at, rig)| rig.model.parts.get(at));
 
-        strip(
-            self.focus,
-            index,
-            part,
-            self.viewer.rig(),
-            self.viewer.locatable(),
-            &settings.animation,
-            self.animated(),
-        )
+        let shown = match self.readout {
+            Readout::Facts => facts_table(self.focus, index, part, self.viewer.rig()),
+            Readout::Timeline => self.board(),
+        };
+
+        strip(shown, &settings.studio, self.animated(), self.readout)
+    }
+
+    fn board(&self) -> Element<'_, Message> {
+        let chosen = self.chosen();
+        let doc = self.draft.as_ref().map(|draft| &draft.doc);
+        let picked = self.draft.as_ref().and_then(|draft| draft.track);
+
+        let (lanes, cadence) = match doc.zip(chosen) {
+            Some((doc, part)) => (
+                timeline::lanes(doc, part),
+                i32::try_from(part).map_or_else(|_| Cadence::of(&[]), |at| doc.cadence(at)),
+            ),
+            None => (Vec::new(), Cadence::of(&[])),
+        };
+
+        self.timeline.view(chosen, lanes, cadence, self.viewer.frame(), picked)
     }
 
     fn keys(&self) -> Element<'_, Message> {
@@ -410,7 +431,7 @@ impl Session {
 
         let active = draft
             .and_then(|draft| draft.curve())
-            .and_then(|track| timeline::playhead(track, self.viewer.frame()))
+            .and_then(|track| curve::playhead(track, self.viewer.frame()))
             .map(|playhead| playhead.key);
 
         let notice: Element<'_, Message> = match draft.is_some_and(|draft| draft.backing.failed) {
@@ -825,54 +846,91 @@ fn panel_head<'a>(label: &'a str) -> Element<'a, Message> {
         .into()
 }
 
-fn options(anim: &AnimSettings, animated: bool) -> Element<'_, Message> {
-    let header = panel_head("Option");
-    let hand: Element<'_, Message> = match animated {
-        true => pick_list(Hand::ALL, Some(anim.hand), Message::Handed)
-            .width(Length::Fill)
+fn dial_combo<'a, T>(held: T, options: &'a [T], live: bool, on: impl Fn(T) -> Message + 'a) -> Element<'a, Message>
+where
+    T: Clone + PartialEq + std::fmt::Display + 'static,
+{
+    sized_combo(held, options, live, COMBO_WIDTH, on)
+}
+
+fn sized_combo<'a, T>(
+    held: T,
+    options: &'a [T],
+    live: bool,
+    wide: f32,
+    on: impl Fn(T) -> Message + 'a,
+) -> Element<'a, Message>
+where
+    T: Clone + PartialEq + std::fmt::Display + 'static,
+{
+    match live {
+        true => pick_list(options, Some(held), on)
+            .width(Length::Fixed(wide))
             .padding([1, 4])
             .text_size(LABEL_SIZE)
             .style(theme::combo_box)
             .menu_style(theme::combo_box_menu)
             .into(),
         false => container(
-            text(Hand::Model.label())
+            text(held.to_string())
                 .size(LABEL_SIZE)
                 .style(|theme: &Theme| text::Style { color: Some(theme::weak_text_color(theme)) }),
         )
-        .width(Length::Fill)
+        .width(Length::Fixed(wide))
         .padding([1, 4])
         .style(theme::combo_box_idle)
         .into(),
+    }
+}
+
+fn dial_row<'a>(
+    dial: Dial,
+    readout: Readout,
+    anim: &'a StudioSettings,
+    animated: bool,
+    stripe: usize,
+) -> Element<'a, Message> {
+    let live = dial.live(animated);
+    let picker: Element<'_, Message> = match dial {
+        Dial::Gizmo => dial_combo(anim.gizmo, &Hand::ALL, live, Message::Handed),
+        Dial::Onion => dial_combo(anim.onion, &Switch::ALL, live, Message::Onioning),
+        Dial::Module => dial_combo(readout, &Readout::ALL, live, Message::Module),
+        Dial::Entity => dial_combo(anim.entity, &Scope::ALL, live, Message::Scoped),
+        _ => match dial.tier(anim) {
+            Some(tier) => dial_combo(tier, &Tier::ALL, live, move |held| Message::Tiered(dial, held)),
+            None => dial_combo(
+                dial.shown(anim).unwrap_or_default(),
+                &Shown::ALL,
+                live,
+                move |held| Message::Sighted(dial, held),
+            ),
+        },
     };
 
-    let seated = container(hand)
+    let name = button(theme::centered_text(dial.label()).size(LABEL_SIZE).width(Length::Fill))
+        .width(Length::Fixed(DEBUG_WIDTH))
+        .padding([1, 4])
+        .on_press_maybe(live.then_some(Message::Cycle(dial)))
+        .style(theme::primary_button);
+
+    let body = row![name, picker].spacing(ROW_GAP).align_y(Vertical::Center);
+
+    container(body)
         .height(Length::Fixed(FACT_ROW_HEIGHT))
         .align_y(Vertical::Center)
         .padding([0, 3])
-        .style(|theme: &Theme| theme::zebra_table_row(theme, 0));
+        .style(move |theme: &Theme| theme::zebra_table_row(theme, stripe))
+        .into()
+}
 
-    Lens::ALL
+fn options<'a>(anim: &'a StudioSettings, animated: bool, readout: Readout) -> Element<'a, Message> {
+    Dial::ALL
         .iter()
         .enumerate()
-        .fold(column![header, seated], |listed, (stripe, lens)| {
-            let on = lens.on(anim);
-
-            let toggle = button(theme::centered_text(lens.label()).size(LABEL_SIZE).width(Length::Fill))
-                .width(Length::Fill)
-                .padding([1, 4])
-                .on_press(Message::Overlay(*lens))
-                .style(move |theme: &Theme, status| theme::toggle_button(theme, status, on));
-
-            listed.push(
-                container(toggle)
-                    .height(Length::Fixed(FACT_ROW_HEIGHT))
-                    .align_y(Vertical::Center)
-                    .padding([0, 3])
-                    .style(move |theme: &Theme| theme::zebra_table_row(theme, stripe + 1)),
-            )
+        .fold(column![panel_head("Option")], |listed, (stripe, dial)| {
+            listed.push(dial_row(*dial, readout, anim, animated, stripe))
         })
-        .width(Length::Fixed(DEBUG_WIDTH))
+        .width(Length::Fixed(OPTION_WIDTH))
         .into()
 }
 
@@ -922,41 +980,28 @@ pub(super) fn footer_button<'a>(label: &'a str, message: Option<Message>) -> Ele
         .into()
 }
 
-pub(super) fn actions<'a>(ready: bool) -> Element<'a, Message> {
-    let locate = button(theme::centered_text("Locate").size(LABEL_SIZE).width(Length::Fill))
-        .width(Length::Fill)
-        .padding([1, 4])
-        .on_press_maybe(ready.then_some(Message::Locate))
-        .style(move |theme: &Theme, status| theme::toggle_button(theme, status, ready));
-
-    column![
-        panel_head("Action"),
-        container(locate)
-            .height(Length::Fixed(FACT_ROW_HEIGHT))
-            .align_y(Vertical::Center)
-            .padding([0, 3])
-            .style(|theme: &Theme| theme::zebra_table_row(theme, 0)),
-    ]
-    .width(Length::Fixed(DEBUG_WIDTH))
-    .into()
-}
-
-pub(super) fn strip<'a>(
+pub(super) fn facts_table<'a>(
     focus: Focus,
     index: Option<i32>,
     part: Option<&ModelPart>,
     rig: Option<&Rig>,
-    ready: bool,
-    anim: &'a AnimSettings,
-    animated: bool,
 ) -> Element<'a, Message> {
     let table = match focus {
         Focus::Curve => model_rows(index, part),
         Focus::Part => atlas_rows(index, part, rig),
     };
 
-    let facts: Element<'_, Message> = column![fact_header(focus), table].width(Length::Fill).into();
-    let body = row![facts, actions(ready), options(anim, animated)].spacing(GAP);
+    column![fact_header(focus), table].width(Length::Fill).into()
+}
+
+pub(super) fn strip<'a>(
+    shown: Element<'a, Message>,
+    anim: &'a StudioSettings,
+    animated: bool,
+    readout: Readout,
+) -> Element<'a, Message> {
+    let seated = container(shown).width(Length::Fill).height(Length::Fixed(timeline::BOARD_HEIGHT));
+    let body = row![seated, options(anim, animated, readout)].spacing(GAP);
 
     container(body).width(Length::Fill).into()
 }
@@ -1001,10 +1046,22 @@ pub(super) enum Shipping {
 impl Shipping {
     fn button(self, live: bool) -> (&'static str, theme::ButtonStyleFn, Option<Message>) {
         match self {
-            Shipping::Running => ("Exporting\u{2026}", theme::warning_button, None),
-            Shipping::Placed => ("Exported!", theme::success_button, None),
-            Shipping::Failed => (feedback::FAILURE_LABEL, theme::danger_button, None),
+            Shipping::Running => ("Exporting\u{2026}", theme::warning_status, None),
+            Shipping::Placed => ("Exported!", theme::success_status, None),
+            Shipping::Failed => (feedback::FAILURE_LABEL, theme::danger_status, None),
             Shipping::Idle => ("Export", theme::primary_button, live.then_some(Message::Export)),
+        }
+    }
+
+    pub(super) fn shipout(
+        self,
+        verb: &'static str,
+        armed: bool,
+    ) -> (&'static str, theme::ButtonStyleFn, Option<Message>) {
+        match (self, armed) {
+            (Shipping::Idle, true) => (feedback::CONFIRM_LABEL, theme::danger_button, Some(Message::Ship)),
+            (Shipping::Idle, false) => (verb, theme::primary_button, Some(Message::Ship)),
+            _ => self.button(false),
         }
     }
 }

@@ -97,7 +97,11 @@ impl State {
         self.tool == Tool::Animation && self.animation.is_expanded()
     }
 
-    pub fn expanded_view(&self, settings: &Settings, app_state: &AppState) -> Option<Element<'_, Message>> {
+    pub fn expanded_view<'a>(
+        &'a self,
+        settings: &'a Settings,
+        app_state: &'a AppState,
+    ) -> Option<Element<'a, Message>> {
         if self.tool != Tool::Animation {
             return None;
         }
@@ -105,7 +109,7 @@ impl State {
         self.animation.expanded_view(settings, app_state).map(|view| view.map(Message::Animation))
     }
 
-    pub fn view<'a>(&'a self, settings: &Settings, app_state: &AppState) -> Element<'a, Message> {
+    pub fn view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Element<'a, Message> {
         let body = match self.tool {
             Tool::Imgcut => self.imgcut.view().map(Message::Imgcut),
             Tool::Animation => self.animation.view(settings, app_state).map(Message::Animation),

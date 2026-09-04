@@ -27,7 +27,7 @@ impl Session {
 
     pub(super) fn hand(&self, settings: &Settings) -> Hand {
         match self.animated() {
-            true => settings.animation.hand,
+            true => settings.studio.gizmo,
             false => Hand::Model,
         }
     }
@@ -50,15 +50,21 @@ impl Session {
     }
 
     pub(super) fn haul(&mut self, sweep: gizmo::Sweep, hand: Hand) -> Task<Message> {
+        let entity = self.entity;
+
         let Some(part) = self.chosen_part() else {
             return Task::none();
         };
 
-        match sweep.grip {
+        let task = match sweep.grip {
             gizmo::Grip::Move => self.shove(part, sweep.travel, hand),
             gizmo::Grip::Scale { .. } => self.stretch(part, sweep, hand),
             gizmo::Grip::Rotate => self.spin(part, sweep.spun, hand),
-        }
+        };
+
+        self.reposed(entity);
+
+        task
     }
 
     pub(super) fn tint(&mut self, step: i32, hand: Hand) -> Task<Message> {
@@ -159,7 +165,7 @@ impl Session {
             }
         }?;
 
-        let found = self.viewer.posed().into_iter().find(|entry| entry.part == part)?;
+        let found = self.viewer.posed(Scope::Rig).into_iter().find(|entry| entry.part == part)?;
         let seat = |at: usize| (found.quad[at * 2], found.quad[at * 2 + 1]);
 
         let turning = [0, 3]

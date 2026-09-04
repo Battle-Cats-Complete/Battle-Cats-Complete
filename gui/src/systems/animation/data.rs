@@ -137,6 +137,16 @@ impl State {
         self.current_anim.as_ref().map_or(frame, |anim| loop_frame(anim, frame))
     }
 
+    pub fn trailed(&self, frame: f32) -> Option<f32> {
+        let seated = self.playback_frame(frame);
+
+        if seated >= 0.0 {
+            return Some(seated);
+        }
+
+        self.current_anim.as_ref().map(|anim| loop_frame(anim, seated))
+    }
+
     pub fn playhead_key(&self) -> (&str, Option<usize>) {
         (&self.loaded_rig, self.selected)
     }

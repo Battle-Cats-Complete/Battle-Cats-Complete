@@ -1,3 +1,5 @@
+mod cadence;
+mod hazards;
 mod imgcut;
 mod maanim;
 mod mamodel;
@@ -5,6 +7,8 @@ mod mamodel;
 use nyanko::graphics::rig::{AnimModification, Keyframe, Model};
 use nyanko::graphics::tools::property;
 
+pub use cadence::{Beat, Cadence, Cycle, REACH};
+pub use hazards::{anim_hazards, model_hazards, sheet_hazards, Hazard, SHEET_FIELD};
 pub use imgcut::{Imgcut, CUT_FIELDS, CUT_NAME_FIELD};
 pub use maanim::Maanim;
 pub use mamodel::{bound, defaults, nameable, Mamodel, FIELDS, NAME_FIELD};
@@ -67,7 +71,7 @@ pub fn kind_label(kind: i32) -> &'static str {
 
     match entry.field {
         "parent" => "Parent",
-        "id" => "Unit ID",
+        "id" => "Sheet ID",
         "sprite" => "Sprite",
         "depth" => "Z Order",
         "x" => "X",

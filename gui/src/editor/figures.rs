@@ -1231,7 +1231,7 @@ mod tests {
         let untouched = std::fs::read(&path).expect("fixture should still be readable");
         assert_eq!(
             untouched, seeded,
-            "no keystroke may block `update` on disk I/O — the write only happens once the async task the first keystroke started is driven to completion",
+            "no keystroke may block `update` on disk I/O. The write only happens once the async task the first keystroke started is driven to completion",
         );
 
         let draft = state.draft.as_ref().expect("the draft survives typing");
@@ -1267,7 +1267,7 @@ mod tests {
         let _ = state.update(Message::Changed(index, "!7".to_owned()), &vfs);
         assert_eq!(state.draft.as_ref().and_then(|draft| draft.buffer), Some(index));
 
-        // No `Message` at all here — this is what page navigation calls directly, ahead of
+        // No `Message` at all here. This is what page navigation calls directly, ahead of
         // switching `current_page`, since a page change never routes through `figures::Message`.
         let _ = state.flush(&vfs);
 

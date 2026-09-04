@@ -429,6 +429,7 @@ enum Action {
     AddChannel { part: usize, kind: i32 },
     DropChannel { track: usize },
     AddPart { parent: Option<usize> },
+    Locate { part: usize },
     DropPart { part: usize },
     EditAnimation(AnimPlan),
     EditFigures(figures::Plan),
@@ -826,6 +827,10 @@ impl State {
                 false => Outcome::Failed,
             },
             Action::AddPart { parent } => match studio.add_part(*parent) {
+                true => Outcome::Done,
+                false => Outcome::Failed,
+            },
+            Action::Locate { part } => match studio.locate(*part) {
                 true => Outcome::Done,
                 false => Outcome::Failed,
             },
@@ -1366,8 +1371,7 @@ fn enemy_label(app: &BattleCatsApp, id: u32) -> String {
 fn explanation_target(app: &BattleCatsApp, id: u32) -> Option<ProseTarget> {
     let form = app.app_state.cat.selected_form;
 
-    let resolved = cat_waiter::unitexplanation_source(&app.vault.vfs, id, form)?;
-    let file = resolved.file_name()?.to_string_lossy().into_owned();
+    cat_waiter::unitexplanation_source(&app.vault.vfs, id, form)?;
 
     let key = cat_files::explanation_file(id);
     let files = asset_files(app, &key);
@@ -1387,8 +1391,8 @@ fn explanation_target(app: &BattleCatsApp, id: u32) -> Option<ProseTarget> {
     let form_label = figures::FORMS.get(form).copied().unwrap_or("Unknown");
 
     let label = match name.as_deref() {
-        Some(name) if !name.is_empty() => [name, form_label, file.as_str()].join(theme::HEADER_SEPARATOR),
-        _ => [file.as_str(), form_label].join(theme::HEADER_SEPARATOR),
+        Some(name) if !name.is_empty() => [name, form_label].join(theme::HEADER_SEPARATOR),
+        _ => form_label.to_owned(),
     };
 
     Some(ProseTarget {

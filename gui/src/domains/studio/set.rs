@@ -300,6 +300,64 @@ impl State {
         self.managing
     }
 
+    pub(crate) fn remount(&mut self, mounted: Option<String>) {
+        if self.mounted != mounted {
+            self.shipping_to = false;
+        }
+
+        self.mounted = mounted;
+        self.unlatch();
+    }
+
+    pub(crate) fn shipping_to(&self) -> bool {
+        self.shipping_to
+    }
+
+    pub(crate) fn aim_at(&mut self, muster: &shipout::Muster<'_>) {
+        self.aim = sets::resolve(&self.aimed, muster);
+    }
+
+    pub(crate) fn ship_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        if !self.shipping_to {
+            return None;
+        }
+
+        let named = match self.manage.set().name.trim() {
+            "" => sets::DEFAULT_NAME,
+            held => held,
+        };
+
+        Some(self.ship_popup.view(
+            shipout::TITLE,
+            shipout::SPEC,
+            window,
+            Message::ShipPopup,
+            || shipout::view(named, &self.aimed, &self.aim, self.ship_armed.armed_for(&()), self.shipping()),
+            Some(popup::GLASS),
+        ))
+    }
+
+    pub(crate) fn onioning(&self) -> bool {
+        self.onioning
+    }
+
+    pub(crate) fn onion_popup_view<'a>(
+        &'a self,
+        settings: &'a Settings,
+        window: Size,
+    ) -> Option<Element<'a, Message>> {
+        self.onioning.then(|| {
+            self.onion_popup.view(
+                onion::TITLE,
+                onion::SPEC,
+                window,
+                Message::OnionPopup,
+                || onion::view(&settings.studio),
+                Some(popup::GLASS),
+            )
+        })
+    }
+
     pub(crate) fn manage_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
         self.managing.then(|| {
             self.popup.view(

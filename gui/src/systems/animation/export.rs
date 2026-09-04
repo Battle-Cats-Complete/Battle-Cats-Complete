@@ -44,7 +44,6 @@ const BUTTON_STATUS_GAP: f32 = 8.0;
 const RULE_HEIGHT: f32 = 1.0;
 const SCROLLBAR_GAP: f32 = 2.0;
 const CONTROL_TEXT_SIZE: f32 = 13.0;
-const POPUP_BODY_ALPHA: f32 = 0.95;
 
 const DEFAULT_WALK_LEN: i32 = 90;
 const DEFAULT_IDLE_LEN: i32 = 90;
@@ -1031,7 +1030,7 @@ impl State {
     }
 
     pub fn view(&self, window: Size) -> Element<'_, Message> {
-        self.popup.view("Export Animation", self.spec, window, Message::Popup, move || self.content_view(), Some(POPUP_BODY_ALPHA))
+        self.popup.view("Export Animation", self.spec, window, Message::Popup, move || self.content_view(), Some(popup::GLASS))
     }
 
     fn content_view(&self) -> Element<'_, Message> {

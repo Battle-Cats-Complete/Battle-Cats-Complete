@@ -827,7 +827,6 @@ impl Mount for (&str, &Path) {
             return Ok(Vec::new());
         };
 
-        // A second copy of the name appeared, so neither resolves any more — same rule
         // walk::merge applies, kept in step so an added file needs no remount.
         mount.files.remove(name);
 
@@ -1065,7 +1064,7 @@ mod tests {
         let mount = root.file_name().and_then(OsStr::to_str).expect("mount key");
         fs::remove_file(&target).expect("delete the file");
 
-        // The name is still indexed, so an existence check is the caller's job — but the
+        // The name is still indexed, so an existence check is the caller's job, but the
         // incremental mount must refuse rather than insert a zeroed entry, which would shadow
         // the game mount with a dead path and read as "missing" instead of falling back.
         assert!(vfs.indexed(mount, &target));

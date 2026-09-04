@@ -195,6 +195,8 @@ enum ActivePopup {
     UtilityExport,
     UtilitySettings,
     StudioManage,
+    StudioOnion,
+    StudioShipout,
     StudioExport,
 }
 
@@ -1189,8 +1191,10 @@ impl BattleCatsApp {
                 self.mods_state.sync_state(&mut self.app_state.mods);
 
                 if self.mods_state.active_mod() != mounted {
-                    self.studio_state.unlatch();
+                    self.studio_state.remount(self.mods_state.active_mod());
                 }
+
+                self.sync_popup(ActivePopup::StudioShipout, self.studio_state.shipping_to());
 
                 self.sync_popup(ActivePopup::ModsImport, self.mods_state.import_popup_open());
                 self.sync_popup(ActivePopup::ModsExport, self.mods_state.export_popup_open());
@@ -1348,6 +1352,13 @@ impl BattleCatsApp {
 
                 self.studio_state.sync_state(&mut self.app_state.studio);
                 self.sync_popup(ActivePopup::StudioManage, self.studio_state.managing());
+                self.studio_state.aim_at(&studio::Muster {
+                    cats: &self.cat_state.data.cats,
+                    enemies: &self.enemy_state.data.enemies,
+                });
+
+                self.sync_popup(ActivePopup::StudioOnion, self.studio_state.onioning());
+                self.sync_popup(ActivePopup::StudioShipout, self.studio_state.shipping_to());
                 self.sync_popup(ActivePopup::StudioExport, self.studio_state.export_popup_visible());
 
                 task
@@ -1598,6 +1609,22 @@ impl BattleCatsApp {
                     }
 
                     self.studio_state.manage_popup_view(self.window_size).map(|view| view.map(Message::Studio))
+                }
+                ActivePopup::StudioShipout => {
+                    if !matches!(self.current_page, Page::Studio) {
+                        return None;
+                    }
+
+                    self.studio_state.ship_popup_view(self.window_size).map(|view| view.map(Message::Studio))
+                }
+                ActivePopup::StudioOnion => {
+                    if !matches!(self.current_page, Page::Studio) {
+                        return None;
+                    }
+
+                    self.studio_state
+                        .onion_popup_view(&self.settings, self.window_size)
+                        .map(|view| view.map(Message::Studio))
                 }
                 ActivePopup::StudioExport => {
                     if !matches!(self.current_page, Page::Studio) {

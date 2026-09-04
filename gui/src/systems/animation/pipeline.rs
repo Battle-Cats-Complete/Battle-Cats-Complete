@@ -9,22 +9,24 @@ use nyanko::graphics::animate::FrameData;
 
 use kore::systems::animation::multiply_mat3;
 
-const VERTEX_STRIDE: u64 = 20;
+const VERTEX_STRIDE: u64 = 36;
 const VERTS_PER_PART: u32 = 4;
 const INDICES_PER_PART: u32 = FrameData::INDICES.len() as u32;
-const FLOATS_PER_PART: usize = 20;
+const FLOATS_PER_PART: usize = 36;
 
 const SHADER_SOURCE: &str = r#"
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) uv: vec2<f32>,
     @location(2) opacity: f32,
+    @location(3) tint: vec4<f32>,
 }
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) opacity: f32,
+    @location(2) tint: vec4<f32>,
 }
 
 @vertex
@@ -33,6 +35,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     out.position = vec4<f32>(input.position, 0.0, 1.0);
     out.uv = input.uv;
     out.opacity = input.opacity;
+    out.tint = input.tint;
     return out;
 }
 
@@ -41,7 +44,11 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(atlas, atlas_sampler, input.uv) * input.opacity;
+    let sampled = textureSample(atlas, atlas_sampler, input.uv);
+    let lit = dot(sampled.rgb, vec3<f32>(0.299, 0.587, 0.114));
+    let wash = mix(sampled.rgb, input.tint.rgb * lit, input.tint.a);
+
+    return vec4<f32>(wash, sampled.a) * input.opacity;
 }
 "#;
 
@@ -119,7 +126,7 @@ impl Pipeline {
                     buffers: &[wgpu::VertexBufferLayout {
                         array_stride: VERTEX_STRIDE,
                         step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32],
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32, 3 => Float32x4],
                     }],
                 },
                 primitive: wgpu::PrimitiveState {
@@ -271,12 +278,27 @@ impl Pipeline {
     }
 }
 
-pub fn build_vertices(parts: &[FrameData], view_proj: &[f32; 9]) -> (Vec<f32>, Vec<u32>, Vec<Batch>) {
+pub const NO_TINT: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
+
+#[derive(Clone)]
+pub struct Painted {
+    pub frame: FrameData,
+    pub tint: [f32; 4],
+}
+
+impl Painted {
+    pub fn plain(frame: FrameData) -> Self {
+        Self { frame, tint: NO_TINT }
+    }
+}
+
+pub fn build_vertices(parts: &[Painted], view_proj: &[f32; 9]) -> (Vec<f32>, Vec<u32>, Vec<Batch>) {
     let mut vertex_data = Vec::with_capacity(parts.len() * FLOATS_PER_PART);
     let mut index_data = Vec::with_capacity(parts.len() * INDICES_PER_PART as usize);
     let mut batches: Vec<Batch> = Vec::new();
 
-    for (part_index, part) in parts.iter().enumerate() {
+    for (part_index, painted) in parts.iter().enumerate() {
+        let part = &painted.frame;
         let mvp = multiply_mat3(view_proj, &part.final_matrix);
 
         for corner in 0..VERTS_PER_PART as usize {
@@ -288,6 +310,7 @@ pub fn build_vertices(parts: &[FrameData], view_proj: &[f32; 9]) -> (Vec<f32>, V
             vertex_data.push(part.uvs[2 * corner]);
             vertex_data.push(part.uvs[2 * corner + 1]);
             vertex_data.push(part.opacity);
+            vertex_data.extend_from_slice(&painted.tint);
         }
 
         let base = part_index as u32 * VERTS_PER_PART;
@@ -351,4 +374,24 @@ fn blend_modes() -> [wgpu::BlendState; 4] {
             alpha: carried_alpha,
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SHADER_SOURCE;
+
+    #[test]
+    fn the_shader_compiles_and_validates() {
+        // A bad shader only shows up as a panic the first time the viewer draws, which reads
+        // as "opening the page crashes". `filter` being a WGSL reserved word cost a release
+        // exactly that way. Catch it here instead.
+        let module = naga::front::wgsl::parse_str(SHADER_SOURCE).expect("the shader parses");
+
+        let mut validator = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        );
+
+        validator.validate(&module).expect("the shader validates");
+    }
 }

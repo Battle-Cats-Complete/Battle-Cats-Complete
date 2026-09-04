@@ -4,7 +4,7 @@ use nyanko::common::{scrub, Separator};
 use nyanko::graphics::rig::{AnimModification, Animation, Keyframe, Model, RigError};
 use nyanko::graphics::tools::timeline;
 
-use super::blank_curve;
+use super::{blank_curve, Cadence};
 
 const BOM: [u8; 3] = [0xef, 0xbb, 0xbf];
 const NAME_FIELD: usize = 5;
@@ -74,6 +74,10 @@ impl Maanim {
         keyframes.insert(at, key);
 
         Some(at)
+    }
+
+    pub fn cadence(&self, part: i32) -> Cadence {
+        Cadence::of(self.tracks().iter().filter(|track| track.part == part))
     }
 
     pub fn effective(&self, part: i32, kind: i32) -> Option<usize> {

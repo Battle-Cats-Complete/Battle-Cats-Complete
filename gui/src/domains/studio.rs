@@ -15,13 +15,13 @@ use tracing::{error, info, warn};
 
 use kore::common::architecture;
 use kore::common::preview::{self, Stamp};
-use kore::domains::settings::{AnimSettings, Settings};
+use kore::domains::settings::{Scope, Settings, Shown, StudioSettings, Switch, Tier};
 use kore::domains::studio as sets;
 use kore::systems::animation::posing::{self, Hand, Probe};
-use kore::systems::animation::authoring::{self as authoring, bound, Imgcut, CUT_FIELDS, CUT_NAME_FIELD, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, nameable, Maanim, Mamodel, EASES, FIELDS, NAME_FIELD};
+use kore::systems::animation::authoring::{self as authoring, bound, Beat, Cadence, Imgcut, CUT_FIELDS, CUT_NAME_FIELD, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, nameable, Maanim, Mamodel, EASES, FIELDS, NAME_FIELD};
 use image::RgbaImage;
 use nyanko::graphics::rig::{Keyframe, Model, ModelPart, Opaque, Rig, SpriteCut};
-use nyanko::graphics::tools::timeline;
+use nyanko::graphics::tools::timeline as curve;
 
 use crate::app::state::{AnimState, StudioState};
 use crate::app::theme;
@@ -37,9 +37,12 @@ mod documents;
 mod gizmo;
 mod history;
 mod manage;
+mod onion;
 mod panel;
 mod handle;
 mod set;
+mod shipout;
+mod timeline;
 mod tree;
 
 use documents::*;
@@ -48,6 +51,7 @@ use panel::*;
 use tree::*;
 
 pub(crate) use sets::Set;
+pub(crate) use shipout::Muster;
 
 const PANEL_WIDTH: f32 = 372.0;
 const PANEL_PADDING: f32 = 6.0;
@@ -93,7 +97,9 @@ const NOTICE_OVERHANG: f32 = 4.0;
 const NOTICE_TEXT_SIZE: f32 = 13.0;
 const RENAME_DELAY: Duration = Duration::from_millis(700);
 const KEY_HEAD_HEIGHT: f32 = 19.0;
-const DEBUG_WIDTH: f32 = 104.0;
+const DEBUG_WIDTH: f32 = 78.0;
+const OPTION_WIDTH: f32 = 176.0;
+const COMBO_WIDTH: f32 = 88.0;
 
 const FOLDER_OPEN: &str = "\u{25be}";
 const FOLDER_SHUT: &str = "\u{25b8}";
@@ -156,6 +162,7 @@ const NO_PART_CHOSEN: &str = "Select a part to edit its rest pose";
 const NO_MODEL_NOTICE: &str = "This model could not be read";
 const LOOSE_LABEL: &str = "Channels with no declared part";
 const SHADOWED_MARK: &str = "overridden";
+const RESTAMPED_NOTICE: &str = "parts were restamped onto this unit's sheet";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Mode {
@@ -202,6 +209,12 @@ impl Span {
     }
 }
 
+fn stepped<T: Copy + PartialEq>(all: &[T], held: T) -> T {
+    let at = all.iter().position(|known| *known == held).map_or(0, |at| at + 1);
+
+    all.get(at % all.len().max(1)).copied().unwrap_or(held)
+}
+
 fn spanned(at: usize, active: Option<usize>, rows: usize) -> Option<Span> {
     let anchor = active?;
     let reaching = anchor + 1;
@@ -224,45 +237,105 @@ enum Focus {
     Part,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Lens {
-    Rig,
-    Selected,
-    Hierarchy,
-    Origin,
-    World,
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Readout {
+    Facts,
+    #[default]
+    Timeline,
 }
 
-impl Lens {
-    const ALL: [Lens; 5] = [Lens::Rig, Lens::Selected, Lens::Hierarchy, Lens::Origin, Lens::World];
+impl Readout {
+    const ALL: [Readout; 2] = [Readout::Timeline, Readout::Facts];
 
     fn label(self) -> &'static str {
         match self {
-            Lens::Rig => "Rig",
-            Lens::Selected => "Selected",
-            Lens::Hierarchy => "Hierarchy",
-            Lens::Origin => "Origin",
-            Lens::World => "World",
+            Readout::Facts => "Table",
+            Readout::Timeline => "Timeline",
+        }
+    }
+}
+
+impl std::fmt::Display for Readout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Dial {
+    Gizmo,
+    Onion,
+    Module,
+    Rig,
+    Hierarchy,
+    Selected,
+    Origin,
+    Entity,
+    World,
+}
+
+impl Dial {
+    const ALL: [Dial; 9] = [
+        Dial::Gizmo,
+        Dial::Onion,
+        Dial::Module,
+        Dial::Entity,
+        Dial::Rig,
+        Dial::Hierarchy,
+        Dial::Selected,
+        Dial::Origin,
+        Dial::World,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Dial::Gizmo => "Gizmo",
+            Dial::Onion => "Onionskin",
+            Dial::Module => "Module",
+            Dial::Rig => "Rig",
+            Dial::Hierarchy => "Hierarchy",
+            Dial::Selected => "Selected",
+            Dial::Origin => "Origin",
+            Dial::Entity => "Entity",
+            Dial::World => "World",
         }
     }
 
-    fn of(self, anim: &mut AnimSettings) -> &mut bool {
+    fn tier(self, anim: &StudioSettings) -> Option<Tier> {
         match self {
-            Lens::Rig => &mut anim.show_rig,
-            Lens::Selected => &mut anim.show_selected,
-            Lens::Hierarchy => &mut anim.show_hierarchy,
-            Lens::Origin => &mut anim.show_origin,
-            Lens::World => &mut anim.show_world,
+            Dial::Rig => Some(anim.rig),
+            Dial::Hierarchy => Some(anim.hierarchy),
+            Dial::Selected => Some(anim.selected),
+            _ => None,
         }
     }
 
-    fn on(self, anim: &AnimSettings) -> bool {
+    fn set_tier(self, anim: &mut StudioSettings, tier: Tier) {
         match self {
-            Lens::Rig => anim.show_rig,
-            Lens::Selected => anim.show_selected,
-            Lens::Hierarchy => anim.show_hierarchy,
-            Lens::Origin => anim.show_origin,
-            Lens::World => anim.show_world,
+            Dial::Rig => anim.rig = tier,
+            Dial::Hierarchy => anim.hierarchy = tier,
+            Dial::Selected => anim.selected = tier,
+            _ => {}
+        }
+    }
+
+    fn live(self, animated: bool) -> bool {
+        self != Dial::Gizmo || animated
+    }
+
+    fn shown(self, anim: &StudioSettings) -> Option<Shown> {
+        match self {
+            Dial::Origin => Some(anim.origin),
+            Dial::World => Some(anim.world),
+            _ => None,
+        }
+    }
+
+    fn set_shown(self, anim: &mut StudioSettings, shown: Shown) {
+        match self {
+            Dial::Origin => anim.origin = shown,
+            Dial::World => anim.world = shown,
+            _ => {}
         }
     }
 }
@@ -305,6 +378,7 @@ pub(crate) struct Channels {
     pub(crate) label: String,
     pub(crate) present: Vec<(i32, usize)>,
     pub(crate) channelled: bool,
+    pub(crate) locatable: bool,
 }
 
 #[derive(Clone)]
@@ -333,8 +407,22 @@ pub enum Message {
     Bound(usize),
     EaseChanged(usize, i32),
     DropExpired,
-    Overlay(Lens),
-    Locate,
+    Tiered(Dial, Tier),
+    Sighted(Dial, Shown),
+    Scoped(Scope),
+    Module(Readout),
+    Cycle(Dial),
+    OpenOnion,
+    OnionPopup(popup::Message),
+    Onioned(onion::Knob, String),
+    Aimed(String),
+    Ship,
+    ShipExpired,
+    ShipPopup(popup::Message),
+    Onioning(Switch),
+    Framed(usize, timeline::Window),
+    Scrub(i32),
+    Pick(usize),
     Switch(Mode),
     Press(usize),
     DragMove(Point),
@@ -354,6 +442,7 @@ pub enum Message {
     AddCut,
     Undo,
     Persisted(u64, PathBuf, Option<Stamp>),
+    Watched(u64, Arc<Vigil>),
     OpenManage,
     ManagePopup(popup::Message),
     Manage(manage::Message),
@@ -362,6 +451,19 @@ pub enum Message {
     Export,
     Exported(bool),
     ExportExpired,
+}
+
+#[derive(Default, Debug)]
+pub struct Vigil {
+    gone: bool,
+    seen: Vec<(PathBuf, Option<Stamp>)>,
+}
+
+fn keep_watch(files: Vec<PathBuf>, open: Vec<PathBuf>, rigged: bool) -> Vigil {
+    let gone = !rigged || !files.iter().all(|path| path.is_file());
+    let seen = open.into_iter().map(|path| (path.clone(), preview::stamp(&path))).collect();
+
+    Vigil { gone, seen }
 }
 
 #[derive(Default, Clone, Copy, PartialEq)]
@@ -445,7 +547,16 @@ pub struct State {
     recalled: Vec<Recall>,
     manage: manage::State,
     managing: bool,
+    onioning: bool,
+    shipping_to: bool,
+    shed_onion: bool,
+    mounted: Option<String>,
+    aimed: String,
+    aim: sets::Aim,
+    ship_armed: Slot<()>,
     popup: popup::State,
+    onion_popup: popup::State,
+    ship_popup: popup::State,
     mode: Mode,
     notice: Option<Instant>,
     notice_text: String,
@@ -458,11 +569,20 @@ impl Default for State {
         Self {
             unlocked: false,
             session: None,
-            idle: viewer::State::with_popup(popup::Kind::Animator),
+            idle: viewer::State::with_popup(popup::Kind::Animator).authoring(),
             recalled: Vec::new(),
             manage: manage::State::default(),
             managing: false,
+            onioning: false,
+            shipping_to: false,
+            shed_onion: false,
+            mounted: None,
+            aimed: String::new(),
+            aim: sets::Aim::Blank,
+            ship_armed: Slot::default(),
             popup: popup::State::default(),
+            onion_popup: popup::State::default(),
+            ship_popup: popup::State::default(),
             mode: Mode::default(),
             notice: None,
             notice_text: String::new(),
@@ -488,7 +608,7 @@ struct Showing {
 impl Default for Showing {
     fn default() -> Self {
         Self {
-            viewer: viewer::State::with_popup(popup::Kind::Animator),
+            viewer: viewer::State::with_popup(popup::Kind::Animator).authoring(),
             draft: None,
             pose: None,
             atlas: None,
@@ -536,10 +656,17 @@ struct Session {
     drag: Drag,
     confirm: Slot<usize>,
     focus: Focus,
+    readout: Readout,
+    timeline: timeline::State,
     loose_open: bool,
     history: History,
     key: String,
     primed: bool,
+    watching: bool,
+    watch_token: u64,
+    gone: bool,
+    entity: Scope,
+    placed: Vec<viewer::Posed>,
 }
 
 impl State {
@@ -568,6 +695,12 @@ impl State {
     pub(crate) fn begin(&mut self, mut plan: Plan) {
         self.flush_now();
         self.stash();
+
+        match sets::restamp_in_place(&plan.set) {
+            Ok(0) => {}
+            Ok(moved) => self.raise(format!("{} {}", moved, RESTAMPED_NOTICE)),
+            Err(err) => warn!(set = %plan.set.name, "Studio could not restamp the rig: {}", err),
+        }
 
         let Showing {
             viewer,
@@ -630,10 +763,17 @@ impl State {
             drag: Drag::default(),
             confirm: Slot::default(),
             focus,
+            readout: Readout::default(),
+            timeline: timeline::State::default(),
             loose_open: false,
             history: History::default(),
             key,
             primed: false,
+            watching: false,
+            watch_token: 0,
+            gone: false,
+            entity: Scope::default(),
+            placed: Vec::new(),
         });
     }
 
@@ -665,6 +805,16 @@ impl State {
         ));
     }
 
+    pub(crate) fn locate(&mut self, part: usize) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+
+        let _ = session.spotlight(part);
+
+        session.viewer.locate(part)
+    }
+
     pub(crate) fn channels(&self, part: Option<usize>) -> Option<Channels> {
         let session = self.session.as_ref().filter(|session| session.mode == Mode::Entity)?;
         let pose = session.pose.as_ref()?;
@@ -687,6 +837,7 @@ impl State {
             label: format!("Part {}", part),
             present,
             channelled: session.draft.is_some(),
+            locatable: session.viewer.reachable(part),
         })
     }
 
@@ -869,7 +1020,13 @@ impl State {
     ) -> Task<Message> {
         self.unlocked = settings.files.unlock_game_mount;
 
-        if let Some(task) = self.chrome(&message) {
+        let chromed = self.chrome(&message);
+
+        if std::mem::take(&mut self.shed_onion) {
+            settings.studio.onion_arm(false);
+        }
+
+        if let Some(task) = chromed {
             return task;
         }
 
@@ -921,6 +1078,7 @@ impl State {
 
                 let priming = session.sync(settings, anim);
                 session.viewer.tick();
+                session.reposed(settings.studio.entity);
                 session.realign();
                 session.repose();
 
@@ -931,8 +1089,9 @@ impl State {
                     session.pose.as_mut().map_or_else(Task::none, |pose| pose.persist_if_dirty());
                 let carved =
                     session.atlas.as_mut().map_or_else(Task::none, |atlas| atlas.persist_if_dirty());
+                let watching = session.watched();
 
-                Task::batch([priming, carving, flush, shaped, carved])
+                Task::batch([priming, carving, flush, shaped, carved, watching])
             }
             Message::Viewer(msg) => {
                 session.viewer.update(msg, settings, anim).map(Message::Viewer)
@@ -1150,14 +1309,87 @@ impl State {
 
                 Task::none()
             }
-            Message::Locate => {
-                session.viewer.locate();
+            Message::Module(readout) => {
+                session.readout = readout;
 
                 Task::none()
             }
-            Message::Overlay(lens) => {
-                let flag = lens.of(&mut settings.animation);
-                *flag = !*flag;
+            Message::Onioned(knob, typed) => {
+                let allowed = match knob.digits() {
+                    true => typed.chars().all(|glyph| glyph.is_ascii_digit()),
+                    false => typed.chars().all(|glyph| glyph.is_ascii_hexdigit()),
+                };
+
+                if allowed {
+                    knob.set(&mut settings.studio, typed);
+                }
+
+                Task::none()
+            }
+            Message::Onioning(switch) => {
+                settings.studio.onion_arm(switch.on());
+                self.onioning = switch.on();
+
+                Task::none()
+            }
+            Message::Cycle(dial) => {
+                let anim = &mut settings.studio;
+
+                match dial {
+                    Dial::Gizmo => anim.gizmo = stepped(&Hand::ALL, anim.gizmo),
+                    Dial::Onion => {
+                        let next = stepped(&Switch::ALL, anim.onion);
+
+                        anim.onion_arm(next.on());
+                        self.onioning = next.on();
+                    }
+                    Dial::Module => session.readout = stepped(&Readout::ALL, session.readout),
+                    Dial::Entity => anim.entity = stepped(&Scope::ALL, anim.entity),
+                    _ => match dial.tier(anim) {
+                        Some(tier) => dial.set_tier(anim, stepped(&Tier::ALL, tier)),
+                        None => {
+                            let held = dial.shown(anim).unwrap_or_default();
+
+                            dial.set_shown(anim, stepped(&Shown::ALL, held));
+                        }
+                    },
+                }
+
+                Task::none()
+            }
+            Message::Tiered(dial, tier) => {
+                dial.set_tier(&mut settings.studio, tier);
+
+                Task::none()
+            }
+            Message::Sighted(dial, shown) => {
+                dial.set_shown(&mut settings.studio, shown);
+
+                Task::none()
+            }
+            Message::Scoped(scope) => {
+                settings.studio.entity = scope;
+
+                Task::none()
+            }
+            Message::Framed(part, window) => {
+                session.timeline.seat(part, window);
+
+                Task::none()
+            }
+            Message::Scrub(frame) => {
+                session.viewer.seek(frame as f32);
+
+                Task::none()
+            }
+            Message::Pick(track) => {
+                session.focus = Focus::Curve;
+
+                if let Some(draft) = session.draft.as_mut() {
+                    draft.retrack(track);
+                }
+
+                session.aim();
 
                 Task::none()
             }
@@ -1256,7 +1488,14 @@ impl State {
                     None => flush,
                 }
             }
+            Message::Watched(token, watch) => {
+                session.sighted(token, &watch);
+
+                Task::none()
+            }
             Message::Persisted(token, path, stamp) => {
+                session.restamp();
+
                 if let Some(atlas) = session.atlas.as_mut().filter(|atlas| atlas.backing.token == token) {
                     atlas.backing.settle(path, stamp);
 
@@ -1310,7 +1549,7 @@ impl State {
             }
             Message::Undo => session.undo(),
             Message::Handed(hand) => {
-                settings.animation.hand = hand;
+                settings.studio.gizmo = hand;
 
                 Task::none()
             }
@@ -1349,6 +1588,12 @@ impl State {
             }
             Message::Gizmo(gizmo::Turn::Fade(step)) => session.tint(step, session.hand(settings)),
             Message::OpenManage
+            | Message::OpenOnion
+            | Message::Aimed(_)
+            | Message::Ship
+            | Message::ShipExpired
+            | Message::ShipPopup(_)
+            | Message::OnionPopup(_)
             | Message::ManagePopup(_)
             | Message::Manage(_)
             | Message::Export => Task::none(),
@@ -1370,6 +1615,31 @@ impl State {
 
                 Some(Task::none())
             }
+            Message::OpenOnion => {
+                self.onioning = true;
+
+                Some(Task::none())
+            }
+            Message::Aimed(typed) => {
+                self.aimed = typed.clone();
+
+                Some(Task::none())
+            }
+            Message::ShipPopup(msg) => {
+                if self.ship_popup.update(msg.clone(), shipout::SPEC) {
+                    self.shipping_to = false;
+                }
+
+                Some(Task::none())
+            }
+            Message::OnionPopup(msg) => {
+                if self.onion_popup.update(msg.clone(), onion::SPEC) {
+                    self.onioning = false;
+                    self.shed_onion = true;
+                }
+
+                Some(Task::none())
+            }
             Message::ManagePopup(msg) => {
                 if self.popup.update(msg.clone(), manage::SPEC) {
                     self.managing = false;
@@ -1388,12 +1658,26 @@ impl State {
                     return Some(Task::none());
                 }
 
-                let set = self.manage.set().clone();
+                if self.mounted.is_some() {
+                    self.shipping_to = true;
+                    self.ship_armed.clear();
 
-                self.exporting = true;
-                self.exported.clear();
+                    return Some(Task::none());
+                }
 
-                Some(Task::perform(smol::unblock(move || shipped(&set)), Message::Exported))
+                Some(self.ship(sets::Aim::Blank))
+            }
+            Message::Ship => {
+                if self.exporting {
+                    return Some(Task::none());
+                }
+
+                Some(self.ship(self.aim.clone()))
+            }
+            Message::ShipExpired => {
+                self.ship_armed.expire();
+
+                Some(Task::none())
             }
             Message::Exported(placed) => {
                 self.exporting = false;
@@ -1456,7 +1740,68 @@ impl State {
 
 impl Session {
     fn vanished(&self) -> bool {
-        !self.plan.set.rigged() || !self.plan.set.files().iter().all(|path| path.is_file())
+        self.gone
+    }
+
+    pub(super) fn reposed(&mut self, entity: Scope) {
+        self.entity = entity;
+        self.placed = self.viewer.posed(entity);
+    }
+
+    fn watched(&mut self) -> Task<Message> {
+        if self.watching {
+            return Task::none();
+        }
+
+        let open: Vec<PathBuf> = [
+            self.draft.as_ref().map(|held| held.backing.read_from.clone()),
+            self.pose.as_ref().map(|held| held.backing.read_from.clone()),
+            self.atlas.as_ref().map(|held| held.backing.read_from.clone()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        let files = self.plan.set.files();
+        let rigged = self.plan.set.rigged();
+
+        self.watching = true;
+
+        let token = self.watch_token;
+
+        Task::perform(
+            smol::unblock(move || Arc::new(keep_watch(files, open, rigged))),
+            move |watch| Message::Watched(token, watch),
+        )
+    }
+
+    fn restamp(&mut self) {
+        self.watch_token = self.watch_token.wrapping_add(1);
+        self.watching = false;
+    }
+
+    fn sighted(&mut self, token: u64, watch: &Vigil) {
+        self.watching = false;
+
+        if token != self.watch_token {
+            return;
+        }
+
+        self.gone = watch.gone;
+
+        for (path, stamp) in &watch.seen {
+            if let Some(draft) = self.draft.as_mut() {
+                draft.backing.sighted(path, *stamp);
+            }
+
+            if let Some(pose) = self.pose.as_mut() {
+                pose.backing.sighted(path, *stamp);
+            }
+
+            if let Some(atlas) = self.atlas.as_mut() {
+                atlas.backing.sighted(path, *stamp);
+            }
+        }
     }
 
     fn showing(self) -> Showing {
@@ -2146,8 +2491,60 @@ impl Session {
     }
 }
 
-fn shipped(set: &sets::Set) -> bool {
-    match sets::export(set) {
+impl State {
+    fn ship(&mut self, aim: sets::Aim) -> Task<Message> {
+        let set = self.manage.set().clone();
+        let Some(root) = self.mounted.as_deref().map(sets::patch_root) else {
+            return self.zip(set);
+        };
+
+        if aim.stem().is_none() {
+            return self.zip(set);
+        }
+
+        if !sets::occupied(&set, &aim, &root).is_empty() && !self.ship_armed.armed_for(&()) {
+            return self.ship_armed.set((), Message::ShipExpired);
+        }
+
+        self.exporting = true;
+        self.exported.clear();
+        self.ship_armed.clear();
+        self.shipping_to = false;
+
+        Task::perform(smol::unblock(move || planted(&set, &aim, &root)), Message::Exported)
+    }
+
+    fn zip(&mut self, set: sets::Set) -> Task<Message> {
+        let named = match &self.aim {
+            sets::Aim::Zip(name) => Some(name.clone()),
+            _ => None,
+        };
+
+        self.exporting = true;
+        self.exported.clear();
+        self.shipping_to = false;
+
+        Task::perform(smol::unblock(move || shipped(&set, named.as_deref())), Message::Exported)
+    }
+}
+
+fn planted(set: &sets::Set, aim: &sets::Aim, root: &std::path::Path) -> bool {
+    match sets::install(set, aim, root) {
+        Ok(path) => {
+            info!(path = %path.display(), "Studio installed a set onto an entity");
+
+            true
+        }
+        Err(err) => {
+            error!(set = %set.name, "Studio could not install the set: {}", err);
+
+            false
+        }
+    }
+}
+
+fn shipped(set: &sets::Set, named: Option<&str>) -> bool {
+    match sets::export(set, named) {
         Ok(path) => {
             info!(path = %path.display(), "Studio exported a set");
 
@@ -2179,7 +2576,7 @@ mod tests {
     #[test]
     fn the_final_and_only_keys_span_themselves_rather_than_orphaning() {
         // The last key holds its pose to the end, and a lone key is the whole track,
-        // so neither has a partner to reach — but neither may go unmarked either.
+        // so neither has a partner to reach, but neither may go unmarked either.
         assert_eq!(spanned(2, Some(2), 3), Some(Span::Only));
         assert_eq!(spanned(0, Some(0), 1), Some(Span::Only));
         assert_eq!(spanned(0, None, 3), None);

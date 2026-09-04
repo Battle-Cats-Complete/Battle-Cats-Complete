@@ -1,3 +1,4 @@
+mod aim;
 mod blank;
 
 use std::env;
@@ -11,7 +12,11 @@ use tracing::{debug, info, warn};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
+pub use aim::{resolve, Aim, Roster};
+pub use crate::domains::mods::patch_root;
+
 use crate::common::architecture::{GAME, MODS, STUDIO};
+use crate::systems::animation::authoring::Mamodel;
 use crate::systems::animation::{self, Clip, ClipSet, Loop, Rigging};
 
 pub use blank::SEED_SUFFIX;
@@ -21,7 +26,7 @@ const SHEET_EXT: &str = "png";
 const CUTS_EXT: &str = "imgcut";
 const MODEL_EXT: &str = "mamodel";
 const ANIM_EXT: &str = "maanim";
-const DEFAULT_NAME: &str = "New Set";
+pub const DEFAULT_NAME: &str = "New Set";
 pub const SEED_NAME: &str = "New";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -392,7 +397,7 @@ pub fn seed(name: &str) -> io::Result<Set> {
     Ok(Set { name: name.to_owned(), sheet: Some(sheet), cuts: Some(cuts), model: Some(model), anims: vec![anim] })
 }
 
-pub fn export(set: &Set) -> io::Result<PathBuf> {
+pub fn export(set: &Set, named: Option<&str>) -> io::Result<PathBuf> {
     let files = set.files();
 
     if files.is_empty() {
@@ -403,9 +408,12 @@ pub fn export(set: &Set) -> io::Result<PathBuf> {
 
     fs::create_dir_all(&folder)?;
 
-    let stem = match set.name.trim() {
-        "" => set.model.as_deref().map_or_else(|| DEFAULT_NAME.to_owned(), stem_of),
-        named => sanitize(named),
+    let stem = match named.map(str::trim).filter(|held| !held.is_empty()) {
+        Some(held) => sanitize(held),
+        None => match set.name.trim() {
+            "" => set.model.as_deref().map_or_else(|| DEFAULT_NAME.to_owned(), stem_of),
+            held => sanitize(held),
+        },
     };
 
     let mut path = folder.join(format!("{}.zip", stem));
@@ -436,6 +444,93 @@ pub fn export(set: &Set) -> io::Result<PathBuf> {
     info!(path = %path.display(), files = files.len(), "Studio exported a set");
 
     Ok(path)
+}
+
+pub fn stem_id(stem: &str) -> Option<i32> {
+    let (head, tail) = stem.split_once('_')?;
+    let known = aim::FORMS.iter().any(|form| tail.starts_with(*form)) || tail.starts_with(aim::ENEMY_SUFFIX);
+
+    (known && tail.len() == 1).then(|| head.parse::<i32>().ok())?
+}
+
+pub fn restamp_in_place(set: &Set) -> io::Result<usize> {
+    let Some(model) = set.model.as_deref() else {
+        return Ok(0);
+    };
+
+    let Some(unit) = stem_id(&stem_of(model)) else {
+        return Ok(0);
+    };
+
+    let Some(rewritten) = aim::restamped(&fs::read(model)?, unit) else {
+        return Ok(0);
+    };
+
+    let moved = Mamodel::parse(&rewritten).map_or(0, |doc| doc.count());
+
+    fs::write(model, rewritten)?;
+    warn!(
+        path = %model.display(),
+        unit,
+        "Studio restamped a rig whose parts named another unit's sheet"
+    );
+
+    Ok(moved)
+}
+
+pub fn occupied(set: &Set, target: &Aim, root: &Path) -> Vec<String> {
+    let (Some(stem), Some(model)) = (target.stem(), set.model.as_deref()) else {
+        return Vec::new();
+    };
+
+    let was = stem_of(model);
+
+    set.files()
+        .iter()
+        .filter_map(|file| file.file_name().and_then(OsStr::to_str))
+        .map(|name| aim::renamed(name, &was, &stem))
+        .filter(|name| root.join(name).exists())
+        .collect()
+}
+
+pub fn install(set: &Set, target: &Aim, root: &Path) -> io::Result<PathBuf> {
+    let files = set.files();
+    let (Some(stem), Some(unit)) = (target.stem(), target.unit()) else {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "the target names no entity"));
+    };
+
+    let Some(model) = set.model.as_deref() else {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "the set holds no model"));
+    };
+
+    let was = stem_of(model);
+
+    fs::create_dir_all(root)?;
+
+    for file in &files {
+        let Some(name) = file.file_name().and_then(OsStr::to_str) else {
+            continue;
+        };
+
+        let landed = root.join(aim::renamed(name, &was, &stem));
+        let body = fs::read(file)?;
+
+        let body = match name.ends_with(".mamodel") {
+            true => aim::restamped(&body, unit).unwrap_or(body),
+            false => body,
+        };
+
+        let body = match name.ends_with(".imgcut") {
+            true => aim::repointed(&body, &was, &stem),
+            false => body,
+        };
+
+        fs::write(&landed, body)?;
+    }
+
+    info!(root = %root.display(), stem, unit, files = files.len(), "Studio installed a set onto an entity");
+
+    Ok(root.join(format!("{stem}.mamodel")))
 }
 
 fn extension(path: &Path) -> Option<String> {

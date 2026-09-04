@@ -24,6 +24,7 @@ pub(super) enum Settled {
 pub(super) struct Backing {
     pub(super) read_from: PathBuf,
     pub(super) stamp: Stamp,
+    pub(super) seen: Stamp,
     pub(super) dirty: bool,
     pub(super) writing: bool,
     pub(super) failed: bool,
@@ -47,6 +48,7 @@ impl Backing {
         let backing = Backing {
             read_from,
             stamp,
+            seen: stamp,
             dirty: false,
             writing: false,
             failed: false,
@@ -61,7 +63,15 @@ impl Backing {
     }
 
     pub(super) fn drifted(&self) -> bool {
-        !self.dirty && !self.writing && preview::stamp(&self.read_from) != Some(self.stamp)
+        !self.dirty && !self.writing && self.seen != self.stamp
+    }
+
+    pub(super) fn sighted(&mut self, path: &Path, stamp: Option<Stamp>) {
+        if self.read_from != path || self.dirty || self.writing {
+            return;
+        }
+
+        self.seen = stamp.unwrap_or(self.stamp);
     }
 
     fn prepare(&mut self) -> (PathBuf, Stamp, u64) {
@@ -82,6 +92,7 @@ impl Backing {
 
         self.read_from = path;
         self.stamp = stamp;
+        self.seen = stamp;
         self.failed = false;
 
         Settled::Saved
