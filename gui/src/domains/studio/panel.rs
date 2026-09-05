@@ -73,7 +73,7 @@ impl State {
             })
             .style(theme::notice_banner);
 
-        container(slide(banner, self.noticing(), Slide::Up).floating())
+        container(slide(banner, self.raised, Slide::Up).floating())
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(Horizontal::Center)

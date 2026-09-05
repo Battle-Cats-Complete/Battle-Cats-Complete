@@ -44,6 +44,7 @@ pub enum Tab {
     Files,
     Import,
     Mining,
+    Studio,
     Utilities,
     Animation,
     AddOns,
@@ -61,6 +62,7 @@ pub enum Message {
     ToggleAutoLevel(bool),
     ToggleBumpUltra(bool),
     ToggleInvalidEnemies(bool),
+    ToggleIgnoreCrashes(bool),
     SidebarBehaviorSelected(SidebarBehavior),
     ExportBehaviorSelected(ExportBehavior),
     ToggleKeyValidation(bool),
@@ -177,6 +179,10 @@ impl State {
                 Task::none()
             }
 
+            Message::ToggleIgnoreCrashes(val) => {
+                core_settings.studio.ignore_crashes = val;
+                Task::none()
+            }
             Message::ToggleInvalidEnemies(val) => {
                 core_settings.enemy_data.show_invalid_enemies = val;
                 Task::none()
@@ -330,6 +336,7 @@ impl State {
             (Tab::Files, "Files"),
             (Tab::Import, "Import"),
             (Tab::Mining, "Mining"),
+            (Tab::Studio, "Studio"),
             (Tab::Utilities, "Utilities"),
             (Tab::Animation, "Animation"),
             (Tab::AddOns, "Add-Ons"),
@@ -366,6 +373,7 @@ impl State {
             Tab::Files => self.view_files(core_settings),
             Tab::Import => self.view_import(core_settings),
             Tab::Mining => self.view_mining(),
+            Tab::Studio => Self::view_studio(core_settings),
             Tab::Utilities => self.view_utilities(core_settings),
             Tab::Animation => self.view_animation(core_settings),
             Tab::AddOns => self.addons.view().map(Message::Addons),
@@ -573,6 +581,21 @@ impl State {
             header_section(text("Viewer").size(24), utf8_mode_row),
             header_section(text("Editor").size(24), column![scope_row, editor_mode_row, mount_row].spacing(10)),
         ].spacing(SECTION_SPACING).into()
+    }
+
+    fn view_studio<'a>(core_settings: &'a CoreSettings) -> Element<'a, Message> {
+        let information = hover_hint(
+            toggle_row(
+                core_settings.studio.ignore_crashes,
+                text("Ignore Crash Warnings"),
+                Some(Message::ToggleIgnoreCrashes),
+            ),
+            "Studio marks the parts and channels the game's own animation pass faults on\nTurn this on to stop it checking and hide the marks entirely",
+        );
+
+        column![header_section(text("Information").size(24), information)]
+            .spacing(SECTION_SPACING)
+            .into()
     }
 
     fn view_utilities<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {

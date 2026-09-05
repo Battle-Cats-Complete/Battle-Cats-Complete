@@ -483,6 +483,7 @@ pub struct StudioSettings {
     pub onion_after_color: String,
     pub onion_gap: String,
     pub onion_alpha: String,
+    pub ignore_crashes: bool,
 }
 
 impl StudioSettings {

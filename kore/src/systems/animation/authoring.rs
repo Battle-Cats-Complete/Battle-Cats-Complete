@@ -1,5 +1,4 @@
 mod cadence;
-mod hazards;
 mod imgcut;
 mod maanim;
 mod mamodel;
@@ -8,7 +7,6 @@ use nyanko::graphics::rig::{AnimModification, Keyframe, Model};
 use nyanko::graphics::tools::property;
 
 pub use cadence::{Beat, Cadence, Cycle, REACH};
-pub use hazards::{anim_hazards, model_hazards, sheet_hazards, Hazard, SHEET_FIELD};
 pub use imgcut::{Imgcut, CUT_FIELDS, CUT_NAME_FIELD};
 pub use maanim::Maanim;
 pub use mamodel::{bound, defaults, nameable, Mamodel, FIELDS, NAME_FIELD};
@@ -112,11 +110,11 @@ pub fn key_label(keys: usize) -> String {
     }
 }
 
-pub fn loop_label(count: i32) -> String {
+pub fn loop_label(count: i32) -> &'static str {
     match count {
-        -1 => "Forever".to_string(),
-        held if held <= 1 => "Once".to_string(),
-        _ => "Count".to_string(),
+        -1 => "Forever",
+        held if held <= 1 => "Once",
+        _ => "Count",
     }
 }
 
@@ -200,3 +198,4 @@ mod tests {
         assert_eq!(EASES[2], "Exponential");
     }
 }
+

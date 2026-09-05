@@ -4,9 +4,8 @@ use std::sync::Arc;
 use nyanko::common::{scrub, Separator};
 use nyanko::graphics::rig::{Model, ModelPart, RigError};
 
-use super::hazards::SHEET_FIELD;
-
 const BOM: [u8; 3] = [0xef, 0xbb, 0xbf];
+const SHEET_FIELD: usize = 1;
 const PART_CELLS: usize = 13;
 const GLOW_MODES: i32 = 3;
 const NO_PARENT: i32 = -1;

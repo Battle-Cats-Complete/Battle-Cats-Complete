@@ -6,7 +6,7 @@ use iced::animation::Easing;
 use iced::time::{Duration, Instant};
 use iced::{window, Animation, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
 
-const SLIDE_DURATION: Duration = Duration::from_millis(260);
+pub(crate) const SLIDE_DURATION: Duration = Duration::from_millis(260);
 const SLIDE_EASING: Easing = Easing::EaseOut;
 
 #[derive(Clone, Copy, PartialEq, Eq)]

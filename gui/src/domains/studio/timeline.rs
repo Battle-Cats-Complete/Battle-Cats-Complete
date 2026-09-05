@@ -98,7 +98,7 @@ fn fits(label: &str, room: f32) -> bool {
 }
 
 fn gutter_of(lanes: &[Lane]) -> f32 {
-    let widest = lanes.iter().map(|lane| worded(&lane.label)).fold(0.0, f32::max);
+    let widest = lanes.iter().map(|lane| worded(lane.label)).fold(0.0, f32::max);
 
     (widest + CARD_PAD * 2.0 + LABEL_INSET * 2.0).clamp(GUTTER_MIN, GUTTER_MAX)
 }
@@ -119,7 +119,7 @@ fn stepped(span: f64, body: f32) -> f64 {
 }
 
 pub(super) struct Lane {
-    label: String,
+    label: &'static str,
     beat: Beat,
     keys: Vec<i32>,
     track: usize,
@@ -194,27 +194,49 @@ pub(super) fn lanes(doc: &Maanim, part: usize) -> Vec<Lane> {
 
     let tracks = doc.tracks();
 
-    tracks
+    let mut lanes: Vec<Lane> = tracks
         .iter()
         .enumerate()
         .filter(|(_, track)| track.part == wanted)
         .filter_map(|(at, track)| {
-            let beat = Beat::of(track)?;
-            let shadowed = tracks
-                .iter()
-                .skip(at + 1)
-                .any(|later| later.part == wanted && later.kind == track.kind);
-
             Some(Lane {
-                label: kind_label(track.kind).to_owned(),
-                beat,
+                label: kind_label(track.kind),
+                beat: Beat::of(track)?,
                 keys: track.keyframes.iter().map(|key| key.frame).collect(),
                 track: at,
                 ink: ink(track.kind),
-                shadowed,
+                shadowed: false,
             })
         })
-        .collect()
+        .collect();
+
+    let mut seen: u32 = 0;
+    let mut stray: Vec<i32> = Vec::new();
+
+    for lane in lanes.iter_mut().rev() {
+        let Some(kind) = tracks.get(lane.track).map(|track| track.kind) else {
+            continue;
+        };
+
+        lane.shadowed = match u32::try_from(kind).ok().filter(|held| *held < u32::BITS) {
+            Some(held) => {
+                let known = seen & (1 << held) != 0;
+                seen |= 1 << held;
+                known
+            }
+            None => {
+                let known = stray.contains(&kind);
+
+                if !known {
+                    stray.push(kind);
+                }
+
+                known
+            }
+        };
+    }
+
+    lanes
 }
 
 fn authored(lanes: &[Lane]) -> (i64, i64) {
@@ -465,7 +487,7 @@ impl canvas::Program<Message> for Board {
                 );
             };
 
-            let (_, card_right) = card_span(&lane.label);
+            let (_, card_right) = card_span(lane.label);
             let clip = card_right - CARD_BLEED;
 
             if let Some(settles) = lane.beat.settles().filter(|settles| *settles < reach) {
@@ -597,7 +619,7 @@ impl canvas::Program<Message> for Board {
                 continue;
             }
 
-            let (card_width, card_right) = card_span(&lane.label);
+            let (card_width, card_right) = card_span(lane.label);
 
             if card_right + LABEL_INSET > gutter {
                 continue;
@@ -629,7 +651,7 @@ impl canvas::Program<Message> for Board {
             );
 
             frame.fill_text(canvas::Text {
-                content: lane.label.clone(),
+                content: lane.label.to_owned(),
                 position: Point::new(LABEL_INSET + card_width / 2.0, top + LANE_HEIGHT / 2.0),
                 color: faded(Color::WHITE, dim),
                 size: Pixels(CAPTION_SIZE),

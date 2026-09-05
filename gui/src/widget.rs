@@ -39,7 +39,7 @@ pub(crate) use nightly::nightly_label;
 pub(crate) use range_row::range_row;
 pub(crate) use roster_row::roster_row;
 pub(crate) use section::{section, subsection};
-pub(crate) use slide::{slide, Slide};
+pub(crate) use slide::{slide, Slide, SLIDE_DURATION};
 pub(crate) use smooth_scroll::{smooth_scroll, BOOTSTRAP_DT, DECAY_RATE, EPSILON, LINE_PIXELS};
 pub(crate) use stat_grid::{grid_frames, grid_header, grid_value};
 pub(crate) use status::status;

@@ -31,8 +31,9 @@ use crate::systems::animation::{self as viewer, controls, overlay};
 use crate::common::feedback::{self, Slot, LOCKED_NOTICE};
 use crate::common::{dialog, glyphs};
 use crate::common::row_window::{self, RowWindow};
-use crate::widget::{list_row, picture, popup, slide, smooth_scroll, Slide};
+use crate::widget::{list_row, picture, popup, slide, smooth_scroll, Slide, SLIDE_DURATION};
 
+mod blame;
 mod documents;
 mod gizmo;
 mod history;
@@ -45,6 +46,7 @@ mod shipout;
 mod timeline;
 mod tree;
 
+use blame::{Alarm, Blame};
 use documents::*;
 use history::{History, Tag};
 use panel::*;
@@ -90,6 +92,7 @@ const KEY_ROW_INSET: f32 = 2.0;
 const PLAYING_TICK: Duration = Duration::from_millis(16);
 const RESTING_TICK: Duration = Duration::from_millis(200);
 const RECALL_CAP: usize = 5;
+const HISTORY_SETS: usize = 3;
 const NOTICE_EXPIRY: Duration = Duration::from_secs(6);
 const NOTICE_PAD_X: f32 = 7.0;
 const NOTICE_PAD_Y: f32 = 7.0;
@@ -126,6 +129,7 @@ const NEST_BAND: f32 = 0.28;
 const NEST_BORDER: f32 = 2.0;
 const SEAM_HEIGHT: f32 = 2.0;
 const CARRIED_TINT: f32 = 0.35;
+const ALARM_TINT: f32 = 0.3;
 const DRAG_HASTE: f32 = 2.0;
 const GHOST_FILL: f32 = 0.22;
 const GHOST_EDGE: f32 = 0.55;
@@ -163,7 +167,18 @@ const NO_PART_CHOSEN: &str = "Select a part to edit its rest pose";
 const NO_MODEL_NOTICE: &str = "This model could not be read";
 const LOOSE_LABEL: &str = "Channels with no declared part";
 const SHADOWED_MARK: &str = "overridden";
+const SEPARATOR: &str = " \u{00b7} ";
+const LABEL_ROOM: usize = 48;
 const RESTAMPED_NOTICE: &str = "parts were restamped onto this unit's sheet";
+const PART_FAULT: &str = "This part can cause a game crash";
+const CHANNEL_FAULT: &str = "This channel can cause a game crash";
+const TAINTED_FAULT: &str = "Child of this part can cause a game crash";
+const TAINTED_HINT: &str = "Please find the child and resolve its error";
+const SCALE_UNIT_DETAIL: &str =
+    "The model's scale divisor is zero, and the game divides every part by it while placing them";
+const OPACITY_UNIT_DETAIL: &str =
+    "The model's opacity divisor is zero, and the game divides every part by it while placing them";
+const UNKNOWN_DETAIL: &str = "The game's animation pass faults on this";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Mode {
@@ -546,6 +561,7 @@ pub struct State {
     session: Option<Session>,
     idle: viewer::State,
     recalled: Vec<Recall>,
+    histories: Vec<(String, History)>,
     manage: manage::State,
     managing: bool,
     onioning: bool,
@@ -560,8 +576,11 @@ pub struct State {
     ship_popup: popup::State,
     mode: Mode,
     readout: Readout,
-    notice: Option<Instant>,
+    flash: Option<Instant>,
+    flash_text: String,
     notice_text: String,
+    raised: bool,
+    lowered: Option<Instant>,
     exporting: bool,
     exported: Slot<bool>,
 }
@@ -573,6 +592,7 @@ impl Default for State {
             session: None,
             idle: viewer::State::with_popup(popup::Kind::Animator).authoring(),
             recalled: Vec::new(),
+            histories: Vec::new(),
             manage: manage::State::default(),
             managing: false,
             onioning: false,
@@ -587,8 +607,11 @@ impl Default for State {
             ship_popup: popup::State::default(),
             mode: Mode::default(),
             readout: Readout::default(),
-            notice: None,
+            flash: None,
+            flash_text: String::new(),
             notice_text: String::new(),
+            raised: false,
+            lowered: None,
             exporting: false,
             exported: Slot::default(),
         }
@@ -669,13 +692,19 @@ struct Session {
     gone: bool,
     entity: Scope,
     placed: Vec<viewer::Posed>,
+    blame: Blame,
+    faulting: bool,
 }
 
 impl State {
     fn stash(&mut self) {
-        let Some(session) = self.session.as_ref() else {
+        let Some(session) = self.session.as_mut() else {
             return;
         };
+
+        let key = session.plan.set.name.clone();
+        let history = std::mem::take(&mut session.history);
+        let session = &*session;
 
         let held = Recall {
             key: session.plan.set.name.clone(),
@@ -692,6 +721,15 @@ impl State {
         while self.recalled.len() > RECALL_CAP {
             self.recalled.remove(0);
         }
+
+        history::shelve(&mut self.histories, key, history, HISTORY_SETS);
+    }
+
+    fn recall_history(&mut self, name: &str) -> History {
+        self.histories
+            .iter()
+            .position(|(held, _)| held == name)
+            .map_or_else(History::default, |at| self.histories.remove(at).1)
     }
 
     pub(crate) fn begin(&mut self, mut plan: Plan) {
@@ -734,6 +772,7 @@ impl State {
         }
 
         let key = plan.set.key();
+        let history = self.recall_history(&plan.set.name);
 
         self.session = Some(Session {
             plan,
@@ -771,7 +810,7 @@ impl State {
             focus,
             timeline: timeline::State::default(),
             loose_open: false,
-            history: History::default(),
+            history,
             key,
             primed: false,
             watching: false,
@@ -779,6 +818,8 @@ impl State {
             gone: false,
             entity: Scope::default(),
             placed: Vec::new(),
+            blame: Blame::default(),
+            faulting: false,
         });
     }
 
@@ -998,11 +1039,14 @@ impl State {
     }
 
     pub(crate) fn pace(&self) -> Option<Duration> {
+        let swapping = self.lowered.is_some_and(|at| at.elapsed() < SLIDE_DURATION);
+
         let Some(session) = self.session.as_ref() else {
-            return self.managing.then_some(RESTING_TICK);
+            return (self.managing || swapping).then_some(RESTING_TICK);
         };
 
-        let live = session.viewer.playing()
+        let live = swapping
+            || session.viewer.playing()
             || session.viewer.holding()
             || session.draft.as_ref().is_some_and(|draft| draft.backing.busy())
             || session.pose.as_ref().is_some_and(|pose| pose.backing.busy())
@@ -1032,12 +1076,23 @@ impl State {
         }
 
         if let Some(task) = chromed {
+            self.settle_notice();
+
             return task;
         }
 
         let Some(session) = self.session.as_mut() else {
+            self.settle_notice();
+
             return Task::none();
         };
+
+        let faulting = !settings.studio.ignore_crashes;
+
+        if session.faulting != faulting {
+            session.faulting = faulting;
+            session.relist();
+        }
 
         if let Some(draft) = session.draft.as_mut() {
             let typing = matches!(&message, Message::Changed(at, field, _) if draft.buffering(*at, *field));
@@ -1071,7 +1126,7 @@ impl State {
             }
         }
 
-        match message {
+        let task = match message {
             Message::Tick => {
                 if session.vanished() {
                     self.manage.adopt(sets::Set::default());
@@ -1581,7 +1636,11 @@ impl State {
             | Message::Module(_)
             | Message::Cycle(_)
             | Message::Export => Task::none(),
-        }
+        };
+
+        self.settle_notice();
+
+        task
     }
 
     fn chrome(&mut self, message: &Message, settings: &mut Settings) -> Option<Task<Message>> {
@@ -1717,13 +1776,44 @@ impl State {
         }
     }
 
-    fn noticing(&self) -> bool {
-        self.notice.is_some_and(|at| at.elapsed() < NOTICE_EXPIRY)
+    fn wanted_notice(&self) -> Option<String> {
+        if self.flash.is_some_and(|at| at.elapsed() < NOTICE_EXPIRY) {
+            return Some(self.flash_text.clone());
+        }
+
+        self.session.as_ref().and_then(Session::alarm_notice)
+    }
+
+    fn settle_notice(&mut self) {
+        let wanted = self.wanted_notice();
+
+        if self.raised && wanted.as_deref() == Some(self.notice_text.as_str()) {
+            return;
+        }
+
+        if self.raised {
+            self.raised = false;
+            self.lowered = Some(Instant::now());
+
+            return;
+        }
+
+        let Some(text) = wanted else {
+            return;
+        };
+
+        if self.lowered.is_some_and(|at| at.elapsed() < SLIDE_DURATION) {
+            return;
+        }
+
+        self.notice_text = text;
+        self.raised = true;
+        self.lowered = None;
     }
 
     fn raise(&mut self, text: String) {
-        self.notice_text = text;
-        self.notice = Some(Instant::now());
+        self.flash_text = text;
+        self.flash = Some(Instant::now());
     }
 
     pub(crate) fn export_popup_visible(&self) -> bool {
@@ -2441,6 +2531,25 @@ impl Session {
         }
     }
 
+    fn alarm_notice(&self) -> Option<String> {
+        if self.mode != Mode::Entity || self.blame.quiet() {
+            return None;
+        }
+
+        match self.focus {
+            Focus::Part => self.blame.notice(self.pose.as_ref().and_then(|pose| pose.part), None),
+            Focus::Curve => {
+                self.blame.notice(None, self.draft.as_ref().and_then(|draft| draft.track))
+            }
+        }
+    }
+
+    fn unit(&self) -> Option<i32> {
+        let stem = self.plan.set.model.as_deref()?.file_stem()?.to_str()?;
+
+        sets::stem_id(stem)
+    }
+
     fn relist(&mut self) {
         if !self.rows.is_empty() && self.viewer.loaded_rig() != self.plan.set.rig_id() {
             return;
@@ -2453,8 +2562,18 @@ impl Session {
             Mode::Atlas => None,
         };
 
-        let listed =
-            listing(tracks, self.viewer.rig().map(|rig| &rig.model), &self.expanded, self.loose_open);
+        let model = self.viewer.rig().map(|rig| &rig.model);
+
+        self.blame = match (model, self.faulting) {
+            (Some(model), true) => {
+                let anim = tracks.map(Maanim::shared);
+
+                Blame::of(model, anim.as_deref(), self.unit())
+            }
+            _ => Blame::default(),
+        };
+
+        let listed = listing(tracks, model, &self.expanded, self.loose_open, &self.blame);
 
         self.listed = self.viewer.loaded_rig().to_owned();
         self.widest = listed.iter().map(TreeRow::span).fold(0.0, f32::max);

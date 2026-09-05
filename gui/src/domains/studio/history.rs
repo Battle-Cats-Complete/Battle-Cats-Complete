@@ -135,3 +135,50 @@ mod tests {
         assert_eq!(history.entries[0].tag, Tag::Cut(10, 0), "the oldest entries fall off the front");
     }
 }
+
+pub(super) fn shelve<T>(store: &mut Vec<(String, T)>, key: String, held: T, cap: usize) {
+    store.retain(|(name, _)| *name != key);
+    store.push((key, held));
+
+    while store.len() > cap {
+        store.remove(0);
+    }
+}
+
+#[cfg(test)]
+mod shelf_tests {
+    use super::*;
+
+    fn names(store: &[(String, u32)]) -> Vec<&str> {
+        store.iter().map(|(name, _)| name.as_str()).collect()
+    }
+
+    #[test]
+    fn the_shelf_holds_three_sets_and_evicts_the_oldest() {
+        let mut store: Vec<(String, u32)> = Vec::new();
+
+        for (at, name) in ["a", "b", "c", "d"].into_iter().enumerate() {
+            shelve(&mut store, name.to_owned(), at as u32, 3);
+        }
+
+        assert_eq!(names(&store), vec!["b", "c", "d"], "a fell off the back");
+    }
+
+    #[test]
+    fn re_shelving_a_set_moves_it_to_the_front_without_duplicating() {
+        let mut store: Vec<(String, u32)> = Vec::new();
+
+        for (at, name) in ["a", "b", "c"].into_iter().enumerate() {
+            shelve(&mut store, name.to_owned(), at as u32, 3);
+        }
+
+        shelve(&mut store, "a".to_owned(), 99, 3);
+
+        assert_eq!(names(&store), vec!["b", "c", "a"]);
+        assert_eq!(store.last().map(|(_, held)| *held), Some(99), "and it carries the new value");
+
+        shelve(&mut store, "d".to_owned(), 4, 3);
+
+        assert_eq!(names(&store), vec!["c", "a", "d"], "b is now the oldest and goes");
+    }
+}
