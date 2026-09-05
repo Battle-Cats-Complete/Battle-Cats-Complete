@@ -33,7 +33,7 @@ use kore::domains::cat::waiter::unitid;
 use kore::domains::cat::CatDataState;
 use kore::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
 use kore::systems::combat::RenderContext;
-use kore::domains::settings::{ScannerConfig, Settings, Shown, Tier};
+use kore::domains::settings::{ScannerConfig, Settings};
 use kore::{Vfs, Vault};
 
 use crate::systems::animation;
@@ -635,15 +635,15 @@ impl State {
                 Task::none()
             }
             Message::ToggleOrigin(val) => {
-                settings.studio.origin = Shown::of(val);
+                settings.animation.show_origin = val;
                 Task::none()
             }
             Message::ToggleParts(val) => {
-                settings.studio.rig = Tier::of(val);
+                settings.animation.show_rig = val;
                 Task::none()
             }
             Message::ToggleWorld(val) => {
-                settings.studio.world = Shown::of(val);
+                settings.animation.show_world = val;
                 Task::none()
             }
             Message::ToggleTalents(is_ultra) => {

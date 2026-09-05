@@ -17,7 +17,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size,
 use nyanko::graphics::rig::{Animation, Model, Rig};
 use nyanko::graphics::tools::part;
 
-use kore::domains::settings::{Scope, Settings};
+use kore::domains::settings::{Overlays, Scope, Settings};
 use kore::systems::animation::ClipSet;
 
 use crate::app::state::AnimState;
@@ -49,9 +49,9 @@ pub fn debug_toggles<'a, M: Clone + 'a>(
     world: impl Fn(bool) -> M + 'a,
 ) -> Element<'a, M> {
     column![
-        toggle_row(settings.studio.rig.on(), text("Show Rig").size(DEBUG_LABEL_SIZE), Some(parts)),
-        toggle_row(settings.studio.origin.on(), text("Show Origin").size(DEBUG_LABEL_SIZE), Some(origin)),
-        toggle_row(settings.studio.world.on(), text("Show World").size(DEBUG_LABEL_SIZE), Some(world)),
+        toggle_row(settings.animation.show_rig, text("Show Rig").size(DEBUG_LABEL_SIZE), Some(parts)),
+        toggle_row(settings.animation.show_origin, text("Show Origin").size(DEBUG_LABEL_SIZE), Some(origin)),
+        toggle_row(settings.animation.show_world, text("Show World").size(DEBUG_LABEL_SIZE), Some(world)),
     ]
     .spacing(DEBUG_TOGGLE_GAP)
     .into()
@@ -489,6 +489,13 @@ impl State {
         )
     }
 
+    fn overlays(&self, settings: &Settings) -> Overlays {
+        match self.authoring {
+            true => settings.studio.overlays(),
+            false => settings.animation.overlays(),
+        }
+    }
+
     pub(crate) fn stage_view<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
         let viewport = smooth_scroll(
             self.canvas.view(&self.data, self.authoring.then_some(&settings.studio), self.highlight)
@@ -513,7 +520,7 @@ impl State {
 
         stack![
             viewport,
-            diagnostics::view(&self.data, &self.canvas, &settings.studio, self.highlight),
+            diagnostics::view(&self.data, &self.canvas, self.overlays(settings), self.highlight),
             selection_overlay,
             self.overlay.hint_view(),
             expand_button,

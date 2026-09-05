@@ -136,6 +136,7 @@ const CUT_STEP_WIDTH: f32 = 46.0;
 const FRAME_HINT: &str = "Right click & drag to set the cut";
 const ALIGN_WIDTH: f32 = 36.0;
 const BUFFER_MARK: char = '!';
+const HEX_DIGITS: usize = 6;
 
 const LOADING_NOTICE: &str = "Loading animation\u{2026}";
 const NO_SET_NOTICE: &str = "No set is loaded";
@@ -283,8 +284,8 @@ impl Dial {
         Dial::Rig,
         Dial::Hierarchy,
         Dial::Selected,
-        Dial::Origin,
         Dial::World,
+        Dial::Origin,
     ];
 
     fn label(self) -> &'static str {
@@ -558,6 +559,7 @@ pub struct State {
     onion_popup: popup::State,
     ship_popup: popup::State,
     mode: Mode,
+    readout: Readout,
     notice: Option<Instant>,
     notice_text: String,
     exporting: bool,
@@ -584,6 +586,7 @@ impl Default for State {
             onion_popup: popup::State::default(),
             ship_popup: popup::State::default(),
             mode: Mode::default(),
+            readout: Readout::default(),
             notice: None,
             notice_text: String::new(),
             exporting: false,
@@ -656,7 +659,6 @@ struct Session {
     drag: Drag,
     confirm: Slot<usize>,
     focus: Focus,
-    readout: Readout,
     timeline: timeline::State,
     loose_open: bool,
     history: History,
@@ -713,7 +715,11 @@ impl State {
             rows,
             widest,
             listed,
-        } = self.session.take().map_or_else(Showing::default, Session::showing);
+        } = self
+            .session
+            .take()
+            .filter(|session| session.viewer.loaded_rig() == plan.set.rig_id())
+            .map_or_else(Showing::default, Session::showing);
 
         let held = self.recalled.iter().find(|known| known.key == plan.set.name);
         let expanded = held.map(|held| held.expanded.clone()).unwrap_or_default();
@@ -763,7 +769,6 @@ impl State {
             drag: Drag::default(),
             confirm: Slot::default(),
             focus,
-            readout: Readout::default(),
             timeline: timeline::State::default(),
             loose_open: false,
             history: History::default(),
@@ -1020,7 +1025,7 @@ impl State {
     ) -> Task<Message> {
         self.unlocked = settings.files.unlock_game_mount;
 
-        let chromed = self.chrome(&message);
+        let chromed = self.chrome(&message, settings);
 
         if std::mem::take(&mut self.shed_onion) {
             settings.studio.onion_arm(false);
@@ -1309,15 +1314,17 @@ impl State {
 
                 Task::none()
             }
-            Message::Module(readout) => {
-                session.readout = readout;
-
-                Task::none()
-            }
             Message::Onioned(knob, typed) => {
+                let typed = match knob.digits() {
+                    true => typed,
+                    false => typed.trim_start_matches('#').to_owned(),
+                };
+
                 let allowed = match knob.digits() {
                     true => typed.chars().all(|glyph| glyph.is_ascii_digit()),
-                    false => typed.chars().all(|glyph| glyph.is_ascii_hexdigit()),
+                    false => {
+                        typed.len() <= HEX_DIGITS && typed.chars().all(|glyph| glyph.is_ascii_hexdigit())
+                    }
                 };
 
                 if allowed {
@@ -1329,31 +1336,6 @@ impl State {
             Message::Onioning(switch) => {
                 settings.studio.onion_arm(switch.on());
                 self.onioning = switch.on();
-
-                Task::none()
-            }
-            Message::Cycle(dial) => {
-                let anim = &mut settings.studio;
-
-                match dial {
-                    Dial::Gizmo => anim.gizmo = stepped(&Hand::ALL, anim.gizmo),
-                    Dial::Onion => {
-                        let next = stepped(&Switch::ALL, anim.onion);
-
-                        anim.onion_arm(next.on());
-                        self.onioning = next.on();
-                    }
-                    Dial::Module => session.readout = stepped(&Readout::ALL, session.readout),
-                    Dial::Entity => anim.entity = stepped(&Scope::ALL, anim.entity),
-                    _ => match dial.tier(anim) {
-                        Some(tier) => dial.set_tier(anim, stepped(&Tier::ALL, tier)),
-                        None => {
-                            let held = dial.shown(anim).unwrap_or_default();
-
-                            dial.set_shown(anim, stepped(&Shown::ALL, held));
-                        }
-                    },
-                }
 
                 Task::none()
             }
@@ -1596,15 +1578,48 @@ impl State {
             | Message::OnionPopup(_)
             | Message::ManagePopup(_)
             | Message::Manage(_)
+            | Message::Module(_)
+            | Message::Cycle(_)
             | Message::Export => Task::none(),
         }
     }
 
-    fn chrome(&mut self, message: &Message) -> Option<Task<Message>> {
+    fn chrome(&mut self, message: &Message, settings: &mut Settings) -> Option<Task<Message>> {
         match message {
+            Message::Module(readout) => {
+                self.readout = *readout;
+
+                Some(Task::none())
+            }
+            Message::Cycle(dial) => {
+                let anim = &mut settings.studio;
+
+                match dial {
+                    Dial::Gizmo => anim.gizmo = stepped(&Hand::ALL, anim.gizmo),
+                    Dial::Onion => {
+                        let next = stepped(&Switch::ALL, anim.onion);
+
+                        anim.onion_arm(next.on());
+                        self.onioning = next.on();
+                    }
+                    Dial::Module => self.readout = stepped(&Readout::ALL, self.readout),
+                    Dial::Entity => anim.entity = stepped(&Scope::ALL, anim.entity),
+                    _ => match dial.tier(anim) {
+                        Some(tier) => dial.set_tier(anim, stepped(&Tier::ALL, tier)),
+                        None => {
+                            let held = dial.shown(anim).unwrap_or_default();
+
+                            dial.set_shown(anim, stepped(&Shown::ALL, held));
+                        }
+                    },
+                }
+
+                Some(Task::none())
+            }
             Message::Tick => {
                 if self.managing {
                     self.manage.restock();
+                    self.settle_track();
                 }
 
                 None

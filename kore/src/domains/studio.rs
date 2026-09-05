@@ -382,11 +382,48 @@ pub fn seed(name: &str) -> io::Result<Set> {
     fs::write(&sheet, blank::sheet())?;
     fs::write(&cuts, blank::cuts(name))?;
     fs::write(&model, blank::model())?;
-    fs::write(&anim, blank::anim())?;
+    fs::write(&anim, blank::track())?;
 
     info!(name, "Studio seeded a new set");
 
     Ok(Set { name: name.to_owned(), sheet: Some(sheet), cuts: Some(cuts), model: Some(model), anims: vec![anim] })
+}
+
+pub fn seed_track(set: &Set) -> io::Result<PathBuf> {
+    let Some(model) = set.model.as_deref() else {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "the set holds no model"));
+    };
+
+    let folder = model.parent().unwrap_or_else(|| Path::new(""));
+    let base = stem_of(model);
+
+    let path = (0..)
+        .map(|at| folder.join(format!("{}{:02}.{}", base, at, ANIM_EXT)))
+        .find(|path| !path.exists())
+        .unwrap_or_else(|| folder.join(format!("{}.{}", base, ANIM_EXT)));
+
+    fs::write(&path, blank::track())?;
+    info!(path = %path.display(), "Studio seeded a new track");
+
+    Ok(path)
+}
+
+pub fn rename_track(track: &Path, wanted: &str) -> io::Result<PathBuf> {
+    let folder = track.parent().unwrap_or_else(|| Path::new(""));
+    let destination = folder.join(format!("{}.{}", sanitize(wanted), ANIM_EXT));
+
+    if destination == track {
+        return Ok(destination);
+    }
+
+    if destination.exists() {
+        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "a track of that name is already here"));
+    }
+
+    fs::rename(track, &destination)?;
+    debug!(from = %track.display(), to = %destination.display(), "Studio renamed a track");
+
+    Ok(destination)
 }
 
 pub fn export(set: &Set, named: Option<&str>) -> io::Result<PathBuf> {
@@ -535,7 +572,55 @@ fn stem_of(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::systems::animation::authoring::Maanim;
+
     use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let root = env::temp_dir().join(format!("bcc-studio-{}-{}", name, std::process::id()));
+
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("the scratch folder is made");
+
+        root
+    }
+
+    #[test]
+    fn a_seeded_track_takes_the_next_free_ordinal_and_parses_back() {
+        let root = scratch("seed-track");
+        let model = root.join("Rig.mamodel");
+
+        fs::write(&model, blank::model()).expect("the model is written");
+        fs::write(root.join("Rig00.maanim"), blank::track()).expect("the first track is written");
+
+        let set = Set { model: Some(model), ..Set::default() };
+        let seeded = seed_track(&set).expect("a track is seeded");
+
+        assert_eq!(seeded.file_name().and_then(OsStr::to_str), Some("Rig01.maanim"));
+        assert!(Maanim::parse(&fs::read(&seeded).expect("the seed reads")).is_ok());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn renaming_a_track_keeps_the_extension_and_refuses_a_collision() {
+        let root = scratch("rename-track");
+        let held = root.join("Rig00.maanim");
+        let taken = root.join("Taken.maanim");
+
+        fs::write(&held, blank::track()).expect("the track is written");
+        fs::write(&taken, blank::track()).expect("the rival is written");
+
+        assert!(rename_track(&held, "Taken").is_err(), "an occupied name is refused");
+        assert!(held.is_file(), "and the original is left alone");
+
+        let moved = rename_track(&held, "Walk Cycle").expect("the track is renamed");
+
+        assert_eq!(moved, root.join("Walk Cycle.maanim"));
+        assert!(!held.exists());
+
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn a_name_loses_path_separators_but_keeps_the_rest() {

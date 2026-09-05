@@ -4,26 +4,25 @@ use iced::widget::{column, container, row, rule, text, text_input};
 use crate::widget::picker;
 
 pub(super) const TITLE: &str = "Onionskin";
-pub(super) const SPEC: popup::Spec = popup::Spec::new(popup::Kind::StudioOnion, Size::new(316.0, 248.0));
+pub(super) const SPEC: popup::Spec = popup::Spec::new(popup::Kind::StudioOnion, Size::new(336.0, 248.0));
 
 const PADDING: f32 = 12.0;
 const STEP: f32 = 6.0;
 const LABEL: f32 = 13.0;
-const NAME_WIDTH: f32 = 54.0;
+const NAME_WIDTH: f32 = 64.0;
 const HASH_WIDTH: f32 = 9.0;
-const HINT_COUNT: &str = "None";
+const HINT_LIFE: &str = "None";
 const HINT_COLOR: &str = "RRGGBB";
 const HINT_FRAMES: &str = "Frames";
 const HINT_PERCENT: &str = "Percent";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Knob {
-    BeforeCount,
+    BeforeLife,
     BeforeColor,
-    AfterCount,
+    AfterLife,
     AfterColor,
     Delay,
-    Duration,
     Opacity,
 }
 
@@ -34,24 +33,22 @@ impl Knob {
 
     pub(super) fn held(self, anim: &StudioSettings) -> &String {
         match self {
-            Knob::BeforeCount => &anim.onion_before,
+            Knob::BeforeLife => &anim.onion_before_life,
             Knob::BeforeColor => &anim.onion_before_color,
-            Knob::AfterCount => &anim.onion_after,
+            Knob::AfterLife => &anim.onion_after_life,
             Knob::AfterColor => &anim.onion_after_color,
             Knob::Delay => &anim.onion_gap,
-            Knob::Duration => &anim.onion_life,
             Knob::Opacity => &anim.onion_alpha,
         }
     }
 
     pub(super) fn set(self, anim: &mut StudioSettings, typed: String) {
         let slot = match self {
-            Knob::BeforeCount => &mut anim.onion_before,
+            Knob::BeforeLife => &mut anim.onion_before_life,
             Knob::BeforeColor => &mut anim.onion_before_color,
-            Knob::AfterCount => &mut anim.onion_after,
+            Knob::AfterLife => &mut anim.onion_after_life,
             Knob::AfterColor => &mut anim.onion_after_color,
             Knob::Delay => &mut anim.onion_gap,
-            Knob::Duration => &mut anim.onion_life,
             Knob::Opacity => &mut anim.onion_alpha,
         };
 
@@ -89,7 +86,7 @@ fn heading<'a>(name: &'a str) -> Element<'a, Message> {
         .into()
 }
 
-fn side<'a>(name: &'a str, anim: &'a StudioSettings, count: Knob, color: Knob) -> Element<'a, Message> {
+fn side<'a>(name: &'a str, anim: &'a StudioSettings, life: Knob, color: Knob) -> Element<'a, Message> {
     let hashed = row![
         text("#").size(LABEL).width(Length::Fixed(HASH_WIDTH)),
         field(color, HINT_COLOR, anim),
@@ -98,7 +95,7 @@ fn side<'a>(name: &'a str, anim: &'a StudioSettings, count: Knob, color: Knob) -
 
     column![
         heading(name),
-        seat("Count", field(count, HINT_COUNT, anim)),
+        seat("Duration", field(life, HINT_LIFE, anim)),
         seat("Color", hashed.into()),
     ]
     .spacing(STEP)
@@ -108,14 +105,13 @@ fn side<'a>(name: &'a str, anim: &'a StudioSettings, count: Knob, color: Knob) -
 
 pub(super) fn view(anim: &StudioSettings) -> Element<'_, Message> {
     let sides = row![
-        side("Before", anim, Knob::BeforeCount, Knob::BeforeColor),
-        side("After", anim, Knob::AfterCount, Knob::AfterColor),
+        side("Before", anim, Knob::BeforeLife, Knob::BeforeColor),
+        side("After", anim, Knob::AfterLife, Knob::AfterColor),
     ]
     .spacing(PADDING);
 
     let shared = row![
         stacked("Delay", field(Knob::Delay, HINT_FRAMES, anim)),
-        stacked("Duration", field(Knob::Duration, HINT_FRAMES, anim)),
         stacked("Opacity", field(Knob::Opacity, HINT_PERCENT, anim)),
     ]
     .spacing(STEP);

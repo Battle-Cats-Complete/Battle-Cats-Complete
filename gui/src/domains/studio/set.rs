@@ -1,3 +1,5 @@
+use std::ffi::OsStr;
+
 use super::*;
 
 impl State {
@@ -26,8 +28,21 @@ impl State {
         sets::folder_name(self.manage.set()).is_some()
     }
 
-    fn droppable(&self) -> bool {
-        self.session.as_ref().is_some_and(|session| session.viewer.selected_anim().is_some())
+    fn tracked(&self) -> Option<&str> {
+        self.session
+            .as_ref()?
+            .viewer
+            .selected_anim()?
+            .file_stem()
+            .and_then(OsStr::to_str)
+    }
+
+    fn seedable(&self) -> bool {
+        let Some(model) = self.manage.set().model.as_deref() else {
+            return false;
+        };
+
+        sets::home(model) != sets::Home::Game || self.unlocked
     }
 
     pub(super) fn manage(&mut self, message: manage::Message) -> Task<Message> {
@@ -144,6 +159,37 @@ impl State {
 
                 self.reopen()
             }
+            manage::Message::TrackChanged(typed) => {
+                self.manage.retrack(typed);
+
+                self.manage
+                    .tracker
+                    .set_after((), Message::Manage(manage::Message::TrackRename), RENAME_DELAY)
+            }
+            manage::Message::TrackRename => {
+                self.manage.tracker.expire();
+
+                self.rename_track()
+            }
+            manage::Message::NewAnim => {
+                self.settle_folder();
+
+                let seeded = match sets::seed_track(self.manage.set()) {
+                    Ok(path) => path,
+                    Err(err) => {
+                        warn!("Studio could not seed a new track: {}", err);
+
+                        return Task::none();
+                    }
+                };
+
+                let stem = seeded.file_stem().and_then(OsStr::to_str).map(str::to_owned);
+
+                self.manage.anims_mut().push(seeded);
+                self.aim_clip(stem);
+
+                self.resettle(Swap::Same)
+            }
             manage::Message::AddAnims => {
                 Task::perform(dialog::files("Animation", &["maanim"]), |picked| {
                     Message::Manage(manage::Message::AnimsPicked(picked))
@@ -251,6 +297,69 @@ impl State {
         Task::none()
     }
 
+    pub(super) fn settle_track(&mut self) {
+        if self.manage.typed_track() == self.tracked() {
+            self.manage.untrack();
+        }
+    }
+
+    fn aim_clip(&mut self, label: Option<String>) {
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+
+        session.plan.clip = label;
+        session.primed = false;
+    }
+
+    fn rename_track(&mut self) -> Task<Message> {
+        let Some(typed) = self.manage.typed_track().map(str::to_owned) else {
+            return Task::none();
+        };
+
+        let held = self.session.as_ref().and_then(|session| session.viewer.selected_anim().cloned());
+
+        let Some(held) = held else {
+            self.manage.untrack();
+
+            return Task::none();
+        };
+
+        self.flush_now();
+
+        let renamed = match sets::rename_track(&held, &typed) {
+            Ok(path) => path,
+            Err(err) => {
+                warn!(path = %held.display(), "Studio could not rename the track: {}", err);
+                self.manage.untrack();
+
+                return Task::none();
+            }
+        };
+
+        if renamed == held {
+            self.manage.untrack();
+
+            return Task::none();
+        }
+
+        let stem = renamed.file_stem().and_then(OsStr::to_str).map(str::to_owned);
+
+        for path in self.manage.anims_mut().iter_mut() {
+            if *path == held {
+                *path = renamed.clone();
+            }
+        }
+
+        if let Some(stem) = stem.clone() {
+            self.manage.retrack(stem);
+        }
+
+        self.aim_clip(stem);
+
+        self.resettle(Swap::Same)
+    }
+
     fn settle_folder(&mut self) {
         if self.manage.set().files().is_empty() || self.sealed() {
             return;
@@ -341,6 +450,14 @@ impl State {
         self.onioning
     }
 
+    pub(crate) fn restore_onion(&mut self, settings: &mut Settings) {
+        self.onioning = settings.studio.onion.on();
+
+        if self.onioning {
+            settings.studio.onion_arm(true);
+        }
+    }
+
     pub(crate) fn onion_popup_view<'a>(
         &'a self,
         settings: &'a Settings,
@@ -365,7 +482,11 @@ impl State {
                 manage::SPEC,
                 window,
                 Message::ManagePopup,
-                || self.manage.view(self.mount(), self.droppable(), self.foldered()).map(Message::Manage),
+                || {
+                    self.manage
+                        .view(self.mount(), self.tracked(), self.seedable(), self.foldered())
+                        .map(Message::Manage)
+                },
                 None,
             )
         })

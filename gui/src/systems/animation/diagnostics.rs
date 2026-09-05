@@ -7,7 +7,7 @@ use nyanko::graphics::animate::{resolve_frame, FrameData};
 use nyanko::graphics::rig::Rig;
 use nyanko::graphics::tools::part;
 
-use kore::domains::settings::{StudioSettings, Tier};
+use kore::domains::settings::{Overlays, Tier};
 
 use super::canvas as viewer;
 use super::data;
@@ -35,7 +35,7 @@ const DEGENERATE: f32 = 1.5;
 pub fn view<'a, M: 'a>(
     data: &'a data::State,
     state: &'a viewer::State,
-    anim: &StudioSettings,
+    shown: Overlays,
     picked: Option<usize>,
 ) -> Element<'a, M> {
     let overlay = Parts {
@@ -43,11 +43,11 @@ pub fn view<'a, M: 'a>(
         frame: state.current_frame,
         pan: state.pan,
         zoom: state.zoom,
-        rig: anim.rig,
-        selected: anim.selected,
-        hierarchy: anim.hierarchy,
-        origin: anim.origin.on(),
-        world: anim.world.on(),
+        rig: shown.rig,
+        selected: shown.selected,
+        hierarchy: shown.hierarchy,
+        origin: shown.origin.on(),
+        world: shown.world.on(),
         picked,
     };
 

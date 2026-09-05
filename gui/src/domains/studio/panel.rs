@@ -8,7 +8,7 @@ impl State {
         anim: &'a AnimState,
     ) -> Element<'a, Message> {
         let body = match self.session.as_ref() {
-            Some(session) => session.view(settings, anim, self.shipping()),
+            Some(session) => session.view(settings, anim, self.shipping(), self.readout),
             None => self.vacant_view(settings, anim),
         };
 
@@ -25,25 +25,27 @@ impl State {
                 column![vacant_cuts(), vacant_slices()].spacing(GAP).height(Length::Fill).into(),
                 stack![console_card(centred(NO_SET_HINT)), console_edge()].into(),
             ),
-            Mode::Entity => (
-                column![console_card(centred(NO_SET_NOTICE)), vacant_keys()]
+            Mode::Entity => {
+                let shown = match self.readout {
+                    Readout::Facts => facts_table(Focus::Curve, None, None, None),
+                    Readout::Timeline => timeline::vacant(NO_SET_NOTICE),
+                };
+
+                (
+                    column![console_card(centred(NO_SET_NOTICE)), vacant_keys()]
+                        .spacing(GAP)
+                        .height(Length::Fill)
+                        .into(),
+                    column![
+                        container(self.idle.view(settings, anim).map(Message::Viewer))
+                            .width(Length::Fill)
+                            .height(Length::Fill),
+                        strip(shown, &settings.studio, false, self.readout)
+                    ]
                     .spacing(GAP)
-                    .height(Length::Fill)
                     .into(),
-                column![
-                    container(self.idle.view(settings, anim).map(Message::Viewer))
-                        .width(Length::Fill)
-                        .height(Length::Fill),
-                    strip(
-                        facts_table(Focus::Curve, None, None, None),
-                        &settings.studio,
-                        false,
-                        Readout::default(),
-                    )
-                ]
-                .spacing(GAP)
-                .into(),
-            ),
+                )
+            }
         };
 
         let body = row![panel_frame(self.mode, false, self.shipping(), side), stage].spacing(GAP);
@@ -125,6 +127,7 @@ impl Session {
         settings: &'a Settings,
         anim: &'a AnimState,
         shipping: Shipping,
+        readout: Readout,
     ) -> Element<'a, Message> {
         let handled = self.viewer.resolved() && !self.viewer.selecting();
 
@@ -156,7 +159,7 @@ impl Session {
 
         let right: Element<'_, Message> = match self.mode {
             Mode::Atlas => self.canvas(),
-            _ => column![stage, self.strip(settings)].spacing(GAP).into(),
+            _ => column![stage, self.strip(settings, readout)].spacing(GAP).into(),
         };
 
         let body = row![self.side(shipping), right].spacing(GAP);
@@ -392,7 +395,7 @@ impl Session {
         .into()
     }
 
-    fn strip<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
+    fn strip<'a>(&'a self, settings: &'a Settings, readout: Readout) -> Element<'a, Message> {
         let index = self.chosen().and_then(|at| i32::try_from(at).ok());
 
         let part = index
@@ -400,12 +403,12 @@ impl Session {
             .zip(self.viewer.rig())
             .and_then(|(at, rig)| rig.model.parts.get(at));
 
-        let shown = match self.readout {
+        let shown = match readout {
             Readout::Facts => facts_table(self.focus, index, part, self.viewer.rig()),
             Readout::Timeline => self.board(),
         };
 
-        strip(shown, &settings.studio, self.animated(), self.readout)
+        strip(shown, &settings.studio, self.animated(), readout)
     }
 
     fn board(&self) -> Element<'_, Message> {

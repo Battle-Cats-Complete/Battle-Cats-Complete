@@ -1,7 +1,7 @@
 use super::*;
 use iced::border::Radius;
 use iced::widget::canvas::{self, Geometry, Path, Stroke};
-use iced::widget::{canvas as canvas_widget, column, container, row, text, Space};
+use iced::widget::{canvas as canvas_widget, column, container, row, text};
 use iced::{Pixels, Rectangle, Renderer};
 
 pub(super) const BOARD_HEIGHT: f32 = 208.0;
@@ -41,7 +41,6 @@ const GRAB: f32 = 6.0;
 const FLOOR: i64 = i32::MIN as i64;
 const CEILING: i64 = i32::MAX as i64;
 const START_INK: Color = Color::from_rgb(0.24, 0.72, 0.36);
-const RESTART_INK: Color = Color::from_rgb(0.92, 0.78, 0.20);
 const DIGIT: &str = "0";
 const NO_PART_NOTICE: &str = "Select a part to see its channels";
 const NO_CHANNEL_NOTICE: &str = "This part has no channels";
@@ -161,11 +160,11 @@ impl State {
         picked: Option<usize>,
     ) -> Element<'a, Message> {
         let Some(part) = part else {
-            return framed(plain(cadence), centred(NO_PART_NOTICE));
+            return framed(plain(), centred(NO_PART_NOTICE));
         };
 
         if lanes.is_empty() {
-            return framed(plain(cadence), centred(NO_CHANNEL_NOTICE));
+            return framed(plain(), centred(NO_CHANNEL_NOTICE));
         }
 
         let window = self.window(part, cadence, &lanes);
@@ -234,15 +233,12 @@ fn resting(cadence: Cadence, lanes: &[Lane]) -> Window {
     Window { from: from - pad, span: span + pad * 2.0, lift: 0.0 }
 }
 
-fn plain<'a>(cadence: Cadence) -> Element<'a, Message> {
-    row![
-        text("Timeline").size(LABEL_SIZE),
-        Space::new().width(Length::Fill),
-        text(format!("cycle {}", cadence.cycle.label())).size(LABEL_SIZE),
-    ]
-    .spacing(GAP)
-    .align_y(Vertical::Center)
-    .into()
+pub(super) fn vacant<'a>(notice: &'a str) -> Element<'a, Message> {
+    framed(plain(), centred(notice))
+}
+
+fn plain<'a>() -> Element<'a, Message> {
+    row![text("Timeline").size(LABEL_SIZE)].align_y(Vertical::Center).into()
 }
 
 fn framed<'a>(head: Element<'a, Message>, body: Element<'a, Message>) -> Element<'a, Message> {
@@ -657,10 +653,6 @@ impl canvas::Program<Message> for Board {
         };
 
         rule(&mut frame, self.at(width, 0.0), START_INK, MARK_WIDTH);
-
-        if self.cadence.settled != 0 {
-            rule(&mut frame, self.at(width, self.cadence.settled as f64), RESTART_INK, MARK_WIDTH);
-        }
 
         let folded = self.cadence.fold(self.playhead) as f64;
 

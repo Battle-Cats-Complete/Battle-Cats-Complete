@@ -44,7 +44,7 @@ pub(super) fn model() -> String {
     )
 }
 
-pub(super) fn anim() -> String {
+pub(super) fn track() -> String {
     "[modelanim:animation]\n1\n1\n0,11,-1,0,0,spin\n2\n0,0,0,0\n60,3600,0,0\n".to_owned()
 }
 
@@ -66,7 +66,7 @@ mod tests {
         assert_eq!(parsed.parts.len(), 1);
         assert_eq!(parsed.alignment.len(), 2);
 
-        let parsed = Maanim::parse(anim().as_bytes()).expect("the animation parses");
+        let parsed = Maanim::parse(track().as_bytes()).expect("the animation parses");
         assert_eq!(parsed.tracks().len(), 1);
     }
 

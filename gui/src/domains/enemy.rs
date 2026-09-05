@@ -27,7 +27,7 @@ use kore::systems::combat::RenderContext;
 use kore::domains::enemy::animation as enemy_animation;
 use kore::domains::enemy::scanner::{self, EnemyEntry};
 use kore::domains::enemy::EnemyDataState;
-use kore::domains::settings::{Settings, Shown, Tier};
+use kore::domains::settings::Settings;
 use kore::{Vfs, Vault};
 
 use crate::systems::animation;
@@ -444,15 +444,15 @@ impl EnemyState {
                 Task::none()
             }
             Message::ToggleOrigin(val) => {
-                settings.studio.origin = Shown::of(val);
+                settings.animation.show_origin = val;
                 Task::none()
             }
             Message::ToggleParts(val) => {
-                settings.studio.rig = Tier::of(val);
+                settings.animation.show_rig = val;
                 Task::none()
             }
             Message::ToggleWorld(val) => {
-                settings.studio.world = Shown::of(val);
+                settings.animation.show_world = val;
                 Task::none()
             }
             Message::MagnificationChanged(input) => {

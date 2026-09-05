@@ -152,31 +152,31 @@ impl Viewport<'_> {
             return live;
         };
 
-        let (Some(gap), Some(life)) = (anim.onion_step(), anim.onion_life()) else {
+        let Some(gap) = anim.onion_step() else {
             return live;
         };
 
         let (behind, ahead) = (anim.onion_behind().unwrap_or(0), anim.onion_ahead().unwrap_or(0));
+        let reach = (anim.onion_skins(behind) + anim.onion_skins(ahead)) as usize;
         let gap = gap as f32;
-        let span = (life as f32).max((behind.max(ahead) + 1) as f32 * gap);
-        let alpha = anim.onion_alpha();
-        let reach = (behind + ahead) as usize;
+        let grid = (now / gap).floor() * gap;
+        let seat = self.seated(now);
 
         let mut layered = Vec::with_capacity(live.len() * (reach + 1));
 
-        for (skins, way, tint) in [
-            (behind, -1.0, anim.onion_before_wash()),
-            (ahead, 1.0, anim.onion_after_wash()),
+        for (life, way, first, tint) in [
+            (behind, -1.0, 0, anim.onion_before_wash()),
+            (ahead, 1.0, 1, anim.onion_after_wash()),
         ] {
-            for step in (1..=skins).rev() {
-                let aged = step as f32 * gap;
-                let fade = (1.0 - aged / span) * alpha;
+            for step in (first..first + anim.onion_skins(life)).rev() {
+                let laid = grid + way * (step as f32) * gap;
+                let fade = anim.onion_fade((laid - now) * way, life);
 
                 if fade <= 0.0 {
                     continue;
                 }
 
-                let Some(at) = self.trailed(now + way * aged) else {
+                let Some(at) = self.trailed(laid).filter(|at| *at != seat) else {
                     continue;
                 };
 

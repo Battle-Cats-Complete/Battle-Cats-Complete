@@ -4,7 +4,7 @@ use iced::alignment::Horizontal;
 use iced::widget::{column, container, row};
 use iced::{Alignment, Element, Length, Padding, Size, Task};
 
-use kore::domains::settings::{Settings, Shown, Tier};
+use kore::domains::settings::Settings;
 use kore::domains::utilities::animation as builder;
 
 use crate::app::state::{AnimState, AppState};
@@ -148,15 +148,15 @@ impl State {
                 Task::none()
             }
             Message::ToggleOrigin(on) => {
-                settings.studio.origin = Shown::of(on);
+                settings.animation.show_origin = on;
                 Task::none()
             }
             Message::ToggleParts(on) => {
-                settings.studio.rig = Tier::of(on);
+                settings.animation.show_rig = on;
                 Task::none()
             }
             Message::ToggleWorld(on) => {
-                settings.studio.world = Shown::of(on);
+                settings.animation.show_world = on;
                 Task::none()
             }
             Message::Viewer(msg) => {

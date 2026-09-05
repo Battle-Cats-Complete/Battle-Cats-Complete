@@ -77,6 +77,9 @@ impl BattleCatsApp {
         app.studio_state.restore_state(&app.app_state.studio, mounted.as_deref());
         popup::restore(&app.app_state.popups);
 
+        app.studio_state.restore_onion(&mut app.settings);
+        app.sync_popup(ActivePopup::StudioOnion, app.studio_state.onioning());
+
         if notice::should_show(&app.app_state.notice.acknowledged) {
             info!("Notice {} not yet acknowledged, showing at startup", notice::hash());
             app.notice_open = true;
