@@ -202,8 +202,18 @@ pub(crate) fn rig_files(vfs: &Vfs, id: &str, bases: &[String]) -> Option<RigFile
 }
 
 pub fn loop_frame(animation: &Animation, frame: f32) -> f32 {
-    let frames = playback_frames(animation);
+    seat(playback_frames(animation), frame)
+}
 
+pub fn restart(animation: &Animation) -> Option<i32> {
+    cycle(animation).or_else(|| (animation.length() > 0).then(|| animation.declared_frames()))
+}
+
+pub fn restart_frame(animation: &Animation, frame: f32) -> f32 {
+    restart(animation).map_or(frame, |frames| seat(frames, frame))
+}
+
+fn seat(frames: i32, frame: f32) -> f32 {
     if frames > 0 { frame.rem_euclid(frames as f32) } else { frame }
 }
 
@@ -238,7 +248,7 @@ pub fn multiply_mat3(matrix_a: &[f32; 9], matrix_b: &[f32; 9]) -> [f32; 9] {
 mod tests {
     use nyanko::graphics::rig::{AnimModification, Animation, Keyframe};
 
-    use super::{cycle, owns, playback_frames};
+    use super::{cycle, owns, playback_frames, restart, restart_frame};
 
     fn curve(loop_count: i32, first: i32, last: i32) -> AnimModification {
         AnimModification {
@@ -287,6 +297,42 @@ mod tests {
         assert_eq!(absurd.loop_frames(), Some(99_400_891));
         assert_eq!(cycle(&absurd), None);
         assert_eq!(playback_frames(&absurd), absurd.declared_frames());
+    }
+
+    // 872_f00 in the shipped corpus: 103 modifications, 99 of them replaying forever over
+    // spans of 15, 18, 45, 60 and 200, and four that play exactly once. The play-once four
+    // are why loop_frames gives up, and the forever ninety-nine are why frame 200 is not a
+    // seam - so restarting there snaps every one of them mid-motion.
+    #[test]
+    fn a_timeline_that_never_ends_has_no_restart_to_snap_to() {
+        let walk = animation(vec![curve(-1, 0, 60), curve(-1, 0, 15), curve(1, 0, 200)]);
+
+        assert_eq!(walk.length(), -1);
+        assert_eq!(walk.loop_frames(), None);
+        assert_eq!(walk.declared_frames(), 200);
+
+        assert_eq!(restart(&walk), None);
+        assert_eq!(restart_frame(&walk, 260.0), 260.0);
+
+        // The old bound wrapped at the declared count, which is what snapped.
+        assert_eq!(playback_frames(&walk), 200);
+    }
+
+    #[test]
+    fn a_timeline_that_ends_still_restarts_at_its_declared_length() {
+        let attack = animation(vec![curve(1, 0, 89)]);
+
+        assert_eq!(attack.length(), 90);
+        assert_eq!(restart(&attack), Some(90));
+        assert_eq!(restart_frame(&attack, 90.0), 0.0);
+    }
+
+    #[test]
+    fn a_timeline_with_a_cycle_restarts_on_the_cycle() {
+        let walk = animation(vec![curve(-1, 0, 8), curve(-1, 0, 12)]);
+
+        assert_eq!(restart(&walk), Some(24));
+        assert_eq!(restart_frame(&walk, 25.0), 1.0);
     }
 
     #[test]

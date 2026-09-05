@@ -6,7 +6,7 @@ use tracing::warn;
 use nyanko::graphics::rig::{Animation, BoundingBox, Model, Rig};
 
 use kore::common::preview::{self, Stamp};
-use kore::systems::animation::{cycle, loop_frame, playback_frames, Clip, ClipSet, Loop, Rigging, Role, RAW_OFFSET};
+use kore::systems::animation::{cycle, loop_frame, restart, restart_frame, Clip, ClipSet, Loop, Rigging, Role, RAW_OFFSET};
 
 pub(super) const COLUMNS: usize = 4;
 const DEFAULT_SLOTS: usize = 8;
@@ -125,17 +125,19 @@ impl State {
         self.current_anim.as_ref().map_or(Some(0), |anim| match self.looping() {
             Loop::Exact => cycle(anim).map(|frames| frames - 1),
             Loop::Frames => Some(anim.declared_frames() - 1),
-            Loop::Auto => Some(playback_frames(anim) - 1),
+            Loop::Auto => restart(anim).map(|frames| frames - 1),
             Loop::Continuous => None,
         })
     }
 
     pub fn playback_frame(&self, frame: f32) -> f32 {
-        if matches!(self.looping(), Loop::Exact | Loop::Continuous) {
-            return frame;
-        }
+        let Some(anim) = self.current_anim.as_ref() else { return frame };
 
-        self.current_anim.as_ref().map_or(frame, |anim| loop_frame(anim, frame))
+        match self.looping() {
+            Loop::Exact | Loop::Continuous => frame,
+            Loop::Frames => loop_frame(anim, frame),
+            Loop::Auto => restart_frame(anim, frame),
+        }
     }
 
     pub fn trailed(&self, frame: f32) -> Option<f32> {

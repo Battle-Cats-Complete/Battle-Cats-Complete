@@ -15,7 +15,7 @@ use tracing::{error, info, warn};
 
 use kore::common::architecture;
 use kore::common::preview::{self, Stamp};
-use kore::domains::settings::{Scope, Settings, Shown, StudioSettings, Switch, Tier};
+use kore::domains::settings::{FrameCount, Scope, Settings, Shown, StudioSettings, Switch, Tier};
 use kore::domains::studio as sets;
 use kore::systems::animation::posing::{self, Hand, Probe};
 use kore::systems::animation::authoring::{self as authoring, bound, Beat, Cadence, Imgcut, CUT_FIELDS, CUT_NAME_FIELD, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, nameable, Maanim, Mamodel, EASES, FIELDS, NAME_FIELD};
@@ -687,6 +687,7 @@ struct Session {
     loose_open: bool,
     history: History,
     key: String,
+    keyed: Option<FrameCount>,
     primed: bool,
     watching: bool,
     watch_token: u64,
@@ -766,7 +767,6 @@ impl State {
             plan.clip = Some(clip);
         }
 
-        let key = plan.set.key();
         let history = self.recall_history(&plan.set.name);
 
         self.session = Some(Session {
@@ -806,7 +806,8 @@ impl State {
             timeline: timeline::State::default(),
             loose_open: false,
             history,
-            key,
+            key: String::new(),
+            keyed: None,
             primed: false,
             watching: false,
             watch_token: 0,
@@ -1936,12 +1937,18 @@ impl Session {
 
     fn sync(&mut self, settings: &Settings, anim: &AnimState) -> Task<Message> {
         let set = self.plan.set.clone();
+        let frames = settings.studio.frame_count;
         let mut priming = Task::none();
 
+        if self.keyed != Some(frames) {
+            self.keyed = Some(frames);
+            self.key = set.key(frames);
+        }
+
         if std::mem::replace(&mut self.primed, true) {
-            self.viewer.sync(&self.key, || set.clips(), settings, anim);
+            self.viewer.sync(&self.key, || set.clips(frames), settings, anim);
         } else {
-            priming = self.viewer.preload(&self.key, || set.clips(), anim).map(Message::Viewer);
+            priming = self.viewer.preload(&self.key, || set.clips(frames), anim).map(Message::Viewer);
 
             if let Some(label) = self.plan.clip.as_deref() {
                 self.viewer.select_label(label);
@@ -1983,7 +1990,7 @@ impl Session {
         let moved = rigged(&self.plan.set) != rigged(&set);
 
         self.plan.set = set;
-        self.key = self.plan.set.key();
+        self.keyed = None;
 
         if !moved {
             return;

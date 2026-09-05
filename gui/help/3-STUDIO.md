@@ -83,7 +83,7 @@ Each lane is one channel of the selected part, named on a card at its left and s
 - **Right Click** on a lane selects that channel and fills the keyframe table.
 - **Right Drag** on the ends of or edge between two blocks moves that keyframe, and is the only edit the Timeline offers. A keyframe is held between its neighbors and cannot cross them, and reaches only as far as the frames on screen. Zoom out first to extend a channel further.
 
-A green line marks frame 0. The playhead is red while it matches the frame being played, and amber once the part's own channels have folded it, either resting on its last keyframe or wrapped back inside a loop.
+A green line marks frame 0. The playhead is red while it matches the frame being played, and amber once the part's own channels have folded it, either resting on its last keyframe or wrapped back inside a loop. When amber the line sits where the part resolves while the frame count carries on past it, and an animation the file never ends stays amber from its first fold.
 
 ## Colors
 The viewer draws its overlays in a fixed set of colors. Which ones appear is toggled in the `Option` column.

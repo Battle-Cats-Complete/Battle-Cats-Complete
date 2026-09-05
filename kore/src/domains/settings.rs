@@ -14,6 +14,7 @@ use tracing::{info, warn};
 
 use crate::common::io::json;
 use crate::common::keys::sanitize;
+use crate::systems::animation::Loop;
 
 const EXPECTED_HASHES: [(&str, &str); 4] = [
     ("bac299d3cf278544782427ff7c71ef58", "6910fae125547fd957a505c67e1c72bd"),
@@ -71,6 +72,24 @@ pub enum FrameCount {
     #[default]
     Automatic,
     Continuous,
+}
+
+impl FrameCount {
+    pub const ALL: [FrameCount; 2] = [FrameCount::Automatic, FrameCount::Continuous];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Automatic => "Automatic",
+            Self::Continuous => "Continuous",
+        }
+    }
+
+    pub fn looping(self) -> Loop {
+        match self {
+            Self::Automatic => Loop::Auto,
+            Self::Continuous => Loop::Continuous,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -484,6 +503,12 @@ impl ScrubBehavior {
     }
 }
 
+impl std::fmt::Display for FrameCount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 impl std::fmt::Display for ScrubBehavior {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.label())
@@ -509,6 +534,7 @@ pub struct StudioSettings {
     pub onion_alpha: String,
     pub ignore_crashes: bool,
     pub scrub: ScrubBehavior,
+    pub frame_count: FrameCount,
 }
 
 impl StudioSettings {

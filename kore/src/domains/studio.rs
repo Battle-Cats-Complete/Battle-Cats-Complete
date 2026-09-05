@@ -16,7 +16,8 @@ pub use aim::{resolve, Aim, Roster};
 pub use crate::domains::mods::patch_root;
 
 use crate::common::architecture::{GAME, MODS, STUDIO};
-use crate::systems::animation::{Clip, ClipSet, Loop, Rigging};
+use crate::domains::settings::FrameCount;
+use crate::systems::animation::{Clip, ClipSet, Rigging};
 
 pub use blank::SEED_SUFFIX;
 
@@ -109,8 +110,8 @@ impl Set {
             .collect()
     }
 
-    pub fn key(&self) -> String {
-        let mut key = self.name.clone();
+    pub fn key(&self, frames: FrameCount) -> String {
+        let mut key = format!("{frames:?}|{}", self.name);
 
         for path in self.files() {
             key.push('|');
@@ -132,7 +133,7 @@ impl Set {
         self.files().first().map_or(Home::Loose, |path| home(path))
     }
 
-    pub fn clips(&self) -> ClipSet {
+    pub fn clips(&self, frames: FrameCount) -> ClipSet {
         let (Some(sheet), Some(cuts), Some(model)) = (&self.sheet, &self.cuts, &self.model) else {
             return ClipSet::default();
         };
@@ -151,7 +152,7 @@ impl Set {
                 name: None,
                 slot: None,
                 role: None,
-                looping: Loop::Auto,
+                looping: frames.looping(),
                 rig: Arc::clone(&rig),
                 anim: Some(anim.clone()),
             })
@@ -658,7 +659,7 @@ mod tests {
             ],
         };
 
-        let clips = set.clips().clips;
+        let clips = set.clips(FrameCount::Automatic).clips;
         let labelled: Vec<String> = clips.iter().map(Clip::label).collect();
 
         assert_eq!(labelled, vec!["044_f00", "044_f02", "044_f_zombie00", "Model"]);

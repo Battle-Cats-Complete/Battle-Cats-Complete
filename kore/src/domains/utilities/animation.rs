@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::domains::settings::FrameCount;
-use crate::systems::animation::{Clip, ClipSet, Loop, Rigging};
+use crate::systems::animation::{Clip, ClipSet, Rigging};
 
 pub fn key(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf], frames: FrameCount) -> String {
     let mut key = format!("{:?}|{}", frames, rig_id(png, cut, model));
@@ -29,7 +29,7 @@ pub fn clips(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf], frames: Fr
             name: None,
             slot: None,
             role: None,
-            looping: looping(frames),
+            looping: frames.looping(),
             rig: rig.clone(),
             anim: Some(anim.clone()),
         })
@@ -38,13 +38,6 @@ pub fn clips(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf], frames: Fr
     clips.push(Clip::model(rig));
 
     ClipSet { name: stem_of(model), clips, offsets: vec!["Combat", "Gacha"] }
-}
-
-fn looping(frames: FrameCount) -> Loop {
-    match frames {
-        FrameCount::Automatic => Loop::Auto,
-        FrameCount::Continuous => Loop::Continuous,
-    }
 }
 
 fn rig_id(png: &Path, cut: &Path, model: &Path) -> String {

@@ -71,6 +71,7 @@ pub enum Message {
     ToggleIgnoreModifiedApp(bool),
     ImportStructureSelected(ImportStructure),
     FrameCountSelected(FrameCount),
+    StudioFrameCountSelected(FrameCount),
     Keys(keys::Message),
     OpenKeysPopup,
     Exceptions(exceptions::Message),
@@ -197,6 +198,11 @@ impl State {
 
             Message::FrameCountSelected(val) => {
                 core_settings.utilities.frame_count = val;
+                Task::none()
+            }
+
+            Message::StudioFrameCountSelected(val) => {
+                core_settings.studio.frame_count = val;
                 Task::none()
             }
 
@@ -591,6 +597,8 @@ impl State {
     }
 
     fn view_studio<'a>(core_settings: &'a CoreSettings) -> Element<'a, Message> {
+        let frames = frame_count_row(core_settings.studio.frame_count, Message::StudioFrameCountSelected);
+
         let information = hover_hint(
             toggle_row(
                 core_settings.studio.ignore_crashes,
@@ -617,7 +625,7 @@ impl State {
         );
 
         column![
-            header_section(text("Information").size(24), information),
+            header_section(text("Animation").size(24), column![frames, information].spacing(10)),
             header_section(text("Timeline").size(24), timeline),
         ]
         .spacing(SECTION_SPACING)
@@ -625,29 +633,7 @@ impl State {
     }
 
     fn view_utilities<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {
-        let frame_options = vec!["Automatic", "Continuous"];
-        let current_frames = match core_settings.utilities.frame_count {
-            FrameCount::Automatic => "Automatic",
-            FrameCount::Continuous => "Continuous",
-        };
-
-        let animation_content = hover_hint(
-            row![
-                text("Frame Count Handling"),
-                pick_list(frame_options, Some(current_frames), |val| {
-                    let frames = match val {
-                        "Continuous" => FrameCount::Continuous,
-                        _ => FrameCount::Automatic,
-                    };
-                    Message::FrameCountSelected(frames)
-                })
-                .style(theme::combo_box)
-                .menu_style(theme::combo_box_menu),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center),
-            "Automatic bounds each animation by its own looping data\nContinuous leaves every animation unbounded, as the game itself plays them",
-        );
+        let animation_content = frame_count_row(core_settings.utilities.frame_count, Message::FrameCountSelected);
 
         column![header_section(text("Animation").size(24), animation_content)]
             .spacing(SECTION_SPACING)
@@ -696,6 +682,16 @@ impl State {
             legal_area,
         ].spacing(0).height(Length::Fill).into()
     }
+}
+
+fn frame_count_row<'a>(selected: FrameCount, on_select: impl Fn(FrameCount) -> Message + 'a) -> Element<'a, Message> {
+    combo_row(
+        "Frame Count Handling",
+        "Automatic bounds an animation by its own looping data, and leaves one the file never ends unbounded\nContinuous leaves every animation unbounded, as the game itself plays them",
+        FrameCount::ALL,
+        Some(selected),
+        Some(on_select),
+    )
 }
 
 fn header_section<'a, M: 'a>(header: impl Into<Element<'a, M>>, content: impl Into<Element<'a, M>>) -> Element<'a, M> {
