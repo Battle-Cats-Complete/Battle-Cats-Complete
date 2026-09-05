@@ -41,6 +41,7 @@ const GRAB: f32 = 6.0;
 const FLOOR: i64 = i32::MIN as i64;
 const CEILING: i64 = i32::MAX as i64;
 const START_INK: Color = Color::from_rgb(0.24, 0.72, 0.36);
+const FOLDED_INK: Color = Color::from_rgb(0.92, 0.78, 0.20);
 const DIGIT: &str = "0";
 const NO_PART_NOTICE: &str = "Select a part to see its channels";
 const NO_CHANNEL_NOTICE: &str = "This part has no channels";
@@ -676,9 +677,14 @@ impl canvas::Program<Message> for Board {
 
         rule(&mut frame, self.at(width, 0.0), START_INK, MARK_WIDTH);
 
-        let folded = self.cadence.fold(self.playhead) as f64;
+        let folded = self.cadence.fold(self.playhead);
 
-        rule(&mut frame, self.at(width, folded), palette.danger.base.color, PLAYHEAD_WIDTH);
+        let ink = match folded == self.playhead {
+            true => palette.danger.base.color,
+            false => FOLDED_INK,
+        };
+
+        rule(&mut frame, self.at(width, folded as f64), ink, PLAYHEAD_WIDTH);
 
         vec![frame.into_geometry()]
     }
