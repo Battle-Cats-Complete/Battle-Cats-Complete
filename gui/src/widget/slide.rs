@@ -75,6 +75,7 @@ struct SlideState {
     animation: Animation<bool>,
     factor: f32,
     was_animating: bool,
+    settled: Option<Instant>,
 }
 
 impl<'a, Message> Widget<Message, Theme, iced::Renderer> for Sliding<'a, Message> {
@@ -89,6 +90,7 @@ impl<'a, Message> Widget<Message, Theme, iced::Renderer> for Sliding<'a, Message
             animation: Animation::new(self.open).easing(SLIDE_EASING).duration(SLIDE_DURATION),
             factor,
             was_animating: false,
+            settled: None,
         })
     }
 
@@ -200,7 +202,8 @@ impl<'a, Message> Widget<Message, Theme, iced::Renderer> for Sliding<'a, Message
         let state: &mut SlideState = tree.state.downcast_mut();
         let animating = state.animation.is_animating(*now);
 
-        if !self.floating && (animating || state.was_animating) {
+        if !self.floating && (animating || state.was_animating) && state.settled != Some(*now) {
+            state.settled = Some(*now);
             shell.invalidate_layout();
         }
 
