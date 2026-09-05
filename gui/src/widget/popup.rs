@@ -84,7 +84,7 @@ pub enum Kind {
     StudioShipout,
 }
 
-const KIND_COUNT: usize = 28;
+pub(crate) const KIND_COUNT: usize = 28;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -166,6 +166,10 @@ impl Spec {
     pub const fn new(kind: Kind, minimum: Size) -> Self {
         Self { kind, minimum }
     }
+
+    pub(crate) const fn kind(self) -> Kind {
+        self.kind
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -233,6 +237,7 @@ pub(crate) struct StoredSize {
 thread_local! {
     static SIZES: Cell<[Option<Size>; KIND_COUNT]> = const { Cell::new([None; KIND_COUNT]) };
     static RAISES: Cell<u64> = const { Cell::new(0) };
+    static ORDER: Cell<[u64; KIND_COUNT]> = const { Cell::new([0; KIND_COUNT]) };
 }
 
 fn next_raise() -> u64 {
@@ -242,6 +247,22 @@ fn next_raise() -> u64 {
 
         next
     })
+}
+
+pub(crate) fn raise(kind: Kind) -> u64 {
+    let next = next_raise();
+
+    ORDER.with(|order| {
+        let mut slots = order.get();
+        slots[kind.slot()] = next;
+        order.set(slots);
+    });
+
+    next
+}
+
+pub(crate) fn order(kind: Kind) -> u64 {
+    ORDER.with(|order| order.get()[kind.slot()])
 }
 
 fn stored_size(kind: Kind) -> Option<Size> {
@@ -330,9 +351,12 @@ impl State {
 
     pub fn update(&mut self, message: Message, spec: Spec) -> bool {
         match message {
-            Message::Raise => self.raised = next_raise(),
+            Message::Raise => self.raised = raise(spec.kind),
             Message::HeaderPressed => self.drag = Drag::Pressed,
-            Message::EdgePressed(edge) => self.drag = Drag::Grabbed { edge },
+            Message::EdgePressed(edge) => {
+                self.raised = raise(spec.kind);
+                self.drag = Drag::Grabbed { edge };
+            }
             Message::EdgeEntered(edge) => self.hovered = Some(edge),
             Message::EdgeExited(edge) => {
                 if self.hovered == Some(edge) {
@@ -426,9 +450,9 @@ impl State {
             .padding(FRAME_BORDER_WIDTH)
             .style(frame_style);
 
-        let frame = opaque(mouse_area(framed).on_press(to_message(Message::Raise)));
+        let frame = opaque(framed);
 
-        let mut layers = vec![anchored(frame, position)];
+        let mut layers = vec![focused(frame, position, to_message(Message::Raise))];
 
         let lit = match self.drag {
             Drag::Grabbed { edge } | Drag::Resizing { edge, .. } => Some(edge),
@@ -545,7 +569,7 @@ fn grip<'a, M: Clone + 'a>(edge: Edge, position: Point, size: Size, to_message: 
     anchored(area, bounds.position())
 }
 
-fn highlight<'a, M: 'a>(edge: Edge, position: Point, size: Size) -> Vec<Element<'a, M>> {
+fn highlight<'a, M: Clone + 'a>(edge: Edge, position: Point, size: Size) -> Vec<Element<'a, M>> {
     let (x, y, width, height) = (position.x, position.y, size.width, size.height);
     let along_x = HIGHLIGHT_CORNER.min(width);
     let along_y = HIGHLIGHT_CORNER.min(height);
@@ -571,7 +595,7 @@ fn highlight<'a, M: 'a>(edge: Edge, position: Point, size: Size) -> Vec<Element<
     bars.into_iter().map(|bounds| anchored(bar(bounds.size()), bounds.position())).collect()
 }
 
-fn bar<'a, M: 'a>(size: Size) -> Element<'a, M> {
+fn bar<'a, M: Clone + 'a>(size: Size) -> Element<'a, M> {
     container(Space::new())
         .width(Length::Fixed(size.width))
         .height(Length::Fixed(size.height))
@@ -582,19 +606,163 @@ fn bar<'a, M: 'a>(size: Size) -> Element<'a, M> {
         .into()
 }
 
+struct Slots(Vec<usize>);
+
+struct Layered<'a, M> {
+    content: Element<'a, M>,
+    slots: Vec<usize>,
+}
+
+pub(crate) fn layered<'a, M: 'a>(popups: Vec<(Kind, Element<'a, M>)>) -> Element<'a, M> {
+    let mut slots = Vec::with_capacity(popups.len());
+    let mut layers = Vec::with_capacity(popups.len());
+
+    for (kind, view) in popups {
+        slots.push(kind.slot());
+        layers.push(view);
+    }
+
+    Element::new(Layered { content: stack(layers).into(), slots })
+}
+
+impl<'a, M> Widget<M, Theme, iced::Renderer> for Layered<'a, M> {
+    fn tag(&self) -> widget::tree::Tag {
+        widget::tree::Tag::of::<Slots>()
+    }
+
+    fn state(&self) -> widget::tree::State {
+        widget::tree::State::new(Slots(self.slots.clone()))
+    }
+
+    fn children(&self) -> Vec<widget::Tree> {
+        vec![widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut widget::Tree) {
+        let previous = std::mem::take(&mut tree.state.downcast_mut::<Slots>().0);
+
+        if let Some(inner) = tree.children.first_mut() {
+            if inner.children.len() == previous.len() && previous != self.slots {
+                let mut held: Vec<Option<widget::Tree>> = inner.children.drain(..).map(Some).collect();
+
+                inner.children = self
+                    .slots
+                    .iter()
+                    .map(|slot| {
+                        previous
+                            .iter()
+                            .position(|held_slot| held_slot == slot)
+                            .and_then(|index| held[index].take())
+                            .unwrap_or_else(widget::Tree::empty)
+                    })
+                    .collect();
+            }
+
+            inner.diff(&self.content);
+        }
+
+        tree.state.downcast_mut::<Slots>().0.clone_from(&self.slots);
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(&mut self, tree: &mut widget::Tree, renderer: &iced::Renderer, limits: &layout::Limits) -> layout::Node {
+        let Some(inner) = tree.children.first_mut() else { return layout::Node::new(Size::ZERO) };
+
+        self.content.as_widget_mut().layout(inner, renderer, limits)
+    }
+
+    fn operate(&mut self, tree: &mut widget::Tree, layout: Layout<'_>, renderer: &iced::Renderer, operation: &mut dyn widget::Operation) {
+        let Some(inner) = tree.children.first_mut() else { return };
+
+        self.content.as_widget_mut().operate(inner, layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut widget::Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &iced::Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, M>,
+        viewport: &Rectangle,
+    ) {
+        let Some(inner) = tree.children.first_mut() else { return };
+
+        self.content
+            .as_widget_mut()
+            .update(inner, event, layout, cursor, renderer, clipboard, shell, viewport);
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &widget::Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &iced::Renderer,
+    ) -> mouse::Interaction {
+        tree.children.first().map_or(mouse::Interaction::None, |inner| {
+            self.content.as_widget().mouse_interaction(inner, layout, cursor, viewport, renderer)
+        })
+    }
+
+    fn draw(
+        &self,
+        tree: &widget::Tree,
+        renderer: &mut iced::Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let Some(inner) = tree.children.first() else { return };
+
+        self.content.as_widget().draw(inner, renderer, theme, style, layout, cursor, viewport);
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut widget::Tree,
+        layout: Layout<'b>,
+        renderer: &iced::Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'b, M, Theme, iced::Renderer>> {
+        self.content
+            .as_widget_mut()
+            .overlay(tree.children.first_mut()?, layout, renderer, viewport, translation)
+    }
+}
+
 struct Anchored<'a, M> {
     content: Element<'a, M>,
     position: Point,
+    on_press: Option<M>,
 }
 
-fn anchored<'a, M: 'a>(content: impl Into<Element<'a, M>>, position: Point) -> Element<'a, M> {
+fn anchored<'a, M: Clone + 'a>(content: impl Into<Element<'a, M>>, position: Point) -> Element<'a, M> {
     Element::new(Anchored {
         content: content.into(),
         position,
+        on_press: None,
     })
 }
 
-impl<'a, M> Widget<M, Theme, iced::Renderer> for Anchored<'a, M> {
+fn focused<'a, M: Clone + 'a>(content: impl Into<Element<'a, M>>, position: Point, message: M) -> Element<'a, M> {
+    Element::new(Anchored {
+        content: content.into(),
+        position,
+        on_press: Some(message),
+    })
+}
+
+impl<'a, M: Clone> Widget<M, Theme, iced::Renderer> for Anchored<'a, M> {
     fn tag(&self) -> widget::tree::Tag {
         self.content.as_widget().tag()
     }
@@ -645,11 +813,18 @@ impl<'a, M> Widget<M, Theme, iced::Renderer> for Anchored<'a, M> {
         shell: &mut Shell<'_, M>,
         viewport: &Rectangle,
     ) {
-        if let Some(child) = layout.children().next() {
-            self.content
-                .as_widget_mut()
-                .update(tree, event, child, cursor, renderer, clipboard, shell, viewport);
+        let Some(child) = layout.children().next() else { return };
+
+        if let Some(message) = self.on_press.as_ref()
+            && matches!(event, Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)))
+            && cursor.is_over(child.bounds())
+        {
+            shell.publish(message.clone());
         }
+
+        self.content
+            .as_widget_mut()
+            .update(tree, event, child, cursor, renderer, clipboard, shell, viewport);
     }
 
     fn mouse_interaction(
@@ -758,5 +933,118 @@ fn body_style(theme: &Theme, alpha: f32) -> container::Style {
             ..Border::default()
         },
         ..container::Style::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // slot() is the discriminant and indexes SIZES/ORDER, so every variant must be listed
+    // in KINDS exactly once. The order it is listed in does not matter.
+    #[test]
+    fn every_kind_owns_its_slot() {
+        let mut seen = [false; KIND_COUNT];
+
+        for kind in KINDS {
+            let slot = kind.slot();
+
+            assert!(slot < KIND_COUNT, "{kind:?} sits past KIND_COUNT and would index out of bounds");
+            assert!(!seen[slot], "{kind:?} is listed twice in KINDS");
+
+            seen[slot] = true;
+        }
+
+        assert!(seen.into_iter().all(|listed| listed), "a kind is missing from KINDS and would not persist its size");
+    }
+
+    #[test]
+    fn every_kind_owns_its_storage_key() {
+        for (index, kind) in KINDS.into_iter().enumerate() {
+            assert!(
+                !KINDS[index + 1..].iter().any(|other| other.key() == kind.key()),
+                "{kind:?} shares its stored key with another kind"
+            );
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    struct Marker(usize);
+
+    struct Leaf(Marker);
+
+    impl<M> Widget<M, Theme, iced::Renderer> for Leaf {
+        fn tag(&self) -> widget::tree::Tag {
+            widget::tree::Tag::of::<Marker>()
+        }
+
+        fn state(&self) -> widget::tree::State {
+            widget::tree::State::new(self.0)
+        }
+
+        fn size(&self) -> Size<Length> {
+            Size::new(Length::Shrink, Length::Shrink)
+        }
+
+        fn layout(&mut self, _tree: &mut widget::Tree, _renderer: &iced::Renderer, _limits: &layout::Limits) -> layout::Node {
+            layout::Node::new(Size::ZERO)
+        }
+
+        fn draw(
+            &self,
+            _tree: &widget::Tree,
+            _renderer: &mut iced::Renderer,
+            _theme: &Theme,
+            _style: &renderer::Style,
+            _layout: Layout<'_>,
+            _cursor: mouse::Cursor,
+            _viewport: &Rectangle,
+        ) {
+        }
+    }
+
+    // Every popup is a fresh Element each frame, so the id in the widget differs from the id
+    // in the tree: seeing the old id proves the state moved instead of being rebuilt.
+    fn leaf<'a>(id: usize) -> Element<'a, ()> {
+        Element::new(Leaf(Marker(id)))
+    }
+
+    fn markers(tree: &widget::Tree) -> Vec<Marker> {
+        tree.children[0].children.iter().map(|child| *child.state.downcast_ref::<Marker>()).collect()
+    }
+
+    #[test]
+    fn a_raised_popup_carries_its_state_to_its_new_layer() {
+        let opened = layered(vec![(Kind::CatFilter, leaf(1)), (Kind::ModExport, leaf(2))]);
+        let mut tree = widget::Tree::new(&opened);
+
+        assert_eq!(markers(&tree), vec![Marker(1), Marker(2)]);
+
+        let raised = layered(vec![(Kind::ModExport, leaf(20)), (Kind::CatFilter, leaf(10))]);
+        raised.as_widget().diff(&mut tree);
+
+        assert_eq!(markers(&tree), vec![Marker(2), Marker(1)], "the layers reordered but the state did not follow");
+    }
+
+    #[test]
+    fn closing_a_popup_leaves_the_survivor_on_its_own_state() {
+        let opened = layered(vec![(Kind::CatFilter, leaf(1)), (Kind::ModExport, leaf(2))]);
+        let mut tree = widget::Tree::new(&opened);
+
+        let closed = layered(vec![(Kind::ModExport, leaf(20))]);
+        closed.as_widget().diff(&mut tree);
+
+        assert_eq!(markers(&tree), vec![Marker(2)], "the survivor inherited the closed popup's state");
+    }
+
+    #[test]
+    fn an_opened_popup_starts_on_fresh_state() {
+        let opened = layered(vec![(Kind::CatFilter, leaf(1))]);
+        let mut tree = widget::Tree::new(&opened);
+
+        let joined = layered(vec![(Kind::CatFilter, leaf(10)), (Kind::ModExport, leaf(2))]);
+        joined.as_widget().diff(&mut tree);
+
+        assert_eq!(markers(&tree), vec![Marker(1), Marker(2)]);
     }
 }

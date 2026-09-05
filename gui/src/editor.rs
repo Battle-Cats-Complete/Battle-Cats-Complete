@@ -30,6 +30,7 @@ use crate::domains::studio;
 use kore::domains::studio as kore_studio;
 use crate::domains::enemy::DetailTab as EnemyTab;
 use crate::common::dialog;
+use crate::widget::popup;
 use crate::common::feedback::{Slot, NO_ACTIONS_LABEL, NO_ACTIONS_NOTICE, UNSUPPORTED_NOTICE};
 
 pub(crate) use target::{deflect, suppress, target};
@@ -627,8 +628,8 @@ impl State {
         &'a self,
         app: &'a BattleCatsApp,
         window: Size,
-    ) -> Vec<Element<'a, Message>> {
-        let mut views: Vec<(u64, Element<'_, Message>)> = Vec::new();
+    ) -> Vec<(u64, popup::Kind, Element<'a, Message>)> {
+        let mut views: Vec<(u64, popup::Kind, Element<'_, Message>)> = Vec::new();
         let cap = level_cap(app);
 
         for subject in prose::SUBJECTS {
@@ -639,7 +640,7 @@ impl State {
             let slot = &self.prose[subject.slot()];
 
             if let Some(view) = slot.view(window) {
-                views.push((slot.raised(), view.map(move |inner| Message::Prose(subject, inner))));
+                views.push((slot.raised(), subject.kind(), view.map(move |inner| Message::Prose(subject, inner))));
             }
         }
 
@@ -651,13 +652,20 @@ impl State {
             let slot = &self.figures[subject.slot()];
 
             if let Some(view) = slot.view(window, cap, &app.vault) {
-                views.push((slot.raised(), view.map(move |inner| Message::Figures(subject, inner))));
+                views.push((slot.raised(), figures::kind(subject), view.map(move |inner| Message::Figures(subject, inner))));
             }
         }
 
-        views.sort_by_key(|(raised, _)| *raised);
+        views
+    }
 
-        views.into_iter().map(|(_, view)| view).collect()
+    #[cfg(test)]
+    pub(crate) fn kinds() -> Vec<popup::Kind> {
+        prose::SUBJECTS
+            .into_iter()
+            .map(prose::Subject::kind)
+            .chain(figures::SUBJECTS.into_iter().map(figures::kind))
+            .collect()
     }
 
     pub(crate) fn restore_scroll<M: Send + 'static>(&self) -> Task<M> {

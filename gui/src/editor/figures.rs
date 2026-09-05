@@ -38,6 +38,10 @@ const CURVE_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LevelCurve, POPUP
 const TALENT_SIZE: Size = Size::new(760.0, 540.0);
 const TALENT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Talents, TALENT_SIZE);
 
+pub(super) fn kind(subject: Subject) -> popup::Kind {
+    spec(subject).kind()
+}
+
 fn spec(subject: Subject) -> popup::Spec {
     match subject {
         Subject::Cat => CAT_POPUP,

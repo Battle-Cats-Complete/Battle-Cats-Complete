@@ -171,9 +171,9 @@ const LOOSE_LABEL: &str = "Channels with no declared part";
 const SHADOWED_MARK: &str = "overridden";
 const SEPARATOR: &str = " \u{00b7} ";
 const LABEL_ROOM: usize = 48;
-const PART_FAULT: &str = "This part can cause a game crash";
-const CHANNEL_FAULT: &str = "This channel can cause a game crash";
-const TAINTED_FAULT: &str = "Child of this part can cause a game crash";
+const PART_FAULT: &str = "This part may cause a game crash";
+const CHANNEL_FAULT: &str = "This channel may cause a game crash";
+const TAINTED_FAULT: &str = "Child of this part may cause a game crash";
 const TAINTED_HINT: &str = "Please find the child and resolve its error";
 const SCALE_UNIT_DETAIL: &str =
     "The model's scale divisor is zero\nThe game fails to divide by zero";

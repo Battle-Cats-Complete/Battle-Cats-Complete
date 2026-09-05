@@ -200,6 +200,57 @@ enum ActivePopup {
     StudioExport,
 }
 
+impl ActivePopup {
+    #[cfg(test)]
+    const ALL: [Self; 20] = [
+        Self::InitErrors,
+        Self::Updater,
+        Self::VersionNotice,
+        Self::HomeChangelog,
+        Self::CatExport,
+        Self::CatFilter,
+        Self::EnemyExport,
+        Self::EnemyFilter,
+        Self::StageFilter,
+        Self::ModsImport,
+        Self::ModsExport,
+        Self::SettingsKeys,
+        Self::SettingsExceptions,
+        Self::SettingsPem,
+        Self::UtilityExport,
+        Self::UtilitySettings,
+        Self::StudioManage,
+        Self::StudioOnion,
+        Self::StudioShipout,
+        Self::StudioExport,
+    ];
+
+    fn kind(self) -> popup::Kind {
+        match self {
+            Self::InitErrors => popup::Kind::InitErrors,
+            Self::Updater => popup::Kind::Updater,
+            Self::VersionNotice => popup::Kind::Notice,
+            Self::HomeChangelog => popup::Kind::Changelog,
+            Self::CatExport => popup::Kind::CatAnimationExport,
+            Self::CatFilter => popup::Kind::CatFilter,
+            Self::EnemyExport => popup::Kind::EnemyAnimationExport,
+            Self::EnemyFilter => popup::Kind::EnemyFilter,
+            Self::StageFilter => popup::Kind::StageFilter,
+            Self::ModsImport => popup::Kind::ModImport,
+            Self::ModsExport => popup::Kind::ModExport,
+            Self::SettingsKeys => popup::Kind::Keys,
+            Self::SettingsExceptions => popup::Kind::Exceptions,
+            Self::SettingsPem => popup::Kind::Pem,
+            Self::UtilityExport => popup::Kind::UtilityAnimationExport,
+            Self::UtilitySettings => popup::Kind::UtilityAnimationSettings,
+            Self::StudioManage => popup::Kind::StudioManage,
+            Self::StudioOnion => popup::Kind::StudioOnion,
+            Self::StudioShipout => popup::Kind::StudioShipout,
+            Self::StudioExport => popup::Kind::Animator,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Message {
     AutoSave,
@@ -1460,27 +1511,23 @@ impl BattleCatsApp {
             _ => None,
         };
 
-        let mut layers = stack![content_container];
+        let mut popups = self.build_popups();
 
-        if expanded.is_none() {
-            for popup in self.build_popups() {
-                layers = layers.push(popup);
-            }
-        }
+        popups.extend(
+            self.editor
+                .popup_view(self, self.window_size)
+                .into_iter()
+                .map(|(raised, kind, view)| (raised, kind, view.map(Message::Editor))),
+        );
 
-        for view in self.editor.popup_view(self, self.window_size) {
-            layers = layers.push(view.map(Message::Editor));
-        }
+        popups.sort_by_key(|(raised, ..)| *raised);
 
-        layers = layers.push(sidebar_overlay);
+        let popups = popup::layered(popups.into_iter().map(|(_, kind, view)| (kind, view)).collect());
 
-        if let Some(expanded) = expanded {
-            layers = layers.push(expanded);
-
-            for popup in self.build_popups() {
-                layers = layers.push(popup);
-            }
-        }
+        let layers = match expanded {
+            Some(expanded) => stack![content_container, sidebar_overlay, expanded, popups],
+            None => stack![content_container, popups, sidebar_overlay],
+        };
 
         editor::watch(layers, &self.editor, Message::Editor)
     }
@@ -1489,6 +1536,7 @@ impl BattleCatsApp {
         if open {
             if !self.active_popups.contains(&popup) {
                 self.active_popups.push(popup);
+                popup::raise(popup.kind());
             }
         } else {
             self.active_popups.retain(|active| *active != popup);
@@ -1508,138 +1556,144 @@ impl BattleCatsApp {
         self.set_updater_popup(false);
     }
 
-    fn build_popups(&self) -> Vec<Element<'_, Message>> {
+    fn build_popups(&self) -> Vec<(u64, popup::Kind, Element<'_, Message>)> {
         self.active_popups
             .iter()
-            .filter_map(|popup| match popup {
-                ActivePopup::InitErrors => self.init_errors.view(self.window_size),
-                ActivePopup::Updater => updater::view(&self.updater_popup, &self.updater_status, self.window_size, self.download_progress, self.updater_never_confirm.is_set()),
-                ActivePopup::VersionNotice => self
-                    .window_measured
-                    .then(|| notice::view(&self.notice_popup, self.window_size, self.theme(), &self.notice_items)),
-                ActivePopup::HomeChangelog => {
-                    if !matches!(self.current_page, Page::Home) {
-                        return None;
-                    }
+            .filter_map(|popup| {
+                let view = match popup {
+                    ActivePopup::InitErrors => self.init_errors.view(self.window_size),
+                    ActivePopup::Updater => updater::view(&self.updater_popup, &self.updater_status, self.window_size, self.download_progress, self.updater_never_confirm.is_set()),
+                    ActivePopup::VersionNotice => self
+                        .window_measured
+                        .then(|| notice::view(&self.notice_popup, self.window_size, self.theme(), &self.notice_items)),
+                    ActivePopup::HomeChangelog => {
+                        if !matches!(self.current_page, Page::Home) {
+                            return None;
+                        }
 
-                    self.home_state.changelog_popup_view(self.window_size, self.theme()).map(|view| view.map(Message::Home))
-                }
-                ActivePopup::CatExport => {
-                    if !matches!(self.current_page, Page::Cats) || !self.cat_state.export_popup_visible() {
-                        return None;
+                        self.home_state.changelog_popup_view(self.window_size, self.theme()).map(|view| view.map(Message::Home))
                     }
+                    ActivePopup::CatExport => {
+                        if !matches!(self.current_page, Page::Cats) || !self.cat_state.export_popup_visible() {
+                            return None;
+                        }
 
-                    self.cat_state.export_popup_view(self.window_size).map(|view| view.map(Message::Cat))
-                }
-                ActivePopup::CatFilter => {
-                    if !matches!(self.current_page, Page::Cats) {
-                        return None;
+                        self.cat_state.export_popup_view(self.window_size).map(|view| view.map(Message::Cat))
                     }
+                    ActivePopup::CatFilter => {
+                        if !matches!(self.current_page, Page::Cats) {
+                            return None;
+                        }
 
-                    self.cat_state.filter_popup_view(self.window_size).map(|view| view.map(Message::Cat))
-                }
-                ActivePopup::EnemyExport => {
-                    if !matches!(self.current_page, Page::Enemies) || !self.enemy_state.export_popup_visible() {
-                        return None;
+                        self.cat_state.filter_popup_view(self.window_size).map(|view| view.map(Message::Cat))
                     }
+                    ActivePopup::EnemyExport => {
+                        if !matches!(self.current_page, Page::Enemies) || !self.enemy_state.export_popup_visible() {
+                            return None;
+                        }
 
-                    self.enemy_state.export_popup_view(self.window_size).map(|view| view.map(Message::Enemy))
-                }
-                ActivePopup::EnemyFilter => {
-                    if !matches!(self.current_page, Page::Enemies) {
-                        return None;
+                        self.enemy_state.export_popup_view(self.window_size).map(|view| view.map(Message::Enemy))
                     }
+                    ActivePopup::EnemyFilter => {
+                        if !matches!(self.current_page, Page::Enemies) {
+                            return None;
+                        }
 
-                    self.enemy_state.filter_popup_view(self.window_size).map(|view| view.map(Message::Enemy))
-                }
-                ActivePopup::StageFilter => {
-                    if !matches!(self.current_page, Page::Stages) {
-                        return None;
+                        self.enemy_state.filter_popup_view(self.window_size).map(|view| view.map(Message::Enemy))
                     }
+                    ActivePopup::StageFilter => {
+                        if !matches!(self.current_page, Page::Stages) {
+                            return None;
+                        }
 
-                    self.stage_state.filter_popup_view(self.window_size).map(|view| view.map(Message::Stage))
-                }
-                ActivePopup::ModsImport => {
-                    if !matches!(self.current_page, Page::Mods) {
-                        return None;
+                        self.stage_state.filter_popup_view(self.window_size).map(|view| view.map(Message::Stage))
                     }
+                    ActivePopup::ModsImport => {
+                        if !matches!(self.current_page, Page::Mods) {
+                            return None;
+                        }
 
-                    self.mods_state.import_popup_view(self.window_size).map(|view| view.map(Message::Mod))
-                }
-                ActivePopup::ModsExport => {
-                    if !matches!(self.current_page, Page::Mods) {
-                        return None;
+                        self.mods_state.import_popup_view(self.window_size).map(|view| view.map(Message::Mod))
                     }
+                    ActivePopup::ModsExport => {
+                        if !matches!(self.current_page, Page::Mods) {
+                            return None;
+                        }
 
-                    self.mods_state.export_popup_view(self.window_size).map(|view| view.map(Message::Mod))
-                }
-                ActivePopup::SettingsKeys => {
-                    if !matches!(self.current_page, Page::Settings) {
-                        return None;
+                        self.mods_state.export_popup_view(self.window_size).map(|view| view.map(Message::Mod))
                     }
+                    ActivePopup::SettingsKeys => {
+                        if !matches!(self.current_page, Page::Settings) {
+                            return None;
+                        }
 
-                    self.settings_state.keys_popup_view(self.window_size).map(|view| view.map(Message::Settings))
-                }
-                ActivePopup::SettingsExceptions => {
-                    if !matches!(self.current_page, Page::Settings) {
-                        return None;
+                        self.settings_state.keys_popup_view(self.window_size).map(|view| view.map(Message::Settings))
                     }
+                    ActivePopup::SettingsExceptions => {
+                        if !matches!(self.current_page, Page::Settings) {
+                            return None;
+                        }
 
-                    self.settings_state.exceptions_popup_view(self.window_size).map(|view| view.map(Message::Settings))
-                }
-                ActivePopup::UtilityExport => {
-                    if !matches!(self.current_page, Page::Utilities) || !self.utilities_state.export_popup_visible() {
-                        return None;
+                        self.settings_state.exceptions_popup_view(self.window_size).map(|view| view.map(Message::Settings))
                     }
+                    ActivePopup::UtilityExport => {
+                        if !matches!(self.current_page, Page::Utilities) || !self.utilities_state.export_popup_visible() {
+                            return None;
+                        }
 
-                    self.utilities_state.export_popup_view(self.window_size).map(|view| view.map(Message::Utilities))
-                }
-                ActivePopup::UtilitySettings => {
-                    if !matches!(self.current_page, Page::Utilities) {
-                        return None;
+                        self.utilities_state.export_popup_view(self.window_size).map(|view| view.map(Message::Utilities))
                     }
+                    ActivePopup::UtilitySettings => {
+                        if !matches!(self.current_page, Page::Utilities) {
+                            return None;
+                        }
 
-                    self.utilities_state
-                        .settings_popup_view(&self.settings, self.window_size)
-                        .map(|view| view.map(Message::Utilities))
-                }
-                ActivePopup::StudioManage => {
-                    if !matches!(self.current_page, Page::Studio) {
-                        return None;
+                        self.utilities_state
+                            .settings_popup_view(&self.settings, self.window_size)
+                            .map(|view| view.map(Message::Utilities))
                     }
+                    ActivePopup::StudioManage => {
+                        if !matches!(self.current_page, Page::Studio) {
+                            return None;
+                        }
 
-                    self.studio_state.manage_popup_view(self.window_size).map(|view| view.map(Message::Studio))
-                }
-                ActivePopup::StudioShipout => {
-                    if !matches!(self.current_page, Page::Studio) {
-                        return None;
+                        self.studio_state.manage_popup_view(self.window_size).map(|view| view.map(Message::Studio))
                     }
+                    ActivePopup::StudioShipout => {
+                        if !matches!(self.current_page, Page::Studio) {
+                            return None;
+                        }
 
-                    self.studio_state.ship_popup_view(self.window_size).map(|view| view.map(Message::Studio))
-                }
-                ActivePopup::StudioOnion => {
-                    if !matches!(self.current_page, Page::Studio) {
-                        return None;
+                        self.studio_state.ship_popup_view(self.window_size).map(|view| view.map(Message::Studio))
                     }
+                    ActivePopup::StudioOnion => {
+                        if !matches!(self.current_page, Page::Studio) {
+                            return None;
+                        }
 
-                    self.studio_state
-                        .onion_popup_view(&self.settings, self.window_size)
-                        .map(|view| view.map(Message::Studio))
-                }
-                ActivePopup::StudioExport => {
-                    if !matches!(self.current_page, Page::Studio) {
-                        return None;
+                        self.studio_state
+                            .onion_popup_view(&self.settings, self.window_size)
+                            .map(|view| view.map(Message::Studio))
                     }
+                    ActivePopup::StudioExport => {
+                        if !matches!(self.current_page, Page::Studio) {
+                            return None;
+                        }
 
-                    self.studio_state.export_popup_view(self.window_size).map(|view| view.map(Message::Studio))
-                }
-                ActivePopup::SettingsPem => {
-                    if !matches!(self.current_page, Page::Settings) {
-                        return None;
+                        self.studio_state.export_popup_view(self.window_size).map(|view| view.map(Message::Studio))
                     }
+                    ActivePopup::SettingsPem => {
+                        if !matches!(self.current_page, Page::Settings) {
+                            return None;
+                        }
 
-                    self.settings_state.pem_popup_view(self.window_size).map(|view| view.map(Message::Settings))
-                }
+                        self.settings_state.pem_popup_view(self.window_size).map(|view| view.map(Message::Settings))
+                    }
+                }?;
+
+                let kind = popup.kind();
+
+                Some((popup::order(kind), kind, view))
             })
             .collect()
     }
@@ -1762,5 +1816,25 @@ impl BattleCatsApp {
             }
             self.last_saved_state_hash = current_hash;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // popup::layered keys its layers by Kind, so two live popups sharing one would trade
+    // widget state. Claiming every kind exactly once makes that unrepresentable: a new popup
+    // bumps KIND_COUNT and fails here until it is registered, and reusing a kind fails too.
+    #[test]
+    fn every_popup_kind_is_claimed_exactly_once() {
+        let mut claimed: Vec<popup::Kind> = ActivePopup::ALL.into_iter().map(ActivePopup::kind).collect();
+        claimed.extend(editor::State::kinds());
+
+        for (index, kind) in claimed.iter().enumerate() {
+            assert!(!claimed[index + 1..].contains(kind), "{kind:?} is claimed by two popups");
+        }
+
+        assert_eq!(claimed.len(), popup::KIND_COUNT, "a popup kind is claimed by nobody, or a popup is missing from ActivePopup::ALL");
     }
 }

@@ -83,7 +83,7 @@ impl Subject {
         }
     }
 
-    fn kind(self) -> popup::Kind {
+    pub(super) fn kind(self) -> popup::Kind {
         match self {
             Self::Explanation => popup::Kind::Explanation,
             Self::EnemyName => popup::Kind::EnemyName,
