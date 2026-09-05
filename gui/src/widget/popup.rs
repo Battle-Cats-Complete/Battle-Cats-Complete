@@ -7,6 +7,7 @@ use iced::mouse::{self, Interaction};
 use iced::widget::{button, column, container, mouse_area, opaque, stack, text, Space};
 use iced::{Alignment, Border, Color, Element, Event, Length, Padding, Point, Rectangle, Size, Theme, Vector};
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use crate::app::theme;
 
@@ -238,6 +239,7 @@ thread_local! {
     static SIZES: Cell<[Option<Size>; KIND_COUNT]> = const { Cell::new([None; KIND_COUNT]) };
     static RAISES: Cell<u64> = const { Cell::new(0) };
     static ORDER: Cell<[u64; KIND_COUNT]> = const { Cell::new([0; KIND_COUNT]) };
+    static SHARED: Cell<[bool; KIND_COUNT]> = const { Cell::new([false; KIND_COUNT]) };
 }
 
 fn next_raise() -> u64 {
@@ -606,19 +608,41 @@ fn bar<'a, M: Clone + 'a>(size: Size) -> Element<'a, M> {
         .into()
 }
 
-struct Slots(Vec<usize>);
+struct Slots(Vec<(usize, usize)>);
 
 struct Layered<'a, M> {
     content: Element<'a, M>,
-    slots: Vec<usize>,
+    slots: Vec<(usize, usize)>,
+}
+
+fn report_shared(kind: Kind) {
+    let reported = SHARED.with(|shared| {
+        let mut slots = shared.get();
+        let seen = slots[kind.slot()];
+        slots[kind.slot()] = true;
+        shared.set(slots);
+
+        seen
+    });
+
+    if !reported {
+        warn!("popup {kind:?} is open twice; the pair shares its stored size and its z-order stamp");
+    }
 }
 
 pub(crate) fn layered<'a, M: 'a>(popups: Vec<(Kind, Element<'a, M>)>) -> Element<'a, M> {
-    let mut slots = Vec::with_capacity(popups.len());
+    let mut slots: Vec<(usize, usize)> = Vec::with_capacity(popups.len());
     let mut layers = Vec::with_capacity(popups.len());
 
     for (kind, view) in popups {
-        slots.push(kind.slot());
+        let slot = kind.slot();
+        let repeat = slots.iter().filter(|(seen, _)| *seen == slot).count();
+
+        if repeat > 0 {
+            report_shared(kind);
+        }
+
+        slots.push((slot, repeat));
         layers.push(view);
     }
 
@@ -1035,6 +1059,30 @@ mod tests {
         closed.as_widget().diff(&mut tree);
 
         assert_eq!(markers(&tree), vec![Marker(2)], "the survivor inherited the closed popup's state");
+    }
+
+    // Two popup states can be built with the same kind (studio's idle and session viewers both
+    // hold an Animator export popup). Only one renders today; if both ever did, neither may
+    // steal the other's state.
+    #[test]
+    fn popups_sharing_a_kind_keep_their_own_state() {
+        let opened = layered(vec![
+            (Kind::Animator, leaf(1)),
+            (Kind::Animator, leaf(2)),
+            (Kind::CatFilter, leaf(3)),
+        ]);
+
+        let mut tree = widget::Tree::new(&opened);
+
+        let raised = layered(vec![
+            (Kind::CatFilter, leaf(30)),
+            (Kind::Animator, leaf(10)),
+            (Kind::Animator, leaf(20)),
+        ]);
+
+        raised.as_widget().diff(&mut tree);
+
+        assert_eq!(markers(&tree), vec![Marker(3), Marker(1), Marker(2)], "a twin lost its state to its own kind");
     }
 
     #[test]

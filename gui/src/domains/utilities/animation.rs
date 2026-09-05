@@ -196,6 +196,10 @@ impl State {
         self.viewer.export_popup_open()
     }
 
+    pub(crate) fn export_scroll_task<M: 'static>(&self) -> Task<M> {
+        self.viewer.export_scroll_task()
+    }
+
     pub fn settings_popup_visible(&self) -> bool {
         self.settings_open
     }

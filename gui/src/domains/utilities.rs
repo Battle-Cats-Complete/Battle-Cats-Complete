@@ -57,6 +57,11 @@ impl State {
         match message {
             Message::ToolSelected(tool) => {
                 self.tool = tool;
+
+                if tool == Tool::Animation {
+                    return self.export_scroll_task();
+                }
+
                 Task::none()
             }
             Message::Imgcut(msg) => self.imgcut.update(msg).map(Message::Imgcut),
@@ -67,6 +72,10 @@ impl State {
 
     pub fn export_popup_visible(&self) -> bool {
         self.tool == Tool::Animation && self.animation.export_popup_visible()
+    }
+
+    pub(crate) fn export_scroll_task<M: 'static>(&self) -> Task<M> {
+        self.animation.export_scroll_task()
     }
 
     pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {

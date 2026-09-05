@@ -532,7 +532,7 @@ impl BattleCatsApp {
                     cat::State::list_scrollable_id(),
                     scrollable::AbsoluteOffset { x: 0.0, y: self.cat_state.list_scroll_offset() },
                 );
-                Task::batch([sheets_task, scroll_task, self.cat_state.filter_scroll_task()])
+                Task::batch([sheets_task, scroll_task, self.cat_state.filter_scroll_task(), self.cat_state.export_scroll_task()])
             }
             Page::Enemies => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault };
@@ -541,12 +541,14 @@ impl BattleCatsApp {
                     enemy::EnemyState::list_scrollable_id(),
                     scrollable::AbsoluteOffset { x: 0.0, y: self.enemy_state.list_scroll_offset() },
                 );
-                Task::batch([sheets_task, scroll_task, self.enemy_state.filter_scroll_task()])
+                Task::batch([sheets_task, scroll_task, self.enemy_state.filter_scroll_task(), self.enemy_state.export_scroll_task()])
             }
             Page::Stages => {
                 self.stage_state.enter();
                 Task::none()
             }
+            Page::Utilities => self.utilities_state.export_scroll_task(),
+            Page::Studio => self.studio_state.export_scroll_task(),
             Page::Mining => {
                 let scope = mining::Scope {
                     cats: &self.cat_state.data.cats,

@@ -372,13 +372,18 @@ impl State {
             Message::Controls(controls::Message::OpenExport) => {
                 let was_open = self.export_open;
                 self.export_open = true;
+                let scroll = self.export_scroll_task();
+
                 if settings.animation.auto_set_camera_region && !was_open && !self.overlay.selecting {
-                    return self
+                    let bounds = self
                         .export
                         .update(export::Message::UseBounds, &self.data, settings, anim_state, &mut self.export_open)
                         .map(Message::Export);
+
+                    return Task::batch([bounds, scroll]);
                 }
-                Task::none()
+
+                scroll
             }
             Message::Controls(msg) => {
                 self.controls.update(msg, &mut self.canvas, &mut self.data, anim_state);
@@ -400,7 +405,8 @@ impl State {
                 }
                 self.overlay.selecting = false;
                 self.export_open = true;
-                Task::none()
+
+                self.export_scroll_task()
             }
             Message::Preloaded(result) => {
                 self.data.apply_preload(result);
@@ -459,6 +465,10 @@ impl State {
 
     pub fn export_popup_open(&self) -> bool {
         self.export_open
+    }
+
+    pub(crate) fn export_scroll_task<M: 'static>(&self) -> Task<M> {
+        self.export.restore_scroll()
     }
 
     pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {

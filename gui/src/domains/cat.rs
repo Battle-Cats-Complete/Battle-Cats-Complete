@@ -615,6 +615,11 @@ impl State {
             }
             Message::SelectTab(tab) => {
                 self.selected_tab = tab;
+
+                if tab == DetailTab::Animation {
+                    return self.export_scroll_task();
+                }
+
                 Task::none()
             }
             Message::LevelInputChanged(input) => {
@@ -749,6 +754,10 @@ impl State {
             .filter_state
             .is_open
             .then(|| self.filter.view(&self.img015_sheets, &self.custom_assets, window).map(Message::Filter))
+    }
+
+    pub(crate) fn export_scroll_task<M: 'static>(&self) -> Task<M> {
+        self.animation.export_scroll_task()
     }
 
     pub fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {

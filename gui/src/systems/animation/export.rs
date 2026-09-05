@@ -6,7 +6,7 @@ use std::thread;
 use std::time::Instant;
 
 use iced::futures::channel::mpsc::unbounded;
-use iced::widget::{button, column, container, pick_list, progress_bar, row, rule, scrollable, text, text_input, toggler, tooltip};
+use iced::widget::{button, column, container, operation, pick_list, progress_bar, row, rule, scrollable, text, text_input, toggler, tooltip, Id};
 use iced::{task, Alignment, Element, Length, Size, Task, Theme};
 use tracing::trace;
 
@@ -246,6 +246,8 @@ impl ExportForm {
 pub struct State {
     spec: popup::Spec,
     popup: popup::State,
+    scroll: Id,
+    offset: f32,
     exporter: ExportForm,
     jobs: HashMap<JobKey, JobState>,
     loop_job: Option<(JobKey, SearchJob)>,
@@ -257,6 +259,7 @@ pub struct State {
 #[derive(Debug, Clone)]
 pub enum Message {
     Popup(popup::Message),
+    Scrolled(f32),
     SetMode(ExportMode),
     SetFormat(ExportFormat),
     SetFileName(String),
@@ -294,6 +297,8 @@ impl State {
         Self {
             spec: popup::Spec::new(kind, POPUP_SIZE),
             popup: popup::State::default(),
+            scroll: Id::unique(),
+            offset: 0.0,
             exporter: ExportForm::default(),
             jobs: HashMap::new(),
             loop_job: None,
@@ -301,6 +306,10 @@ impl State {
             synced_key: None,
             scanned_showcase: None,
         }
+    }
+
+    pub(super) fn restore_scroll<M: 'static>(&self) -> Task<M> {
+        operation::scroll_to(self.scroll.clone(), scrollable::AbsoluteOffset { x: 0.0, y: self.offset })
     }
 
     pub fn sync(&mut self, data: &data::State, settings: &Settings, anim_state: &AnimState) {
@@ -499,6 +508,7 @@ impl State {
                     *open = false;
                 }
             }
+            Message::Scrolled(offset) => self.offset = offset,
             Message::SetMode(mode) => {
                 if mode == ExportMode::Showcase {
                     self.exporter.showcase_walk_str.clear();
@@ -1355,7 +1365,13 @@ impl State {
         container(
             column![
                 column![
-                    smooth_scroll(scrollable(scroll_content).height(Length::Fill).spacing(SCROLLBAR_GAP)),
+                    smooth_scroll(
+                        scrollable(scroll_content)
+                            .id(self.scroll.clone())
+                            .on_scroll(|viewport| Message::Scrolled(viewport.absolute_offset().y))
+                            .height(Length::Fill)
+                            .spacing(SCROLLBAR_GAP),
+                    ),
                     container(rule::horizontal(RULE_HEIGHT)).width(Length::Fill),
                 ].spacing(0).height(Length::Fill),
                 bottom_bar,

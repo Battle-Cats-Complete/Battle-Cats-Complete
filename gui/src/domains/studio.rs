@@ -1826,6 +1826,10 @@ impl State {
         self.session.as_ref().is_some_and(|session| session.viewer.export_popup_open())
     }
 
+    pub(crate) fn export_scroll_task<M: 'static>(&self) -> Task<M> {
+        self.session.as_ref().map_or_else(Task::none, |session| session.viewer.export_scroll_task())
+    }
+
     pub(crate) fn export_popup_view(&self, window: Size) -> Option<Element<'_, Message>> {
         self.session
             .as_ref()
