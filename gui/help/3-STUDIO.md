@@ -14,13 +14,21 @@ Files from anywhere else are copied before the first edit, never written where t
 Renaming a set renames its folder, and is only allowed while the set is in `studio`.
 
 ### Manage
-`Manage` handles the files in a set.
+`Manage` handles the files in a set, split into `Set` and `Animation`.
+
+`Set` holds the three files that define the entity.
+- The name field renames the set, and is read-only for a set living in a Mod.
 - **Import Set** copies an existing entity's files in from the database.
 - **New Set** creates an empty set to build from scratch.
 - The folder list picks any set already in `studio`.
-- **PNG**, **IMGCUT** and **MAMODEL** replace a single file. A loaded file shows green with its name.
-- **Add MAANIM** and **Remove MAANIM** manage the set's animations.
+- **PNG**, **IMGCUT**, and **MAMODEL** replace a single file. A loaded file shows green with its name.
 - **Open Folder** reveals the set on disk, and is only available for sets in `studio`.
+
+`Animation` holds the set's `.maanim` files.
+- The name field renames the selected animation.
+- **Add MAANIM** brings existing animation files into the set.
+- **New MAANIM** creates an empty animation and loads it.
+- **Remove MAANIM** drops the selected animation, and deletes the file for a set in `studio`.
 
 `Export` zips the loaded set into the `exports` folder.
 
@@ -42,28 +50,72 @@ Right-clicking a part offers to add a part beneath it, add or remove a channel, 
 
 `View` jumps the playhead to a keyframe. `Bound` loops playback across the segment that keyframe begins.
 
+## Option
+The `Option` column sits beside the table in `Entity` mode. Each of its nine rows is a name and a value; clicking the name cycles the value, which can also be picked from its list. `Gizmo` is covered under Gizmo, `Module` under Timeline, and `Rig`, `Hierarchy`, `Selected`, `World` and `Origin` under Colors.
+
+### Onion
+Draws the frames around the current one as faded ghosts. Setting it to `Enabled` opens its settings, and closing those sets it back to `Disabled`.
+
+`Before` and `After` are the two directions, each carrying:
+- **Duration:** how many frames a ghost lasts before it fades away. Leave it empty to turn that direction off.
+- **Color:** the tint applied to that direction's ghosts, as hex.
+
+`Ghost` applies to both directions:
+- **Delay:** how many frames apart ghosts are laid down.
+- **Opacity:** how transparent the ghost is.
+
+A direction draws as many ghosts as its `Delay` fits inside its `Duration`, so a `Delay` longer than the `Duration` leaves gaps where no ghost is alive.
+
+### Entity
+Picks which parts the viewer draws at all, rather than which overlays it draws over them.
+- **Rig:** every part. The default option.
+- **Hierarchy:** the selected part and its children.
+- **Selected:** the selected part alone.
+- **None:** nothing.
+
+## Timeline
+The table on the bottom has two readouts, switched by `Module` in the `Option` column. `Table` lists the selected part's values; `Timeline` draws its channels as lanes.
+
+Each lane is one channel of the selected part, named on a card at its left and split into blocks between its keyframes. An `overridden` channel is drawn faded. Blocks past the end of a looping channel are its repeats, and cannot be grabbed.
+- **Left Drag** moves the view. Sideways pans through frames, up and down scrolls through lanes; there is no scrollbar.
+- **Scrolling** zooms around the cursor.
+- **Left Click** to the right of the name cards moves the playhead.
+- **Right Click** on a lane selects that channel and fills the keyframe table.
+- **Right Drag** on the ends of or edge between two blocks moves that keyframe, and is the only edit the Timeline offers. A keyframe is held between its neighbours and cannot cross them.
+
+A green line marks frame 0. The playhead is red while it matches the frame being played, and amber once the part's own channels have folded it, either resting on its last keyframe or wrapped back inside a loop.
+
 ## Colors
 The viewer draws its overlays in a fixed set of colors. Which ones appear is toggled in the `Option` column.
 - **Red** outlines parts. Every part is outlined faintly; the selected one is outlined boldly.
 - **Cyan** marks origins. Each part gets a dot at the point it rotates and scales around, and the selected part is joined to its parent's origin by a line.
 - **Yellow** is the selected part's own direction, running from its origin out through the top of the part.
-- **Purple** is The Hand. Enables live entity edits. It brightens while you work with it.
+- **Purple** is the Gizmo. Enables live entity edits. It brightens while you work with it.
 - **Green** is the world rather than any part: the ground line, the entity's height, and a mark at the world's origin.
 
-## The Hand
+## Gizmo
 Parts can be posed directly in the viewer. Left click selects a part and reveals it in the tree; left click it again to deselect. Right-click pauses the viewer and allows you to right-click drag on certain areas of the selected part to pose it:
 - **Middle** moves the part.
 - **Edges & Corners** stretch it. Dragging an edge past the opposite one flips it.
 - **The Ring** on the part's axis rotates it.
 - **Scrolling** while holding changes its opacity.
 
-The `Option` column picks what the hand writes. This is disabled and forced to `ModelHand` when no animation is loaded.
+The `Option` column picks what the Gizmo writes. This is disabled and forced to `Model` when no animation is loaded.
 
-### ChannelHand
+### Channel
 Writes to the selected animation, keyframing the current frame only. If the part has no channel for the property, one is created. This is the default option.
 
-### ModelHand
+### Model
 Writes to the model's rest pose, which affects every frame of every animation.
 
+## Warnings
+Studio marks the parts and channels the game would crash on, as row backgrounds in the `Entity` tree.
+- **Red** is the part or channel that causes the crash.
+- **Yellow** is a part holding a marked descendant, so a mark is visible without expanding the tree.
+
+Selecting a marked row explains it. Three faults are detected: a zero scale or opacity divisor on the model, two keyframes of one curved run sharing a frame, and a part drawing from a sprite sheet the entity never loads.
+
+Marks and their messages are turned off through `Settings > Studio > Ignore Crash Warnings`.
+
 ## Undo
-`Ctrl+Z` reverts the last change, up to 25 back. History is kept per set, and is discarded when a different set is loaded.
+`Ctrl+Z` reverts the last change, up to 25 back. History is kept for the last three sets you loaded; loading a fourth drops the oldest.
