@@ -737,7 +737,15 @@ impl canvas::Program<Message> for Board {
                         return Some(canvas::Action::capture());
                     }
 
-                    let landed = self.frame_at(bounds.width, at.x).round() as i64;
+                    if !std::mem::replace(&mut grip.pinned, true) {
+                        return Some(
+                            canvas::Action::publish(Message::Framed(self.part, self.window))
+                                .and_capture(),
+                        );
+                    }
+
+                    let reach = at.x.clamp(self.gutter(), bounds.width);
+                    let landed = self.frame_at(bounds.width, reach).round() as i64;
                     let landed = landed.clamp(low, high);
 
                     if held.keys.get(key).is_some_and(|frame| i64::from(*frame) == landed) {
@@ -839,4 +847,6 @@ pub(super) struct Grip {
     walked: f32,
     sliding: Option<(usize, usize)>,
     aimed: Option<usize>,
+    pinned: bool,
 }
+
