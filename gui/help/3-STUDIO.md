@@ -81,7 +81,7 @@ Each lane is one channel of the selected part, named on a card at its left and s
 - **Scrolling** zooms around the cursor.
 - **Left Click** to the right of the name cards moves the playhead.
 - **Right Click** on a lane selects that channel and fills the keyframe table.
-- **Right Drag** on the ends of or edge between two blocks moves that keyframe, and is the only edit the Timeline offers. A keyframe is held between its neighbours and cannot cross them.
+- **Right Drag** on the ends of or edge between two blocks moves that keyframe, and is the only edit the Timeline offers. A keyframe is held between its neighbours and cannot cross them, and reaches only as far as the frames on screen. Zoom out first to extend a channel further.
 
 A green line marks frame 0. The playhead is red while it matches the frame being played, and amber once the part's own channels have folded it, either resting on its last keyframe or wrapped back inside a loop.
 
