@@ -10,7 +10,7 @@ use crate::common::feedback::{self, Slot as Confirm};
 use crate::widget::{picker, popup};
 
 pub(super) const TITLE: &str = "Manage";
-pub(super) const SPEC: popup::Spec = popup::Spec::new(popup::Kind::StudioManage, Size::new(372.0, 422.0));
+pub(super) const SPEC: popup::Spec = popup::Spec::new(popup::Kind::StudioManage, Size::new(372.0, 460.0));
 
 const PADDING: f32 = 10.0;
 const GAP: f32 = 8.0;
@@ -40,6 +40,8 @@ pub enum Message {
     DropAnim,
     DropExpired,
     Reveal,
+    WipeSet,
+    WipeExpired,
 }
 
 #[derive(Default)]
@@ -52,6 +54,7 @@ pub(super) struct State {
     pub(super) picking: Confirm<Slot>,
     pub(super) importing: Confirm<()>,
     pub(super) dropping: Confirm<()>,
+    pub(super) wiping: Confirm<()>,
     pub(super) renamer: Confirm<()>,
     pub(super) tracker: Confirm<()>,
 }
@@ -70,6 +73,7 @@ impl State {
         self.set = set;
         self.sealed = false;
         self.track = None;
+        self.disarm();
     }
 
     pub(super) fn seal(&mut self, set: Set) {
@@ -77,6 +81,12 @@ impl State {
         self.set = set;
         self.sealed = true;
         self.track = None;
+        self.disarm();
+    }
+
+    fn disarm(&mut self) {
+        self.wiping.clear();
+        self.dropping.clear();
     }
 
     pub(super) fn sealed(&self) -> bool {
@@ -180,7 +190,7 @@ impl State {
             .on_press_maybe(folder.then_some(Message::Reveal))
             .style(theme::primary_button);
 
-        column![heading("Set"), name, sourcing, recall, files, reveal]
+        column![heading("Set"), name, sourcing, recall, files, reveal, self.wipe_button(folder)]
             .spacing(GAP)
             .width(Length::Fill)
             .into()
@@ -230,6 +240,21 @@ impl State {
         }
 
         picker::slot(slot.label(), held, Message::Pick(slot)).width(Length::Fill).into()
+    }
+
+    fn wipe_button(&self, folder: bool) -> Element<'_, Message> {
+        if !folder {
+            return picker::action("Delete Set", Message::WipeSet)
+                .width(Length::Fill)
+                .on_press_maybe(None)
+                .style(theme::neutral_button)
+                .into();
+        }
+
+        picker::action(self.wiping.confirm_label("Delete Set"), Message::WipeSet)
+            .width(Length::Fill)
+            .style(theme::danger_button)
+            .into()
     }
 
     fn drop_button(&self, droppable: bool) -> Element<'_, Message> {

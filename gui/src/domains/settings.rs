@@ -15,7 +15,8 @@ use iced::{Alignment, Element, Length, Size, Task};
 use kore::domains::cat::files as cat_files;
 use kore::domains::settings::{lang, nightly, ContextScope, EditorMode, Utf8Mode};
 use kore::domains::settings::{
-    ExportBehavior, FrameCount, ImportStructure, Settings as CoreSettings, SidebarBehavior,
+    ExportBehavior, FrameCount, ImportStructure, ScrubBehavior, Settings as CoreSettings,
+    SidebarBehavior,
 };
 
 use crate::app::theme;
@@ -63,6 +64,7 @@ pub enum Message {
     ToggleBumpUltra(bool),
     ToggleInvalidEnemies(bool),
     ToggleIgnoreCrashes(bool),
+    ScrubBehaviorSelected(ScrubBehavior),
     SidebarBehaviorSelected(SidebarBehavior),
     ExportBehaviorSelected(ExportBehavior),
     ToggleKeyValidation(bool),
@@ -181,6 +183,11 @@ impl State {
 
             Message::ToggleIgnoreCrashes(val) => {
                 core_settings.studio.ignore_crashes = val;
+                Task::none()
+            }
+
+            Message::ScrubBehaviorSelected(val) => {
+                core_settings.studio.scrub = val;
                 Task::none()
             }
             Message::ToggleInvalidEnemies(val) => {
@@ -593,9 +600,28 @@ impl State {
             "Studio marks the parts and channels the game's own animation pass faults on\nTurn this on to stop it checking and hide the marks entirely",
         );
 
-        column![header_section(text("Information").size(24), information)]
-            .spacing(SECTION_SPACING)
-            .into()
+        let timeline = hover_hint(
+            row![
+                text("Scrub Behavior"),
+                pick_list(
+                    ScrubBehavior::ALL,
+                    Some(core_settings.studio.scrub),
+                    Message::ScrubBehaviorSelected,
+                )
+                .style(theme::combo_box)
+                .menu_style(theme::combo_box_menu),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+            "Pause stops playback when the playhead is clicked to a new frame\nRetain leaves it playing, carrying on from where it landed",
+        );
+
+        column![
+            header_section(text("Information").size(24), information),
+            header_section(text("Timeline").size(24), timeline),
+        ]
+        .spacing(SECTION_SPACING)
+        .into()
     }
 
     fn view_utilities<'a>(&'a self, core_settings: &'a CoreSettings) -> Element<'a, Message> {

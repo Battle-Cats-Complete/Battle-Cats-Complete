@@ -5,7 +5,7 @@ use std::env;
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use tracing::{debug, info, warn};
@@ -353,6 +353,28 @@ pub fn adopt(name: &str, set: &Set) -> io::Result<Set> {
     Ok(adopted)
 }
 
+pub fn discard(name: &str) -> io::Result<()> {
+    let held = Path::new(name);
+    let ordinary = name == sanitize(name)
+        && held.components().count() == 1
+        && matches!(held.components().next(), Some(Component::Normal(_)));
+
+    if !ordinary {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "that is not a set folder name"));
+    }
+
+    let folder = root().join(held);
+
+    if !folder.is_dir() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "no set folder of that name"));
+    }
+
+    fs::remove_dir_all(&folder)?;
+    info!(name, "Studio discarded a set");
+
+    Ok(())
+}
+
 pub fn rename(from: &str, to: &str) -> io::Result<()> {
     let (source, destination) = (root().join(from), root().join(to));
 
@@ -596,6 +618,21 @@ mod tests {
         assert!(!held.exists());
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn discarding_refuses_anything_that_is_not_one_folder_under_studio() {
+        // remove_dir_all is not something to hand a traversal.
+        for name in ["..", ".", "", "../..", "a/b"] {
+            let err = discard(name).expect_err("the name is refused");
+
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{name} slipped through");
+        }
+
+        assert_eq!(
+            discard("a set that is not there").map_err(|err| err.kind()),
+            Err(io::ErrorKind::NotFound)
+        );
     }
 
     #[test]

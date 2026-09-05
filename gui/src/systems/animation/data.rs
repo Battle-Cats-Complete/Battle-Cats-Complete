@@ -5,7 +5,8 @@ use tracing::warn;
 
 use nyanko::graphics::rig::{Animation, BoundingBox, Model, Rig};
 
-use kore::systems::animation::{cycle, loop_frame, playback_frames, Clip, ClipSet, Loop, Role, RAW_OFFSET};
+use kore::common::preview::{self, Stamp};
+use kore::systems::animation::{cycle, loop_frame, playback_frames, Clip, ClipSet, Loop, Rigging, Role, RAW_OFFSET};
 
 pub(super) const COLUMNS: usize = 4;
 const DEFAULT_SLOTS: usize = 8;
@@ -234,14 +235,18 @@ impl State {
 
         let fresh = Arc::new(fresh);
 
+        let stamp = self.current_clip().map(|clip| RigStamp::of(&clip.rig)).unwrap_or_default();
+
         self.held_unit = Some(Arc::clone(&fresh));
-        self.cache.insert(&self.loaded_rig, fresh);
+        self.cache.insert(&self.loaded_rig, fresh, stamp);
         self.measured = None;
         self.bounds = None;
     }
 
     pub fn adopt_anim(&mut self, path: &Path, anim: Arc<Animation>) {
-        self.cache.replace_anim(&self.loaded_rig, path, anim.clone());
+        if let Some(stamp) = preview::stamp(path) {
+            self.cache.store_anim(&self.loaded_rig, path, stamp, anim.clone());
+        }
 
         let showing = self
             .selected
@@ -358,9 +363,12 @@ impl State {
             return;
         };
 
-        self.cache.insert(&result.rig_id, unit.clone());
-        if let (Some(path), Some(anim)) = (&result.anim_path, &result.anim) {
-            self.cache.store_anim(&result.rig_id, path, anim.clone());
+        self.cache.insert(&result.rig_id, unit.clone(), result.stamps.rig.clone());
+
+        if let (Some(path), Some(stamp), Some(anim)) =
+            (&result.anim_path, result.stamps.anim, &result.anim)
+        {
+            self.cache.store_anim(&result.rig_id, path, stamp, anim.clone());
         }
 
         if !wanted {
@@ -386,7 +394,9 @@ impl State {
         };
 
         let rig_id = clip.rig.id.clone();
-        let Some(unit) = self.cache.lookup(&rig_id) else {
+        let stamp = RigStamp::of(&clip.rig);
+
+        let Some(unit) = self.cache.lookup(&rig_id, &stamp) else {
             return false;
         };
 
@@ -419,6 +429,7 @@ impl State {
             return;
         }
 
+        let stamp = RigStamp::of(&rig);
         let sources = (std::fs::read(&rig.png), std::fs::read(&rig.cut), std::fs::read(&rig.model));
 
         let loaded_unit = match sources {
@@ -429,7 +440,7 @@ impl State {
         match loaded_unit {
             Some(unit) => {
                 let unit = Arc::new(unit);
-                self.cache.insert(&rig_id, unit.clone());
+                self.cache.insert(&rig_id, unit.clone(), stamp);
                 self.held_unit = Some(unit);
                 self.loaded_rig = rig_id;
                 self.failed_rig.clear();
@@ -458,13 +469,14 @@ impl State {
             return;
         }
 
+        let stamp = preview::stamp(&path);
         let parsed = std::fs::read(&path)
             .ok()
             .and_then(|bytes| Animation::parse(&bytes).ok())
             .map(Arc::new);
 
-        if let Some(anim) = &parsed {
-            self.cache.store_anim(&self.loaded_rig, &path, anim.clone());
+        if let (Some(stamp), Some(anim)) = (stamp, &parsed) {
+            self.cache.store_anim(&self.loaded_rig, &path, stamp, anim.clone());
         }
 
         self.current_anim = parsed;
@@ -535,6 +547,13 @@ pub struct PreloadRequest {
 
 impl PreloadRequest {
     pub fn run(self) -> PreloadResult {
+        let stamp = RigStamp {
+            png: preview::stamp(&self.png),
+            cut: preview::stamp(&self.cut),
+            model: preview::stamp(&self.model),
+        };
+        let stamps = Box::new(Stamps { rig: stamp, anim: self.anim.as_deref().and_then(preview::stamp) });
+
         let unit = match (std::fs::read(&self.png), std::fs::read(&self.cut), std::fs::read(&self.model)) {
             (Ok(png_bytes), Ok(cut_bytes), Ok(model_bytes)) => Rig::parse(&png_bytes, &cut_bytes, &model_bytes).ok(),
             _ => None,
@@ -555,6 +574,7 @@ impl PreloadRequest {
             anim_path: self.anim,
             unit: unit.map(Arc::new),
             anim: anim.map(Arc::new),
+            stamps,
         }
     }
 }
@@ -565,6 +585,7 @@ pub struct PreloadResult {
     anim_path: Option<PathBuf>,
     unit: Option<Arc<Rig>>,
     anim: Option<Arc<Animation>>,
+    stamps: Box<Stamps>,
 }
 
 impl std::fmt::Debug for PreloadResult {
@@ -579,6 +600,33 @@ impl std::fmt::Debug for PreloadResult {
 
 const CACHE_CAP: usize = 12;
 
+#[derive(Clone)]
+struct Stamps {
+    rig: RigStamp,
+    anim: Option<Stamp>,
+}
+
+#[derive(Clone, Default, PartialEq, Eq)]
+struct RigStamp {
+    png: Option<Stamp>,
+    cut: Option<Stamp>,
+    model: Option<Stamp>,
+}
+
+impl RigStamp {
+    fn of(rig: &Rigging) -> Self {
+        Self {
+            png: preview::stamp(&rig.png),
+            cut: preview::stamp(&rig.cut),
+            model: preview::stamp(&rig.model),
+        }
+    }
+
+    fn whole(&self) -> bool {
+        self.png.is_some() && self.cut.is_some() && self.model.is_some()
+    }
+}
+
 #[derive(Default)]
 struct RigCache {
     slots: Vec<CacheSlot>,
@@ -587,12 +635,17 @@ struct RigCache {
 struct CacheSlot {
     id: String,
     unit: Arc<Rig>,
-    anims: Vec<(PathBuf, Arc<Animation>)>,
+    stamp: RigStamp,
+    anims: Vec<(PathBuf, Stamp, Arc<Animation>)>,
 }
 
 impl RigCache {
-    fn lookup(&mut self, id: &str) -> Option<Arc<Rig>> {
-        let pos = self.slots.iter().position(|slot| slot.id == id)?;
+    fn lookup(&mut self, id: &str, stamp: &RigStamp) -> Option<Arc<Rig>> {
+        if !stamp.whole() {
+            return None;
+        }
+
+        let pos = self.slots.iter().position(|slot| slot.id == id && slot.stamp == *stamp)?;
         let slot = self.slots.remove(pos);
         let unit = slot.unit.clone();
         self.slots.push(slot);
@@ -601,13 +654,19 @@ impl RigCache {
 
     fn anim(&self, id: &str, path: &Path) -> Option<Arc<Animation>> {
         let slot = self.slots.iter().find(|slot| slot.id == id)?;
-        slot.anims.iter().find(|(known, _)| known == path).map(|(_, anim)| anim.clone())
+        let stamp = preview::stamp(path)?;
+
+        slot.anims
+            .iter()
+            .find(|(known, held, _)| known == path && *held == stamp)
+            .map(|(_, _, anim)| anim.clone())
     }
 
-    fn insert(&mut self, id: &str, unit: Arc<Rig>) {
+    fn insert(&mut self, id: &str, unit: Arc<Rig>, stamp: RigStamp) {
         if let Some(pos) = self.slots.iter().position(|slot| slot.id == id) {
             let mut slot = self.slots.remove(pos);
             slot.unit = unit;
+            slot.stamp = stamp;
             self.slots.push(slot);
             return;
         }
@@ -616,27 +675,19 @@ impl RigCache {
             self.slots.remove(0);
         }
 
-        self.slots.push(CacheSlot { id: id.to_string(), unit, anims: Vec::new() });
+        self.slots.push(CacheSlot { id: id.to_string(), unit, stamp, anims: Vec::new() });
     }
 
-    fn store_anim(&mut self, id: &str, path: &Path, anim: Arc<Animation>) {
+    fn store_anim(&mut self, id: &str, path: &Path, stamp: Stamp, anim: Arc<Animation>) {
         let Some(slot) = self.slots.iter_mut().find(|slot| slot.id == id) else {
             return;
         };
 
-        if !slot.anims.iter().any(|(known, _)| known == path) {
-            slot.anims.push((path.to_path_buf(), anim));
-        }
-    }
+        let seat = (path.to_path_buf(), stamp, anim);
 
-    fn replace_anim(&mut self, id: &str, path: &Path, anim: Arc<Animation>) {
-        let Some(slot) = self.slots.iter_mut().find(|slot| slot.id == id) else {
-            return;
-        };
-
-        match slot.anims.iter_mut().find(|(known, _)| known == path) {
-            Some((_, held)) => *held = anim,
-            None => slot.anims.push((path.to_path_buf(), anim)),
+        match slot.anims.iter_mut().find(|(known, _, _)| known == path) {
+            Some(held) => *held = seat,
+            None => slot.anims.push(seat),
         }
     }
 

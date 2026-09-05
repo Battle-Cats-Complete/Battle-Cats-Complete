@@ -17,7 +17,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Size,
 use nyanko::graphics::rig::{Animation, Model, Rig};
 use nyanko::graphics::tools::part;
 
-use kore::domains::settings::{Overlays, Scope, Settings};
+use kore::domains::settings::{Overlays, Scope, ScrubBehavior, Settings};
 use kore::systems::animation::ClipSet;
 
 use crate::app::state::AnimState;
@@ -252,6 +252,13 @@ impl State {
     pub fn seek(&mut self, frame: f32) {
         self.canvas.is_playing = false;
         self.canvas.current_frame = frame.max(0.0);
+    }
+
+    pub fn scrub(&mut self, frame: f32, behavior: ScrubBehavior) {
+        match behavior {
+            ScrubBehavior::Pause => self.seek(frame),
+            ScrubBehavior::Retain => self.canvas.current_frame = frame.max(0.0),
+        }
     }
 
     pub fn bound(&mut self, start: f32, end: f32) {

@@ -172,6 +172,7 @@ impl State {
                 self.rename_track()
             }
             manage::Message::NewAnim => {
+                self.manage.dropping.clear();
                 self.settle_folder();
 
                 let seeded = match sets::seed_track(self.manage.set()) {
@@ -245,6 +246,34 @@ impl State {
                 if let Err(err) = open::that(&folder) {
                     warn!(path = %folder.display(), "Studio could not open the set folder: {}", err);
                 }
+
+                Task::none()
+            }
+            manage::Message::WipeSet => {
+                if !self.manage.wiping.take(&()) {
+                    return self.manage.wiping.set((), Message::Manage(manage::Message::WipeExpired));
+                }
+
+                let Some(name) = sets::folder_name(self.manage.set()) else {
+                    return Task::none();
+                };
+
+                self.flush_now();
+                self.session = None;
+
+                if let Err(err) = sets::discard(&name) {
+                    warn!(name, "Studio could not delete the set: {}", err);
+
+                    return Task::none();
+                }
+
+                self.manage.adopt(sets::Set::default());
+                self.manage.restock();
+
+                self.resettle(Swap::Fresh)
+            }
+            manage::Message::WipeExpired => {
+                self.manage.wiping.expire();
 
                 Task::none()
             }

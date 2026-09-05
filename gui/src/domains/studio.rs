@@ -1414,7 +1414,7 @@ impl State {
                 Task::none()
             }
             Message::Scrub(frame) => {
-                session.viewer.seek(frame as f32);
+                session.viewer.scrub(frame as f32, settings.studio.scrub);
 
                 Task::none()
             }

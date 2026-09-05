@@ -466,6 +466,30 @@ pub struct Overlays {
     pub world: Shown,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ScrubBehavior {
+    #[default]
+    Pause,
+    Retain,
+}
+
+impl ScrubBehavior {
+    pub const ALL: [ScrubBehavior; 2] = [ScrubBehavior::Pause, ScrubBehavior::Retain];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ScrubBehavior::Pause => "Pause",
+            ScrubBehavior::Retain => "Retain",
+        }
+    }
+}
+
+impl std::fmt::Display for ScrubBehavior {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct StudioSettings {
@@ -484,6 +508,7 @@ pub struct StudioSettings {
     pub onion_gap: String,
     pub onion_alpha: String,
     pub ignore_crashes: bool,
+    pub scrub: ScrubBehavior,
 }
 
 impl StudioSettings {
