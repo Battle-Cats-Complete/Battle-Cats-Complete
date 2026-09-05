@@ -35,7 +35,7 @@ impl EnemyEntry {
 }
 
 fn is_placeholder_png(path: &Path) -> bool {
-    let mut file = match File::open(path) { Ok(f) => f, Err(_) => return true, };
+    let Ok(mut file) = File::open(path) else { return true; };
     let mut buffer = [0u8; 25];
     if file.read_exact(&mut buffer).is_err() { return true; }
     const PNG_SIG: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];

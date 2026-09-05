@@ -188,23 +188,14 @@ fn write_flat_directory_to_zip(
 
             trace!("Deflating file into archive: {}", zip_path);
 
-            if let Err(e) = zip.start_file(&zip_path, options) {
-                return Err(format!("Zip writer rejected file {}: {}", zip_path, e));
-            }
+            zip.start_file(&zip_path, options).map_err(|e| format!("Zip writer rejected file {}: {}", zip_path, e))?;
 
-            let mut file = match File::open(&path) {
-                Ok(f) => f,
-                Err(e) => return Err(format!("Failed to open file for read {}: {}", path.display(), e)),
-            };
+            let mut file = File::open(&path).map_err(|e| format!("Failed to open file for read {}: {}", path.display(), e))?;
 
             let mut buffer = Vec::new();
-            if let Err(e) = file.read_to_end(&mut buffer) {
-                return Err(format!("Failed reading file data {}: {}", path.display(), e));
-            }
+            file.read_to_end(&mut buffer).map_err(|e| format!("Failed reading file data {}: {}", path.display(), e))?;
 
-            if let Err(e) = zip.write_all(&buffer) {
-                return Err(format!("Failed writing zip data {}: {}", zip_path, e));
-            }
+            zip.write_all(&buffer).map_err(|e| format!("Failed writing zip data {}: {}", zip_path, e))?;
 
             *processed_files += 1;
 

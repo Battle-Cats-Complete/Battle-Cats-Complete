@@ -482,58 +482,60 @@ pub fn stem_id(stem: &str) -> Option<i32> {
 }
 
 pub fn occupied(set: &Set, target: &Aim, root: &Path) -> Vec<String> {
-    let (Some(stem), Some(model)) = (target.stem(), set.model.as_deref()) else {
+    let (Some(stem), true) = (target.stem(), set.model.is_some()) else {
         return Vec::new();
     };
 
-    let was = stem_of(model);
-
-    set.files()
-        .iter()
-        .filter_map(|file| file.file_name().and_then(OsStr::to_str))
-        .map(|name| aim::renamed(name, &was, &stem))
-        .filter(|name| root.join(name).exists())
+    aim::plan(set, &stem)
+        .seats
+        .into_iter()
+        .map(|(_, seat)| seat)
+        .filter(|seat| root.join(seat).exists())
         .collect()
 }
 
-pub fn install(set: &Set, target: &Aim, root: &Path) -> io::Result<PathBuf> {
-    let files = set.files();
+pub struct Landed {
+    pub model: PathBuf,
+    pub stray: usize,
+}
+
+pub fn install(set: &Set, target: &Aim, root: &Path) -> io::Result<Landed> {
     let (Some(stem), Some(unit)) = (target.stem(), target.unit()) else {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "the target names no entity"));
     };
 
-    let Some(model) = set.model.as_deref() else {
+    if set.model.is_none() {
         return Err(io::Error::new(io::ErrorKind::NotFound, "the set holds no model"));
-    };
+    }
 
-    let was = stem_of(model);
+    let plan = aim::plan(set, &stem);
 
     fs::create_dir_all(root)?;
 
-    for file in &files {
-        let Some(name) = file.file_name().and_then(OsStr::to_str) else {
-            continue;
-        };
+    for (source, seat) in &plan.seats {
+        let landed = root.join(seat);
+        let body = fs::read(source)?;
 
-        let landed = root.join(aim::renamed(name, &was, &stem));
-        let body = fs::read(file)?;
-
-        let body = match name.ends_with(".mamodel") {
+        let body = match seat.ends_with(MODEL_EXT) {
             true => aim::restamped(&body, unit).unwrap_or(body),
             false => body,
         };
 
-        let body = match name.ends_with(".imgcut") {
-            true => aim::repointed(&body, &was, &stem),
+        let body = match seat.ends_with(CUTS_EXT) {
+            true => aim::repointed(&body, &stem),
             false => body,
         };
 
         fs::write(&landed, body)?;
     }
 
-    info!(root = %root.display(), stem, unit, files = files.len(), "Studio installed a set onto an entity");
+    if plan.stray > 0 {
+        warn!(root = %root.display(), stem, stray = plan.stray, "Studio could not map every track onto the entity");
+    }
 
-    Ok(root.join(format!("{stem}.mamodel")))
+    info!(root = %root.display(), stem, unit, files = plan.seats.len(), "Studio installed a set onto an entity");
+
+    Ok(Landed { model: root.join(format!("{stem}.{MODEL_EXT}")), stray: plan.stray })
 }
 
 fn extension(path: &Path) -> Option<String> {

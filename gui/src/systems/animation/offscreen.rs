@@ -257,12 +257,10 @@ pub fn spawn(job: Job) {
 }
 
 fn run(job: Job) {
-    let mut renderer = match Renderer::new(job.region_w, job.region_h) {
-        Ok(renderer) => renderer,
-        Err(e) => {
-            error!("Export render thread could not start: {e}");
-            return;
-        }
+    let Ok(mut renderer) = Renderer::new(job.region_w, job.region_h)
+        .inspect_err(|e| error!("Export render thread could not start: {e}"))
+    else {
+        return;
     };
 
     let clips = if job.timing.mode == ExportMode::Showcase {

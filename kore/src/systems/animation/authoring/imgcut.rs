@@ -111,6 +111,16 @@ impl Imgcut {
         &self.sheet
     }
 
+    pub(crate) fn set_sheet(&mut self, name: &str) -> bool {
+        if self.sheet == name {
+            return false;
+        }
+
+        self.sheet = name.to_owned();
+
+        true
+    }
+
     pub fn count(&self) -> usize {
         self.cuts.len()
     }

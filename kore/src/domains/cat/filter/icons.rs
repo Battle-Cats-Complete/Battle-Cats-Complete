@@ -120,13 +120,11 @@ fn test_single_build_ranges(
             .find(|(key, _, _)| key == attribute_key)
             .map_or(0, |(_, value, _)| comparable(*value));
 
-        if let Ok(minimum_required) = target_range.min.parse::<i32>()
-            && attribute_value < minimum_required {
+        if target_range.min.parse::<i32>().is_ok_and(|minimum| attribute_value < minimum) {
             return false;
         }
 
-        if let Ok(maximum_required) = target_range.max.parse::<i32>()
-            && attribute_value > maximum_required {
+        if target_range.max.parse::<i32>().is_ok_and(|maximum| attribute_value > maximum) {
             return false;
         }
     }

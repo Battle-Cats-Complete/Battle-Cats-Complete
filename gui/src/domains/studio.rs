@@ -466,7 +466,7 @@ pub enum Message {
     Gizmo(gizmo::Turn),
     Handed(Hand),
     Export,
-    Exported(bool),
+    Exported(bool, usize),
     ExportExpired,
 }
 
@@ -1564,7 +1564,7 @@ impl State {
 
                 Task::none()
             }
-            Message::Exported(_) | Message::ExportExpired => Task::none(),
+            Message::Exported(..) | Message::ExportExpired => Task::none(),
             Message::AddCut => {
                 session.remember(Tag::Cuts);
 
@@ -1752,8 +1752,15 @@ impl State {
 
                 Some(Task::none())
             }
-            Message::Exported(placed) => {
+            Message::Exported(placed, stray) => {
                 self.exporting = false;
+
+                if *placed && *stray > 0 {
+                    self.raise(format!(
+                        "Failed to map {} files to Entity\nManual clean-up may be needed",
+                        stray
+                    ));
+                }
 
                 Some(self.exported.set(*placed, Message::ExportExpired))
             }
@@ -2661,7 +2668,9 @@ impl State {
         self.ship_armed.clear();
         self.shipping_to = false;
 
-        Task::perform(smol::unblock(move || planted(&set, &aim, &root)), Message::Exported)
+        Task::perform(smol::unblock(move || planted(&set, &aim, &root)), |(placed, stray)| {
+            Message::Exported(placed, stray)
+        })
     }
 
     fn zip(&mut self, set: sets::Set) -> Task<Message> {
@@ -2674,21 +2683,23 @@ impl State {
         self.exported.clear();
         self.shipping_to = false;
 
-        Task::perform(smol::unblock(move || shipped(&set, named.as_deref())), Message::Exported)
+        Task::perform(smol::unblock(move || shipped(&set, named.as_deref())), |placed| {
+            Message::Exported(placed, 0)
+        })
     }
 }
 
-fn planted(set: &sets::Set, aim: &sets::Aim, root: &std::path::Path) -> bool {
+fn planted(set: &sets::Set, aim: &sets::Aim, root: &std::path::Path) -> (bool, usize) {
     match sets::install(set, aim, root) {
-        Ok(path) => {
-            info!(path = %path.display(), "Studio installed a set onto an entity");
+        Ok(landed) => {
+            info!(path = %landed.model.display(), "Studio installed a set onto an entity");
 
-            true
+            (true, landed.stray)
         }
         Err(err) => {
             error!(set = %set.name, "Studio could not install the set: {}", err);
 
-            false
+            (false, 0)
         }
     }
 }

@@ -99,8 +99,8 @@ impl CompiledEnemyFilter {
             BossType::Unknown(val) => val,
         };
 
-        if let Some(boss_type) = self.boss_type && internal_boss_type != boss_type { return false; }
-        if let Some(is_base) = self.is_base && enemy.is_base != is_base { return false; }
+        if self.boss_type.is_some_and(|expected| internal_boss_type != expected) { return false; }
+        if self.is_base.is_some_and(|expected| enemy.is_base != expected) { return false; }
         if !self.amount.matches(internal_amount) { return false; }
         if !self.start_frame.matches(enemy.start_frame as i64) { return false; }
         if !self.respawn_min.matches(enemy.respawn_min as i64) { return false; }

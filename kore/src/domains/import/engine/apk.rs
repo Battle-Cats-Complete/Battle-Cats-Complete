@@ -164,14 +164,12 @@ pub(crate) fn extract_all(apk_paths: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>,
             let mut extracted_lists = Vec::new();
             let mut extracted_loose = Vec::new();
 
-            let input_zip_file = match fs::File::open(apk_file_path) {
-                Ok(file) => file,
-                Err(_) => return Some((extracted_lists, extraction_directory, extracted_loose)),
+            let Ok(input_zip_file) = fs::File::open(apk_file_path) else {
+                return Some((extracted_lists, extraction_directory, extracted_loose));
             };
 
-            let mut archive_reader = match ZipArchive::new(input_zip_file) {
-                Ok(archive) => archive,
-                Err(_) => return Some((extracted_lists, extraction_directory, extracted_loose)),
+            let Ok(mut archive_reader) = ZipArchive::new(input_zip_file) else {
+                return Some((extracted_lists, extraction_directory, extracted_loose));
             };
 
             for index in 0..archive_reader.len() {

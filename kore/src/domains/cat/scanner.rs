@@ -43,11 +43,10 @@ impl CatEntry {
     pub fn id_str(&self, form_index: usize) -> String { format!("{:03}-{}", self.id, form_index + 1) }
 
     pub fn display_name(&self, form_index: usize) -> String {
-        if let Some(Some(name)) = self.names.get(form_index)
-            && !name.is_empty() {
-            return name.clone();
-        }
-        self.id_str(form_index)
+        self.names.get(form_index)
+            .and_then(Option::as_deref)
+            .filter(|name| !name.is_empty())
+            .map_or_else(|| self.id_str(form_index), str::to_string)
     }
 
     pub fn base_id_str(&self) -> String { format!("{:03}", self.id) }

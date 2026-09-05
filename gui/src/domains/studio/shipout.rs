@@ -25,10 +25,16 @@ impl sets::Roster for Muster<'_> {
     fn cat(&self, id: u32, form: usize) -> Option<String> {
         let held = self.cats.iter().find(|cat| cat.id == id)?;
 
-        held.names.get(form)?.clone().filter(|name| !name.trim().is_empty())
+        held.forms
+            .get(form)?
+            .then(|| held.names.get(form).and_then(Clone::clone).unwrap_or_default())
     }
 
     fn cat_named(&self, name: &str) -> Option<(u32, usize)> {
+        if name.trim().is_empty() {
+            return None;
+        }
+
         self.cats.iter().find_map(|cat| {
             let form = cat.names.iter().position(|held| held.as_deref() == Some(name))?;
 
@@ -37,14 +43,14 @@ impl sets::Roster for Muster<'_> {
     }
 
     fn enemy(&self, id: u32) -> Option<String> {
-        self.enemies
-            .iter()
-            .find(|enemy| enemy.id == id)
-            .map(|enemy| enemy.name.clone())
-            .filter(|name| !name.trim().is_empty())
+        self.enemies.iter().find(|enemy| enemy.id == id).map(|enemy| enemy.name.clone())
     }
 
     fn enemy_named(&self, name: &str) -> Option<u32> {
+        if name.trim().is_empty() {
+            return None;
+        }
+
         self.enemies.iter().find(|enemy| enemy.name == name).map(|enemy| enemy.id)
     }
 }

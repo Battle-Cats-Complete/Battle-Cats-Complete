@@ -351,8 +351,8 @@ impl CompiledStageFilter {
     pub fn matches(&self, cat_name: &str, map: &Map, stage: &Stage, ctx: &StageLookupContext) -> bool {
         if !self.is_active() { return true; }
 
-        if let Some(has_continues) = self.continues && stage.is_no_continues == has_continues { return false; }
-        if let Some(has_boss_guard) = self.boss_guard && stage.is_base_indestructible != has_boss_guard { return false; }
+        if self.continues.is_some_and(|expected| stage.is_no_continues == expected) { return false; }
+        if self.boss_guard.is_some_and(|expected| stage.is_base_indestructible != expected) { return false; }
 
         if let Some(use_super_cpu) = self.use_super_cpu {
             let mut cpu_allowed = ctx.cpu_setting.super_cpu_consume_amount > 0;
