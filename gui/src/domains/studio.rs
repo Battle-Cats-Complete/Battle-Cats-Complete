@@ -141,6 +141,8 @@ const FRAME_HINT: &str = "Right click & drag to set the cut";
 const ALIGN_WIDTH: f32 = 36.0;
 const BUFFER_MARK: char = '!';
 const HEX_DIGITS: usize = 6;
+const NO_SHEET: i32 = i32::MIN;
+const NOT_DRAWN: i32 = -1;
 
 const LOADING_NOTICE: &str = "Loading animation\u{2026}";
 const NO_SET_NOTICE: &str = "No set is loaded";
@@ -169,15 +171,14 @@ const LOOSE_LABEL: &str = "Channels with no declared part";
 const SHADOWED_MARK: &str = "overridden";
 const SEPARATOR: &str = " \u{00b7} ";
 const LABEL_ROOM: usize = 48;
-const RESTAMPED_NOTICE: &str = "parts were restamped onto this unit's sheet";
 const PART_FAULT: &str = "This part can cause a game crash";
 const CHANNEL_FAULT: &str = "This channel can cause a game crash";
 const TAINTED_FAULT: &str = "Child of this part can cause a game crash";
 const TAINTED_HINT: &str = "Please find the child and resolve its error";
 const SCALE_UNIT_DETAIL: &str =
-    "The model's scale divisor is zero, and the game divides every part by it while placing them";
+    "The model's scale divisor is zero\nThe game fails to divide by zero";
 const OPACITY_UNIT_DETAIL: &str =
-    "The model's opacity divisor is zero, and the game divides every part by it while placing them";
+    "The model's opacity divisor is zero\nThe game fails to divide by zero";
 const UNKNOWN_DETAIL: &str = "The game's animation pass faults on this";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -736,12 +737,6 @@ impl State {
         self.flush_now();
         self.stash();
 
-        match sets::restamp_in_place(&plan.set) {
-            Ok(0) => {}
-            Ok(moved) => self.raise(format!("{} {}", moved, RESTAMPED_NOTICE)),
-            Err(err) => warn!(set = %plan.set.name, "Studio could not restamp the rig: {}", err),
-        }
-
         let Showing {
             viewer,
             draft,
@@ -1134,6 +1129,10 @@ impl State {
                     self.session = None;
 
                     return Task::none();
+                }
+
+                if session.adrift() {
+                    session.refresh();
                 }
 
                 let priming = session.sync(settings, anim);
@@ -2423,9 +2422,22 @@ impl Session {
         self.resplice();
     }
 
+    fn adrift(&self) -> bool {
+        self.draft.as_ref().is_some_and(|draft| draft.backing.drifted())
+            || self.pose.as_ref().is_some_and(|pose| pose.backing.drifted())
+            || self.atlas.as_ref().is_some_and(|atlas| atlas.backing.drifted())
+    }
+
     fn reload(&mut self) {
         self.cutting = None;
         self.resplice();
+    }
+
+    pub(super) fn refresh(&mut self) {
+        self.draft = None;
+        self.pose = None;
+        self.atlas = None;
+        self.reload();
     }
 
     fn resplice(&mut self) {
@@ -2545,9 +2557,13 @@ impl Session {
     }
 
     fn unit(&self) -> Option<i32> {
-        let stem = self.plan.set.model.as_deref()?.file_stem()?.to_str()?;
+        let model = self.plan.set.model.as_deref()?;
 
-        sets::stem_id(stem)
+        if !matches!(sets::home(model), sets::Home::Game | sets::Home::Mod) {
+            return None;
+        }
+
+        sets::stem_id(model.file_stem()?.to_str()?)
     }
 
     fn relist(&mut self) {

@@ -16,7 +16,6 @@ pub use aim::{resolve, Aim, Roster};
 pub use crate::domains::mods::patch_root;
 
 use crate::common::architecture::{GAME, MODS, STUDIO};
-use crate::systems::animation::authoring::Mamodel;
 use crate::systems::animation::{Clip, ClipSet, Loop, Rigging};
 
 pub use blank::SEED_SUFFIX;
@@ -480,31 +479,6 @@ pub fn stem_id(stem: &str) -> Option<i32> {
     let known = aim::FORMS.iter().any(|form| tail.starts_with(*form)) || tail.starts_with(aim::ENEMY_SUFFIX);
 
     (known && tail.len() == 1).then(|| head.parse::<i32>().ok())?
-}
-
-pub fn restamp_in_place(set: &Set) -> io::Result<usize> {
-    let Some(model) = set.model.as_deref() else {
-        return Ok(0);
-    };
-
-    let Some(unit) = stem_id(&stem_of(model)) else {
-        return Ok(0);
-    };
-
-    let Some(rewritten) = aim::restamped(&fs::read(model)?, unit) else {
-        return Ok(0);
-    };
-
-    let moved = Mamodel::parse(&rewritten).map_or(0, |doc| doc.count());
-
-    fs::write(model, rewritten)?;
-    warn!(
-        path = %model.display(),
-        unit,
-        "Studio restamped a rig whose parts named another unit's sheet"
-    );
-
-    Ok(moved)
 }
 
 pub fn occupied(set: &Set, target: &Aim, root: &Path) -> Vec<String> {

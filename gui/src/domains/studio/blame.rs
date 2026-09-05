@@ -23,9 +23,7 @@ impl Blame {
     pub(super) fn of(model: &Model, anim: Option<&Animation>, unit: Option<i32>) -> Self {
         let mut found = crash::model_faults(model);
 
-        if let Some(unit) = unit {
-            found.extend(crash::sheet_faults(model, unit));
-        }
+        found.extend(crash::sheet_faults(model, unit.or_else(|| majority(model)).unwrap_or(NO_SHEET)));
 
         if let Some(anim) = anim {
             found.extend(crash::anim_faults(anim, model));
@@ -119,15 +117,33 @@ impl Blame {
     }
 }
 
+fn majority(model: &Model) -> Option<i32> {
+    let mut tally: Vec<(i32, usize)> = Vec::new();
+
+    for part in model.parts.iter().filter(|part| part.id != NOT_DRAWN) {
+        match tally.iter_mut().find(|(id, _)| *id == part.id) {
+            Some((_, held)) => *held += 1,
+            None => tally.push((part.id, 1)),
+        }
+    }
+
+    let most = tally.iter().map(|(_, held)| *held).max()?;
+
+    match tally.iter().filter(|(_, held)| *held == most).count() {
+        1 => tally.iter().find(|(_, held)| *held == most).map(|(id, _)| *id),
+        _ => None,
+    }
+}
+
 fn detail(fault: &Fault) -> String {
     match fault {
         Fault::ScaleUnit => SCALE_UNIT_DETAIL.to_owned(),
         Fault::OpacityUnit => OPACITY_UNIT_DETAIL.to_owned(),
         Fault::PolynomialTie { first, second, frame } => {
-            format!("Keyframes {} and {} both sit on frame {} inside a curved run, and the game divides by the gap between them", first + 1, second + 1, frame)
+            format!("Keyframes {} and {} both sit on frame {} inside a curved run\nThe game divides by the gap between them", first + 1, second + 1, frame)
         }
         Fault::ForeignSheet { id } => {
-            format!("It draws from sheet {}, which this unit never loads, so the game reads a null pointer", id)
+            format!("Draws from sheet {} which it doesnt load\nThe game reads a null pointer", id)
         }
         _ => UNKNOWN_DETAIL.to_owned(),
     }
@@ -175,6 +191,45 @@ mod tests {
         assert!(blame.quiet());
         assert_eq!(blame.part(2), None, "a part that draws nothing names no sheet");
         assert_eq!(blame.notice(Some(0), None), None);
+    }
+
+    #[test]
+    fn one_odd_sheet_id_is_caught_with_no_unit_to_compare_against() {
+        // The set is not installed anywhere, so nothing declares a unit. The rig still
+        // has to agree with itself: one part stamped 608 among 609s is the crash.
+        let model = chain(&[609, 609, 608]);
+        let blame = Blame::of(&model, None, None);
+
+        assert_eq!(blame.part(2), Some(Alarm::Faulted));
+        assert_eq!(blame.part(1), Some(Alarm::Tainted), "and its parents carry the mark");
+        assert_eq!(blame.part(0), Some(Alarm::Tainted));
+    }
+
+    #[test]
+    fn an_even_split_blames_every_drawn_part_because_no_id_is_the_majority() {
+        let model = chain(&[609, 608]);
+        let blame = Blame::of(&model, None, None);
+
+        assert_eq!(blame.part(0), Some(Alarm::Faulted));
+        assert_eq!(blame.part(1), Some(Alarm::Faulted));
+    }
+
+    #[test]
+    fn a_declared_unit_beats_the_majority_so_an_all_wrong_rig_still_trips() {
+        // Every part agrees with itself and is still wrong for the slot it sits in.
+        let model = chain(&[34, 34, 34]);
+
+        assert!(Blame::of(&model, None, None).quiet(), "self-consistent, nothing to say");
+        assert_eq!(Blame::of(&model, None, Some(44)).part(0), Some(Alarm::Faulted));
+    }
+
+    #[test]
+    fn parts_that_draw_nothing_never_count_toward_the_majority() {
+        let model = chain(&[-1, 609, 608]);
+        let blame = Blame::of(&model, None, None);
+
+        assert_eq!(blame.part(0), Some(Alarm::Tainted), "undrawn, but an ancestor");
+        assert_eq!(blame.part(2), Some(Alarm::Faulted));
     }
 
     #[test]

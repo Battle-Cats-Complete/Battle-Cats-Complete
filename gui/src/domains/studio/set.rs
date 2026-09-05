@@ -288,10 +288,7 @@ impl State {
 
     fn reopen(&mut self) -> Task<Message> {
         if let Some(session) = self.session.as_mut() {
-            session.draft = None;
-            session.pose = None;
-            session.atlas = None;
-            session.reload();
+            session.refresh();
         }
 
         Task::none()
