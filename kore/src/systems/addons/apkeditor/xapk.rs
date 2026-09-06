@@ -1,7 +1,9 @@
 use std::env;
+use std::fs::File;
 use std::path::Path;
 
 use tracing::{debug, error, info, warn};
+use zip::ZipArchive;
 
 use crate::systems::addons::apkeditor::{get_apkeditor_path, get_java_path};
 use crate::common::process;
@@ -71,8 +73,30 @@ fn run_java_with_fallback(arguments: &[String], log_callback: &impl Fn(String)) 
     Ok(())
 }
 
+fn validate_split_apk_archive(input_xapk: &Path) -> Result<(), String> {
+    let file = File::open(input_xapk)
+        .map_err(|error| format!("Failed to open {}: {}", input_xapk.display(), error))?;
+
+    let mut archive = ZipArchive::new(file)
+        .map_err(|_| format!("{} is not a valid xapk/apkm/apks archive.", input_xapk.display()))?;
+
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i).map_err(|error| error.to_string())?;
+        if entry.name().to_ascii_lowercase().ends_with(".apk") {
+            return Ok(());
+        }
+    }
+
+    Err(format!(
+        "{} does not contain any split APKs.\nThe download may be incomplete or corrupted.",
+        input_xapk.display()
+    ))
+}
+
 pub(crate) fn merge_xapk(input_xapk: &Path, output_apk: &Path, log_callback: &impl Fn(String)) -> Result<(), String> {
     info!("Merging XAPK: {:?} -> {:?}", input_xapk, output_apk);
+
+    validate_split_apk_archive(input_xapk)?;
 
     let editor_jar = get_apkeditor_path().ok_or("APKEditor.jar is not installed.")?;
 
